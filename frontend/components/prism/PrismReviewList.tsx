@@ -10,6 +10,20 @@ export function prismReviewItemPath(item: WorkspacePrismReviewItem): string {
   return item.target?.file_path?.trim() || item.logical_key;
 }
 
+export function prismReviewItemHref(
+  workspaceId: string,
+  item?: WorkspacePrismReviewItem | null,
+): string {
+  const params = new URLSearchParams({ focus: "file_changes" });
+  if (item?.id) {
+    params.set("review_item_id", item.id);
+  }
+  if (item?.logical_key) {
+    params.set("logical_key", item.logical_key);
+  }
+  return `/workspaces/${workspaceId}/prism?${params.toString()}`;
+}
+
 export function prismReviewItemSummary(item: WorkspacePrismReviewItem): string | null {
   const summary = item.summary?.trim();
   return summary || null;
@@ -86,14 +100,29 @@ interface PrismReviewListProps {
   items: WorkspacePrismReviewItem[];
   emptyMessage?: string;
   className?: string;
+  focusedItemId?: string | null;
+  focusedLogicalKey?: string | null;
   renderActions?: (item: WorkspacePrismReviewItem) => ReactNode;
   renderDetails?: (item: WorkspacePrismReviewItem) => ReactNode;
+}
+
+function isFocusedReviewItem(
+  item: WorkspacePrismReviewItem,
+  focusedItemId?: string | null,
+  focusedLogicalKey?: string | null,
+): boolean {
+  return Boolean(
+    (focusedItemId && item.id === focusedItemId) ||
+      (focusedLogicalKey && item.logical_key === focusedLogicalKey),
+  );
 }
 
 export function PrismReviewList({
   items,
   emptyMessage = "暂无待确认修改",
   className,
+  focusedItemId,
+  focusedLogicalKey,
   renderActions,
   renderDetails,
 }: PrismReviewListProps) {
@@ -115,10 +144,21 @@ export function PrismReviewList({
       {items.map((item) => {
         const path = prismReviewItemPath(item);
         const summary = prismReviewItemSummary(item);
+        const isFocused = isFocusedReviewItem(
+          item,
+          focusedItemId,
+          focusedLogicalKey,
+        );
         return (
           <div
             key={`${item.id}:${item.status}`}
-            className="rounded-lg border border-[var(--v2-border-soft)] bg-white/75 px-3 py-3"
+            data-review-item-id={item.id}
+            data-review-logical-key={item.logical_key}
+            className={cn(
+              "rounded-lg border border-[var(--v2-border-soft)] bg-white/75 px-3 py-3",
+              isFocused &&
+                "border-[var(--v2-accent-purple-300)] bg-white shadow-[0_0_0_3px_rgba(124,58,237,0.12)]",
+            )}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0 flex-1">

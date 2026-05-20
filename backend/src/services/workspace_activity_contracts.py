@@ -157,6 +157,8 @@ def _append_unique_action(
     signature = _action_signature(candidate)
     for existing in actions:
         if _action_signature(existing) == signature:
+            for key, value in candidate.items():
+                existing.setdefault(key, value)
             return
     actions.append(candidate)
 
@@ -270,15 +272,26 @@ def _build_prism_review_action(
     if not review_items:
         return None
 
-    has_pending_changes = any(
-        _read_string(item.get("status")) in {"pending", "deferred"}
-        for item in review_items
+    pending_item = next(
+        (
+            item
+            for item in review_items
+            if _read_string(item.get("status")) in {"pending", "deferred"}
+        ),
+        None,
     )
-    if has_pending_changes:
-        return {
+    if pending_item is not None:
+        action: dict[str, Any] = {
             "action": "preview_prism_changes",
             "label": "预览待确认修改",
         }
+        review_item_id = _read_string(pending_item.get("id"))
+        logical_key = _read_string(pending_item.get("logical_key"))
+        if review_item_id:
+            action["review_item_id"] = review_item_id
+        if logical_key:
+            action["logical_key"] = logical_key
+        return action
     return {
         "action": "open_prism",
         "label": "在 WenjinPrism 中继续编辑",

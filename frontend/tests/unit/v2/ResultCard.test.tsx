@@ -163,7 +163,10 @@ describe("ResultCard", () => {
     expect(screen.getByText("sections/introduction.tex")).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "预览待确认修改" }),
-    ).toHaveAttribute("href", "/workspaces/ws-1/prism?focus=file_changes");
+    ).toHaveAttribute(
+      "href",
+      "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=section%3Aintroduction",
+    );
   });
 
   it("shows an inline error when saving fails", async () => {

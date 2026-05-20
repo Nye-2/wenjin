@@ -372,6 +372,13 @@ def test_task_activity_derives_prism_review_action_for_pending_file_changes() ->
     } >= {
         ("preview_prism_changes", "预览待确认修改"),
     }
+    prism_action = next(
+        action
+        for action in item["metadata"]["next_actions"]
+        if action.get("action") == "preview_prism_changes"
+    )
+    assert prism_action["review_item_id"] == "review-1"
+    assert prism_action["logical_key"] == "section:introduction"
 
 
 def test_task_record_to_activity_includes_token_usage_metadata() -> None:

@@ -183,6 +183,8 @@ describe("CompletedView", () => {
           {
             action: "preview_prism_changes",
             label: "预览待确认修改",
+            review_item_id: "review-1",
+            logical_key: "section:introduction",
           },
         ]}
       />,
@@ -191,7 +193,7 @@ describe("CompletedView", () => {
     const link = screen.getByRole("link", { name: "预览待确认修改" });
     expect(link).toHaveAttribute(
       "href",
-      "/workspaces/ws-1/prism?focus=file_changes",
+      "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=section%3Aintroduction",
     );
     expect(screen.getByText("sections/introduction.tex")).toBeInTheDocument();
   });

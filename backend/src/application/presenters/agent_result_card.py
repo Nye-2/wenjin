@@ -136,7 +136,14 @@ def _action_href(action: Mapping[str, Any], payload: Mapping[str, Any]) -> str |
         if not workspace_id:
             return None
         if action_name == "preview_prism_changes":
-            return f"/workspaces/{workspace_id}/prism?focus=file_changes"
+            query: list[tuple[str, str]] = [("focus", "file_changes")]
+            review_item_id = str(action.get("review_item_id") or "").strip()
+            logical_key = str(action.get("logical_key") or "").strip()
+            if review_item_id:
+                query.append(("review_item_id", review_item_id))
+            if logical_key:
+                query.append(("logical_key", logical_key))
+            return f"/workspaces/{workspace_id}/prism?{urlencode(query, doseq=True)}"
         return f"/workspaces/{workspace_id}/prism"
 
     explicit_href = str(action.get("url") or action.get("href") or "").strip()

@@ -114,7 +114,10 @@ def test_completion_card_routes_prism_review_links_to_workspace_surface():
         (link.get("label"), link.get("href"))
         for link in links
     } >= {
-        ("预览待确认修改", "/workspaces/ws-1/prism?focus=file_changes"),
+        (
+            "预览待确认修改",
+            "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=section%3Aintroduction",
+        ),
     }
 
 

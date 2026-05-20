@@ -8,7 +8,10 @@ import {
   type CommittedRoomLink,
 } from "@/lib/execution-commit";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
-import { PrismReviewList } from "@/components/prism/PrismReviewList";
+import {
+  PrismReviewList,
+  prismReviewItemHref,
+} from "@/components/prism/PrismReviewList";
 import type { ResultCardData } from "@/stores/chat-store";
 import { CommitActionBar } from "./result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
@@ -145,7 +148,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
           <PrismReviewList items={data.review_items} />
           {workspaceId ? (
             <WorkspaceActionLink
-              href={`/workspaces/${workspaceId}/prism?focus=file_changes`}
+              href={prismReviewItemHref(workspaceId, data.review_items[0])}
               style={styles.savedLink}
             >
               预览待确认修改

@@ -54,6 +54,8 @@ const RESERVED_ROUTE_PARAM_KEYS = new Set([
   "params",
   "skill_id",
   "item_id",
+  "review_item_id",
+  "logical_key",
   "title",
   "name",
   "preview",
@@ -113,7 +115,11 @@ export function resolveExecutionNextActionPresentation(options: {
       action: actionName,
       href: buildWorkspacePrismHref(
         workspaceId ?? null,
-        actionName === "preview_prism_changes",
+        {
+          focusFileChanges: actionName === "preview_prism_changes",
+          reviewItemId: readString(actionRecord.review_item_id),
+          logicalKey: readString(actionRecord.logical_key),
+        },
       ),
       label,
     };
@@ -251,13 +257,28 @@ function buildWorkspaceRoomHref(
 
 function buildWorkspacePrismHref(
   workspaceId: string | null,
-  focusFileChanges = false,
+  options: {
+    focusFileChanges?: boolean;
+    reviewItemId?: string | null;
+    logicalKey?: string | null;
+  } = {},
 ): string | null {
-  if (workspaceId) {
-    const suffix = focusFileChanges ? "?focus=file_changes" : "";
-    return `/workspaces/${workspaceId}/prism${suffix}`;
+  if (!workspaceId) {
+    return null;
   }
-  return null;
+  const query = new URLSearchParams();
+  if (options.focusFileChanges) {
+    query.set("focus", "file_changes");
+  }
+  if (options.reviewItemId) {
+    query.set("review_item_id", options.reviewItemId);
+  }
+  if (options.logicalKey) {
+    query.set("logical_key", options.logicalKey);
+  }
+  const queryString = query.toString();
+  const suffix = queryString ? `?${queryString}` : "";
+  return `/workspaces/${workspaceId}/prism${suffix}`;
 }
 
 function inferArtifactRoom(

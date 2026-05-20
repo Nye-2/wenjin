@@ -549,7 +549,7 @@ export function LatexEditorShell({
   const router = useRouter();
   const searchParams = useSearchParams();
   const fileChangesRef = useRef<HTMLDivElement | null>(null);
-  const hasScrolledToFileChanges = useRef(false);
+  const lastFileChangeFocusKey = useRef("");
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
   const {
     project,
@@ -647,18 +647,6 @@ export function LatexEditorShell({
     setBusyFileChangeKey(null);
     setFileChangeError("");
   }, [projectId]);
-
-  useEffect(() => {
-    if (
-      searchParams.get("focus") === "file_changes" &&
-      fileChanges.length > 0 &&
-      fileChangesRef.current &&
-      !hasScrolledToFileChanges.current
-    ) {
-      hasScrolledToFileChanges.current = true;
-      fileChangesRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [searchParams, fileChanges]);
 
   const dirty = activeFileContent !== activeFileSavedContent;
   const effectiveSelectedPath = selectedPath || activeFilePath;
@@ -1467,6 +1455,57 @@ export function LatexEditorShell({
     }
   }, [project]);
 
+  const focusedReviewItemId = searchParams.get("review_item_id")?.trim() || null;
+  const focusedLogicalKey = searchParams.get("logical_key")?.trim() || null;
+
+  useEffect(() => {
+    if (
+      !project ||
+      searchParams.get("focus") !== "file_changes" ||
+      fileChanges.length === 0
+    ) {
+      return;
+    }
+
+    const targetChange =
+      fileChanges.find(
+        (change) =>
+          (focusedReviewItemId && change.id === focusedReviewItemId) ||
+          (focusedLogicalKey && change.logical_key === focusedLogicalKey),
+      ) ?? null;
+    const focusKey = [
+      projectId,
+      project.id,
+      focusedReviewItemId ?? "",
+      focusedLogicalKey ?? "",
+      targetChange?.logical_key ?? "all",
+      fileChanges.length,
+    ].join(":");
+    if (lastFileChangeFocusKey.current === focusKey) {
+      return;
+    }
+    lastFileChangeFocusKey.current = focusKey;
+
+    fileChangesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!targetChange) {
+      return;
+    }
+    if (targetChange.path && activeFilePath !== targetChange.path) {
+      void openFile(targetChange.path);
+    }
+    void previewProjectFileChange(targetChange);
+  }, [
+    activeFilePath,
+    fileChanges,
+    focusedLogicalKey,
+    focusedReviewItemId,
+    openFile,
+    previewProjectFileChange,
+    project,
+    projectId,
+    searchParams,
+  ]);
+
   const applyPendingFileChange = useCallback(async (change: LatexFileChange) => {
     setBusyFileChangeKey(change.logical_key);
     setFileChangeError("");
@@ -1628,6 +1667,8 @@ export function LatexEditorShell({
                 <PrismReviewList
                   className="mt-3"
                   items={pendingReviewItems}
+                  focusedItemId={focusedReviewItemId}
+                  focusedLogicalKey={focusedLogicalKey}
                   renderActions={(item) => {
                     const change = fileChanges.find(
                       (entry) => entry.logical_key === item.logical_key,
@@ -1704,6 +1745,8 @@ export function LatexEditorShell({
                 <PrismReviewList
                   className="mt-3"
                   items={appliedReviewItems}
+                  focusedItemId={focusedReviewItemId}
+                  focusedLogicalKey={focusedLogicalKey}
                   renderActions={(item) => {
                     const change = appliedFileChanges.find(
                       (entry) => entry.logical_key === item.logical_key,
