@@ -377,6 +377,71 @@ def serialize_activity_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_prism_review_activity_item(
+    *,
+    review_item_id: str,
+    workspace_id: str,
+    latex_project_id: str,
+    logical_key: str,
+    title: str | None,
+    summary: str | None,
+    status: str | None,
+    source_execution_id: str | None,
+    source_task_id: str | None,
+    target_kind: str | None,
+    target_file_path: str | None,
+    target_room: str | None,
+    target_item_id: str | None,
+    occurred_at: datetime | str | None,
+    created_at: datetime | str | None = None,
+    updated_at: datetime | str | None = None,
+    applied_at: datetime | str | None = None,
+) -> dict[str, Any]:
+    """Build the canonical workspace activity item for a Prism review action."""
+    normalized_status = str(status or "pending")
+    title_prefix = {
+        "pending": "待确认稿件修改",
+        "deferred": "已暂缓稿件修改",
+        "applied": "已写入稿件修改",
+        "rejected": "已拒绝稿件修改",
+        "reverted": "已撤回稿件修改",
+    }.get(normalized_status, "稿件修改")
+    target_label = title or target_file_path or logical_key or "Prism review item"
+
+    return {
+        "id": f"prism_review:{review_item_id}",
+        "kind": "prism_review",
+        "workspace_id": workspace_id,
+        "occurred_at": occurred_at,
+        "title": f"{title_prefix}: {target_label}",
+        "summary": truncate_activity_preview(summary or target_file_path or logical_key),
+        "status": normalized_status,
+        "thread_id": None,
+        "task_id": source_task_id,
+        "artifact_id": None,
+        "feature_id": None,
+        "skill": None,
+        "skill_name": None,
+        "created_by_skill": None,
+        "created_by_skill_name": None,
+        "subagent_type": None,
+        "metadata": {
+            "latex_project_id": latex_project_id,
+            "review_item_id": review_item_id,
+            "logical_key": logical_key,
+            "source_execution_id": source_execution_id,
+            "source_task_id": source_task_id,
+            "target_kind": target_kind,
+            "target_file_path": target_file_path,
+            "target_room": target_room,
+            "target_item_id": target_item_id,
+            "created_at": _serialize_timestamp(created_at),
+            "updated_at": _serialize_timestamp(updated_at),
+            "applied_at": _serialize_timestamp(applied_at),
+        },
+    }
+
+
 def build_thread_activity_item(
     *,
     thread_id: str,

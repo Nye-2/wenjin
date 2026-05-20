@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Artifact, SubagentTaskRecord, TaskRecord, Thread
+from src.database.models.prism import PrismReviewItem
 from src.services.thread_billing import (
     combine_token_usage,
     extract_persisted_message_usage,
@@ -14,6 +15,7 @@ from src.services.thread_billing import (
     summarize_persisted_messages_usage,
 )
 from src.services.workspace_activity_contracts import (
+    build_prism_review_activity_item,
     build_subagent_activity_item,
     build_task_activity_item,
     build_thread_activity_item,
@@ -46,6 +48,10 @@ class WorkspaceActivityService:
 
         items = [
             *await self._get_task_activity(workspace_id, limit=per_source_limit),
+            *await self._get_prism_review_activity(
+                workspace_id,
+                limit=per_source_limit,
+            ),
             *self._build_thread_activity(threads, workspace_type=workspace_type),
             *await self._get_artifact_activity(
                 workspace_id,
@@ -120,6 +126,54 @@ class WorkspaceActivityService:
             )
             for record in records
         ]
+
+    async def _get_prism_review_activity(
+        self,
+        workspace_id: str,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(PrismReviewItem)
+            .where(PrismReviewItem.workspace_id == workspace_id)
+            .order_by(
+                func.coalesce(
+                    PrismReviewItem.applied_at,
+                    PrismReviewItem.updated_at,
+                    PrismReviewItem.created_at,
+                ).desc()
+            )
+            .limit(limit)
+        )
+        return [
+            self._prism_review_record_to_activity(record)
+            for record in result.scalars().all()
+        ]
+
+    def _prism_review_record_to_activity(
+        self,
+        record: PrismReviewItem,
+    ) -> dict[str, Any]:
+        occurred_at = record.applied_at or record.updated_at or record.created_at
+        return build_prism_review_activity_item(
+            review_item_id=str(record.id),
+            workspace_id=str(record.workspace_id),
+            latex_project_id=str(record.latex_project_id),
+            logical_key=str(record.logical_key),
+            title=record.title,
+            summary=record.summary,
+            status=record.status,
+            source_execution_id=record.source_execution_id,
+            source_task_id=record.source_task_id,
+            target_kind=record.target_kind,
+            target_file_path=record.target_file_path,
+            target_room=record.target_room,
+            target_item_id=record.target_item_id,
+            occurred_at=occurred_at,
+            created_at=record.created_at,
+            updated_at=record.updated_at,
+            applied_at=record.applied_at,
+        )
 
     async def _load_subagent_usage_by_execution(
         self,

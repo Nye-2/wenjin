@@ -193,14 +193,17 @@ export interface WorkspacePrismMemoryPreference {
 export interface WorkspacePrismRecentActivity {
   id: string;
   workspace_id: string;
-  execution_id: string;
-  capability_id: string;
+  kind?: string | null;
+  execution_id?: string | null;
+  capability_id?: string | null;
   title: string;
   summary?: string | null;
   status: string;
   artifact_count?: number | null;
   duration_seconds?: number | null;
+  occurred_at?: string | null;
   created_at?: string | null;
+  metadata?: Record<string, unknown>;
 }
 
 export interface WorkspacePrismContextSummary {
@@ -662,7 +665,7 @@ export interface TokenUsageCounter {
 
 export interface WorkspaceActivityItem {
   id: string;
-  kind: "feature_task" | "thread" | "subagent_task" | "artifact";
+  kind: "feature_task" | "thread" | "subagent_task" | "artifact" | "prism_review";
   workspace_id?: string | null;
   occurred_at: string;
   title: string;

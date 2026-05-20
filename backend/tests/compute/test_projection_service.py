@@ -252,6 +252,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),
+            _Result(scalars=[]),
             _Result(
                 scalar={
                     "mode": "compute_workflow",
@@ -568,6 +569,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),
+            _Result(scalars=[]),
             _Result(
                 scalar={
                     "mode": "compute_workflow",
@@ -644,6 +646,7 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
                     )
                 ]
             ),
+            _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),

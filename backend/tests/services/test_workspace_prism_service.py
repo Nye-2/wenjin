@@ -489,11 +489,13 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     assert projection["memory_preferences"][0]["content"] == (
         "Prefer concise topic sentences"
     )
-    assert projection["recent_activity"][0]["title"] == "Intro drafting"
+    activity_titles = {item["title"] for item in projection["recent_activity"]}
+    assert "Intro drafting" in activity_titles
+    assert "待确认稿件修改: Intro rewrite" in activity_titles
     assert projection["context_summary"] == {
         "decision_count": 1,
         "memory_preference_count": 1,
-        "recent_activity_count": 1,
+        "recent_activity_count": 2,
     }
 
     launch_context = await WorkspacePrismService(db).get_launch_context_projection(

@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.decision import Decision
 from src.database.models.latex_project import LatexProject
 from src.database.models.memory_fact import MemoryFact
+from src.database.models.prism import PrismReviewItem
 from src.database.models.run_history import RunHistory
 from src.services.prism_review_service import (
     APPLIED_STATUSES,
     PENDING_STATUSES,
     PrismReviewService,
+)
+from src.services.workspace_activity_contracts import (
+    build_prism_review_activity_item,
+    serialize_activity_item,
 )
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 
@@ -73,6 +78,35 @@ def _run_history_payload(item: RunHistory) -> dict[str, Any]:
         "duration_seconds": int(item.duration_seconds or 0),
         "created_at": _isoformat(item.created_at),
     }
+
+
+def _prism_review_activity_payload(item: PrismReviewItem) -> dict[str, Any]:
+    occurred_at = item.applied_at or item.updated_at or item.created_at
+    return serialize_activity_item(
+        build_prism_review_activity_item(
+            review_item_id=str(item.id),
+            workspace_id=str(item.workspace_id),
+            latex_project_id=str(item.latex_project_id),
+            logical_key=str(item.logical_key),
+            title=item.title,
+            summary=item.summary,
+            status=item.status,
+            source_execution_id=item.source_execution_id,
+            source_task_id=item.source_task_id,
+            target_kind=item.target_kind,
+            target_file_path=item.target_file_path,
+            target_room=item.target_room,
+            target_item_id=item.target_item_id,
+            occurred_at=occurred_at,
+            created_at=item.created_at,
+            updated_at=item.updated_at,
+            applied_at=item.applied_at,
+        )
+    )
+
+
+def _recent_activity_sort_key(item: dict[str, Any]) -> str:
+    return str(item.get("occurred_at") or item.get("created_at") or "")
 
 
 def _review_item_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
@@ -312,7 +346,7 @@ class WorkspacePrismService:
         return [_memory_payload(item) for item in result.scalars().all()]
 
     async def _list_recent_activity(self, workspace_id: str) -> list[dict[str, Any]]:
-        result = await self.db.execute(
+        run_history_result = await self.db.execute(
             select(RunHistory)
             .where(
                 RunHistory.workspace_id == workspace_id,
@@ -321,7 +355,28 @@ class WorkspacePrismService:
             .order_by(RunHistory.created_at.desc())
             .limit(5)
         )
-        return [_run_history_payload(item) for item in result.scalars().all()]
+        review_result = await self.db.execute(
+            select(PrismReviewItem)
+            .where(PrismReviewItem.workspace_id == workspace_id)
+            .order_by(
+                func.coalesce(
+                    PrismReviewItem.applied_at,
+                    PrismReviewItem.updated_at,
+                    PrismReviewItem.created_at,
+                ).desc(),
+            )
+            .limit(5)
+        )
+        run_history_items = [
+            _run_history_payload(item) for item in run_history_result.scalars().all()
+        ]
+        review_items = [
+            _prism_review_activity_payload(item)
+            for item in review_result.scalars().all()
+        ]
+        items = [*run_history_items, *review_items]
+        items.sort(key=_recent_activity_sort_key, reverse=True)
+        return items[:5]
 
     async def get_binding_integrity_report(
         self,

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.services.workspace_activity_contracts import (
+    build_prism_review_activity_item,
     build_subagent_activity_item,
     build_task_activity_item,
     build_thread_activity_item,
@@ -86,6 +87,7 @@ async def test_get_activity_merges_sources_and_sorts_descending(
         ]
     )
     service._get_subagent_activity = AsyncMock(return_value=[])
+    service._get_prism_review_activity = AsyncMock(return_value=[])
 
     result = await service.get_activity("ws-1", user_id="user-1", limit=10)
 
@@ -95,6 +97,75 @@ async def test_get_activity_merges_sources_and_sorts_descending(
         "feature_task",
     ]
     assert result["count"] == 3
+
+
+def test_build_prism_review_activity_item_uses_canonical_shape() -> None:
+    item = build_prism_review_activity_item(
+        review_item_id="review-1",
+        workspace_id="ws-1",
+        latex_project_id="latex-1",
+        logical_key="section:intro",
+        title="sections/intro.tex",
+        summary="Tighten introduction",
+        status="applied",
+        source_execution_id="exec-1",
+        source_task_id="task-1",
+        target_kind="prism_file_change",
+        target_file_path="sections/intro.tex",
+        target_room=None,
+        target_item_id=None,
+        occurred_at="2026-03-25T00:00:00Z",
+        created_at="2026-03-24T00:00:00Z",
+        updated_at="2026-03-25T00:00:00Z",
+        applied_at="2026-03-25T00:00:00Z",
+    )
+
+    assert item["id"] == "prism_review:review-1"
+    assert item["kind"] == "prism_review"
+    assert item["title"] == "已写入稿件修改: sections/intro.tex"
+    assert item["summary"] == "Tighten introduction"
+    assert item["status"] == "applied"
+    assert item["task_id"] == "task-1"
+    assert item["metadata"]["latex_project_id"] == "latex-1"
+    assert item["metadata"]["source_execution_id"] == "exec-1"
+    assert item["metadata"]["target_file_path"] == "sections/intro.tex"
+
+
+@pytest.mark.asyncio
+async def test_get_prism_review_activity_reads_persisted_items() -> None:
+    db = AsyncMock()
+    service = WorkspaceActivityService(db)
+    now = datetime.now(UTC)
+    record = SimpleNamespace(
+        id="review-1",
+        workspace_id="ws-1",
+        latex_project_id="latex-1",
+        logical_key="section:intro",
+        source_execution_id="exec-1",
+        source_task_id="task-1",
+        target_kind="prism_file_change",
+        target_file_path="sections/intro.tex",
+        target_room=None,
+        target_item_id=None,
+        title="sections/intro.tex",
+        summary="Tighten introduction",
+        status="rejected",
+        created_at=now - timedelta(minutes=5),
+        updated_at=now,
+        applied_at=None,
+    )
+    db.execute.return_value = MagicMock(
+        scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[record])))
+    )
+
+    items = await service._get_prism_review_activity("ws-1", limit=10)
+
+    assert len(items) == 1
+    assert items[0]["id"] == "prism_review:review-1"
+    assert items[0]["kind"] == "prism_review"
+    assert items[0]["status"] == "rejected"
+    assert items[0]["occurred_at"] == now
+    assert items[0]["metadata"]["source_task_id"] == "task-1"
 
 
 @pytest.mark.asyncio
