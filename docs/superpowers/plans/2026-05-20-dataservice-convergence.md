@@ -897,6 +897,15 @@ Steps:
 - [ ] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q`.
 - [ ] Commit `refactor: cut consumers over to dataservice`.
 
+Implementation status:
+
+- 2026-05-21: First projection cleanup slice is implemented for migrated room and sandbox state. Runtime code no longer imports `Decision`, `MemoryFact`, `WorkspaceTask`, or `Sandbox` legacy models directly outside DataService/database ownership packages.
+- `WorkspacePrismService` now reads decision and memory context through `RoomsDataService`; `services/rooms/sandbox_service.py` delegates environment state to `SandboxDataService`.
+- Architecture guard now blocks runtime imports of migrated room/sandbox legacy model modules and model names.
+- Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
+- Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q` passes with 668 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1915 tests.
+
 ### Task 14: Final Drop/Archive Gate
 
 Steps:

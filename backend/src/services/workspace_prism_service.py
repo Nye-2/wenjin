@@ -7,15 +7,14 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.decision import Decision
 from src.database.models.latex_project import LatexProject
-from src.database.models.memory_fact import MemoryFact
 from src.database.models.prism import PrismReviewItem
 from src.dataservice.execution_api import (
     ExecutionDataService,
     ExecutionRunHistoryProjection,
 )
 from src.dataservice.prism_api import PrismDataService, build_latex_adapter_metadata
+from src.dataservice.rooms_api import MemoryFactProjection, RoomsDataService
 from src.services.prism_review_service import (
     APPLIED_STATUSES,
     PENDING_STATUSES,
@@ -44,19 +43,7 @@ def _isoformat(value: Any) -> str | None:
     return str(value)
 
 
-def _decision_payload(item: Decision) -> dict[str, Any]:
-    return {
-        "id": str(item.id),
-        "workspace_id": str(item.workspace_id),
-        "key": str(item.key),
-        "value": str(item.value),
-        "confidence": float(item.confidence or 0),
-        "extracted_by": str(item.extracted_by),
-        "created_at": _isoformat(item.created_at),
-    }
-
-
-def _memory_payload(item: MemoryFact) -> dict[str, Any]:
+def _memory_payload(item: MemoryFactProjection) -> dict[str, Any]:
     return {
         "id": str(item.id),
         "workspace_id": str(item.workspace_id),
@@ -191,6 +178,7 @@ class WorkspacePrismService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
         self.bridge = WorkspaceLatexProjectService(db)
+        self._rooms = RoomsDataService(db, autocommit=False)
 
     async def get_primary_project(
         self,
@@ -366,33 +354,23 @@ class WorkspacePrismService:
         return _build_launch_context(surface)
 
     async def _list_decisions(self, workspace_id: str) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(Decision)
-            .where(
-                Decision.workspace_id == workspace_id,
-                Decision.deleted_at.is_(None),
-                Decision.superseded_by.is_(None),
-            )
-            .order_by(Decision.created_at.desc())
-            .limit(5)
-        )
-        return [_decision_payload(item) for item in result.scalars().all()]
+        active = await self._rooms.list_active_decisions(workspace_id)
+        return [
+            {
+                "id": "",
+                "workspace_id": workspace_id,
+                "key": str(key),
+                "value": str(value),
+                "confidence": 1.0,
+                "extracted_by": "rooms_projection",
+                "created_at": None,
+            }
+            for key, value in list(active.items())[:5]
+        ]
 
     async def _list_memory_preferences(self, workspace_id: str) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(MemoryFact)
-            .where(
-                MemoryFact.workspace_id == workspace_id,
-                MemoryFact.deleted_at.is_(None),
-            )
-            .order_by(
-                MemoryFact.reference_count.desc(),
-                MemoryFact.confidence.desc(),
-                MemoryFact.created_at.desc(),
-            )
-            .limit(5)
-        )
-        return [_memory_payload(item) for item in result.scalars().all()]
+        facts = await self._rooms.list_memory_facts(workspace_id=workspace_id, limit=5)
+        return [_memory_payload(item) for item in facts]
 
     async def _list_recent_activity(self, workspace_id: str) -> list[dict[str, Any]]:
         run_history = await ExecutionDataService(

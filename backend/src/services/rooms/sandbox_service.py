@@ -1,99 +1,54 @@
-"""Service layer for workspace sandboxes."""
+"""Workspace sandbox service facade backed by DataService sandbox aggregate."""
 
-import logging
-from datetime import UTC, datetime
-from uuid import uuid4
+from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.sandbox import Sandbox
-
-logger = logging.getLogger(__name__)
+from src.dataservice.sandbox_api import (
+    SandboxDataService,
+    SandboxEnvironmentCreateCommand,
+    SandboxEnvironmentUpdateCommand,
+)
 
 
 class SandboxService:
-    """CRUD for sandboxes."""
+    """Compatibility facade whose environment state lives in DataService."""
 
-    def __init__(
-        self,
-        db: AsyncSession,
-        model: type[Sandbox] = Sandbox,
-    ) -> None:
+    def __init__(self, db: AsyncSession, model: object | None = None) -> None:
         self.db = db
         self._model = model
+        self._sandbox = SandboxDataService(db)
 
-    async def get_or_create(
-        self, workspace_id: str, provider: str = "local"
-    ) -> Sandbox:
-        """Get existing active sandbox or create a new one.
+    async def get_or_create(self, workspace_id: str, provider: str = "local"):
+        """Get existing active sandbox or create a new one."""
 
-        Returns existing if state='active', otherwise creates new.
-        """
-        result = await self.db.execute(
-            select(self._model).where(
-                self._model.workspace_id == workspace_id,
-                self._model.state == "active",
-            )
+        return await self._sandbox.get_or_create_environment(
+            SandboxEnvironmentCreateCommand(workspace_id=workspace_id, provider=provider)
         )
-        existing = result.scalar_one_or_none()
-        if existing is not None:
-            return existing
 
-        row = self._model(
-            workspace_id=workspace_id,
-            sandbox_id=str(uuid4()),
-            provider=provider,
-            state="active",
-        )
-        self.db.add(row)
-        await self.db.commit()
-        await self.db.refresh(row)
-        return row
+    async def release(self, workspace_id: str):
+        """Set the active sandbox state to stopped."""
 
-    async def release(self, workspace_id: str) -> Sandbox | None:
-        """Set sandbox state to 'stopped'."""
-        result = await self.db.execute(
-            select(self._model).where(
-                self._model.workspace_id == workspace_id,
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
+        environments = await self._sandbox.list_environments(workspace_id=workspace_id, state="active", limit=1)
+        if not environments:
             return None
-        row.state = "stopped"
-        await self.db.commit()
-        await self.db.refresh(row)
-        return row
-
-    async def update_state(
-        self, workspace_id: str, state: str
-    ) -> Sandbox | None:
-        """Update sandbox state."""
-        result = await self.db.execute(
-            select(self._model).where(
-                self._model.workspace_id == workspace_id,
-            )
+        return await self._sandbox.update_environment(
+            environments[0].id,
+            SandboxEnvironmentUpdateCommand(state="stopped"),
         )
-        row = result.scalar_one_or_none()
-        if row is None:
-            return None
-        row.state = state
-        await self.db.commit()
-        await self.db.refresh(row)
-        return row
 
-    async def touch(self, workspace_id: str) -> Sandbox | None:
-        """Update last_active_at to now."""
-        result = await self.db.execute(
-            select(self._model).where(
-                self._model.workspace_id == workspace_id,
-            )
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
+    async def update_state(self, workspace_id: str, state: str):
+        """Update active sandbox state."""
+
+        environments = await self._sandbox.list_environments(workspace_id=workspace_id, state="active", limit=1)
+        if not environments:
             return None
-        row.last_active_at = datetime.now(UTC)
-        await self.db.commit()
-        await self.db.refresh(row)
-        return row
+        return await self._sandbox.update_environment(
+            environments[0].id,
+            SandboxEnvironmentUpdateCommand(state=state),
+        )
+
+    async def touch(self, workspace_id: str):
+        """Refresh last_active_at by resolving the active sandbox."""
+
+        return await self.get_or_create(workspace_id)

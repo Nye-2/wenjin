@@ -1064,6 +1064,11 @@ Implementation status as of 2026-05-21:
 - `backend/src/dataservice/domains/rooms/` owns room contracts, repository, projections, service, and review handler factory. Legacy room service facades delegate to `RoomsDataService` for decisions, memory, and workspace tasks.
 - Execution commit now stages memory/decision/task outputs into `review_batches` / `review_items` and applies them through room review handlers; direct room table writes from `ExecutionCommitService` are removed for those target kinds.
 - Verification through the Rooms slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1914 backend tests.
+- Projection cleanup first slice is implemented.
+- Runtime code outside DataService/database ownership packages is guarded from importing migrated room/sandbox legacy models: `Decision`, `MemoryFact`, `WorkspaceTask`, and `Sandbox`.
+- Workspace Prism context now reads decision/memory context through `RoomsDataService`; the sandbox room facade delegates environment state to `SandboxDataService`.
+- `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
+- Verification through the projection cleanup first slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1915 backend tests.
 
 ### Phase 4: Review Materialization
 
