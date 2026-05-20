@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
@@ -15,6 +15,8 @@ from src.database.models.prism import (
     PrismReviewItem,
     PrismSourceLink,
 )
+from src.database.models.reference import WorkspaceReference
+from src.services.references.utils import extract_citation_keys_from_text
 
 PENDING_STATUSES = ("pending", "deferred")
 APPLIED_STATUSES = ("applied",)
@@ -137,6 +139,10 @@ def _json_object(value: Any) -> dict[str, Any]:
             return {}
         return dict(parsed) if isinstance(parsed, dict) else {}
     return {}
+
+
+def _unique_text(values: list[str]) -> list[str]:
+    return [item for item in dict.fromkeys(value.strip() for value in values) if item]
 
 
 def _source_link_payload(item: PrismSourceLink) -> dict[str, Any]:
@@ -345,9 +351,56 @@ class PrismReviewService:
             item.preview_payload = preview_payload
             item.applied_at = None
             item.updated_at = now
+        await self.db.flush()
+        await self._sync_citation_source_links(
+            item,
+            path=path,
+            pending_content=pending_content,
+        )
         await self.db.commit()
         await self.db.refresh(item)
         return item
+
+    async def _sync_citation_source_links(
+        self,
+        item: PrismReviewItem,
+        *,
+        path: str,
+        pending_content: str,
+    ) -> None:
+        review_item_id = str(item.id)
+        await self.db.execute(
+            delete(PrismSourceLink).where(
+                PrismSourceLink.review_item_id == review_item_id,
+                PrismSourceLink.source_type == "library_item",
+            )
+        )
+        citation_keys = _unique_text(extract_citation_keys_from_text(pending_content))
+        if not citation_keys:
+            return
+
+        result = await self.db.execute(
+            select(WorkspaceReference.id, WorkspaceReference.citation_key).where(
+                WorkspaceReference.workspace_id == item.workspace_id,
+                WorkspaceReference.citation_key.in_(citation_keys),
+                WorkspaceReference.is_deleted.is_(False),
+            )
+        )
+        for reference_id, citation_key in result.all():
+            self.db.add(
+                PrismSourceLink(
+                    workspace_id=item.workspace_id,
+                    latex_project_id=item.latex_project_id,
+                    review_item_id=review_item_id,
+                    source_type="library_item",
+                    source_id=str(reference_id),
+                    file_path=path,
+                    section_key=str(item.logical_key),
+                    quote=None,
+                    citation_key=str(citation_key),
+                    usage="cited",
+                )
+            )
 
     async def clear_review_item(
         self,

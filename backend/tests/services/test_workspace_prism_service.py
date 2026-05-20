@@ -106,6 +106,18 @@ async def db(test_session: AsyncSession) -> AsyncSession:
             """
         )
     )
+    await test_session.execute(
+        text(
+            """
+            create table workspace_references (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                citation_key varchar(255) not null,
+                is_deleted boolean not null default 0
+            )
+            """
+        )
+    )
     await test_session.commit()
     return test_session
 
@@ -251,6 +263,88 @@ async def test_workspace_latex_project_service_finds_explicit_binding_without_le
     project = await service.ensure_workspace_project(workspace_id=workspace.id)
 
     assert str(project.id) == "latex-explicit"
+
+
+@pytest.mark.asyncio
+async def test_pending_file_change_records_canonical_source_links_from_citations(
+    db: AsyncSession,
+    user: SimpleNamespace,
+    workspace: SimpleNamespace,
+) -> None:
+    from src.services.prism_review_service import PrismReviewService
+
+    project = LatexProject(
+        id="latex-source-links",
+        user_id=user.id,
+        name="Source Link Manuscript",
+        workspace_id=workspace.id,
+        surface_role="primary_manuscript",
+        main_file="main.tex",
+        llm_config={"metadata": {}},
+    )
+    db.add(project)
+    await db.execute(
+        text(
+            """
+            insert into workspace_references (
+                id, workspace_id, citation_key, is_deleted
+            )
+            values
+                ('ref-1', :workspace_id, 'doe2026', 0),
+                ('ref-deleted', :workspace_id, 'deleted2026', 1)
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.commit()
+
+    review_item = await PrismReviewService(db).upsert_pending_file_change(
+        project,
+        logical_key="section:intro",
+        path="sections/intro.tex",
+        reason="feature_proposal",
+        pending_content=r"Grounded claim \cite{doe2026,missing2026,deleted2026}.",
+        pending_hash="hash-new",
+        current_hash="hash-old",
+        source_execution_id="exec-1",
+        source_task_id="task-1",
+    )
+
+    result = await db.execute(
+        text(
+            """
+            select review_item_id, source_type, source_id, file_path,
+                   section_key, citation_key, usage
+            from prism_source_links
+            order by source_id
+            """
+        )
+    )
+    links = [dict(row) for row in result.mappings().all()]
+    assert links == [
+        {
+            "review_item_id": str(review_item.id),
+            "source_type": "library_item",
+            "source_id": "ref-1",
+            "file_path": "sections/intro.tex",
+            "section_key": "section:intro",
+            "citation_key": "doe2026",
+            "usage": "cited",
+        }
+    ]
+
+    await PrismReviewService(db).upsert_pending_file_change(
+        project,
+        logical_key="section:intro",
+        path="sections/intro.tex",
+        reason="feature_proposal",
+        pending_content="No citation in this revision.",
+        pending_hash="hash-newer",
+        current_hash="hash-old",
+    )
+
+    count_result = await db.execute(text("select count(*) from prism_source_links"))
+    assert count_result.scalar_one() == 0
 
 
 @pytest.mark.asyncio
