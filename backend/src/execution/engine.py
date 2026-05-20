@@ -8,6 +8,7 @@ between Celery task dispatch and the runtime; Celery wiring is Phase 4 cutover w
 from __future__ import annotations
 
 import logging
+from inspect import isawaitable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -70,6 +71,12 @@ class ExecutionEngineV2:
             raise ValueError(f"execution {execution_id} not found")
 
         await self._mark_running(execution_id)
+        await self._append_execution_event(
+            execution_id,
+            "execution.status",
+            workspace_id=execution.workspace_id,
+            payload_json={"status": "running"},
+        )
 
         # Wire the runtime's graph_structure persistence callback
         self.runtime.set_graph_structure = (
@@ -85,6 +92,12 @@ class ExecutionEngineV2:
             )
 
             await self._mark_complete(execution_id, report)
+            await self._append_execution_event(
+                execution_id,
+                "execution.status",
+                workspace_id=execution.workspace_id,
+                payload_json={"status": report.status},
+            )
             await self.run_history_service.record(
                 execution.workspace_id,
                 execution_id,
@@ -103,6 +116,12 @@ class ExecutionEngineV2:
                 extra={"execution_id": execution_id},
             )
             await self._mark_failed(execution_id, str(exc))
+            await self._append_execution_event(
+                execution_id,
+                "execution.status",
+                workspace_id=execution.workspace_id,
+                payload_json={"status": "failed", "error": str(exc)},
+            )
             raise
 
     async def _mark_running(self, execution_id: str) -> None:
@@ -149,3 +168,28 @@ class ExecutionEngineV2:
             status="failed",
             error=error,
         )
+
+    async def _append_execution_event(
+        self,
+        execution_id: str,
+        event_type: str,
+        *,
+        workspace_id: str | None,
+        payload_json: dict,
+        node_id: str | None = None,
+    ) -> None:
+        append_event = getattr(self.execution_service, "append_execution_event", None)
+        if not callable(append_event):
+            return
+        try:
+            result = append_event(
+                execution_id,
+                event_type,
+                workspace_id=workspace_id,
+                node_id=node_id,
+                payload_json=payload_json,
+            )
+            if isawaitable(result):
+                await result
+        except Exception:
+            logger.warning("append_execution_event failed", exc_info=True)

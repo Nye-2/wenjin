@@ -529,15 +529,27 @@ Append-only ordered event stream for run history, live workflow, tool results, b
 | --- | --- | --- | --- |
 | `id` | uuid string | yes | Primary key. |
 | `execution_id` | uuid string | yes | FK to `executions.id`. |
-| `node_id` | uuid string | no | FK to `execution_nodes.id`. |
-| `sequence` | bigint | yes | Monotonic per execution. |
-| `event_type` | string(80) | yes | `status_line`, `tool_invocation`, `tool_result`, `result_card`, `thinking`, etc. |
+| `workspace_id` | uuid string | no | Workspace scope for workspace event projections. |
+| `node_id` | string(100) | no | Stable graph node key when the event is node-scoped. |
+| `sequence_index` | integer | yes | Monotonic per execution. |
+| `event_type` | string(120) | yes | `execution.status`, `execution.node`, `tool_invocation`, `tool_result`, `result_card`, `thinking`, etc. |
 | `payload_json` | jsonb | yes | Event payload. |
-| `created_at` | timestamptz | yes | Event time. |
+| `occurred_at` | timestamptz | yes | Runtime event time. |
+| `created_at` | timestamptz | yes | Insert time. |
+| `updated_at` | timestamptz | yes | Last update time. |
 
 Constraints:
 
-- Unique: `execution_id`, `sequence`.
+- Unique: `execution_id`, `sequence_index`.
+
+Implementation checkpoint, 2026-05-21:
+
+- `063_dataservice_execution_graph.py` creates `execution_events` as the first execution-domain table addition.
+- `backend/src/dataservice/domains/execution/` now owns execution contracts, repository, projection, domain service, and the event model while adopting the existing `executions` / `execution_nodes` physical tables as the product run SSOT.
+- DataService execution contracts expose v2 names: `capability_id`, `task_brief_json`, `graph_json`, `node_states_json`, `runtime_state_json`, and `result_json`.
+- DataService internal execution routes and typed client contracts exist for create/get/list/update, node list, event append, and event list.
+- `ExecutionService.append_execution_event()` records ordered events through `ExecutionDataService`; `ExecutionEngineV2` records execution status events, and the Celery node callback records node lifecycle events.
+- Remaining execution work is to cut the existing public `ExecutionService` CRUD methods fully through the DataService execution boundary, move subagent task semantics into nodes/events, and replace Run History / Compute projection product reads with DataService projections.
 - `payload_json.schema_version` required for new event types.
 
 ### 6.4 Review Queue

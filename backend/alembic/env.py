@@ -52,6 +52,7 @@ from src.dataservice.domains.conversation.models import (  # noqa: F401
     ToolInvocationRecord,
     ToolResultRecord,
 )
+from src.dataservice.domains.execution.models import ExecutionEventRecord  # noqa: F401
 from src.dataservice.domains.operations.models import (  # noqa: F401
     DataServiceIdempotencyKey,
     DataServiceMigrationReport,

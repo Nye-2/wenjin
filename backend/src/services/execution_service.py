@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.base import generate_uuid
 from src.database.models.execution import ExecutionRecord
 from src.database.models.execution_node import ExecutionNodeRecord
+from src.dataservice.execution_api import ExecutionDataService
 
 _UNSET = object()
 
@@ -384,6 +385,25 @@ class ExecutionService:
             status="running",
             started_at=datetime.now(UTC),
             commit=commit,
+        )
+
+    async def append_execution_event(
+        self,
+        execution_id: str,
+        event_type: str,
+        *,
+        workspace_id: str | None = None,
+        node_id: str | None = None,
+        payload_json: dict[str, Any] | None = None,
+        commit: bool = True,
+    ):
+        """Append an ordered canonical execution event."""
+        return await ExecutionDataService(self.db, autocommit=commit).record_event(
+            execution_id=execution_id,
+            event_type=event_type,
+            workspace_id=workspace_id,
+            node_id=node_id,
+            payload_json=dict(payload_json or {}),
         )
 
     async def update_node_state(

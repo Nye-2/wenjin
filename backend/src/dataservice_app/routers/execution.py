@@ -1,0 +1,109 @@
+"""Execution endpoints for DataService internal API."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Query
+
+from src.dataservice.common.api import envelope_ok
+from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
+from src.dataservice.domains.execution.contracts import (
+    ExecutionCreateCommand,
+    ExecutionEventCreateCommand,
+    ExecutionUpdateCommand,
+)
+from src.dataservice.domains.execution.service import DataServiceExecutionService
+from src.dataservice_app.auth import require_internal_token
+from src.dataservice_app.deps import get_uow
+
+router = APIRouter(
+    prefix="/internal/v1/executions",
+    tags=["execution"],
+    dependencies=[Depends(require_internal_token)],
+)
+
+
+@router.post("")
+async def create_execution(
+    command: ExecutionCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.create_execution(command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.get("")
+async def list_executions(
+    user_id: str | None = Query(default=None),
+    workspace_id: str | None = Query(default=None),
+    thread_id: str | None = Query(default=None),
+    execution_type: str | None = Query(default=None),
+    status: list[str] | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    records = await service.list_executions(
+        user_id=user_id,
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        execution_type=execution_type,
+        status=status,
+        limit=limit,
+    )
+    return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/{execution_id}")
+async def get_execution(
+    execution_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.get_execution(execution_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.patch("/{execution_id}")
+async def update_execution(
+    execution_id: str,
+    command: ExecutionUpdateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.update_execution(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.get("/{execution_id}/nodes")
+async def list_nodes(
+    execution_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    records = await service.list_nodes(execution_id)
+    return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.post("/{execution_id}/events")
+async def append_event(
+    execution_id: str,
+    command: ExecutionEventCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.append_event(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.get("/{execution_id}/events")
+async def list_events(
+    execution_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    records = await service.list_events(execution_id)
+    return envelope_ok([record.model_dump(mode="json") for record in records])

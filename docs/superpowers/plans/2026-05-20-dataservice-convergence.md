@@ -656,6 +656,7 @@ Steps:
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/repository.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/service.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/execution_api.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/execution.py`
 - Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/execution.py`
 - Create: `/Users/ze/wenjin/backend/alembic/versions/063_dataservice_execution_graph.py`
@@ -664,8 +665,10 @@ Steps:
 
 Steps:
 
-- [ ] Keep `executions` as product run SSOT and rename external contract fields `feature_id` to `capability_id`, `params` to `task_brief_json`, and `graph_structure` to `graph_json`.
-- [ ] Create `execution_events` with ordered per-execution sequence.
+- [x] Keep `executions` as product run SSOT and expose DataService contract fields `feature_id` -> `capability_id`, `params` -> `task_brief_json`, and `graph_structure` -> `graph_json`.
+- [x] Create `execution_events` with ordered per-execution `sequence_index`.
+- [x] Add DataService execution routes/client contracts and event append/list projection.
+- [x] Record status events from `ExecutionEngineV2` and node lifecycle events from the Celery execution callback.
 - [ ] Move `subagent_task_records` semantics into `execution_nodes` and `execution_events`.
 - [ ] Remove product-state reads from `task_records`.
 - [ ] Replace `workspace_run`, `run_history`, and `compute_sessions` product reads with DataService projections or rebuildable cache reads.

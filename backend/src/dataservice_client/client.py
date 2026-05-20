@@ -16,6 +16,14 @@ from src.dataservice_client.contracts.conversation import (
     ConversationMessagePayload,
     ConversationMessagesRebuildPayload,
 )
+from src.dataservice_client.contracts.execution import (
+    ExecutionCreatePayload,
+    ExecutionEventCreatePayload,
+    ExecutionEventPayload,
+    ExecutionNodePayload,
+    ExecutionPayload,
+    ExecutionUpdatePayload,
+)
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
     WorkspacePayload,
@@ -136,6 +144,76 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return CapabilitySkillPayload.model_validate(data) if data is not None else None
+
+    async def create_execution(self, command: ExecutionCreatePayload) -> ExecutionPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/executions",
+            json=command.model_dump(mode="json"),
+        )
+        return ExecutionPayload.model_validate(payload["data"])
+
+    async def list_executions(
+        self,
+        *,
+        user_id: str | None = None,
+        workspace_id: str | None = None,
+        thread_id: str | None = None,
+        execution_type: str | None = None,
+        status: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[ExecutionPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions",
+            params={
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "thread_id": thread_id,
+                "execution_type": execution_type,
+                "status": status,
+                "limit": limit,
+            },
+        )
+        return [ExecutionPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_execution(self, execution_id: str) -> ExecutionPayload | None:
+        payload = await self._request("GET", f"/internal/v1/executions/{execution_id}")
+        data = payload.get("data")
+        return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def update_execution(
+        self,
+        execution_id: str,
+        command: ExecutionUpdatePayload,
+    ) -> ExecutionPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/executions/{execution_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def list_execution_nodes(self, execution_id: str) -> list[ExecutionNodePayload]:
+        payload = await self._request("GET", f"/internal/v1/executions/{execution_id}/nodes")
+        return [ExecutionNodePayload.model_validate(item) for item in payload["data"]]
+
+    async def append_execution_event(
+        self,
+        execution_id: str,
+        command: ExecutionEventCreatePayload,
+    ) -> ExecutionEventPayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/events",
+            json=command.model_dump(mode="json"),
+        )
+        return ExecutionEventPayload.model_validate(payload["data"])
+
+    async def list_execution_events(self, execution_id: str) -> list[ExecutionEventPayload]:
+        payload = await self._request("GET", f"/internal/v1/executions/{execution_id}/events")
+        return [ExecutionEventPayload.model_validate(item) for item in payload["data"]]
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

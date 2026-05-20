@@ -102,6 +102,20 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
                     started_at=kw.get("started_at"),
                     completed_at=kw.get("completed_at"),
                 )
+                await execution_service.append_execution_event(
+                    kw["execution_id"],
+                    "execution.node",
+                    workspace_id=workspace_id,
+                    node_id=kw.get("node_id"),
+                    payload_json={
+                        "status": kw.get("status"),
+                        "input": kw.get("input_data"),
+                        "output": kw.get("output_data"),
+                        "thinking": kw.get("thinking"),
+                        "tool_calls": kw.get("tool_calls"),
+                        "token_usage": kw.get("token_usage"),
+                    },
+                )
             except Exception:
                 logger.warning("update_node_state failed", exc_info=True)
 

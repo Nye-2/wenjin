@@ -331,6 +331,14 @@ Invariants:
 - Ordered events are append-only.
 - Node state can be updated, but event history is not rewritten.
 
+Implementation checkpoint, 2026-05-21:
+
+- Execution domain package exists with contracts, repository, projection, service, and `ExecutionEventRecord`.
+- `ExecutionDataService` is the public in-process boundary for this slice.
+- `dataservice_app` exposes internal execution create/get/list/update, node list, event append, and event list routes; `dataservice_client` has typed execution methods.
+- `ExecutionEngineV2` records canonical status events and the Celery execution task records canonical node lifecycle events.
+- Remaining work is to move existing `ExecutionService` CRUD/lifecycle internals behind `ExecutionDataService`, demote `subagent_task_records`, and rebuild Run History / Compute surfaces from execution projections.
+
 ### 6.4 Review Domain
 
 Current scattered logic:

@@ -1030,7 +1030,11 @@ Implementation status as of 2026-05-21:
 - Capability and skill seed loaders now delegate to the DataService catalog seed loader, which records deterministic checksum revisions instead of using YAML as runtime fallback.
 - Runtime catalog consumers now read DataService projections: capability resolver, skill resolver, Chat Agent preload middleware, feature launch/list tools, workspace capability action resolution, dashboard/summary projections, Lead runtime skill loading, and Compute profile projection.
 - Admin capability/skill CRUD and cross-reference validation now go through `CatalogDataService`.
-- Remaining Phase 3 work is the execution graph: execution events, node/event projection, product-state removal from queue/task tables, and run-history/compute projection convergence.
+- Execution graph first slice is implemented.
+- `063_dataservice_execution_graph.py` adds `execution_events`; `backend/src/dataservice/domains/execution/` owns execution contracts, repository, projection, service, and the event model while adopting existing `executions` / `execution_nodes` as the product run SSOT.
+- DataService execution contracts expose `capability_id`, `task_brief_json`, `graph_json`, `node_states_json`, `runtime_state_json`, and `result_json`; internal execution routes and typed client methods exist.
+- `ExecutionService.append_execution_event()` records ordered DataService events; `ExecutionEngineV2` writes status events and the Celery node callback writes node lifecycle events.
+- Remaining Phase 3 work is consumer cutover: public `ExecutionService` CRUD through DataService, subagent task demotion, product-state removal from queue/task tables, and run-history/compute projection convergence.
 
 ### Phase 4: Review Materialization
 
