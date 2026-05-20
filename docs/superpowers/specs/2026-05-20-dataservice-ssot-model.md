@@ -1042,14 +1042,18 @@ Operations tables support service correctness. They are DataService-owned but no
 | `source_service` | string(80) | yes | Caller service, e.g. `gateway`, `worker`, `langgraph`, `admin`, `migration`. |
 | `idempotency_key` | string(255) | yes | Caller-provided key. |
 | `command_name` | string(120) | yes | Command endpoint/service name. |
-| `request_hash` | string(128) | yes | Hash of normalized request payload. |
+| `scope_hash` | string(64) | yes | Deterministic hash of `source_service`, `command_name`, `workspace_id`, and `actor_user_id`. |
+| `request_hash` | string(64) | yes | SHA-256 hash of normalized request payload. |
 | `response_json` | jsonb | no | Stored response for duplicate calls. |
+| `error_json` | jsonb | no | Stored terminal error for duplicate calls when failure is explicit. |
 | `status` | string(32) | yes | `running`, `completed`, `failed`. |
-| `expires_at` | timestamptz | yes | Retention boundary. |
+| `expires_at` | timestamptz | no | Retention boundary when command contract declares expiry. |
 | `created_at` | timestamptz | yes | Creation timestamp. |
 | `updated_at` | timestamptz | yes | Last update. |
 
-Unique: `source_service`, `command_name`, `workspace_id`, `actor_user_id`, `idempotency_key`.
+Unique: `scope_hash`, `idempotency_key`.
+
+Logical scope: `source_service`, `command_name`, optional `workspace_id`, optional `actor_user_id`, and `idempotency_key`.
 
 Rules:
 

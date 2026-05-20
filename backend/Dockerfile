@@ -1,5 +1,5 @@
 # Wenjin (问津) - Backend Dockerfile
-# Multi-stage build for Gateway and LangGraph services
+# Multi-stage build for Gateway, DataService, and LangGraph services
 
 ARG PYTHON_IMAGE=python:3.13-slim
 ARG PIP_INDEX_URL=https://pypi.org/simple
@@ -94,6 +94,38 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 # Default command - run gateway server
 CMD ["python", "-m", "uvicorn", "src.gateway.app:app", "--host", "0.0.0.0", "--port", "8001"]
+
+# ============================================
+# DataService Stage - Canonical Data Boundary
+# ============================================
+FROM base AS dataservice
+
+# Copy virtual environment from builder
+COPY --from=builder /app/.venv /app/.venv
+
+# Add venv to PATH
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Copy application code
+COPY src/ ./src/
+COPY config.yaml ./
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash appuser && \
+    chown -R appuser:appuser /app
+USER appuser
+
+# Expose port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f "http://localhost:8080/readyz" || exit 1
+
+# Default command - run DataService server
+CMD ["python", "-m", "uvicorn", "src.dataservice_app.app:app", "--host", "0.0.0.0", "--port", "8080"]
 
 # ============================================
 # LangGraph Stage - Agent Server

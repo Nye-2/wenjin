@@ -105,6 +105,30 @@ services:
     networks:
       - wenjin-network
 
+  # DataService owns canonical data access and transaction boundaries.
+  dataservice:
+    image: ${BACKEND_DATASERVICE_IMAGE:-junze0514/wenjin-backend:latest}
+    container_name: wenjin-dataservice
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+    command: ["python", "-m", "uvicorn", "src.dataservice_app.app:app", "--host", "0.0.0.0", "--port", "8080"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - wenjin-network
+
   # FastAPI Gateway Service
   gateway:
     image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
@@ -124,6 +148,8 @@ services:
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=8001
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
@@ -136,6 +162,8 @@ services:
     depends_on:
       bootstrap-admin:
         condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
       worker:
         condition: service_healthy
       texlive:
@@ -167,6 +195,8 @@ services:
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
       - PROMETHEUS_WORKER_PORT=${PROMETHEUS_WORKER_PORT:-9153}
       - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-worker
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     command: ["python", "-m", "src.task.worker"]
     volumes:
@@ -180,6 +210,8 @@ services:
     depends_on:
       bootstrap-admin:
         condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
       texlive:
         condition: service_completed_successfully
     healthcheck:
@@ -214,6 +246,8 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - LANGGRAPH_HOST=0.0.0.0
       - LANGGRAPH_PORT=2024
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
@@ -226,6 +260,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
       texlive:
         condition: service_completed_successfully
     healthcheck:

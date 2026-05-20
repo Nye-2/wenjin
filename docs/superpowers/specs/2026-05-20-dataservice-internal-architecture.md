@@ -524,6 +524,8 @@ Tables:
 | `dataservice_outbox_events` | Transactional event publishing buffer. |
 | `dataservice_migration_reports` | Row counts, hashes, orphan reports, and cutover proof. |
 
+`dataservice_idempotency_keys` persists the readable scope fields and a derived `scope_hash`. Uniqueness is enforced by `scope_hash` plus `idempotency_key` so nullable `workspace_id` / `actor_user_id` do not weaken deduplication semantics.
+
 First implementation can create these as part of foundation or with the first domain migration. The API and UoW should be designed as if they exist from day one.
 
 ---
@@ -564,7 +566,7 @@ API rules:
 - Internal token authenticates service caller; actor context authorizes business access.
 - All endpoints use a standard response envelope: `ok`, `data`, `error`, `request_id`, and optional `revision`.
 - Error codes are stable contract values: `UNAUTHENTICATED_INTERNAL_CALL`, `FORBIDDEN_WORKSPACE_ACCESS`, `NOT_FOUND`, `VALIDATION_ERROR`, `IDEMPOTENCY_CONFLICT`, `CONFLICT`, `TARGET_HANDLER_NOT_FOUND`, `TARGET_APPLY_FAILED`, `MIGRATION_VALIDATION_FAILED`, `INTERNAL_ERROR`.
-- Idempotency uniqueness is scoped by `source_service`, `command_name`, optional `workspace_id`, optional `actor_user_id`, and `idempotency_key`.
+- Idempotency uniqueness is logically scoped by `source_service`, `command_name`, optional `workspace_id`, optional `actor_user_id`, and `idempotency_key`; persisted uniqueness uses a deterministic `scope_hash` plus `idempotency_key`.
 - Reusing the same idempotency key with a different normalized request hash returns `IDEMPOTENCY_CONFLICT`.
 
 ---

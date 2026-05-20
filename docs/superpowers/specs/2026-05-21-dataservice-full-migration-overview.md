@@ -863,6 +863,8 @@ Error response:
 - `actor_user_id` when present
 - `idempotency_key`
 
+Implementation note: the table should also store a deterministic `scope_hash` derived from the first four scope fields and enforce uniqueness on `scope_hash` plus `idempotency_key`. This avoids nullable-column uniqueness gaps while preserving readable scope fields for operations/debugging.
+
 Rules:
 
 - Same key + same normalized request hash returns the stored response.
@@ -958,6 +960,7 @@ Implement:
 - `dataservice_client`
 - internal auth
 - health endpoints
+- Docker target and Compose `dataservice` service
 - `ActorContext`
 - `DataServiceUnitOfWork`
 - idempotency primitives

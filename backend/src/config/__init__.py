@@ -3,6 +3,7 @@
 from .app_config import (
     AppConfig,
     CelerySettings,
+    DataServiceSettings,
     ImageVLMSettings,
     JWTSettings,
     LayoutParsingSettings,
@@ -11,7 +12,9 @@ from .app_config import (
     SentrySettings,
     SMTPSettings,
     celery_settings,
+    dataservice_settings,
     get_celery_settings,
+    get_dataservice_settings,
     get_image_vlm_settings,
     get_jwt_settings,
     get_layout_parsing_settings,
@@ -71,6 +74,10 @@ __all__ = [
     "celery_settings",
     "CelerySettings",
     "get_celery_settings",
+    # DataService
+    "dataservice_settings",
+    "DataServiceSettings",
+    "get_dataservice_settings",
     # Sentry
     "sentry_settings",
     "SentrySettings",

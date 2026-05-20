@@ -154,6 +154,27 @@ class PrometheusSettings(BaseSettings):
     model_config = _settings_config("PROMETHEUS_")
 
 
+class DataServiceSettings(BaseSettings):
+    """Standalone DataService configuration."""
+
+    url: str = Field(
+        default="http://localhost:8080",
+        description="Base URL used by backend services to call DataService",
+    )
+    internal_token: str = Field(
+        default="change-me-in-production",
+        description="Shared token for internal DataService calls",
+    )
+    timeout_seconds: float = Field(
+        default=10.0,
+        ge=0.1,
+        le=120.0,
+        description="HTTP timeout for DataService client calls",
+    )
+
+    model_config = _settings_config("DATASERVICE_")
+
+
 class SMTPSettings(BaseSettings):
     """SMTP mail service configuration."""
 
@@ -389,6 +410,12 @@ def get_prometheus_settings() -> PrometheusSettings:
 
 
 @lru_cache
+def get_dataservice_settings() -> DataServiceSettings:
+    """Get cached DataService settings instance."""
+    return DataServiceSettings()
+
+
+@lru_cache
 def get_smtp_settings() -> SMTPSettings:
     """Get cached SMTP settings instance."""
     return SMTPSettings()
@@ -446,6 +473,7 @@ redis_settings = get_redis_settings()
 celery_settings = get_celery_settings()
 sentry_settings = get_sentry_settings()
 prometheus_settings = get_prometheus_settings()
+dataservice_settings = get_dataservice_settings()
 smtp_settings = get_smtp_settings()
 layout_parsing_settings = get_layout_parsing_settings()
 image_vlm_settings = get_image_vlm_settings()

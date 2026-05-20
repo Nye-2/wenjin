@@ -547,14 +547,14 @@ Steps:
 
 Steps:
 
-- [ ] Add package skeleton with `common`, `domains`, `dataservice_app`, and `dataservice_client`.
-- [ ] Add `ActorContext`, `DataServiceUnitOfWork`, idempotency record helpers, and typed errors.
-- [ ] Add operations tables for `dataservice_idempotency_keys`, `dataservice_outbox_events`, and `dataservice_migration_reports`.
-- [ ] Add DataService FastAPI app with `/livez` and `/readyz`.
-- [ ] Add typed `dataservice_client` health/readiness methods.
-- [ ] Add Docker target and Compose `dataservice` service with internal `DATASERVICE_URL`.
-- [ ] Add architecture guard that blocks non-DataService runtime imports of DataService models/repositories and migrated database models.
-- [ ] Generate explicit `LEGACY_ALLOWED_FILES` from current violations.
+- [x] Add package skeleton with `common`, `domains`, `dataservice_app`, and `dataservice_client`.
+- [x] Add `ActorContext`, `DataServiceUnitOfWork`, idempotency record helpers, and typed errors.
+- [x] Add operations tables for `dataservice_idempotency_keys`, `dataservice_outbox_events`, and `dataservice_migration_reports`.
+- [x] Add DataService FastAPI app with `/livez` and `/readyz`.
+- [x] Add typed `dataservice_client` health/readiness methods.
+- [x] Add Docker target and Compose `dataservice` service with internal `DATASERVICE_URL`.
+- [x] Add architecture guard that blocks non-DataService runtime imports of DataService models/repositories.
+- [ ] Generate explicit `LEGACY_ALLOWED_FILES` when the first legacy database model is migrated into a DataService domain.
 - [ ] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q`.
 - [ ] Commit `feat: add dataservice service foundation`.
 
