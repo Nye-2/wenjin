@@ -8,6 +8,8 @@ x-backend-gateway-build: &backend_gateway_build
   args:
     PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    APT_MIRROR: ${APT_MIRROR:-}
+    APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
 
 x-langgraph-build: &langgraph_build
   context: ./backend
@@ -16,6 +18,8 @@ x-langgraph-build: &langgraph_build
   args:
     PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
     PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    APT_MIRROR: ${APT_MIRROR:-}
+    APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
 
 x-frontend-build: &frontend_build
   context: ./frontend
@@ -157,7 +161,7 @@ services:
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
-      - "${DOCKER_GID:-999}"
+      - "${DOCKER_GID:-0}"
     depends_on:
       bootstrap-admin:
         condition: service_completed_successfully
@@ -202,7 +206,7 @@ services:
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
-      - "${DOCKER_GID:-999}"
+      - "${DOCKER_GID:-0}"
     depends_on:
       bootstrap-admin:
         condition: service_completed_successfully
@@ -249,7 +253,7 @@ services:
       - ${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin:${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin
       - /var/run/docker.sock:/var/run/docker.sock
     group_add:
-      - "${DOCKER_GID:-999}"
+      - "${DOCKER_GID:-0}"
     depends_on:
       migrate:
         condition: service_completed_successfully

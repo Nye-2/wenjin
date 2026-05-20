@@ -3,6 +3,8 @@
 
 ARG PYTHON_IMAGE=python:3.13-slim
 ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG APT_MIRROR=
+ARG APT_SECURITY_MIRROR=
 
 # ============================================
 # Base Stage - Common dependencies
@@ -10,9 +12,20 @@ ARG PIP_INDEX_URL=https://pypi.org/simple
 FROM ${PYTHON_IMAGE} AS base
 
 ARG PIP_INDEX_URL
+ARG APT_MIRROR
+ARG APT_SECURITY_MIRROR
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN set -eux; \
+    if [ -n "${APT_SECURITY_MIRROR}" ]; then \
+      sed -i "s|http://deb.debian.org/debian-security|${APT_SECURITY_MIRROR%/}|g" /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+      sed -i "s|https://deb.debian.org/debian-security|${APT_SECURITY_MIRROR%/}|g" /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+    fi; \
+    if [ -n "${APT_MIRROR}" ]; then \
+      sed -i "s|http://deb.debian.org/debian|${APT_MIRROR%/}|g" /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+      sed -i "s|https://deb.debian.org/debian|${APT_MIRROR%/}|g" /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true; \
+    fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
     libpq-dev \

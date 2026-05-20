@@ -1,0 +1,35 @@
+# Docker Compose override for image-only deployment.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prebuilt.yml up -d --pull missing
+#
+# This disables local builds for app services and uses DockerHub images instead.
+# Keep docker-compose.yml as the canonical service topology.
+
+services:
+  migrate:
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
+    build: !reset null
+
+  bootstrap-admin:
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
+    build: !reset null
+
+  gateway:
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
+    build: !reset null
+
+  worker:
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
+    build: !reset null
+
+  langgraph:
+    image: ${LANGGRAPH_IMAGE:-junze0514/wenjin-langgraph:latest}
+    build: !reset null
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-junze0514/wenjin-frontend:latest}
+    build: !reset null
+
+  texlive:
+    image: ${TEXLIVE_IMAGE_NAME:-junze0514/wenjin-texlive:2024}

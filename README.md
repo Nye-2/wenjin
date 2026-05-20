@@ -109,11 +109,29 @@ cp backend/.env.example backend/.env
 
 cat > .env <<EOF
 WENJIN_PROJECT_DIR=$PWD
+PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
+NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+NPM_REGISTRY=https://registry.npmmirror.com
+NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
+ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
+TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
+DOCKER_GID=0
 ADMIN_PASSWORD=change-this-admin-password
 GRAFANA_PASSWORD=change-this-grafana-password
 EOF
 
 docker compose up -d --build
+```
+
+网络不稳定或不想本地构建时，使用预构建镜像：
+
+```bash
+cp .env.prebuilt.example .env
+# 编辑 .env 中的密码和 WENJIN_PROJECT_DIR
+scripts/docker-deploy-prebuilt.sh
 ```
 
 默认入口：

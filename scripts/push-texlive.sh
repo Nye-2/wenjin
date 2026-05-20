@@ -18,11 +18,17 @@ fi
 
 SOURCE_IMAGE="wenjin/texlive:2024"
 TARGET_IMAGE="${USERNAME}/wenjin-texlive:2024"
+TEXLIVE_BASE_IMAGE="${TEXLIVE_BASE_IMAGE:-docker.m.daocloud.io/library/ubuntu:22.04}"
+TEXLIVE_APT_MIRROR="${TEXLIVE_APT_MIRROR:-}"
 
 echo "🔍 检查本地镜像 ${SOURCE_IMAGE}..."
 if ! docker images --format '{{.Repository}}:{{.Tag}}' | grep -q "^${SOURCE_IMAGE}$"; then
     echo "⚠️  本地镜像不存在，开始构建..."
-    docker build -t "${SOURCE_IMAGE}" "${PROJECT_ROOT}/backend/docker/images/texlive"
+    docker build \
+        --build-arg "BASE_IMAGE=${TEXLIVE_BASE_IMAGE}" \
+        --build-arg "APT_MIRROR=${TEXLIVE_APT_MIRROR}" \
+        -t "${SOURCE_IMAGE}" \
+        "${PROJECT_ROOT}/backend/docker/images/texlive"
 fi
 
 echo "🏷️  打标签: ${SOURCE_IMAGE} -> ${TARGET_IMAGE}"

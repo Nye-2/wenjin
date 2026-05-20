@@ -1,6 +1,6 @@
 # Environment Variables
 
-更新时间: 2026-04-15
+更新时间: 2026-05-20
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 
@@ -12,6 +12,9 @@
   - `WENJIN_PROJECT_DIR`：宿主机仓库绝对路径（用于 Docker-in-Docker 的 LaTeX 编译路径映射）。
   - `ADMIN_PASSWORD`：`bootstrap-admin` 的初始管理员密码，compose 必填。
   - `GRAFANA_PASSWORD`：Grafana 管理员密码，compose 必填。
+  - `DOCKER_GID`：容器访问宿主机 `/var/run/docker.sock` 的 group id；Docker Desktop 通常为 `0`，Linux 服务器按宿主机 docker 组设置。
+  - `PYTHON_IMAGE` / `NODE_IMAGE`：本地构建 backend/frontend 时的 base image；网络不稳定环境建议使用 `.env.docker-cn.example` 中的镜像源。
+  - `BACKEND_GATEWAY_IMAGE` / `FRONTEND_IMAGE` / `LANGGRAPH_IMAGE`：预构建部署时使用的应用镜像。
 
 ## 1. Backend (`backend/.env`)
 
@@ -78,7 +81,25 @@
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 开发环境默认 `http://localhost:8001/api`，生产默认 `/api` |
 
-## 3. 配置建议
+## 3. Docker Compose image variables
+
+| 变量 | 说明 | 示例 |
+|---|---|---|
+| `PYTHON_IMAGE` | backend Dockerfile base image | `docker.m.daocloud.io/library/python:3.13-slim` |
+| `NODE_IMAGE` | frontend Dockerfile base image | `docker.m.daocloud.io/library/node:24-alpine` |
+| `PIP_INDEX_URL` | Python package index | `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| `APT_MIRROR` | Debian package mirror for backend image | `https://mirrors.tuna.tsinghua.edu.cn/debian` |
+| `APT_SECURITY_MIRROR` | Debian security package mirror for backend image | `https://mirrors.tuna.tsinghua.edu.cn/debian-security` |
+| `NPM_REGISTRY` | npm primary registry | `https://registry.npmmirror.com` |
+| `NPM_FALLBACK_REGISTRY` | npm fallback registry | `https://registry.npmjs.org` |
+| `ALPINE_MIRROR` | Alpine package mirror for frontend image | `https://mirrors.tuna.tsinghua.edu.cn/alpine` |
+| `BACKEND_GATEWAY_IMAGE` | prebuilt gateway/worker/migrate image | `junze0514/wenjin-backend:latest` |
+| `FRONTEND_IMAGE` | prebuilt frontend image | `junze0514/wenjin-frontend:latest` |
+| `LANGGRAPH_IMAGE` | prebuilt optional LangGraph image | `junze0514/wenjin-langgraph:latest` |
+| `TEXLIVE_IMAGE_NAME` | prebuilt TeXLive image | `junze0514/wenjin-texlive:2024` |
+| `DOCKER_GID` | group id used by gateway/worker/langgraph to access mounted Docker socket | `0` on Docker Desktop; Linux use `getent group docker | cut -d: -f3` |
+
+## 4. 配置建议
 
 1. 开发环境先保证 `DATABASE_URL`、`REDIS_URL`、LLM 模型配置可用，再调业务。
 2. 生产环境必须替换 `JWT_SECRET_KEY`，不要使用默认值。

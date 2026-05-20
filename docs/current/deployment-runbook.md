@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-更新时间：2026-04-15
+更新时间：2026-05-20
 
 本手册覆盖两条标准链路：
 
@@ -86,20 +86,73 @@ cp backend/.env.example backend/.env
 
 ## 3. Docker Compose Runbook
 
-### 3.1 启动
+### 3.1 本地构建启动
 
 ```bash
 cd "$REPO_ROOT"
 cp backend/.env.example backend/.env
 cat > .env <<EOF
 WENJIN_PROJECT_DIR=$REPO_ROOT
+PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
+NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+NPM_REGISTRY=https://registry.npmmirror.com
+NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
+ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
+TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
+DOCKER_GID=0
 ADMIN_PASSWORD=change-this-admin-password
 GRAFANA_PASSWORD=change-this-grafana-password
 EOF
 docker compose up -d --build
 ```
 
-### 3.2 编排顺序
+如果网络环境经常重置 Docker Hub token 请求，优先使用根目录 `.env.docker-cn.example` 的镜像源配置，或直接使用预构建镜像部署。
+
+`DOCKER_GID=0` 是 Docker Desktop 默认值，因为 `/var/run/docker.sock` 在容器内通常是 `root:root`。Linux 服务器如 socket 属于 `docker` 组，应改成宿主机 docker 组 id：
+
+```bash
+getent group docker | cut -d: -f3
+```
+
+### 3.2 预构建镜像部署
+
+预构建部署不执行本地 build，适合生产或网络不稳定环境：
+
+```bash
+cd "$REPO_ROOT"
+cp backend/.env.example backend/.env
+cp .env.prebuilt.example .env
+# 编辑 .env 中的 ADMIN_PASSWORD、GRAFANA_PASSWORD、WENJIN_PROJECT_DIR
+scripts/docker-deploy-prebuilt.sh
+```
+
+等价手动命令：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.prebuilt.yml \
+  up -d --pull missing
+```
+
+默认预构建镜像：
+
+- `junze0514/wenjin-backend:latest`
+- `junze0514/wenjin-frontend:latest`
+- `junze0514/wenjin-langgraph:latest`
+- `junze0514/wenjin-texlive:2024`
+
+发布新预构建镜像：
+
+```bash
+docker login
+scripts/docker-build-push-images.sh junze0514 "$(git rev-parse --short HEAD)"
+```
+
+### 3.3 编排顺序
 
 `docker-compose.yml` 的主链依赖如下：
 
@@ -118,7 +171,7 @@ docker compose up -d --build
 
 - `langgraph`：仅用于 graph 调试，不是主链路依赖
 
-### 3.3 健康检查
+### 3.4 健康检查
 
 ```bash
 curl -f http://localhost:2026/livez

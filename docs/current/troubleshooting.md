@@ -1,6 +1,6 @@
 # Troubleshooting
 
-更新时间：2026-04-15
+更新时间：2026-05-20
 
 以下命令默认你已经设置：
 
@@ -268,4 +268,81 @@ docker compose logs --since=30m worker | rg "WorkerLostError|ExceptionInfo|Cance
 
 ```bash
 docker compose up -d --build gateway worker
+```
+
+## 11. `docker compose up --build` 拉取基础镜像失败
+
+典型日志片段：
+
+```text
+failed to fetch oauth token: Post "https://auth.docker.io/token": read: connection reset by peer
+load metadata for docker.io/library/node:24-alpine
+load metadata for docker.io/library/python:3.13-slim
+```
+
+原因：
+
+- 构建阶段仍直接访问 DockerHub 官方 registry；
+- 当前网络到 `auth.docker.io` 不稳定，导致基础镜像 metadata 或 token 请求被重置。
+
+修复：
+
+```bash
+cp .env.docker-cn.example .env
+docker compose up -d --build
+```
+
+确认 `.env` 中至少包含：
+
+```bash
+PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
+NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
+REDIS_IMAGE=docker.m.daocloud.io/library/redis:8-alpine
+NGINX_IMAGE=docker.m.daocloud.io/library/nginx:alpine
+POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16
+GRAFANA_IMAGE=docker.m.daocloud.io/grafana/grafana:latest
+PROMETHEUS_IMAGE=docker.m.daocloud.io/prom/prometheus:latest
+APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+```
+
+如果目标机器不需要本地构建，直接使用预构建镜像：
+
+```bash
+cp .env.prebuilt.example .env
+# 填写 POSTGRES_PASSWORD / REDIS_PASSWORD / SECRET_KEY 等必填项
+scripts/docker-deploy-prebuilt.sh
+```
+
+## 12. `/readyz` 显示 `execution` 不健康，日志出现 Docker socket 权限错误
+
+典型日志片段：
+
+```text
+permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock
+```
+
+原因：
+
+- gateway / worker 需要访问宿主机 Docker socket 来调度执行沙箱；
+- Docker Desktop 场景下 `/var/run/docker.sock` 常见为 `root:root 660`，容器内用户若不在对应 group 中会被拒绝。
+
+修复：
+
+```bash
+DOCKER_GID=0
+docker compose up -d --build gateway worker
+curl -fsS http://localhost:2026/readyz
+```
+
+Linux 服务器如 Docker socket group 不是 `0`，使用宿主机实际 gid：
+
+```bash
+stat -c '%g' /var/run/docker.sock
+```
+
+然后写入 `.env`：
+
+```bash
+DOCKER_GID=<上一步输出>
 ```
