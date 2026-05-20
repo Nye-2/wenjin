@@ -58,6 +58,11 @@ from src.dataservice.domains.operations.models import (  # noqa: F401
     DataServiceMigrationReport,
     DataServiceOutboxEvent,
 )
+from src.dataservice.domains.review.models import (  # noqa: F401
+    ReviewActionLogRecord,
+    ReviewBatchRecord,
+    ReviewItemRecord,
+)
 from src.dataservice.domains.workspace.models import WorkspaceMembership  # noqa: F401
 
 # Alembic Config object

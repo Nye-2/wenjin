@@ -557,38 +557,6 @@ Implementation checkpoint, 2026-05-21:
 
 ### 6.4 Review Queue
 
-#### `review_items`
-
-Individual reviewable mutation inside a review batch. Result cards, Prism review items, room candidates, and sandbox artifact acceptance all stage here.
-
-| Column | Type | Required | Notes |
-| --- | --- | --- | --- |
-| `id` | uuid string | yes | Primary key. |
-| `workspace_id` | uuid string | yes | FK to `workspaces.id`. |
-| `batch_id` | uuid string | yes | FK to `review_batches.id`. |
-| `execution_id` | uuid string | no | FK to `executions.id`; null only for manual/admin staged items. |
-| `producer_kind` | string(50) | yes | `execution_node`, `manual`, `import`, `system`. |
-| `producer_id` | string(100) | no | Node id, import id, etc. |
-| `logical_key` | string(255) | yes | Idempotency key inside workspace/execution/target. |
-| `target_kind` | string(80) | yes | `prism_file`, `decision`, `memory_fact`, `workspace_task`, `source`, `workspace_asset`, `provenance_link`. |
-| `target_id` | uuid string | no | Target row if updating an existing entity. |
-| `target_payload_json` | jsonb | yes | Canonical write payload applied after acceptance. |
-| `title` | string(255) | yes | Review card title. |
-| `summary` | string(1000) | no | Review card summary. |
-| `status` | string(32) | yes | `pending`, `accepted`, `rejected`, `applied`, `reverted`, `failed`. |
-| `preview_payload_json` | jsonb | yes | UI preview payload. |
-| `validation_json` | jsonb | yes | Validation result and warnings. |
-| `created_by` | string(100) | yes | Actor or system id. |
-| `applied_at` | timestamptz | no | Commit time. |
-| `reverted_at` | timestamptz | no | Revert time, if supported by target. |
-| `created_at` | timestamptz | yes | Creation timestamp. |
-| `updated_at` | timestamptz | yes | Last update. |
-
-Constraints:
-
-- Unique: `workspace_id`, `logical_key`.
-- Status transitions are enforced by repository methods, not ad hoc updates.
-
 #### `review_batches`
 
 Review aggregate root and product result-card package. A batch usually maps to one execution result card and contains multiple default-selected review items.
@@ -597,17 +565,61 @@ Review aggregate root and product result-card package. A batch usually maps to o
 | --- | --- | --- | --- |
 | `id` | uuid string | yes | Primary key. |
 | `workspace_id` | uuid string | yes | FK to `workspaces.id`. |
-| `execution_id` | uuid string | no | FK to `executions.id`. |
+| `execution_id` | uuid string | no | FK to `executions.id`; null only for manual/admin staged items. |
+| `source_type` | string(64) | yes | Producer surface such as `result_card`, `prism_review`, `sandbox`, `manual`, or `system`. |
+| `source_id` | string(255) | no | Producer id such as block id, logical key, node id, import id, etc. |
+| `review_kind` | string(64) | yes | Product use case, e.g. `result_card_commit`, `prism_file_change`, `room_candidate`. |
+| `status` | string(32) | yes | `pending`, `partially_applied`, `applied`, `rejected`, `failed`. |
 | `title` | string(255) | yes | Batch title. |
 | `summary` | text | no | Batch summary. |
-| `status` | string(32) | yes | `pending`, `partially_applied`, `applied`, `rejected`, `failed`. |
-| `default_selection_json` | jsonb | yes | Default checked item ids/selection policy. |
-| `producer_kind` | string(50) | yes | `execution`, `manual`, `import`, `system`. |
-| `producer_id` | string(100) | no | Execution/node/import id. |
-| `created_by` | string(100) | yes | Actor or system id. |
-| `applied_at` | timestamptz | no | Batch apply time. |
+| `schema_version` | string(50) | yes | Current value: `review_batch.v1`. |
+| `item_count` | int | yes | Current number of items. |
+| `accepted_count` | int | yes | Current accepted item count. |
+| `rejected_count` | int | yes | Current rejected item count. |
+| `applied_count` | int | yes | Current applied item count. |
+| `failed_count` | int | yes | Current failed item count. |
+| `payload_json` | jsonb | yes | Batch-level metadata and UI payload. |
 | `created_at` | timestamptz | yes | Creation timestamp. |
 | `updated_at` | timestamptz | yes | Last update. |
+
+Constraints:
+
+- Index: `workspace_id`, `status`.
+- Index: `execution_id`.
+
+#### `review_items`
+
+Individual reviewable mutation inside a review batch. Result cards, Prism review items, room candidates, and sandbox artifact acceptance all stage here.
+
+| Column | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | uuid string | yes | Primary key. |
+| `batch_id` | uuid string | yes | FK to `review_batches.id`. |
+| `workspace_id` | uuid string | yes | FK to `workspaces.id`; denormalized for workspace status queries. |
+| `source_item_id` | string(255) | no | Source item id inside producer payload. |
+| `item_kind` | string(64) | yes | Review item product kind such as `document_patch`, `room_decision`, `sandbox_artifact`. |
+| `target_domain` | string(64) | yes | Target owner such as `prism`, `documents`, `rooms`, `asset`, `source`, or `sandbox`. |
+| `target_kind` | string(64) | yes | Target-domain handler key. |
+| `target_ref_json` | jsonb | yes | Existing target reference, if any. |
+| `status` | string(32) | yes | `pending`, `accepted`, `rejected`, `applied`, `reverted`, `failed`. |
+| `title` | string(255) | yes | Review item title. |
+| `summary` | text | no | Review item summary. |
+| `payload_json` | jsonb | yes | Canonical write payload applied after acceptance. |
+| `preview_json` | jsonb | yes | UI preview payload. |
+| `result_json` | jsonb | no | Apply/revert handler result. |
+| `error_text` | text | no | Failure details. |
+| `provenance_json` | jsonb | yes | Staged provenance metadata until the provenance domain owns links. |
+| `sort_order` | int | yes | Stable display/apply order within the batch. |
+| `applied_at` | timestamptz | no | Commit time. |
+| `created_at` | timestamptz | yes | Creation timestamp. |
+| `updated_at` | timestamptz | yes | Last update. |
+
+Constraints:
+
+- Index: `batch_id`, `status`.
+- Index: `workspace_id`, `status`.
+- Index: `target_domain`, `target_kind`.
+- Status transitions are enforced by the review service, not ad hoc updates.
 
 #### `review_action_logs`
 
@@ -616,15 +628,16 @@ Append-only audit of review state transitions and commit application.
 | Column | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | uuid string | yes | Primary key. |
-| `review_item_id` | uuid string | yes | FK to `review_items.id`. |
+| `batch_id` | uuid string | yes | FK to `review_batches.id`. |
+| `item_id` | uuid string | no | FK to `review_items.id`; null for batch-level actions. |
 | `workspace_id` | uuid string | yes | Denormalized for workspace audit query. |
-| `action` | string(40) | yes | `accept`, `reject`, `apply`, `revert`, `fail`, `edit`. |
-| `actor_id` | string(100) | yes | User/system actor. |
-| `from_status` | string(32) | no | Previous status. |
-| `to_status` | string(32) | yes | New status. |
-| `reason` | text | no | Optional user/system reason. |
+| `action` | string(64) | yes | `batch.created`, `item.accepted`, `item.rejected`, `item.pending`, `item.applied`, `item.reverted`, `item.failed`. |
+| `actor_id` | string(36) | no | User/system actor. |
+| `status_from` | string(32) | no | Previous status. |
+| `status_to` | string(32) | no | New status. |
 | `payload_json` | jsonb | yes | Action metadata. |
 | `created_at` | timestamptz | yes | Action time. |
+| `updated_at` | timestamptz | yes | Last update. |
 
 ### 6.5 Prism Universal Document
 

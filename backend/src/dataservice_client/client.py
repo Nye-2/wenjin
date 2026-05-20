@@ -24,6 +24,14 @@ from src.dataservice_client.contracts.execution import (
     ExecutionPayload,
     ExecutionUpdatePayload,
 )
+from src.dataservice_client.contracts.review import (
+    ReviewBatchCreatePayload,
+    ReviewBatchDetailPayload,
+    ReviewBatchPayload,
+    ReviewItemDecisionPayload,
+    ReviewItemPayload,
+    ReviewItemTransitionPayload,
+)
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
     WorkspacePayload,
@@ -214,6 +222,65 @@ class AsyncDataServiceClient:
     async def list_execution_events(self, execution_id: str) -> list[ExecutionEventPayload]:
         payload = await self._request("GET", f"/internal/v1/executions/{execution_id}/events")
         return [ExecutionEventPayload.model_validate(item) for item in payload["data"]]
+
+    async def create_review_batch(self, command: ReviewBatchCreatePayload) -> ReviewBatchDetailPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/review/batches",
+            json=command.model_dump(mode="json"),
+        )
+        return ReviewBatchDetailPayload.model_validate(payload["data"])
+
+    async def list_review_batches(
+        self,
+        *,
+        workspace_id: str | None = None,
+        execution_id: str | None = None,
+        status: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[ReviewBatchPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/review/batches",
+            params={
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+                "status": status,
+                "limit": limit,
+            },
+        )
+        return [ReviewBatchPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_review_batch(self, batch_id: str) -> ReviewBatchDetailPayload | None:
+        payload = await self._request("GET", f"/internal/v1/review/batches/{batch_id}")
+        data = payload.get("data")
+        return ReviewBatchDetailPayload.model_validate(data) if data is not None else None
+
+    async def set_review_item_decision(
+        self,
+        item_id: str,
+        command: ReviewItemDecisionPayload,
+    ) -> ReviewItemPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/review/items/{item_id}/decision",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
+
+    async def transition_review_item(
+        self,
+        item_id: str,
+        command: ReviewItemTransitionPayload,
+    ) -> ReviewItemPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/review/items/{item_id}/transition",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

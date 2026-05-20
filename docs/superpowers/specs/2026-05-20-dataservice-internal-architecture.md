@@ -565,7 +565,9 @@ DataService app endpoints are internal and versioned:
 /internal/v1/executions
 /internal/v1/executions/{execution_id}/events
 /internal/v1/review/batches
-/internal/v1/review/batches/{batch_id}/apply
+/internal/v1/review/batches/{batch_id}
+/internal/v1/review/items/{item_id}/decision
+/internal/v1/review/items/{item_id}/transition
 /internal/v1/prism/workspaces/{workspace_id}/surface
 /internal/v1/sources
 /internal/v1/assets

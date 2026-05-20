@@ -199,31 +199,35 @@ Required typed columns:
 - `review_batches.status`
 - `review_batches.title`
 - `review_batches.summary`
-- `review_batches.producer_kind`
-- `review_batches.producer_id`
-- `review_batches.created_by`
-- `review_batches.applied_at`
+- `review_batches.source_type`
+- `review_batches.source_id`
+- `review_batches.review_kind`
+- `review_batches.schema_version`
+- `review_batches.item_count`
+- `review_batches.accepted_count`
+- `review_batches.rejected_count`
+- `review_batches.applied_count`
+- `review_batches.failed_count`
 - `review_items.batch_id`
-- `workspace_id`
-- `producer_kind`
-- `producer_id`
-- `target_kind`
-- `target_id`
-- `status`
-- `title`
-- `summary`
-- `created_by`
-- `applied_at`
-- `reverted_at`
+- `review_items.workspace_id`
+- `review_items.source_item_id`
+- `review_items.item_kind`
+- `review_items.target_domain`
+- `review_items.target_kind`
+- `review_items.target_ref_json`
+- `review_items.status`
+- `review_items.title`
+- `review_items.summary`
+- `review_items.sort_order`
+- `review_items.applied_at`
 
 JSONB extension columns:
 
-- `review_batches.default_selection_json`
-- `review_batches.metadata_json`
-- `target_payload`
-- `preview_payload`
-- `validation_json`
-- `metadata_json`
+- `review_batches.payload_json`
+- `review_items.payload_json`
+- `review_items.preview_json`
+- `review_items.result_json`
+- `review_items.provenance_json`
 
 Target kinds:
 
@@ -674,7 +678,7 @@ Steps:
 - [x] Remove product-state reads from `task_records`.
 - [x] Replace `workspace_run`, `run_history`, and `compute_sessions` product reads with DataService projections or rebuildable cache reads.
 - [x] Run lead runtime, execution service, compute projection, dashboard/activity, run-history, and architecture guard tests.
-- [ ] Commit `feat: converge execution aggregate ssot`.
+- [x] Commit `feat: converge execution aggregate ssot`.
 
 ### Task 7: Add Review Batch Aggregate
 
@@ -692,13 +696,19 @@ Steps:
 
 Steps:
 
-- [ ] Create `review_batches`, `review_items`, and `review_action_logs`.
+- [x] Create `review_batches`, `review_items`, and `review_action_logs`.
 - [ ] Migrate `prism_review_items` and transient result-card outputs into batch/item rows.
-- [ ] Add state transition tests for batch statuses `pending`, `partially_applied`, `applied`, `rejected`, and `failed`.
-- [ ] Add state transition tests for item statuses `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`.
+- [x] Add state transition tests for batch statuses `pending`, `partially_applied`, `applied`, `rejected`, and `failed`.
+- [x] Add state transition tests for item statuses `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`.
 - [ ] Ensure apply action uses target-domain review handlers and one transaction for target write, item transition, batch transition, action log, and provenance links.
 - [ ] Remove Prism-specific review status reads from new code paths.
-- [ ] Commit `feat: add review batch aggregate`.
+- [x] Commit `feat: add review batch aggregate`.
+
+Implementation status:
+
+- 2026-05-21: Review aggregate foundation is implemented in DataService with domain models, migration `064_dataservice_review_queue.py`, public in-process API, internal HTTP routes, typed client contracts, handler registry, action logs, and state-machine tests.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1895 tests.
+- Prism/result-card runtime cutover remains in the later Prism/rooms materialization slices because target-domain review handlers and provenance links depend on those domains.
 
 ### Task 8: Add Workspace Asset Aggregate
 

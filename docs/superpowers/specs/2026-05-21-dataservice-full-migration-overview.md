@@ -1038,16 +1038,20 @@ Implementation status as of 2026-05-21:
 - Subagent task semantics now land in `execution_nodes` and `execution_events`; `subagent_task_records` is no longer a product projection input.
 - Compute projection, Workspace Activity, User Dashboard, and Admin Dashboard now build from DataService execution/node projections rather than `task_records` / `subagent_task_records`.
 - Run History room and Prism recent activity now use `ExecutionRunHistoryProjection` derived from `executions`; `workspace_run` has been removed from active runtime routes, and `compute_sessions` is treated only as a rebuildable UI shell/cache around canonical executions.
+- Review batch aggregate foundation is implemented.
+- `064_dataservice_review_queue.py` creates `review_batches`, `review_items`, and `review_action_logs`.
+- `backend/src/dataservice/domains/review/` owns review contracts, repository, projections, state-machine service, and target handler registry. `dataservice_app` exposes internal review routes and `dataservice_client` has typed review methods.
+- Review item statuses are enforced as `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`; batch statuses are recomputed as `pending`, `partially_applied`, `applied`, `rejected`, or `failed`.
+- Target apply handlers are registered by `target_domain` / `target_kind` and run inside the review transition transaction boundary. Concrete Prism/rooms/assets/sandbox handlers will land with their target-domain slices.
 
 ### Phase 4: Review Materialization
 
 Implement:
 
-- review batch aggregate
-- review item state machine
-- action logs
-- domain-local review handler registry
+- Prism/result-card cutover into review batches/items
+- target-domain review handlers
 - apply transaction orchestration
+- provenance links from applied review items
 
 Reason:
 
