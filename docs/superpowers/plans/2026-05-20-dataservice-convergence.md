@@ -4,7 +4,7 @@
 
 **Goal:** Redesign Wenjin's data layer into a stable DataService SSOT so database models, table ownership, repositories, transactions, review state, Prism documents, sandbox artifacts, provenance, and projections have one canonical home.
 
-**Architecture:** This is not a wrapper over the existing services. It is a one-time model convergence: define canonical DataService models first, migrate redundant legacy tables into them, cut consumers over in domain slices, then delete or archive old tables without runtime fallback, dual-write, or alias readers. `backend/src/database` becomes infrastructure only; `backend/src/dataservice` owns business data models, repositories, unit-of-work, domain services, and projections.
+**Architecture:** This is not a wrapper over the existing services. It is a one-time model convergence plus a service-boundary split: DataService is a standalone internal service in this monorepo, deployed as its own Docker container in Compose. `backend/src/dataservice` owns business data models, repositories, unit-of-work, domain services, and projections; `backend/src/dataservice_app` exposes the internal FastAPI API; gateway/worker/agents call it through `backend/src/dataservice_client`. Redundant legacy tables are migrated into canonical tables, consumers cut over in domain slices, and old tables are deleted or archived without runtime fallback, dual-write, or alias readers.
 
 **Tech Stack:** Python 3.13, FastAPI, SQLAlchemy async, Alembic, Pydantic v2, pytest, PostgreSQL JSONB, SQLite-compatible tests only where production models cannot be used directly.
 
@@ -14,6 +14,7 @@
 
 - `/Users/ze/wenjin/docs/superpowers/specs/2026-05-20-super-agent-capability-system-design.md`
 - `/Users/ze/wenjin/docs/superpowers/specs/2026-05-20-wenjin-native-prism-integration-overview.md`
+- `/Users/ze/wenjin/docs/superpowers/specs/2026-05-20-dataservice-internal-architecture.md`
 - `/Users/ze/wenjin/AGENTS.md`
 
 ## Planning Premise
@@ -31,7 +32,7 @@ The current database has accumulated migration-era overlap. DataService should u
 | Documents/artifacts/assets | `documents_v2`, `artifacts`, `generation_records`, reference assets, and inline document metadata all store output/file concepts. | `workspace_assets` is generic file/material SSOT. Prism primary documents and references have specialized tables that link to assets. Sandbox artifacts are execution-produced assets plus reproducibility metadata. |
 | Sandbox runtime | `sandboxes`, execution payload artifact ids, and ad hoc sandbox outputs mix environment state with produced files. | `sandbox_environments` owns workspace sandbox state; `sandbox_job_records` owns execution reproducibility; `sandbox_artifacts` links job outputs to workspace assets and review. |
 | Prism document | `latex_projects` contains user project, workspace binding, file ordering, LLM config, adapter config, and surface role. | `prism_projects` / `prism_documents` / `prism_files` own workspace primary documents. LaTeX becomes an adapter, not the root model. |
-| Review state | `prism_review_items`, `TaskReport.outputs`, frontend ResultCard state, and commit payloads all express reviewable outputs. | `review_items` is the only review/apply state source. Prism changes, room writes, and sandbox artifacts are target kinds. |
+| Review state | `prism_review_items`, `TaskReport.outputs`, frontend ResultCard state, and commit payloads all express reviewable outputs. | `review_batches` + `review_items` are the only review/apply state source. Prism changes, room writes, and sandbox artifacts are target kinds. |
 | Provenance | `prism_source_links`, `reference_usage_events`, review payload source fields, and artifact metadata all link claims to sources. | `provenance_links` is the canonical source-target graph. Domain-specific projections read from it. |
 | Capability schema | `capabilities.runtime`, `brief_schema`, `graph_template`, `dashboard_meta`, and skill `config` carry mixed v1/v2 semantics. | `capability_definitions` and `capability_skills` are versioned catalog models with strict v2 schema payloads and typed searchable columns. |
 | Workspace settings | `workspaces.config` and `workspace_settings.metadata_json` both store workspace config. | `workspace_settings` owns user-editable settings. `workspaces` keeps identity fields and immutable/top-level metadata only. |
@@ -39,13 +40,14 @@ The current database has accumulated migration-era overlap. DataService should u
 ## Canonical Model Principles
 
 1. **One concept, one table family.** A model may have projections, but it must have exactly one write source.
-2. **Repositories never commit.** All transaction ownership lives in `DataServiceUnitOfWork` or a domain service that owns a complete use case.
-3. **No product state in queue tables.** Worker queue/task infrastructure may reference product entities but cannot become the user-visible state source.
-4. **No untyped payload as primary schema.** JSONB is allowed for extension payloads, but core identity, state, ownership, timestamps, and target links must be typed columns.
-5. **Workspace-scoped by default.** Workspace data tables require `workspace_id`; user-owned entry points validate both `user_id` and `workspace_id`.
-6. **Review before materialization.** Agent-produced document changes, room writes, and sandbox artifacts enter `review_items` before applying to user-facing rooms or Prism primary documents.
-7. **Append-only where history matters.** Review actions, provenance links, file versions, and execution nodes should preserve history instead of overwriting meaning.
-8. **Cutover, not compatibility.** During a domain migration, old data is copied into canonical tables and consumers are switched to the canonical repository in the same release slice.
+2. **DataService is a service boundary.** Canonical business writes live in the DataService service process. Gateway, worker, agents, and Compute call it through `dataservice_client`.
+3. **Repositories never commit.** All transaction ownership lives in `DataServiceUnitOfWork` or a domain service that owns a complete use case.
+4. **No product state in queue tables.** Worker queue/task infrastructure may reference product entities but cannot become the user-visible state source.
+5. **No untyped payload as primary schema.** JSONB is allowed for extension payloads, but core identity, state, ownership, timestamps, and target links must be typed columns.
+6. **Workspace-scoped by default.** Workspace data tables require `workspace_id`; user-owned entry points validate both `user_id` and `workspace_id`.
+7. **Review before materialization.** Agent-produced document changes, room writes, and sandbox artifacts enter `review_batches` / `review_items` before applying to user-facing rooms or Prism primary documents.
+8. **Append-only where history matters.** Review actions, provenance links, file versions, and execution nodes should preserve history instead of overwriting meaning.
+9. **Cutover, not compatibility.** During a domain migration, old data is copied into canonical tables and consumers are switched to the canonical repository in the same release slice.
 
 ## Accepted Architecture Decisions
 
@@ -64,84 +66,52 @@ These rules are mandatory for DataService work:
 2. **One domain per commit**: do not mix review, Prism document, source/assets, sandbox/provenance, execution, and rooms in one implementation commit.
 3. **One migration per domain group**: never edit a committed migration. Add the next numbered migration for follow-up changes.
 4. **Architecture guard first**: the first code task must add the DataService boundary guard with a shrinking legacy allowlist.
-5. **No new direct DB imports**: new code outside DataService must not import `src.database.models` or business models from `src.database`.
-6. **No direct business queries outside DataService**: routers, agents, Compute, Prism, and execution runtime must not call `session.execute(select(...))` for business data.
+5. **No new direct DB imports**: new code outside the DataService service process must not import `src.database.models`, `src.dataservice.domains.*.models`, or `src.dataservice.domains.*.repository`.
+6. **No direct business queries outside DataService**: routers, agents, Compute, Prism, and execution runtime must not call `session.execute(select(...))` for business data after their domain cutover; they must call `dataservice_client`.
 7. **Repository discipline**: repositories execute queries and writes but never commit, publish events, or call LLM/tools.
 8. **Unit-of-work discipline**: domain services own use-case transactions through `DataServiceUnitOfWork`.
-9. **Review state discipline**: all agent-produced materialization targets go through `review_items`; direct writes are allowed only for user edits and infrastructure bookkeeping.
-10. **Projection discipline**: UI/agent/Compute read models come from `dataservice/projections`; projections return Pydantic contracts or plain dictionaries, never ORM rows.
+9. **Review state discipline**: all agent-produced materialization targets go through `review_batches` / `review_items`; direct writes are allowed only for user edits and infrastructure bookkeeping.
+10. **Projection discipline**: UI/agent/Compute read models come from DataService domain projections; projections return Pydantic contracts or plain dictionaries, never ORM rows.
 11. **Migration proof**: each data-copy migration must include row-count checks and fail loudly on unmapped legacy rows.
-12. **Legacy deletion proof**: a legacy table or runtime path can be archived/deleted only after its consumer imports are removed and architecture tests pass.
-13. **Doc sync**: every domain cutover updates this plan and the SSOT model spec in the same commit.
-14. **Test floor**: each domain commit runs architecture tests, domain unit tests, migration upgrade, and affected service/projection tests.
+12. **Service boundary proof**: gateway/worker/agents use `dataservice_client`; only the DataService app imports domain repositories/models.
+13. **Legacy deletion proof**: a legacy table or runtime path can be archived/deleted only after its consumer imports are removed and architecture tests pass.
+14. **Doc sync**: every domain cutover updates this plan and the SSOT model spec in the same commit.
+15. **Test floor**: each domain commit runs architecture tests, domain unit tests, migration upgrade, and affected service/projection tests.
 
 ## Target Package Structure
 
 ```text
 backend/src/dataservice/
+  common/
+    actor.py
+    errors.py
+    idempotency.py
+    unit_of_work.py
+  domains/
+    workspace/{models.py,contracts.py,repository.py,service.py,projection.py,policies.py}
+    catalog/{models.py,contracts.py,repository.py,service.py,seed_loader.py}
+    execution/{models.py,contracts.py,repository.py,service.py,projection.py}
+    review/{models.py,contracts.py,repository.py,service.py,target_handlers.py}
+    asset/{models.py,contracts.py,repository.py,service.py}
+    prism/{models.py,contracts.py,repository.py,service.py,projection.py}
+    source/{models.py,contracts.py,repository.py,service.py,projection.py}
+    sandbox/{models.py,contracts.py,repository.py,service.py,projection.py}
+    provenance/{models.py,contracts.py,repository.py,service.py}
+    rooms/{models.py,contracts.py,repository.py,service.py,projection.py}
+    operations/{models.py,repository.py,outbox.py}
+backend/src/dataservice_app/
   __init__.py
-  unit_of_work.py
+  app.py
+  health.py
+  deps.py
+  auth.py
+  routers/
+    __init__.py
+backend/src/dataservice_client/
+  __init__.py
+  client.py
+  errors.py
   contracts/
-    common.py
-    workspace.py
-    catalog.py
-    execution.py
-    review.py
-    prism_document.py
-    source.py
-    asset.py
-    sandbox.py
-    provenance.py
-    rooms.py
-  models/
-    __init__.py
-    workspace.py
-    catalog.py
-    execution.py
-    review.py
-    prism_document.py
-    source.py
-    asset.py
-    sandbox.py
-    provenance.py
-    rooms.py
-    audit.py
-  repositories/
-    __init__.py
-    workspaces.py
-    catalog.py
-    executions.py
-    review_items.py
-    prism_documents.py
-    sources.py
-    assets.py
-    sandboxes.py
-    provenance.py
-    rooms.py
-  services/
-    __init__.py
-    workspace_data.py
-    capability_catalog.py
-    execution_log.py
-    review_workflow.py
-    prism_documents.py
-    source_library.py
-    asset_store.py
-    sandbox_runtime.py
-    provenance.py
-    workspace_rooms.py
-  projections/
-    __init__.py
-    workspace_context.py
-    live_workflow.py
-    prism_surface.py
-    compute_launch.py
-    run_history.py
-    library.py
-    sandbox.py
-    activity.py
-  guards/
-    __init__.py
 ```
 
 ## Canonical Table Families
@@ -151,12 +121,14 @@ backend/src/dataservice/
 Canonical tables:
 
 - `workspaces`
+- `workspace_memberships`
 - `workspace_settings`
 - `threads`
 
 SSOT rules:
 
-- `workspaces` stores identity: owner, name, type, discipline, description, active thread pointer.
+- `workspaces` stores identity/lifecycle: creator, name, type, discipline, description, active thread pointer.
+- `workspace_memberships` stores access and collaboration membership.
 - `workspace_settings` stores mutable user/workspace settings.
 - `threads.workspace_id` stores conversation membership.
 - `workspaces.active_thread_id` points to the currently selected thread but does not define membership.
@@ -164,6 +136,7 @@ SSOT rules:
 Legacy cleanup:
 
 - Rename `workspaces.thread_id` to `active_thread_id`.
+- Seed owner memberships from existing `workspaces.user_id`.
 - Move rollout/config JSON from `workspaces.config` into `workspace_settings.settings_json`.
 
 ### 2. Capability Catalog
@@ -213,11 +186,22 @@ SSOT rules:
 
 Canonical tables:
 
+- `review_batches`
 - `review_items`
 - `review_action_logs`
 
 Required typed columns:
 
+- `review_batches.workspace_id`
+- `review_batches.execution_id`
+- `review_batches.status`
+- `review_batches.title`
+- `review_batches.summary`
+- `review_batches.producer_kind`
+- `review_batches.producer_id`
+- `review_batches.created_by`
+- `review_batches.applied_at`
+- `review_items.batch_id`
 - `workspace_id`
 - `producer_kind`
 - `producer_id`
@@ -232,6 +216,8 @@ Required typed columns:
 
 JSONB extension columns:
 
+- `review_batches.default_selection_json`
+- `review_batches.metadata_json`
 - `target_payload`
 - `preview_payload`
 - `validation_json`
@@ -250,9 +236,10 @@ Target kinds:
 
 SSOT rules:
 
-- `review_items.status` is the only acceptance state.
-- Applying a review item writes the target and state transition in one transaction.
-- Prism-specific review rows migrate into generic `review_items`.
+- `review_batches` is the aggregate root for a user-reviewable result set.
+- `review_items.status` stores item-level acceptance/apply state inside a batch.
+- Applying a batch writes selected targets, item transitions, batch transition, action logs, and provenance links in one transaction.
+- Prism-specific review rows and transient ResultCard outputs migrate into generic `review_batches` / `review_items`.
 
 ### 5. Prism Universal Document
 
@@ -369,10 +356,11 @@ Legacy cleanup:
 
 Allowed:
 
-- `dataservice/models` imports SQLAlchemy and defines business tables.
-- `dataservice/repositories` imports models and executes SQLAlchemy statements.
-- `dataservice/services` opens transactions through `DataServiceUnitOfWork` and calls repositories.
-- `dataservice/projections` calls repositories and returns Pydantic/read-model dictionaries.
+- `dataservice/domains/<domain>/models.py` imports SQLAlchemy and defines tables for one aggregate boundary.
+- `dataservice/domains/<domain>/repository.py` imports domain models and executes SQLAlchemy statements for that aggregate.
+- `dataservice/domains/<domain>/service.py` opens transactions through `DataServiceUnitOfWork` and calls repositories.
+- `dataservice/domains/<domain>/projection.py` calls repositories and returns Pydantic/read-model dictionaries.
+- `dataservice/domains/operations` owns idempotency, outbox, and migration report records.
 
 Forbidden outside DataService:
 
@@ -428,10 +416,13 @@ Exit gate:
 Create:
 
 - `backend/src/dataservice`
+- `backend/src/dataservice_app`
+- `backend/src/dataservice_client`
 - `DataServiceUnitOfWork`
-- common contracts
+- common actor, error, pagination, idempotency, and contract primitives
 - architecture guard with shrinking legacy allowlist
-- Alembic metadata import path for `src.dataservice.models`
+- DataService Docker target and Compose service
+- Alembic metadata import path for `src.dataservice.domains.*.models`
 
 No user-facing behavior changes.
 
@@ -522,34 +513,62 @@ Steps:
 - [x] Define legacy-to-canonical copy rules.
 - [x] Review the open decisions in this plan before code begins.
 
-### Task 2: Add Foundation Package, UnitOfWork, And Guard
+### Task 2: Add Standalone DataService Foundation
 
 **Files:**
 
 - Create: `/Users/ze/wenjin/backend/src/dataservice/__init__.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/unit_of_work.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/common.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/app_boundary.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/actor.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/errors.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/idempotency.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/pagination.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/unit_of_work.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/operations/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/operations/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/operations/outbox.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/__init__.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/app.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/auth.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/deps.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/__init__.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/health.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/__init__.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/client.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/errors.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/__init__.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/059_dataservice_operations.py`
+- Modify: `/Users/ze/wenjin/backend/Dockerfile`
+- Modify: `/Users/ze/wenjin/docker-compose.yml`
+- Modify: `/Users/ze/wenjin/docker-compose.local-build.yml`
 - Create: `/Users/ze/wenjin/backend/tests/architecture/test_dataservice_boundaries.py`
 
 Steps:
 
-- [ ] Add package skeleton.
-- [ ] Add `DataServiceUnitOfWork`.
-- [ ] Add architecture guard for model imports and direct SQLAlchemy business queries.
+- [ ] Add package skeleton with `common`, `domains`, `dataservice_app`, and `dataservice_client`.
+- [ ] Add `ActorContext`, `DataServiceUnitOfWork`, idempotency record helpers, and typed errors.
+- [ ] Add operations tables for `dataservice_idempotency_keys`, `dataservice_outbox_events`, and `dataservice_migration_reports`.
+- [ ] Add DataService FastAPI app with `/livez` and `/readyz`.
+- [ ] Add typed `dataservice_client` health/readiness methods.
+- [ ] Add Docker target and Compose `dataservice` service with internal `DATASERVICE_URL`.
+- [ ] Add architecture guard that blocks non-DataService runtime imports of DataService models/repositories and migrated database models.
 - [ ] Generate explicit `LEGACY_ALLOWED_FILES` from current violations.
 - [ ] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q`.
-- [ ] Commit `feat: add dataservice foundation guard`.
+- [ ] Commit `feat: add dataservice service foundation`.
 
-### Task 3: Move Workspace Core To DataService
+### Task 3: Move Workspace Aggregate To DataService
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/workspace.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/workspace.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/workspaces.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/workspace_data.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/workspace_context.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/059_dataservice_workspace_core.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/policies.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/workspace.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/workspace.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/060_dataservice_workspace_core.py`
 - Modify: `/Users/ze/wenjin/backend/src/services/thread_service.py`
 - Modify: `/Users/ze/wenjin/backend/src/services/workspace_summary_service.py`
 
@@ -557,21 +576,25 @@ Steps:
 
 - [ ] Rename DataService contract field `type` to `workspace_type`.
 - [ ] Rename `workspaces.thread_id` to `active_thread_id`.
+- [ ] Rename `workspaces.user_id` semantics to `created_by_user_id` and seed `workspace_memberships` owner rows.
 - [ ] Move `workspaces.config` into `workspace_settings.settings_json`.
-- [ ] Keep `threads.workspace_id` as the membership SSOT.
-- [ ] Add migration validation that active thread belongs to the same workspace.
+- [ ] Validate that active thread belongs to the same workspace.
+- [ ] Enforce at least one active owner membership per workspace.
 - [ ] Run workspace/thread/settings tests plus architecture guard.
-- [ ] Commit `feat: move workspace core into dataservice`.
+- [ ] Commit `feat: move workspace aggregate into dataservice`.
 
-### Task 4: Move Capability Catalog To DataService
+### Task 4: Move Capability Catalog Aggregate To DataService
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/catalog.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/catalog.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/catalog.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/capability_catalog.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/060_dataservice_capability_catalog.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/seed_loader.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/catalog.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/catalog.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/061_dataservice_capability_catalog.py`
 - Modify capability seed loader and admin capability/skill services.
 
 Steps:
@@ -579,20 +602,22 @@ Steps:
 - [ ] Create `capability_seed_revisions`.
 - [ ] Reshape `capabilities` as `capability_definitions` with `schema_version = capability.v2`.
 - [ ] Reshape `capability_skills` with `schema_version = capability_skill.v2`, `worker_type`, and `skill_json`.
-- [ ] Upgrade YAML seed load to write DataService contracts.
+- [ ] Make YAML seed loading idempotent by checksum.
 - [ ] Run seed load tests and admin capability service tests.
-- [ ] Commit `feat: move capability catalog into dataservice`.
+- [ ] Commit `feat: move capability catalog aggregate into dataservice`.
 
-### Task 5: Move Execution Graph To DataService
+### Task 5: Move Execution Aggregate To DataService
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/execution.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/execution.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/executions.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/execution_log.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/live_workflow.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/061_dataservice_execution_graph.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/execution.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/execution.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/062_dataservice_execution_graph.py`
 - Modify: `/Users/ze/wenjin/backend/src/agents/lead_agent/v2/runtime.py`
 - Modify: `/Users/ze/wenjin/backend/src/execution/engine.py`
 
@@ -602,39 +627,45 @@ Steps:
 - [ ] Create `execution_events` with ordered per-execution sequence.
 - [ ] Move `subagent_task_records` semantics into `execution_nodes` and `execution_events`.
 - [ ] Remove product-state reads from `task_records`.
-- [ ] Replace `workspace_run`, `run_history`, and `compute_sessions` product reads with projections or cache reads.
+- [ ] Replace `workspace_run`, `run_history`, and `compute_sessions` product reads with DataService projections or rebuildable cache reads.
 - [ ] Run lead runtime, execution service, compute projection, and architecture guard tests.
-- [ ] Commit `feat: converge execution graph ssot`.
+- [ ] Commit `feat: converge execution aggregate ssot`.
 
-### Task 6: Add Canonical Review Workflow
+### Task 6: Add Review Batch Aggregate
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/review.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/review.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/review_items.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/review_workflow.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/062_dataservice_review_queue.py`
-- Create: `/Users/ze/wenjin/backend/tests/dataservice/test_review_workflow_service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/target_handlers.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/review.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/review.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/063_dataservice_review_queue.py`
+- Create: `/Users/ze/wenjin/backend/tests/dataservice/test_review_batch_service.py`
 
 Steps:
 
-- [ ] Create `review_items` and `review_action_logs`.
-- [ ] Migrate `prism_review_items` rows into `review_items`.
-- [ ] Add state transition tests for pending/accepted/rejected/applied/reverted/failed.
-- [ ] Ensure apply action requires target handler and one transaction.
+- [ ] Create `review_batches`, `review_items`, and `review_action_logs`.
+- [ ] Migrate `prism_review_items` and transient result-card outputs into batch/item rows.
+- [ ] Add state transition tests for batch statuses `pending`, `partially_applied`, `applied`, `rejected`, and `failed`.
+- [ ] Add state transition tests for item statuses `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`.
+- [ ] Ensure apply action requires target handler and one transaction for target write, item transition, batch transition, action log, and provenance links.
 - [ ] Remove Prism-specific review status reads from new code paths.
-- [ ] Commit `feat: add review item ssot`.
+- [ ] Commit `feat: add review batch aggregate`.
 
-### Task 7: Add Workspace Asset SSOT
+### Task 7: Add Workspace Asset Aggregate
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/asset.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/asset.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/assets.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/asset_store.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/063_dataservice_workspace_assets.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/asset.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/asset.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/064_dataservice_workspace_assets.py`
 
 Steps:
 
@@ -643,44 +674,52 @@ Steps:
 - [ ] Migrate binary/large `artifacts` and file-like `generation_records` into `workspace_assets`.
 - [ ] Enforce large content storage through managed storage, not business JSON blobs.
 - [ ] Run asset repository and migration validation tests.
-- [ ] Commit `feat: add workspace asset ssot`.
+- [ ] Commit `feat: add workspace asset aggregate`.
 
-### Task 8: Add Universal Prism Document Model
+### Task 8: Add Prism Project Aggregate
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/prism_document.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/prism_document.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/prism_documents.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/prism_documents.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/prism_surface.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/064_dataservice_prism_documents.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/adapters/latex.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/prism.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/prism.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/065_dataservice_prism_documents.py`
 - Modify: `/Users/ze/wenjin/backend/src/services/workspace_prism_service.py`
-- Test: `/Users/ze/wenjin/backend/tests/dataservice/test_prism_document_repository.py`
+- Test: `/Users/ze/wenjin/backend/tests/dataservice/test_prism_project_service.py`
 
 Steps:
 
 - [ ] Create `prism_projects`, `prism_documents`, `prism_files`, `prism_file_versions`, `prism_renders`, `prism_protected_scopes`.
 - [ ] Copy workspace-owned `latex_projects` into `prism_projects`.
-- [ ] Store LaTeX-specific metadata as adapter metadata.
+- [ ] Store LaTeX-specific metadata under adapter metadata.
 - [ ] Route workspace Prism projection through DataService.
 - [ ] Stop using `LatexProject.workspace_id` as the canonical workspace binding.
-- [ ] Commit `feat: add prism document ssot`.
+- [ ] Commit `feat: add prism project aggregate`.
 
-### Task 9: Add Source Library And Provenance SSOT
+### Task 9: Add Source And Provenance Aggregates
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/source.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/provenance.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/source.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/provenance.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/sources.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/provenance.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/source_library.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/provenance.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/library.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/065_dataservice_sources_provenance.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/importers.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/preprocess.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/source.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/source.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/provenance.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/066_dataservice_sources_provenance.py`
 
 Steps:
 
@@ -690,62 +729,71 @@ Steps:
 - [ ] Migrate `library_items` into sources/assets.
 - [ ] Migrate `reference_usage_events` and `prism_source_links` into provenance.
 - [ ] Ensure source-backed Prism edits have provenance links.
-- [ ] Commit `feat: add source and provenance ssot`.
+- [ ] Commit `feat: add source and provenance aggregates`.
 
-### Task 10: Add Sandbox Runtime SSOT
+### Task 10: Add Sandbox Environment Aggregate
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/sandbox.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/sandbox.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/sandboxes.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/sandbox_runtime.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/sandbox.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/066_dataservice_sandbox_runtime.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/policy.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/sandbox.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/sandbox.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/067_dataservice_sandbox_runtime.py`
 
 Steps:
 
 - [ ] Create `sandbox_environments`, `sandbox_job_records`, and `sandbox_artifacts`.
 - [ ] Migrate `sandboxes` into `sandbox_environments`.
 - [ ] Enforce Python-only sandbox job contract.
-- [ ] Ensure sandbox artifact creation also creates pending review item.
+- [ ] Ensure sandbox artifact creation also creates a pending review batch/item.
 - [ ] Ensure sandbox policy blocks host/container/server control while allowing approved data/API/web workflows.
-- [ ] Commit `feat: add sandbox runtime ssot`.
+- [ ] Commit `feat: add sandbox environment aggregate`.
 
-### Task 11: Move Room Repositories Into DataService
+### Task 11: Move Workspace Rooms Aggregate Into DataService
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/rooms.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/rooms.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/rooms.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/services/workspace_rooms.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/067_dataservice_rooms_hooks.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/rooms.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/rooms.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/068_dataservice_rooms_hooks.py`
 - Modify: `/Users/ze/wenjin/backend/src/services/execution_commit_service.py`
 
 Steps:
 
 - [ ] Keep `decisions`, `memory_facts`, and `workspace_tasks` as canonical room tables if field audit passes.
-- [ ] Add `source_review_item_id` hooks to room tables.
-- [ ] Move all room query/write code into DataService repositories.
-- [ ] Make candidate room writes go through `review_items`.
-- [ ] Replace `ExecutionCommitService` room writes with `ReviewWorkflowService.apply_many()`.
-- [ ] Commit `refactor: move workspace rooms into dataservice`.
+- [ ] Add `source_review_batch_id` and `source_review_item_id` hooks where materialized room records need traceability.
+- [ ] Move all room query/write code into DataService room repository/service.
+- [ ] Make candidate room writes go through `review_batches` / `review_items`.
+- [ ] Replace `ExecutionCommitService` room writes with `ReviewBatchService.apply_many()`.
+- [ ] Commit `refactor: move workspace rooms aggregate into dataservice`.
 
-### Task 12: Rebuild Projections And Delete Legacy Runtime Paths
+### Task 12: Rebuild Cross-Domain Projections And Delete Legacy Runtime Paths
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/compute_launch.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/run_history.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/activity.py`
-- Create: `/Users/ze/wenjin/backend/alembic/versions/068_dataservice_projection_cleanup.py`
+- Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/projection.py`
+- Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/projection.py`
+- Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/projection.py`
+- Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/source/projection.py`
+- Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/projection.py`
+- Modify: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/projection.py`
+- Create: `/Users/ze/wenjin/backend/alembic/versions/069_dataservice_projection_cleanup.py`
 - Modify routers, agents, Compute, Prism, commit services, and capability catalog consumers.
 - Modify `/Users/ze/wenjin/backend/tests/architecture/test_dataservice_boundaries.py`.
 
 Steps:
 
-- [ ] Replace direct model imports with DataService services/projections.
+- [ ] Replace direct model imports with `dataservice_client`.
 - [ ] Remove migrated files from `LEGACY_ALLOWED_FILES`.
 - [ ] Delete old services once no consumer remains.
 - [ ] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q`.

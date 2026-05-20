@@ -5,11 +5,13 @@
 **Owner:** Wenjin Super Agent Harness / DataService
 **Scope:** Canonical database model, table ownership, migration disposition, architecture gates, and verification rules for the DataService convergence.
 
+**Companion design:** `/Users/ze/wenjin/docs/superpowers/specs/2026-05-20-dataservice-internal-architecture.md` defines DataService internal aggregate/domain design. This SSOT model spec follows that aggregate design.
+
 ---
 
 ## 1. Purpose
 
-DataService is the single source of truth for Wenjin business data. It owns canonical ORM models, Pydantic read/write contracts, repositories, Unit of Work transaction boundaries, migration discipline, and projection queries for the Super Agent Harness.
+DataService is the single source of truth for Wenjin business data. It is a standalone internal service in the Wenjin monorepo, deployed as its own Docker container. It owns canonical ORM models, Pydantic read/write contracts, repositories, Unit of Work transaction boundaries, migration discipline, and projection queries for the Super Agent Harness.
 
 This is a one-time architecture convergence. It is not a compatibility facade around the existing model set. Existing duplicated tables are migrated into canonical tables, renamed to `_legacy_20260520` for one release when rollback safety is needed, and then removed. Runtime code must not read legacy tables after the cutover migration.
 
@@ -18,7 +20,7 @@ The design has four non-negotiable outcomes:
 1. Each business fact has exactly one owner table.
 2. All database writes go through DataService repositories inside a Unit of Work.
 3. UI surfaces receive projections, not ORM rows.
-4. Reviewable agent output enters the system through `review_items`, then commits into room, Prism, source, asset, or provenance tables.
+4. Reviewable agent output enters the system through `review_batches` / `review_items`, then commits into room, Prism, source, asset, or provenance tables.
 
 ---
 
@@ -30,7 +32,7 @@ DataService owns these model families:
 
 | Family | Canonical purpose |
 | --- | --- |
-| Workspace Core | Workspace identity, settings, active thread binding, conversation thread membership. |
+| Workspace Core | Workspace identity, membership, settings, active thread binding, conversation thread membership. |
 | Capability Catalog | Runtime-editable capability and skill definitions seeded from YAML and persisted in DB. |
 | Execution Graph | Product execution lifecycle, graph nodes, ordered execution events, and compute traces. |
 | Review Queue | Curated result cards, user acceptance/rejection, and commit audit trail. |
@@ -40,6 +42,7 @@ DataService owns these model families:
 | Sandbox Runtime | Workspace sandbox environment, sandbox jobs, and sandbox-produced artifacts. |
 | Provenance | Links from sources, sandbox outputs, executions, and review items into Prism/files/rooms. |
 | Workspace Rooms | Decisions, memory facts, and workspace tasks. |
+| Operations | Idempotency, outbox events, and migration proof records for DataService commands. |
 
 ### 2.2 Not Owned In The First Milestone
 
@@ -62,7 +65,7 @@ The first milestone does not redesign authentication, billing, referrals, or adm
 | One business owner | A business concept has one canonical table. Other views are projections or caches with explicit rebuild paths. |
 | No runtime fallback | After cutover, services cannot read old table names or old JSON shapes. If migration fails, deployment stops. |
 | No dual-write | Cutover happens in a maintenance window. Code writes only canonical tables after migration. |
-| Repository-only writes | Code outside `backend/src/dataservice/` cannot import ORM models or call `session.add`, `session.merge`, or `session.delete` for business data. |
+| Service-owned writes | Code outside the DataService service process cannot import DataService ORM models/repositories or call `session.add`, `session.merge`, or `session.delete` for business data. Gateway, worker, agents, and Compute call `dataservice_client`. |
 | Unit of Work | Multi-table changes must use `DataServiceUnitOfWork`; repositories do not commit by themselves. |
 | Review-first agent output | Lead/subagents stage user-visible mutations into `review_items`; commit service applies accepted items. |
 | Projection-only UI | Frontend and API handlers consume Pydantic DTOs or dictionaries returned by DataService queries. |
@@ -79,6 +82,7 @@ erDiagram
     users ||--o{ workspaces : owns
     users ||--o{ threads : owns
 
+    workspaces ||--o{ workspace_memberships : grants
     workspaces ||--|| workspace_settings : configures
     workspaces ||--o{ threads : contains
     threads ||--o{ executions : dispatches
@@ -94,8 +98,9 @@ erDiagram
     capability_seed_revisions ||--o{ capability_definitions : loaded
     capability_seed_revisions ||--o{ capability_skills : loaded
 
-    workspaces ||--o{ review_items : stages
-    executions ||--o{ review_items : produces
+    workspaces ||--o{ review_batches : stages
+    executions ||--o{ review_batches : produces
+    review_batches ||--o{ review_items : contains
     review_items ||--o{ review_action_logs : records
 
     workspaces ||--o{ prism_projects : owns
@@ -131,22 +136,57 @@ erDiagram
     workspaces ||--o{ decisions : records
     workspaces ||--o{ memory_facts : remembers
     workspaces ||--o{ workspace_tasks : tracks
+
+    workspaces ||--o{ dataservice_idempotency_keys : dedupes
+    workspaces ||--o{ dataservice_outbox_events : emits
+    workspaces ||--o{ dataservice_migration_reports : proves
 ```
 
 ---
 
-## 5. Canonical Table Families
+## 5. Deployment Boundary
 
-### 5.1 Workspace Core
+DataService starts as a monorepo service and must be deployable as an independent container from the first implementation slice.
+
+| Component | Path / container | Responsibility |
+| --- | --- | --- |
+| DataService domain package | `backend/src/dataservice/` | Models, contracts, Unit of Work, repositories, domain services, projections. Imported only by the DataService app and DataService tests. |
+| DataService app | `backend/src/dataservice_app/` / `wenjin-dataservice` | Internal FastAPI service exposing versioned business APIs and health endpoints. Owns business DB connectivity. |
+| DataService client | `backend/src/dataservice_client/` | Typed async HTTP client used by gateway, worker, agents, Compute, and migration-adjacent orchestration code. |
+| Migration job | `migrate` compose service, DataService image/command | Runs Alembic/bootstrap for DataService-owned tables. |
+| Gateway/backend | `wenjin-gateway` | Public API, auth, request orchestration, stream transport. It does not own DataService tables after each domain cutover. |
+| Worker/agents | `wenjin-worker`, optional LangGraph service | Executes tasks and calls DataService through the client. |
+
+Initial Docker Compose deployment runs `dataservice` on the same host and network as gateway/worker:
+
+```text
+gateway/worker/langgraph -> http://dataservice:8080 -> Postgres
+```
+
+Later deployment can move DataService to another host by changing `DATASERVICE_URL` and internal authentication settings. The gateway/worker contract does not change.
+
+Service rules:
+
+- DataService is the only service that writes canonical business tables after a domain cutover.
+- Gateway and workers can temporarily keep existing direct DB reads/writes only for domains not yet migrated; the architecture guard uses a shrinking allowlist.
+- DataService APIs are business-operation APIs, not remote CRUD. Examples: `get_workspace_context`, `stage_review_items`, `apply_review_items`, `record_execution_event`, `get_prism_projection`.
+- Internal API auth uses a shared internal token in Compose first; it can later move to mTLS/service identity without changing domain contracts.
+- Docker Compose exposes DataService only on the internal network by default; no public port is required.
+
+---
+
+## 6. Canonical Table Families
+
+### 6.1 Workspace Core
 
 #### `workspaces`
 
-Workspace identity only. Mutable preferences and arbitrary configuration move to `workspace_settings`.
+Workspace identity and lifecycle only. Mutable preferences and arbitrary configuration move to `workspace_settings`; access control moves to `workspace_memberships`.
 
 | Column | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | uuid string | yes | Primary key. |
-| `user_id` | uuid string | yes | FK to `users.id`; owner. |
+| `created_by_user_id` | uuid string | yes | FK-like external user id; creator audit. Current `user_id` migrates here. |
 | `name` | string(255) | yes | User-visible workspace name. |
 | `workspace_type` | enum string | yes | `thesis`, `sci`, `proposal`, `software_copyright`, `patent`. Replaces ORM attribute `type` in DataService contracts. |
 | `discipline` | string(100) | no | Academic or technical discipline. |
@@ -161,15 +201,43 @@ Indexes:
 
 | Name | Columns | Purpose |
 | --- | --- | --- |
-| `ix_workspaces_user_updated` | `user_id`, `updated_at` | Workspace list. |
-| `ix_workspaces_user_type` | `user_id`, `workspace_type` | Workspace type filter. |
 | `ix_workspaces_active_thread` | `active_thread_id` | Active chat lookup. |
 
 Migration notes:
 
+- Copy `workspaces.user_id` to `workspaces.created_by_user_id`.
 - Copy `workspaces.type` to `workspaces.workspace_type`.
 - Copy `workspaces.thread_id` to `workspaces.active_thread_id`.
 - Move `workspaces.config` keys into `workspace_settings.settings_json`; keep unknown keys under `settings_json.legacy_import`.
+- Seed `workspace_memberships` with one `owner` row per existing `workspaces.user_id`.
+
+#### `workspace_memberships`
+
+Workspace access and collaboration membership SSOT.
+
+| Column | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | uuid string | yes | Primary key. |
+| `workspace_id` | uuid string | yes | FK to `workspaces.id`. |
+| `user_id` | uuid string | yes | External identity id. |
+| `role` | string(40) | yes | `owner`, `editor`, `viewer`, `admin`. |
+| `status` | string(32) | yes | `active`, `invited`, `suspended`, `removed`. |
+| `created_by_user_id` | uuid string | no | Actor that created membership. |
+| `created_at` | timestamptz | yes | Creation timestamp. |
+| `updated_at` | timestamptz | yes | Last update. |
+| `removed_at` | timestamptz | no | Removal timestamp. |
+
+Constraints:
+
+- Unique active membership: `workspace_id`, `user_id`.
+- Every workspace must have at least one active `owner` membership after migration validation.
+
+Indexes:
+
+| Name | Columns | Purpose |
+| --- | --- | --- |
+| `ix_workspace_memberships_user_status` | `user_id`, `status` | Workspace list by actor. |
+| `ix_workspace_memberships_workspace_role` | `workspace_id`, `role` | Access checks and owner validation. |
 
 #### `workspace_settings`
 
@@ -218,7 +286,7 @@ Migration notes:
 - Rename current ORM field `messages` to DataService DTO field `messages_json`; DB column may remain `messages` in the mechanical migration if renaming would create avoidable churn, but DataService contracts expose `messages_json`.
 - Validate `workspaces.active_thread_id` always points to a thread with the same `workspace_id`.
 
-### 5.2 Capability Catalog
+### 6.2 Capability Catalog
 
 #### `capability_seed_revisions`
 
@@ -291,7 +359,7 @@ Migration notes:
 - Copy `config` to `skill_json` and stamp `schema_version = capability_skill.v2`.
 - Existing YAML seeds must be upgraded before the migration is applied.
 
-### 5.3 Execution Graph
+### 6.3 Execution Graph
 
 #### `executions`
 
@@ -387,16 +455,17 @@ Constraints:
 - Unique: `execution_id`, `sequence`.
 - `payload_json.schema_version` required for new event types.
 
-### 5.4 Review Queue
+### 6.4 Review Queue
 
 #### `review_items`
 
-Only source of truth for curated user review. Result cards, Prism review items, room candidates, and sandbox artifact acceptance all stage here.
+Individual reviewable mutation inside a review batch. Result cards, Prism review items, room candidates, and sandbox artifact acceptance all stage here.
 
 | Column | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | uuid string | yes | Primary key. |
 | `workspace_id` | uuid string | yes | FK to `workspaces.id`. |
+| `batch_id` | uuid string | yes | FK to `review_batches.id`. |
 | `execution_id` | uuid string | no | FK to `executions.id`; null only for manual/admin staged items. |
 | `producer_kind` | string(50) | yes | `execution_node`, `manual`, `import`, `system`. |
 | `producer_id` | string(100) | no | Node id, import id, etc. |
@@ -420,6 +489,26 @@ Constraints:
 - Unique: `workspace_id`, `logical_key`.
 - Status transitions are enforced by repository methods, not ad hoc updates.
 
+#### `review_batches`
+
+Review aggregate root and product result-card package. A batch usually maps to one execution result card and contains multiple default-selected review items.
+
+| Column | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | uuid string | yes | Primary key. |
+| `workspace_id` | uuid string | yes | FK to `workspaces.id`. |
+| `execution_id` | uuid string | no | FK to `executions.id`. |
+| `title` | string(255) | yes | Batch title. |
+| `summary` | text | no | Batch summary. |
+| `status` | string(32) | yes | `pending`, `partially_applied`, `applied`, `rejected`, `failed`. |
+| `default_selection_json` | jsonb | yes | Default checked item ids/selection policy. |
+| `producer_kind` | string(50) | yes | `execution`, `manual`, `import`, `system`. |
+| `producer_id` | string(100) | no | Execution/node/import id. |
+| `created_by` | string(100) | yes | Actor or system id. |
+| `applied_at` | timestamptz | no | Batch apply time. |
+| `created_at` | timestamptz | yes | Creation timestamp. |
+| `updated_at` | timestamptz | yes | Last update. |
+
 #### `review_action_logs`
 
 Append-only audit of review state transitions and commit application.
@@ -437,7 +526,7 @@ Append-only audit of review state transitions and commit application.
 | `payload_json` | jsonb | yes | Action metadata. |
 | `created_at` | timestamptz | yes | Action time. |
 
-### 5.5 Prism Universal Document
+### 6.5 Prism Universal Document
 
 Prism is the workspace document editor/previewer surface. It owns editable document structure and render state. LaTeX is an adapter/runtime format, not the root business concept.
 
@@ -565,7 +654,7 @@ Constraints:
 
 - Unique: `document_id`, `file_id`, `scope_kind`, `scope_key`.
 
-### 5.6 Source Library
+### 6.6 Source Library
 
 The source library unifies old `library_items`, `workspace_references`, and `reference_*` tables. A source can be a paper, book, dataset, web page, report, uploaded document, or generated/imported corpus item.
 
@@ -695,7 +784,7 @@ Unique: `workspace_id`, `provider`, `external_id`.
 | `checksum` | string(128) | yes | Content checksum. |
 | `created_at` | timestamptz | yes | Snapshot time. |
 
-### 5.7 Workspace Assets
+### 6.7 Workspace Assets
 
 #### `workspace_assets`
 
@@ -728,7 +817,7 @@ Migration notes:
 - Binary/large artifact outputs migrate to `workspace_assets`; their business acceptance state migrates to `review_items`.
 - `latex_compile_history.pdf_path` and compile logs migrate to `prism_renders` plus assets.
 
-### 5.8 Sandbox Runtime
+### 6.8 Sandbox Runtime
 
 Sandbox openness defines the harness capability boundary. The model separates environment state, job execution state, and artifacts. Sandbox policy must prevent direct host/container interference while allowing broad Python-based experimentation, data processing, plotting, and web/API access through approved network policy.
 
@@ -790,7 +879,7 @@ Sandbox-produced files staged for review or committed as assets.
 | `review_item_id` | uuid string | no | FK to `review_items.id` if staged for acceptance. |
 | `created_at` | timestamptz | yes | Creation timestamp. |
 
-### 5.9 Provenance
+### 6.9 Provenance
 
 #### `source_anchors`
 
@@ -834,7 +923,7 @@ Connects source anchors to accepted workspace targets.
 | `created_by` | string(100) | yes | Actor. |
 | `created_at` | timestamptz | yes | Creation timestamp. |
 
-### 5.10 Workspace Rooms
+### 6.10 Workspace Rooms
 
 These room tables remain first-class canonical tables, with review/provenance hooks added.
 
@@ -887,14 +976,64 @@ These room tables remain first-class canonical tables, with review/provenance ho
 | `updated_at` | timestamptz | yes | Last update. |
 | `deleted_at` | timestamptz | no | Soft delete marker. |
 
+### 6.11 Operations
+
+Operations tables support service correctness. They are DataService-owned but not user-facing product facts.
+
+#### `dataservice_idempotency_keys`
+
+| Column | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | uuid string | yes | Primary key. |
+| `workspace_id` | uuid string | no | Workspace scope when applicable. |
+| `actor_user_id` | uuid string | no | Actor user id. |
+| `idempotency_key` | string(255) | yes | Caller-provided key. |
+| `command_name` | string(120) | yes | Command endpoint/service name. |
+| `request_hash` | string(128) | yes | Hash of normalized request payload. |
+| `response_json` | jsonb | no | Stored response for duplicate calls. |
+| `status` | string(32) | yes | `running`, `completed`, `failed`. |
+| `expires_at` | timestamptz | yes | Retention boundary. |
+| `created_at` | timestamptz | yes | Creation timestamp. |
+| `updated_at` | timestamptz | yes | Last update. |
+
+Unique: `command_name`, `idempotency_key`.
+
+#### `dataservice_outbox_events`
+
+| Column | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | uuid string | yes | Primary key. |
+| `workspace_id` | uuid string | no | Workspace scope when applicable. |
+| `aggregate_kind` | string(80) | yes | Domain aggregate kind. |
+| `aggregate_id` | string(100) | yes | Aggregate id. |
+| `event_type` | string(120) | yes | Domain event name. |
+| `payload_json` | jsonb | yes | Event payload. |
+| `status` | string(32) | yes | `pending`, `published`, `failed`, `discarded`. |
+| `created_at` | timestamptz | yes | Creation timestamp. |
+| `published_at` | timestamptz | no | Publish timestamp. |
+
+#### `dataservice_migration_reports`
+
+| Column | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `id` | uuid string | yes | Primary key. |
+| `migration_revision` | string(64) | yes | Alembic revision. |
+| `domain` | string(80) | yes | Migrated domain. |
+| `source_table` | string(120) | no | Source table. |
+| `target_table` | string(120) | no | Target table. |
+| `row_counts_json` | jsonb | yes | Source/copied/skipped counts. |
+| `checks_json` | jsonb | yes | FK/hash/unique/orphan validation result. |
+| `status` | string(32) | yes | `succeeded`, `failed`. |
+| `created_at` | timestamptz | yes | Report time. |
+
 ---
 
-## 6. Current Table Disposition Matrix
+## 7. Current Table Disposition Matrix
 
 | Current table | Current model | Disposition | Canonical target | Notes |
 | --- | --- | --- | --- | --- |
 | `users` | `User` | keep outside first milestone | `users` | Identity domain remains unchanged. |
-| `workspaces` | `Workspace` | reshape | `workspaces` | Rename contract field `type` to `workspace_type`; `thread_id` becomes `active_thread_id`; `config` moves to settings. |
+| `workspaces` | `Workspace` | reshape | `workspaces`, `workspace_memberships` | Rename contract field `type` to `workspace_type`; `thread_id` becomes `active_thread_id`; `config` moves to settings; seed owner memberships from current `user_id`. |
 | `workspace_settings` | `WorkspaceSettings` | reshape | `workspace_settings` | Rename JSON fields and add sandbox policy. |
 | `threads` | `Thread` | keep/reshape | `threads` | Workspace membership remains here; active selection belongs to workspace. |
 | `capabilities` | `Capability` | reshape | `capability_definitions` | Add `schema_version`, `seed_revision_id`, explicit JSON field names. |
@@ -903,7 +1042,7 @@ These room tables remain first-class canonical tables, with review/provenance ho
 | `execution_nodes` | `ExecutionNodeRecord` | reshape | `execution_nodes` | Keep node state; add skill id conventions and event split. |
 | `task_records` | `TaskRecord` | demote to infra | worker infra table | Product state must not read from it. Long-term queue replacement can drop it. |
 | `subagent_task_records` | `SubagentTaskRecord` | merge/delete | `execution_nodes`, `execution_events` | Subagent lifecycle becomes node lifecycle. |
-| `workspace_run` | `WorkspaceRunRow` | merge/delete | `executions`, `review_items` | `result_card` becomes `review_items`. |
+| `workspace_run` | `WorkspaceRunRow` | merge/delete | `executions`, `review_batches`, `review_items` | `result_card` becomes review batch/items. |
 | `run_history` | `RunHistory` | projection/delete | query projection from `executions` | Runtime should compute from executions, events, review items, assets. |
 | `compute_sessions` | `ComputeSessionRecord` | projection/cache | DataService projection cache | Rebuildable UI shell state; not business SSOT. |
 | `library_items` | `LibraryItem` | merge/delete | `sources`, `source_assets`, `workspace_assets` | Older reference library shape. |
@@ -920,7 +1059,7 @@ These room tables remain first-class canonical tables, with review/provenance ho
 | `latex_projects` | `LatexProject` | rename/reshape | `prism_projects`, `prism_documents`, `prism_files` | LaTeX becomes Prism adapter. |
 | `latex_compile_history` | `LatexCompileHistory` | merge/delete | `prism_renders`, `workspace_assets` | PDFs/logs become assets behind render rows. |
 | `latex_templates` | `LatexTemplate` | keep as adapter catalog | `prism_adapter_templates` or existing table in Prism package | No runtime fallback; template catalog can migrate after Prism model. |
-| `prism_review_items` | `PrismReviewItem` | merge/delete | `review_items` | Review is universal, not Prism-specific. |
+| `prism_review_items` | `PrismReviewItem` | merge/delete | `review_batches`, `review_items` | Review is universal, not Prism-specific. |
 | `prism_source_links` | `PrismSourceLink` | merge/delete | `provenance_links`, `source_anchors` | Source links become general provenance. |
 | `prism_protected_sections` | `PrismProtectedSection` | rename/reshape | `prism_protected_scopes` | General file/section/range scopes. |
 | `sandboxes` | `Sandbox` | rename/reshape | `sandbox_environments` | Environment state must not be conflated with jobs/artifacts. |
@@ -939,9 +1078,9 @@ These room tables remain first-class canonical tables, with review/provenance ho
 
 ---
 
-## 7. Migration Strategy
+## 8. Migration Strategy
 
-### 7.1 Cutover Policy
+### 8.1 Cutover Policy
 
 1. Run migration during a maintenance window.
 2. Stop write traffic before data copy.
@@ -954,11 +1093,11 @@ These room tables remain first-class canonical tables, with review/provenance ho
 
 No endpoint, repository, worker, or frontend code may provide runtime fallback to legacy tables.
 
-### 7.2 Domain Migration Order
+### 8.2 Domain Migration Order
 
 | Order | Domain | Reason |
 | --- | --- | --- |
-| 1 | DataService package, Unit of Work, import guard | Prevents new direct DB debt before moving data. |
+| 1 | DataService service skeleton, Unit of Work, client, import guard | Prevents new direct DB debt before moving data and creates the deployable service boundary. |
 | 2 | Workspace Core | Every other domain is workspace-scoped. |
 | 3 | Capability Catalog | Lead dispatch depends on canonical capability definitions. |
 | 4 | Execution Graph | Result review, sandbox, run history, and projections depend on executions. |
@@ -970,7 +1109,7 @@ No endpoint, repository, worker, or frontend code may provide runtime fallback t
 | 10 | Workspace Rooms | Add review/provenance links and remove direct candidate writes. |
 | 11 | Projection cleanup | Remove run_history/compute duplicate reads and legacy imports. |
 
-### 7.3 Required Migration Checks
+### 8.3 Required Migration Checks
 
 Every data-copy migration must fail loudly when these checks fail:
 
@@ -987,81 +1126,120 @@ Every data-copy migration must fail loudly when these checks fail:
 
 ---
 
-## 8. DataService Package Shape
+## 9. DataService Package Shape
 
 The implementation must converge toward this package boundary:
 
 ```text
 backend/src/dataservice/
+  common/
+    actor.py
+    errors.py
+    idempotency.py
+    unit_of_work.py
+  domains/
+    workspace/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      projection.py
+      policies.py
+    catalog/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      seed_loader.py
+    execution/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      projection.py
+    review/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      target_handlers.py
+    asset/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+    prism/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      projection.py
+    source/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      projection.py
+    sandbox/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      projection.py
+    provenance/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+    rooms/
+      models.py
+      contracts.py
+      repository.py
+      service.py
+      projection.py
+    operations/
+      models.py
+      repository.py
+      outbox.py
+backend/src/dataservice_app/
   __init__.py
-  session.py
-  unit_of_work.py
-  models/
-    workspace.py
-    catalog.py
-    execution.py
-    review.py
-    prism_document.py
-    source.py
-    asset.py
-    sandbox.py
-    provenance.py
-    rooms.py
+  app.py
+  health.py
+  deps.py
+  auth.py
+  routers/
+    __init__.py
+backend/src/dataservice_client/
+  __init__.py
+  client.py
+  errors.py
   contracts/
-    workspace.py
-    catalog.py
-    execution.py
-    review.py
-    prism_document.py
-    source.py
-    asset.py
-    sandbox.py
-    provenance.py
-    rooms.py
-  repositories/
-    workspaces.py
-    catalog.py
-    executions.py
-    review_items.py
-    prism_documents.py
-    sources.py
-    assets.py
-    sandboxes.py
-    provenance.py
-    rooms.py
-  projections/
-    workspace_context.py
-    live_workflow.py
-    prism_surface.py
-    compute_launch.py
-    run_history.py
-    library.py
-    sandbox.py
-    activity.py
-  guards/
-    import_guard.py
 ```
 
 Rules:
 
 - `backend/src/database/models/` is retired for migrated business domains after their DataService move.
-- API routers, agents, services, workers, and frontend API adapters import DataService repositories/contracts, not ORM models.
-- Existing DB session wiring can be reused internally by `dataservice.session`, but direct session use outside DataService is blocked for business data.
+- Only `backend/src/dataservice_app/` and DataService tests import DataService repositories/models.
+- API routers, agents, services, workers, and frontend API adapters import `backend/src/dataservice_client`, not DataService repositories/models.
+- Existing DB session wiring can be reused internally by `dataservice.common.unit_of_work`, but direct session use outside DataService is blocked for business data.
 - Repositories expose intent methods such as `stage_review_item`, `apply_review_item`, `record_execution_event`, `create_prism_file_version`, not generic CRUD only.
+- DataService code is domain-sliced; avoid recreating a large global `models/` or `services/` layer.
 
 ---
 
-## 9. Architecture Guard
+## 10. Architecture Guard
 
 The guard is part of the first implementation task, not a cleanup task.
 
-### 9.1 Import Rules
+### 10.1 Import Rules
 
-Disallowed outside `backend/src/dataservice/`, Alembic migrations, and tests explicitly marked as DataService migration tests:
+Disallowed outside `backend/src/dataservice/`, `backend/src/dataservice_app/`, Alembic migrations, and tests explicitly marked as DataService migration tests:
 
 ```text
 from backend.src.database.models
 from src.database.models
+from src.dataservice.domains.*.models
+from src.dataservice.domains.*.repository
 session.add(
 session.merge(
 session.delete(
@@ -1074,12 +1252,13 @@ Allowed exceptions:
 
 | Path | Reason |
 | --- | --- |
+| `backend/src/dataservice_app/` | The DataService service process needs domain repositories. |
 | `backend/alembic/versions/` | Migrations need table definitions/SQL. |
 | `backend/tests/dataservice/` | DataService tests can inspect ORM behavior. |
 | `backend/tests/database/conftest.py` | SQLite mock model setup until test harness moves. |
 | Identity/billing/admin modules before their milestones | Explicitly outside the first DataService cut. |
 
-### 9.2 Test Command
+### 10.2 Test Command
 
 The guard must be runnable locally:
 
@@ -1096,15 +1275,15 @@ PASSED tests/dataservice/test_architecture_guard.py::test_no_direct_business_ses
 
 ---
 
-## 10. Projection Contracts
+## 11. Projection Contracts
 
 Projection modules are read-only and return Pydantic schemas or plain dictionaries.
 
 | Projection | Source tables | Consumer |
 | --- | --- | --- |
-| `workspace_context` | `workspaces`, `workspace_settings`, `threads` | Workspace landing and settings. |
-| `live_workflow` | `executions`, `execution_nodes`, `execution_events`, `review_items` | Right-side workbench workflow panel. |
-| `prism_surface` | `prism_*`, `review_items`, `provenance_links`, `workspace_assets` | Prism editor/previewer. |
+| `workspace_context` | `workspaces`, `workspace_memberships`, `workspace_settings`, `threads` | Workspace landing and settings. |
+| `live_workflow` | `executions`, `execution_nodes`, `execution_events`, `review_batches`, `review_items` | Right-side workbench workflow panel. |
+| `prism_surface` | `prism_*`, `review_batches`, `review_items`, `provenance_links`, `workspace_assets` | Prism editor/previewer. |
 | `compute_launch` | `workspaces`, `workspace_settings`, `executions`, `sandbox_environments` | Compute panel launch/restore state. |
 | `run_history` | `executions`, `execution_events`, `review_items`, `workspace_assets` | Run History room. |
 | `library` | `sources`, `source_assets`, `source_text_units`, `provenance_links` | Library room and citation picker. |
@@ -1115,37 +1294,64 @@ Projection modules cannot call repository write methods.
 
 ---
 
-## 11. Implementation Tasks
+## 12. Implementation Tasks
 
-### Task 1: Create DataService Architecture Skeleton And Guard
+### Task 1: Create DataService Service Skeleton, Client, And Guard
 
 **Files:**
 
 - Create: `/Users/ze/wenjin/backend/src/dataservice/__init__.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/unit_of_work.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/session.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/guards/import_guard.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/app_boundary.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/actor.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/errors.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/idempotency.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/pagination.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/common/unit_of_work.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/operations/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/operations/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/operations/outbox.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/__init__.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/app.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/auth.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/deps.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/__init__.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/health.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/__init__.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/client.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/errors.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/__init__.py`
+- Modify: `/Users/ze/wenjin/backend/Dockerfile`
+- Modify: `/Users/ze/wenjin/docker-compose.yml`
+- Modify: `/Users/ze/wenjin/docker-compose.local-build.yml`
 - Create: `/Users/ze/wenjin/backend/tests/dataservice/test_architecture_guard.py`
 
 **Acceptance:**
 
-- Guard test fails if a migrated business module imports `src.database.models`.
-- Guard permits Alembic migrations and explicit DataService tests.
+- DataService exposes `/livez` and `/readyz` on its own FastAPI app.
+- Docker Compose has a `dataservice` container and gateway/worker have `DATASERVICE_URL`.
+- Gateway/worker call DataService through `dataservice_client`, not direct imports.
+- Guard test fails if a non-DataService runtime module imports `src.dataservice.domains.*.models`, `src.dataservice.domains.*.repository`, or migrated `src.database.models`.
+- Guard permits DataService app, Alembic migrations, and explicit DataService tests.
 - No domain migration begins before this task passes.
 
 ### Task 2: Move Workspace Core To DataService
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/workspace.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/workspace.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/workspaces.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/workspace_context.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/workspace/policies.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/workspace.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/workspace.py`
 - Create migration for workspace field reshaping.
 
 **Acceptance:**
 
 - `workspace_type` and `active_thread_id` are the DataService contract fields.
+- `workspace_memberships` is the access SSOT and is seeded from existing workspace owners.
 - `workspaces.config` has no runtime reader after migration.
 - Thread/workspace membership consistency is validated.
 
@@ -1153,9 +1359,13 @@ Projection modules cannot call repository write methods.
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/catalog.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/catalog.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/catalog.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/catalog/seed_loader.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/catalog.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/catalog.py`
 - Update seed loader to write DataService schemas.
 
 **Acceptance:**
@@ -1168,10 +1378,13 @@ Projection modules cannot call repository write methods.
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/execution.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/execution.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/executions.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/live_workflow.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/execution/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/execution.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/execution.py`
 
 **Acceptance:**
 
@@ -1179,18 +1392,22 @@ Projection modules cannot call repository write methods.
 - `subagent_task_records`, `workspace_run`, and `generation_records` are no longer product state readers.
 - One-active-execution-per-workspace invariant remains enforced.
 
-### Task 5: Move Review Queue
+### Task 5: Move Review Batch Aggregate
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/review.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/review.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/review_items.py`
-- Update commit service to apply `review_items`.
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/review/target_handlers.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/review.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/review.py`
+- Update commit service to apply `review_batches` / `review_items`.
 
 **Acceptance:**
 
-- Prism review, result cards, room candidates, and sandbox artifact review all use `review_items`.
+- Prism review, result cards, room candidates, and sandbox artifact review all use `review_batches` / `review_items`.
 - `prism_review_items` has no runtime reader.
 - Commit actions append `review_action_logs`.
 
@@ -1198,9 +1415,12 @@ Projection modules cannot call repository write methods.
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/asset.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/asset.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/assets.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/asset/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/asset.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/asset.py`
 
 **Acceptance:**
 
@@ -1212,10 +1432,14 @@ Projection modules cannot call repository write methods.
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/prism_document.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/prism_document.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/prism_documents.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/prism_surface.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/prism/adapters/latex.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/prism.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/prism.py`
 
 **Acceptance:**
 
@@ -1227,13 +1451,20 @@ Projection modules cannot call repository write methods.
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/source.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/provenance.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/source.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/provenance.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/sources.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/provenance.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/library.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/importers.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/source/preprocess.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/provenance/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/source.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/source.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/provenance.py`
 
 **Acceptance:**
 
@@ -1245,10 +1476,14 @@ Projection modules cannot call repository write methods.
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/sandbox.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/sandbox.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/sandboxes.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/projections/sandbox.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/sandbox/policy.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/sandbox.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/sandbox.py`
 
 **Acceptance:**
 
@@ -1261,9 +1496,13 @@ Projection modules cannot call repository write methods.
 
 **Files:**
 
-- Create: `/Users/ze/wenjin/backend/src/dataservice/models/rooms.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/contracts/rooms.py`
-- Create: `/Users/ze/wenjin/backend/src/dataservice/repositories/rooms.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/models.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/contracts.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/repository.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/service.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice/domains/rooms/projection.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_app/routers/rooms.py`
+- Create: `/Users/ze/wenjin/backend/src/dataservice_client/contracts/rooms.py`
 
 **Acceptance:**
 
@@ -1276,7 +1515,7 @@ Projection modules cannot call repository write methods.
 **Files:**
 
 - Modify services/agents/API modules found by the architecture guard.
-- Remove runtime reads from legacy tables listed as merge/delete in Section 6.
+- Remove runtime reads from legacy tables listed as merge/delete in Section 7.
 
 **Acceptance:**
 
@@ -1286,16 +1525,16 @@ Projection modules cannot call repository write methods.
 
 ---
 
-## 12. Self-Review Checklist
+## 13. Self-Review Checklist
 
 Before the first implementation PR/commit series starts, verify:
 
-- The canonical table family for every current business table is listed in Section 6.
+- The canonical table family for every current business table is listed in Section 7.
 - Every table with user-visible write effects has a repository owner.
 - Every accepted user decision is represented: no compatibility layer, no fallback, Python-only sandbox jobs, broad but safe sandbox policy, source/data model can expand.
 - `sandbox_environments` is included because the existing `sandboxes` table stores environment state, not only jobs/artifacts.
 - Large files and binary outputs always flow through `workspace_assets`.
-- Review state is universal through `review_items`; no Prism-only or result-card-only review table remains.
+- Review state is universal through `review_batches` / `review_items`; no Prism-only or result-card-only review table remains.
 - Execution is the product run SSOT; task/worker rows are infrastructure only.
 - Prism is adapter-neutral; LaTeX is not the business root.
 - The migration strategy includes row-count, FK, uniqueness, content hash, orphan, and runtime-access checks.
