@@ -117,7 +117,7 @@ fi
 cat <<EOF
 [docker-push] done
 
-Use these values with docker-compose.prebuilt.yml:
+Use these values with docker-compose.yml:
 BACKEND_GATEWAY_IMAGE=${BACKEND_REPO}:${TAG}
 LANGGRAPH_IMAGE=${LANGGRAPH_REPO}:${TAG}
 FRONTEND_IMAGE=${FRONTEND_REPO}:${TAG}

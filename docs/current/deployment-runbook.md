@@ -86,30 +86,25 @@ cp backend/.env.example backend/.env
 
 ## 3. Docker Compose Runbook
 
-### 3.1 本地构建启动
+### 3.1 预构建镜像启动
 
 ```bash
 cd "$REPO_ROOT"
 cp backend/.env.example backend/.env
 cat > .env <<EOF
 WENJIN_PROJECT_DIR=$REPO_ROOT
-PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
-NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
-APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
-NPM_REGISTRY=https://registry.npmmirror.com
-NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
-ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
+BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
+LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
+FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
 TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
 DOCKER_GID=0
 ADMIN_PASSWORD=change-this-admin-password
 GRAFANA_PASSWORD=change-this-grafana-password
 EOF
-docker compose up -d --build
+docker compose up -d
 ```
 
-如果网络环境经常重置 Docker Hub token 请求，优先使用根目录 `.env.docker-cn.example` 的镜像源配置，或直接使用预构建镜像部署。
+默认 `docker-compose.yml` 使用预构建镜像，不执行本地 app build。这样部署启动不再依赖 `node:24-alpine` / `python:3.13-slim` 等 base image 的远端 metadata 请求。
 
 `DOCKER_GID=0` 是 Docker Desktop 默认值，因为 `/var/run/docker.sock` 在容器内通常是 `root:root`。Linux 服务器如 socket 属于 `docker` 组，应改成宿主机 docker 组 id：
 
@@ -117,25 +112,24 @@ docker compose up -d --build
 getent group docker | cut -d: -f3
 ```
 
-### 3.2 预构建镜像部署
+### 3.2 本地构建启动
 
-预构建部署不执行本地 build，适合生产或网络不稳定环境：
+只有需要重建应用镜像时才走本地构建 override：
 
 ```bash
 cd "$REPO_ROOT"
 cp backend/.env.example backend/.env
-cp .env.prebuilt.example .env
+cp .env.docker-cn.example .env
 # 编辑 .env 中的 ADMIN_PASSWORD、GRAFANA_PASSWORD、WENJIN_PROJECT_DIR
-scripts/docker-deploy-prebuilt.sh
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 
-等价手动命令：
+如镜像源偶发 HEAD/metadata 错误，可先预拉 base image 后重试：
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.prebuilt.yml \
-  up -d --pull missing
+docker pull "$NODE_IMAGE"
+docker pull "$PYTHON_IMAGE"
+scripts/docker-retry-build.sh
 ```
 
 默认预构建镜像：

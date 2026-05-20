@@ -19,18 +19,12 @@ echo "[prebuilt-deploy] using env file: ${ENV_FILE}"
 
 docker compose \
   --env-file "${ENV_FILE}" \
-  -f docker-compose.yml \
-  -f docker-compose.prebuilt.yml \
   pull
 
 docker compose \
   --env-file "${ENV_FILE}" \
-  -f docker-compose.yml \
-  -f docker-compose.prebuilt.yml \
   up -d --remove-orphans
 
 docker compose \
   --env-file "${ENV_FILE}" \
-  -f docker-compose.yml \
-  -f docker-compose.prebuilt.yml \
   ps

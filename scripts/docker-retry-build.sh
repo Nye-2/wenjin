@@ -11,6 +11,10 @@ cd "$PROJECT_ROOT"
 MAX_RETRIES=10
 RETRY=0
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-.env}"
+COMPOSE_FILES=(
+    -f docker-compose.yml
+    -f docker-compose.local-build.yml
+)
 
 while [ $RETRY -lt $MAX_RETRIES ]; do
     RETRY=$((RETRY + 1))
@@ -19,7 +23,7 @@ while [ $RETRY -lt $MAX_RETRIES ]; do
     echo "🔄 第 $RETRY 次尝试构建..."
     echo "=========================================="
     
-    if docker compose --env-file "${COMPOSE_ENV_FILE}" up -d --build; then
+    if docker compose --env-file "${COMPOSE_ENV_FILE}" "${COMPOSE_FILES[@]}" up -d --build; then
         echo ""
         echo "✅ 构建成功！"
         exit 0

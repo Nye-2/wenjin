@@ -1,34 +1,8 @@
 # 问津 Wenjin - Docker Compose Configuration
-# Production deployment on port 2026
-
-x-backend-gateway-build: &backend_gateway_build
-  context: ./backend
-  dockerfile: Dockerfile
-  target: gateway
-  args:
-    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
-    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    APT_MIRROR: ${APT_MIRROR:-}
-    APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
-
-x-langgraph-build: &langgraph_build
-  context: ./backend
-  dockerfile: Dockerfile
-  target: langgraph
-  args:
-    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
-    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
-    APT_MIRROR: ${APT_MIRROR:-}
-    APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
-
-x-frontend-build: &frontend_build
-  context: ./frontend
-  dockerfile: Dockerfile
-  args:
-    NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
-    ALPINE_MIRROR: ${ALPINE_MIRROR:-}
-    NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
-    NPM_FALLBACK_REGISTRY: ${NPM_FALLBACK_REGISTRY:-https://registry.npmjs.org}
+# Production deployment on port 2026.
+#
+# Default deployment uses prebuilt images. Local rebuilds are explicit:
+#   docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 
 # TeXLive image build config (manual build only: docker build -t wenjin/texlive:2024 backend/docker/images/texlive)
 # x-texlive-build: &texlive_build
@@ -80,7 +54,7 @@ services:
   # Build manually: docker build -t wenjin/texlive:2024 backend/docker/images/texlive
   # Or pull from Docker Hub: docker pull <username>/wenjin-texlive:2024
   texlive:
-    image: ${TEXLIVE_IMAGE_NAME:-wenjin/texlive:2024}
+    image: ${TEXLIVE_IMAGE_NAME:-junze0514/wenjin-texlive:2024}
     container_name: wenjin-texlive
     restart: "no"
     command:
@@ -94,8 +68,7 @@ services:
 
   # FastAPI Gateway Service
   migrate:
-    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
-    build: *backend_gateway_build
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-migrate
     env_file:
       - ./backend/.env
@@ -115,8 +88,7 @@ services:
 
   # Bootstrap Admin User (runs once after migration)
   bootstrap-admin:
-    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
-    build: *backend_gateway_build
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-bootstrap-admin
     env_file:
       - ./backend/.env
@@ -135,8 +107,7 @@ services:
 
   # FastAPI Gateway Service
   gateway:
-    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
-    build: *backend_gateway_build
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-gateway
     restart: unless-stopped
     env_file:
@@ -179,8 +150,7 @@ services:
       - wenjin-network
 
   worker:
-    image: ${BACKEND_GATEWAY_IMAGE:-wenjin-backend}
-    build: *backend_gateway_build
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-worker
     restart: unless-stopped
     env_file:
@@ -228,8 +198,7 @@ services:
   # LangGraph Agent Server
   langgraph:
     profiles: ["langgraph"]
-    image: ${LANGGRAPH_IMAGE:-wenjin-langgraph}
-    build: *langgraph_build
+    image: ${LANGGRAPH_IMAGE:-junze0514/wenjin-langgraph:latest}
     container_name: wenjin-langgraph
     restart: unless-stopped
     env_file:
@@ -270,8 +239,7 @@ services:
 
   # Next.js Frontend
   frontend:
-    image: ${FRONTEND_IMAGE:-wenjin-frontend}
-    build: *frontend_build
+    image: ${FRONTEND_IMAGE:-junze0514/wenjin-frontend:latest}
     container_name: wenjin-frontend
     restart: unless-stopped
     environment:

@@ -267,7 +267,7 @@ docker compose logs --since=30m worker | rg "WorkerLostError|ExceptionInfo|Cance
 若仍出现旧签名，执行：
 
 ```bash
-docker compose up -d --build gateway worker
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build gateway worker
 ```
 
 ## 11. `docker compose up --build` 拉取基础镜像失败
@@ -282,36 +282,36 @@ load metadata for docker.io/library/python:3.13-slim
 
 原因：
 
-- 构建阶段仍直接访问 DockerHub 官方 registry；
-- 当前网络到 `auth.docker.io` 不稳定，导致基础镜像 metadata 或 token 请求被重置。
+- 你正在走本地构建 override，构建阶段仍需要解析 Node/Python base image；
+- 当前网络到 registry 或镜像源的 manifest metadata 请求不稳定，可能出现 token reset、HEAD 401/500 等错误。
 
 修复：
 
 ```bash
-cp .env.docker-cn.example .env
-docker compose up -d --build
+docker compose up -d
 ```
 
-确认 `.env` 中至少包含：
+默认 `docker-compose.yml` 使用预构建应用镜像，不再触发 frontend/backend base image 解析。确认 `.env` 中至少包含：
 
 ```bash
-PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
-NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
+BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
+LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
+FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
+TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
 REDIS_IMAGE=docker.m.daocloud.io/library/redis:8-alpine
 NGINX_IMAGE=docker.m.daocloud.io/library/nginx:alpine
 POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16
 GRAFANA_IMAGE=docker.m.daocloud.io/grafana/grafana:latest
 PROMETHEUS_IMAGE=docker.m.daocloud.io/prom/prometheus:latest
-APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
-APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
 ```
 
-如果目标机器不需要本地构建，直接使用预构建镜像：
+如果确实需要本地构建，使用显式 local-build override，并在失败时先预拉 base image：
 
 ```bash
-cp .env.prebuilt.example .env
-# 填写 POSTGRES_PASSWORD / REDIS_PASSWORD / SECRET_KEY 等必填项
-scripts/docker-deploy-prebuilt.sh
+cp .env.docker-cn.example .env
+docker pull "$NODE_IMAGE"
+docker pull "$PYTHON_IMAGE"
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 
 ## 12. `/readyz` 显示 `execution` 不健康，日志出现 Docker socket 权限错误
@@ -331,7 +331,7 @@ permission denied while trying to connect to the Docker daemon socket at unix://
 
 ```bash
 DOCKER_GID=0
-docker compose up -d --build gateway worker
+docker compose up -d gateway worker
 curl -fsS http://localhost:2026/readyz
 ```
 

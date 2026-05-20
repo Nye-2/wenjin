@@ -109,29 +109,22 @@ cp backend/.env.example backend/.env
 
 cat > .env <<EOF
 WENJIN_PROJECT_DIR=$PWD
-PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
-NODE_IMAGE=docker.m.daocloud.io/library/node:24-alpine
-PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
-APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
-APT_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
-NPM_REGISTRY=https://registry.npmmirror.com
-NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
-ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
+BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
+LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
+FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
 TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
 DOCKER_GID=0
 ADMIN_PASSWORD=change-this-admin-password
 GRAFANA_PASSWORD=change-this-grafana-password
 EOF
 
-docker compose up -d --build
+docker compose up -d
 ```
 
-网络不稳定或不想本地构建时，使用预构建镜像：
+默认 Compose 使用预构建镜像，不依赖本机构建 Node/Python base image。需要本地重建应用镜像时显式加 local-build override：
 
 ```bash
-cp .env.prebuilt.example .env
-# 编辑 .env 中的密码和 WENJIN_PROJECT_DIR
-scripts/docker-deploy-prebuilt.sh
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 
 默认入口：

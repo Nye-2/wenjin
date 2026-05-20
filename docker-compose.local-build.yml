@@ -1,0 +1,61 @@
+# Docker Compose override for explicit local image builds.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
+#
+# Default docker-compose.yml uses prebuilt deploy images. Keep local builds opt-in so
+# production startup does not depend on DockerHub or mirror base-image metadata.
+
+x-backend-gateway-build: &backend_gateway_build
+  context: ./backend
+  dockerfile: Dockerfile
+  target: gateway
+  args:
+    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    APT_MIRROR: ${APT_MIRROR:-}
+    APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
+
+x-langgraph-build: &langgraph_build
+  context: ./backend
+  dockerfile: Dockerfile
+  target: langgraph
+  args:
+    PYTHON_IMAGE: ${PYTHON_IMAGE:-python:3.13-slim}
+    PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    APT_MIRROR: ${APT_MIRROR:-}
+    APT_SECURITY_MIRROR: ${APT_SECURITY_MIRROR:-}
+
+x-frontend-build: &frontend_build
+  context: ./frontend
+  dockerfile: Dockerfile
+  args:
+    NODE_IMAGE: ${NODE_IMAGE:-node:24-alpine}
+    ALPINE_MIRROR: ${ALPINE_MIRROR:-}
+    NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+    NPM_FALLBACK_REGISTRY: ${NPM_FALLBACK_REGISTRY:-https://registry.npmjs.org}
+
+services:
+  migrate:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+
+  bootstrap-admin:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+
+  gateway:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+
+  worker:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+
+  langgraph:
+    image: ${LOCAL_LANGGRAPH_IMAGE:-wenjin-langgraph}
+    build: *langgraph_build
+
+  frontend:
+    image: ${LOCAL_FRONTEND_IMAGE:-wenjin-frontend}
+    build: *frontend_build
