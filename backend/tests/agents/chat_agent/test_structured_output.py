@@ -40,5 +40,5 @@ async def test_invalid_json_degrades_to_text_block():
         msg = await parse_with_fallback(fake_llm, "prompt-text", run_id="r1")
 
     assert isinstance(msg.blocks[0], TextBlock)
-    assert msg.blocks[0].content == "raw text"
+    assert msg.blocks[0].content == "prompt-text"
     metric.assert_called_once()

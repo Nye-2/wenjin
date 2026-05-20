@@ -1,6 +1,6 @@
 """Tests for ReferralService — focus on validation logic."""
 
-import pytest
+import asyncio
 
 
 def test_referral_service_import():
@@ -11,7 +11,6 @@ def test_referral_service_import():
 
 def test_referral_cannot_refer_self():
     """record() should reject referrer == referee."""
-    import asyncio
     from unittest.mock import AsyncMock
 
     async def _run():
@@ -24,5 +23,5 @@ def test_referral_cannot_refer_self():
         except ValueError as e:
             return "cannot refer self" in str(e)
 
-    result = asyncio.get_event_loop().run_until_complete(_run())
+    result = asyncio.run(_run())
     assert result

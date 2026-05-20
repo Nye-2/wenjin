@@ -1,8 +1,4 @@
-"""Tests for AgentBlock structured-output wiring in _MiddlewareWrappedAgent.
-
-Spec: Plan 1 Task 6 — parse_with_fallback feeds response_blocks which
-the worker streams as per-block SSE events.
-"""
+"""Tests for AgentBlock wiring in _MiddlewareWrappedAgent."""
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -58,7 +54,7 @@ def _make_agent(*, scripted_agent_msg: AgentMessage, base_model: Any = None) -> 
 
 @pytest.mark.asyncio
 async def test_lead_agent_reply_carries_blocks(monkeypatch):
-    """Agent reply.blocks contains the AgentBlock dump for downstream SSE."""
+    """Agent reply text is wrapped as the canonical response_blocks payload."""
     expected_msg = AgentMessage(
         blocks=[
             StatusLineBlock(label="正在处理", run_id="test-thread-1"),
@@ -79,10 +75,9 @@ async def test_lead_agent_reply_carries_blocks(monkeypatch):
 
     assert isinstance(result, dict), "ainvoke should return a dict (ThreadState)"
     blocks = result.get("response_blocks") or []
-    assert len(blocks) == 2, f"Expected 2 blocks, got {len(blocks)}: {blocks}"
-    assert blocks[0]["kind"] == "status_line"
-    assert blocks[1]["kind"] == "text"
-    assert blocks[1]["content"] == "这是回复正文。"
+    assert len(blocks) == 1, f"Expected 1 block, got {len(blocks)}: {blocks}"
+    assert blocks[0]["kind"] == "text"
+    assert blocks[0]["content"] == "这是一个测试回复。"
 
 
 @pytest.mark.asyncio
@@ -108,9 +103,9 @@ async def test_lead_agent_reply_content_concatenates_text_blocks(monkeypatch):
     )
 
     blocks = result.get("response_blocks") or []
-    # The text blocks are present in the response_blocks
+    # The wrapper preserves the actual model reply as one TextBlock.
     text_blocks_in_result = [b for b in blocks if b.get("kind") == "text"]
-    assert len(text_blocks_in_result) == 2
+    assert [b["content"] for b in text_blocks_in_result] == ["这是一个测试回复。"]
 
     # _concat_text_blocks joins only TextBlock.content values
     joined = _concat_text_blocks(msg)

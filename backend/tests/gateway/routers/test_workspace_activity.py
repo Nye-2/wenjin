@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -252,21 +251,29 @@ def test_workspace_capability_action_resolution_returns_backend_state():
     artifact.content = {"paper_title": "LLM Planning"}
     artifact.created_at = datetime.now(UTC)
 
-    with patch(
-        "src.gateway.routers.workspaces.resolve_feature_action_state",
-        return_value={
-            "source_artifact_id": "artifact-2",
-            "follow_up_prompt": "继续深化框架",
-            "route_params": {
-                "topic": "LLM planning",
+    with (
+        patch(
+            "src.academic.services.artifact_service.ArtifactService",
+        ) as artifact_service_cls,
+        patch(
+            "src.gateway.routers.workspaces.resolve_feature_action_state",
+            return_value={
                 "source_artifact_id": "artifact-2",
+                "follow_up_prompt": "继续深化框架",
+                "route_params": {
+                    "topic": "LLM planning",
+                    "source_artifact_id": "artifact-2",
+                },
+                "rerun_params": {
+                    "topic": "LLM planning",
+                },
+                "rerun_unavailable_reason": None,
             },
-            "rerun_params": {
-                "topic": "LLM planning",
-            },
-            "rerun_unavailable_reason": None,
-        },
+        ),
     ):
+        artifact_service_cls.return_value.list_by_workspace = AsyncMock(
+            return_value=[artifact],
+        )
         response = client.post(
             "/workspaces/ws-1/capabilities/deep_research/resolve-action",
             json={

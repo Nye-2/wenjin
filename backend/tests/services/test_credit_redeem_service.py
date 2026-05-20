@@ -1,16 +1,14 @@
 """Tests for CreditRedeemService — focus on validation logic."""
 
-import pytest
+import asyncio
 
 from src.services.credit_redeem_service import CreditRedeemService, RedeemError
-
 
 # ============ Validation tests (sync, no DB needed) ============
 
 
 def test_batch_generate_rejects_zero_amount():
     """batch_generate should reject amount <= 0."""
-    import asyncio
     async def _run():
         from unittest.mock import AsyncMock
         db = AsyncMock()
@@ -24,12 +22,11 @@ def test_batch_generate_rejects_zero_amount():
         except ValueError as e:
             return "amount must be > 0" in str(e)
 
-    result = asyncio.get_event_loop().run_until_complete(_run())
+    result = asyncio.run(_run())
     assert result
 
 
 def test_batch_generate_rejects_negative_amount():
-    import asyncio
     async def _run():
         from unittest.mock import AsyncMock
         db = AsyncMock()
@@ -43,12 +40,11 @@ def test_batch_generate_rejects_negative_amount():
         except ValueError as e:
             return "amount must be > 0" in str(e)
 
-    result = asyncio.get_event_loop().run_until_complete(_run())
+    result = asyncio.run(_run())
     assert result
 
 
 def test_batch_generate_rejects_zero_count():
-    import asyncio
     async def _run():
         from unittest.mock import AsyncMock
         db = AsyncMock()
@@ -62,12 +58,11 @@ def test_batch_generate_rejects_zero_count():
         except ValueError as e:
             return "count must be 1..10000" in str(e)
 
-    result = asyncio.get_event_loop().run_until_complete(_run())
+    result = asyncio.run(_run())
     assert result
 
 
 def test_batch_generate_rejects_over_10000_count():
-    import asyncio
     async def _run():
         from unittest.mock import AsyncMock
         db = AsyncMock()
@@ -81,12 +76,11 @@ def test_batch_generate_rejects_over_10000_count():
         except ValueError as e:
             return "count must be 1..10000" in str(e)
 
-    result = asyncio.get_event_loop().run_until_complete(_run())
+    result = asyncio.run(_run())
     assert result
 
 
 def test_batch_generate_rejects_zero_max_uses():
-    import asyncio
     async def _run():
         from unittest.mock import AsyncMock
         db = AsyncMock()
@@ -100,7 +94,7 @@ def test_batch_generate_rejects_zero_max_uses():
         except ValueError as e:
             return "max_uses and per_user_limit must be > 0" in str(e)
 
-    result = asyncio.get_event_loop().run_until_complete(_run())
+    result = asyncio.run(_run())
     assert result
 
 

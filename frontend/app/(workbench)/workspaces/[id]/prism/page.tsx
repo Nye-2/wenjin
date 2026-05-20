@@ -9,6 +9,12 @@ import { getWorkspacePrismSurface } from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
 import { SurfaceSwitch } from "../components/SurfaceSwitch";
 
+type PrismSurfaceLoadState = {
+  workspaceId: string;
+  surface: WorkspacePrismSurfaceResponse | null;
+  error: string | null;
+};
+
 export default function WorkspacePrismPage({
   params,
 }: {
@@ -17,29 +23,38 @@ export default function WorkspacePrismPage({
   const { id } = use(params);
   const i18n = useOptionalI18n();
   const t = i18n?.t;
-  const [surface, setSurface] = useState<WorkspacePrismSurfaceResponse | null>(
-    null,
-  );
-  const [error, setError] = useState<string | null>(null);
+  const [loadState, setLoadState] = useState<PrismSurfaceLoadState>({
+    workspaceId: id,
+    surface: null,
+    error: null,
+  });
+
+  const surface = loadState.workspaceId === id ? loadState.surface : null;
+  const error = loadState.workspaceId === id ? loadState.error : null;
 
   useEffect(() => {
     let cancelled = false;
-    setSurface(null);
-    setError(null);
 
     getWorkspacePrismSurface(id)
       .then((nextSurface) => {
         if (!cancelled) {
-          setSurface(nextSurface);
+          setLoadState({
+            workspaceId: id,
+            surface: nextSurface,
+            error: null,
+          });
         }
       })
       .catch((err) => {
         if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Unable to open Prism manuscript surface",
-          );
+          setLoadState({
+            workspaceId: id,
+            surface: null,
+            error:
+              err instanceof Error
+                ? err.message
+                : "Unable to open Prism manuscript surface",
+          });
         }
       });
 

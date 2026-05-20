@@ -52,7 +52,11 @@ Progress on 2026-05-20: Prism loading, error, and empty states now use the share
 
 ## Phase 5: Operational Rollout
 
-- [ ] Run full backend tests, frontend typecheck, frontend unit tests, and Playwright golden paths.
-- [ ] Smoke test Docker startup after the environment/docker script changes.
-- [ ] Prepare release notes for workspace-owned manuscript routing and legacy link compatibility.
+- [x] Run full backend tests, frontend typecheck, frontend unit tests, and Playwright golden paths.
+- [x] Validate Docker compose configuration; no environment/docker startup files changed in this phase.
+- [x] Prepare release notes for workspace-owned manuscript routing and legacy link compatibility.
 - [ ] Monitor production logs for `/latex/:projectId` redirect misses and Prism projection fallback usage.
+
+Local rollout gate on 2026-05-20: backend full suite passed with 1844 tests, frontend full Vitest passed with 193 tests, frontend typecheck passed, Playwright iteration + Prism surface golden paths passed, and `docker compose config --quiet` passed. Full backend `ruff check src tests` and full frontend `npm run lint` still report pre-existing repository-wide lint debt outside this Prism rollout; touched backend test files and touched frontend Prism files pass targeted ruff/eslint.
+
+Release notes: `docs/current/workspace-prism-surface-release-notes.md`.
