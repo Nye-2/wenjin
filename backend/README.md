@@ -4,9 +4,9 @@
 
 后端当前采用 execution-first 分层执行架构：
 
-`gateway -> FeatureIngressService -> ExecutionRecord + ComputeSession -> task runtime -> capability runtime -> persistence/writeback`
+`gateway thread/run API -> chat_agent -> launch_feature tool -> ExecutionRecord + ComputeSession -> Celery execute_execution -> ExecutionEngineV2 -> LeadAgentRuntime -> persistence/writeback`
 
-thread（路由仍为 `/chat`）是用户入口；显式 capability launch/resume 统一进入 `FeatureIngressService`。Compute projection 是长任务工作台读取面，不成为第二套业务事实源。
+workspace ChatPanel 是用户入口；显式 capability launch/resume 统一进入 `launch_feature` tool。Compute projection 是长任务工作台读取面，不成为第二套业务事实源。
 
 ## 技术栈
 
@@ -36,7 +36,7 @@ thread（路由仍为 `/chat`）是用户入口；显式 capability launch/resum
 backend/
 ├── src/
 │   ├── gateway/                 # FastAPI app, routers, middleware, serializers
-│   ├── application/            # Application handlers (thread turn, capability launch/resume, etc.)
+│   ├── application/            # Application handlers (thread turn, result presenters, launch context)
 │   ├── compute/                # Compute sessions and projection service
 │   ├── agents/
 │   │   ├── lead_agent/         # Chat lead-agent, LeadAgentRuntime, graph compile, workspace read catalog
@@ -98,7 +98,7 @@ Capability 定义 graph_template、brief_schema、trigger_phrases；CapabilitySk
 - capability skills 预加载：`src/agents/middlewares/capability_skill_preload.py`
 - workspace read tools：`src/tools/builtins/workspace.py`
 
-当前 skill 是 chat 层的 capability 入口语义，不再是独立执行框架。真正执行始终走 `FeatureIngressService`；pure chat 不创建 execution、compute session 或 task record。
+当前 skill 是 chat 层的 capability 入口语义，不再是独立执行框架。真正执行始终走 `launch_feature` -> `ExecutionEngineV2`；pure chat 不创建 execution、compute session 或 task record。
 
 ### 6. Compute
 

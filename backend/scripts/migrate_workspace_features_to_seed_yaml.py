@@ -23,11 +23,11 @@ SEED_DIR = ROOT / "seed" / "capabilities"
 
 sys.path.insert(0, str(ROOT / "src"))
 from workspace_features.registry import (
-    THESIS_FEATURES,
-    SCI_FEATURES,
-    PROPOSAL_FEATURES,
-    SOFTWARE_COPYRIGHT_FEATURES,
     PATENT_FEATURES,
+    PROPOSAL_FEATURES,
+    SCI_FEATURES,
+    SOFTWARE_COPYRIGHT_FEATURES,
+    THESIS_FEATURES,
 )
 
 ALL = (

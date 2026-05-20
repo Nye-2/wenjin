@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.agents.contracts.task_report import TaskReport
@@ -49,6 +50,7 @@ class ExecutionCommitService:
         run_history_service: RunHistoryService,
         audit_service: Any | None = None,
         redis: Any = None,  # for idempotency cache; if None, no idempotency
+        referral_first_task_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self.execution = execution_service
         self.library = library_service
@@ -59,6 +61,7 @@ class ExecutionCommitService:
         self.run_history = run_history_service
         self.audit = audit_service
         self.redis = redis
+        self._referral_first_task_callback = referral_first_task_callback
 
     async def commit_outputs(
         self,
@@ -284,12 +287,22 @@ class ExecutionCommitService:
 
         # Fire referral first-task trigger (idempotent — no-ops if no referral or already fired)
         try:
-            from src.database import get_db_session
-            async with get_db_session() as db:
-                from src.services.referral_service import ReferralService
-                referral_svc = ReferralService(db)
-                await referral_svc.fire_first_task_for_referrer(execution.user_id)
+            await self._fire_referral_first_task(execution.user_id)
         except Exception:
-            logger.exception("referral first-task trigger failed for user %s", execution.user_id)
+            logger.exception(
+                "referral first-task trigger failed for user %s", execution.user_id
+            )
 
         return result
+
+    async def _fire_referral_first_task(self, user_id: str) -> None:
+        if self._referral_first_task_callback is not None:
+            await self._referral_first_task_callback(user_id)
+            return
+
+        from src.database import get_db_session
+        from src.services.referral_service import ReferralService
+
+        async with get_db_session() as db:
+            referral_svc = ReferralService(db)
+            await referral_svc.fire_first_task_for_referrer(user_id)

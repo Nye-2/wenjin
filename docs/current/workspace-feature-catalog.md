@@ -11,8 +11,8 @@ Capability skill 数据源: `backend/seed/skills/` + `capability_skills` table
 - capability / capability skill 才是执行定义事实源
 - 当前 `feature_id` 仍作为工作台入口与路由 seed 的兼容标识保留
 - 执行主对象是 `ExecutionRecord`
-- 启动入口统一通过 chat / `FeatureIngressService`
-- 不再存在 `handler_key` / `workspace_feature task` 作为主执行桥
+- 启动入口统一通过 workspace ChatPanel / `launch_feature`
+- 不再存在旧 handler/task 桥作为主执行路径
 
 ## 1. Canonical Workspace Types
 
@@ -80,10 +80,8 @@ Capability skill 数据源: `backend/seed/skills/` + `capability_skills` table
 
 1. capability 的真正执行定义来自 capability YAML / DB 与 capability skills。
 2. 当前 `feature_id` 是工作台入口兼容标识，必须与对应 capability id 对齐。
-3. 启动与恢复统一走：
-   - chat -> `launch_feature`
-   - HTTP / UI -> `FeatureIngressService`
-4. 两条入口都会创建或复用 `ExecutionRecord`，并最终分发到 `execute_execution(execution_id)`。
+3. 启动与恢复统一走 workspace ChatPanel -> chat agent -> `launch_feature`。
+4. `launch_feature` 创建或复用 `ExecutionRecord`，并最终分发到 `execute_execution(execution_id)`。
 5. 缺参、busy、resume、commit、refresh 都围绕 `execution_id` 收敛。
 6. `TaskRecord` 仍保留为通用异步基础设施，但不再承担 capability 主执行桥语义。
 
@@ -92,7 +90,7 @@ Capability skill 数据源: `backend/seed/skills/` + `capability_skills` table
 1. 新 capability 优先改 capability YAML / DB schema / capability resolver，再改前端兼容目录。
 2. `feature_id` 作为兼容入口标识，必须与 capability id 对齐，不得单独漂移。
 3. `agent`、`panel`、`stages` 属于 UI 兼容目录元数据，变更时必须同步回归 execution / compute UI 和 workspace skill labels。
-4. 不得重新引入 `workspace_feature task`、feature leader graph registry 或平行 launch orchestrator。
+4. 不得重新引入旧 handler/task 桥、feature leader graph registry 或平行 launch orchestrator。
 
 ## 5. Entry Skills
 

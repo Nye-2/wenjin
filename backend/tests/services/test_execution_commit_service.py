@@ -79,9 +79,6 @@ def _make_service(
     run_history_svc = MagicMock()
     run_history_svc.record = AsyncMock(return_value=SimpleNamespace(id="run-1"))
 
-    event_bus = MagicMock()
-    event_bus.publish = AsyncMock(return_value=1)
-
     svc = ExecutionCommitService(
         execution_service=execution_svc,
         library_service=library_svc,
@@ -91,6 +88,7 @@ def _make_service(
         workspace_tasks_service=tasks_svc,
         run_history_service=run_history_svc,
         redis=redis,
+        referral_first_task_callback=AsyncMock(),
     )
 
     mocks = {

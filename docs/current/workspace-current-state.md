@@ -73,7 +73,7 @@
    - `file-changes/apply` 必须携带 preview 签名。
    - `file-changes/discard` 丢弃待确认写入。
    - `file-changes/revert` 使用 `applied_file_changes` 中的签名和文件 hash 撤回。
-6. ComputeStage 和 WenjinPrism 编辑器都可以处理待确认写入和已应用写入。
+6. LiveWorkflowPanel 和 WenjinPrism 编辑器都可以处理待确认写入和已应用写入。
 7. 当前 UX 约定：
    - 支持候选切换、inline/side-by-side、hunk 折叠、空白改动过滤、重生成、复制候选。
    - 支持快捷键：`Ctrl/Cmd + Enter` 应用候选，`Esc` 取消预览。

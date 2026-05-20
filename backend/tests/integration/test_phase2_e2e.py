@@ -274,6 +274,7 @@ async def test_commit_after_e2e_writes_rooms():
         memory_service=memory,
         workspace_tasks_service=tasks,
         run_history_service=run_history,
+        referral_first_task_callback=AsyncMock(),
     )
 
     with patch("src.services.execution_commit_service.publish_workspace_event", new=AsyncMock()) as publish_refresh:

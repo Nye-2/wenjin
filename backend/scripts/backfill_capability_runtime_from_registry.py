@@ -16,10 +16,11 @@ from sqlalchemy import select
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from database import get_db_session  # noqa: E402
-from database.models import Capability  # noqa: E402
 from workspace_features.registry import iter_workspace_features  # noqa: E402
 from workspace_features.runtime_profiles import get_feature_runtime_profile  # noqa: E402
+
+from database import get_db_session  # noqa: E402
+from database.models import Capability  # noqa: E402
 
 
 def _profile_mode(profile) -> str:

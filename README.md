@@ -4,14 +4,14 @@
 
 问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前收口到 execution-first 主链路：
 
-`chat / capability intent -> FeatureIngressService -> ExecutionRecord + ComputeSession -> task/worker -> capability runtime -> artifact/activity/WenjinPrism writeback -> Compute projection`
+`workspace chat intent -> launch_feature tool -> ExecutionRecord + ComputeSession -> Celery execute_execution -> ExecutionEngineV2 -> LeadAgentRuntime -> TaskReport / artifact / WenjinPrism writeback -> Compute projection`
 
 ## 当前产品形态
 
 - 五类 workspace：`thesis`、`sci`、`proposal`、`software_copyright`、`patent`
 - 单 workspace 主对话：chat 是统一入口，skills 作为 capability 的会话级入口语义
 - Compute 工作面：长任务过程、runtime blocks、sandbox 文件、日志、Review Gate 和 WenjinPrism 写入状态统一展示
-- 确定性 capability 执行：显式 launch/resume 由 thread orchestration / capability entry 进入 `FeatureIngressService`
+- 确定性 capability 执行：显式 launch/resume 由 workspace ChatPanel 的 thread orchestration 进入 `launch_feature`
 - 任务与结果闭环：`task`、`artifact`、`activity`、runtime blocks、SSE 事件统一回写
 - LaTeX 主稿台：项目文件树、编译、PDF 预览、点评改写、SyncTeX 联动、file-change preview/apply/revert
 - Subagents：作为 Compute 内部 worker 能力存在，由 feature runtime / AgentHarness 调用
@@ -69,18 +69,18 @@
 ## 关键模块
 
 - `backend/src/gateway/`：FastAPI 网关、SSE、middleware、routers
-- `backend/src/application/`：应用层 handler，例如 thread turn、capability launch/resume、执行编排
+- `backend/src/application/`：应用层 handler，例如 thread turn、result card presenter、workspace seed 解析
 - `backend/src/compute/`：ComputeSession 与 projection
 - `backend/src/agents/lead_agent/`：主 chat agent、workspace read tools、skill prompt
-- `backend/src/agents/feature_leader/`：feature runtime facade 与 feature graph registry
-- `backend/src/agents/graphs/`：按 workspace type 组织的 feature graphs
 - `backend/src/agents/harness/`：AgentHarness contract/provider
+- `backend/src/tools/builtins/launch_feature.py`：capability launch tool，创建/复用 ExecutionRecord 并分发任务
+- `backend/src/execution/engine.py`：ExecutionEngineV2，统一执行 LeadAgentRuntime
 - `backend/seed/capabilities/` + `backend/src/services/capability_resolver.py`：capability schema 与解析
 - `backend/seed/skills/` + `backend/src/database/models/capability_skill.py`：capability skills
 - `backend/src/task/`：任务提交、worker、progress、runtime blocks、artifact writeback
 - `backend/src/subagents/`：subagent manager、context snapshot、academic subagent registry
 - `frontend/app/(workbench)/workspaces/[id]/`：workbench 主界面与各面板
-- `frontend/components/compute/`：Compute Stage
+- `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx`：右侧 execution / compute 工作面
 - `frontend/stores/`：chat/compute/latex/workspace 等前端状态管理
 
 ## Prompt Strategy

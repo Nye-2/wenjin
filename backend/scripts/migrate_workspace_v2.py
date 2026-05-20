@@ -21,9 +21,8 @@ import logging
 import sys
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
-from uuid import uuid4
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger("migrate_workspace_v2")

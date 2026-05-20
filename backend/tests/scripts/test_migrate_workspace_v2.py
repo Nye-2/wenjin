@@ -53,7 +53,7 @@ class _Workspace(_Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False)
     thread_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("threads.id", ondelete="SET NULL"),
+        String(36), ForeignKey("threads.id", ondelete="SET NULL", use_alter=True),
         nullable=True, unique=True,
     )
 

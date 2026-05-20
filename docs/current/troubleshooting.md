@@ -151,10 +151,10 @@ docker compose logs -f nginx
 
 相关代码：
 
-- `frontend/stores/execution.ts`
+- `frontend/stores/execution-store.ts`
 - `frontend/hooks/useWorkspaceEventStream.ts`
-- `frontend/app/(workbench)/workspaces/[id]/components/ThreadPanel.tsx`
-- `backend/src/task/handlers/workspace_feature_handler.py`
+- `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
+- `backend/src/services/execution_commit_service.py`
 
 ## 7. `migrate` 报错：`value too long for type character varying(32)`
 

@@ -94,13 +94,12 @@
 
 ```text
 User action
-  -> chat / tool intent
-  -> launch capability intent
-  -> FeatureIngressService / FeatureLaunchService
+  -> workspace ChatPanel / tool intent
+  -> chat agent launch intent
+  -> launch_feature tool
   -> ExecutionRecord create
   -> ComputeSession ensure
-  -> TaskService submit
-  -> Celery worker
+  -> Celery execute_execution
   -> ExecutionEngineV2
   -> LeadAgentRuntime
   -> TaskReport / execution stream
@@ -117,16 +116,16 @@ User action
 #### Launch 代码入口
 
 - tool：`backend/src/tools/builtins/launch_feature.py`
-- application service：`backend/src/application/services/feature_launch_service.py`
-- submission：`backend/src/application/services/feature_submission_service.py`
+- launch context：`backend/src/application/services/feature_launch_context.py`
+- execution dispatch：`backend/src/task/tasks/execution.py`
 
 #### Launch 改动规则
 
 如果你要改“功能如何发起”：
 
 1. 先看 `launch_feature`
-2. 再看 `FeatureLaunchService`
-3. 最后看 `TaskService.submit_task`
+2. 再看 `feature_launch_context`
+3. 最后看 `execute_execution` / `ExecutionEngineV2`
 
 不要绕过这条链直接在 router、前端或 graph 层创建 execution。
 

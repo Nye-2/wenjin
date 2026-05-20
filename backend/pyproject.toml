@@ -82,6 +82,10 @@ filterwarnings = [
     "ignore:.*AgentStatePydantic has been moved to `langchain.agents`.*:Warning",
     "ignore:.*create_react_agent has been moved to `langchain.agents`.*:Warning",
     "ignore:coroutine 'AsyncMockMixin._execute_mock_call' was never awaited:RuntimeWarning",
+    "ignore:coroutine 'Connection._cancel' was never awaited:RuntimeWarning",
+    "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+    "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
 ]
 markers = [
     "integration: marks tests as integration tests (require external services like Docker)",

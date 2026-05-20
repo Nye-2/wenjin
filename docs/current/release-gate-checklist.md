@@ -9,7 +9,7 @@
 ## 1. Core Gate (必须全绿)
 
 1. capability 执行主链路可用（提交、轮询、终态可见）。
-2. `thread-route(/chat)` capability 入口可用（入口卡片 / artifact follow-up / activity retry 均能落到 `/chat` 并保留 orchestration seed）。
+2. workspace workbench capability 入口可用（入口卡片 / artifact follow-up / activity retry 均能落到 `/workspaces/{workspace_id}?feature=...` 并保留 orchestration seed）。
 3. Chat structured block action 契约全绿：所有 AgentBlock（`text`、`status_line`、`question_card`、`result_card`）的 action 都在前端白名单中，并有真实处理或显式兜底。
 4. 文献检索只以 Semantic Scholar `verified_papers` 作为可导入事实来源，`model_synthesis` 和 `unverified_leads` 不进入文献库。
 5. 大文件上传预处理状态可见：pending/running 时 Chat 明确提示 Agent 暂不能引用全文，succeeded 后可引用 Markdown 摘要。
@@ -97,7 +97,7 @@ npm test
 ## 5. Launch Checklist
 
 - [x] 五个 workspace 页面路由可达，无 404
-- [x] capability 入口卡片、artifact follow-up、activity retry 均进入 `/chat` 且首条消息保留 seed 上下文
+- [x] capability 入口卡片、artifact follow-up、activity retry 均进入 `/workspaces/{workspace_id}?feature=...` 且首条消息保留 seed 上下文
 - [x] capability 可提交并返回 task_id
 - [x] 任务状态可从 pending/running 进入 success 或 failed
 - [x] 失败态有明确错误提示且可重试

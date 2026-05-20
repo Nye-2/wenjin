@@ -10,7 +10,7 @@ from src.agents.lead_agent.v2.compiler import compile_graph
 from src.subagents.v2.base import SubagentContext, SubagentResult
 
 
-class TestState(TypedDict, total=False):
+class CompilerState(TypedDict, total=False):
     node_results: dict
     workspace_id: str
     execution_id: str
@@ -75,8 +75,8 @@ def _make_state(
     inputs_for_tasks: dict | None = None,
     workspace_id: str = "ws-test",
     execution_id: str = "exec-test",
-) -> TestState:
-    return TestState(
+) -> CompilerState:
+    return CompilerState(
         workspace_id=workspace_id,
         execution_id=execution_id,
         inputs_for_tasks=inputs_for_tasks or {},
@@ -92,7 +92,7 @@ def _make_state(
 
 def test_compile_single_phase_single_task():
     """Compiling a 1-phase, 1-task template yields a graph with that 1 node."""
-    graph = compile_graph(SINGLE_PHASE_TEMPLATE, state_class=TestState)
+    graph = compile_graph(SINGLE_PHASE_TEMPLATE, state_class=CompilerState)
     # The compiled graph should have the node available — check via graph.nodes attr
     node_names = set(graph.nodes)
     assert "outline__make_outline" in node_names
@@ -140,7 +140,7 @@ async def test_compile_two_phases_serial():
 
     graph = compile_graph(
         TWO_PHASE_SERIAL_TEMPLATE,
-        state_class=TestState,
+        state_class=CompilerState,
         runner_factory=runner_factory,
     )
     initial = _make_state()
@@ -160,7 +160,7 @@ async def test_compile_two_phases_serial():
 
 def test_compile_phase_with_parallel_tasks():
     """Two tasks in the same phase are both wired as nodes."""
-    graph = compile_graph(PARALLEL_TASKS_TEMPLATE, state_class=TestState)
+    graph = compile_graph(PARALLEL_TASKS_TEMPLATE, state_class=CompilerState)
     node_names = set(graph.nodes)
     assert "search__search_a" in node_names
     assert "search__search_b" in node_names
@@ -185,7 +185,7 @@ def test_compile_unknown_subagent_raises():
         ]
     }
     with pytest.raises(KeyError, match="does_not_exist_xyzzy"):
-        compile_graph(template, state_class=TestState)
+        compile_graph(template, state_class=CompilerState)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ async def test_compile_actually_runs():
         ]
     }
 
-    graph = compile_graph(template, state_class=TestState)
+    graph = compile_graph(template, state_class=CompilerState)
     initial = _make_state(inputs_for_tasks={"make_outline": {"topic": "quantum computing"}})
     final_state = await graph.ainvoke(initial)
 

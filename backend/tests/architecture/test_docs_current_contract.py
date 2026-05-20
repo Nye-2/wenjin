@@ -29,12 +29,22 @@ FORBIDDEN_CURRENT_DOC_PHRASES = (
     "src/agents/lead_agent/thread_skill_catalog.py",
     "feature_credit_policy",
     "feature 启动前先扣积分",
+    "FeatureIngressService",
+    "/workspaces/{workspace_id}/chat",
+    "ThreadPanel.tsx",
+    "KnowledgePanel.tsx",
+    "ComputeStage",
+    "frontend/components/compute/ComputeStage.tsx",
+    "backend/src/agents/feature_leader",
+    "backend/src/agents/graphs",
 )
 
 REQUIRED_CURRENT_DOC_PHRASES = (
     "Capability",
     "Compute",
     "WenjinPrism",
+    "ExecutionEngineV2",
+    "launch_feature",
 )
 
 

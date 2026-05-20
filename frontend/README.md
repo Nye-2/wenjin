@@ -2,7 +2,7 @@
 
 更新时间：2026-04-28
 
-前端是问津 workbench 的统一交互层，负责 workspace、thread（路由为 `/chat`）、Compute、capability entry、artifact、activity 与 LaTeX 主稿台的界面编排。
+前端是问津 workbench 的统一交互层，负责 workspace、ChatPanel thread 主链、Compute、capability entry、artifact、activity 与 LaTeX 主稿台的界面编排。
 
 ## 技术栈
 
@@ -38,10 +38,10 @@ frontend/
 
 ## 交互架构
 
-### Thread Route (`/chat`)
+### Workspace Chat Entry
 
-- canonical route: `/workspaces/[id]/chat`
-- capability/skill 通过 query seed 和首轮 `metadata.orchestration.intent=launch` 进入 chat 主链
+- canonical route: `/workspaces/[id]`
+- capability/skill 通过 query seed 和首轮 `metadata.orchestration` 进入 ChatPanel 主链
 - streaming 响应、任务事件、thread 刷新都在 workspace stores 中统一处理
 
 ### Compute Stage
