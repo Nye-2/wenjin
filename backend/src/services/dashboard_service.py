@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Artifact, Workspace
-from src.database.models.capability import Capability
+from src.dataservice.catalog_api import CatalogDataService
 from src.services.dashboard import (
     DashboardInnovationStatusMixin,
     DashboardProposalStatusMixin,
@@ -23,7 +23,7 @@ class DashboardService(
 ):
     """Service for workspace dashboard overview."""
 
-    def __init__(self, db: AsyncSession, *, capability_model: type = Capability):
+    def __init__(self, db: AsyncSession, *, capability_model: type | None = None):
         self.db = db
         self._capability_model = capability_model
 
@@ -73,16 +73,20 @@ class DashboardService(
         ``id`` as a stable tie-breaker. Dispatch uses ``dashboard_meta.status_kind``
         when present, falling back to ``capability.id``.
         """
-        capability_model = self._capability_model
-        result = await self.db.execute(
-            select(capability_model)
-            .where(capability_model.workspace_type == workspace_type)
-            .where(capability_model.enabled == True)  # noqa: E712
-        )
-        capabilities = sorted(
-            result.scalars().all(),
-            key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id),
-        )
+        if self._capability_model is not None:
+            capability_model = self._capability_model
+            result = await self.db.execute(
+                select(capability_model)
+                .where(capability_model.workspace_type == workspace_type)
+                .where(capability_model.enabled == True)  # noqa: E712
+            )
+            raw_capabilities = result.scalars().all()
+        else:
+            raw_capabilities = await CatalogDataService(self.db, autocommit=False).list_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=True,
+            )
+        capabilities = sorted(raw_capabilities, key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id))
 
         modules: list[dict[str, Any]] = []
         for cap in capabilities:

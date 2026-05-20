@@ -8,7 +8,7 @@ from typing import Any, cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.capability import Capability
+from src.dataservice.catalog_api import CatalogDataService
 from src.services.dashboard_service import DashboardService
 from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_service import WorkspaceActivityService
@@ -42,7 +42,7 @@ class WorkspaceSummaryService:
         dashboard_service: DashboardService | None = None,
         activity_service: WorkspaceActivityService | None = None,
         execution_service: ExecutionService | None = None,
-        capability_model: type = Capability,
+        capability_model: type | None = None,
     ) -> None:
         self.db = db
         self._dashboard_service = dashboard_service or DashboardService(db)
@@ -126,16 +126,20 @@ class WorkspaceSummaryService:
                 continue
             latest_execution_by_feature[feature_id] = execution
 
-        capability_model = self._capability_model
-        result = await self.db.execute(
-            select(capability_model)
-            .where(capability_model.workspace_type == workspace_type)
-            .where(capability_model.enabled == True)  # noqa: E712
-        )
-        capabilities = sorted(
-            result.scalars().all(),
-            key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id),
-        )
+        if self._capability_model is not None:
+            capability_model = self._capability_model
+            result = await self.db.execute(
+                select(capability_model)
+                .where(capability_model.workspace_type == workspace_type)
+                .where(capability_model.enabled == True)  # noqa: E712
+            )
+            raw_capabilities = result.scalars().all()
+        else:
+            raw_capabilities = await CatalogDataService(self.db, autocommit=False).list_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=True,
+            )
+        capabilities = sorted(raw_capabilities, key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id))
 
         normalized: list[dict[str, Any]] = []
         for cap in capabilities:

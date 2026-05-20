@@ -42,7 +42,7 @@ def compile_graph(
             returns an async node function. Defaults to _default_runner_factory.
         abort_check: Optional async callable () → bool. If it returns True inside a node,
             an ExecutionAborted exception is raised to halt the graph.
-        skills: Optional dict mapping skill_id → CapabilitySkill ORM object, pre-loaded
+        skills: Optional dict mapping skill_id → catalog skill record, pre-loaded
             by the caller. Tasks with skill_id will have the skill attached.
 
     Returns:

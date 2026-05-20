@@ -102,6 +102,17 @@ def _execution_namespace(**overrides):
     )
 
 
+def _capability_record(runtime: dict) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="test_capability",
+        workspace_type="sci",
+        display_name="Test Capability",
+        runtime=runtime,
+        ui_meta={},
+        dashboard_meta={},
+    )
+
+
 @pytest.mark.asyncio
 async def test_compute_projection_aggregates_execution_task_and_subagents() -> None:
     now = datetime.now(UTC)
@@ -254,12 +265,12 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(
-                scalar={
+                scalar=_capability_record({
                     "mode": "compute_workflow",
                     "requires_sandbox": False,
                     "review_gate": {},
                     "allowed_paths": [],
-                }
+                })
             ),
         ]
     )
@@ -377,12 +388,12 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
             _Result(scalars=[]),
             _Result(scalar=None),
             _Result(
-                scalar={
+                scalar=_capability_record({
                     "mode": "compute_workflow",
                     "requires_sandbox": False,
                     "review_gate": {},
                     "allowed_paths": [],
-                }
+                })
             ),
         ]
     )
@@ -443,12 +454,12 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
             _Result(scalars=[]),
             _Result(scalar=None),
             _Result(
-                scalar={
+                scalar=_capability_record({
                     "mode": "compute_agentic",
                     "requires_sandbox": True,
                     "review_gate": {"kind": "artifact_preview"},
                     "allowed_paths": [],
-                }
+                })
             ),
         ]
     )
@@ -571,12 +582,12 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(
-                scalar={
+                scalar=_capability_record({
                     "mode": "compute_workflow",
                     "requires_sandbox": False,
                     "review_gate": {},
                     "allowed_paths": [],
-                }
+                })
             ),
         ]
     )
@@ -654,12 +665,12 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(
-                scalar={
+                scalar=_capability_record({
                     "mode": "compute_workflow",
                     "requires_sandbox": False,
                     "review_gate": {},
                     "allowed_paths": [],
-                }
+                })
             ),
         ]
     )

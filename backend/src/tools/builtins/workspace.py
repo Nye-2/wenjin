@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from src.application.workspace_resolvers import resolve_workspace_type
 from src.database import Artifact, Workspace, get_db_session
-from src.database.models.capability import Capability
+from src.dataservice.catalog_api import CatalogDataService
 from src.dataservice.workspace_api import WorkspaceDataService
 
 
@@ -102,13 +102,11 @@ async def list_capabilities_tool(
 
         workspace_type = resolve_workspace_type(workspace)
 
-        result = await db.execute(
-            select(Capability)
-            .where(Capability.workspace_type == workspace_type)
-            .where(Capability.enabled == True)  # noqa: E712
-        )
         capabilities = sorted(
-            result.scalars().all(),
+            await CatalogDataService(db, autocommit=False).list_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=True,
+            ),
             key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id),
         )
 

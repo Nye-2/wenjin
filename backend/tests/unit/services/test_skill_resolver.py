@@ -21,7 +21,7 @@ async def test_resolve_returns_cached_skill(db_session: AsyncSession) -> None:
     ))
     await db_session.commit()
 
-    resolver = SkillResolver(session_factory=lambda: db_session)
+    resolver = SkillResolver(session_factory=lambda: db_session, model=UnitCapabilitySkill)
     skill1 = await resolver.resolve("literature-reviewer")
     assert skill1 is not None
     assert skill1.prompt == "写综述"
@@ -33,7 +33,7 @@ async def test_resolve_returns_cached_skill(db_session: AsyncSession) -> None:
 
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_unknown(db_session: AsyncSession) -> None:
-    resolver = SkillResolver(session_factory=lambda: db_session)
+    resolver = SkillResolver(session_factory=lambda: db_session, model=UnitCapabilitySkill)
     result = await resolver.resolve("does-not-exist")
     assert result is None
 
@@ -46,7 +46,7 @@ async def test_list_all_enabled(db_session: AsyncSession) -> None:
     ])
     await db_session.commit()
 
-    resolver = SkillResolver(session_factory=lambda: db_session)
+    resolver = SkillResolver(session_factory=lambda: db_session, model=UnitCapabilitySkill)
     skills = await resolver.list_all_enabled()
     assert {s.id for s in skills} == {"a"}
 
@@ -56,7 +56,7 @@ async def test_on_invalidate_clears_cache(db_session: AsyncSession) -> None:
     db_session.add(UnitCapabilitySkill(id="x", display_name="X", subagent_type="react", prompt="v1"))
     await db_session.commit()
 
-    resolver = SkillResolver(session_factory=lambda: db_session)
+    resolver = SkillResolver(session_factory=lambda: db_session, model=UnitCapabilitySkill)
     skill = await resolver.resolve("x")
     assert skill is not None
     assert skill.id == "x"

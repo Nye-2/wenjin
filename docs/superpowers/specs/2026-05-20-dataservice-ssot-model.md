@@ -363,12 +363,13 @@ Records every YAML seed load that changes the capability catalog.
 | Column | Type | Required | Notes |
 | --- | --- | --- | --- |
 | `id` | uuid string | yes | Primary key. |
-| `schema_version` | string(50) | yes | Seed manifest schema, e.g. `capability_seed.v1`. |
-| `source_root` | string(500) | yes | Seed folder root. |
-| `checksum` | string(128) | yes | Manifest checksum across loaded files. |
-| `loaded_by` | string(100) | yes | Actor/process. |
-| `loaded_at` | timestamptz | yes | Load timestamp. |
-| `summary_json` | jsonb | yes | Counts, changed ids, removed ids. |
+| `catalog_kind` | string(50) | yes | `capabilities` or `skills`. |
+| `seed_root` | text | yes | Seed folder root. |
+| `checksum` | string(64) | yes | Deterministic checksum across loaded files. |
+| `loaded_count` | integer | yes | Number of rows applied by the seed revision. |
+| `metadata_json` | jsonb | yes | Source paths and schema version for the revision. |
+| `created_at` | timestamptz | yes | Revision creation timestamp. |
+| `updated_at` | timestamptz | yes | Revision update timestamp. |
 
 #### `capability_definitions`
 
@@ -383,14 +384,18 @@ Runtime-editable capability definition. This replaces the composite-PK `capabili
 | `display_name` | string(200) | yes | UI name. |
 | `description` | text | yes | User/admin description. |
 | `intent_description` | text | yes | Chat Agent routing description. |
-| `trigger_phrases_json` | jsonb | yes | Routing hints. |
-| `required_decisions_json` | jsonb | yes | Decision dependencies. |
-| `brief_schema_json` | jsonb | yes | Task brief validation schema. |
-| `graph_template_json` | jsonb | yes | Lead graph template. |
-| `runtime_json` | jsonb | yes | Runtime policy: sandbox, tool, model, concurrency. |
-| `ui_meta_json` | jsonb | yes | UI labels, cards, room hints. |
-| `dashboard_meta_json` | jsonb | yes | Admin/workbench display metadata. |
-| `seed_revision_id` | uuid string | no | FK to `capability_seed_revisions.id`. |
+| `tier` | string(50) | yes | `primary` by default; supports later admin grouping. |
+| `entry_surface` | string(50) | yes | `workbench` by default. |
+| `trigger_phrases` | jsonb | yes | Routing hints. |
+| `required_decisions` | jsonb | yes | Decision dependencies. |
+| `brief_schema` | jsonb | yes | Task brief validation schema. |
+| `graph_template` | jsonb | yes | Lead graph template. |
+| `runtime` | jsonb | yes | Runtime policy: sandbox, tool, model, concurrency. |
+| `ui_meta` | jsonb | yes | UI labels, cards, room hints. |
+| `dashboard_meta` | jsonb | yes | Admin/workbench display metadata. |
+| `definition_json` | jsonb | yes | Full versioned capability payload. |
+| `checksum` | string(64) | no | Source YAML checksum for seed-managed rows. |
+| `source_path` | text | no | Source YAML path for seed-managed rows. |
 | `notes` | text | no | Admin notes. |
 | `created_at` | timestamptz | yes | Creation timestamp. |
 | `updated_at` | timestamptz | yes | Last update. |
@@ -413,11 +418,14 @@ Reusable skill pack a Lead Agent node can load. This table remains catalog-level
 | `display_name` | string(200) | yes | UI/admin name. |
 | `description` | text | yes | Human-readable scope. |
 | `worker_type` | string(50) | yes | Super Agent worker kind. Replaces `subagent_type` in the external contract. |
+| `subagent_type` | string(50) | yes | Existing runtime registry key retained as internal worker dispatch key during the cutover. |
 | `prompt` | text | yes | Skill prompt/instruction payload. |
-| `allowed_tools_json` | jsonb | yes | Tool allowlist. |
-| `resources_json` | jsonb | yes | Required resources/corpus hints. |
+| `allowed_tools` | jsonb | yes | Tool allowlist. |
+| `resources` | jsonb | yes | Required resources/corpus hints. |
+| `config` | jsonb | yes | Legacy-compatible config shard until all skill payload readers consume `skill_json`. |
 | `skill_json` | jsonb | yes | Versioned structured config. Replaces untyped `config`. |
-| `seed_revision_id` | uuid string | no | FK to `capability_seed_revisions.id`. |
+| `checksum` | string(64) | no | Source YAML checksum for seed-managed rows. |
+| `source_path` | text | no | Source YAML path for seed-managed rows. |
 | `created_at` | timestamptz | yes | Creation timestamp. |
 | `updated_at` | timestamptz | yes | Last update. |
 
@@ -426,6 +434,15 @@ Migration notes:
 - Copy `subagent_type` to `worker_type`.
 - Copy `config` to `skill_json` and stamp `schema_version = capability_skill.v2`.
 - Existing YAML seeds must be upgraded before the migration is applied.
+
+Implementation checkpoint, 2026-05-21:
+
+- `062_dataservice_capability_catalog.py` creates `capability_definitions` and `capability_seed_revisions`, augments `capability_skills` with `schema_version`, `worker_type`, `skill_json`, `checksum`, and `source_path`, and backfills PostgreSQL rows from the old `capabilities` table.
+- `backend/src/dataservice/domains/catalog/` now owns catalog models, contracts, repository, projection, domain service, and seed loader.
+- Capability and skill YAML seed loading records deterministic seed revisions and upserts versioned catalog rows through `CatalogDataService`.
+- Runtime catalog reads in capability resolver, skill resolver, preload middleware, feature launch tools, dashboard/summary projections, Lead runtime skill loading, Compute projection, and workspace capability action resolution now use DataService catalog projections.
+- Admin capability/skill CRUD and cross-reference validation now write/read through `CatalogDataService`; test-only model injection remains only for SQLite service tests.
+- The old `capabilities` table is now migration input only for this domain. Runtime code no longer imports the `Capability` ORM model. `capability_skills` remains the physical skill table but is owned by the DataService catalog aggregate.
 
 ### 6.3 Execution Graph
 
@@ -1484,9 +1501,10 @@ Projection modules cannot call repository write methods.
 
 **Acceptance:**
 
-- All capability rows have `schema_version = capability.v2`.
-- All skill rows have `schema_version = capability_skill.v2`.
-- Admin/runtime capability edits go through DataService.
+- [x] All DataService capability rows have `schema_version = capability.v2`.
+- [x] All skill rows have `schema_version = capability_skill.v2`, `worker_type`, and `skill_json`.
+- [x] Admin/runtime capability and skill edits go through `CatalogDataService`.
+- [x] Seed revisions are checksum-idempotent.
 
 ### Task 4: Move Execution Graph
 

@@ -80,33 +80,27 @@ async def launch_feature_tool(
     merged_params = dict(runtime_launch_params)
     merged_params.update(params or {})
 
-    from sqlalchemy import select
-
     from src.database import get_db_session
-    from src.database.models.capability import Capability
+    from src.dataservice.catalog_api import CatalogDataService
     from src.services.execution_service import ExecutionService
     from src.services.workspace_skill_labels import get_workspace_type
 
     async with get_db_session() as db:
         # Validate the capability exists for this workspace's type.
         workspace_type = await get_workspace_type(db, workspace_id) or "thesis"
-        cap_query = await db.execute(
-            select(Capability).where(
-                Capability.id == feature_id,
-                Capability.workspace_type == workspace_type,
-                Capability.enabled.is_(True),
-            )
+        catalog = CatalogDataService(db, autocommit=False)
+        cap = await catalog.get_capability(
+            capability_id=feature_id,
+            workspace_type=workspace_type,
+            enabled_only=True,
         )
-        cap = cap_query.scalar_one_or_none()
         if cap is None:
             # Return the available list so the model can retry with a valid id.
-            avail_query = await db.execute(
-                select(Capability.id).where(
-                    Capability.workspace_type == workspace_type,
-                    Capability.enabled.is_(True),
-                )
+            available = await catalog.list_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=True,
             )
-            available_ids = [row[0] for row in avail_query.all()]
+            available_ids = [item.id for item in available]
             return {
                 "status": "error",
                 "code": "unknown_feature",

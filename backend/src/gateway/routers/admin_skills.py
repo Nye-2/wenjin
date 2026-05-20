@@ -7,7 +7,6 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-import yaml
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
 
 from src.database import User, get_db_session
@@ -149,24 +148,11 @@ async def import_from_seed(
     service: AdminSkillService = Depends(_service),
     admin: User = Depends(get_current_admin),
 ) -> dict[str, Any]:
-    from src.database.models.capability_skill import CapabilitySkill
+    from src.services.skill_loader import SkillLoader
 
-    loaded: list[dict[str, str]] = []
     async with get_db_session() as db:
         if not SKILL_SEED_DIR.exists():
             return {"loaded": []}
-        for path in sorted(SKILL_SEED_DIR.glob("*.yaml")):
-            with open(path) as f:
-                data = yaml.safe_load(f)
-            existing = await db.get(CapabilitySkill, data["id"])
-            if existing:
-                for k, v in data.items():
-                    if k != "id":
-                        setattr(existing, k, v)
-                loaded.append({"id": data["id"]})
-            else:
-                skill = CapabilitySkill(**data)
-                db.add(skill)
-                loaded.append({"id": data["id"]})
-        await db.commit()
+        loaded_rows = await SkillLoader(db, seed_dir=SKILL_SEED_DIR).load_all(overwrite=True)
+        loaded = [{"id": skill.id} for skill in loaded_rows]
     return {"loaded": loaded}

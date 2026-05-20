@@ -1022,6 +1022,16 @@ Reason:
 
 Review batches and sandbox/provenance need execution ids and node ids as stable producers.
 
+Implementation status as of 2026-05-21:
+
+- Capability catalog first slice is implemented.
+- `062_dataservice_capability_catalog.py` creates `capability_definitions` and `capability_seed_revisions`, augments `capability_skills` with `schema_version`, `worker_type`, `skill_json`, `checksum`, and `source_path`, and backfills PostgreSQL capability definitions from the old `capabilities` table.
+- `backend/src/dataservice/domains/catalog/` owns catalog models, contracts, repository, projection, domain service, and seed loader. `dataservice_app` exposes internal catalog routes and `dataservice_client` has typed catalog methods.
+- Capability and skill seed loaders now delegate to the DataService catalog seed loader, which records deterministic checksum revisions instead of using YAML as runtime fallback.
+- Runtime catalog consumers now read DataService projections: capability resolver, skill resolver, Chat Agent preload middleware, feature launch/list tools, workspace capability action resolution, dashboard/summary projections, Lead runtime skill loading, and Compute profile projection.
+- Admin capability/skill CRUD and cross-reference validation now go through `CatalogDataService`.
+- Remaining Phase 3 work is the execution graph: execution events, node/event projection, product-state removal from queue/task tables, and run-history/compute projection convergence.
+
 ### Phase 4: Review Materialization
 
 Implement:

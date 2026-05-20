@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
-from ..database.models.capability import Capability
-
 if TYPE_CHECKING:
     from .event_bus import EventBus
 
@@ -56,20 +54,17 @@ class CapabilityResolver:
     Args:
         session_factory: Callable returning a new AsyncSession.
         event_bus: EventBus instance for cache invalidation.
-        model: The ORM model class to use (defaults to production Capability).
+        model: Optional test ORM model. Production reads through DataService catalog.
     """
 
     def __init__(self, session_factory, event_bus: EventBus, model=None) -> None:
         self.session_factory = session_factory
         self.event_bus = event_bus
-        if model is None:
-            self._model = Capability
-        else:
-            self._model = model
-        self._cache: dict[tuple[str, str], Capability] = {}
+        self._model = model
+        self._cache: dict[tuple[str, str], object] = {}
         event_bus.subscribe("capability.invalidated", self._on_invalidate)
 
-    async def resolve(self, capability_id: str, workspace_type: str) -> Capability:
+    async def resolve(self, capability_id: str, workspace_type: str):
         """Load a capability from cache or DB.
 
         Raises:
@@ -80,6 +75,19 @@ class CapabilityResolver:
             return self._cache[key]
 
         async with self.session_factory() as session:
+            if self._model is None:
+                from src.dataservice.catalog_api import CatalogDataService
+
+                cap = await CatalogDataService(session, autocommit=False).get_capability(
+                    capability_id=capability_id,
+                    workspace_type=workspace_type,
+                    enabled_only=True,
+                )
+                if cap is None:
+                    raise CapabilityNotFound(capability_id, workspace_type)
+                self._cache[key] = cap
+                return cap
+
             result = await session.execute(
                 select(self._model).where(
                     self._model.id == capability_id,
@@ -95,9 +103,17 @@ class CapabilityResolver:
         self._cache[key] = cap
         return cap
 
-    async def list_for_workspace_type(self, workspace_type: str) -> list[Capability]:
+    async def list_for_workspace_type(self, workspace_type: str) -> list:
         """List all enabled capabilities for a workspace type."""
         async with self.session_factory() as session:
+            if self._model is None:
+                from src.dataservice.catalog_api import CatalogDataService
+
+                return await CatalogDataService(session, autocommit=False).list_capabilities(
+                    workspace_type=workspace_type,
+                    enabled_only=True,
+                )
+
             result = await session.execute(
                 select(self._model).where(
                     self._model.workspace_type == workspace_type,

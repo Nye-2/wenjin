@@ -100,7 +100,6 @@ def _patch_models(monkeypatch):
     """Replace the real ORM models with our SQLite-compatible ones."""
     import src.services.admin_skill_service as mod
 
-    monkeypatch.setattr(mod, "CapabilitySkill", _TestCapabilitySkill)
     monkeypatch.setattr(mod, "AdminLog", _TestAdminLog)
 
 
@@ -108,7 +107,7 @@ def _patch_models(monkeypatch):
 async def service(skill_db):
     fake_validator = MagicMock()
     fake_validator.validate_skill = AsyncMock(return_value=[])
-    svc = AdminSkillService(db=skill_db)
+    svc = AdminSkillService(db=skill_db, model=_TestCapabilitySkill)
     svc.validator = fake_validator
     return svc
 

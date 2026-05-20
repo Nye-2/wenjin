@@ -620,7 +620,8 @@ Steps:
 - [ ] Remove `threads.messages` bridge writes after message append, attachment metadata, compaction, and rollback consumers no longer require JSON response compatibility.
 - [x] Run thread/block protocol tests plus architecture guard.
 - [x] Commit `feat: add dataservice conversation blocks`.
-- [ ] Commit `feat: read threads from dataservice conversation projection`.
+- [x] Commit `feat: read threads from dataservice conversation projection`.
+- [x] Commit `feat: use dataservice conversation projections at runtime`.
 
 ### Task 5: Move Capability Catalog Aggregate To DataService
 
@@ -638,12 +639,13 @@ Steps:
 
 Steps:
 
-- [ ] Create `capability_seed_revisions`.
-- [ ] Reshape `capabilities` as `capability_definitions` with `schema_version = capability.v2`.
-- [ ] Reshape `capability_skills` with `schema_version = capability_skill.v2`, `worker_type`, and `skill_json`.
-- [ ] Make YAML seed loading idempotent by checksum.
-- [ ] Run seed load tests and admin capability service tests.
-- [ ] Commit `feat: move capability catalog aggregate into dataservice`.
+- [x] Create `capability_seed_revisions`.
+- [x] Reshape `capabilities` as `capability_definitions` with `schema_version = capability.v2`.
+- [x] Reshape `capability_skills` with `schema_version = capability_skill.v2`, `worker_type`, and `skill_json`.
+- [x] Move catalog YAML seed loading into the DataService catalog domain and make it idempotent by checksum.
+- [x] Cut runtime catalog consumers, admin capability/skill services, and cross-reference validation to `CatalogDataService`.
+- [x] Run seed load tests, admin capability/skill service tests, catalog runtime tests, and architecture guard.
+- [x] Commit `feat: move capability catalog aggregate into dataservice`.
 
 ### Task 6: Move Execution Aggregate To DataService
 

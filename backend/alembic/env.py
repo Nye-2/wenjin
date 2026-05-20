@@ -42,16 +42,20 @@ from src.database.models import (  # noqa: F401
     WorkspaceSettings,
     WorkspaceTask,
 )
-from src.dataservice.domains.operations.models import (  # noqa: F401
-    DataServiceIdempotencyKey,
-    DataServiceMigrationReport,
-    DataServiceOutboxEvent,
+from src.dataservice.domains.catalog.models import (  # noqa: F401
+    CapabilityDefinition,
+    CapabilitySeedRevision,
 )
 from src.dataservice.domains.conversation.models import (  # noqa: F401
     MessageBlock,
     ThreadMessage,
     ToolInvocationRecord,
     ToolResultRecord,
+)
+from src.dataservice.domains.operations.models import (  # noqa: F401
+    DataServiceIdempotencyKey,
+    DataServiceMigrationReport,
+    DataServiceOutboxEvent,
 )
 from src.dataservice.domains.workspace.models import WorkspaceMembership  # noqa: F401
 

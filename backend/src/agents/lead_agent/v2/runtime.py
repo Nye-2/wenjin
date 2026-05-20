@@ -207,10 +207,8 @@ class LeadAgentRuntime:
 
     async def _load_skills_for_template(self, template: dict) -> dict[str, Any]:
         """Pre-load all skills referenced by tasks in the template."""
-        from sqlalchemy import select
-
-        from src.database.models.capability_skill import CapabilitySkill
         from src.database.session import get_db_session
+        from src.dataservice.catalog_api import CatalogDataService
 
         skill_ids: set[str] = set()
         for phase in template.get("phases", []):
@@ -222,10 +220,8 @@ class LeadAgentRuntime:
             return {}
         try:
             async with get_db_session() as db:
-                result = await db.execute(
-                    select(CapabilitySkill).where(CapabilitySkill.id.in_(skill_ids))
-                )
-                return {s.id: s for s in result.scalars().all()}
+                skills = await CatalogDataService(db, autocommit=False).list_skills()
+                return {skill.id: skill for skill in skills if skill.id in skill_ids}
         except Exception:
             logger.warning("Failed to pre-load skills", exc_info=True)
             return {}

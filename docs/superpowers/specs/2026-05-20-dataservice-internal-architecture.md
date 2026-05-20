@@ -293,6 +293,15 @@ Invariants:
 - Seed load is idempotent by checksum.
 - Runtime consumes DB catalog only; YAML is seed input.
 
+Implementation checkpoint, 2026-05-21:
+
+- Catalog domain package exists with models, contracts, repository, projection, service, and seed loader.
+- Internal DataService catalog routes and typed client contracts exist.
+- `CatalogDataService` is the public in-process boundary for the current monorepo cutover; runtime/admin code imports it instead of domain repositories or old catalog ORM models.
+- YAML seed loading is centralized in `DataServiceCatalogSeedLoader`; `CapabilityLoader` and `SkillLoader` now only validate legacy YAML shapes and delegate persistence to DataService.
+- Admin capability/skill services, capability/skill resolvers, middleware preload, launch/list tools, dashboard/summary projections, Lead runtime skill loading, and Compute projection now consume catalog projections.
+- `capability_skills` remains the physical skill table during this slice, but ownership moved to the DataService catalog aggregate and its external contract is `capability_skill.v2`.
+
 ### 6.3 Execution Domain
 
 Current scattered logic:

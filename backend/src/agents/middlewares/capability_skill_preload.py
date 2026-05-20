@@ -14,7 +14,6 @@ import logging
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from sqlalchemy import select
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
@@ -55,10 +54,7 @@ class CapabilitySkillPreloadMiddleware(Middleware):
             return {}
 
         try:
-            caps, skills = await asyncio.wait_for(
-                self._fetch(workspace_type),
-                timeout=self._timeout,
-            )
+            caps, skills = await asyncio.wait_for(self._fetch(workspace_type), timeout=self._timeout)
         except TimeoutError:
             logger.warning(
                 "CapabilitySkillPreloadMiddleware: timed out loading catalog "
@@ -84,24 +80,15 @@ class CapabilitySkillPreloadMiddleware(Middleware):
     async def _fetch(
         workspace_type: str,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        from src.database.models.capability import Capability
-        from src.database.models.capability_skill import CapabilitySkill
         from src.database.session import get_db_session
+        from src.dataservice.catalog_api import CatalogDataService
 
         async with get_db_session() as db:
-            cap_rows = (
-                await db.execute(
-                    select(Capability).where(
-                        Capability.workspace_type == workspace_type,
-                        Capability.enabled.is_(True),
-                    )
-                )
-            ).scalars().all()
-            skill_rows = (
-                await db.execute(
-                    select(CapabilitySkill).where(CapabilitySkill.enabled.is_(True))
-                )
-            ).scalars().all()
+            catalog = CatalogDataService(db, autocommit=False)
+            cap_rows, skill_rows = await asyncio.gather(
+                catalog.list_capabilities(workspace_type=workspace_type, enabled_only=True),
+                catalog.list_skills(enabled_only=True),
+            )
 
         caps = [
             {

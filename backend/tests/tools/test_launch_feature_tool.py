@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,12 +16,29 @@ class _StubExecution:
     id: str
 
 
-def _capability(capability_id: str = "paper_analysis") -> MagicMock:
-    cap = MagicMock()
-    cap.id = capability_id
-    cap.workspace_type = "thesis"
-    cap.display_name = "Paper Analysis"
-    return cap
+def _capability(capability_id: str = "paper_analysis") -> SimpleNamespace:
+    return SimpleNamespace(
+        id=capability_id,
+        workspace_type="thesis",
+        schema_version="capability.v2",
+        enabled=True,
+        display_name="Paper Analysis",
+        description="",
+        intent_description="",
+        trigger_phrases=[],
+        required_decisions=[],
+        brief_schema={},
+        graph_template={},
+        ui_meta={},
+        runtime={},
+        dashboard_meta={},
+        definition_json={},
+        notes=None,
+        checksum=None,
+        source_path=None,
+        created_at=None,
+        updated_at=None,
+    )
 
 
 @asynccontextmanager

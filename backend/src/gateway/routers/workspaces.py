@@ -4,11 +4,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User, get_db_session
-from src.database.models.capability import Capability
+from src.dataservice.catalog_api import CatalogDataService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
@@ -318,13 +317,10 @@ async def resolve_workspace_capability_action(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     async with get_db_session() as cap_db:
-        cap_result = await cap_db.execute(
-            select(Capability).where(
-                Capability.id == capability_id,
-                Capability.workspace_type == workspace_type,
-            )
+        capability = await CatalogDataService(cap_db, autocommit=False).get_capability(
+            capability_id=capability_id,
+            workspace_type=workspace_type,
         )
-        capability = cap_result.scalars().first()
     if capability is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

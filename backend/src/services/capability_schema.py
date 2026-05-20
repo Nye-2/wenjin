@@ -181,14 +181,10 @@ class CrossRefValidator:
 
     @staticmethod
     async def _existing_skill_ids(db, ids: set[str]) -> set[str]:
-        from sqlalchemy import select
+        from src.dataservice.catalog_api import CatalogDataService
 
-        from src.database.models.capability_skill import CapabilitySkill
-
-        result = await db.execute(
-            select(CapabilitySkill.id).where(CapabilitySkill.id.in_(ids))
-        )
-        return {row[0] for row in result.all()}
+        skills = await CatalogDataService(db, autocommit=False).list_skills()
+        return {skill.id for skill in skills if skill.id in ids}
 
     @staticmethod
     def _registry_subagent_types() -> set[str]:

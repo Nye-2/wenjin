@@ -18,8 +18,8 @@ from src.gateway.contracts.latex import (
 from src.gateway.routers.latex_files import (
     apply_project_file_change,
     discard_project_file_change,
-    protect_project_section,
     preview_project_file_change,
+    protect_project_section,
     revert_project_file_change,
 )
 
@@ -259,6 +259,17 @@ def _execution(now: datetime) -> SimpleNamespace:
     )
 
 
+def _capability_record(runtime: dict[str, object]) -> SimpleNamespace:
+    return SimpleNamespace(
+        id="thesis_writing",
+        workspace_type="thesis",
+        display_name="论文写作",
+        runtime=runtime,
+        ui_meta={},
+        dashboard_meta={},
+    )
+
+
 def _task(now: datetime) -> SimpleNamespace:
     return SimpleNamespace(
         id="task-1",
@@ -314,12 +325,12 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(
-                scalar={
+                scalar=_capability_record({
                     "mode": "compute_workflow",
                     "requires_sandbox": False,
                     "review_gate": {},
                     "allowed_paths": [],
-                }
+                })
             ),
         ]
     )

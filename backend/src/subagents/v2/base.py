@@ -5,10 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from src.database.models.capability_skill import CapabilitySkill
+from typing import Any
 
 
 @dataclass
@@ -30,7 +27,7 @@ class SubagentContext:
     inputs: dict
     tools: list[str]
     workspace_data: dict = field(default_factory=dict)
-    skill: CapabilitySkill | None = None
+    skill: Any | None = None
     emit_delta: Callable[[str, str], Awaitable[None]] | None = None
 
     async def emit(self, event_type: str, content: str) -> None:

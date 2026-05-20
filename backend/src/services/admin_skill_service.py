@@ -1,8 +1,4 @@
-"""Admin service for capability_skill mutations.
-
-No EventBus channel because CapabilitySkill has no resolver cache today.
-Reintroduce subscription when a skill cache is added.
-"""
+"""Admin service for capability skill catalog mutations."""
 
 from __future__ import annotations
 
@@ -15,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.admin_log import AdminLog
-from src.database.models.capability_skill import CapabilitySkill
+from src.dataservice.catalog_api import CatalogDataService
 from src.services.capability_schema import CapabilitySkillYamlModel, CrossRefValidator
 
 
@@ -23,7 +19,23 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _yaml_to_orm(model: CapabilitySkillYamlModel) -> dict[str, Any]:
+def _yaml_to_catalog_data(model: CapabilitySkillYamlModel) -> dict[str, Any]:
+    return {
+        "id": model.id,
+        "schema_version": "capability_skill.v2",
+        "enabled": model.enabled,
+        "display_name": model.display_name,
+        "description": model.description,
+        "worker_type": model.subagent_type,
+        "subagent_type": model.subagent_type,
+        "prompt": model.prompt,
+        "allowed_tools": list(model.allowed_tools),
+        "resources": list(model.resources),
+        "config": dict(model.config),
+    }
+
+
+def _yaml_to_legacy_model_data(model: CapabilitySkillYamlModel) -> dict[str, Any]:
     return {
         "id": model.id,
         "enabled": model.enabled,
@@ -37,7 +49,7 @@ def _yaml_to_orm(model: CapabilitySkillYamlModel) -> dict[str, Any]:
     }
 
 
-def _orm_to_yaml_dict(skill: CapabilitySkill) -> dict[str, Any]:
+def _record_to_yaml_dict(skill: Any) -> dict[str, Any]:
     return {
         "id": skill.id,
         "enabled": skill.enabled,
@@ -45,28 +57,29 @@ def _orm_to_yaml_dict(skill: CapabilitySkill) -> dict[str, Any]:
         "description": skill.description,
         "subagent_type": skill.subagent_type,
         "prompt": skill.prompt,
-        "allowed_tools": skill.allowed_tools,
-        "resources": skill.resources,
-        "config": skill.config,
+        "allowed_tools": list(skill.allowed_tools or []),
+        "resources": list(skill.resources or []),
+        "config": dict(skill.config or {}),
     }
 
 
 class AdminSkillService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, *, model: Any | None = None) -> None:
         self.db = db
+        self._model = model
         self.validator = CrossRefValidator(db)
 
-    async def list_all(self) -> list[CapabilitySkill]:
-        result = await self.db.execute(
-            select(CapabilitySkill).order_by(CapabilitySkill.id)
-        )
-        return list(result.scalars().all())
+    async def list_all(self) -> list[Any]:
+        if self._model is not None:
+            result = await self.db.execute(select(self._model).order_by(self._model.id))
+            return list(result.scalars().all())
+        return await CatalogDataService(self.db, autocommit=False).list_skills()
 
-    async def get(self, skill_id: str) -> CapabilitySkill | None:
-        result = await self.db.execute(
-            select(CapabilitySkill).where(CapabilitySkill.id == skill_id)
-        )
-        return result.scalars().first()
+    async def get(self, skill_id: str) -> Any | None:
+        if self._model is not None:
+            result = await self.db.execute(select(self._model).where(self._model.id == skill_id))
+            return result.scalars().first()
+        return await CatalogDataService(self.db, autocommit=False).get_skill(skill_id)
 
     async def validate(self, yaml_text: str) -> list[str]:
         try:
@@ -79,16 +92,20 @@ class AdminSkillService:
             return [f"schema: {err['loc']}: {err['msg']}" for err in e.errors()]
         return await self.validator.validate_skill(model)
 
-    async def create(self, yaml_text: str, admin_id: str) -> CapabilitySkill:
-        errors = await self.validate(yaml_text)
-        if errors:
-            raise ValueError(f"validation failed: {errors}")
-        data = yaml.safe_load(yaml_text)
-        model = CapabilitySkillYamlModel(**data)
+    async def create(self, yaml_text: str, admin_id: str) -> Any:
+        model = await self._parse_and_validate_for_write(yaml_text)
         if await self.get(model.id):
             raise ValueError(f"skill {model.id} already exists")
-        skill = CapabilitySkill(**_yaml_to_orm(model))
-        self.db.add(skill)
+
+        if self._model is not None:
+            skill = self._model(**_yaml_to_legacy_model_data(model))
+            self.db.add(skill)
+        else:
+            skill = await CatalogDataService(self.db, autocommit=False).upsert_skill(
+                _yaml_to_catalog_data(model),
+                checksum=_sha256(yaml_text),
+            )
+
         self.db.add(
             AdminLog(
                 action="skill_create",
@@ -103,26 +120,27 @@ class AdminSkillService:
         await self.db.commit()
         return skill
 
-    async def update(
-        self, skill_id: str, yaml_text: str, admin_id: str
-    ) -> CapabilitySkill:
-        errors = await self.validate(yaml_text)
-        if errors:
-            raise ValueError(f"validation failed: {errors}")
-        data = yaml.safe_load(yaml_text)
-        model = CapabilitySkillYamlModel(**data)
+    async def update(self, skill_id: str, yaml_text: str, admin_id: str) -> Any:
+        model = await self._parse_and_validate_for_write(yaml_text)
         if model.id != skill_id:
             raise ValueError("yaml id must match URL path")
         skill = await self.get(skill_id)
         if skill is None:
             raise ValueError("not found")
-        before_yaml = yaml.safe_dump(
-            _orm_to_yaml_dict(skill), sort_keys=False, allow_unicode=True
-        )
-        for k, v in _yaml_to_orm(model).items():
-            if k == "id":
-                continue
-            setattr(skill, k, v)
+        before_yaml = yaml.safe_dump(_record_to_yaml_dict(skill), sort_keys=False, allow_unicode=True)
+
+        if self._model is not None:
+            for key, value in _yaml_to_legacy_model_data(model).items():
+                if key == "id":
+                    continue
+                setattr(skill, key, value)
+            updated = skill
+        else:
+            updated = await CatalogDataService(self.db, autocommit=False).upsert_skill(
+                _yaml_to_catalog_data(model),
+                checksum=_sha256(yaml_text),
+            )
+
         self.db.add(
             AdminLog(
                 action="skill_update",
@@ -136,16 +154,19 @@ class AdminSkillService:
             )
         )
         await self.db.commit()
-        return skill
+        return updated
 
     async def delete(self, skill_id: str, admin_id: str) -> None:
         skill = await self.get(skill_id)
         if skill is None:
             raise ValueError("not found")
-        before_yaml = yaml.safe_dump(
-            _orm_to_yaml_dict(skill), sort_keys=False, allow_unicode=True
-        )
-        await self.db.delete(skill)
+        before_yaml = yaml.safe_dump(_record_to_yaml_dict(skill), sort_keys=False, allow_unicode=True)
+
+        if self._model is not None:
+            await self.db.delete(skill)
+        else:
+            await CatalogDataService(self.db, autocommit=False).delete_skill(skill_id)
+
         self.db.add(
             AdminLog(
                 action="skill_delete",
@@ -159,12 +180,23 @@ class AdminSkillService:
         )
         await self.db.commit()
 
-    async def toggle(self, skill_id: str, admin_id: str) -> CapabilitySkill:
+    async def toggle(self, skill_id: str, admin_id: str) -> Any:
         skill = await self.get(skill_id)
         if skill is None:
             raise ValueError("not found")
         previous = skill.enabled
-        skill.enabled = not previous
+
+        if self._model is not None:
+            skill.enabled = not previous
+            updated = skill
+        else:
+            updated = await CatalogDataService(self.db, autocommit=False).set_skill_enabled(
+                skill_id=skill_id,
+                enabled=not previous,
+            )
+            if updated is None:
+                raise ValueError("not found")
+
         self.db.add(
             AdminLog(
                 action="skill_toggle",
@@ -173,14 +205,19 @@ class AdminSkillService:
                 details={
                     "skill_id": skill_id,
                     "enabled_before": previous,
-                    "enabled_after": skill.enabled,
+                    "enabled_after": updated.enabled,
                 },
             )
         )
         await self.db.commit()
-        return skill
+        return updated
 
-    def to_yaml_text(self, skill: CapabilitySkill) -> str:
-        return yaml.safe_dump(
-            _orm_to_yaml_dict(skill), sort_keys=False, allow_unicode=True
-        )
+    def to_yaml_text(self, skill: Any) -> str:
+        return yaml.safe_dump(_record_to_yaml_dict(skill), sort_keys=False, allow_unicode=True)
+
+    async def _parse_and_validate_for_write(self, yaml_text: str) -> CapabilitySkillYamlModel:
+        errors = await self.validate(yaml_text)
+        if errors:
+            raise ValueError(f"validation failed: {errors}")
+        data = yaml.safe_load(yaml_text)
+        return CapabilitySkillYamlModel(**data)

@@ -7,6 +7,10 @@ from typing import Any
 import httpx
 
 from src.config import dataservice_settings
+from src.dataservice_client.contracts.catalog import (
+    CapabilityDefinitionPayload,
+    CapabilitySkillPayload,
+)
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagePayload,
@@ -82,6 +86,56 @@ class AsyncDataServiceClient:
     async def list_conversation_messages(self, thread_id: str) -> list[ConversationMessagePayload]:
         payload = await self._request("GET", f"/internal/v1/conversations/{thread_id}/messages")
         return [ConversationMessagePayload.model_validate(item) for item in payload["data"]]
+
+    async def list_catalog_capabilities(
+        self,
+        *,
+        workspace_type: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[CapabilityDefinitionPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/catalog/capabilities",
+            params={"workspace_type": workspace_type, "enabled_only": enabled_only},
+        )
+        return [CapabilityDefinitionPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_catalog_capability(
+        self,
+        *,
+        workspace_type: str,
+        capability_id: str,
+        enabled_only: bool = False,
+    ) -> CapabilityDefinitionPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}",
+            params={"enabled_only": enabled_only},
+        )
+        data = payload.get("data")
+        return CapabilityDefinitionPayload.model_validate(data) if data is not None else None
+
+    async def list_catalog_skills(self, *, enabled_only: bool = False) -> list[CapabilitySkillPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/catalog/skills",
+            params={"enabled_only": enabled_only},
+        )
+        return [CapabilitySkillPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_catalog_skill(
+        self,
+        skill_id: str,
+        *,
+        enabled_only: bool = False,
+    ) -> CapabilitySkillPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/catalog/skills/{skill_id}",
+            params={"enabled_only": enabled_only},
+        )
+        data = payload.get("data")
+        return CapabilitySkillPayload.model_validate(data) if data is not None else None
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

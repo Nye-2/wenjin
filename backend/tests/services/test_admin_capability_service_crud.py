@@ -122,7 +122,6 @@ def _patch_models(monkeypatch):
     """Replace the real ORM models with our SQLite-compatible ones."""
     import src.services.admin_capability_service as mod
 
-    monkeypatch.setattr(mod, "Capability", _TestCapability)
     monkeypatch.setattr(mod, "AdminLog", _TestAdminLog)
 
 
@@ -132,7 +131,7 @@ async def service(crud_db):
     # Stub out the CrossRefValidator so we don't need the real registry
     fake_validator = MagicMock()
     fake_validator.validate_capability = AsyncMock(return_value=[])
-    svc = AdminCapabilityService(db=crud_db, event_bus=bus)
+    svc = AdminCapabilityService(db=crud_db, event_bus=bus, model=_TestCapability)
     svc.validator = fake_validator
     return svc
 

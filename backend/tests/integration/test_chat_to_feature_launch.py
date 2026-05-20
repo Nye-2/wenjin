@@ -199,9 +199,18 @@ async def test_launch_feature_returns_unknown_for_invalid_capability_id():
     cap_result = MagicMock()
     cap_result.scalar_one_or_none = MagicMock(return_value=None)
     avail_result = MagicMock()
-    avail_result.all = MagicMock(
-        return_value=[("framework_outline",), ("literature_search",)]
-    )
+    avail_result.scalars.return_value.all.return_value = [
+        SimpleNamespace(
+            id="framework_outline",
+            workspace_type="sci",
+            display_name="框架大纲",
+        ),
+        SimpleNamespace(
+            id="literature_search",
+            workspace_type="sci",
+            display_name="文献检索",
+        ),
+    ]
 
     fake_db = MagicMock()
     fake_db.execute = AsyncMock(side_effect=[cap_result, avail_result])

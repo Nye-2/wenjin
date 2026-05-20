@@ -38,19 +38,42 @@ class SkillLoader:
     ) -> None:
         self.session = session
         self.seed_dir = Path(seed_dir) if seed_dir is not None else DEFAULT_SEED_DIR
-        if model is None:
-            from src.database.models.capability_skill import CapabilitySkill
-            self._model = CapabilitySkill
-        else:
-            self._model = model
+        self._model = model
 
     async def load_seeds_if_empty(self) -> int:
+        if self._model is None:
+            from src.dataservice.catalog_api import CatalogDataService
+
+            catalog = CatalogDataService(self.session)
+            if await catalog.has_skills():
+                return 0
+            return await self._load_all_dataservice(overwrite=False)
+
         existing = (await self.session.execute(select(self._model).limit(1))).first()
         if existing:
             return 0
         return await self._load_all()
 
+    async def load_all(self, overwrite: bool = False) -> list:
+        """Load all skill YAML seeds and return catalog rows."""
+        if self._model is None:
+            await self._load_all_dataservice(overwrite=overwrite)
+            from src.dataservice.catalog_api import CatalogDataService
+
+            return await CatalogDataService(self.session).list_skills()
+
+        if overwrite:
+            from sqlalchemy import delete as sa_delete
+
+            await self.session.execute(sa_delete(self._model))
+        await self._load_all()
+        result = await self.session.execute(select(self._model))
+        return list(result.scalars().all())
+
     async def _load_all(self) -> int:
+        if self._model is None:
+            return await self._load_all_dataservice(overwrite=False)
+
         count = 0
         if not self.seed_dir.exists():
             logger.warning("Skill seed dir does not exist: %s", self.seed_dir)
@@ -64,9 +87,27 @@ class SkillLoader:
             logger.info("Loaded %d skill seed(s) from %s", count, self.seed_dir)
         return count
 
+    async def _load_all_dataservice(self, *, overwrite: bool) -> int:
+        from src.dataservice.catalog_api import CatalogDataService
+
+        if not self.seed_dir.exists():
+            logger.warning("Skill seed dir does not exist: %s", self.seed_dir)
+            return 0
+        catalog = CatalogDataService(self.session)
+        result = await catalog.load_skill_seed_dir(
+            self.seed_dir,
+            validate_yaml_text=self._validate_yaml_text,
+            overwrite=overwrite,
+        )
+        if result.loaded > 0:
+            logger.info("Loaded %d DataService skill seed(s) from %s", result.loaded, self.seed_dir)
+        return result.loaded
+
     def _read_and_validate(self, path: Path) -> dict[str, Any]:
-        with open(path) as f:
-            raw = yaml.safe_load(f)
+        return self._validate_yaml_text(path, path.read_text(encoding="utf-8"))
+
+    def _validate_yaml_text(self, path: Path, text: str) -> dict[str, Any]:
+        raw = yaml.safe_load(text)
         if not isinstance(raw, dict):
             raise ValueError(f"Expected dict in {path}, got {type(raw).__name__}")
         missing = REQUIRED_FIELDS - set(raw.keys())

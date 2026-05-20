@@ -8,11 +8,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.compute.events import serialize_compute_session
-from src.database.models.capability import Capability
 from src.database.models.compute_session import ComputeSessionRecord
 from src.database.models.execution import ExecutionRecord
 from src.database.models.subagent_task import SubagentTaskRecord
 from src.database.models.task import TaskRecord
+from src.dataservice.catalog_api import CatalogDataService
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.services.execution_service import serialize_execution_record
 
@@ -640,13 +640,11 @@ async def _build_runtime_profile_projection(
     feature_id = str(execution.feature_id or "").strip()
     if not workspace_type or not feature_id:
         return {}
-    result = await db.execute(
-        select(Capability.runtime).where(
-            Capability.id == feature_id,
-            Capability.workspace_type == workspace_type,
-        )
+    capability = await CatalogDataService(db, autocommit=False).get_capability(
+        capability_id=feature_id,
+        workspace_type=workspace_type,
     )
-    raw = result.scalar()
+    raw = capability.runtime if capability is not None else None
     if not isinstance(raw, dict):
         return {}
 
