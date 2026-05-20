@@ -13,6 +13,15 @@ from src.academic.services.workspace_service import WorkspaceService
 from src.database import Workspace, WorkspaceType
 
 
+def _added_workspace(mock_db_session):
+    """Return the Workspace instance added by the mocked session."""
+    return next(
+        call.args[0]
+        for call in mock_db_session.add.call_args_list
+        if isinstance(call.args[0], Workspace)
+    )
+
+
 class TestWorkspaceServiceInit:
     """Tests for WorkspaceService initialization."""
 
@@ -56,11 +65,11 @@ class TestCreateWorkspace:
             type="sci",
         )
 
-        mock_db_session.add.assert_called_once()
+        assert mock_db_session.add.call_count == 3
         mock_db_session.commit.assert_called_once()
 
         # Verify the workspace object passed to add
-        added_workspace = mock_db_session.add.call_args[0][0]
+        added_workspace = _added_workspace(mock_db_session)
         assert added_workspace.user_id == sample_user_id
         assert added_workspace.name == "Test Workspace"
         assert added_workspace.type == WorkspaceType.SCI
@@ -80,7 +89,7 @@ class TestCreateWorkspace:
             config=config,
         )
 
-        added_workspace = mock_db_session.add.call_args[0][0]
+        added_workspace = _added_workspace(mock_db_session)
         assert added_workspace.user_id == sample_user_id
         assert added_workspace.name == "Full Workspace"
         assert added_workspace.type == WorkspaceType.THESIS
@@ -100,7 +109,7 @@ class TestCreateWorkspace:
             type=WorkspaceType.PATENT,
         )
 
-        added_workspace = mock_db_session.add.call_args[0][0]
+        added_workspace = _added_workspace(mock_db_session)
         assert added_workspace.type == WorkspaceType.PATENT
 
     @pytest.mark.asyncio
@@ -128,7 +137,7 @@ class TestCreateWorkspace:
             type="proposal",
         )
 
-        added_workspace = mock_db_session.add.call_args[0][0]
+        added_workspace = _added_workspace(mock_db_session)
         assert added_workspace.config["rollout"]["thread_cockpit_enabled"] is True
 
 
@@ -330,6 +339,8 @@ class TestUpdateWorkspace:
     ):
         """Test updating workspace config."""
         mock_workspace = MagicMock(spec=Workspace)
+        mock_workspace.id = sample_workspace_id
+        mock_workspace.type = WorkspaceType.SCI
         mock_workspace.config = {}
 
         new_config = {"setting1": "value1", "setting2": "value2"}
@@ -339,7 +350,7 @@ class TestUpdateWorkspace:
 
         assert mock_workspace.config["setting1"] == "value1"
         assert mock_workspace.config["setting2"] == "value2"
-        assert mock_workspace.config["rollout"]["thread_cockpit_enabled"] is False
+        assert mock_workspace.config["rollout"]["thread_cockpit_enabled"] is True
 
 
 class TestDeleteWorkspace:
@@ -435,5 +446,5 @@ class TestWorkspaceTypeValidation:
                 type=type_value,
             )
 
-            added_workspace = mock_db_session.add.call_args[0][0]
+            added_workspace = _added_workspace(mock_db_session)
             assert added_workspace.type.value == type_value

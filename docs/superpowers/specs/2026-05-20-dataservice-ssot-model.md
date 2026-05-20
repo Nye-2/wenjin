@@ -216,6 +216,13 @@ Migration notes:
 - Move `workspaces.config` keys into `workspace_settings.settings_json`; keep unknown keys under `settings_json.legacy_import`.
 - Seed `workspace_memberships` with one `owner` row per existing `workspaces.user_id`.
 
+Implementation checkpoint, 2026-05-21:
+
+- `060_dataservice_workspace_core.py` creates `workspace_memberships`, adds `workspace_settings.settings_json`, backfills settings JSON from `workspaces.config`, and seeds owner memberships from `workspaces.user_id`.
+- DataService workspace contracts already use `created_by_user_id`, `workspace_type`, `settings_json`, and `active_thread_id`.
+- `workspaces.user_id`, `workspaces.type`, `workspaces.thread_id`, and `workspaces.config` are still physical storage columns in the shared ORM model during this first slice; they are no longer the DataService API vocabulary.
+- Workspace access checks now resolve through `workspace_memberships`, not owner-only `workspaces.user_id` equality.
+
 #### `workspace_memberships`
 
 Workspace access and collaboration membership SSOT.

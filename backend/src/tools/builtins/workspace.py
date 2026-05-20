@@ -15,6 +15,7 @@ from sqlalchemy import select
 from src.application.workspace_resolvers import resolve_workspace_type
 from src.database import Artifact, Workspace, get_db_session
 from src.database.models.capability import Capability
+from src.dataservice.workspace_api import WorkspaceDataService
 
 
 class ListCapabilitiesInput(BaseModel):
@@ -92,7 +93,11 @@ async def list_capabilities_tool(
         workspace = await db.get(Workspace, runtime.workspace_id)
         if workspace is None:
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
-        if str(workspace.user_id) != str(runtime.user_id):
+        workspace_access = WorkspaceDataService(db)
+        if not await workspace_access.user_has_active_membership(
+            workspace_id=str(runtime.workspace_id),
+            user_id=str(runtime.user_id),
+        ):
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
 
         workspace_type = resolve_workspace_type(workspace)
@@ -137,7 +142,11 @@ async def list_workspace_artifacts_tool(
         workspace = await db.get(Workspace, runtime.workspace_id)
         if workspace is None:
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
-        if str(workspace.user_id) != str(runtime.user_id):
+        workspace_access = WorkspaceDataService(db)
+        if not await workspace_access.user_has_active_membership(
+            workspace_id=str(runtime.workspace_id),
+            user_id=str(runtime.user_id),
+        ):
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
 
         result = await db.execute(

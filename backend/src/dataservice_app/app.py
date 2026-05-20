@@ -72,9 +72,10 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
     )
 
 
-from .routers import health  # noqa: E402
+from .routers import health, workspace  # noqa: E402
 
 app.include_router(health.router)
+app.include_router(workspace.router)
 
 
 @app.get("/", include_in_schema=False)

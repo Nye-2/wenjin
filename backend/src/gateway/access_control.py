@@ -3,11 +3,11 @@
 from typing import Any
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User, Workspace
+from src.dataservice.workspace_api import WorkspaceDataService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_workspace_service
 
@@ -37,7 +37,11 @@ async def require_workspace_owner(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workspace not found",
         )
-    if str(workspace.user_id) != str(current_user.id):
+    has_access = await workspace_service.has_active_membership(
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+    )
+    if not has_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",
@@ -57,16 +61,18 @@ async def require_workspace_owner_by_session(
     user_id: str,
 ) -> Workspace:
     """Verify workspace ownership using an existing database session."""
-    result = await session.execute(
-        select(Workspace).where(Workspace.id == workspace_id)
-    )
-    workspace = result.scalar_one_or_none()
+    service = WorkspaceDataService(session)
+    workspace = await service.get_workspace(workspace_id)
     if workspace is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workspace not found",
         )
-    if str(workspace.user_id) != user_id:
+    has_access = await service.user_has_active_membership(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+    if not has_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Access denied",

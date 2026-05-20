@@ -43,6 +43,7 @@ def app(tmp_path: Path) -> FastAPI:
     workspace = SimpleNamespace(id="ws-1", user_id="user-1", type="thesis")
     workspace_service = MagicMock()
     workspace_service.get = AsyncMock(return_value=workspace)
+    workspace_service.has_active_membership = AsyncMock(return_value=True)
 
     template_service = MagicMock()
     template_service.list_by_workspace = AsyncMock(return_value=[])

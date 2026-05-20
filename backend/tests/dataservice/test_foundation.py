@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import httpx
@@ -19,6 +20,7 @@ from src.dataservice.domains.operations.models import (
     DataServiceOutboxEvent,
 )
 from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.workspace import WorkspaceCreatePayload, WorkspaceUpdatePayload
 
 
 def test_operations_models_are_registered_on_shared_metadata() -> None:
@@ -130,3 +132,85 @@ async def test_dataservice_client_sends_internal_token() -> None:
         result = await client._request("GET", "/protected")
 
     assert result == {"status": "ok", "data": {"received": True}}
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_workspace_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def workspace_payload(workspace_id: str = "workspace-1") -> dict[str, Any]:
+        return {
+            "id": workspace_id,
+            "created_by_user_id": "user-1",
+            "name": "Workspace",
+            "workspace_type": "thesis",
+            "settings_json": {"language": "zh"},
+            "active_thread_id": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.method == "POST":
+            return httpx.Response(200, json={"status": "ok", "data": workspace_payload()})
+        if request.method == "GET" and request.url.path == "/internal/v1/workspaces":
+            return httpx.Response(200, json={"status": "ok", "data": [workspace_payload()]})
+        if request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "data": workspace_payload("workspace-2")})
+        if request.method == "PUT":
+            payload = workspace_payload("workspace-2")
+            payload["name"] = body["name"] if body else "Updated"
+            return httpx.Response(200, json={"status": "ok", "data": payload})
+        return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        created = await client.create_workspace(
+            WorkspaceCreatePayload(
+                created_by_user_id="user-1",
+                name="Workspace",
+                workspace_type="thesis",
+                settings_json={"language": "zh"},
+            )
+        )
+        listed = await client.list_workspaces(member_user_id="user-1")
+        fetched = await client.get_workspace("workspace-2")
+        updated = await client.update_workspace(
+            "workspace-2",
+            WorkspaceUpdatePayload(name="Updated"),
+        )
+        deleted = await client.delete_workspace("workspace-2")
+
+    assert created.workspace_type == "thesis"
+    assert listed[0].id == "workspace-1"
+    assert fetched is not None
+    assert fetched.id == "workspace-2"
+    assert updated is not None
+    assert updated.name == "Updated"
+    assert deleted is True
+    assert seen == [
+        (
+            "POST",
+            "/internal/v1/workspaces",
+            {
+                "created_by_user_id": "user-1",
+                "name": "Workspace",
+                "workspace_type": "thesis",
+                "discipline": None,
+                "description": None,
+                "settings_json": {"language": "zh"},
+            },
+        ),
+        ("GET", "/internal/v1/workspaces", None),
+        ("GET", "/internal/v1/workspaces/workspace-2", None),
+        (
+            "PUT",
+            "/internal/v1/workspaces/workspace-2",
+            {"name": "Updated"},
+        ),
+        ("DELETE", "/internal/v1/workspaces/workspace-2", None),
+    ]

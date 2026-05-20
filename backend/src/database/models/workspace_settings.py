@@ -44,6 +44,9 @@ class WorkspaceSettings(Base, TimestampMixin):
     capability_overrides: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="'{}'::jsonb",
     )
+    settings_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="'{}'::jsonb",
+    )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="'{}'::jsonb",
     )

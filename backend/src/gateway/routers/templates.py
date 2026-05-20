@@ -56,6 +56,23 @@ def _to_response(t: Any) -> TemplateResponse:
     )
 
 
+async def _require_workspace_access(
+    *,
+    workspace_id: str,
+    current_user: User,
+    workspace_service: WorkspaceService,
+) -> Any:
+    workspace = await workspace_service.get(workspace_id)
+    if not workspace:
+        raise HTTPException(404, "Workspace not found")
+    if not await workspace_service.has_active_membership(
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+    ):
+        raise HTTPException(403, "Access denied")
+    return workspace
+
+
 @router.get("/workspaces/{workspace_id}/templates", response_model=TemplatesListResponse)
 async def list_templates(
     workspace_id: str,
@@ -63,11 +80,11 @@ async def list_templates(
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplatesListResponse:
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(404, "Workspace not found")
-    if str(workspace.user_id) != str(current_user.id):
-        raise HTTPException(403, "Access denied")
+    await _require_workspace_access(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
     templates = await template_service.list_by_workspace(workspace_id)
     return TemplatesListResponse(templates=[_to_response(t) for t in templates])
 
@@ -79,11 +96,11 @@ async def get_active_template(
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplateResponse | None:
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(404, "Workspace not found")
-    if str(workspace.user_id) != str(current_user.id):
-        raise HTTPException(403, "Access denied")
+    await _require_workspace_access(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
     template = await template_service.get_active(workspace_id)
     return _to_response(template) if template else None
 
@@ -96,11 +113,11 @@ async def upload_template(
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplateResponse:
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(404, "Workspace not found")
-    if str(workspace.user_id) != str(current_user.id):
-        raise HTTPException(403, "Access denied")
+    workspace = await _require_workspace_access(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
 
     ext = Path(file.filename or "").suffix.lower()
     if ext not in TEMPLATE_EXTENSIONS:
@@ -182,11 +199,11 @@ async def activate_template(
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplateResponse:
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(404, "Workspace not found")
-    if str(workspace.user_id) != str(current_user.id):
-        raise HTTPException(403, "Access denied")
+    await _require_workspace_access(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
     template = await template_service.activate(template_id, workspace_id)
     if not template:
         raise HTTPException(404, "Template not found")
@@ -201,11 +218,11 @@ async def delete_template(
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> dict[str, str]:
-    workspace = await workspace_service.get(workspace_id)
-    if not workspace:
-        raise HTTPException(404, "Workspace not found")
-    if str(workspace.user_id) != str(current_user.id):
-        raise HTTPException(403, "Access denied")
+    await _require_workspace_access(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
     deleted = await template_service.delete(template_id, workspace_id)
     if not deleted:
         raise HTTPException(404, "Template not found or does not belong to this workspace")

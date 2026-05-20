@@ -7,6 +7,11 @@ from typing import Any
 import httpx
 
 from src.config import dataservice_settings
+from src.dataservice_client.contracts.workspace import (
+    WorkspaceCreatePayload,
+    WorkspacePayload,
+    WorkspaceUpdatePayload,
+)
 from src.dataservice_client.errors import DataServiceClientError
 
 
@@ -43,6 +48,45 @@ class AsyncDataServiceClient:
 
     async def readyz(self) -> dict[str, Any]:
         return await self._request("GET", "/readyz", authenticated=False)
+
+    async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/workspaces",
+            json=command.model_dump(mode="json"),
+        )
+        return WorkspacePayload.model_validate(payload["data"])
+
+    async def list_workspaces(self, *, member_user_id: str) -> list[WorkspacePayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/workspaces",
+            params={"member_user_id": member_user_id},
+        )
+        return [WorkspacePayload.model_validate(item) for item in payload["data"]]
+
+    async def get_workspace(self, workspace_id: str) -> WorkspacePayload | None:
+        payload = await self._request("GET", f"/internal/v1/workspaces/{workspace_id}")
+        data = payload.get("data")
+        return WorkspacePayload.model_validate(data) if data is not None else None
+
+    async def update_workspace(
+        self,
+        workspace_id: str,
+        command: WorkspaceUpdatePayload,
+    ) -> WorkspacePayload | None:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/workspaces/{workspace_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return WorkspacePayload.model_validate(data) if data is not None else None
+
+    async def delete_workspace(self, workspace_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/workspaces/{workspace_id}")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
 
     async def _request(
         self,

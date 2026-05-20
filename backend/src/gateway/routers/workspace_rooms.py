@@ -54,7 +54,10 @@ async def _assert_workspace_owner(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workspace not found",
         )
-    if str(workspace.user_id) != str(current_user.id):
+    if not await workspace_service.has_active_membership(
+        workspace_id=ws_id,
+        user_id=str(current_user.id),
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workspace not found",

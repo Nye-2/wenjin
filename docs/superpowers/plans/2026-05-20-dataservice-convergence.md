@@ -432,16 +432,17 @@ No user-facing behavior changes.
 
 Create migrations:
 
-- `059_dataservice_workspace_core.py`
-- `060_dataservice_capability_catalog.py`
-- `061_dataservice_execution_graph.py`
-- `062_dataservice_review_queue.py`
-- `063_dataservice_workspace_assets.py`
-- `064_dataservice_prism_documents.py`
-- `065_dataservice_sources_provenance.py`
-- `066_dataservice_sandbox_runtime.py`
-- `067_dataservice_rooms_hooks.py`
-- `068_dataservice_projection_cleanup.py`
+- `059_dataservice_operations.py`
+- `060_dataservice_workspace_core.py`
+- `061_dataservice_capability_catalog.py`
+- `062_dataservice_execution_graph.py`
+- `063_dataservice_review_queue.py`
+- `064_dataservice_workspace_assets.py`
+- `065_dataservice_prism_documents.py`
+- `066_dataservice_sources_provenance.py`
+- `067_dataservice_sandbox_runtime.py`
+- `068_dataservice_rooms_hooks.py`
+- `069_dataservice_projection_cleanup.py`
 
 Rules:
 
@@ -555,8 +556,8 @@ Steps:
 - [x] Add Docker target and Compose `dataservice` service with internal `DATASERVICE_URL`.
 - [x] Add architecture guard that blocks non-DataService runtime imports of DataService models/repositories.
 - [ ] Generate explicit `LEGACY_ALLOWED_FILES` when the first legacy database model is migrated into a DataService domain.
-- [ ] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q`.
-- [ ] Commit `feat: add dataservice service foundation`.
+- [x] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q`.
+- [x] Commit `feat: add dataservice service foundation`.
 
 ### Task 3: Move Workspace Aggregate To DataService
 
@@ -576,14 +577,19 @@ Steps:
 
 Steps:
 
-- [ ] Rename DataService contract field `type` to `workspace_type`.
-- [ ] Rename `workspaces.thread_id` to `active_thread_id`.
-- [ ] Rename `workspaces.user_id` semantics to `created_by_user_id` and seed `workspace_memberships` owner rows.
-- [ ] Move `workspaces.config` into `workspace_settings.settings_json`.
-- [ ] Validate that active thread belongs to the same workspace.
+- [x] Add DataService workspace domain with contracts, repository, service, projection, and policy layer.
+- [x] Add internal workspace API routes and client workspace contracts.
+- [x] Rename DataService contract field `type` to `workspace_type`.
+- [x] Expose `workspaces.thread_id` as `active_thread_id` in the DataService contract and validate same-workspace binding.
+- [x] Expose `workspaces.user_id` as `created_by_user_id` and seed `workspace_memberships` owner rows.
+- [x] Move settings payload into `workspace_settings.settings_json` while preserving `workspaces.config` as the source column until physical cleanup.
+- [x] Cut workspace CRUD and access checks through the DataService public workspace boundary.
+- [x] Add architecture guard coverage so runtime code cannot import `src.dataservice.domains.*`.
+- [ ] Cut runtime consumers from the in-process public boundary to `dataservice_client` once the DataService service is required in all dev/test paths.
+- [ ] Physically rename or replace legacy ORM columns (`user_id`, `type`, `thread_id`, `config`) after all consumers use DataService projections.
 - [ ] Enforce at least one active owner membership per workspace.
-- [ ] Run workspace/thread/settings tests plus architecture guard.
-- [ ] Commit `feat: move workspace aggregate into dataservice`.
+- [x] Run workspace/thread/settings tests plus architecture guard.
+- [ ] Commit `feat: add dataservice workspace core`.
 
 ### Task 4: Move Conversation And Block Protocol To DataService
 

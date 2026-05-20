@@ -38,6 +38,7 @@ def app(tmp_path):
     thread_service.get_thread = AsyncMock(return_value=thread)
     workspace_service = MagicMock()
     workspace_service.get = AsyncMock(return_value=workspace)
+    workspace_service.has_active_membership = AsyncMock(return_value=True)
     artifact_service = MagicMock()
     artifact_service.create = AsyncMock(return_value=SimpleNamespace(id="artifact-1"))
     task_service = MagicMock()

@@ -46,8 +46,10 @@ def _make_app(*, workspace_exists: bool = True) -> tuple[FastAPI, TestClient]:
         svc = MagicMock()
         if workspace_exists:
             svc.get = AsyncMock(return_value=_make_workspace())
+            svc.has_active_membership = AsyncMock(return_value=True)
         else:
             svc.get = AsyncMock(return_value=None)
+            svc.has_active_membership = AsyncMock(return_value=False)
         return svc
 
     app.dependency_overrides[get_current_user] = override_user

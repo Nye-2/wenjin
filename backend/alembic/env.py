@@ -47,6 +47,7 @@ from src.dataservice.domains.operations.models import (  # noqa: F401
     DataServiceMigrationReport,
     DataServiceOutboxEvent,
 )
+from src.dataservice.domains.workspace.models import WorkspaceMembership  # noqa: F401
 
 # Alembic Config object
 config = context.config

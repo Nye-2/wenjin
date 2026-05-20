@@ -262,7 +262,10 @@ async def _require_owned_workspace(
     workspace_service: Any,
 ) -> Any:
     workspace = await workspace_service.get(workspace_id)
-    if workspace is None or str(workspace.user_id) != user_id:
+    if workspace is None or not await workspace_service.has_active_membership(
+        workspace_id=workspace_id,
+        user_id=user_id,
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
     return workspace
 

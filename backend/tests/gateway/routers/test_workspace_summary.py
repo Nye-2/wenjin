@@ -26,6 +26,10 @@ def create_test_app(user, workspace_service, summary_service):
     from src.gateway.routers import workspaces
 
     app = FastAPI()
+    workspace = getattr(workspace_service.get, "return_value", None)
+    workspace_service.has_active_membership = AsyncMock(
+        return_value=workspace is not None and str(workspace.user_id) == str(user.id)
+    )
 
     async def override_get_current_user():
         return user

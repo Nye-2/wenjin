@@ -93,6 +93,9 @@ class _WorkspaceSettings(_Base):
     capability_overrides: Mapped[dict] = mapped_column(
         JSON, nullable=False, default=dict,
     )
+    settings_json: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict,
+    )
     metadata_json: Mapped[dict] = mapped_column(
         JSON, nullable=False, default=dict,
     )

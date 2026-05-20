@@ -28,6 +28,10 @@ def _mock_workspace(user_id: str = "user-1"):
 
 def _create_client(user, workspace_service, activity_service, *, patch_db_session=False, db_capabilities=None):
     app = FastAPI()
+    workspace = getattr(workspace_service.get, "return_value", None)
+    workspace_service.has_active_membership = AsyncMock(
+        return_value=workspace is not None and str(workspace.user_id) == str(user.id)
+    )
 
     async def override_get_current_user():
         return user

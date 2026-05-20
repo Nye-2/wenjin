@@ -10,18 +10,10 @@ Note: Workspace-scoped references are handled by the Reference Library services.
 
 from typing import Any
 
-from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Workspace, WorkspaceType
-
-_THREAD_COCKPIT_DEFAULT_TYPES = {
-    "thesis",
-    "sci",
-    "proposal",
-    "software_copyright",
-    "patent",
-}
+from src.dataservice.workspace_api import WorkspaceDataService
 
 
 class WorkspaceService:
@@ -41,21 +33,15 @@ class WorkspaceService:
             db: AsyncSession for database operations
         """
         self.db: AsyncSession = db
+        self._dataservice = WorkspaceDataService(db)
 
     @staticmethod
     def _with_rollout_defaults(
         workspace_type: WorkspaceType | str,
         config: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        """Inject rollout defaults into workspace.config without overwriting overrides."""
-        type_value = workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)
-        base_config = dict(config or {})
-        rollout = base_config.get("rollout")
-        rollout_config = dict(rollout) if isinstance(rollout, dict) else {}
-        enabled_by_default = type_value in _THREAD_COCKPIT_DEFAULT_TYPES
-        rollout_config.setdefault("thread_cockpit_enabled", enabled_by_default)
-        base_config["rollout"] = rollout_config
-        return base_config
+        """Inject rollout defaults into workspace settings without overwriting overrides."""
+        return WorkspaceDataService.with_rollout_defaults(workspace_type, config)
 
     async def create(
         self,
@@ -82,30 +68,14 @@ class WorkspaceService:
         Raises:
             ValueError: If type is not a valid WorkspaceType
         """
-        # Convert string to WorkspaceType enum if needed
-        if isinstance(type, str):
-            try:
-                workspace_type = WorkspaceType(type)
-            except ValueError:
-                valid_types = [t.value for t in WorkspaceType]
-                raise ValueError(
-                    f"Invalid workspace type: {type}. Must be one of: {valid_types}"
-                ) from None
-        else:
-            workspace_type = type
-
-        workspace = Workspace(
-            user_id=user_id,
+        return await self._dataservice.create_workspace(
+            created_by_user_id=user_id,
             name=name,
-            type=workspace_type,
+            workspace_type=type,
             discipline=discipline,
             description=description,
-            config=self._with_rollout_defaults(workspace_type, config),
+            settings_json=config or {},
         )
-        self.db.add(workspace)
-        await self.db.commit()
-        await self.db.refresh(workspace)
-        return workspace
 
     async def get(self, workspace_id: str) -> Workspace | None:
         """Get workspace by ID.
@@ -116,10 +86,7 @@ class WorkspaceService:
         Returns:
             Workspace if found, None otherwise
         """
-        result = await self.db.execute(
-            select(Workspace).where(Workspace.id == workspace_id)
-        )
-        return result.scalar_one_or_none()
+        return await self._dataservice.get_workspace(workspace_id)
 
     async def list_by_user(self, user_id: str) -> list[Workspace]:
         """List all workspaces for a user.
@@ -130,12 +97,14 @@ class WorkspaceService:
         Returns:
             List of workspaces ordered by most recently updated
         """
-        result = await self.db.execute(
-            select(Workspace)
-            .where(Workspace.user_id == user_id)
-            .order_by(Workspace.updated_at.desc())
+        return await self._dataservice.list_workspaces_for_member(user_id)
+
+    async def has_active_membership(self, *, workspace_id: str, user_id: str) -> bool:
+        """Return whether a user can access a workspace."""
+        return await self._dataservice.user_has_active_membership(
+            workspace_id=workspace_id,
+            user_id=user_id,
         )
-        return list(result.scalars().all())
 
     async def update(
         self,
@@ -155,34 +124,9 @@ class WorkspaceService:
             ValueError: If type is provided and not a valid WorkspaceType
         """
         workspace = await self.get(workspace_id)
-        if not workspace:
+        if workspace is None:
             return None
-
-        # Handle type conversion if provided
-        if "type" in kwargs:
-            type_value = kwargs["type"]
-            if isinstance(type_value, str):
-                try:
-                    kwargs["type"] = WorkspaceType(type_value)
-                except ValueError:
-                    valid_types = [t.value for t in WorkspaceType]
-                    raise ValueError(
-                        f"Invalid workspace type: {type_value}. Must be one of: {valid_types}"
-                    ) from None
-
-        # Update only provided fields
-        if "config" in kwargs or "type" in kwargs:
-            target_type = kwargs.get("type", workspace.type)
-            source_config = kwargs.get("config", workspace.config)
-            kwargs["config"] = self._with_rollout_defaults(target_type, source_config)
-
-        for key, value in kwargs.items():
-            if hasattr(workspace, key):
-                setattr(workspace, key, value)
-
-        await self.db.commit()
-        await self.db.refresh(workspace)
-        return workspace
+        return await self._dataservice.update_loaded_workspace(workspace, **kwargs)
 
     async def delete(self, workspace_id: str) -> bool:
         """Delete a workspace.
@@ -195,8 +139,4 @@ class WorkspaceService:
         Returns:
             True if deleted, False if not found
         """
-        result = await self.db.execute(
-            delete(Workspace).where(Workspace.id == workspace_id)
-        )
-        await self.db.commit()
-        return (result.rowcount or 0) > 0  # type: ignore[attr-defined]
+        return await self._dataservice.delete_workspace(workspace_id)

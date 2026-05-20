@@ -30,6 +30,7 @@ def _create_client(*, user_id: str, workspace_owner_id: str) -> TestClient:
 
     workspace_service = AsyncMock()
     workspace_service.get = AsyncMock(return_value=_create_workspace(workspace_owner_id))
+    workspace_service.has_active_membership = AsyncMock(return_value=user_id == workspace_owner_id)
 
     async def override_get_current_user():
         return _create_user(user_id)

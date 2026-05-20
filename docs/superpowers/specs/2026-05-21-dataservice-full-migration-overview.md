@@ -972,6 +972,11 @@ Implement:
 
 No product domain cutover happens in this phase.
 
+Implementation status as of 2026-05-21:
+
+- Done in `fa6f0ef6 feat: add dataservice service foundation`.
+- DataService package, FastAPI app, internal auth, health endpoints, client skeleton, operations tables, Docker target, Compose service, and baseline architecture guard exist.
+
 ### Phase 2: Workspace And Conversation
 
 Implement:
@@ -986,6 +991,14 @@ Implement:
 Reason:
 
 Every other domain is workspace-scoped. Access and conversation identity must be stable before review/execution/prism data starts moving.
+
+Implementation status as of 2026-05-21:
+
+- Workspace core first slice is implemented.
+- `060_dataservice_workspace_core.py` adds `workspace_memberships` and `workspace_settings.settings_json`, backfills owner memberships from existing workspace owners, and copies existing workspace config into canonical settings JSON.
+- DataService workspace contracts expose `workspace_type`, `created_by_user_id`, `settings_json`, and `active_thread_id`; old ORM column names remain only as storage aliases until the consumer cutover and physical cleanup step.
+- Workspace CRUD, membership access checks, active-thread validation, DataService internal workspace routes, and typed client workspace methods are covered by tests.
+- Runtime code no longer imports DataService domain modules directly; it uses the DataService public workspace boundary for this in-process slice. The next workspace step is to require the standalone DataService service in dev/test and switch runtime consumers to `dataservice_client`.
 
 ### Phase 3: Catalog And Execution Skeleton
 

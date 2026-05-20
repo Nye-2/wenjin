@@ -172,6 +172,9 @@ class MockWorkspaceService:
             return self._workspace
         return None
 
+    async def has_active_membership(self, *, workspace_id, user_id):
+        return workspace_id == self._workspace.id and user_id == self._workspace.user_id
+
 
 @pytest.fixture
 def mock_service():

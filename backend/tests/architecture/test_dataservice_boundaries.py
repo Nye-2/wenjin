@@ -42,7 +42,7 @@ def test_dataservice_domain_repositories_are_not_imported_by_runtime_code() -> N
     violations: list[str] = []
     for path in _python_files(SRC_ROOT):
         relative = path.relative_to(SRC_ROOT)
-        if relative.parts[:1] in (("dataservice",),):
+        if relative.parts[:1] in (("dataservice",), ("dataservice_app",)):
             continue
         for module in _imports(path):
             if module.startswith("src.dataservice.domains"):
