@@ -12,6 +12,7 @@ from sqlalchemy.orm import load_only
 
 from src.agents.middlewares.thread_data import delete_thread_directory
 from src.database import Thread
+from src.dataservice.conversation_api import ConversationDataService
 from src.models.router import route_model, validate_requested_model
 from src.services.workspace_skill_labels import (
     list_workspace_types,
@@ -45,6 +46,7 @@ class ThreadService:
     ) -> None:
         self.db = db
         self._model = model
+        self._conversation = ConversationDataService(db, autocommit=False)
 
     async def _lock_thread_row(self, thread_id: str) -> None:
         """Lock and refresh a thread row to prevent lost updates on JSON message writes."""
@@ -261,6 +263,11 @@ class ThreadService:
         thread.last_message_role = normalized_role or None
         thread.last_message_preview = _truncate_message_preview(content)
         thread.updated_at = resolved_timestamp
+        await self._conversation.append_bridge_message(
+            thread,
+            message,
+            sequence_index=len(messages) - 1,
+        )
         await self.db.commit()
         await self.db.refresh(thread)
         return message
@@ -328,6 +335,7 @@ class ThreadService:
         thread.updated_at = datetime.now(UTC)
         thread.messages = messages
         thread.message_count = len(messages)
+        await self._conversation.rebuild_thread_bridge(thread)
         await self.db.commit()
         await self.db.refresh(thread)
         return True
@@ -409,6 +417,7 @@ class ThreadService:
         thread.updated_at = datetime.now(UTC)
         thread.messages = messages
         thread.message_count = len(messages)
+        await self._conversation.rebuild_thread_bridge(thread)
         await self.db.commit()
         await self.db.refresh(thread)
         return True
@@ -458,6 +467,7 @@ class ThreadService:
             thread.last_message_role = None
             thread.last_message_preview = None
         thread.updated_at = resolved_timestamp
+        await self._conversation.rebuild_thread_bridge(thread)
         await self.db.commit()
         await self.db.refresh(thread)
         return True
@@ -506,6 +516,7 @@ class ThreadService:
             thread.last_message_role = None
             thread.last_message_preview = None
         thread.updated_at = datetime.now(UTC)
+        await self._conversation.rebuild_thread_bridge(thread)
         await self.db.commit()
         await self.db.refresh(thread)
         return True

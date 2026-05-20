@@ -7,6 +7,11 @@ from typing import Any
 import httpx
 
 from src.config import dataservice_settings
+from src.dataservice_client.contracts.conversation import (
+    ConversationMessageCreatePayload,
+    ConversationMessagePayload,
+    ConversationMessagesRebuildPayload,
+)
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
     WorkspacePayload,
@@ -48,6 +53,35 @@ class AsyncDataServiceClient:
 
     async def readyz(self) -> dict[str, Any]:
         return await self._request("GET", "/readyz", authenticated=False)
+
+    async def append_conversation_message(
+        self,
+        thread_id: str,
+        command: ConversationMessageCreatePayload,
+    ) -> ConversationMessagePayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/conversations/{thread_id}/messages",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ConversationMessagePayload.model_validate(data) if data is not None else None
+
+    async def rebuild_conversation_messages(
+        self,
+        thread_id: str,
+        command: ConversationMessagesRebuildPayload,
+    ) -> list[ConversationMessagePayload]:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/conversations/{thread_id}/messages",
+            json=command.model_dump(mode="json"),
+        )
+        return [ConversationMessagePayload.model_validate(item) for item in payload["data"]]
+
+    async def list_conversation_messages(self, thread_id: str) -> list[ConversationMessagePayload]:
+        payload = await self._request("GET", f"/internal/v1/conversations/{thread_id}/messages")
+        return [ConversationMessagePayload.model_validate(item) for item in payload["data"]]
 
     async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
         payload = await self._request(

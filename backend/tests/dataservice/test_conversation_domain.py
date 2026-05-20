@@ -1,0 +1,108 @@
+"""DataService conversation domain tests."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import Any
+from unittest.mock import AsyncMock
+
+import pytest
+
+from src.dataservice.conversation_api import ConversationDataService
+from src.dataservice.domains.conversation.block_protocol import blocks_from_message
+from src.dataservice.domains.conversation.contracts import ConversationMessageCreateCommand
+from src.dataservice.domains.conversation.models import MessageBlock, ThreadMessage, ToolInvocationRecord
+from src.dataservice.domains.conversation.service import DataServiceConversationService
+
+
+class FakeSession:
+    def __init__(self) -> None:
+        self.added: list[Any] = []
+        self.execute = AsyncMock()
+        self.flush = AsyncMock()
+        self.commit = AsyncMock()
+
+    def add(self, value: Any) -> None:
+        self.added.append(value)
+
+
+def _thread_like() -> Any:
+    return type(
+        "ThreadLike",
+        (),
+        {
+            "id": "thread-1",
+            "user_id": "user-1",
+            "workspace_id": "ws-1",
+            "messages": [],
+        },
+    )()
+
+
+def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
+    blocks = blocks_from_message(
+        {
+            "content": "fallback text",
+            "blocks": [
+                {"type": "reasoning", "content": "thinking"},
+                {"kind": "status_line", "label": "running"},
+                {"kind": "custom_legacy", "content": "legacy"},
+            ],
+        }
+    )
+
+    assert [block["kind"] for block in blocks] == ["thinking", "status_line", "text"]
+    assert blocks[0]["legacy_kind"] == "reasoning"
+    assert blocks[2]["legacy_kind"] == "custom_legacy"
+
+
+@pytest.mark.asyncio
+async def test_append_message_materializes_ordered_blocks_and_tool_record() -> None:
+    session = FakeSession()
+    service = DataServiceConversationService(session)  # type: ignore[arg-type]
+
+    message = await service.append_message(
+        ConversationMessageCreateCommand(
+            thread_id="thread-1",
+            user_id="user-1",
+            workspace_id="ws-1",
+            role="assistant",
+            content="Done",
+            timestamp=datetime(2026, 5, 21, tzinfo=UTC),
+            sequence_index=0,
+            blocks=[
+                {"kind": "text", "content": "Working"},
+                {"kind": "tool_invocation", "tool_name": "search", "input": {"q": "paper"}},
+            ],
+        )
+    )
+
+    assert isinstance(message, ThreadMessage)
+    assert message.sequence_index == 0
+    block_rows = [item for item in session.added if isinstance(item, MessageBlock)]
+    assert [block.block_type for block in block_rows] == ["text", "tool_invocation"]
+    assert [block.sequence_index for block in block_rows] == [0, 1]
+    tool_rows = [item for item in session.added if isinstance(item, ToolInvocationRecord)]
+    assert len(tool_rows) == 1
+    assert tool_rows[0].tool_name == "search"
+    session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_conversation_public_api_rebuilds_bridge_messages() -> None:
+    session = FakeSession()
+    api = ConversationDataService(session, autocommit=False)  # type: ignore[arg-type]
+    thread = _thread_like()
+    thread.messages = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi", "blocks": [{"kind": "text", "content": "Hi"}]},
+    ]
+
+    await api.rebuild_thread_bridge(thread)
+
+    assert session.execute.await_count == 1
+    message_rows = [item for item in session.added if isinstance(item, ThreadMessage)]
+    assert [row.sequence_index for row in message_rows] == [0, 1]
+    block_rows = [item for item in session.added if isinstance(item, MessageBlock)]
+    assert [row.sequence_index for row in block_rows] == [0, 0]
+    session.flush.assert_awaited_once()

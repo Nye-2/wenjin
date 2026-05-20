@@ -999,6 +999,11 @@ Implementation status as of 2026-05-21:
 - DataService workspace contracts expose `workspace_type`, `created_by_user_id`, `settings_json`, and `active_thread_id`; old ORM column names remain only as storage aliases until the consumer cutover and physical cleanup step.
 - Workspace CRUD, membership access checks, active-thread validation, DataService internal workspace routes, and typed client workspace methods are covered by tests.
 - Runtime code no longer imports DataService domain modules directly; it uses the DataService public workspace boundary for this in-process slice. The next workspace step is to require the standalone DataService service in dev/test and switch runtime consumers to `dataservice_client`.
+- Conversation/block first slice is implemented.
+- `061_dataservice_conversation_blocks.py` adds `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`, then backfills existing `threads.messages` JSON into canonical message/block rows.
+- DataService conversation contracts preserve the canonical 7 block types: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, and `tool_result`.
+- `ThreadService` now writes message appends and bridge rebuilds through the DataService conversation boundary while preserving `threads.messages` as the temporary response bridge.
+- The next conversation step is reader cutover: thread detail/state/history should read DataService message projections, then `threads.messages` can stop being runtime SSOT.
 
 ### Phase 3: Catalog And Execution Skeleton
 

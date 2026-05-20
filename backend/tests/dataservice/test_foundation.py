@@ -20,6 +20,10 @@ from src.dataservice.domains.operations.models import (
     DataServiceOutboxEvent,
 )
 from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.conversation import (
+    ConversationMessageCreatePayload,
+    ConversationMessagesRebuildPayload,
+)
 from src.dataservice_client.contracts.workspace import WorkspaceCreatePayload, WorkspaceUpdatePayload
 
 
@@ -214,3 +218,74 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
         ),
         ("DELETE", "/internal/v1/workspaces/workspace-2", None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_conversation_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def message_payload(message_id: str = "message-1") -> dict[str, Any]:
+        return {
+            "id": message_id,
+            "thread_id": "thread-1",
+            "user_id": "user-1",
+            "workspace_id": "ws-1",
+            "role": "assistant",
+            "content": "Hello",
+            "sequence_index": 0,
+            "metadata_json": {},
+            "blocks": [
+                {
+                    "id": "block-1",
+                    "message_id": message_id,
+                    "thread_id": "thread-1",
+                    "block_type": "text",
+                    "sequence_index": 0,
+                    "payload_json": {"kind": "text", "content": "Hello"},
+                }
+            ],
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.method == "POST":
+            return httpx.Response(200, json={"status": "ok", "data": message_payload("message-1")})
+        return httpx.Response(200, json={"status": "ok", "data": [message_payload("message-2")]})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        appended = await client.append_conversation_message(
+            "thread-1",
+            ConversationMessageCreatePayload(
+                thread_id="thread-1",
+                user_id="user-1",
+                workspace_id="ws-1",
+                role="assistant",
+                content="Hello",
+                sequence_index=0,
+                blocks=[{"kind": "text", "content": "Hello"}],
+            ),
+        )
+        rebuilt = await client.rebuild_conversation_messages(
+            "thread-1",
+            ConversationMessagesRebuildPayload(
+                thread_id="thread-1",
+                user_id="user-1",
+                workspace_id="ws-1",
+                messages=[{"role": "assistant", "content": "Hello"}],
+            ),
+        )
+        listed = await client.list_conversation_messages("thread-1")
+
+    assert appended is not None
+    assert appended.blocks[0].block_type == "text"
+    assert rebuilt[0].id == "message-2"
+    assert listed[0].thread_id == "thread-1"
+    assert seen[0][0] == "POST"
+    assert seen[1][0] == "PUT"
+    assert seen[2] == ("GET", "/internal/v1/conversations/thread-1/messages", None)

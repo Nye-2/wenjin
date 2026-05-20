@@ -434,15 +434,16 @@ Create migrations:
 
 - `059_dataservice_operations.py`
 - `060_dataservice_workspace_core.py`
-- `061_dataservice_capability_catalog.py`
-- `062_dataservice_execution_graph.py`
-- `063_dataservice_review_queue.py`
-- `064_dataservice_workspace_assets.py`
-- `065_dataservice_prism_documents.py`
-- `066_dataservice_sources_provenance.py`
-- `067_dataservice_sandbox_runtime.py`
-- `068_dataservice_rooms_hooks.py`
-- `069_dataservice_projection_cleanup.py`
+- `061_dataservice_conversation_blocks.py`
+- `062_dataservice_capability_catalog.py`
+- `063_dataservice_execution_graph.py`
+- `064_dataservice_review_queue.py`
+- `065_dataservice_workspace_assets.py`
+- `066_dataservice_prism_documents.py`
+- `067_dataservice_sources_provenance.py`
+- `068_dataservice_sandbox_runtime.py`
+- `069_dataservice_rooms_hooks.py`
+- `070_dataservice_projection_cleanup.py`
 
 Rules:
 
@@ -589,7 +590,7 @@ Steps:
 - [ ] Physically rename or replace legacy ORM columns (`user_id`, `type`, `thread_id`, `config`) after all consumers use DataService projections.
 - [ ] Enforce at least one active owner membership per workspace.
 - [x] Run workspace/thread/settings tests plus architecture guard.
-- [ ] Commit `feat: add dataservice workspace core`.
+- [x] Commit `feat: add dataservice workspace core`.
 
 ### Task 4: Move Conversation And Block Protocol To DataService
 
@@ -608,11 +609,16 @@ Steps:
 
 Steps:
 
-- [ ] Add `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`.
-- [ ] Preserve the canonical 7 block types and arrival-order append semantics.
-- [ ] Keep `threads.messages_json` only as bridge data until consumers cut over.
-- [ ] Migrate existing thread JSON blocks into message/block rows.
-- [ ] Run thread/block protocol tests plus architecture guard.
+- [x] Add `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`.
+- [x] Preserve the canonical 7 block types and arrival-order append semantics.
+- [x] Keep `threads.messages_json` only as bridge data until consumers cut over.
+- [x] Migrate existing thread JSON blocks into message/block rows.
+- [x] Add DataService conversation internal routes and typed client contracts.
+- [x] Route `ThreadService.add_message` / bridge rebuild paths through the DataService conversation boundary.
+- [ ] Cut thread detail/state/history readers from `threads.messages` to DataService message projections.
+- [ ] Remove `threads.messages` as runtime SSOT after all readers consume `thread_messages` / `message_blocks`.
+- [x] Run thread/block protocol tests plus architecture guard.
+- [ ] Commit `feat: add dataservice conversation blocks`.
 - [ ] Commit `feat: move conversation blocks into dataservice`.
 
 ### Task 5: Move Capability Catalog Aggregate To DataService

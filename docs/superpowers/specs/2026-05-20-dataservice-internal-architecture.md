@@ -131,6 +131,7 @@ backend/src/dataservice/
       repository.py
       outbox.py
   app_boundary.py
+  conversation_api.py
   workspace_api.py
 backend/src/dataservice_app/
   app.py
@@ -161,6 +162,7 @@ Rationale:
 - Tests can target one domain without importing the whole DataService surface.
 - A future repo split can move `dataservice/`, `dataservice_app/`, and `dataservice_client/` cleanly.
 - `workspace_api.py` is the current monorepo public boundary for workspace operations while runtime consumers are being cut over. Runtime code may depend on this public module, but must not import `src.dataservice.domains.*`. The end-state consumer path remains `dataservice_client -> dataservice_app -> domains`.
+- `conversation_api.py` plays the same temporary public-boundary role for thread message/block writes while `threads.messages` is still maintained as a response bridge.
 
 ---
 
