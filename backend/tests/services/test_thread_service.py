@@ -520,6 +520,19 @@ class TestThreadService:
         mock_db_session.refresh.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_list_thread_messages_reads_conversation_projection(self, service):
+        """Thread API readers should use DataService conversation rows."""
+        thread = _make_thread()
+        service._conversation.list_bridge_messages = AsyncMock(  # noqa: SLF001
+            return_value=[{"role": "assistant", "content": "canonical"}]
+        )
+
+        messages = await service.list_thread_messages(thread)
+
+        assert messages == [{"role": "assistant", "content": "canonical"}]
+        service._conversation.list_bridge_messages.assert_awaited_once_with("thread-1")  # noqa: SLF001
+
+    @pytest.mark.asyncio
     async def test_set_title_if_empty_only_updates_opening_exchange(
         self,
         service,

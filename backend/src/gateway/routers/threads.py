@@ -156,7 +156,11 @@ def _group_runs_by_thread(runs: list[Any]) -> dict[str, list[Any]]:
     return grouped
 
 
-def _state_values(thread: Any) -> dict[str, Any]:
+async def _thread_messages(thread_service: ThreadService, thread: Any) -> list[dict[str, Any]]:
+    return await thread_service.list_thread_messages(thread)
+
+
+def _state_values(thread: Any, messages: list[dict[str, Any]]) -> dict[str, Any]:
     return serialize_channel_values(
         {
             "thread_id": thread.id,
@@ -165,7 +169,7 @@ def _state_values(thread: Any) -> dict[str, Any]:
             "model": thread.model,
             "skill": thread.skill,
             "skill_name": None,
-            "messages": thread.messages or [],
+            "messages": messages,
         }
     )
 
@@ -222,7 +226,8 @@ async def ensure_workspace_thread(
     except InvalidRequestedModelError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return thread_to_response(thread)
+    messages = await _thread_messages(thread_service, thread)
+    return thread_to_response(thread, messages=messages)
 
 
 @router.get("/threads/{thread_id}", response_model=ThreadDetailResponse)
@@ -236,7 +241,8 @@ async def get_thread_details(
         user_id=str(current_user.id),
         thread_service=thread_service,
     )
-    return thread_to_response(thread)
+    messages = await _thread_messages(thread_service, thread)
+    return thread_to_response(thread, messages=messages)
 
 
 @router.delete("/threads/{thread_id}")
@@ -341,8 +347,9 @@ async def get_thread_state(
     tasks = _active_run_tasks_from_runs(runs)
     created_at = _iso(thread.updated_at)
     checkpoint_id = f"thread:{thread_id}:{int(thread.updated_at.timestamp() * 1000)}"
+    messages = await _thread_messages(thread_service, thread)
     return ThreadStateResponse(
-        values=_state_values(thread),
+        values=_state_values(thread, messages),
         next=(["run"] if tasks else []),
         metadata={**_thread_metadata(thread), "status": status},
         checkpoint={"id": checkpoint_id, "ts": created_at},
@@ -375,11 +382,12 @@ async def get_thread_history(
     runs = await run_manager.list_by_thread(thread_id)
     status = _thread_status_from_runs(runs)
     tasks = _active_run_tasks_from_runs(runs)
+    messages = await _thread_messages(thread_service, thread)
     entry = HistoryEntry(
         checkpoint_id=checkpoint_id,
         parent_checkpoint_id=None,
         metadata={**_thread_metadata(thread), "status": status},
-        values=_state_values(thread),
+        values=_state_values(thread, messages),
         created_at=_iso(thread.updated_at),
         next=(["run"] if tasks else []),
     )

@@ -52,6 +52,7 @@ class FakeThreadService:
 
     def __init__(self) -> None:
         self.threads: dict[str, FakeThread] = {}
+        self.canonical_messages: dict[str, list[dict]] = {}
         self._counter = 0
 
     def _new_thread_id(self) -> str:
@@ -161,6 +162,7 @@ class FakeThreadService:
         if metadata:
             message["metadata"] = metadata
         thread.messages = [*thread.messages, message]
+        self.canonical_messages[thread.id] = [*self.canonical_messages.get(thread.id, thread.messages[:-1]), message]
         thread.updated_at = resolved_timestamp
         return message
 
@@ -169,6 +171,9 @@ class FakeThreadService:
             return
         thread.title = first_message[:50] + ("..." if len(first_message) > 50 else "")
         thread.updated_at = datetime.now(UTC)
+
+    async def list_thread_messages(self, thread: FakeThread) -> list[dict]:
+        return list(self.canonical_messages.get(thread.id, thread.messages))
 
     async def list_threads(
         self,
@@ -236,6 +241,33 @@ class TestThreadManagementRoutes:
         response = client.get(f"/threads/{thread_id}")
         assert response.status_code == 200
         assert response.json()["id"] == thread_id
+
+    def test_get_thread_detail_reads_canonical_conversation_projection(self):
+        """Thread detail reads message payloads through the DataService projection boundary."""
+        service = FakeThreadService()
+        client = create_client("user-1", service)
+
+        response = client.post(
+            "/threads",
+            json={"workspace_id": "ws-1", "title": "Thread 1"},
+        )
+        thread_id = response.json()["id"]
+        service.threads[thread_id].messages = [{"role": "user", "content": "bridge"}]
+        service.canonical_messages[thread_id] = [
+            {
+                "role": "assistant",
+                "content": "canonical",
+                "blocks": [{"kind": "text", "content": "canonical"}],
+            }
+        ]
+
+        response = client.get(f"/threads/{thread_id}")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["messages"][0]["role"] == "assistant"
+        assert payload["messages"][0]["content"] == "canonical"
+        assert payload["messages"][0]["blocks"] == [{"kind": "text", "content": "canonical"}]
 
     def test_create_thread_rejects_invalid_model_selection(self):
         """Explicit invalid model ids should fail instead of silently rerouting."""

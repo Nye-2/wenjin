@@ -40,8 +40,10 @@ def thread_to_response(
     thread: Thread,
     *,
     include_messages: bool = True,
+    messages: list[dict[str, Any]] | None = None,
 ) -> ThreadResponse:
     """Convert a thread ORM object to the API response model."""
+    resolved_messages = messages if include_messages and messages is not None else []
     return ThreadResponse(
         id=thread.id,
         workspace_id=thread.workspace_id,
@@ -49,7 +51,7 @@ def thread_to_response(
         model=thread.model,
         skill=thread.skill,
         skill_name=None,
-        messages=thread_messages_to_response(thread.messages or []) if include_messages else [],
+        messages=thread_messages_to_response(resolved_messages),
         created_at=thread.created_at,
         updated_at=thread.updated_at,
     )

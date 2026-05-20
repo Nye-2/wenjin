@@ -115,6 +115,13 @@ class DataServiceConversationService:
             for message in messages
         ]
 
+    async def list_bridge_messages(self, thread_id: str) -> list[dict[str, Any]]:
+        """Project canonical conversation rows into the legacy API message shape."""
+        return [
+            self.to_bridge_message(record)
+            for record in await self.list_message_records(thread_id)
+        ]
+
     def _materialize_bridge_message(
         self,
         *,
@@ -224,3 +231,22 @@ class DataServiceConversationService:
             created_at=message.created_at,
             updated_at=message.updated_at,
         )
+
+    @staticmethod
+    def to_bridge_message(record: ConversationMessageRecord) -> dict[str, Any]:
+        """Return the thread message JSON contract from a canonical record."""
+        message: dict[str, Any] = {
+            "role": record.role,
+            "content": record.content,
+        }
+        if record.timestamp is not None:
+            message["timestamp"] = record.timestamp.isoformat()
+        if record.metadata_json:
+            message["metadata"] = dict(record.metadata_json)
+        blocks = [
+            dict(block.payload_json or {})
+            for block in sorted(record.blocks, key=lambda item: item.sequence_index)
+        ]
+        if blocks:
+            message["blocks"] = blocks
+        return message

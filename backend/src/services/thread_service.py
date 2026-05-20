@@ -521,6 +521,10 @@ class ThreadService:
         await self.db.refresh(thread)
         return True
 
+    async def list_thread_messages(self, thread: Thread) -> list[dict[str, Any]]:
+        """Read thread messages from the DataService conversation projection."""
+        return await self._conversation.list_bridge_messages(str(thread.id))
+
     async def list_threads(
         self,
         *,

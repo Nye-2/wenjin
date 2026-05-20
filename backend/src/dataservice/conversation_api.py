@@ -36,3 +36,6 @@ class ConversationDataService:
 
     async def list_message_records(self, thread_id: str) -> list[ConversationMessageRecord]:
         return await self._domain.list_message_records(thread_id)
+
+    async def list_bridge_messages(self, thread_id: str) -> list[dict[str, Any]]:
+        return await self._domain.list_bridge_messages(thread_id)

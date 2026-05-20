@@ -1003,7 +1003,8 @@ Implementation status as of 2026-05-21:
 - `061_dataservice_conversation_blocks.py` adds `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`, then backfills existing `threads.messages` JSON into canonical message/block rows.
 - DataService conversation contracts preserve the canonical 7 block types: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, and `tool_result`.
 - `ThreadService` now writes message appends and bridge rebuilds through the DataService conversation boundary while preserving `threads.messages` as the temporary response bridge.
-- The next conversation step is reader cutover: thread detail/state/history should read DataService message projections, then `threads.messages` can stop being runtime SSOT.
+- Thread detail/state/history now read through the DataService conversation projection boundary instead of directly reading `threads.messages`.
+- The next conversation step is runtime-context cutover: Chat Agent message building, context compaction, and title/summary helpers should consume DataService conversation projections. After that, `threads.messages` can stop being runtime SSOT.
 
 ### Phase 3: Catalog And Execution Skeleton
 

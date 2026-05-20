@@ -246,7 +246,7 @@ Invariants:
 Current scattered logic:
 
 - `thread_service.py`
-- JSON `threads.messages`
+- JSON `threads.messages` bridge storage
 - block protocol payloads in agent/runtime/frontend flow
 - tool invocation/result metadata embedded in message blocks
 
@@ -267,7 +267,7 @@ Invariants:
 - The 7 block types are canonical: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, `tool_result`.
 - Block arrival order is append-only.
 - Thinking blocks are stored in arrival order, never prepended.
-- `threads.messages_json` can be a migration bridge, not the final block protocol SSOT.
+- `threads.messages` can be a migration bridge, not the final block protocol SSOT; thread detail/state/history already read DataService conversation projections.
 - Tool invocation and result records can link to execution nodes when produced by Lead Agent runs.
 
 ### 6.2 Catalog Domain

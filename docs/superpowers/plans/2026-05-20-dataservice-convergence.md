@@ -611,15 +611,15 @@ Steps:
 
 - [x] Add `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`.
 - [x] Preserve the canonical 7 block types and arrival-order append semantics.
-- [x] Keep `threads.messages_json` only as bridge data until consumers cut over.
+- [x] Keep `threads.messages` JSON only as bridge data until consumers cut over.
 - [x] Migrate existing thread JSON blocks into message/block rows.
 - [x] Add DataService conversation internal routes and typed client contracts.
 - [x] Route `ThreadService.add_message` / bridge rebuild paths through the DataService conversation boundary.
-- [ ] Cut thread detail/state/history readers from `threads.messages` to DataService message projections.
+- [x] Cut thread detail/state/history readers from `threads.messages` to DataService message projections.
 - [ ] Remove `threads.messages` as runtime SSOT after all readers consume `thread_messages` / `message_blocks`.
 - [x] Run thread/block protocol tests plus architecture guard.
-- [ ] Commit `feat: add dataservice conversation blocks`.
-- [ ] Commit `feat: move conversation blocks into dataservice`.
+- [x] Commit `feat: add dataservice conversation blocks`.
+- [ ] Commit `feat: read threads from dataservice conversation projection`.
 
 ### Task 5: Move Capability Catalog Aggregate To DataService
 

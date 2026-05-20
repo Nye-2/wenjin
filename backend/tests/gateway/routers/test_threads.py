@@ -29,9 +29,14 @@ class _FakeThread:
 class _FakeThreadService:
     def __init__(self) -> None:
         self._threads: dict[str, _FakeThread] = {}
+        self._canonical_messages: dict[str, list[dict]] = {}
 
     def add(self, thread: _FakeThread) -> None:
         self._threads[thread.id] = thread
+        self._canonical_messages[thread.id] = list(thread.messages)
+
+    def set_canonical_messages(self, thread_id: str, messages: list[dict]) -> None:
+        self._canonical_messages[thread_id] = list(messages)
 
     async def get_thread(self, thread_id: str, user_id: str) -> _FakeThread | None:
         thread = self._threads.get(thread_id)
@@ -53,6 +58,9 @@ class _FakeThreadService:
         ]
         items.sort(key=lambda item: item.updated_at, reverse=True)
         return items[:limit]
+
+    async def list_thread_messages(self, thread: _FakeThread) -> list[dict]:
+        return list(self._canonical_messages.get(thread.id, []))
 
 
 def _create_client(service: _FakeThreadService, run_manager: RunManager) -> TestClient:
@@ -136,6 +144,13 @@ def test_get_thread_state_contains_values_and_active_tasks():
             ],
         )
     )
+    service.set_canonical_messages(
+        "thread-1",
+        [
+            {"role": "user", "content": "canonical hello"},
+            {"role": "assistant", "content": "canonical hi"},
+        ],
+    )
     run_manager = RunManager()
     client = _create_client(service, run_manager)
 
@@ -153,6 +168,7 @@ def test_get_thread_state_contains_values_and_active_tasks():
     assert payload["values"]["thread_id"] == "thread-1"
     assert payload["values"]["workspace_id"] == "ws-1"
     assert payload["values"]["skill"] == "deep-research"
+    assert payload["values"]["messages"][0]["content"] == "canonical hello"
     assert payload["next"] == ["run"]
     assert payload["tasks"]
     assert payload["tasks"][0]["status"] == "running"
@@ -170,6 +186,7 @@ def test_get_thread_history_returns_synthetic_checkpoint_entry():
             messages=[{"role": "user", "content": "hello"}],
         )
     )
+    service.set_canonical_messages("thread-1", [{"role": "user", "content": "canonical hello"}])
     client = _create_client(service, RunManager())
 
     response = client.post("/threads/thread-1/history", json={})
@@ -178,4 +195,4 @@ def test_get_thread_history_returns_synthetic_checkpoint_entry():
     assert len(payload) == 1
     assert payload[0]["checkpoint_id"].startswith("thread:thread-1:")
     assert payload[0]["values"]["thread_id"] == "thread-1"
-
+    assert payload[0]["values"]["messages"][0]["content"] == "canonical hello"
