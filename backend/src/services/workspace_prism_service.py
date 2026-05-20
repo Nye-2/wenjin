@@ -11,7 +11,11 @@ from src.database.models.decision import Decision
 from src.database.models.latex_project import LatexProject
 from src.database.models.memory_fact import MemoryFact
 from src.database.models.run_history import RunHistory
-from src.services.prism_review_service import PrismReviewService
+from src.services.prism_review_service import (
+    APPLIED_STATUSES,
+    PENDING_STATUSES,
+    PrismReviewService,
+)
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 
 PRIMARY_MANUSCRIPT_ROLE = "primary_manuscript"
@@ -131,8 +135,21 @@ class WorkspacePrismService:
 
         metadata = _metadata_from_project(project)
         review_service = PrismReviewService(self.db)
-        file_changes = await review_service.list_project_file_changes(project)
-        applied_file_changes = await review_service.list_applied_file_changes(project)
+        pending_items = await review_service.list_project_review_items(
+            project,
+            statuses=PENDING_STATUSES,
+        )
+        applied_items = await review_service.list_project_review_items(
+            project,
+            statuses=APPLIED_STATUSES,
+        )
+        file_changes = review_service.file_change_payloads(pending_items)
+        applied_file_changes = review_service.file_change_payloads(
+            [item for item in applied_items if item.status != "reverted"]
+        )
+        review_items = review_service.review_item_projections(
+            [*pending_items, *applied_items]
+        )
         source_links = await review_service.list_project_source_links(project)
         protected_sections = await review_service.list_project_protected_sections(project)
         decisions = await self._list_decisions(workspace_id)
@@ -165,6 +182,7 @@ class WorkspacePrismService:
             "target_files": target_files,
             "file_changes": file_changes,
             "applied_file_changes": applied_file_changes,
+            "review_items": review_items,
             "source_links": source_links,
             "protected_sections": protected_sections,
             "decisions": decisions,

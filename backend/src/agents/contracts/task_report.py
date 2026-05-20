@@ -163,4 +163,5 @@ class TaskReport(BaseModel):
     cost_estimate: str | None = None
     narrative: str
     outputs: list[ResultOutput] = Field(default_factory=list)
+    review_items: list[dict] = Field(default_factory=list)
     errors: list[ResultError] = Field(default_factory=list)

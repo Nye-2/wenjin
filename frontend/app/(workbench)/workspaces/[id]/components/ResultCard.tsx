@@ -8,6 +8,7 @@ import {
   type CommittedRoomLink,
 } from "@/lib/execution-commit";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
+import { PrismReviewList } from "@/components/prism/PrismReviewList";
 import type { ResultCardData } from "@/stores/chat-store";
 import { CommitActionBar } from "./result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
@@ -138,6 +139,20 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       </div>
 
       {narrative ? <div style={styles.narrative}>{narrative}</div> : null}
+
+      {data.review_items?.length ? (
+        <div style={styles.reviewItems}>
+          <PrismReviewList items={data.review_items} />
+          {workspaceId ? (
+            <WorkspaceActionLink
+              href={`/workspaces/${workspaceId}/prism?focus=file_changes`}
+              style={styles.savedLink}
+            >
+              预览待确认修改
+            </WorkspaceActionLink>
+          ) : null}
+        </div>
+      ) : null}
 
       <div style={styles.receiptRow}>
         <div style={styles.receiptMeta}>
@@ -281,6 +296,11 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12.5,
     marginBottom: "var(--v2-space-3)",
     lineHeight: 1.5,
+  },
+  reviewItems: {
+    display: "grid",
+    gap: 8,
+    marginBottom: "var(--v2-space-3)",
   },
   receiptRow: {
     display: "flex",

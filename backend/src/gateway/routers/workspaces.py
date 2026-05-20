@@ -42,6 +42,7 @@ from src.gateway.routers.workspaces_serializers import (
 from src.services.dashboard_service import DashboardService
 from src.services.execution_service import ExecutionService
 from src.services.feature_action_resolution_service import resolve_feature_action_state
+from src.services.prism_review_service import PrismReviewService
 from src.services.workspace_activity_service import WorkspaceActivityService
 from src.services.workspace_prism_service import WorkspacePrismService
 from src.services.workspace_summary_service import WorkspaceSummaryService
@@ -427,7 +428,17 @@ async def list_workspace_executions(
             user_id=str(current_user.id),
             limit=limit,
         )
-        serialized_items = [serialize_execution_record(item) for item in items]
+        review_service = PrismReviewService(db)
+        serialized_items = []
+        for item in items:
+            serialized = serialize_execution_record(item)
+            serialized["review_items"] = (
+                await review_service.list_execution_review_item_projections(
+                    workspace_id=workspace_id,
+                    execution_id=str(item.id),
+                )
+            )
+            serialized_items.append(serialized)
     return WorkspaceExecutionsResponse(
         items=serialized_items,
         count=len(items),

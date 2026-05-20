@@ -71,6 +71,9 @@ function resultCardFromTaskReport(
         data: output.data as Record<string, unknown>,
       }),
     ),
+    review_items: Array.isArray(taskReport.review_items)
+      ? (taskReport.review_items as ResultCardData["review_items"])
+      : undefined,
     narrative: taskReport.narrative as string | undefined,
     duration_seconds: taskReport.duration_seconds as number | undefined,
     errors: ((taskReport.errors as Record<string, unknown>[] | undefined) ?? []).map(

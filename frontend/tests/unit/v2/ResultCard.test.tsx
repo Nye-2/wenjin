@@ -135,6 +135,37 @@ describe("ResultCard", () => {
     expect(libraryUrl.searchParams.get("item_id")).toBe("lib-88");
   });
 
+  it("renders DB-backed Prism review items with workspace navigation", () => {
+    render(
+      <ResultCard
+        data={{
+          ...SAMPLE_DATA,
+          review_items: [
+            {
+              id: "review-1",
+              kind: "prism_file_change",
+              logical_key: "section:introduction",
+              status: "pending",
+              title: "Intro rewrite",
+              summary: "feature_proposal",
+              target: {
+                kind: "prism_file_change",
+                file_path: "sections/introduction.tex",
+              },
+            },
+          ],
+        }}
+        workspaceId="ws-1"
+      />,
+    );
+
+    expect(screen.getByText("Intro rewrite")).toBeInTheDocument();
+    expect(screen.getByText("sections/introduction.tex")).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "预览待确认修改" }),
+    ).toHaveAttribute("href", "/workspaces/ws-1/prism?focus=file_changes");
+  });
+
   it("shows an inline error when saving fails", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

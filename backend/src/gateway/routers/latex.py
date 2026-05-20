@@ -15,6 +15,7 @@ from src.gateway.routers.latex_compile import router as compile_router
 from src.gateway.routers.latex_feedback import router as feedback_router
 from src.gateway.routers.latex_files import (
     apply_project_file_change,
+    defer_project_file_change,
     discard_project_file_change,
     preview_project_file_change,
     revert_project_file_change,
@@ -62,6 +63,7 @@ __all__ = [
     "_profiled_comment",
     "_read_upload_bytes_with_limit",
     "apply_project_file_change",
+    "defer_project_file_change",
     "discard_project_file_change",
     "preview_project_file_change",
     "revert_project_file_change",

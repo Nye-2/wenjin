@@ -294,6 +294,8 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     assert projection["prism"]["file_changes"][0]["path"] == "main.tex"
     assert projection["prism"]["file_changes"][0]["pending_content"] == "\\section{Generated}"
     assert projection["prism"]["applied_file_changes"] == []
+    assert projection["prism"]["items"][0]["logical_key"] == "project:main"
+    assert projection["prism"]["items"][0]["target"]["file_path"] == "main.tex"
     assert {
         (item["kind"], item.get("artifact_id"), item.get("path"), item.get("url"))
         for item in projection["files"]
@@ -670,3 +672,4 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
     assert projection["prism"]["status"] == "pending_changes"
     assert projection["prism"]["target_files"] == ["main.tex", "sections/current.tex"]
     assert projection["prism"]["file_changes"][0]["path"] == "sections/current.tex"
+    assert projection["prism"]["items"][0]["title"] == "sections/current.tex"

@@ -378,6 +378,17 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     }
     assert projection["file_changes"][0]["source_execution_id"] == "exec-1"
     assert projection["file_changes"][0]["pending_content"] == "Generated intro"
+    assert projection["review_items"][0]["id"] == "review-1"
+    assert projection["review_items"][0]["kind"] == "prism_file_change"
+    assert projection["review_items"][0]["target"]["file_path"] == "sections/intro.tex"
+    assert {
+        action["action"] for action in projection["review_items"][0]["actions"]
+    } == {
+        "preview_prism_change",
+        "apply_prism_change",
+        "reject_prism_change",
+        "defer_prism_change",
+    }
     assert projection["source_links"][0]["citation_key"] == "doe2026"
     assert projection["protected_sections"][0]["reason"] == "user_protected"
     assert projection["decisions"][0]["key"] == "citation_style"

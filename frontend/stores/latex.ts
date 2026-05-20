@@ -14,6 +14,7 @@ import {
   compileLatexProject,
   createLatexFolder,
   createLatexProject,
+  deferLatexFileChange,
   deleteLatexProject,
   deleteLatexPath,
   discardLatexFileChange,
@@ -76,6 +77,7 @@ interface LatexState {
   applyFileChange: (
     logicalKey: string,
   ) => Promise<void>;
+  deferFileChange: (logicalKey: string) => Promise<void>;
   discardFileChange: (logicalKey: string) => Promise<void>;
   revertFileChange: (logicalKey: string, revertSignature: string) => Promise<void>;
   deleteProject: () => Promise<void>;
@@ -570,6 +572,29 @@ export const useLatexStore = create<LatexState>((set, get) => ({
         tree: treeResponse.items,
         fileChanges: state.fileChanges.filter(
           (item) => item.logical_key !== logicalKey,
+        ),
+        isSaving: false,
+      }));
+    } catch (error) {
+      set({ error: (error as Error).message, isSaving: false });
+    }
+  },
+
+  deferFileChange: async (logicalKey) => {
+    const { project } = get();
+    if (!project) {
+      return;
+    }
+    set({ isSaving: true, error: null });
+    try {
+      await deferLatexFileChange(project.id, {
+        logical_key: logicalKey,
+      });
+      set((state) => ({
+        fileChanges: state.fileChanges.map((item) =>
+          item.logical_key === logicalKey
+            ? { ...item, status: "deferred", reason: item.reason || "稍后处理" }
+            : item,
         ),
         isSaving: false,
       }));

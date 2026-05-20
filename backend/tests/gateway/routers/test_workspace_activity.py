@@ -224,6 +224,9 @@ def test_workspace_executions_returns_items():
     with patch(
         "src.gateway.routers.workspaces.ExecutionService.list_executions",
         new=AsyncMock(return_value=[execution]),
+    ), patch(
+        "src.gateway.routers.workspaces.PrismReviewService.list_execution_review_item_projections",
+        new=AsyncMock(return_value=[]),
     ):
         response = client.get("/workspaces/ws-1/executions")
 
@@ -235,6 +238,7 @@ def test_workspace_executions_returns_items():
     assert payload["items"][0]["execution_type"] == "capability"
     assert payload["items"][0]["node_states"] == {}
     assert payload["items"][0]["result"] is None
+    assert payload["items"][0]["review_items"] == []
 
 
 def test_workspace_capability_action_resolution_returns_backend_state():

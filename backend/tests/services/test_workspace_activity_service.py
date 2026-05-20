@@ -280,25 +280,26 @@ def test_task_activity_derives_prism_review_action_for_pending_file_changes() ->
         message="done",
         error=None,
         result={
-            "data": {
-                "latex_project_id": "latex-1",
-                "file_changes": [
-                    {
-                        "logical_key": "section:introduction",
-                        "path": "sections/introduction.tex",
-                    }
-                ],
-            }
+            "review_items": [
+                {
+                    "id": "review-1",
+                    "kind": "prism_file_change",
+                    "logical_key": "section:introduction",
+                    "status": "pending",
+                    "title": "Intro rewrite",
+                    "target": {"file_path": "sections/introduction.tex"},
+                }
+            ],
         },
         occurred_at="2026-03-25T00:00:00Z",
         completed_at="2026-03-25T00:00:00Z",
     )
 
     assert {
-        (action.get("action"), action.get("label"), action.get("project_id"))
+        (action.get("action"), action.get("label"))
         for action in item["metadata"]["next_actions"]
     } >= {
-        ("preview_prism_changes", "预览待确认修改", "latex-1"),
+        ("preview_prism_changes", "预览待确认修改"),
     }
 
 

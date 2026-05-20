@@ -177,6 +177,10 @@ class LeadAgentRuntime:
         outputs = self._collect_outputs(final_state, cap)
         narrative = self._build_narrative(cap, final_state)
         token_usage = self._aggregate_token_usage(final_state)
+        review_items = await self._load_review_items_for_execution(
+            workspace_id=brief.workspace_id,
+            execution_id=execution_id,
+        )
 
         report = TaskReport(
             execution_id=execution_id,
@@ -186,6 +190,7 @@ class LeadAgentRuntime:
             token_usage=token_usage,
             narrative=narrative,
             outputs=outputs,
+            review_items=review_items,
             errors=errors,
         )
 
@@ -224,6 +229,28 @@ class LeadAgentRuntime:
         except Exception:
             logger.warning("Failed to pre-load skills", exc_info=True)
             return {}
+
+    async def _load_review_items_for_execution(
+        self,
+        *,
+        workspace_id: str,
+        execution_id: str,
+    ) -> list[dict[str, Any]]:
+        """Load canonical Prism review items produced by this execution."""
+        from src.database.session import get_db_session
+        from src.services.prism_review_service import PrismReviewService
+
+        try:
+            async with get_db_session() as db:
+                return await PrismReviewService(
+                    db
+                ).list_execution_review_item_projections(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                )
+        except Exception:
+            logger.warning("Failed to load Prism review items", exc_info=True)
+            return []
 
     async def _check_abort(self, execution_id: str) -> bool:
         """Return True if a Redis abort signal exists for this execution."""

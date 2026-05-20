@@ -16,6 +16,7 @@ from src.gateway.contracts.latex import (
     LatexFileChangeActionRequest,
     LatexFileChangeApplyRequest,
     LatexFileChangeApplyResponse,
+    LatexFileChangeDeferResponse,
     LatexFileChangeDiscardResponse,
     LatexFileChangePreviewResponse,
     LatexFileChangeRevertRequest,
@@ -320,6 +321,43 @@ async def discard_project_file_change(
     return LatexFileChangeDiscardResponse(
         ok=True,
         discarded=True,
+        logical_key=request.logical_key,
+        path=path,
+    )
+
+
+@router.post(
+    "/projects/{project_id}/file-changes/defer",
+    response_model=LatexFileChangeDeferResponse,
+)
+async def defer_project_file_change(
+    project_id: str,
+    request: LatexFileChangeActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> LatexFileChangeDeferResponse:
+    service = LatexProjectService(db)
+    project = await service.get_owned(project_id, str(current_user.id))
+    if project is None:
+        raise _not_found()
+
+    review_service = PrismReviewService(db)
+    review_item = await review_service.get_review_item(
+        project,
+        logical_key=request.logical_key,
+        statuses=PENDING_STATUSES,
+    )
+    if review_item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File change not found")
+    change = dict(review_item.preview_payload or {})
+    path = str(review_item.target_file_path or change.get("path") or "").strip()
+    if not path:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File change path missing")
+
+    await review_service.mark_deferred(review_item)
+    return LatexFileChangeDeferResponse(
+        ok=True,
+        deferred=True,
         logical_key=request.logical_key,
         path=path,
     )

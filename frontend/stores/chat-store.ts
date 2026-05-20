@@ -11,6 +11,7 @@ import type {
   StatusLineBlock,
   TextBlock,
 } from "@/lib/api/blocks";
+import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
@@ -25,6 +26,7 @@ export type ResultCardData = {
     default_checked: boolean;
     data: Record<string, unknown>;
   }>;
+  review_items?: WorkspacePrismReviewItem[];
   narrative?: string;
   duration_seconds?: number;
   errors?: Array<{ message: string; phase?: string; task?: string }>;

@@ -393,7 +393,7 @@ def _build_prism_projection_from_surface(
         "file_changes": file_changes,
         "applied_file_changes": applied_file_changes,
         "compile": {"status": compile_status} if compile_status else {},
-        "items": [],
+        "items": _normalize_prism_file_changes(surface.get("review_items")),
     }
 
 

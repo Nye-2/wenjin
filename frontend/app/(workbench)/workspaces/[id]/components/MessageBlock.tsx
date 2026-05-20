@@ -7,6 +7,7 @@ import type {
   ResultCardBlock as AgentResultCardBlock,
 } from "@/lib/api/blocks";
 import type { Block, ResultCardData } from "@/stores/chat-store";
+import { PrismReviewList } from "@/components/prism/PrismReviewList";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { StatusLineBlock } from "./StatusLineBlock";
 import { ResultCard } from "./ResultCard";
@@ -271,6 +272,11 @@ function AgentResultCard({
           </div>
         </div>
       )}
+      {block.review_items?.length ? (
+        <div style={{ marginBottom: 10 }}>
+          <PrismReviewList items={block.review_items} />
+        </div>
+      ) : null}
       {block.links.length > 0 && (
         <div
           style={{

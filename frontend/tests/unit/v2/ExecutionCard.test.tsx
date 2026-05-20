@@ -38,15 +38,22 @@ describe("ExecutionCard", () => {
           result: {
             data: {
               latex_project_id: "latex-1",
-              file_changes: [
-                {
-                  logical_key: "section:introduction",
-                  path: "sections/introduction.tex",
-                  reason: "feature_proposal",
-                },
-              ],
             },
           },
+          review_items: [
+            {
+              id: "review-1",
+              kind: "prism_file_change",
+              logical_key: "section:introduction",
+              status: "pending",
+              title: "Intro rewrite",
+              summary: "feature_proposal",
+              target: {
+                kind: "prism_file_change",
+                file_path: "sections/introduction.tex",
+              },
+            },
+          ],
           next_actions: [
             {
               action: "preview_prism_changes",

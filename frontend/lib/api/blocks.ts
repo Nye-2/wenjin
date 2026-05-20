@@ -1,5 +1,7 @@
 // Mirror of backend/src/agents/lead_agent/blocks.py — keep field names in sync.
 
+import type { WorkspacePrismReviewItem } from "@/lib/api/types";
+
 export interface TextBlock {
   kind: "text";
   content: string;
@@ -57,6 +59,7 @@ export interface ResultCardBlock {
   findings: Finding[];
   recommend?: Recommend | null;
   links: Link[];
+  review_items?: WorkspacePrismReviewItem[];
   feedback: FeedbackBlock;
   stats: RunStats;
 }

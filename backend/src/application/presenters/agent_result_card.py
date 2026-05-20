@@ -65,6 +65,18 @@ def _findings_from_data(data: Mapping[str, Any]) -> list[dict[str, str]]:
     return items
 
 
+def _review_items_from_result(result: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(result, Mapping):
+        return []
+    raw = result.get("review_items")
+    if not isinstance(raw, list):
+        task_report = result.get("task_report")
+        raw = task_report.get("review_items") if isinstance(task_report, Mapping) else None
+    if not isinstance(raw, list):
+        return []
+    return [dict(item) for item in raw if isinstance(item, Mapping)]
+
+
 def _links_from_artifacts(artifacts: list[Mapping[str, Any]]) -> list[dict[str, str]]:
     links: list[dict[str, str]] = []
     for art in artifacts[:6]:
@@ -229,6 +241,7 @@ def build_completion_result_card(
         "findings": findings,
         "recommend": None,
         "links": links,
+        "review_items": _review_items_from_result(result),
         "feedback": {
             "question": "对结果是否满意？",
             "pills": [

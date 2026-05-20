@@ -8,6 +8,8 @@ import {
   type CommittedRoomLink,
 } from "@/lib/execution-commit";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
+import { PrismReviewList } from "@/components/prism/PrismReviewList";
+import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import { CommitActionBar } from "./result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
 import { ResultPreviewList } from "./result-preview/ResultPreviewList";
@@ -27,6 +29,7 @@ export interface CompletedViewProps {
   executionId?: string | null;
   resultSummary?: string | null;
   result?: Record<string, unknown> | null;
+  reviewItems?: WorkspacePrismReviewItem[];
   nextActions?: Array<Record<string, unknown>>;
 }
 
@@ -36,6 +39,7 @@ export function CompletedView({
   executionId,
   resultSummary,
   result,
+  reviewItems = [],
   nextActions = [],
 }: CompletedViewProps) {
   const [showFullResult, setShowFullResult] = useState(false);
@@ -92,8 +96,7 @@ export function CompletedView({
     workspaceId,
     featureId,
     executionId,
-    result,
-    taskReport,
+    reviewItems,
     nextActions,
   });
 
@@ -182,7 +185,7 @@ export function CompletedView({
             footer={
               executionId ||
               actionContext.actions.length > 0 ||
-              actionContext.fileChanges.length > 0 ? (
+              actionContext.reviewItems.length > 0 ? (
                 <div
                   style={{
                     paddingTop: 12,
@@ -240,55 +243,27 @@ export function CompletedView({
                     </div>
                   ) : null}
 
-                  {(actionContext.fileChanges.length > 0 ||
+                  {(actionContext.reviewItems.length > 0 ||
                     actionContext.actions.length > 0) && (
                     <div
                       style={{
                         fontSize: 12,
                         fontWeight: 600,
                         color: "var(--v2-text-primary)",
-                        marginBottom: actionContext.fileChanges.length > 0 ? 8 : 6,
+                        marginBottom: actionContext.reviewItems.length > 0 ? 8 : 6,
                       }}
                     >
-                      {actionContext.fileChanges.length > 0
+                      {actionContext.reviewItems.length > 0
                         ? "待确认修改"
                         : "下一步操作"}
                     </div>
                   )}
 
-                  {actionContext.fileChanges.length > 0 && (
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 6,
-                        marginBottom: actionContext.actions.length > 0 ? 10 : 0,
-                      }}
-                    >
-                      {actionContext.fileChanges.map((change) => (
-                        <div
-                          key={change.key}
-                          style={{
-                            display: "flex",
-                            flexWrap: "wrap",
-                            alignItems: "center",
-                            gap: 6,
-                            fontSize: 11.5,
-                            lineHeight: 1.45,
-                            color: "var(--v2-text-secondary)",
-                          }}
-                        >
-                          <span style={{ color: "var(--v2-text-primary)", fontWeight: 500 }}>
-                            {change.path}
-                          </span>
-                          {change.reason ? (
-                            <span style={{ color: "var(--v2-text-tertiary)" }}>
-                              {change.reason}
-                            </span>
-                          ) : null}
-                        </div>
-                      ))}
-                    </div>
+                  {actionContext.reviewItems.length > 0 && (
+                    <PrismReviewList
+                      className={actionContext.actions.length > 0 ? "mb-3" : undefined}
+                      items={actionContext.reviewItems}
+                    />
                   )}
 
                   {actionContext.actions.length > 0 && (
@@ -362,7 +337,7 @@ export function CompletedView({
       )}
 
       {previews.length === 0 &&
-        (actionContext.actions.length > 0 || actionContext.fileChanges.length > 0) && (
+        (actionContext.actions.length > 0 || actionContext.reviewItems.length > 0) && (
         <div
           style={{
             marginBottom: 12,
@@ -377,45 +352,17 @@ export function CompletedView({
               fontSize: 12,
               fontWeight: 600,
               color: "var(--v2-text-primary)",
-              marginBottom: actionContext.fileChanges.length > 0 ? 8 : 0,
+              marginBottom: actionContext.reviewItems.length > 0 ? 8 : 0,
             }}
           >
-            {actionContext.fileChanges.length > 0 ? "待确认修改" : "下一步操作"}
+            {actionContext.reviewItems.length > 0 ? "待确认修改" : "下一步操作"}
           </div>
 
-          {actionContext.fileChanges.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 6,
-                marginBottom: actionContext.actions.length > 0 ? 10 : 0,
-              }}
-            >
-              {actionContext.fileChanges.map((change) => (
-                <div
-                  key={change.key}
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    alignItems: "center",
-                    gap: 6,
-                    fontSize: 11.5,
-                    lineHeight: 1.45,
-                    color: "var(--v2-text-secondary)",
-                  }}
-                >
-                  <span style={{ color: "var(--v2-text-primary)", fontWeight: 500 }}>
-                    {change.path}
-                  </span>
-                  {change.reason ? (
-                    <span style={{ color: "var(--v2-text-tertiary)" }}>
-                      {change.reason}
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-            </div>
+          {actionContext.reviewItems.length > 0 && (
+            <PrismReviewList
+              className={actionContext.actions.length > 0 ? "mb-3" : undefined}
+              items={actionContext.reviewItems}
+            />
           )}
 
           {actionContext.actions.length > 0 && (
@@ -528,53 +475,23 @@ type PrismReviewAction = {
   href: string | null;
 };
 
-type PrismFileChange = {
-  key: string;
-  path: string;
-  reason: string | null;
-};
-
 function getCompletedActionContext(options: {
   workspaceId?: string | null;
   featureId?: string | null;
   executionId?: string | null;
-  result: Record<string, unknown> | null | undefined;
-  taskReport: TaskReportLike | null;
+  reviewItems: WorkspacePrismReviewItem[];
   nextActions: Array<Record<string, unknown>>;
 }): {
   actions: PrismReviewAction[];
-  fileChanges: PrismFileChange[];
+  reviewItems: WorkspacePrismReviewItem[];
 } {
   const {
     workspaceId,
     featureId,
     executionId,
-    result,
-    taskReport,
+    reviewItems,
     nextActions,
   } = options;
-  const data = readObject(taskReport?.data) ?? readObject(result?.data);
-  const rawFileChanges = Array.isArray(data?.file_changes) ? data.file_changes : [];
-  const fileChanges = rawFileChanges
-    .map((item, index) => {
-      const change = readObject(item);
-      if (!change) {
-        return null;
-      }
-      const path =
-        readString(change.path) ??
-        readString(change.section_file) ??
-        readString(change.logical_key);
-      if (!path) {
-        return null;
-      }
-      return {
-        key: readString(change.logical_key) ?? `${path}:${index}`,
-        path,
-        reason: readString(change.reason),
-      };
-    })
-    .filter((item): item is PrismFileChange => item !== null);
 
   const actions = nextActions
     .map((item, index) => {
@@ -599,7 +516,7 @@ function getCompletedActionContext(options: {
     })
     .filter((item): item is PrismReviewAction => item !== null);
 
-  return { actions, fileChanges };
+  return { actions, reviewItems };
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

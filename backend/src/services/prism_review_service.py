@@ -34,6 +34,8 @@ def _project_id(project: LatexProject) -> str:
 def _review_item_payload(item: PrismReviewItem) -> dict[str, Any]:
     preview_payload = _json_object(item.preview_payload)
     path = str(item.target_file_path or preview_payload.get("path") or "").strip()
+    created_at = getattr(item, "created_at", None)
+    updated_at = getattr(item, "updated_at", None)
     applied_at = getattr(item, "applied_at", None)
     payload = {
         "id": str(item.id),
@@ -46,6 +48,8 @@ def _review_item_payload(item: PrismReviewItem) -> dict[str, Any]:
         "title": str(getattr(item, "title", None) or path or item.logical_key),
         "reason": str(item.summary or preview_payload.get("reason") or ""),
         "status": str(item.status),
+        "created_at": created_at.isoformat() if created_at else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
         "applied_at": applied_at.isoformat() if applied_at else None,
     }
     for key in (
@@ -62,6 +66,65 @@ def _review_item_payload(item: PrismReviewItem) -> dict[str, Any]:
         if key in preview_payload:
             payload[key] = preview_payload[key]
     return payload
+
+
+def _review_item_action_payloads(item: PrismReviewItem) -> list[dict[str, str]]:
+    status = str(item.status)
+    if status in PENDING_STATUSES:
+        actions = [
+            {"action": "preview_prism_change", "label": "预览 diff"},
+            {"action": "apply_prism_change", "label": "应用到 Prism"},
+            {"action": "reject_prism_change", "label": "忽略并保护"},
+        ]
+        if status == "pending":
+            actions.append({"action": "defer_prism_change", "label": "稍后处理"})
+        return actions
+    if status == "applied":
+        return [{"action": "revert_prism_change", "label": "撤回写入"}]
+    return []
+
+
+def _review_item_projection(item: PrismReviewItem) -> dict[str, Any]:
+    preview_payload = _json_object(item.preview_payload)
+    path = str(
+        item.target_file_path
+        or preview_payload.get("path")
+        or preview_payload.get("file_path")
+        or "",
+    ).strip()
+    created_at = getattr(item, "created_at", None)
+    updated_at = getattr(item, "updated_at", None)
+    applied_at = getattr(item, "applied_at", None)
+    return {
+        "id": str(item.id),
+        "kind": str(getattr(item, "target_kind", "") or "prism_file_change"),
+        "logical_key": str(item.logical_key),
+        "status": str(item.status),
+        "title": str(getattr(item, "title", None) or path or item.logical_key),
+        "summary": str(item.summary or preview_payload.get("reason") or ""),
+        "source": {
+            "type": str(getattr(item, "source_type", "") or ""),
+            "execution_id": getattr(item, "source_execution_id", None),
+            "task_id": getattr(item, "source_task_id", None),
+        },
+        "target": {
+            "kind": str(getattr(item, "target_kind", "") or "prism_file_change"),
+            "file_path": path or None,
+            "room": getattr(item, "target_room", None),
+            "item_id": getattr(item, "target_item_id", None),
+        },
+        "preview": {
+            "mode": str(preview_payload.get("mode") or "diff"),
+            "pending_hash": preview_payload.get("pending_hash"),
+            "current_hash": preview_payload.get("current_hash"),
+            "applied_hash": preview_payload.get("applied_hash"),
+            "revert_signature": preview_payload.get("revert_signature"),
+        },
+        "actions": _review_item_action_payloads(item),
+        "created_at": created_at.isoformat() if created_at else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
+        "applied_at": applied_at.isoformat() if applied_at else None,
+    }
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -138,12 +201,40 @@ class PrismReviewService:
         items = await self.list_project_review_items(project, statuses=statuses)
         return [_review_item_payload(item) for item in items]
 
+    def file_change_payloads(
+        self,
+        items: list[PrismReviewItem],
+    ) -> list[dict[str, Any]]:
+        return [_review_item_payload(item) for item in items]
+
+    def review_item_projections(
+        self,
+        items: list[PrismReviewItem],
+    ) -> list[dict[str, Any]]:
+        return [_review_item_projection(item) for item in items]
+
     async def list_applied_file_changes(
         self,
         project: LatexProject,
     ) -> list[dict[str, Any]]:
         items = await self.list_project_review_items(project, statuses=APPLIED_STATUSES)
         return [_review_item_payload(item) for item in items if item.status != "reverted"]
+
+    async def list_execution_review_item_projections(
+        self,
+        *,
+        workspace_id: str,
+        execution_id: str,
+    ) -> list[dict[str, Any]]:
+        result = await self.db.execute(
+            select(PrismReviewItem)
+            .where(
+                PrismReviewItem.workspace_id == workspace_id,
+                PrismReviewItem.source_execution_id == execution_id,
+            )
+            .order_by(PrismReviewItem.updated_at.desc())
+        )
+        return self.review_item_projections(list(result.scalars().all()))
 
     async def list_project_source_links(
         self,
@@ -318,6 +409,12 @@ class PrismReviewService:
                 reason=reason or item.summary,
                 source="review_reject",
             )
+        await self.db.commit()
+        await self.db.refresh(item)
+        return item
+
+    async def mark_deferred(self, item: PrismReviewItem) -> PrismReviewItem:
+        item.status = "deferred"
         await self.db.commit()
         await self.db.refresh(item)
         return item

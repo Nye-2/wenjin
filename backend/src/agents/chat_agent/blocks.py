@@ -78,6 +78,7 @@ class ResultCardBlock(BaseModel):
     findings: list[Finding]
     recommend: Recommend | None = None
     links: list[Link] = Field(default_factory=list)
+    review_items: list[dict] = Field(default_factory=list)
     feedback: FeedbackBlock
     stats: RunStats
 

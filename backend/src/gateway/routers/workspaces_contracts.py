@@ -177,6 +177,7 @@ class WorkspacePrismSurfaceResponse(BaseModel):
                     }
                 ],
                 "applied_file_changes": [],
+                "review_items": [],
                 "source_links": [],
                 "protected_sections": [],
                 "decisions": [],
@@ -207,6 +208,7 @@ class WorkspacePrismSurfaceResponse(BaseModel):
     target_files: list[str] = Field(default_factory=list)
     file_changes: list[dict[str, Any]] = Field(default_factory=list)
     applied_file_changes: list[dict[str, Any]] = Field(default_factory=list)
+    review_items: list[dict[str, Any]] = Field(default_factory=list)
     source_links: list[dict[str, Any]] = Field(default_factory=list)
     protected_sections: list[dict[str, Any]] = Field(default_factory=list)
     decisions: list[dict[str, Any]] = Field(default_factory=list)

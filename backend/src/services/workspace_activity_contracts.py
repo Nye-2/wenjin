@@ -266,36 +266,33 @@ def _build_prism_review_action(
     if not isinstance(result, dict):
         return None
 
-    data = result.get("data")
-    if not isinstance(data, dict):
-        task_report = result.get("task_report")
-        if isinstance(task_report, dict):
-            nested_data = task_report.get("data")
-            data = nested_data if isinstance(nested_data, dict) else None
-    if not isinstance(data, dict):
+    review_items = _read_review_items(result)
+    if not review_items:
         return None
 
-    latex_project_id = _read_string(data.get("latex_project_id")) or _read_string(
-        data.get("project_id")
-    )
-    if not latex_project_id:
-        return None
-
-    file_changes = data.get("file_changes")
-    has_pending_changes = isinstance(file_changes, list) and any(
-        isinstance(item, dict) for item in file_changes
+    has_pending_changes = any(
+        _read_string(item.get("status")) in {"pending", "deferred"}
+        for item in review_items
     )
     if has_pending_changes:
         return {
             "action": "preview_prism_changes",
             "label": "预览待确认修改",
-            "project_id": latex_project_id,
         }
     return {
         "action": "open_prism",
         "label": "在 WenjinPrism 中继续编辑",
-        "project_id": latex_project_id,
     }
+
+
+def _read_review_items(result: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = result.get("review_items")
+    if not isinstance(raw, list):
+        task_report = result.get("task_report")
+        raw = task_report.get("review_items") if isinstance(task_report, dict) else None
+    if not isinstance(raw, list):
+        return []
+    return [dict(item) for item in raw if isinstance(item, dict)]
 
 
 def _first_room_output_descriptor(

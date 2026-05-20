@@ -36,6 +36,7 @@ const prismSurface = {
   target_files: ["main.tex"],
   file_changes: [],
   applied_file_changes: [],
+  review_items: [],
   source_links: [],
   protected_sections: [],
   decisions: [],
@@ -161,9 +162,24 @@ describe("workspace prism surface", () => {
       has_pending_changes: true,
       file_changes: [
         {
+          id: "review-1",
           logical_key: "section:introduction",
           path: "sections/introduction.tex",
           reason: "feature_proposal",
+        },
+      ],
+      review_items: [
+        {
+          id: "review-1",
+          kind: "prism_file_change",
+          logical_key: "section:introduction",
+          status: "pending",
+          title: "Intro rewrite",
+          summary: "feature_proposal",
+          target: {
+            kind: "prism_file_change",
+            file_path: "sections/introduction.tex",
+          },
         },
       ],
       source_links: [

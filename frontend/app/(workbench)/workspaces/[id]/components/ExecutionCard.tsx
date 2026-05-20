@@ -257,6 +257,7 @@ export function ExecutionCard({
               executionId={record.id}
               resultSummary={record.result_summary}
               result={record.result}
+              reviewItems={record.review_items ?? []}
               nextActions={record.next_actions}
             />
           ) : (

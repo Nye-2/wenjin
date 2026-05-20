@@ -9,6 +9,10 @@ import { LatexFileTree } from "@/components/latex/LatexFileTree";
 import { LatexPdfPreview } from "@/components/latex/LatexPdfPreview";
 import { LatexToolbar } from "@/components/latex/LatexToolbar";
 import { Header } from "@/components/layout/header";
+import {
+  fileChangeToPrismReviewItem,
+  PrismReviewList,
+} from "@/components/prism/PrismReviewList";
 import { Button } from "@/components/ui/button";
 import type {
   LatexCompileEngine,
@@ -579,6 +583,7 @@ export function LatexEditorShell({
     uploadDirectory,
     uploadArchive,
     applyFileChange,
+    deferFileChange,
     discardFileChange,
     revertFileChange,
     deleteProject,
@@ -716,6 +721,22 @@ export function LatexEditorShell({
   const previewFeedbackItem = useMemo(
     () => feedbackItems.find((item) => item.id === rewritePreviewFeedbackId) || null,
     [feedbackItems, rewritePreviewFeedbackId],
+  );
+  const pendingReviewItems = useMemo(
+    () => fileChanges.map((change) => fileChangeToPrismReviewItem(change)),
+    [fileChanges],
+  );
+  const appliedReviewItems = useMemo(
+    () =>
+      appliedFileChanges.map((change) =>
+        fileChangeToPrismReviewItem({
+          ...change,
+          status: change.status || "applied",
+          title: change.title || change.path,
+          reason: change.reason || change.applied_hash,
+        }),
+      ),
+    [appliedFileChanges],
   );
   const clearRewritePreview = useCallback((resetPending = true) => {
     const previewFeedbackId = rewritePreviewFeedbackId;
@@ -1476,6 +1497,21 @@ export function LatexEditorShell({
     }
   }, [discardFileChange]);
 
+  const deferPendingFileChange = useCallback(async (change: LatexFileChange) => {
+    setBusyFileChangeKey(change.logical_key);
+    setFileChangeError("");
+    try {
+      await deferFileChange(change.logical_key);
+      setFileChangePreviews((prev) => {
+        const next = { ...prev };
+        delete next[change.logical_key];
+        return next;
+      });
+    } finally {
+      setBusyFileChangeKey(null);
+    }
+  }, [deferFileChange]);
+
   const revertAppliedFileChange = useCallback(async (change: {
     logical_key: string;
     revert_signature: string;
@@ -1589,66 +1625,68 @@ export function LatexEditorShell({
                     {fileChangeError}
                   </div>
                 ) : null}
-                <div className="mt-3 space-y-2">
-                  {fileChanges.map((change) => {
+                <PrismReviewList
+                  className="mt-3"
+                  items={pendingReviewItems}
+                  renderActions={(item) => {
+                    const change = fileChanges.find(
+                      (entry) => entry.logical_key === item.logical_key,
+                    );
+                    if (!change) return null;
                     const preview = fileChangePreviews[change.logical_key] ?? null;
                     const isBusy = isSaving || busyFileChangeKey === change.logical_key;
                     return (
-                      <div
-                        key={`${change.logical_key}:${change.path}`}
-                        className="rounded-xl border border-amber-500/20 bg-white/70 px-3 py-3"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-xs font-medium text-[var(--text-primary)]">
-                              {change.path}
-                            </p>
-                            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                              {change.reason}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void previewProjectFileChange(change)}
-                              disabled={isBusy}
-                            >
-                              <Eye className="mr-1.5 h-3.5 w-3.5" />
-                              {busyFileChangeKey === change.logical_key
-                                ? "处理中..."
-                                : preview
-                                  ? "刷新 diff"
-                                  : "预览 diff"}
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => void discardPendingFileChange(change)}
-                              disabled={isBusy}
-                            >
-                              忽略本次
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => void applyPendingFileChange(change)}
-                              disabled={isBusy}
-                            >
-                              应用到 Prism
-                            </Button>
-                          </div>
-                        </div>
-                        {preview ? (
-                          <LatexFileChangeDiffPreview
-                            preview={preview}
-                            maxOps={8}
-                            className="mt-3"
-                          />
-                        ) : null}
-                      </div>
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void previewProjectFileChange(change)}
+                          disabled={isBusy}
+                        >
+                          <Eye className="mr-1.5 h-3.5 w-3.5" />
+                          {busyFileChangeKey === change.logical_key
+                            ? "处理中..."
+                            : preview
+                              ? "刷新 diff"
+                              : "预览 diff"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void deferPendingFileChange(change)}
+                          disabled={isBusy || change.status === "deferred"}
+                        >
+                          {change.status === "deferred" ? "已稍后" : "稍后处理"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void discardPendingFileChange(change)}
+                          disabled={isBusy}
+                        >
+                          忽略本次
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => void applyPendingFileChange(change)}
+                          disabled={isBusy}
+                        >
+                          应用到 Prism
+                        </Button>
+                      </>
                     );
-                  })}
-                </div>
+                  }}
+                  renderDetails={(item) => {
+                    const preview = fileChangePreviews[item.logical_key] ?? null;
+                    return preview ? (
+                      <LatexFileChangeDiffPreview
+                        preview={preview}
+                        maxOps={8}
+                        className="mt-3"
+                      />
+                    ) : null;
+                  }}
+                />
               </div>
             ) : null}
 
@@ -1663,35 +1701,28 @@ export function LatexEditorShell({
                 <p className="mt-2 text-xs leading-6 text-emerald-900/80">
                   已应用的 Compute 写入仍保留哈希校验撤回点，文件被后续手动修改后不会盲目覆盖。
                 </p>
-                <div className="mt-3 space-y-2">
-                  {appliedFileChanges.map((change) => {
+                <PrismReviewList
+                  className="mt-3"
+                  items={appliedReviewItems}
+                  renderActions={(item) => {
+                    const change = appliedFileChanges.find(
+                      (entry) => entry.logical_key === item.logical_key,
+                    );
+                    if (!change) return null;
                     const isBusy = isSaving || busyFileChangeKey === change.logical_key;
                     return (
-                      <div
-                        key={`${change.logical_key}:${change.path}:${change.applied_hash}`}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-500/20 bg-white/70 px-3 py-3"
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void revertAppliedFileChange(change)}
+                        disabled={isBusy}
                       >
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-medium text-[var(--text-primary)]">
-                            {change.path}
-                          </p>
-                          <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
-                            {change.applied_hash}
-                          </p>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void revertAppliedFileChange(change)}
-                          disabled={isBusy}
-                        >
-                          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                          {busyFileChangeKey === change.logical_key ? "撤回中..." : "撤回写入"}
-                        </Button>
-                      </div>
+                        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                        {busyFileChangeKey === change.logical_key ? "撤回中..." : "撤回写入"}
+                      </Button>
                     );
-                  })}
-                </div>
+                  }}
+                />
               </div>
             ) : null}
 

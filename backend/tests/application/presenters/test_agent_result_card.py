@@ -86,14 +86,17 @@ def test_completion_card_routes_prism_review_links_to_workspace_surface():
         result={
             "data": {
                 "summary": "写作结果已进入 Prism 待确认区",
-                "latex_project_id": "latex-1",
-                "file_changes": [
-                    {
-                        "logical_key": "section:introduction",
-                        "path": "sections/introduction.tex",
-                    }
-                ],
             },
+            "review_items": [
+                {
+                    "id": "review-1",
+                    "kind": "prism_file_change",
+                    "logical_key": "section:introduction",
+                    "status": "pending",
+                    "title": "Intro rewrite",
+                    "target": {"file_path": "sections/introduction.tex"},
+                }
+            ],
             "next_actions": [
                 {
                     "action": "preview_prism_changes",
@@ -113,6 +116,38 @@ def test_completion_card_routes_prism_review_links_to_workspace_surface():
     } >= {
         ("预览待确认修改", "/workspaces/ws-1/prism?focus=file_changes"),
     }
+
+
+def test_completion_card_carries_canonical_review_items():
+    reply = build_completion_result_card(
+        feature_id="writing",
+        task_id="task-prism",
+        run_id="run-prism",
+        execution_id="exec-prism",
+        payload={"workspace_id": "ws-1"},
+        result={
+            "data": {"summary": "写作结果已进入 Prism 待确认区"},
+            "review_items": [
+                {
+                    "id": "review-1",
+                    "kind": "prism_file_change",
+                    "logical_key": "section:introduction",
+                    "status": "pending",
+                    "title": "Intro rewrite",
+                    "target": {"file_path": "sections/introduction.tex"},
+                }
+            ],
+        },
+        duration_ms=9000,
+        subagents_count=1,
+        tokens_total=900,
+    )
+
+    block = reply.blocks[0]
+    assert block["review_items"][0]["id"] == "review-1"
+    assert block["review_items"][0]["target"]["file_path"] == (
+        "sections/introduction.tex"
+    )
 
 
 def test_completion_card_does_not_emit_legacy_prism_link_without_workspace():

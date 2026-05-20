@@ -135,6 +135,40 @@ export interface WorkspacePrismReviewSummary {
   protected_section_count?: number;
 }
 
+export interface WorkspacePrismReviewItem {
+  id: string;
+  kind: string;
+  logical_key: string;
+  status: string;
+  title: string;
+  summary?: string | null;
+  source?: {
+    type?: string | null;
+    execution_id?: string | null;
+    task_id?: string | null;
+  };
+  target?: {
+    kind?: string | null;
+    file_path?: string | null;
+    room?: string | null;
+    item_id?: string | null;
+  };
+  preview?: {
+    mode?: string | null;
+    pending_hash?: string | null;
+    current_hash?: string | null;
+    applied_hash?: string | null;
+    revert_signature?: string | null;
+  };
+  actions?: Array<{
+    action: string;
+    label: string;
+  }>;
+  created_at?: string | null;
+  updated_at?: string | null;
+  applied_at?: string | null;
+}
+
 export interface WorkspacePrismDecision {
   id: string;
   workspace_id: string;
@@ -279,6 +313,13 @@ export interface LatexFileChangeApplyResponse {
 export interface LatexFileChangeDiscardResponse {
   ok: boolean;
   discarded: boolean;
+  logical_key: string;
+  path: string;
+}
+
+export interface LatexFileChangeDeferResponse {
+  ok: boolean;
+  deferred: boolean;
   logical_key: string;
   path: string;
 }
@@ -809,7 +850,7 @@ export interface ComputePrismProjection {
   file_changes: Array<Record<string, unknown>>;
   applied_file_changes: Array<Record<string, unknown>>;
   compile: ComputePrismCompileProjection;
-  items: ComputePrismItemProjection[];
+  items: WorkspacePrismReviewItem[];
 }
 
 export interface ComputeProjection {
@@ -997,6 +1038,7 @@ export interface WorkspacePrismSurfaceResponse {
   target_files: string[];
   file_changes?: LatexFileChange[];
   applied_file_changes?: LatexAppliedFileChange[];
+  review_items?: WorkspacePrismReviewItem[];
   source_links?: WorkspacePrismSourceLink[];
   protected_sections?: WorkspacePrismProtectedSection[];
   decisions?: WorkspacePrismDecision[];
@@ -1458,6 +1500,7 @@ export interface ExecutionRecord {
   graph_structure?: ExecutionGraphStructure | null;
   node_states: Record<string, ExecutionNodeState>;
   runtime_state?: Record<string, unknown> | null;
+  review_items?: WorkspacePrismReviewItem[];
   progress: number;
   message?: string | null;
   artifact_ids: string[];
