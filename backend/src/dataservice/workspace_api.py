@@ -12,7 +12,12 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Workspace, WorkspaceType
-from src.dataservice.domains.workspace.contracts import WorkspaceCreateCommand, WorkspaceUpdateCommand
+from src.dataservice.domains.workspace.contracts import (
+    WorkspaceCreateCommand,
+    WorkspaceSettingsRecord,
+    WorkspaceSettingsUpdateCommand,
+    WorkspaceUpdateCommand,
+)
 from src.dataservice.domains.workspace.policies import normalize_workspace_type, with_rollout_defaults
 from src.dataservice.domains.workspace.service import DataServiceWorkspaceService
 
@@ -86,6 +91,25 @@ class WorkspaceDataService:
 
     async def delete_workspace(self, workspace_id: str) -> bool:
         return await self._domain.delete_workspace(workspace_id)
+
+    async def get_workspace_settings(self, workspace_id: str) -> WorkspaceSettingsRecord | None:
+        return await self._domain.get_workspace_settings(workspace_id)
+
+    async def get_or_create_workspace_settings(self, workspace_id: str) -> WorkspaceSettingsRecord:
+        return await self._domain.get_or_create_workspace_settings(workspace_id)
+
+    async def update_workspace_settings(
+        self,
+        workspace_id: str,
+        **kwargs: Any,
+    ) -> WorkspaceSettingsRecord | None:
+        return await self._domain.update_workspace_settings(
+            workspace_id,
+            WorkspaceSettingsUpdateCommand(**kwargs),
+        )
+
+    async def delete_workspace_settings(self, workspace_id: str) -> bool:
+        return await self._domain.delete_workspace_settings(workspace_id)
 
     @staticmethod
     def _normalize_update_kwargs(kwargs: dict[str, Any]) -> dict[str, Any]:

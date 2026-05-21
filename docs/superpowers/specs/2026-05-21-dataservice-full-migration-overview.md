@@ -1070,8 +1070,10 @@ Implementation status as of 2026-05-21:
 - The library room facade delegates reference-library state to `SourceDataService`, so library room writes no longer create `library_items` rows.
 - The documents room facade delegates document create/read/update/delete/version operations to `AssetDataService`, so document room writes now create canonical `workspace_assets` rows and no longer create `documents_v2` rows.
 - Runtime code outside DataService/database ownership packages is also guarded from importing `DocumentV2`; migrated `documents_v2` rows are represented only as `workspace_assets` with legacy source metadata.
+- The settings room facade delegates settings projection and updates to `WorkspaceDataService`, so `workspace_settings` is now owned by the Workspace aggregate instead of a standalone room service.
+- Runtime code outside DataService/database ownership packages is guarded from importing `WorkspaceSettings`.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1917 backend tests.
+- Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1919 backend tests.
 
 ### Phase 4: Review Materialization
 

@@ -16,6 +16,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.sandbox",
     "src.database.models.library_item",
     "src.database.models.document_v2",
+    "src.database.models.workspace_settings",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
     "Decision",
@@ -24,6 +25,7 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "Sandbox",
     "LibraryItem",
     "DocumentV2",
+    "WorkspaceSettings",
 }
 MODEL_OWNER_PACKAGES = {
     "database",

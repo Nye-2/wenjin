@@ -145,6 +145,20 @@ class WorkspaceRepository:
         self.session.add(settings)
         return settings
 
+    def create_workspace_settings_from_values(
+        self,
+        *,
+        workspace_id: str,
+        values: dict[str, Any],
+    ) -> WorkspaceSettings:
+        settings = WorkspaceSettings(workspace_id=workspace_id, **values)
+        self.session.add(settings)
+        return settings
+
+    async def delete_workspace_settings(self, workspace_id: str) -> int:
+        result = await self.session.execute(delete(WorkspaceSettings).where(WorkspaceSettings.workspace_id == workspace_id))
+        return int(result.rowcount or 0)  # type: ignore[attr-defined]
+
     async def get_thread(self, thread_id: str) -> Thread | None:
         result = await self.session.execute(select(Thread).where(Thread.id == thread_id))
         return result.scalar_one_or_none()
