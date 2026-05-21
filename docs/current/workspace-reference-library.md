@@ -9,7 +9,7 @@
 
 Workspace Reference Library 是 workspace 级文献与证据的用户入口；canonical 数据事实源已经收敛到 DataService Source/Provenance/Asset 域。
 
-所有文献来源统一进入 `sources`，过渡期上传/导入适配器仍会同步 same-id legacy reference rows：
+所有文献来源统一进入 `sources`；gateway 层的 reference routes 只是产品入口命名，运行时不再通过 legacy reference tables 写入事实数据：
 
 - 上传 PDF
 - Semantic Scholar 检索
@@ -31,7 +31,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 
 ## 2. 事实源不变量
 
-1. 文献中心唯一事实源是 canonical `sources`；legacy `workspace_references` 只保留为 import/preprocess adapter 的迁移壳。
+1. 文献中心唯一事实源是 canonical `sources`；legacy `workspace_references*` / `reference_*` 只作为历史物理表等待 archive/drop gate，不再承载运行时 import、detail、preprocess 或 usage 逻辑。
 2. 所有文献资产必须绑定 `workspace_id`，workspace 间不共享全文、索引、状态或 citation key。
 3. citation key 由系统生成并在 workspace 内唯一，LLM 只能使用已有 key。
 4. Semantic Scholar 的 `verified_papers` 是检索导入事实来源；`model_synthesis` 和 `unverified_leads` 只能作为分析或下一轮检索线索。
@@ -53,7 +53,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 - `source_text_units`：可检索全文单元。
 - `provenance_links`：引用、证据、Prism 变更、文档来源与写作使用审计。
 - `source_bibliography_snapshots` / `reference_bibtex_snapshots`：`refs.bib` projection 快照；运行时内容从 Source metadata 生成。
-- `workspace_references*` / `reference_*`：legacy adapter 表，保留到 import/preprocess 完全改写后删除。
+- `workspace_references*` / `reference_*`：legacy physical tables，保留到 archive/drop gate 后删除。
 
 关键枚举：
 
@@ -67,8 +67,8 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 服务层：
 
 - `SourceDataService`：CRUD、去重、citation key 唯一性、详情响应、evidence pack、citation usage。
-- `ReferenceImportService`：PDF upload adapter；manual、Semantic Scholar、BibTeX、deep search artifact metadata 导入已委托 `SourceDataService.import_source`。
-- `ReferencePreprocessService`：PDF 预处理、outline/text units 写入。
+- `ReferenceImportService`：reference gateway facade；manual、Semantic Scholar、BibTeX、deep search artifact 和 PDF upload 均委托 Source/Asset DataService。
+- `SourcePreprocessService`：PDF 预处理、Source outline/text units 写入。
 - Source outline/text-unit APIs：outline-first 检索与 page/content 读取。
 - `ReferenceBibTeXService`：BibTeX 生成、citation validation、Prism sync。
 - `PrismReviewDataService`：从 canonical Prism review content 与 Source/Provenance 生成 source links。
@@ -113,8 +113,11 @@ API 面：
 - Source/Provenance/Asset canonical tables 已落地，Reference Library gateway list/count/detail/update/delete/status/evidence pack 已走 Source DataService。
 - API、服务、前端 LiteraturePanel、Agent tools、BibTeX/citation validation 已落地。
 - Reference detail 已接入 Source detail、canonical assets、source history、preprocess summary 和 provenance usage。
+- Reference PDF upload 直接创建 canonical `sources`、`workspace_assets`、`source_assets`，queued preprocess payload 使用 `source_id` / `source_asset_id` / `workspace_asset_id`。
+- Legacy `WorkspaceReferenceService`、`ReferencePreprocessService`、`ReferenceIndexService` 和 `ReferenceUsageService` 已从 runtime service surface 删除。
 - Prism context rail 已能展示 canonical source links，并 deep-link 回 Library / Documents。
 - Release gate 覆盖 Semantic Scholar verified import、上传预处理、Reference writing workflow、Prism Review workflow、Reference Import Service、前端 action contract。
+- Backend verification：`cd backend && .venv/bin/python -m pytest tests/ -q` 通过，`1934 passed`。
 
 ## 7. Workflow Gate
 

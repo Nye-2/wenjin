@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from src.database import get_db_session
-from src.services.references import ReferencePreprocessService
+from src.services.references import SourcePreprocessService
 
 
 def _required_text(payload: dict[str, Any], key: str) -> str:
@@ -19,8 +19,9 @@ def _required_text(payload: dict[str, Any], key: str) -> str:
 async def execute_reference_preprocess(payload: dict[str, Any], progress: Any) -> dict[str, Any]:
     """Execute asynchronous preprocessing for one reference asset."""
     workspace_id = _required_text(payload, "workspace_id")
-    reference_id = _required_text(payload, "reference_id")
-    asset_id = _required_text(payload, "asset_id")
+    source_id = _required_text(payload, "source_id")
+    source_asset_id = _required_text(payload, "source_asset_id")
+    workspace_asset_id = _required_text(payload, "workspace_asset_id")
     source_path = Path(_required_text(payload, "source_path"))
     output_dir = Path(_required_text(payload, "output_dir"))
     output_virtual_root = _required_text(payload, "output_virtual_root")
@@ -38,19 +39,21 @@ async def execute_reference_preprocess(payload: dict[str, Any], progress: Any) -
         metadata={
             "reference_preprocess": {
                 "status": "running",
-                "reference_id": reference_id,
-                "asset_id": asset_id,
+                "source_id": source_id,
+                "source_asset_id": source_asset_id,
+                "workspace_asset_id": workspace_asset_id,
             }
         },
     )
 
     async with get_db_session() as db:
-        service = ReferencePreprocessService(db)
+        service = SourcePreprocessService(db)
         await progress.update(35, "Parsing reference full text", current_step="preprocess")
         preprocess = await service.process_asset(
             workspace_id=workspace_id,
-            reference_id=reference_id,
-            asset_id=asset_id,
+            source_id=source_id,
+            source_asset_id=source_asset_id,
+            workspace_asset_id=workspace_asset_id,
             filename=filename,
             content_type=content_type,
             source_path=source_path,
@@ -70,8 +73,10 @@ async def execute_reference_preprocess(payload: dict[str, Any], progress: Any) -
         "success": True,
         "workspace_id": workspace_id,
         "thread_id": str(payload.get("thread_id") or "").strip() or None,
-        "reference_id": reference_id,
-        "asset_id": asset_id,
+        "source_id": source_id,
+        "reference_id": source_id,
+        "source_asset_id": source_asset_id,
+        "workspace_asset_id": workspace_asset_id,
         "preprocess": preprocess,
         "message": "Reference preprocessing completed",
         "refresh_targets": ["dashboard", "references"],

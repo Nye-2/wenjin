@@ -36,12 +36,76 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
 
     db.commit.side_effect = _commit
     db.refresh = AsyncMock()
-    reference = SimpleNamespace(
-        id="reference-1",
+    source = SimpleNamespace(
+        id="source-1",
         workspace_id="ws-1",
         title="Uploaded",
+        normalized_title="uploaded",
+        authors_json=[],
+        year=None,
+        venue=None,
+        publication_type=None,
+        doi=None,
+        url=None,
+        abstract=None,
+        citation_count=None,
+        ingest_kind="upload",
+        ingest_label="PDF upload",
+        ingest_execution_id=None,
+        verified_at=None,
+        library_status="included",
+        evidence_level="uploaded_fulltext",
         fulltext_status="uploaded",
+        citation_key="uploaded",
+        bibtex_entry_type="article",
+        bibtex_fields_json={},
+        read_status="unread",
+        tags_json=[],
+        notes=None,
+        is_deleted=False,
+        created_at=None,
+        updated_at=None,
     )
+    workspace_asset = SimpleNamespace(id="workspace-asset-1")
+
+    class _SourceService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def import_source(self, _command):
+            return SimpleNamespace(source=source, created=True)
+
+        async def link_source_asset(self, **_kwargs):
+            return {
+                "id": "source-asset-1",
+                "source_id": "source-1",
+                "workspace_asset_id": "workspace-asset-1",
+                "asset_type": "pdf",
+                "preprocess_status": "pending",
+            }
+
+        async def update_source(self, **_kwargs):
+            return source
+
+        async def update_source_asset(self, **_kwargs):
+            return {
+                "id": "source-asset-1",
+                "source_id": "source-1",
+                "workspace_asset_id": "workspace-asset-1",
+                "asset_type": "pdf",
+                "preprocess_status": "pending",
+            }
+
+        async def get_source_for_workspace(self, **_kwargs):
+            return source
+
+    class _AssetService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def register_asset_record(self, **_kwargs):
+            return workspace_asset
+
     task_service = AsyncMock()
 
     async def _submit_task(**kwargs):
@@ -50,16 +114,12 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
 
     task_service.submit_task.side_effect = _submit_task
     service = ReferenceImportService(db)
-    service.references = SimpleNamespace(
-        upsert_reference=AsyncMock(return_value=(reference, True))
-    )
 
     with (
         patch("src.services.references.service.workspace_upload_dir", return_value=tmp_path),
         patch("src.services.references.service.workspace_upload_public_url", return_value="/file.pdf"),
-        patch("src.services.references.service.serialize_reference", return_value={"id": "reference-1"}),
-        patch("src.services.references.service.serialize_asset", return_value={"id": "asset-1"}),
-        patch("src.services.references.service._sync_reference_assets_to_dataservice", new_callable=AsyncMock),
+        patch("src.services.references.service.SourceDataService", _SourceService),
+        patch("src.services.references.service.AssetDataService", _AssetService),
         patch("src.services.references.service.REFERENCE_PREPROCESS_THRESHOLD_BYTES", 1),
     ):
         result = await service.import_uploaded_pdf(
@@ -75,5 +135,7 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
     assert events[:2] == ["commit", "submit"]
     assert result["preprocess"]["task_id"] == "task-1"
     payload = task_service.submit_task.await_args.kwargs["payload"]
-    assert payload["reference_id"] == "reference-1"
+    assert payload["source_id"] == "source-1"
+    assert payload["source_asset_id"] == "source-asset-1"
+    assert payload["workspace_asset_id"] == "workspace-asset-1"
     assert payload["thread_id"] == "thread-1"

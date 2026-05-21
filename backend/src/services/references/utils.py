@@ -114,10 +114,6 @@ def guess_bibtex_entry_type(venue: str | None = None, publication_type: str | No
     return "article"
 
 
-def clean_bibtex_value(value: Any) -> str:
-    return str(value or "").replace("{", "").replace("}", "").strip()
-
-
 def maybe_path_name(path: str | None) -> str:
     return Path(str(path or "")).name
 

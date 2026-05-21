@@ -441,12 +441,12 @@ Invariants:
 
 ### 6.7 Source Domain
 
-Current scattered logic:
+Legacy scattered logic removed or being retired:
 
-- `WorkspaceReferenceService`
-- `ReferenceImportService`
-- `ReferencePreprocessService`
-- `ReferenceIndexService`
+- `WorkspaceReferenceService` removed from runtime service surface.
+- `ReferencePreprocessService` replaced by `SourcePreprocessService`.
+- `ReferenceIndexService` removed; outline/text-unit/page reads are Source DataService projections.
+- `ReferenceImportService` remains only as the reference gateway facade and delegates canonical writes to Source/Asset DataService.
 - `ReferenceBibTeXService`
 - legacy `LibraryService`
 
