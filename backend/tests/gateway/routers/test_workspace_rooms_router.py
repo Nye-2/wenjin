@@ -81,8 +81,8 @@ class TestLibraryRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.list = AsyncMock(return_value=[fake_item])
-            mp.setattr(workspace_rooms, "_library_service", lambda db: mock_svc)
+            mock_svc.list_sources = AsyncMock(return_value=[fake_item])
+            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/library")
 
         assert resp.status_code == 200
@@ -96,8 +96,8 @@ class TestLibraryRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.add = AsyncMock(return_value=fake_item)
-            mp.setattr(workspace_rooms, "_library_service", lambda db: mock_svc)
+            mock_svc.create_source = AsyncMock(return_value=fake_item)
+            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
             resp = client.post(
                 f"/workspaces/{WS_ID}/library",
                 json={"item_type": "book", "title": "Book B", "added_by": "user"},
@@ -117,8 +117,8 @@ class TestLibraryRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.get = AsyncMock(return_value=fake_item)
-            mp.setattr(workspace_rooms, "_library_service", lambda db: mock_svc)
+            mock_svc.get_source_for_workspace = AsyncMock(return_value=fake_item)
+            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/library/lib-3")
 
         assert resp.status_code == 200
@@ -130,8 +130,8 @@ class TestLibraryRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.delete = AsyncMock(return_value=False)
-            mp.setattr(workspace_rooms, "_library_service", lambda db: mock_svc)
+            mock_svc.mark_deleted_for_workspace = AsyncMock(return_value=False)
+            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
             resp = client.delete(f"/workspaces/{WS_ID}/library/nonexistent")
 
         assert resp.status_code == 404

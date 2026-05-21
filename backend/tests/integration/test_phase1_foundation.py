@@ -253,11 +253,11 @@ async def test_room_services_boot(db_session):
     from src.dataservice.execution_api import ExecutionDataService
     from src.dataservice.rooms_api import RoomsDataService
     from src.dataservice.sandbox_api import SandboxDataService
+    from src.dataservice.source_api import SourceDataService
     from src.dataservice.workspace_api import WorkspaceDataService
     from src.services.rooms.documents_service import DocumentsService
-    from src.services.rooms.library_service import LibraryService
 
-    LibraryService(db_session)
+    SourceDataService(db_session)
     DocumentsService(db_session)
     RoomsDataService(db_session)
     ExecutionDataService(db_session)

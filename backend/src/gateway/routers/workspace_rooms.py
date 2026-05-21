@@ -10,6 +10,7 @@ Rooms covered (spec §5.3):
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -26,6 +27,7 @@ from src.dataservice.rooms_api import (
     WorkspaceTaskUpdateCommand,
 )
 from src.dataservice.sandbox_api import SandboxDataService, SandboxEnvironmentCreateCommand
+from src.dataservice.source_api import SourceCreateCommand, SourceDataService
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_db, get_workspace_service
@@ -33,7 +35,6 @@ from src.gateway.deps import get_db, get_workspace_service
 if TYPE_CHECKING:
     from src.dataservice.execution_api import ExecutionDataService
     from src.services.rooms.documents_service import DocumentsService
-    from src.services.rooms.library_service import LibraryService
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,6 @@ async def _assert_workspace_owner(
 # ---------------------------------------------------------------------------
 
 
-def _library_service(db: AsyncSession) -> LibraryService:
-    from src.services.rooms.library_service import LibraryService
-
-    return LibraryService(db)
-
-
 def _documents_service(db: AsyncSession) -> DocumentsService:
     from src.services.rooms.documents_service import DocumentsService
 
@@ -86,6 +81,10 @@ def _documents_service(db: AsyncSession) -> DocumentsService:
 
 def _rooms_service(db: AsyncSession) -> RoomsDataService:
     return RoomsDataService(db)
+
+
+def _source_data_service(db: AsyncSession) -> SourceDataService:
+    return SourceDataService(db)
 
 
 def _execution_history_service(db: AsyncSession) -> ExecutionDataService:
@@ -230,6 +229,37 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
     return dict(row)
 
 
+def _library_source_command(workspace_id: str, data: dict[str, Any]) -> SourceCreateCommand:
+    return SourceCreateCommand(
+        workspace_id=workspace_id,
+        source_kind=str(data.get("item_type") or data.get("source_kind") or "paper"),
+        title=str(data["title"]),
+        authors_json=list(data.get("authors") or data.get("authors_json") or []),
+        year=data.get("year"),
+        venue=data.get("venue"),
+        publication_type=data.get("publication_type"),
+        doi=data.get("doi"),
+        url=data.get("url"),
+        abstract=data.get("abstract"),
+        ingest_kind="manual",
+        ingest_label=data.get("added_by"),
+        library_status=str(data.get("library_status") or "included"),
+        citation_key=str(data.get("citation_key") or _source_citation_key(data)),
+        bibtex_fields_json=dict(data.get("bibtex_fields_json") or data.get("metadata_json") or {}),
+        tags_json=list(data.get("tags") or []),
+        notes=data.get("notes"),
+    )
+
+
+def _source_citation_key(data: dict[str, Any]) -> str:
+    raw = str(data.get("doi") or data.get("title") or "source").lower()
+    key = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
+    year = data.get("year")
+    if year:
+        key = f"{key}_{year}"
+    return (key or "source")[:240]
+
+
 # ===========================================================================
 # LIBRARY endpoints
 # ===========================================================================
@@ -244,7 +274,12 @@ async def list_library_items(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    items = await _library_service(db).list(ws_id, limit=limit)
+    items = await _source_data_service(db).list_sources(
+        workspace_id=ws_id,
+        library_status="included",
+        include_deleted=False,
+        limit=limit,
+    )
     return {"items": [_row_to_dict(i) for i in items], "count": len(items)}
 
 
@@ -257,7 +292,7 @@ async def create_library_item(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    item = await _library_service(db).add(ws_id, body.model_dump())
+    item = await _source_data_service(db).create_source(_library_source_command(ws_id, body.model_dump()))
     return _row_to_dict(item)
 
 
@@ -270,7 +305,10 @@ async def get_library_item(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    item = await _library_service(db).get(ws_id, item_id)
+    item = await _source_data_service(db).get_source_for_workspace(
+        workspace_id=ws_id,
+        source_id=item_id,
+    )
     if item is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -288,7 +326,10 @@ async def delete_library_item(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _library_service(db).delete(ws_id, item_id)
+    found = await _source_data_service(db).mark_deleted_for_workspace(
+        workspace_id=ws_id,
+        source_id=item_id,
+    )
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 

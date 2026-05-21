@@ -454,7 +454,7 @@ Legacy scattered logic removed or being retired:
 - `ReferenceIndexService` removed; outline/text-unit/page reads are Source DataService projections.
 - `ReferenceImportService` remains only as the reference gateway facade and delegates canonical writes to Source/Asset DataService.
 - `ReferenceBibTeXService`
-- legacy `LibraryService`
+- former room `LibraryService`
 
 Target commands:
 
@@ -472,6 +472,11 @@ Invariants:
 - Product name is `Source`; no `LibraryItem` vs `Reference` split.
 - Full-text extraction output is replaceable/rebuildable.
 - Citation key uniqueness is workspace-scoped.
+
+Implementation checkpoint, 2026-05-21:
+
+- Workspace library room endpoints now call `SourceDataService` directly for list/create/get/delete.
+- The former `services/rooms/library_service.py` facade has been deleted.
 
 ### 6.8 Sandbox Domain
 
