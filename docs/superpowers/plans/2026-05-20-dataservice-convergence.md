@@ -560,7 +560,7 @@ Steps:
 - [x] Add typed `dataservice_client` health/readiness methods.
 - [x] Add Docker target and Compose `dataservice` service with internal `DATASERVICE_URL`.
 - [x] Add architecture guard that blocks non-DataService runtime imports of DataService models/repositories.
-- [ ] Generate explicit `LEGACY_ALLOWED_FILES` when the first legacy database model is migrated into a DataService domain.
+- [x] Generate explicit `LEGACY_ALLOWED_FILES` when the first legacy database model is migrated into a DataService domain.
 - [x] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q`.
 - [x] Commit `feat: add dataservice service foundation`.
 
@@ -592,7 +592,7 @@ Steps:
 - [x] Add architecture guard coverage so runtime code cannot import `src.dataservice.domains.*`.
 - [ ] Cut runtime consumers from the in-process public boundary to `dataservice_client` once the DataService service is required in all dev/test paths.
 - [ ] Physically rename or replace legacy ORM columns (`user_id`, `type`, `thread_id`, `config`) after all consumers use DataService projections.
-- [ ] Enforce at least one active owner membership per workspace.
+- [x] Enforce at least one active owner membership per workspace.
 - [x] Run workspace/thread/settings tests plus architecture guard.
 - [x] Commit `feat: add dataservice workspace core`.
 
@@ -697,11 +697,11 @@ Steps:
 Steps:
 
 - [x] Create `review_batches`, `review_items`, and `review_action_logs`.
-- [ ] Migrate `prism_review_items` and transient result-card outputs into batch/item rows.
+- [x] Migrate `prism_review_items` and transient result-card outputs into batch/item rows.
 - [x] Add state transition tests for batch statuses `pending`, `partially_applied`, `applied`, `rejected`, and `failed`.
 - [x] Add state transition tests for item statuses `pending`, `accepted`, `rejected`, `applied`, `reverted`, and `failed`.
-- [ ] Ensure apply action uses target-domain review handlers and one transaction for target write, item transition, batch transition, action log, and provenance links.
-- [ ] Remove Prism-specific review status reads from new code paths.
+- [x] Ensure apply action uses target-domain review handlers and one transaction for target write, item transition, batch transition, action log, and provenance links.
+- [x] Remove legacy Prism review status reads from new code paths.
 - [x] Commit `feat: add review batch aggregate`.
 
 Implementation status:
@@ -800,7 +800,7 @@ Steps:
 - [x] Migrate `workspace_references*` into source tables.
 - [x] Migrate `library_items` into sources/assets.
 - [x] Migrate `reference_usage_events` and `prism_source_links` into provenance.
-- [ ] Ensure source-backed Prism edits have provenance links.
+- [x] Ensure source-backed Prism edits have provenance links.
 - [x] Commit `feat: add source and provenance aggregates`.
 
 Implementation status:
@@ -901,7 +901,9 @@ Steps:
 Implementation status:
 
 - 2026-05-21: Projection cleanup slices are implemented for migrated room, sandbox, source/library, document-room, settings-room, legacy workspace-run, compute-session state, execution-record read projections, and execution-node lifecycle snapshots. Runtime code no longer imports `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, `LibraryItem`, `DocumentV2`, `WorkspaceSettings`, `WorkspaceRunRow`, `ComputeSessionRecord`, `ExecutionRecord`, or `ExecutionNodeRecord` legacy models directly outside DataService/database ownership packages.
+- Architecture guard now has an explicit empty `LEGACY_ALLOWED_FILES` set for migrated legacy database model imports; no runtime exception is currently permitted.
 - `ThreadService` no longer writes `threads.messages` JSON for message append, attachment metadata updates, compaction, or rollback. It updates thread summary fields and writes/rebuilds canonical `thread_messages` / `message_blocks` through `ConversationDataService`; architecture guard coverage blocks runtime `thread.messages` access from returning. Legacy `Thread.messages` ORM mapping has been removed, and migration `074_drop_legacy_thread_messages_column.py` drops the old JSON column.
+- Workspace membership now has a database-level invariant. Migration `075_enforce_workspace_owner_membership.py` verifies existing data, replaces the membership lookup index with `(workspace_id, role, status)`, and installs deferred PostgreSQL constraint triggers that prevent any workspace from committing without at least one active owner membership.
 - `WorkspacePrismService` now reads decision and memory context through `RoomsDataService`; `services/rooms/sandbox_service.py` delegates environment state to `SandboxDataService`.
 - `services/rooms/library_service.py` delegates reference-library state to `SourceDataService`; `SourceDataService` now exposes source soft-delete for room delete flows.
 - `services/rooms/documents_service.py` delegates document room create/read/update/delete/version operations to `AssetDataService`; document room writes now create canonical `workspace_assets` rows instead of `documents_v2` rows.
@@ -914,6 +916,7 @@ Implementation status:
 - `ReviewDataService` now exposes filtered review-item listing across in-process, internal HTTP, and typed client boundaries. Workspace activity Prism review cards, workspace execution review summaries, and Lead runtime completion reports now read Prism review items from canonical `review_items` instead of direct `prism_review_items` queries.
 - `WorkspacePrismService` now uses canonical `review_items` for Prism file-change review cards, file-change counts, launch-context pending review items, and recent review activity.
 - `ReviewDataService` now exposes canonical item get/patch/delete operations across in-process, internal HTTP, and typed client boundaries; `PrismReviewDataService` owns Prism file-change review identity on top of canonical `review_items`.
+- `ReviewDataService.apply_many()` now runs all target-domain handlers before a single DataService finish step, so accepted item materialization, item transitions, batch status recomputation, action logs, and handler-owned provenance writes share the same transaction boundary.
 - `WorkspaceLatexProjectService` now creates/clears pending Prism file-change review items through `PrismReviewDataService`, and LaTeX preview/apply/discard/revert actions transition canonical `review_items`. `defer` has been removed from the Prism action contract, backend routes, frontend API/store, and review UI.
 - Prism source links now use canonical `provenance_links`, and Prism protected sections now use `prism_protected_scopes`; `WorkspacePrismService` no longer reads legacy `prism_source_links` or `prism_protected_sections`.
 - Source citation usage now writes through DataService. LaTeX/Prism file-change apply records citation usage against canonical `sources`, materializes `provenance_links`, marks eligible sources `used_in_draft`, and exposes the same command through the internal DataService route and typed client. `PrismReviewDataService` now resolves citation links by citation-key Source lookup instead of workspace-wide scans.
@@ -940,14 +943,14 @@ Implementation status:
 - Legacy reference ORM table models have been removed. Migration `072_drop_legacy_reference_tables.py` drops `workspace_references`, `reference_external_ids`, `reference_assets`, `reference_outline_nodes`, `reference_text_units`, `reference_usage_events`, and `reference_bibtex_snapshots` after the Source DataService cutover.
 - Gateway import/BibTeX service classes have been renamed to `SourceLibraryImportService` and `SourceBibliographyService`; no legacy `ReferenceImportService` / `ReferenceBibTeXService` aliases remain.
 - Remaining Source convergence debt is limited to broad product route naming decisions, not data ownership or compatibility fallback.
-- Alembic env no longer imports legacy reference/workspace-run/thread-message JSON ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `074_drop_legacy_thread_messages_column` as the single head.
+- Alembic env no longer imports legacy reference/workspace-run/thread-message JSON ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `075_enforce_workspace_owner_membership` as the single head.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
-- Verification after the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, Prism action-contract cleanup, and conversation JSON-write removal slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1935 backend tests.
+- Verification after the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, Prism action-contract cleanup, conversation JSON-write removal, owner invariant, and review transaction cleanup slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1938 backend tests.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names; `WorkspaceRunRow` no longer exists in ORM metadata. The guard also blocks runtime access to legacy `threads.messages` JSON.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Source-named gateway services (`SourceLibraryImportService`, `SourceBibliographyService`) delegate canonical business logic to DataService; no legacy reference service class aliases remain.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py tests/services/test_thread_service.py tests/dataservice/test_conversation_domain.py tests/services/test_workspace_activity_service.py -q` passes with 44 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1935 tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` pass.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py tests/services/test_thread_service.py tests/dataservice/test_conversation_domain.py tests/services/test_workspace_activity_service.py -q` passes with 44 tests; owner invariant target tests pass with 11 tests; review transaction target tests pass with 14 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1938 tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` pass.
 
 ### Task 14: Final Drop/Archive Gate
 

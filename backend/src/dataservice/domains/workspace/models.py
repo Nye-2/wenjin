@@ -19,7 +19,7 @@ class WorkspaceMembership(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("workspace_id", "user_id", name="uq_workspace_memberships_workspace_user"),
         Index("ix_workspace_memberships_user_status", "user_id", "status"),
-        Index("ix_workspace_memberships_workspace_role", "workspace_id", "role"),
+        Index("ix_workspace_memberships_workspace_role_status", "workspace_id", "role", "status"),
     )
 
     workspace_id: Mapped[str] = mapped_column(

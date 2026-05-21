@@ -239,6 +239,17 @@ class DataServiceReviewService:
         item_id: str,
         command: ReviewItemTransitionCommand,
     ) -> ReviewItemProjection | None:
+        item = await self._apply_item_without_finish(item_id, command)
+        if item is None:
+            return None
+        await self._finish()
+        return item_to_projection(item)
+
+    async def _apply_item_without_finish(
+        self,
+        item_id: str,
+        command: ReviewItemTransitionCommand,
+    ):
         item = await self.repository.get_item(item_id)
         if item is None:
             return None
@@ -282,8 +293,7 @@ class DataServiceReviewService:
         )
         if batch is not None:
             batch.updated_at = datetime.now(UTC)
-        await self._finish()
-        return item_to_projection(item)
+        return item
 
     async def delete_item(
         self,
@@ -329,12 +339,15 @@ class DataServiceReviewService:
     ) -> list[ReviewItemProjection]:
         """Apply multiple review items using the registered target handlers."""
 
-        applied: list[ReviewItemProjection] = []
+        applied = []
         for item_id in item_ids:
-            item = await self.apply_item(item_id, command)
+            item = await self._apply_item_without_finish(item_id, command)
             if item is not None:
                 applied.append(item)
-        return applied
+        if not applied:
+            return []
+        await self._finish()
+        return [item_to_projection(item) for item in applied]
 
     async def _refresh_batch(self, batch_id: str):
         batch = await self.repository.get_batch(batch_id)

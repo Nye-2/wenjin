@@ -998,6 +998,7 @@ Implementation status as of 2026-05-21:
 - `060_dataservice_workspace_core.py` adds `workspace_memberships` and `workspace_settings.settings_json`, backfills owner memberships from existing workspace owners, and copies existing workspace config into canonical settings JSON.
 - DataService workspace contracts expose `workspace_type`, `created_by_user_id`, `settings_json`, and `active_thread_id`; old ORM column names remain only as storage aliases until the consumer cutover and physical cleanup step.
 - Workspace CRUD, membership access checks, active-thread validation, DataService internal workspace routes, and typed client workspace methods are covered by tests.
+- `075_enforce_workspace_owner_membership.py` makes the owner invariant durable at the database layer: existing data is prechecked, the owner lookup index is `(workspace_id, role, status)`, and deferred PostgreSQL constraint triggers reject any transaction that leaves a workspace without an active owner membership.
 - Runtime code no longer imports DataService domain modules directly; it uses the DataService public workspace boundary for this in-process slice. The next workspace step is to require the standalone DataService service in dev/test and switch runtime consumers to `dataservice_client`.
 - Conversation/block first slice is implemented.
 - `061_dataservice_conversation_blocks.py` adds `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`, then backfills existing `threads.messages` JSON into canonical message/block rows.
@@ -1082,6 +1083,7 @@ Implementation status as of 2026-05-21:
 - Admin analytics execution DAU/WAU and execution stats now read from Execution DataService aggregate methods. Dashboard feature running-count/latest-status helpers also read through Execution DataService instead of querying `executions` directly.
 - Runtime code outside DataService/database ownership packages is guarded from importing `ExecutionRecord` and `ExecutionNodeRecord`.
 - Review aggregate item listing now supports workspace/execution/target filters through in-process DataService, internal DataService routes, and typed client contracts. Workspace activity Prism review cards, workspace execution review summaries, and Lead runtime completion reports now read execution-produced Prism review items from canonical `review_items` instead of the legacy `prism_review_items` table.
+- Review apply materialization uses target-domain handlers and a single DataService finish step for `apply_many()`, keeping target writes, item transitions, batch recomputation, action logs, and handler-owned provenance writes in one transaction boundary.
 - `WorkspacePrismService` now uses canonical `review_items` for Prism file-change review cards, file-change counts, launch-context pending review items, and recent review activity.
 - `ReviewDataService` now exposes canonical item get/patch/delete operations across in-process, internal HTTP, and typed client boundaries. `PrismReviewDataService` owns Prism file-change review identity over canonical `review_items`.
 - `WorkspaceLatexProjectService` now creates and clears pending Prism file-change review items through `PrismReviewDataService` instead of `prism_review_items`.
@@ -1111,11 +1113,12 @@ Implementation status as of 2026-05-21:
 - Legacy reference ORM table models have been removed. Migration `072_drop_legacy_reference_tables.py` drops `workspace_references`, `reference_external_ids`, `reference_assets`, `reference_outline_nodes`, `reference_text_units`, `reference_usage_events`, and `reference_bibtex_snapshots` after the Source DataService cutover.
 - Gateway import/BibTeX service classes have been renamed to `SourceLibraryImportService` and `SourceBibliographyService`; no legacy `ReferenceImportService` / `ReferenceBibTeXService` aliases remain.
 - Remaining Source convergence debt is limited to broad product route naming decisions, not data ownership or compatibility fallback.
-- Alembic env no longer imports legacy reference/workspace-run/thread-message JSON ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `074_drop_legacy_thread_messages_column` as the single head.
+- Architecture guard has an explicit empty `LEGACY_ALLOWED_FILES` set for migrated legacy database model imports; migrated domains have no runtime import exceptions.
+- Alembic env no longer imports legacy reference/workspace-run/thread-message JSON ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `075_enforce_workspace_owner_membership` as the single head.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, workspace-run table drop, Prism action-contract cleanup, and conversation JSON-write removal slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1935 backend tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` also pass.
+- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, workspace-run table drop, Prism action-contract cleanup, conversation JSON-write removal, owner invariant, and review transaction cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1938 backend tests; owner invariant target tests pass with 11 tests; review transaction target tests pass with 14 tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` also pass.
 
 ### Phase 4: Review Materialization
 

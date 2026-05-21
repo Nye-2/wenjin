@@ -280,6 +280,43 @@ async def test_apply_item_uses_registered_handler_and_marks_batch_applied() -> N
 
 
 @pytest.mark.asyncio
+async def test_apply_many_uses_one_transaction_for_all_target_handlers() -> None:
+    registry = ReviewHandlerRegistry()
+    applied_targets: list[dict[str, Any]] = []
+
+    async def apply_paragraph(item) -> dict[str, Any]:
+        applied_targets.append(dict(item.target_ref_json))
+        return {"document_id": item.target_ref_json["document_id"], "applied": True}
+
+    registry.register(
+        target_domain="documents",
+        target_kind="paragraph",
+        handler=apply_paragraph,
+    )
+    service, repository, session = _service(registry)
+    detail = await service.create_batch(_batch_command(item_count=2))
+    session.commit_count = 0
+
+    applied = await service.apply_many(
+        [item.id for item in detail.items],
+        ReviewItemTransitionCommand(status="applied", actor_id="user-1"),
+    )
+
+    assert [item.status for item in applied] == ["applied", "applied"]
+    assert applied_targets == [
+        {"document_id": "doc-1", "index": 0},
+        {"document_id": "doc-1", "index": 1},
+    ]
+    assert repository.batches[detail.batch.id].status == "applied"
+    assert [log.action for log in repository.action_logs] == [
+        "batch.created",
+        "item.applied",
+        "item.applied",
+    ]
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
 async def test_batch_statuses_cover_rejected_partially_applied_and_failed() -> None:
     service, repository, _ = _service()
 

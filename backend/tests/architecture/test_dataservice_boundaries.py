@@ -52,6 +52,7 @@ MODEL_OWNER_PACKAGES = {
     "dataservice",
     "dataservice_app",
 }
+LEGACY_ALLOWED_FILES: set[str] = set()
 
 
 def _imports(path: Path) -> list[str]:
@@ -100,6 +101,8 @@ def test_runtime_code_does_not_import_migrated_legacy_room_or_sandbox_models() -
     violations: list[str] = []
     for path in _python_files(SRC_ROOT):
         relative = path.relative_to(SRC_ROOT)
+        if relative.as_posix() in LEGACY_ALLOWED_FILES:
+            continue
         if relative.parts and relative.parts[0] in MODEL_OWNER_PACKAGES:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))

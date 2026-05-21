@@ -71,6 +71,12 @@ def test_workspace_rollout_defaults_do_not_override_explicit_value() -> None:
     assert settings["rollout"]["thread_cockpit_enabled"] is False
 
 
+def test_workspace_membership_model_indexes_active_owner_lookup() -> None:
+    indexes = {index.name: tuple(column.name for column in index.columns) for index in WorkspaceMembership.__table__.indexes}
+
+    assert indexes["ix_workspace_memberships_workspace_role_status"] == ("workspace_id", "role", "status")
+
+
 @pytest.mark.asyncio
 async def test_active_thread_must_belong_to_workspace() -> None:
     session = FakeSession()
