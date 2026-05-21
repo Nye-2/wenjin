@@ -8,16 +8,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.dataservice.asset_api import AssetDataService
+from src.dataservice.execution_api import ExecutionDataService
 from src.dataservice.rooms_api import RoomsDataService
+from src.dataservice.source_api import SourceDataService
 from src.gateway.deps import get_db
 from src.services.execution_commit_service import ExecutionCommitService
 from src.services.execution_service import ExecutionService
-from src.services.rooms.decisions_service import DecisionsService
-from src.services.rooms.documents_service import DocumentsService
-from src.services.rooms.library_service import LibraryService
-from src.services.rooms.memory_service import MemoryService
-from src.services.rooms.run_history_service import RunHistoryService
-from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 
 router = APIRouter(prefix="/api/executions", tags=["executions"])
 
@@ -47,12 +44,9 @@ def _get_commit_service(db: AsyncSession = Depends(get_db)) -> ExecutionCommitSe
 
     return ExecutionCommitService(
         execution_service=ExecutionService(db),
-        library_service=LibraryService(db),
-        documents_service=DocumentsService(db),
-        decisions_service=DecisionsService(db),
-        memory_service=MemoryService(db),
-        workspace_tasks_service=WorkspaceTasksService(db),
-        run_history_service=RunHistoryService(db),
+        source_data_service=SourceDataService(db),
+        asset_data_service=AssetDataService(db),
+        execution_data_service=ExecutionDataService(db),
         rooms_data_service=RoomsDataService(db),
         redis=_redis,
     )

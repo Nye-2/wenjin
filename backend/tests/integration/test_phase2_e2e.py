@@ -248,32 +248,20 @@ async def test_commit_after_e2e_writes_rooms():
         status="completed",
     )
 
-    library = MagicMock()
-    library.add = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
+    sources = MagicMock()
+    sources.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
 
-    documents = MagicMock()
-    documents.add = AsyncMock()
+    assets = MagicMock()
+    assets.register_asset_record = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
 
-    decisions = MagicMock()
-    decisions.set = AsyncMock()
-
-    memory = MagicMock()
-    memory.add_facts = AsyncMock()
-
-    tasks = MagicMock()
-    tasks.add = AsyncMock()
-
-    run_history = MagicMock()
-    run_history.record = AsyncMock(return_value=SimpleNamespace(id="run-1"))
+    execution_data = MagicMock()
+    execution_data.record_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
 
     commit_service = ExecutionCommitService(
         execution_service=execution_service,
-        library_service=library,
-        documents_service=documents,
-        decisions_service=decisions,
-        memory_service=memory,
-        workspace_tasks_service=tasks,
-        run_history_service=run_history,
+        source_data_service=sources,
+        asset_data_service=assets,
+        execution_data_service=execution_data,
         referral_first_task_callback=AsyncMock(),
     )
 
@@ -282,10 +270,10 @@ async def test_commit_after_e2e_writes_rooms():
 
     # 1 library item committed
     assert result["committed"]["library"] == 1
-    library.add.assert_awaited_once()
+    sources.create_source.assert_awaited_once()
 
-    # run_history always written regardless of outputs
-    run_history.record.assert_awaited_once()
+    # run-history event always written regardless of outputs
+    execution_data.record_event.assert_awaited_once()
 
     # workspace.refresh event published
     publish_refresh.assert_awaited_once_with(

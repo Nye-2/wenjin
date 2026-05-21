@@ -57,24 +57,15 @@ def _make_service(
     *,
     redis=None,
 ) -> tuple[ExecutionCommitService, dict[str, AsyncMock]]:
-    """Build a service with all room services mocked."""
+    """Build a service with DataService-backed commit dependencies mocked."""
     execution_svc = MagicMock()
     execution_svc.get_by_id = AsyncMock(return_value=execution)
 
-    library_svc = MagicMock()
-    library_svc.add = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
+    source_svc = MagicMock()
+    source_svc.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
 
-    documents_svc = MagicMock()
-    documents_svc.add = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
-
-    decisions_svc = MagicMock()
-    decisions_svc.set = AsyncMock(return_value=SimpleNamespace(id="dec-1"))
-
-    memory_svc = MagicMock()
-    memory_svc.add_facts = AsyncMock(return_value=[SimpleNamespace(id="fact-1")])
-
-    tasks_svc = MagicMock()
-    tasks_svc.add = AsyncMock(return_value=SimpleNamespace(id="task-1"))
+    asset_svc = MagicMock()
+    asset_svc.register_asset_record = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
 
     rooms_data_svc = MagicMock()
     rooms_data_svc.stage_and_apply_candidates = AsyncMock(
@@ -89,17 +80,14 @@ def _make_service(
         )
     )
 
-    run_history_svc = MagicMock()
-    run_history_svc.record = AsyncMock(return_value=SimpleNamespace(id="run-1"))
+    execution_data_svc = MagicMock()
+    execution_data_svc.record_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
 
     svc = ExecutionCommitService(
         execution_service=execution_svc,
-        library_service=library_svc,
-        documents_service=documents_svc,
-        decisions_service=decisions_svc,
-        memory_service=memory_svc,
-        workspace_tasks_service=tasks_svc,
-        run_history_service=run_history_svc,
+        source_data_service=source_svc,
+        asset_data_service=asset_svc,
+        execution_data_service=execution_data_svc,
         rooms_data_service=rooms_data_svc,
         redis=redis,
         referral_first_task_callback=AsyncMock(),
@@ -107,13 +95,10 @@ def _make_service(
 
     mocks = {
         "execution": execution_svc,
-        "library": library_svc,
-        "documents": documents_svc,
-        "decisions": decisions_svc,
-        "memory": memory_svc,
-        "tasks": tasks_svc,
+        "sources": source_svc,
+        "assets": asset_svc,
         "rooms_data": rooms_data_svc,
-        "run_history": run_history_svc,
+        "execution_data": execution_data_svc,
     }
     return svc, mocks
 
@@ -165,7 +150,7 @@ def _all_kinds_outputs() -> list:
 
 @pytest.mark.asyncio
 async def test_commit_all_writes_all_kinds():
-    """accept_all=True → all 5 room services called once + run_history.record called."""
+    """accept_all=True writes all rooms through DataService-backed commit paths."""
     outputs = _all_kinds_outputs()
     report = _make_report(outputs)
     execution = _make_execution(report)
@@ -179,13 +164,10 @@ async def test_commit_all_writes_all_kinds():
     assert result["committed"]["decisions"] == 1
     assert result["committed"]["tasks"] == 1
 
-    mocks["library"].add.assert_called_once()
-    mocks["documents"].add.assert_called_once()
+    mocks["sources"].create_source.assert_called_once()
+    mocks["assets"].register_asset_record.assert_called_once()
     mocks["rooms_data"].stage_and_apply_candidates.assert_called_once()
-    mocks["memory"].add_facts.assert_not_called()
-    mocks["decisions"].set.assert_not_called()
-    mocks["tasks"].add.assert_not_called()
-    mocks["run_history"].record.assert_called_once()
+    mocks["execution_data"].record_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -207,14 +189,11 @@ async def test_commit_some_only():
     assert result["committed"]["decisions"] == 0
     assert result["committed"]["tasks"] == 0
 
-    mocks["library"].add.assert_called_once()
-    mocks["documents"].add.assert_called_once()
-    mocks["memory"].add_facts.assert_not_called()
-    mocks["decisions"].set.assert_not_called()
-    mocks["tasks"].add.assert_not_called()
+    mocks["sources"].create_source.assert_called_once()
+    mocks["assets"].register_asset_record.assert_called_once()
     mocks["rooms_data"].stage_and_apply_candidates.assert_not_called()
     # run_history must still be called
-    mocks["run_history"].record.assert_called_once()
+    mocks["execution_data"].record_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -247,13 +226,10 @@ async def test_commit_empty_still_writes_run_history():
     result = await svc.commit_outputs(EXECUTION_ID, accept_all=False, accepted_ids=[])
 
     assert all(v == 0 for v in result["committed"].values())
-    mocks["library"].add.assert_not_called()
-    mocks["documents"].add.assert_not_called()
-    mocks["memory"].add_facts.assert_not_called()
-    mocks["decisions"].set.assert_not_called()
-    mocks["tasks"].add.assert_not_called()
+    mocks["sources"].create_source.assert_not_called()
+    mocks["assets"].register_asset_record.assert_not_called()
     mocks["rooms_data"].stage_and_apply_candidates.assert_not_called()
-    mocks["run_history"].record.assert_called_once()
+    mocks["execution_data"].record_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -285,7 +261,7 @@ async def test_commit_idempotent_with_key():
         accept_all=True,
         idempotency_key="key-abc",
     )
-    assert mocks["run_history"].record.call_count == 1
+    assert mocks["execution_data"].record_event.call_count == 1
 
     # Second call with same key — should return cached, no additional writes
     result2 = await svc.commit_outputs(
@@ -293,8 +269,8 @@ async def test_commit_idempotent_with_key():
         accept_all=True,
         idempotency_key="key-abc",
     )
-    # run_history should still only have been called once (second call short-circuits)
-    assert mocks["run_history"].record.call_count == 1
+    # Run-history event should still only have been called once (second call short-circuits)
+    assert mocks["execution_data"].record_event.call_count == 1
     assert result1 == result2
 
 

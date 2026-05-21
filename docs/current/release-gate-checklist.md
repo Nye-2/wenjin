@@ -4,7 +4,7 @@
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
 
-最新验证：2026-05-21 DataService / Prism / Conversation cleanup：backend full pytest 1938 passed；owner invariant target tests 11 passed；review transaction target tests 14 passed；frontend typecheck / lint passed；Alembic single head 为 `075_enforce_workspace_owner_membership`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
+最新验证：2026-05-21 DataService / Prism / Conversation cleanup：backend full pytest 1938 passed；owner invariant target tests 11 passed；review transaction target tests 14 passed；execution commit DataService target tests 34 passed；frontend typecheck / lint passed；Alembic single head 为 `075_enforce_workspace_owner_membership`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
 
 ## 1. Core Gate (必须全绿)
 

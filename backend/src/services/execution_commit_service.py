@@ -8,18 +8,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from src.agents.contracts.task_report import TaskReport
+from src.dataservice.asset_api import AssetDataService
+from src.dataservice.execution_api import ExecutionDataService
 from src.dataservice.rooms_api import RoomCandidateCommand, RoomsDataService
+from src.dataservice.source_api import SourceCreateCommand, SourceDataService
 from src.services.execution_service import ExecutionService
-from src.services.rooms.decisions_service import DecisionsService
-from src.services.rooms.documents_service import DocumentsService
-from src.services.rooms.library_service import LibraryService
-from src.services.rooms.memory_service import MemoryService
-from src.services.rooms.run_history_service import RunHistoryService
-from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
@@ -28,6 +26,7 @@ logger = logging.getLogger(__name__)
 # content lives in asset metadata so gateway and worker do not need a shared
 # filesystem for generated markdown.
 _INLINE_DOC_PATH_PREFIX = "inline://"
+_CITATION_KEY_RE = re.compile(r"[^a-z0-9]+")
 
 
 class ExecutionCommitService:
@@ -35,32 +34,25 @@ class ExecutionCommitService:
 
     Spec §4.7.5: All outputs go in one pass; Run History always recorded
     (regardless of user selection). Idempotent via idempotency_key (Redis-backed
-    cache). For V1 atomicity is best-effort — each room service commits
-    individually. Hard atomicity is a Phase 4 follow-up.
+    cache). Room materialization is staged through DataService review handlers.
     """
 
     def __init__(
         self,
         *,
         execution_service: ExecutionService,
-        library_service: LibraryService,
-        documents_service: DocumentsService,
-        decisions_service: DecisionsService,
-        memory_service: MemoryService,
-        workspace_tasks_service: WorkspaceTasksService,
-        run_history_service: RunHistoryService,
+        source_data_service: SourceDataService | None = None,
+        asset_data_service: AssetDataService | None = None,
+        execution_data_service: ExecutionDataService | None = None,
         rooms_data_service: RoomsDataService | None = None,
         audit_service: Any | None = None,
         redis: Any = None,  # for idempotency cache; if None, no idempotency
         referral_first_task_callback: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         self.execution = execution_service
-        self.library = library_service
-        self.documents = documents_service
-        self.decisions = decisions_service
-        self.memory = memory_service
-        self.tasks = workspace_tasks_service
-        self.run_history = run_history_service
+        self.sources = source_data_service
+        self.assets = asset_data_service
+        self.execution_data = execution_data_service
         self.rooms_data = rooms_data_service
         self.audit = audit_service
         self.redis = redis
@@ -132,19 +124,23 @@ class ExecutionCommitService:
             data = output.data.model_dump() if hasattr(output.data, "model_dump") else dict(output.data)
 
             if kind == "library_item":
-                item = await self.library.add(
-                    execution.workspace_id,
-                    {
-                        "item_type": "paper",
-                        "title": data["title"],
-                        "authors": data.get("authors", []),
-                        "year": data.get("year"),
-                        "doi": data.get("doi"),
-                        "url": data.get("url"),
-                        "abstract": data.get("abstract"),
-                        "metadata_json": data.get("metadata") or {},
-                        "added_by": f"execution:{execution_id}",
-                    },
+                item = await self._resolve_source_data_service().create_source(
+                    SourceCreateCommand(
+                        workspace_id=execution.workspace_id,
+                        source_kind="paper",
+                        title=data["title"],
+                        authors_json=list(data.get("authors") or []),
+                        year=data.get("year"),
+                        doi=data.get("doi"),
+                        url=data.get("url"),
+                        abstract=data.get("abstract"),
+                        ingest_kind="execution",
+                        ingest_label=f"execution:{execution_id}",
+                        ingest_execution_id=execution_id,
+                        library_status="included",
+                        citation_key=_citation_key(data),
+                        bibtex_fields_json=dict(data.get("metadata") or {}),
+                    )
                 )
                 counts["library"] += 1
                 room_targets["library"].append(
@@ -177,16 +173,22 @@ class ExecutionCommitService:
 
                 payload = {
                     "name": data["name"],
-                    "kind": data.get("doc_kind", "draft"),
+                    "asset_kind": data.get("doc_kind", "draft"),
                     "mime_type": data.get("mime_type") or "text/markdown",
                     "storage_path": storage_path,
                     "size_bytes": size_bytes,
-                    "parent_id": data.get("parent_id"),
-                    "added_by": f"execution:{execution_id}",
+                    "parent_asset_id": data.get("parent_id"),
+                    "created_by": f"execution:{execution_id}",
                 }
+                metadata_extra.setdefault("kind", payload["asset_kind"])
                 if metadata_extra:
                     payload["metadata_json"] = metadata_extra
-                doc = await self.documents.add(execution.workspace_id, payload)
+                doc = await self._resolve_asset_data_service().register_asset_record(
+                    workspace_id=execution.workspace_id,
+                    source_kind="execution_output",
+                    source_id=output.id,
+                    **payload,
+                )
                 counts["documents"] += 1
                 room_targets["documents"].append(
                     {"output_id": output.id, "item_id": doc.id}
@@ -261,16 +263,19 @@ class ExecutionCommitService:
 
         # 5. Always write run_history
         capability_id = execution.feature_id or report.capability_id
-        await self.run_history.record(
-            execution.workspace_id,
-            execution_id,
-            capability_id,
-            report.narrative[:200],
-            report.narrative,
-            report.status,
-            report.duration_seconds,
-            token_usage=report.token_usage,
-            artifact_count=len(selected),
+        await self._resolve_execution_data_service().record_event(
+            execution_id=execution_id,
+            workspace_id=execution.workspace_id,
+            event_type="execution.run_history",
+            payload_json={
+                "capability_id": capability_id,
+                "title": report.narrative[:200],
+                "summary": report.narrative,
+                "status": report.status,
+                "duration_seconds": report.duration_seconds,
+                "token_usage": report.token_usage or {},
+                "artifact_count": len(selected),
+            },
         )
 
         result: dict[str, Any] = {
@@ -340,6 +345,33 @@ class ExecutionCommitService:
         self.rooms_data = RoomsDataService(db)
         return self.rooms_data
 
+    def _resolve_source_data_service(self) -> SourceDataService:
+        if self.sources is not None:
+            return self.sources
+        db = getattr(self.execution, "db", None)
+        if db is None:
+            raise RuntimeError("ExecutionCommitService requires SourceDataService for library commits")
+        self.sources = SourceDataService(db)
+        return self.sources
+
+    def _resolve_asset_data_service(self) -> AssetDataService:
+        if self.assets is not None:
+            return self.assets
+        db = getattr(self.execution, "db", None)
+        if db is None:
+            raise RuntimeError("ExecutionCommitService requires AssetDataService for document commits")
+        self.assets = AssetDataService(db)
+        return self.assets
+
+    def _resolve_execution_data_service(self) -> ExecutionDataService:
+        if self.execution_data is not None:
+            return self.execution_data
+        db = getattr(self.execution, "db", None)
+        if db is None:
+            raise RuntimeError("ExecutionCommitService requires ExecutionDataService for run history")
+        self.execution_data = ExecutionDataService(db)
+        return self.execution_data
+
     async def _fire_referral_first_task(self, user_id: str) -> None:
         if self._referral_first_task_callback is not None:
             await self._referral_first_task_callback(user_id)
@@ -351,3 +383,12 @@ class ExecutionCommitService:
         async with get_db_session() as db:
             referral_svc = ReferralService(db)
             await referral_svc.fire_first_task_for_referrer(user_id)
+
+
+def _citation_key(data: dict[str, Any]) -> str:
+    raw = str(data.get("citation_key") or data.get("title") or "source").lower()
+    key = _CITATION_KEY_RE.sub("_", raw).strip("_")
+    year = data.get("year")
+    if year and str(year) not in key:
+        key = f"{key}_{year}"
+    return key or "source"
