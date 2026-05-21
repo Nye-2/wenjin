@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -246,6 +247,54 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def count_active_execution_users(self, *, created_since: datetime) -> int:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/analytics/active-users/count",
+            params={"created_since": created_since.isoformat()},
+        )
+        return int(payload["data"]["count"])
+
+    async def aggregate_execution_stats(
+        self,
+        *,
+        created_since: datetime,
+        granularity: str = "day",
+    ) -> dict[str, Any]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/analytics/stats",
+            params={"created_since": created_since.isoformat(), "granularity": granularity},
+        )
+        return dict(payload["data"])
+
+    async def count_running_feature_executions(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> int:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/features/running-count",
+            params={"workspace_id": workspace_id, "capability_id": capability_id},
+        )
+        return int(payload["data"]["count"])
+
+    async def get_latest_feature_execution_status(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> str | None:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/features/latest-status",
+            params={"workspace_id": workspace_id, "capability_id": capability_id},
+        )
+        status = payload["data"].get("status")
+        return str(status) if status is not None else None
 
     async def reconcile_interrupted_executions(self) -> int:
         payload = await self._request(

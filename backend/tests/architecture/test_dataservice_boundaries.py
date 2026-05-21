@@ -19,6 +19,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.workspace_settings",
     "src.database.models.workspace_run",
     "src.database.models.compute_session",
+    "src.database.models.execution",
     "src.database.models.execution_node",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
@@ -31,6 +32,7 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "WorkspaceSettings",
     "WorkspaceRunRow",
     "ComputeSessionRecord",
+    "ExecutionRecord",
     "ExecutionNodeRecord",
 }
 MODEL_OWNER_PACKAGES = {
@@ -93,7 +95,7 @@ def test_runtime_code_does_not_import_migrated_legacy_room_or_sandbox_models() -
             if isinstance(node, ast.ImportFrom) and node.module:
                 if node.module in MIGRATED_LEGACY_MODEL_MODULES:
                     violations.append(f"{relative} imports {node.module}")
-                if node.module == "src.database.models":
+                if node.module in {"src.database", "src.database.models"}:
                     names = {alias.name for alias in node.names}
                     migrated = sorted(names.intersection(MIGRATED_LEGACY_MODEL_NAMES))
                     if migrated:

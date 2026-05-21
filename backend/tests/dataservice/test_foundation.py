@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -401,6 +402,17 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode()) if request.content else None
         seen.append((request.method, request.url.path, body))
+        if request.url.path.endswith("/active-users/count"):
+            return httpx.Response(200, json={"status": "ok", "data": {"count": 4}})
+        if request.url.path.endswith("/analytics/stats"):
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"kpis": {"total": 5}, "time_series": []}},
+            )
+        if request.url.path.endswith("/features/running-count"):
+            return httpx.Response(200, json={"status": "ok", "data": {"count": 2}})
+        if request.url.path.endswith("/features/latest-status"):
+            return httpx.Response(200, json={"status": "ok", "data": {"status": "running"}})
         if request.url.path.endswith("/reconcile-interrupted"):
             return httpx.Response(200, json={"status": "ok", "data": {"reconciled": 2}})
         if request.method == "GET" and request.url.path.endswith("/nodes"):
@@ -417,6 +429,17 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
         internal_token="secret",
         transport=transport,
     ) as client:
+        created_since = datetime(2026, 5, 20)
+        active_users = await client.count_active_execution_users(created_since=created_since)
+        stats = await client.aggregate_execution_stats(created_since=created_since)
+        running_count = await client.count_running_feature_executions(
+            workspace_id="ws-1",
+            capability_id="idea_to_manuscript",
+        )
+        latest_status = await client.get_latest_feature_execution_status(
+            workspace_id="ws-1",
+            capability_id="idea_to_manuscript",
+        )
         reconciled = await client.reconcile_interrupted_executions()
         listed = await client.list_execution_nodes("exec-1")
         fetched = await client.get_execution_node("node-row-1")
@@ -435,6 +458,10 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
             ExecutionNodePatchPayload(status="completed"),
         )
 
+    assert active_users == 4
+    assert stats["kpis"] == {"total": 5}
+    assert running_count == 2
+    assert latest_status == "running"
     assert reconciled == 2
     assert listed[0].id == "node-row-1"
     assert fetched is not None and fetched.node_id == "node-1"
@@ -442,6 +469,10 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
     assert upserted.status == "running"
     assert updated is not None and updated.status == "completed"
     assert seen == [
+        ("GET", "/internal/v1/executions/analytics/active-users/count", None),
+        ("GET", "/internal/v1/executions/analytics/stats", None),
+        ("GET", "/internal/v1/executions/features/running-count", None),
+        ("GET", "/internal/v1/executions/features/latest-status", None),
         ("POST", "/internal/v1/executions/reconcile-interrupted", None),
         ("GET", "/internal/v1/executions/exec-1/nodes", None),
         ("GET", "/internal/v1/executions/nodes/node-row-1", None),

@@ -145,6 +145,88 @@ class ExecutionRepository:
         )
         return {str(user_id): int(count) for user_id, count in result.all()}
 
+    async def count_distinct_execution_users(
+        self,
+        *,
+        created_since: datetime,
+    ) -> int:
+        result = await self.session.execute(
+            select(func.count(func.distinct(ExecutionRecord.user_id))).where(
+                ExecutionRecord.created_at >= created_since
+            )
+        )
+        return int(result.scalar() or 0)
+
+    async def list_execution_stat_buckets(
+        self,
+        *,
+        created_since: datetime,
+        granularity: str,
+    ) -> list[Any]:
+        bucket_col = func.date_trunc(granularity, ExecutionRecord.created_at).label("bucket")
+        workspace_type_col = ExecutionRecord.workspace_type.label("workspace_type")
+        status_col = ExecutionRecord.status.label("status")
+        result = await self.session.execute(
+            select(
+                bucket_col,
+                workspace_type_col,
+                status_col,
+                func.count().label("count"),
+            )
+            .where(ExecutionRecord.created_at >= created_since)
+            .group_by(bucket_col, workspace_type_col, status_col)
+            .order_by(bucket_col)
+        )
+        return list(result.all())
+
+    async def count_executions_by_workspace_type(
+        self,
+        *,
+        created_since: datetime,
+    ) -> dict[str, int]:
+        result = await self.session.execute(
+            select(ExecutionRecord.workspace_type, func.count())
+            .where(ExecutionRecord.created_at >= created_since)
+            .group_by(ExecutionRecord.workspace_type)
+        )
+        return {
+            str(workspace_type or "unknown"): int(count)
+            for workspace_type, count in result.all()
+        }
+
+    async def count_running_feature_executions(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> int:
+        result = await self.session.execute(
+            select(func.count())
+            .select_from(ExecutionRecord)
+            .where(ExecutionRecord.workspace_id == workspace_id)
+            .where(ExecutionRecord.feature_id == capability_id)
+            .where(ExecutionRecord.execution_type == "feature")
+            .where(ExecutionRecord.status.in_(["pending", "running", "awaiting_user_input"]))
+        )
+        return int(result.scalar() or 0)
+
+    async def get_latest_feature_execution_status(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> str | None:
+        result = await self.session.execute(
+            select(ExecutionRecord.status)
+            .where(ExecutionRecord.workspace_id == workspace_id)
+            .where(ExecutionRecord.feature_id == capability_id)
+            .where(ExecutionRecord.execution_type == "feature")
+            .order_by(ExecutionRecord.created_at.desc())
+            .limit(1)
+        )
+        status = result.scalar_one_or_none()
+        return str(status) if status is not None else None
+
     async def list_nodes(self, execution_id: str) -> list[ExecutionNodeRecord]:
         result = await self.session.execute(
             select(ExecutionNodeRecord)

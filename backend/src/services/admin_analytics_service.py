@@ -15,10 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database import (
     CreditTransaction,
     CreditTransactionType,
-    ExecutionRecord,
     User,
     Workspace,
 )
+from src.dataservice.execution_api import ExecutionDataService
 
 Granularity = Literal["day", "week"]
 
@@ -72,20 +72,16 @@ class AdminAnalyticsService:
         )
         new_in_range = sum(signups_map.values())
 
+        execution_data = ExecutionDataService(self.db, autocommit=False)
         active_since = now - timedelta(days=1)
-        # Users with at least one execution in the last 24h
-        dau_result = await self.db.execute(
-            select(func.count(distinct(ExecutionRecord.user_id)))
-            .where(ExecutionRecord.created_at >= active_since)
+        dau = await execution_data.count_active_execution_users(
+            created_since=active_since,
         )
-        dau = int(dau_result.scalar() or 0)
 
         active_since_w = now - timedelta(days=7)
-        wau_result = await self.db.execute(
-            select(func.count(distinct(ExecutionRecord.user_id)))
-            .where(ExecutionRecord.created_at >= active_since_w)
+        wau = await execution_data.count_active_execution_users(
+            created_since=active_since_w,
         )
-        wau = int(wau_result.scalar() or 0)
 
         return {
             "kpis": {
@@ -105,85 +101,10 @@ class AdminAnalyticsService:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         since = now - timedelta(days=range_days)
-
-        # Time series: executions by workspace_type and status
-        bucket_col = _date_trunc(granularity, ExecutionRecord.created_at).label("bucket")
-        ws_type_col = ExecutionRecord.workspace_type
-        status_col = ExecutionRecord.status
-        stmt = (
-            select(
-                bucket_col,
-                ws_type_col.label("workspace_type"),
-                status_col.label("status"),
-                func.count().label("count"),
-            )
-            .where(ExecutionRecord.created_at >= since)
-            .group_by(bucket_col, ws_type_col, status_col)
-            .order_by(bucket_col)
+        return await ExecutionDataService(self.db, autocommit=False).aggregate_execution_stats(
+            created_since=since,
+            granularity=granularity,
         )
-        rows = (await self.db.execute(stmt)).all()
-
-        series_map: dict[str, dict[str, Any]] = {}
-        for r in rows:
-            bucket = r.bucket.isoformat()
-            ws_type = r.workspace_type or "unknown"
-            status = r.status or "unknown"
-            series_map.setdefault(bucket, {"date": bucket, "by_type": {}, "by_status": {}})
-            series_map[bucket]["by_type"].setdefault(ws_type, 0)
-            series_map[bucket]["by_type"][ws_type] += int(r.count)
-            series_map[bucket]["by_status"].setdefault(status, 0)
-            series_map[bucket]["by_status"][status] += int(r.count)
-
-        time_series = [series_map[k] for k in sorted(series_map)]
-
-        # KPIs
-        total_result = await self.db.execute(
-            select(func.count())
-            .select_from(ExecutionRecord)
-            .where(ExecutionRecord.created_at >= since)
-        )
-        total = int(total_result.scalar() or 0)
-
-        success_result = await self.db.execute(
-            select(func.count())
-            .where(ExecutionRecord.created_at >= since)
-            .where(
-                ExecutionRecord.status.in_(["completed", "completed_partial"])
-            )
-        )
-        success = int(success_result.scalar() or 0)
-
-        failed_result = await self.db.execute(
-            select(func.count())
-            .where(ExecutionRecord.created_at >= since)
-            .where(ExecutionRecord.status == "failed")
-        )
-        failed = int(failed_result.scalar() or 0)
-
-        # By workspace type totals
-        ws_result = await self.db.execute(
-            select(ExecutionRecord.workspace_type, func.count())
-            .where(ExecutionRecord.created_at >= since)
-            .group_by(ExecutionRecord.workspace_type)
-        )
-        by_workspace_type = [
-            {
-                "type": (t or "unknown"),
-                "count": int(c),
-            }
-            for t, c in ws_result.all()
-        ]
-
-        return {
-            "kpis": {
-                "total": total,
-                "success": success,
-                "failed": failed,
-                "success_rate": (success / total) if total > 0 else 0.0,
-            },
-            "time_series": time_series,
-            "by_workspace_type": by_workspace_type,
-        }
 
     # ------------------------------------------------------------------
     # 3. Credit consumption

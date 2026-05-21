@@ -7,7 +7,8 @@ from typing import Any, cast
 
 from sqlalchemy import func, select
 
-from src.database import Artifact, ExecutionRecord
+from src.database import Artifact
+from src.dataservice.execution_api import ExecutionDataService
 
 
 class DashboardStatusSharedMixin:
@@ -72,29 +73,20 @@ class DashboardStatusSharedMixin:
         workspace_id: str,
         feature_id: str,
     ) -> int:
-        result = await self.db.execute(
-            select(func.count())
-            .where(ExecutionRecord.workspace_id == workspace_id)
-            .where(ExecutionRecord.feature_id == feature_id)
-            .where(ExecutionRecord.execution_type == "feature")
-            .where(ExecutionRecord.status.in_(["pending", "running", "awaiting_user_input"]))
+        return await ExecutionDataService(self.db, autocommit=False).count_running_feature_executions(
+            workspace_id=workspace_id,
+            capability_id=feature_id,
         )
-        return int(result.scalar() or 0)
 
     async def _get_latest_feature_execution_status(
         self,
         workspace_id: str,
         feature_id: str,
     ) -> str | None:
-        result = await self.db.execute(
-            select(ExecutionRecord.status)
-            .where(ExecutionRecord.workspace_id == workspace_id)
-            .where(ExecutionRecord.feature_id == feature_id)
-            .where(ExecutionRecord.execution_type == "feature")
-            .order_by(ExecutionRecord.created_at.desc())
-            .limit(1)
+        return await ExecutionDataService(self.db, autocommit=False).get_latest_feature_execution_status(
+            workspace_id=workspace_id,
+            capability_id=feature_id,
         )
-        return cast(str | None, result.scalar_one_or_none())
 
     async def _status_from_count_and_running(
         self,

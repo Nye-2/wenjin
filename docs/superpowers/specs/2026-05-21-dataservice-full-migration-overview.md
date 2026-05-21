@@ -1078,10 +1078,11 @@ Implementation status as of 2026-05-21:
 - Runtime code outside DataService/database ownership packages is guarded from importing `ComputeSessionRecord`.
 - Workspace Activity artifact entries now read from `AssetDataService` / `workspace_assets`; the activity projection no longer queries the legacy `artifacts` table for artifact cards.
 - Execution node lifecycle snapshots are now owned by the Execution DataService aggregate. `ExecutionService` no longer imports or mutates `ExecutionNodeRecord` directly; create/update/find node operations delegate to `ExecutionDataService` and are exposed through internal DataService routes plus typed client contracts.
-- Process-restart reconciliation for stale `pending` / `running` / `cancelling` executions is now an Execution DataService aggregate command instead of a runtime-side direct ORM mutation. `ExecutionRecord` direct reads still exist in admin analytics and dashboard status helpers and remain a later execution-read cleanup target before the execution record model can be guarded.
-- Runtime code outside DataService/database ownership packages is guarded from importing `ExecutionNodeRecord`.
+- Process-restart reconciliation for stale `pending` / `running` / `cancelling` executions is now an Execution DataService aggregate command instead of a runtime-side direct ORM mutation.
+- Admin analytics execution DAU/WAU and execution stats now read from Execution DataService aggregate methods. Dashboard feature running-count/latest-status helpers also read through Execution DataService instead of querying `executions` directly.
+- Runtime code outside DataService/database ownership packages is guarded from importing `ExecutionRecord` and `ExecutionNodeRecord`.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1921 backend tests.
+- Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1923 backend tests.
 
 ### Phase 4: Review Materialization
 

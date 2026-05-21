@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
 
 from src.dataservice.common.api import envelope_ok
@@ -57,6 +59,58 @@ async def list_executions(
         limit=limit,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/analytics/active-users/count")
+async def count_active_execution_users(
+    created_since: datetime = Query(...),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    count = await service.count_active_execution_users(created_since=created_since)
+    return envelope_ok({"count": count})
+
+
+@router.get("/analytics/stats")
+async def aggregate_execution_stats(
+    created_since: datetime = Query(...),
+    granularity: str = Query(default="day"),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    stats = await service.aggregate_execution_stats(
+        created_since=created_since,
+        granularity=granularity,
+    )
+    return envelope_ok(stats)
+
+
+@router.get("/features/running-count")
+async def count_running_feature_executions(
+    workspace_id: str = Query(...),
+    capability_id: str = Query(...),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    count = await service.count_running_feature_executions(
+        workspace_id=workspace_id,
+        capability_id=capability_id,
+    )
+    return envelope_ok({"count": count})
+
+
+@router.get("/features/latest-status")
+async def get_latest_feature_execution_status(
+    workspace_id: str = Query(...),
+    capability_id: str = Query(...),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    status = await service.get_latest_feature_execution_status(
+        workspace_id=workspace_id,
+        capability_id=capability_id,
+    )
+    return envelope_ok({"status": status})
 
 
 @router.post("/reconcile-interrupted")

@@ -110,6 +110,42 @@ class ExecutionDataService:
     ) -> dict[str, int]:
         return await self._domain.count_executions_by_user_ids(user_ids)
 
+    async def count_active_execution_users(self, *, created_since: datetime) -> int:
+        return await self._domain.count_active_execution_users(created_since=created_since)
+
+    async def aggregate_execution_stats(
+        self,
+        *,
+        created_since: datetime,
+        granularity: str,
+    ) -> dict[str, Any]:
+        return await self._domain.aggregate_execution_stats(
+            created_since=created_since,
+            granularity=granularity,
+        )
+
+    async def count_running_feature_executions(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> int:
+        return await self._domain.count_running_feature_executions(
+            workspace_id=workspace_id,
+            capability_id=capability_id,
+        )
+
+    async def get_latest_feature_execution_status(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> str | None:
+        return await self._domain.get_latest_feature_execution_status(
+            workspace_id=workspace_id,
+            capability_id=capability_id,
+        )
+
     async def reconcile_interrupted_executions(self) -> int:
         return await self._domain.reconcile_interrupted_executions()
 

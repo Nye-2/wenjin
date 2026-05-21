@@ -138,6 +138,49 @@ class FakeExecutionRepository:
             return []
         return [self.record]
 
+    async def count_executions(self, **kwargs: Any) -> int:
+        status = kwargs.get("status")
+        if status is None:
+            return 5
+        if "completed" in status:
+            return 3
+        if "failed" in status:
+            return 1
+        return 0
+
+    async def count_distinct_execution_users(self, **kwargs: Any) -> int:
+        _ = kwargs
+        return 4
+
+    async def list_execution_stat_buckets(self, **kwargs: Any) -> list[SimpleNamespace]:
+        _ = kwargs
+        return [
+            SimpleNamespace(
+                bucket=datetime(2026, 5, 21, tzinfo=UTC),
+                workspace_type="thesis",
+                status="completed",
+                count=2,
+            ),
+            SimpleNamespace(
+                bucket=datetime(2026, 5, 21, tzinfo=UTC),
+                workspace_type="sci",
+                status="failed",
+                count=1,
+            ),
+        ]
+
+    async def count_executions_by_workspace_type(self, **kwargs: Any) -> dict[str, int]:
+        _ = kwargs
+        return {"thesis": 3, "sci": 2}
+
+    async def count_running_feature_executions(self, **kwargs: Any) -> int:
+        _ = kwargs
+        return 2
+
+    async def get_latest_feature_execution_status(self, **kwargs: Any) -> str | None:
+        _ = kwargs
+        return "running"
+
     async def append_event(
         self,
         *,
@@ -281,6 +324,49 @@ async def test_reconcile_interrupted_executions_marks_in_flight_terminal() -> No
     assert repository.record.error == "Execution interrupted by process restart"
     assert repository.record.completed_at is not None
     assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_execution_analytics_are_aggregated_inside_domain() -> None:
+    service, _, _ = _service()
+
+    active_users = await service.count_active_execution_users(
+        created_since=datetime(2026, 5, 20, tzinfo=UTC)
+    )
+    stats = await service.aggregate_execution_stats(
+        created_since=datetime(2026, 5, 20, tzinfo=UTC),
+        granularity="day",
+    )
+
+    assert active_users == 4
+    assert stats["kpis"] == {
+        "total": 5,
+        "success": 3,
+        "failed": 1,
+        "success_rate": 0.6,
+    }
+    assert stats["time_series"][0]["by_type"] == {"thesis": 2, "sci": 1}
+    assert stats["by_workspace_type"] == [
+        {"type": "thesis", "count": 3},
+        {"type": "sci", "count": 2},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_feature_status_helpers_read_execution_domain() -> None:
+    service, _, _ = _service()
+
+    running_count = await service.count_running_feature_executions(
+        workspace_id="ws-1",
+        capability_id="idea_to_manuscript",
+    )
+    latest_status = await service.get_latest_feature_execution_status(
+        workspace_id="ws-1",
+        capability_id="idea_to_manuscript",
+    )
+
+    assert running_count == 2
+    assert latest_status == "running"
 
 
 @pytest.mark.asyncio

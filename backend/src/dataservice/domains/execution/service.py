@@ -118,6 +118,83 @@ class DataServiceExecutionService:
     ) -> dict[str, int]:
         return await self.repository.count_executions_by_user_ids(user_ids)
 
+    async def count_active_execution_users(self, *, created_since: datetime) -> int:
+        return await self.repository.count_distinct_execution_users(
+            created_since=created_since,
+        )
+
+    async def aggregate_execution_stats(
+        self,
+        *,
+        created_since: datetime,
+        granularity: str,
+    ) -> dict[str, Any]:
+        rows = await self.repository.list_execution_stat_buckets(
+            created_since=created_since,
+            granularity=granularity,
+        )
+        series_map: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            bucket = row.bucket.isoformat()
+            workspace_type = row.workspace_type or "unknown"
+            status = row.status or "unknown"
+            series_map.setdefault(bucket, {"date": bucket, "by_type": {}, "by_status": {}})
+            series_map[bucket]["by_type"].setdefault(workspace_type, 0)
+            series_map[bucket]["by_type"][workspace_type] += int(row.count)
+            series_map[bucket]["by_status"].setdefault(status, 0)
+            series_map[bucket]["by_status"][status] += int(row.count)
+
+        total = await self.repository.count_executions(created_since=created_since)
+        success = await self.repository.count_executions(
+            status=["completed", "completed_partial"],
+            created_since=created_since,
+        )
+        failed = await self.repository.count_executions(
+            status=["failed"],
+            created_since=created_since,
+        )
+        by_workspace_type = [
+            {"type": workspace_type, "count": count}
+            for workspace_type, count in (
+                await self.repository.count_executions_by_workspace_type(
+                    created_since=created_since
+                )
+            ).items()
+        ]
+
+        return {
+            "kpis": {
+                "total": total,
+                "success": success,
+                "failed": failed,
+                "success_rate": (success / total) if total > 0 else 0.0,
+            },
+            "time_series": [series_map[key] for key in sorted(series_map)],
+            "by_workspace_type": by_workspace_type,
+        }
+
+    async def count_running_feature_executions(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> int:
+        return await self.repository.count_running_feature_executions(
+            workspace_id=workspace_id,
+            capability_id=capability_id,
+        )
+
+    async def get_latest_feature_execution_status(
+        self,
+        *,
+        workspace_id: str,
+        capability_id: str,
+    ) -> str | None:
+        return await self.repository.get_latest_feature_execution_status(
+            workspace_id=workspace_id,
+            capability_id=capability_id,
+        )
+
     async def reconcile_interrupted_executions(self) -> int:
         """Mark stale in-flight executions terminal after process restart."""
         records = await self.repository.list_executions_by_status(
