@@ -268,6 +268,28 @@ async def test_get_prism_review_activity_reads_persisted_items() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_recent_threads_uses_conversation_dataservice() -> None:
+    db = AsyncMock()
+    service = WorkspaceActivityService(db)
+    thread = SimpleNamespace(
+        id="thread-1",
+        workspace_id="ws-1",
+        title="Research thread",
+        skill="deep-research",
+        updated_at=datetime.now(UTC),
+    )
+    service._conversation.list_workspace_thread_summaries = AsyncMock(return_value=[thread])
+
+    threads = await service._get_recent_threads("ws-1", limit=5)
+
+    assert threads == [thread]
+    service._conversation.list_workspace_thread_summaries.assert_awaited_once_with(
+        workspace_id="ws-1",
+        limit=5,
+    )
+
+
+@pytest.mark.asyncio
 async def test_build_thread_activity_uses_latest_message_preview_and_skill():
     db = AsyncMock()
     service = WorkspaceActivityService(db)

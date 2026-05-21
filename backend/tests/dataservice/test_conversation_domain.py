@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
@@ -106,3 +107,39 @@ async def test_conversation_public_api_replaces_thread_messages() -> None:
     block_rows = [item for item in session.added if isinstance(item, MessageBlock)]
     assert [row.sequence_index for row in block_rows] == [0, 0]
     session.flush.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_list_workspace_thread_summaries_projects_thread_rows() -> None:
+    session = FakeSession()
+    service = DataServiceConversationService(session, autocommit=False)  # type: ignore[arg-type]
+    service.repository.list_workspace_threads = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                id="thread-1",
+                user_id="user-1",
+                workspace_id="ws-1",
+                title="Research thread",
+                model="gpt-x",
+                skill="deep_research",
+                message_count=2,
+                last_message_preview="latest",
+                last_message_role="assistant",
+                created_at=datetime(2026, 5, 21, tzinfo=UTC),
+                updated_at=datetime(2026, 5, 21, tzinfo=UTC),
+            )
+        ]
+    )
+
+    summaries = await service.list_workspace_thread_summaries(
+        workspace_id="ws-1",
+        limit=10,
+    )
+
+    assert summaries[0].id == "thread-1"
+    assert summaries[0].skill == "deep_research"
+    assert summaries[0].last_message_preview == "latest"
+    service.repository.list_workspace_threads.assert_awaited_once_with(
+        workspace_id="ws-1",
+        limit=10,
+    )

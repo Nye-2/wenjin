@@ -19,6 +19,7 @@ from src.dataservice.domains.conversation.contracts import (
     ConversationMessageCreateCommand,
     ConversationMessageRecord,
     ConversationMessagesRebuildCommand,
+    ConversationThreadProjection,
 )
 from src.dataservice.domains.conversation.models import MessageBlock, ThreadMessage
 from src.dataservice.domains.conversation.repository import ConversationRepository
@@ -124,6 +125,20 @@ class DataServiceConversationService:
         return [
             self.to_bridge_message(record)
             for record in await self.list_message_records(thread_id)
+        ]
+
+    async def list_workspace_thread_summaries(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 20,
+    ) -> list[ConversationThreadProjection]:
+        return [
+            self.to_thread_projection(thread)
+            for thread in await self.repository.list_workspace_threads(
+                workspace_id=workspace_id,
+                limit=limit,
+            )
         ]
 
     def _materialize_bridge_message(
@@ -254,3 +269,20 @@ class DataServiceConversationService:
         if blocks:
             message["blocks"] = blocks
         return message
+
+    @staticmethod
+    def to_thread_projection(thread: Thread) -> ConversationThreadProjection:
+        """Return a DataService-owned thread summary projection."""
+        return ConversationThreadProjection(
+            id=str(thread.id),
+            user_id=str(thread.user_id),
+            workspace_id=str(thread.workspace_id) if thread.workspace_id else None,
+            title=thread.title,
+            model=thread.model,
+            skill=thread.skill,
+            message_count=int(thread.message_count or 0),
+            last_message_preview=thread.last_message_preview,
+            last_message_role=thread.last_message_role,
+            created_at=thread.created_at,
+            updated_at=thread.updated_at,
+        )

@@ -8,7 +8,10 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Thread
-from src.dataservice.domains.conversation.contracts import ConversationMessageRecord
+from src.dataservice.domains.conversation.contracts import (
+    ConversationMessageRecord,
+    ConversationThreadProjection,
+)
 from src.dataservice.domains.conversation.service import DataServiceConversationService
 
 
@@ -43,3 +46,14 @@ class ConversationDataService:
 
     async def list_thread_messages(self, thread_id: str) -> list[dict[str, Any]]:
         return await self._domain.list_thread_messages(thread_id)
+
+    async def list_workspace_thread_summaries(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 20,
+    ) -> list[ConversationThreadProjection]:
+        return await self._domain.list_workspace_thread_summaries(
+            workspace_id=workspace_id,
+            limit=limit,
+        )

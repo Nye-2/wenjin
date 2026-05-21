@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from src.database import Thread
 from src.runtime.serialization import serialize_lc_object
 from src.services.thread_events import serialize_thread_summary
 
 from .thread_contracts import ThreadMessage, ThreadResponse, ThreadSummaryResponse
+
+if TYPE_CHECKING:
+    from src.database import Thread
 
 
 def thread_messages_to_response(messages: list[dict[str, Any]]) -> list[ThreadMessage]:

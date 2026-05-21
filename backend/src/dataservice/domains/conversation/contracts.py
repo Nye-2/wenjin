@@ -58,3 +58,19 @@ class ConversationMessageRecord(BaseModel):
     blocks: list[ConversationBlockRecord] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class ConversationThreadProjection(BaseModel):
+    """Canonical thread summary projection for activity/history readers."""
+
+    id: str
+    user_id: str
+    workspace_id: str | None = None
+    title: str | None = None
+    model: str | None = None
+    skill: str | None = None
+    message_count: int = 0
+    last_message_preview: str | None = None
+    last_message_role: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

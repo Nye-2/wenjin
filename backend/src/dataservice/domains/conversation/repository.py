@@ -8,6 +8,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
+from src.database.models.thread import Thread
 from src.dataservice.domains.conversation.block_protocol import (
     ConversationBlockKind,
     extract_invocation_ref,
@@ -128,5 +129,19 @@ class ConversationRepository:
             select(MessageBlock)
             .where(MessageBlock.message_id.in_(message_ids))
             .order_by(MessageBlock.message_id.asc(), MessageBlock.sequence_index.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_workspace_threads(
+        self,
+        *,
+        workspace_id: str,
+        limit: int,
+    ) -> list[Thread]:
+        result = await self.session.execute(
+            select(Thread)
+            .where(Thread.workspace_id == workspace_id)
+            .order_by(Thread.updated_at.desc())
+            .limit(limit)
         )
         return list(result.scalars().all())

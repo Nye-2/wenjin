@@ -3,12 +3,10 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Thread
 from src.dataservice.asset_api import AssetDataService, WorkspaceAssetProjection
-from src.dataservice.conversation_api import ConversationDataService
+from src.dataservice.conversation_api import ConversationDataService, ConversationThreadProjection
 from src.dataservice.execution_api import (
     ExecutionDataService,
     ExecutionNodeProjection,
@@ -89,14 +87,11 @@ class WorkspaceActivityService:
         workspace_id: str,
         *,
         limit: int,
-    ) -> list[Thread]:
-        result = await self.db.execute(
-            select(Thread)
-            .where(Thread.workspace_id == workspace_id)
-            .order_by(Thread.updated_at.desc())
-            .limit(limit)
+    ) -> list[ConversationThreadProjection]:
+        return await self._conversation.list_workspace_thread_summaries(
+            workspace_id=workspace_id,
+            limit=limit,
         )
-        return list(result.scalars().all())
 
     async def _get_task_activity(
         self,
@@ -265,7 +260,7 @@ class WorkspaceActivityService:
 
     async def _build_thread_activity(
         self,
-        threads: Sequence[Thread],
+        threads: Sequence[ConversationThreadProjection],
         *,
         workspace_type: str | None,
     ) -> list[dict[str, Any]]:
