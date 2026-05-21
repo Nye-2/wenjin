@@ -80,14 +80,15 @@ class CapabilitySkillPreloadMiddleware(Middleware):
     async def _fetch(
         workspace_type: str,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        from src.database.session import get_db_session
-        from src.dataservice.catalog_api import CatalogDataService
+        from src.dataservice_client.provider import dataservice_client
 
-        async with get_db_session() as db:
-            catalog = CatalogDataService(db, autocommit=False)
+        async with dataservice_client() as catalog:
             cap_rows, skill_rows = await asyncio.gather(
-                catalog.list_capabilities(workspace_type=workspace_type, enabled_only=True),
-                catalog.list_skills(enabled_only=True),
+                catalog.list_catalog_capabilities(
+                    workspace_type=workspace_type,
+                    enabled_only=True,
+                ),
+                catalog.list_catalog_skills(enabled_only=True),
             )
 
         caps = [

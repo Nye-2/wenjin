@@ -181,10 +181,11 @@ class CrossRefValidator:
 
     @staticmethod
     async def _existing_skill_ids(db, ids: set[str]) -> set[str]:
-        from src.dataservice.catalog_api import CatalogDataService
+        from src.dataservice_client.provider import dataservice_client
 
-        skills = await CatalogDataService(db, autocommit=False).list_skills()
-        return {skill.id for skill in skills if skill.id in ids}
+        async with dataservice_client() as client:
+            skills = await client.list_catalog_skills()
+            return {skill.id for skill in skills if skill.id in ids}
 
     @staticmethod
     def _registry_subagent_types() -> set[str]:

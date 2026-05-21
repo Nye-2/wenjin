@@ -8,7 +8,8 @@ from typing import Any, cast
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.provider import dataservice_client
 from src.services.dashboard_service import DashboardService
 from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_service import WorkspaceActivityService
@@ -43,12 +44,31 @@ class WorkspaceSummaryService:
         activity_service: WorkspaceActivityService | None = None,
         execution_service: ExecutionService | None = None,
         capability_model: type | None = None,
+        dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.db = db
         self._dashboard_service = dashboard_service or DashboardService(db)
         self._activity_service = activity_service or WorkspaceActivityService(db)
         self._execution_service = execution_service
         self._capability_model = capability_model
+        self._dataservice = dataservice
+
+    async def _list_catalog_capabilities(
+        self,
+        *,
+        workspace_type: str,
+        enabled_only: bool,
+    ) -> list[Any]:
+        if self._dataservice is not None:
+            return await self._dataservice.list_catalog_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
+        async with dataservice_client() as client:
+            return await client.list_catalog_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
 
     async def get_summary(
         self,
@@ -135,7 +155,7 @@ class WorkspaceSummaryService:
             )
             raw_capabilities = result.scalars().all()
         else:
-            raw_capabilities = await CatalogDataService(self.db, autocommit=False).list_capabilities(
+            raw_capabilities = await self._list_catalog_capabilities(
                 workspace_type=workspace_type,
                 enabled_only=True,
             )

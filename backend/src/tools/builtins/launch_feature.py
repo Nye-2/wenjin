@@ -81,25 +81,29 @@ async def launch_feature_tool(
     merged_params.update(params or {})
 
     from src.database import get_db_session
-    from src.dataservice.catalog_api import CatalogDataService
+    from src.dataservice_client.provider import dataservice_client
     from src.services.execution_service import ExecutionService
     from src.services.workspace_skill_labels import get_workspace_type
 
     async with get_db_session() as db:
         # Validate the capability exists for this workspace's type.
         workspace_type = await get_workspace_type(db, workspace_id) or "thesis"
-        catalog = CatalogDataService(db, autocommit=False)
-        cap = await catalog.get_capability(
-            capability_id=feature_id,
-            workspace_type=workspace_type,
-            enabled_only=True,
-        )
-        if cap is None:
-            # Return the available list so the model can retry with a valid id.
-            available = await catalog.list_capabilities(
+        async with dataservice_client() as catalog:
+            cap = await catalog.get_catalog_capability(
+                capability_id=feature_id,
                 workspace_type=workspace_type,
                 enabled_only=True,
             )
+            available = (
+                []
+                if cap is not None
+                else await catalog.list_catalog_capabilities(
+                    workspace_type=workspace_type,
+                    enabled_only=True,
+                )
+            )
+        if cap is None:
+            # Return the available list so the model can retry with a valid id.
             available_ids = [item.id for item in available]
             return {
                 "status": "error",

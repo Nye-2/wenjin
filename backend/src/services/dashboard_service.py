@@ -6,8 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.asset_api import AssetDataService
-from src.dataservice.catalog_api import CatalogDataService
 from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.provider import dataservice_client
 from src.services.dashboard import (
     DashboardInnovationStatusMixin,
     DashboardProposalStatusMixin,
@@ -24,9 +25,33 @@ class DashboardService(
 ):
     """Service for workspace dashboard overview."""
 
-    def __init__(self, db: AsyncSession, *, capability_model: type | None = None):
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        capability_model: type | None = None,
+        dataservice: AsyncDataServiceClient | None = None,
+    ):
         self.db = db
         self._capability_model = capability_model
+        self._dataservice = dataservice
+
+    async def _list_catalog_capabilities(
+        self,
+        *,
+        workspace_type: str,
+        enabled_only: bool,
+    ) -> list[Any]:
+        if self._dataservice is not None:
+            return await self._dataservice.list_catalog_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
+        async with dataservice_client() as client:
+            return await client.list_catalog_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
 
     async def get_dashboard(
         self,
@@ -81,7 +106,7 @@ class DashboardService(
             )
             raw_capabilities = result.scalars().all()
         else:
-            raw_capabilities = await CatalogDataService(self.db, autocommit=False).list_capabilities(
+            raw_capabilities = await self._list_catalog_capabilities(
                 workspace_type=workspace_type,
                 enabled_only=True,
             )

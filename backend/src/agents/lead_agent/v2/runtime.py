@@ -207,8 +207,7 @@ class LeadAgentRuntime:
 
     async def _load_skills_for_template(self, template: dict) -> dict[str, Any]:
         """Pre-load all skills referenced by tasks in the template."""
-        from src.database.session import get_db_session
-        from src.dataservice.catalog_api import CatalogDataService
+        from src.dataservice_client.provider import dataservice_client
 
         skill_ids: set[str] = set()
         for phase in template.get("phases", []):
@@ -219,8 +218,8 @@ class LeadAgentRuntime:
         if not skill_ids:
             return {}
         try:
-            async with get_db_session() as db:
-                skills = await CatalogDataService(db, autocommit=False).list_skills()
+            async with dataservice_client() as client:
+                skills = await client.list_catalog_skills()
                 return {skill.id: skill for skill in skills if skill.id in skill_ids}
         except Exception:
             logger.warning("Failed to pre-load skills", exc_info=True)

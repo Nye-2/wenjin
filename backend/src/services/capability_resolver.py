@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.provider import dataservice_client
+
 if TYPE_CHECKING:
     from .event_bus import EventBus
 
@@ -57,12 +60,56 @@ class CapabilityResolver:
         model: Optional test ORM model. Production reads through DataService catalog.
     """
 
-    def __init__(self, session_factory, event_bus: EventBus, model=None) -> None:
+    def __init__(
+        self,
+        session_factory,
+        event_bus: EventBus,
+        model=None,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.session_factory = session_factory
         self.event_bus = event_bus
         self._model = model
+        self._dataservice = dataservice
         self._cache: dict[tuple[str, str], object] = {}
         event_bus.subscribe("capability.invalidated", self._on_invalidate)
+
+    async def _get_catalog_capability(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+        enabled_only: bool,
+    ):
+        if self._dataservice is not None:
+            return await self._dataservice.get_catalog_capability(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
+        async with dataservice_client() as client:
+            return await client.get_catalog_capability(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
+
+    async def _list_catalog_capabilities(
+        self,
+        *,
+        workspace_type: str,
+        enabled_only: bool,
+    ) -> list:
+        if self._dataservice is not None:
+            return await self._dataservice.list_catalog_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
+        async with dataservice_client() as client:
+            return await client.list_catalog_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=enabled_only,
+            )
 
     async def resolve(self, capability_id: str, workspace_type: str):
         """Load a capability from cache or DB.
@@ -74,20 +121,18 @@ class CapabilityResolver:
         if key in self._cache:
             return self._cache[key]
 
+        if self._model is None:
+            cap = await self._get_catalog_capability(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+                enabled_only=True,
+            )
+            if cap is None:
+                raise CapabilityNotFound(capability_id, workspace_type)
+            self._cache[key] = cap
+            return cap
+
         async with self.session_factory() as session:
-            if self._model is None:
-                from src.dataservice.catalog_api import CatalogDataService
-
-                cap = await CatalogDataService(session, autocommit=False).get_capability(
-                    capability_id=capability_id,
-                    workspace_type=workspace_type,
-                    enabled_only=True,
-                )
-                if cap is None:
-                    raise CapabilityNotFound(capability_id, workspace_type)
-                self._cache[key] = cap
-                return cap
-
             result = await session.execute(
                 select(self._model).where(
                     self._model.id == capability_id,
@@ -105,15 +150,13 @@ class CapabilityResolver:
 
     async def list_for_workspace_type(self, workspace_type: str) -> list:
         """List all enabled capabilities for a workspace type."""
+        if self._model is None:
+            return await self._list_catalog_capabilities(
+                workspace_type=workspace_type,
+                enabled_only=True,
+            )
+
         async with self.session_factory() as session:
-            if self._model is None:
-                from src.dataservice.catalog_api import CatalogDataService
-
-                return await CatalogDataService(session, autocommit=False).list_capabilities(
-                    workspace_type=workspace_type,
-                    enabled_only=True,
-                )
-
             result = await session.execute(
                 select(self._model).where(
                     self._model.workspace_type == workspace_type,
