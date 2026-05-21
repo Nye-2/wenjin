@@ -85,6 +85,8 @@ from src.dataservice_client.contracts.source import (
     SourceCitationUsagePayload,
     SourceCreatePayload,
     SourceExternalIdCreatePayload,
+    SourceImportPayload,
+    SourceImportResultPayload,
     SourcePayload,
     SourceUpdatePayload,
 )
@@ -668,6 +670,14 @@ class AsyncDataServiceClient:
             json=command.model_dump(mode="json"),
         )
         return SourcePayload.model_validate(payload["data"])
+
+    async def import_source(self, command: SourceImportPayload) -> SourceImportResultPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sources/import",
+            json=command.model_dump(mode="json"),
+        )
+        return SourceImportResultPayload.model_validate(payload["data"])
 
     async def list_sources(
         self,

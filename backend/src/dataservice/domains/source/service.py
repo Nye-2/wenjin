@@ -19,6 +19,8 @@ from src.dataservice.domains.source.contracts import (
     SourceEvidencePackCreateCommand,
     SourceEvidencePackProjection,
     SourceExternalIdCreateCommand,
+    SourceImportCommand,
+    SourceImportProjection,
     SourceProjection,
     SourceUpdateCommand,
 )
@@ -74,6 +76,47 @@ class SourceDataDomainService:
             record.updated_at = datetime.now(UTC)
         await self._finish()
         return source_to_projection(record)
+
+    async def import_source(self, command: SourceImportCommand) -> SourceImportProjection:
+        normalized_title = command.normalized_title or command.title.strip().lower()
+        record = await self._find_import_source(command, normalized_title=normalized_title)
+        created = record is None
+        values = {
+            **command.model_dump(
+                exclude={
+                    "source_id",
+                    "normalized_title",
+                    "external_ids",
+                    "dedupe_by_title",
+                }
+            ),
+            "normalized_title": normalized_title,
+            "doi": self._normalize_doi(command.doi),
+        }
+        if record is None:
+            values["citation_key"] = await self._ensure_unique_citation_key(
+                workspace_id=command.workspace_id,
+                base_key=command.citation_key,
+            )
+            record = self.repository.create_source(
+                {
+                    **values,
+                    **({"source_id": command.source_id} if command.source_id else {}),
+                }
+            )
+        else:
+            self._merge_import_values(record, values)
+        await self._finish()
+        external_ids = await self.upsert_source_external_ids(
+            workspace_id=command.workspace_id,
+            source_id=str(record.id),
+            external_ids=command.external_ids,
+        )
+        return SourceImportProjection(
+            source=source_to_projection(record),
+            created=created,
+            external_ids=external_ids,
+        )
 
     async def get_source(self, source_id: str) -> SourceProjection | None:
         record = await self.repository.get_source(source_id)
@@ -796,6 +839,117 @@ class SourceDataDomainService:
             candidate = f"{base}{suffix}"
             suffix += 1
         return candidate
+
+    async def _find_import_source(
+        self,
+        command: SourceImportCommand,
+        *,
+        normalized_title: str,
+    ) -> object | None:
+        if command.source_id:
+            source = await self.repository.get_source_for_workspace(
+                workspace_id=command.workspace_id,
+                source_id=command.source_id,
+                include_deleted=True,
+            )
+            if source is not None:
+                return source
+        for external_id in command.external_ids:
+            record = await self.repository.get_external_id(
+                workspace_id=command.workspace_id,
+                provider=external_id.provider,
+                external_id=external_id.external_id,
+            )
+            if record is not None:
+                source = await self.repository.get_source_for_workspace(
+                    workspace_id=command.workspace_id,
+                    source_id=str(record.source_id),
+                    include_deleted=False,
+                )
+                if source is not None:
+                    return source
+        doi = self._normalize_doi(command.doi)
+        if doi:
+            source = await self.repository.find_source_by_doi(
+                workspace_id=command.workspace_id,
+                doi=doi,
+            )
+            if source is not None:
+                return source
+        if command.dedupe_by_title and normalized_title:
+            return await self.repository.find_source_by_title_year(
+                workspace_id=command.workspace_id,
+                normalized_title=normalized_title,
+                year=command.year,
+            )
+        return None
+
+    @staticmethod
+    def _merge_import_values(record: object, values: dict[str, object]) -> None:
+        for field in (
+            "title",
+            "normalized_title",
+            "authors_json",
+            "year",
+            "venue",
+            "publication_type",
+            "doi",
+            "url",
+            "abstract",
+            "citation_count",
+            "ingest_label",
+            "ingest_execution_id",
+            "verified_at",
+            "bibtex_entry_type",
+            "read_status",
+            "notes",
+        ):
+            value = values.get(field)
+            if value not in (None, "", [], {}) and not getattr(record, field, None):
+                setattr(record, field, value)
+        if values.get("bibtex_fields_json"):
+            record.bibtex_fields_json = {
+                **dict(getattr(record, "bibtex_fields_json", None) or {}),
+                **dict(values["bibtex_fields_json"] or {}),
+            }
+        if values.get("tags_json"):
+            record.tags_json = list(
+                dict.fromkeys(
+                    list(getattr(record, "tags_json", None) or [])
+                    + [str(item) for item in values["tags_json"] or []]
+                )
+            )
+        incoming_status = str(values.get("library_status") or "")
+        if incoming_status and incoming_status != "candidate":
+            record.library_status = incoming_status
+        record.evidence_level = SourceDataDomainService._max_ranked_value(
+            getattr(record, "evidence_level", None),
+            values.get("evidence_level"),
+            {
+                "metadata_only": 0,
+                "external_verified": 1,
+                "uploaded_fulltext": 2,
+                "indexed_fulltext": 3,
+            },
+        )
+        record.fulltext_status = SourceDataDomainService._max_ranked_value(
+            getattr(record, "fulltext_status", None),
+            values.get("fulltext_status"),
+            {
+                "none": 0,
+                "failed": 1,
+                "uploaded": 2,
+                "preprocessing": 3,
+                "indexed": 4,
+            },
+        )
+        record.updated_at = datetime.now(UTC)
+
+    @staticmethod
+    def _max_ranked_value(current: object, incoming: object, ranks: dict[str, int]) -> str:
+        current_value = str(current or "")
+        incoming_value = str(incoming or "")
+        return incoming_value if ranks.get(incoming_value, 0) > ranks.get(current_value, 0) else current_value
 
     @staticmethod
     def _format_bibtex_entry(record: object) -> str:

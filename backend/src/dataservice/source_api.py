@@ -13,6 +13,8 @@ from src.dataservice.domains.source.contracts import (
     SourceEvidencePackCreateCommand,
     SourceEvidencePackProjection,
     SourceExternalIdCreateCommand,
+    SourceImportCommand,
+    SourceImportProjection,
     SourceProjection,
     SourceUpdateCommand,
 )
@@ -29,6 +31,9 @@ class SourceDataService:
 
     async def upsert_source(self, command: SourceCreateCommand) -> SourceProjection:
         return await self._domain.upsert_source(command)
+
+    async def import_source(self, command: SourceImportCommand) -> SourceImportProjection:
+        return await self._domain.import_source(command)
 
     async def get_source(self, source_id: str) -> SourceProjection | None:
         return await self._domain.get_source(source_id)

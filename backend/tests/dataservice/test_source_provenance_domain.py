@@ -18,6 +18,7 @@ from src.dataservice.domains.source.contracts import (
     SourceCreateCommand,
     SourceEvidencePackCreateCommand,
     SourceExternalIdCreateCommand,
+    SourceImportCommand,
     SourceUpdateCommand,
 )
 from src.dataservice.domains.source.models import SourceAssetRecord, SourceRecord
@@ -152,6 +153,44 @@ class FakeSourceRepository:
         if not include_excluded:
             records = [record for record in records if record.library_status != "excluded"]
         return records
+
+    async def find_source_by_doi(
+        self,
+        *,
+        workspace_id: str,
+        doi: str,
+        include_deleted: bool = False,
+    ) -> SimpleNamespace | None:
+        return next(
+            (
+                record
+                for record in self.sources.values()
+                if record.workspace_id == workspace_id
+                and record.doi == doi
+                and (include_deleted or not record.is_deleted)
+            ),
+            None,
+        )
+
+    async def find_source_by_title_year(
+        self,
+        *,
+        workspace_id: str,
+        normalized_title: str,
+        year: int | None,
+        include_deleted: bool = False,
+    ) -> SimpleNamespace | None:
+        return next(
+            (
+                record
+                for record in self.sources.values()
+                if record.workspace_id == workspace_id
+                and record.normalized_title == normalized_title
+                and (year is None or record.year == year)
+                and (include_deleted or not record.is_deleted)
+            ),
+            None,
+        )
 
     async def list_sources(
         self,
@@ -598,6 +637,61 @@ async def test_source_service_upserts_external_ids_into_detail() -> None:
     assert detail is not None
     assert detail["external_ids"] == second
     assert len(repository.external_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_source_service_imports_and_dedupes_by_external_id() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    first = await service.import_source(
+        SourceImportCommand(
+            workspace_id="ws-1",
+            title="Imported Paper",
+            citation_key="imported2026",
+            authors_json=["Ada"],
+            year=2026,
+            doi="https://doi.org/10.1000/example",
+            ingest_kind="semantic_scholar",
+            library_status="candidate",
+            evidence_level="external_verified",
+            external_ids=[
+                SourceExternalIdCreateCommand(
+                    provider="semantic_scholar",
+                    external_id="paper-1",
+                )
+            ],
+        )
+    )
+    second = await service.import_source(
+        SourceImportCommand(
+            workspace_id="ws-1",
+            title="Imported Paper Revised",
+            citation_key="imported2026",
+            authors_json=["Ada"],
+            year=2026,
+            doi="10.1000/example",
+            ingest_kind="semantic_scholar",
+            library_status="included",
+            evidence_level="external_verified",
+            external_ids=[
+                SourceExternalIdCreateCommand(
+                    provider="semantic_scholar",
+                    external_id="paper-1",
+                    url="https://example.test/paper-1",
+                )
+            ],
+        )
+    )
+
+    assert first.created is True
+    assert second.created is False
+    assert second.source.id == first.source.id
+    assert second.source.library_status == "included"
+    assert second.external_ids[0]["url"] == "https://example.test/paper-1"
+    assert len(repository.sources) == 1
 
 
 @pytest.mark.asyncio

@@ -40,6 +40,7 @@ from src.dataservice.source_api import (
     SourceCreateCommand,
     SourceDataService,
     SourceExternalIdCreateCommand,
+    SourceImportCommand,
 )
 from src.services.latex.project_service import LatexProjectService
 from src.services.upload_preprocessor import UploadPreprocessResult, get_upload_preprocessor_service
@@ -287,6 +288,122 @@ def _paper_candidate_from_bibtex(entry: dict[str, str]) -> dict[str, Any]:
         if key not in {"key", "entry_type"}
     }
     return result
+
+
+def _source_external_id_commands(external_ids: Sequence[dict[str, Any]] | None) -> list[SourceExternalIdCreateCommand]:
+    commands: list[SourceExternalIdCreateCommand] = []
+    for item in external_ids or []:
+        if not isinstance(item, dict):
+            continue
+        provider = str(item.get("source") or item.get("provider") or "").strip()
+        external_id = str(item.get("external_id") or "").strip()
+        if not provider or not external_id:
+            continue
+        commands.append(
+            SourceExternalIdCreateCommand(
+                provider=provider,
+                external_id=external_id,
+                url=item.get("url"),
+                metadata_json=dict(item.get("metadata") or item.get("metadata_json") or {}),
+            )
+        )
+    return commands
+
+
+def _source_import_command(
+    *,
+    workspace_id: str,
+    title: str,
+    authors: Any = None,
+    year: Any = None,
+    venue: str | None = None,
+    publication_type: str | None = None,
+    doi: Any = None,
+    url: str | None = None,
+    abstract: str | None = None,
+    citation_count: Any = None,
+    source_type: ReferenceSourceType | str,
+    source_label: str | None = None,
+    source_run_id: str | None = None,
+    source_artifact_id: str | None = None,
+    verified_at: Any = None,
+    library_status: ReferenceLibraryStatus | str = ReferenceLibraryStatus.CANDIDATE,
+    evidence_level: ReferenceEvidenceLevel | str = ReferenceEvidenceLevel.METADATA_ONLY,
+    fulltext_status: ReferenceFulltextStatus | str = ReferenceFulltextStatus.NONE,
+    external_ids: Sequence[dict[str, Any]] | None = None,
+    citation_key: str | None = None,
+    bibtex_entry_type: str | None = None,
+    bibtex_fields: dict[str, Any] | None = None,
+    dedupe_by_title: bool = True,
+) -> SourceImportCommand:
+    resolved_title = str(title or "").strip()
+    resolved_authors = parse_authors(authors)
+    resolved_year = safe_int(year)
+    return SourceImportCommand(
+        workspace_id=workspace_id,
+        source_kind="paper",
+        title=resolved_title,
+        normalized_title=normalize_title(resolved_title),
+        authors_json=resolved_authors,
+        year=resolved_year,
+        venue=venue,
+        publication_type=publication_type,
+        doi=normalize_doi(doi),
+        url=url,
+        abstract=abstract,
+        citation_count=safe_int(citation_count),
+        ingest_kind=_enum_value(source_type),
+        ingest_label=source_label,
+        ingest_execution_id=source_run_id or source_artifact_id,
+        verified_at=verified_at if hasattr(verified_at, "isoformat") else utc_now() if verified_at else None,
+        library_status=_enum_value(library_status),
+        evidence_level=_enum_value(evidence_level),
+        fulltext_status=_enum_value(fulltext_status),
+        citation_key=citation_key
+        or build_citation_key_base(title=resolved_title, authors=resolved_authors, year=resolved_year),
+        bibtex_entry_type=bibtex_entry_type
+        or guess_bibtex_entry_type(venue=venue, publication_type=publication_type),
+        bibtex_fields_json=dict(bibtex_fields or {}),
+        external_ids=_source_external_id_commands(external_ids),
+        dedupe_by_title=dedupe_by_title,
+    )
+
+
+def _serialize_source_reference(source: Any) -> dict[str, Any]:
+    created_at = getattr(source, "created_at", None)
+    updated_at = getattr(source, "updated_at", None)
+    verified_at = getattr(source, "verified_at", None)
+    return {
+        "id": str(source.id),
+        "workspace_id": str(source.workspace_id),
+        "title": source.title,
+        "normalized_title": source.normalized_title,
+        "authors": list(source.authors_json or []),
+        "year": source.year,
+        "venue": source.venue,
+        "publication_type": source.publication_type,
+        "doi": source.doi,
+        "url": source.url,
+        "abstract": source.abstract,
+        "citation_count": source.citation_count,
+        "source_type": source.ingest_kind,
+        "source_label": source.ingest_label,
+        "source_run_id": source.ingest_execution_id,
+        "source_artifact_id": source.ingest_execution_id,
+        "verified_at": verified_at.isoformat() if verified_at else None,
+        "library_status": source.library_status,
+        "evidence_level": source.evidence_level,
+        "fulltext_status": source.fulltext_status,
+        "citation_key": source.citation_key,
+        "bibtex_entry_type": source.bibtex_entry_type,
+        "bibtex_fields": dict(source.bibtex_fields_json or {}),
+        "read_status": source.read_status,
+        "tags": list(source.tags_json or []),
+        "notes": source.notes,
+        "is_deleted": bool(source.is_deleted),
+        "created_at": created_at.isoformat() if created_at else None,
+        "updated_at": updated_at.isoformat() if updated_at else None,
+    }
 
 
 async def _sync_reference_assets_to_dataservice(
@@ -1068,13 +1185,16 @@ class ReferenceImportService:
     async def import_manual(self, workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = dict(payload)
         library_status = data.pop("library_status", None) or ReferenceLibraryStatus.INCLUDED
-        reference, created = await self.references.upsert_reference(
-            workspace_id=workspace_id,
-            source_type=ReferenceSourceType.MANUAL,
-            library_status=library_status,
-            **data,
+        result = await SourceDataService(self.db, autocommit=False).import_source(
+            _source_import_command(
+                workspace_id=workspace_id,
+                source_type=ReferenceSourceType.MANUAL,
+                library_status=library_status,
+                **data,
+            )
         )
-        return {"reference": serialize_reference(reference), "created": created}
+        await self.db.commit()
+        return {"reference": _serialize_source_reference(result.source), "created": result.created}
 
     async def import_semantic_scholar_query(
         self,
@@ -1117,35 +1237,36 @@ class ReferenceImportService:
             if not title:
                 continue
             external_id = str(paper.get("external_id") or paper.get("paperId") or "").strip()
-            reference, created = await self.references.upsert_reference(
-                workspace_id=workspace_id,
-                title=title,
-                authors=paper.get("authors"),
-                year=paper.get("year"),
-                venue=paper.get("venue"),
-                doi=paper.get("doi"),
-                url=paper.get("url"),
-                abstract=paper.get("abstract"),
-                citation_count=paper.get("citations_count") or paper.get("citation_count"),
-                source_type=ReferenceSourceType.SEMANTIC_SCHOLAR,
-                source_label=source_label or "Semantic Scholar",
-                source_artifact_id=source_artifact_id,
-                verified_at=utc_now(),
-                library_status=ReferenceLibraryStatus.CANDIDATE,
-                evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED,
-                external_ids=[
-                    {
-                        "source": "semantic_scholar",
-                        "external_id": external_id,
-                        "url": paper.get("url"),
-                    }
-                ]
-                if external_id
-                else [],
-                commit=False,
+            result = await SourceDataService(self.db, autocommit=False).import_source(
+                _source_import_command(
+                    workspace_id=workspace_id,
+                    title=title,
+                    authors=paper.get("authors"),
+                    year=paper.get("year"),
+                    venue=paper.get("venue"),
+                    doi=paper.get("doi"),
+                    url=paper.get("url"),
+                    abstract=paper.get("abstract"),
+                    citation_count=paper.get("citations_count") or paper.get("citation_count"),
+                    source_type=ReferenceSourceType.SEMANTIC_SCHOLAR,
+                    source_label=source_label or "Semantic Scholar",
+                    source_artifact_id=source_artifact_id,
+                    verified_at=utc_now(),
+                    library_status=ReferenceLibraryStatus.CANDIDATE,
+                    evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED,
+                    external_ids=[
+                        {
+                            "source": "semantic_scholar",
+                            "external_id": external_id,
+                            "url": paper.get("url"),
+                        }
+                    ]
+                    if external_id
+                    else [],
+                )
             )
-            created_count += 1 if created else 0
-            imported.append(serialize_reference(reference))
+            created_count += 1 if result.created else 0
+            imported.append(_serialize_source_reference(result.source))
 
         await self.db.commit()
         return {"imported": len(imported), "created": created_count, "items": imported}
@@ -1179,36 +1300,37 @@ class ReferenceImportService:
             title = str(candidate.get("title") or "").strip()
             if not title:
                 continue
-            reference, created = await self.references.upsert_reference(
-                workspace_id=workspace_id,
-                title=title,
-                authors=candidate.get("authors"),
-                year=candidate.get("year"),
-                venue=candidate.get("venue"),
-                doi=candidate.get("doi"),
-                url=candidate.get("url"),
-                abstract=candidate.get("abstract") or candidate.get("summary"),
-                citation_count=candidate.get("citations_count") or candidate.get("citation_count"),
-                source_type=ReferenceSourceType.DEEP_SEARCH,
-                source_label="Deep search",
-                source_artifact_id=str(candidate.get("source_artifact_id") or ""),
-                library_status=ReferenceLibraryStatus.CANDIDATE,
-                evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED
-                if candidate.get("external_id") or candidate.get("doi")
-                else ReferenceEvidenceLevel.METADATA_ONLY,
-                external_ids=[
-                    {
-                        "source": str(candidate.get("source") or "deep_search"),
-                        "external_id": str(candidate.get("external_id") or ""),
-                        "url": candidate.get("url"),
-                    }
-                ]
-                if candidate.get("external_id")
-                else [],
-                commit=False,
+            result = await SourceDataService(self.db, autocommit=False).import_source(
+                _source_import_command(
+                    workspace_id=workspace_id,
+                    title=title,
+                    authors=candidate.get("authors"),
+                    year=candidate.get("year"),
+                    venue=candidate.get("venue"),
+                    doi=candidate.get("doi"),
+                    url=candidate.get("url"),
+                    abstract=candidate.get("abstract") or candidate.get("summary"),
+                    citation_count=candidate.get("citations_count") or candidate.get("citation_count"),
+                    source_type=ReferenceSourceType.DEEP_SEARCH,
+                    source_label="Deep search",
+                    source_artifact_id=str(candidate.get("source_artifact_id") or ""),
+                    library_status=ReferenceLibraryStatus.CANDIDATE,
+                    evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED
+                    if candidate.get("external_id") or candidate.get("doi")
+                    else ReferenceEvidenceLevel.METADATA_ONLY,
+                    external_ids=[
+                        {
+                            "source": str(candidate.get("source") or "deep_search"),
+                            "external_id": str(candidate.get("external_id") or ""),
+                            "url": candidate.get("url"),
+                        }
+                    ]
+                    if candidate.get("external_id")
+                    else [],
+                )
             )
-            created_count += 1 if created else 0
-            imported.append(serialize_reference(reference))
+            created_count += 1 if result.created else 0
+            imported.append(_serialize_source_reference(result.source))
         await self.db.commit()
         return {"imported": len(imported), "created": created_count, "items": imported}
 
@@ -1218,24 +1340,25 @@ class ReferenceImportService:
         created_count = 0
         for entry in entries:
             payload = _paper_candidate_from_bibtex(entry)
-            reference, created = await self.references.upsert_reference(
-                workspace_id=workspace_id,
-                title=payload.get("title") or "Untitled Reference",
-                authors=payload.get("authors"),
-                year=payload.get("year"),
-                venue=payload.get("venue"),
-                doi=payload.get("doi"),
-                source_type=ReferenceSourceType.BIBTEX,
-                source_label="BibTeX import",
-                library_status=ReferenceLibraryStatus.INCLUDED,
-                evidence_level=ReferenceEvidenceLevel.METADATA_ONLY,
-                citation_key=payload.get("citation_key"),
-                bibtex_entry_type=payload.get("bibtex_entry_type"),
-                bibtex_fields=payload.get("bibtex_fields"),
-                commit=False,
+            result = await SourceDataService(self.db, autocommit=False).import_source(
+                _source_import_command(
+                    workspace_id=workspace_id,
+                    title=payload.get("title") or "Untitled Reference",
+                    authors=payload.get("authors"),
+                    year=payload.get("year"),
+                    venue=payload.get("venue"),
+                    doi=payload.get("doi"),
+                    source_type=ReferenceSourceType.BIBTEX,
+                    source_label="BibTeX import",
+                    library_status=ReferenceLibraryStatus.INCLUDED,
+                    evidence_level=ReferenceEvidenceLevel.METADATA_ONLY,
+                    citation_key=payload.get("citation_key"),
+                    bibtex_entry_type=payload.get("bibtex_entry_type"),
+                    bibtex_fields=payload.get("bibtex_fields"),
+                )
             )
-            created_count += 1 if created else 0
-            imported.append(serialize_reference(reference))
+            created_count += 1 if result.created else 0
+            imported.append(_serialize_source_reference(result.source))
         await self.db.commit()
         return {"imported": len(imported), "created": created_count, "items": imported}
 

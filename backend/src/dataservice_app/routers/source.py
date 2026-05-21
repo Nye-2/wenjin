@@ -13,6 +13,7 @@ from src.dataservice.domains.source.contracts import (
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
     SourceExternalIdCreateCommand,
+    SourceImportCommand,
     SourceUpdateCommand,
 )
 from src.dataservice.domains.source.service import SourceDataDomainService
@@ -44,6 +45,17 @@ async def upsert_source(
 ) -> dict:
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     record = await service.upsert_source(command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.post("/sources/import")
+async def import_source(
+    command: SourceImportCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.import_source(command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json"))
 

@@ -126,6 +126,41 @@ class SourceRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    async def find_source_by_doi(
+        self,
+        *,
+        workspace_id: str,
+        doi: str,
+        include_deleted: bool = False,
+    ) -> SourceRecord | None:
+        query = select(SourceRecord).where(
+            SourceRecord.workspace_id == workspace_id,
+            SourceRecord.doi == doi,
+        )
+        if not include_deleted:
+            query = query.where(SourceRecord.is_deleted.is_(False))
+        result = await self.session.execute(query.limit(1))
+        return result.scalar_one_or_none()
+
+    async def find_source_by_title_year(
+        self,
+        *,
+        workspace_id: str,
+        normalized_title: str,
+        year: int | None,
+        include_deleted: bool = False,
+    ) -> SourceRecord | None:
+        query = select(SourceRecord).where(
+            SourceRecord.workspace_id == workspace_id,
+            SourceRecord.normalized_title == normalized_title,
+        )
+        if year is not None:
+            query = query.where(SourceRecord.year == year)
+        if not include_deleted:
+            query = query.where(SourceRecord.is_deleted.is_(False))
+        result = await self.session.execute(query.limit(1))
+        return result.scalar_one_or_none()
+
     async def list_sources(
         self,
         *,

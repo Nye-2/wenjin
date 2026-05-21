@@ -1098,6 +1098,7 @@ Implementation status as of 2026-05-21:
 - Legacy `ReferenceIndexService` has been removed; Source outline/text-unit/page reads are owned by Source DataService.
 - Reference import/upsert flows now synchronize canonical `sources` rows with the same ids as legacy reference rows, so newly imported manual, Semantic Scholar, Deep Search, BibTeX, and PDF-upload metadata remains visible after the Source cutover.
 - Source DataService now owns `source_external_ids` read/upsert APIs, internal routes, and typed client methods; reference adapter synchronization carries Semantic Scholar/upload hashes into Source detail instead of leaving external ids as an empty projection.
+- Manual, Semantic Scholar, Deep Search artifact, and BibTeX metadata imports now use `SourceDataService.import_source`, so metadata dedupe, citation-key uniqueness, external-id upsert, and Source projection serialization are owned by DataService. PDF upload/preprocess remains the final Source adapter slice.
 - Reference BibTeX build, citation validation, and Prism sync now read canonical Source metadata through Source DataService; Source curation state is reflected in exported `refs.bib`.
 - Chat/LangGraph citation and literature-context middleware now receives Source DataService projections from FastAPI and Celery run entrypoints, parses LaTeX `\cite{...}` keys, and records usage through Source citation usage/provenance commands. Legacy `search_in_workspace` / `record_reference_usage` fallback has been removed.
 - Reference evidence-pack assembly is now a canonical `SourceDataService.build_evidence_pack` contract over Source library outlines and Source text-unit search results; the gateway no longer exports or calls `ReferenceEvidenceService`.
@@ -1107,7 +1108,7 @@ Implementation status as of 2026-05-21:
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Source curation/evidence/indexer/asset slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1934 backend tests.
+- Verification through the Source curation/evidence/indexer/asset slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1935 backend tests.
 
 ### Phase 4: Review Materialization
 

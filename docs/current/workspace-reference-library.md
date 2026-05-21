@@ -67,7 +67,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 服务层：
 
 - `SourceDataService`：CRUD、去重、citation key 唯一性、详情响应、evidence pack、citation usage。
-- `ReferenceImportService`：Semantic Scholar、BibTeX、deep search artifact、manual、PDF upload 导入。
+- `ReferenceImportService`：PDF upload adapter；manual、Semantic Scholar、BibTeX、deep search artifact metadata 导入已委托 `SourceDataService.import_source`。
 - `ReferencePreprocessService`：PDF 预处理、outline/text units 写入。
 - Source outline/text-unit APIs：outline-first 检索与 page/content 读取。
 - `ReferenceBibTeXService`：BibTeX 生成、citation validation、Prism sync。

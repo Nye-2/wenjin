@@ -65,6 +65,11 @@ class SourceExternalIdCreateCommand(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class SourceImportCommand(SourceCreateCommand):
+    external_ids: list[SourceExternalIdCreateCommand] = Field(default_factory=list)
+    dedupe_by_title: bool = True
+
+
 class SourceProjection(BaseModel):
     id: str
     workspace_id: str
@@ -102,6 +107,12 @@ class SourceBibliographyCreateCommand(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     include_deleted: bool = False
     include_excluded: bool = False
+
+
+class SourceImportProjection(BaseModel):
+    source: SourceProjection
+    created: bool
+    external_ids: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SourceBibliographyProjection(BaseModel):

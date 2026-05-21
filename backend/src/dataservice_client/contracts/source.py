@@ -65,6 +65,11 @@ class SourceExternalIdCreatePayload(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class SourceImportPayload(SourceCreatePayload):
+    external_ids: list[SourceExternalIdCreatePayload] = Field(default_factory=list)
+    dedupe_by_title: bool = True
+
+
 class SourcePayload(SourceCreatePayload):
     id: str
     normalized_title: str
@@ -77,6 +82,12 @@ class SourceBibliographyCreatePayload(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     include_deleted: bool = False
     include_excluded: bool = False
+
+
+class SourceImportResultPayload(BaseModel):
+    source: SourcePayload
+    created: bool
+    external_ids: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SourceBibliographyPayload(BaseModel):
