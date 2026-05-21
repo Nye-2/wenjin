@@ -61,10 +61,17 @@ class LiteratureContextMiddleware(Middleware):
         if not workspace_id:
             return {}
 
-        # Get TOC summary for workspace (run inside savepoint so failures
-        # don't poison the outer transaction)
+        # Get TOC summary for workspace. Legacy index services expose ``db``
+        # for savepoints; DataService projections do not need that coupling.
         try:
-            async with self.index_service.db.begin_nested():
+            begin_nested = getattr(getattr(self.index_service, "db", None), "begin_nested", None)
+            if callable(begin_nested):
+                async with begin_nested():
+                    toc_summary = await asyncio.wait_for(
+                        self.index_service.get_workspace_toc_summary(workspace_id),
+                        timeout=self._timeout,
+                    )
+            else:
                 toc_summary = await asyncio.wait_for(
                     self.index_service.get_workspace_toc_summary(workspace_id),
                     timeout=self._timeout,

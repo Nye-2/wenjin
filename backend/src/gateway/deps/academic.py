@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.artifact_service import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService
+from src.dataservice.source_api import SourceDataService
 from src.gateway.deps.core import get_db
-from src.services.references import ReferenceIndexService, WorkspaceReferenceService
+from src.services.references import WorkspaceReferenceService
 
 if TYPE_CHECKING:
     from src.services.template_service import TemplateService
@@ -39,9 +40,9 @@ async def get_reference_service(
 
 async def get_reference_index_service(
     db: AsyncSession = Depends(get_db),
-) -> ReferenceIndexService:
-    """Get reference index service instance."""
-    return ReferenceIndexService(db)
+) -> SourceDataService:
+    """Get Source DataService projection adapter for literature indexing."""
+    return SourceDataService(db, autocommit=False)
 
 
 async def get_template_service(
