@@ -23,6 +23,7 @@ from src.dataservice_client.contracts.asset import (
     WorkspaceAssetPayload,
     WorkspaceAssetUpdatePayload,
 )
+from src.dataservice_client.contracts.audit import AuditLogCreatePayload, AuditLogPayload
 from src.dataservice_client.contracts.catalog import (
     CapabilityDefinitionPayload,
     CapabilitySkillPayload,
@@ -162,6 +163,37 @@ class AsyncDataServiceClient:
 
     async def readyz(self) -> dict[str, Any]:
         return await self._request("GET", "/readyz", authenticated=False)
+
+    async def create_audit_log(
+        self,
+        command: AuditLogCreatePayload,
+    ) -> AuditLogPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/audit/logs",
+            json=command.model_dump(mode="json"),
+        )
+        return AuditLogPayload.model_validate(payload["data"])
+
+    async def query_audit_logs(
+        self,
+        *,
+        workspace_id: str | None = None,
+        user_id: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[AuditLogPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/audit/logs",
+            params={
+                "workspace_id": workspace_id,
+                "user_id": user_id,
+                "since": since.isoformat() if since else None,
+                "limit": limit,
+            },
+        )
+        return [AuditLogPayload.model_validate(item) for item in payload["data"]]
 
     async def create_account_user(
         self,

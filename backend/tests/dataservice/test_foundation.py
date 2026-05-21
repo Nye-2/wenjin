@@ -26,6 +26,7 @@ from src.dataservice_client.contracts.account import (
     AccountUserRolePayload,
     AccountUserStatusPayload,
 )
+from src.dataservice_client.contracts.audit import AuditLogCreatePayload
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagesRebuildPayload,
@@ -345,6 +346,65 @@ async def test_dataservice_client_account_contract_methods() -> None:
         ("PATCH", "/internal/v1/account/users/user-2/status", {"is_active": False}),
         ("PATCH", "/internal/v1/account/users/user-2/role", {"role": "admin"}),
         ("GET", "/internal/v1/account/growth", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_audit_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def audit_payload() -> dict[str, Any]:
+        return {
+            "id": 1,
+            "action": "thread.create",
+            "user_id": "user-1",
+            "workspace_id": "workspace-1",
+            "target_type": "thread",
+            "target_id": "thread-1",
+            "payload": {},
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        data = [audit_payload()] if request.method == "GET" else audit_payload()
+        return httpx.Response(200, json={"status": "ok", "data": data})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        created = await client.create_audit_log(
+            AuditLogCreatePayload(
+                action="thread.create",
+                user_id="user-1",
+                workspace_id="workspace-1",
+                target_type="thread",
+                target_id="thread-1",
+            )
+        )
+        listed = await client.query_audit_logs(workspace_id="workspace-1")
+
+    assert created.id == 1
+    assert listed[0].action == "thread.create"
+    assert seen == [
+        (
+            "POST",
+            "/internal/v1/audit/logs",
+            {
+                "action": "thread.create",
+                "user_id": "user-1",
+                "workspace_id": "workspace-1",
+                "target_type": "thread",
+                "target_id": "thread-1",
+                "payload": {},
+                "ip": None,
+                "ua": None,
+            },
+        ),
+        ("GET", "/internal/v1/audit/logs", None),
     ]
 
 
