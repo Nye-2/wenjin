@@ -9,7 +9,7 @@ import re
 from collections import Counter
 from typing import Any, cast
 
-from src.dataservice.knowledge_api import normalize_knowledge_category
+from src.dataservice_client.contracts.knowledge import normalize_knowledge_category
 
 logger = logging.getLogger(__name__)
 _SIMILARITY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")

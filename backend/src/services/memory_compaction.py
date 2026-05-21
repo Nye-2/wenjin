@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any, cast
 
-from src.dataservice.knowledge_api import (
+from src.dataservice_client.contracts.knowledge import (
     KNOWLEDGE_CATEGORY_CONTEXT,
     KNOWLEDGE_CATEGORY_PREFERENCE,
     normalize_knowledge_category,
@@ -202,10 +202,9 @@ async def compact_user_memory(
                 "skipped_reason": "empty_compaction_result",
             }
 
-        # Deactivate all current entries
+        # Deactivate all current entries through DataService.
         for entry in entries:
-            entry.is_active = False
-        await db.flush()
+            await service.update(entry.id, is_active=False)
 
         # Write compacted entries
         count = 0
@@ -231,7 +230,6 @@ async def compact_user_memory(
                 workspace_context=workspace_context,
             )
 
-        await db.commit()
         return {
             "compacted_count": count,
             "archived_count": len(entries),

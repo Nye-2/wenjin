@@ -6,6 +6,17 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+KNOWLEDGE_CATEGORIES = ("preference", "knowledge", "context", "behavior", "goal")
+KNOWLEDGE_CATEGORY_PREFERENCE = "preference"
+KNOWLEDGE_CATEGORY_CONTEXT = "context"
+
+
+def normalize_knowledge_category(category: object) -> str:
+    value = category.value if hasattr(category, "value") else str(category)
+    if value not in KNOWLEDGE_CATEGORIES:
+        raise ValueError(value)
+    return value
+
 
 class KnowledgeMemoryPayload(BaseModel):
     id: str

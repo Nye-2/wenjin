@@ -80,6 +80,7 @@ class TestCompactUserMemory:
 
         entries = [
             SimpleNamespace(
+                id=f"k-{index}",
                 category=KnowledgeCategory.CONTEXT,
                 content=f"entry-{index}",
                 confidence=0.7,
@@ -122,6 +123,7 @@ class TestCompactUserMemory:
         )
         entries = [
             SimpleNamespace(
+                id=f"k-{index}",
                 category=KnowledgeCategory.CONTEXT,
                 content=f"entry-{index}",
                 confidence=0.7,
@@ -171,6 +173,7 @@ class TestCompactUserMemory:
         )
         entries = [
             SimpleNamespace(
+                id="k-pref",
                 category=KnowledgeCategory.PREFERENCE,
                 content="用户偏好 IEEE 引用格式",
                 confidence=0.9,
@@ -178,6 +181,7 @@ class TestCompactUserMemory:
             ),
             *[
                 SimpleNamespace(
+                    id=f"k-{index}",
                     category=KnowledgeCategory.CONTEXT,
                     content=f"entry-{index}",
                     confidence=0.7,
@@ -190,10 +194,12 @@ class TestCompactUserMemory:
         with patch("src.services.knowledge_service.KnowledgeService") as MockService:
             mock_svc = MockService.return_value
             mock_svc.list_active = AsyncMock(return_value=entries)
+            mock_svc.update = AsyncMock()
             mock_svc.upsert = AsyncMock()
 
             result = await compact_user_memory("user1")
 
         assert result["archived_count"] == 10
+        assert mock_svc.update.await_count == 10
         persisted_contents = [call.args[2] for call in mock_svc.upsert.await_args_list]
         assert "用户偏好 IEEE 引用格式" in persisted_contents

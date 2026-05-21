@@ -1,10 +1,10 @@
-"""Tests for KnowledgeService."""
+"""Tests for KnowledgeService DataService facade."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from src.database.models.knowledge import KnowledgeCategory, UserKnowledge
+from src.database.models.knowledge import KnowledgeCategory
 from src.services.knowledge_service import KnowledgeService
 
 pytestmark = pytest.mark.asyncio
@@ -12,261 +12,132 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_db():
-    db = AsyncMock()
-    db.flush = AsyncMock()
-    db.add = MagicMock()
-    db.commit = AsyncMock()
-    db.refresh = AsyncMock()
-    db.delete = AsyncMock()
-    return db
+    return AsyncMock()
 
 
 @pytest.fixture
-def service(mock_db):
-    return KnowledgeService(mock_db)
+def dataservice():
+    return AsyncMock()
 
 
-class TestListActive:
-    async def test_returns_list(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute.return_value = mock_result
-        result = await service.list_active("user1")
-        assert result == []
-
-    async def test_respects_min_confidence(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute.return_value = mock_result
-        await service.list_active("user1", min_confidence=0.8)
-        mock_db.execute.assert_called_once()
-
-    async def test_scopes_to_workspace_and_global_when_workspace_provided(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute.return_value = mock_result
-
-        await service.list_active("user1", workspace_context="ws-1")
-
-        stmt = mock_db.execute.call_args.args[0]
-        rendered = str(stmt)
-        assert "workspace_context = :workspace_context_1" in rendered
-        assert "workspace_context IS NULL" in rendered
-
-    async def test_can_scope_to_workspace_without_global_entries(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute.return_value = mock_result
-
-        await service.list_active(
-            "user1",
-            workspace_context="ws-1",
-            include_global=False,
-        )
-
-        stmt = mock_db.execute.call_args.args[0]
-        rendered = str(stmt)
-        assert "workspace_context = :workspace_context_1" in rendered
-        assert "workspace_context IS NULL" not in rendered
-
-    async def test_scopes_to_global_only_without_workspace_context(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db.execute.return_value = mock_result
-
-        await service.list_active("user1", workspace_context=None)
-
-        stmt = mock_db.execute.call_args.args[0]
-        rendered = str(stmt)
-        assert "workspace_context IS NULL" in rendered
+@pytest.fixture
+def service(mock_db, dataservice):
+    return KnowledgeService(mock_db, dataservice=dataservice)
 
 
-class TestUpsert:
-    async def test_creates_new_entry(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mock_result
-        entry = await service.upsert(
-            "user1",
-            KnowledgeCategory.PREFERENCE,
-            "Prefers APA",
-            confidence=0.9,
-            source="test",
-        )
-        mock_db.add.assert_called_once()
-        assert entry.content == "Prefers APA"
+async def test_create_uses_dataservice_payload(service, dataservice, mock_db):
+    dataservice.create_knowledge_memory.return_value = {"id": "k-1"}
 
-    async def test_boosts_existing_confidence(self, service, mock_db):
-        existing = UserKnowledge(
-            user_id="user1",
-            category=KnowledgeCategory.PREFERENCE,
-            content="Prefers APA",
-            confidence=0.7,
-        )
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = existing
-        mock_db.execute.return_value = mock_result
-        result = await service.upsert(
-            "user1",
-            KnowledgeCategory.PREFERENCE,
-            "Prefers APA",
-        )
-        assert result.confidence == pytest.approx(0.8)
+    result = await service.create(
+        user_id="user1",
+        category=KnowledgeCategory.CONTEXT,
+        content="test content",
+        confidence=0.6,
+        workspace_context="ws-1",
+    )
 
-    async def test_duplicate_lookup_includes_workspace_context(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mock_result
-
-        await service.upsert(
-            "user1",
-            KnowledgeCategory.CONTEXT,
-            "Opening report uploaded",
-            workspace_context="ws-1",
-        )
-
-        stmt = mock_db.execute.call_args.args[0]
-        assert "workspace_context" in str(stmt)
-        assert "= :workspace_context_1" in str(stmt)
-
-    async def test_global_duplicate_lookup_requires_null_workspace_context(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mock_result
-
-        await service.upsert(
-            "user1",
-            KnowledgeCategory.CONTEXT,
-            "Global preference",
-            workspace_context=None,
-        )
-
-        stmt = mock_db.execute.call_args.args[0]
-        assert "workspace_context IS NULL" in str(stmt)
+    assert result == {"id": "k-1"}
+    command = dataservice.create_knowledge_memory.await_args.args[0]
+    assert command.user_id == "user1"
+    assert command.category == "context"
+    assert command.content == "test content"
+    assert command.workspace_context == "ws-1"
+    mock_db.commit.assert_not_awaited()
 
 
-class TestArchiveLowConfidence:
-    async def test_deactivates_below_threshold(self, service, mock_db):
-        entry = UserKnowledge(
-            user_id="user1",
-            category=KnowledgeCategory.CONTEXT,
-            content="old context",
-            confidence=0.3,
-            is_active=True,
-        )
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [entry]
-        mock_db.execute.return_value = mock_result
-        count = await service.archive_low_confidence("user1", threshold=0.5)
-        assert count == 1
-        assert entry.is_active is False
+async def test_list_by_user_normalizes_category(service, dataservice):
+    dataservice.list_user_knowledge_memory.return_value = []
+
+    result = await service.list_by_user(
+        "user1",
+        category=KnowledgeCategory.PREFERENCE,
+        min_confidence=0.7,
+        active_only=False,
+    )
+
+    assert result == []
+    dataservice.list_user_knowledge_memory.assert_awaited_once_with(
+        user_id="user1",
+        category="preference",
+        min_confidence=0.7,
+        active_only=False,
+    )
 
 
-class TestCountActive:
-    async def test_returns_count(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalar_one.return_value = 42
-        mock_db.execute.return_value = mock_result
-        count = await service.count_active("user1")
-        assert count == 42
+async def test_update_delegates_without_gateway_commit(service, dataservice, mock_db):
+    dataservice.update_knowledge_memory.return_value = {"id": "k-1", "content": "new"}
 
-    async def test_can_count_exact_workspace_scope(self, service, mock_db):
-        mock_result = MagicMock()
-        mock_result.scalar_one.return_value = 3
-        mock_db.execute.return_value = mock_result
+    result = await service.update("k-1", content="new", confidence=0.9, is_active=False)
 
-        count = await service.count_active(
-            "user1",
-            workspace_context="ws-1",
-            include_global=False,
-        )
-
-        assert count == 3
-        stmt = mock_db.execute.call_args.args[0]
-        rendered = str(stmt)
-        assert "workspace_context = :workspace_context_1" in rendered
-        assert "workspace_context IS NULL" not in rendered
+    assert result == {"id": "k-1", "content": "new"}
+    command = dataservice.update_knowledge_memory.await_args.args[1]
+    assert command.content == "new"
+    assert command.confidence == 0.9
+    assert command.is_active is False
+    mock_db.commit.assert_not_awaited()
 
 
-class TestCrudCompatibility:
-    async def test_create_commits_and_refreshes(self, service, mock_db):
-        entry = await service.create(
-            user_id="user1",
-            category="context",
-            content="test content",
-            confidence=0.6,
-        )
-        mock_db.add.assert_called_once_with(entry)
-        mock_db.commit.assert_awaited_once()
-        mock_db.refresh.assert_awaited_once_with(entry)
-        assert entry.category == KnowledgeCategory.CONTEXT
+async def test_delete_and_deactivate_delegate_to_dataservice(service, dataservice):
+    dataservice.deactivate_knowledge_memory.return_value = True
+    dataservice.delete_knowledge_memory.return_value = True
 
-    async def test_get_returns_entry(self, service, mock_db):
-        expected = UserKnowledge(
-            user_id="user1",
-            category=KnowledgeCategory.KNOWLEDGE,
-            content="known fact",
-            confidence=0.7,
-        )
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = expected
-        mock_db.execute.return_value = mock_result
+    assert await service.deactivate("k-1") is True
+    assert await service.delete("k-1") is True
 
-        result = await service.get("k-1")
-        assert result is expected
+    dataservice.deactivate_knowledge_memory.assert_awaited_once_with("k-1")
+    dataservice.delete_knowledge_memory.assert_awaited_once_with("k-1")
 
-    async def test_update_returns_none_when_missing(self, service):
-        service.get = AsyncMock(return_value=None)
-        result = await service.update("missing-id", content="new")
-        assert result is None
 
-    async def test_update_persists_changes(self, service, mock_db):
-        entry = UserKnowledge(
-            user_id="user1",
-            category=KnowledgeCategory.CONTEXT,
-            content="old",
-            confidence=0.4,
-            is_active=True,
-        )
-        service.get = AsyncMock(return_value=entry)
+async def test_list_active_delegates_scope(service, dataservice):
+    dataservice.list_active_knowledge_memory.return_value = []
 
-        result = await service.update("k-1", content="new", confidence=0.9, is_active=False)
-        assert result is entry
-        assert entry.content == "new"
-        assert entry.confidence == 0.9
-        assert entry.is_active is False
-        mock_db.commit.assert_awaited_once()
-        mock_db.refresh.assert_awaited_once_with(entry)
+    result = await service.list_active(
+        "user1",
+        workspace_context="ws-1",
+        include_global=False,
+        min_confidence=0.8,
+        limit=5,
+    )
 
-    async def test_deactivate_when_missing(self, service):
-        service.get = AsyncMock(return_value=None)
-        assert await service.deactivate("missing-id") is False
+    assert result == []
+    dataservice.list_active_knowledge_memory.assert_awaited_once_with(
+        user_id="user1",
+        workspace_context="ws-1",
+        include_global=False,
+        min_confidence=0.8,
+        limit=5,
+    )
 
-    async def test_deactivate_success(self, service, mock_db):
-        entry = UserKnowledge(
-            user_id="user1",
-            category=KnowledgeCategory.CONTEXT,
-            content="content",
-            confidence=0.5,
-            is_active=True,
-        )
-        service.get = AsyncMock(return_value=entry)
-        assert await service.deactivate("k-1") is True
-        assert entry.is_active is False
-        mock_db.commit.assert_awaited_once()
 
-    async def test_delete_when_missing(self, service):
-        service.get = AsyncMock(return_value=None)
-        assert await service.delete("missing-id") is False
+async def test_upsert_normalizes_category(service, dataservice):
+    dataservice.upsert_knowledge_memory.return_value = {"id": "k-1"}
 
-    async def test_delete_success(self, service, mock_db):
-        entry = UserKnowledge(
-            user_id="user1",
-            category=KnowledgeCategory.CONTEXT,
-            content="content",
-            confidence=0.5,
-        )
-        service.get = AsyncMock(return_value=entry)
-        assert await service.delete("k-1") is True
-        mock_db.delete.assert_awaited_once_with(entry)
-        mock_db.commit.assert_awaited_once()
+    await service.upsert(
+        "user1",
+        KnowledgeCategory.PREFERENCE,
+        "Prefers APA",
+        confidence=0.9,
+        source="test",
+    )
+
+    command = dataservice.upsert_knowledge_memory.await_args.args[0]
+    assert command.category == "preference"
+    assert command.content == "Prefers APA"
+
+
+async def test_archive_and_count_delegate(service, dataservice):
+    dataservice.archive_low_confidence_knowledge_memory.return_value = 3
+    dataservice.count_active_knowledge_memory.return_value = 42
+
+    archived = await service.archive_low_confidence("user1", threshold=0.4)
+    count = await service.count_active("user1", workspace_context="ws-1", include_global=False)
+
+    assert archived == 3
+    archive_command = dataservice.archive_low_confidence_knowledge_memory.await_args.kwargs["command"]
+    assert archive_command.threshold == 0.4
+    assert count == 42
+    dataservice.count_active_knowledge_memory.assert_awaited_once_with(
+        user_id="user1",
+        workspace_context="ws-1",
+        include_global=False,
+    )
