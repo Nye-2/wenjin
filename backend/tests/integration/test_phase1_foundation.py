@@ -252,14 +252,14 @@ async def test_room_services_boot(db_session):
     """Room adapters and DataService room/execution projections boot without error."""
     from src.dataservice.execution_api import ExecutionDataService
     from src.dataservice.rooms_api import RoomsDataService
+    from src.dataservice.workspace_api import WorkspaceDataService
     from src.services.rooms.documents_service import DocumentsService
     from src.services.rooms.library_service import LibraryService
     from src.services.rooms.sandbox_service import SandboxService
-    from src.services.rooms.settings_service import WorkspaceSettingsService
 
     LibraryService(db_session)
     DocumentsService(db_session)
     RoomsDataService(db_session)
     ExecutionDataService(db_session)
     SandboxService(db_session)
-    WorkspaceSettingsService(db_session)
+    WorkspaceDataService(db_session)

@@ -222,7 +222,7 @@ Current scattered logic:
 - `thread_service.py`
 - `workspace_summary_service.py`
 - workspace access checks in gateway routers
-- settings room service
+- former settings room service
 
 Target commands:
 
@@ -240,6 +240,11 @@ Invariants:
 - Active thread must belong to the same workspace.
 - Settings row is 1:1 with workspace.
 - Workspace type is immutable after creation unless an admin migration command changes it.
+
+Implementation checkpoint, 2026-05-21:
+
+- Workspace settings room endpoints now call `WorkspaceDataService` directly.
+- The former `services/rooms/settings_service.py` facade has been deleted.
 
 ### 6.1.1 Conversation Domain
 

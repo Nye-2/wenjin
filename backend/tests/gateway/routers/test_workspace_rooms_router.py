@@ -416,8 +416,8 @@ class TestSettingsRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.get_or_create = AsyncMock(return_value=fake_settings)
-            mp.setattr(workspace_rooms, "_settings_service", lambda db: mock_svc)
+            mock_svc.get_or_create_workspace_settings = AsyncMock(return_value=fake_settings)
+            mp.setattr(workspace_rooms, "_workspace_data_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/settings")
 
         assert resp.status_code == 200

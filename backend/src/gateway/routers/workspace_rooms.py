@@ -25,6 +25,7 @@ from src.dataservice.rooms_api import (
     WorkspaceTaskCreateCommand,
     WorkspaceTaskUpdateCommand,
 )
+from src.dataservice.workspace_api import WorkspaceDataService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_db, get_workspace_service
 
@@ -32,7 +33,6 @@ if TYPE_CHECKING:
     from src.dataservice.execution_api import ExecutionDataService
     from src.services.rooms.documents_service import DocumentsService
     from src.services.rooms.library_service import LibraryService
-    from src.services.rooms.settings_service import WorkspaceSettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +93,8 @@ def _execution_history_service(db: AsyncSession) -> ExecutionDataService:
     return ExecutionDataService(db)
 
 
-def _settings_service(db: AsyncSession) -> WorkspaceSettingsService:
-    from src.services.rooms.settings_service import WorkspaceSettingsService
-
-    return WorkspaceSettingsService(db)
+def _workspace_data_service(db: AsyncSession) -> WorkspaceDataService:
+    return WorkspaceDataService(db)
 
 
 # ---------------------------------------------------------------------------
@@ -607,7 +605,7 @@ async def get_workspace_settings(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    settings = await _settings_service(db).get_or_create(ws_id)
+    settings = await _workspace_data_service(db).get_or_create_workspace_settings(ws_id)
     return _row_to_dict(settings)
 
 
@@ -621,11 +619,12 @@ async def update_workspace_settings(
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     data = body.model_dump(exclude_none=True)
-    updated = await _settings_service(db).update(ws_id, **data)
+    workspace_data = _workspace_data_service(db)
+    updated = await workspace_data.update_workspace_settings(ws_id, **data)
     if updated is None:
         # Settings row didn't exist yet — create with defaults then apply
-        await _settings_service(db).get_or_create(ws_id)
-        updated = await _settings_service(db).update(ws_id, **data)
+        await workspace_data.get_or_create_workspace_settings(ws_id)
+        updated = await workspace_data.update_workspace_settings(ws_id, **data)
     return _row_to_dict(updated)
 
 
