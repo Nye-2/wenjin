@@ -48,6 +48,10 @@ from src.dataservice_client.contracts.execution import (
     ExecutionNodeUpsertPayload,
 )
 from src.dataservice_client.contracts.provenance import ProvenanceLinkCreatePayload
+from src.dataservice_client.contracts.template import (
+    WorkspaceTemplateCreatePayload,
+    WorkspaceTemplateDeactivatePayload,
+)
 from src.dataservice_client.contracts.workspace import WorkspaceCreatePayload, WorkspaceUpdatePayload
 
 
@@ -405,6 +409,88 @@ async def test_dataservice_client_audit_contract_methods() -> None:
             },
         ),
         ("GET", "/internal/v1/audit/logs", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_template_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def template_payload(template_id: str = "template-1") -> dict[str, Any]:
+        return {
+            "id": template_id,
+            "workspace_id": "workspace-1",
+            "name": "Template",
+            "category": "thesis",
+            "source_type": "upload",
+            "structure": {},
+            "format_spec": {},
+            "content_guidelines": {},
+            "is_active": True,
+            "is_builtin": False,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if path.endswith("/deactivate-active"):
+            return httpx.Response(200, json={"status": "ok", "data": {"deactivated": True}})
+        if request.method == "GET" and path == "/internal/v1/templates/workspaces/workspace-1":
+            return httpx.Response(200, json={"status": "ok", "data": [template_payload()]})
+        return httpx.Response(200, json={"status": "ok", "data": template_payload("template-2")})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        active = await client.get_active_workspace_template("workspace-1")
+        listed = await client.list_workspace_templates("workspace-1")
+        created = await client.create_workspace_template(
+            WorkspaceTemplateCreatePayload(
+                workspace_id="workspace-1",
+                name="Template",
+                category="thesis",
+                source_type="upload",
+            )
+        )
+        deactivated = await client.deactivate_active_workspace_templates(
+            "workspace-1",
+            WorkspaceTemplateDeactivatePayload(exclude_template_id="template-2"),
+        )
+        fetched = await client.get_workspace_template("template-2")
+
+    assert active is not None and active.id == "template-2"
+    assert listed[0].id == "template-1"
+    assert created is not None and created.id == "template-2"
+    assert deactivated is True
+    assert fetched is not None and fetched.id == "template-2"
+    assert seen == [
+        ("GET", "/internal/v1/templates/workspaces/workspace-1/active", None),
+        ("GET", "/internal/v1/templates/workspaces/workspace-1", None),
+        (
+            "POST",
+            "/internal/v1/templates",
+            {
+                "workspace_id": "workspace-1",
+                "name": "Template",
+                "category": "thesis",
+                "source_type": "upload",
+                "source_file_path": None,
+                "structure": {},
+                "format_spec": {},
+                "content_guidelines": {},
+                "latex_preamble": None,
+            },
+        ),
+        (
+            "POST",
+            "/internal/v1/templates/workspaces/workspace-1/deactivate-active",
+            {"exclude_template_id": "template-2"},
+        ),
+        ("GET", "/internal/v1/templates/template-2", None),
     ]
 
 

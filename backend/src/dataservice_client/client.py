@@ -122,6 +122,11 @@ from src.dataservice_client.contracts.source import (
     SourcePayload,
     SourceUpdatePayload,
 )
+from src.dataservice_client.contracts.template import (
+    WorkspaceTemplateCreatePayload,
+    WorkspaceTemplateDeactivatePayload,
+    WorkspaceTemplatePayload,
+)
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
     WorkspacePayload,
@@ -194,6 +199,54 @@ class AsyncDataServiceClient:
             },
         )
         return [AuditLogPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_workspace_template(
+        self,
+        template_id: str,
+    ) -> WorkspaceTemplatePayload | None:
+        payload = await self._request("GET", f"/internal/v1/templates/{template_id}")
+        data = payload.get("data")
+        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
+
+    async def get_active_workspace_template(
+        self,
+        workspace_id: str,
+    ) -> WorkspaceTemplatePayload | None:
+        payload = await self._request("GET", f"/internal/v1/templates/workspaces/{workspace_id}/active")
+        data = payload.get("data")
+        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
+
+    async def list_workspace_templates(
+        self,
+        workspace_id: str,
+    ) -> list[WorkspaceTemplatePayload]:
+        payload = await self._request("GET", f"/internal/v1/templates/workspaces/{workspace_id}")
+        return [WorkspaceTemplatePayload.model_validate(item) for item in payload["data"]]
+
+    async def create_workspace_template(
+        self,
+        command: WorkspaceTemplateCreatePayload,
+    ) -> WorkspaceTemplatePayload | None:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/templates",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
+
+    async def deactivate_active_workspace_templates(
+        self,
+        workspace_id: str,
+        command: WorkspaceTemplateDeactivatePayload | None = None,
+    ) -> bool:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/templates/workspaces/{workspace_id}/deactivate-active",
+            json=(command or WorkspaceTemplateDeactivatePayload()).model_dump(mode="json"),
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deactivated")) if isinstance(data, dict) else False
 
     async def create_account_user(
         self,
