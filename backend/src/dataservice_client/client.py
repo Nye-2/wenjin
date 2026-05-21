@@ -679,6 +679,26 @@ class AsyncDataServiceClient:
         )
         return [SourcePayload.model_validate(item) for item in payload["data"]]
 
+    async def count_sources(
+        self,
+        *,
+        workspace_id: str,
+        library_status: str | None = None,
+        include_deleted: bool = False,
+        include_excluded: bool = False,
+    ) -> int:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sources/count",
+            params={
+                "workspace_id": workspace_id,
+                "library_status": library_status,
+                "include_deleted": include_deleted,
+                "include_excluded": include_excluded,
+            },
+        )
+        return int(payload["data"]["count"])
+
     async def get_source(self, source_id: str) -> SourcePayload | None:
         payload = await self._request("GET", f"/internal/v1/sources/{source_id}")
         data = payload.get("data")

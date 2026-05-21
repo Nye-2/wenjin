@@ -94,6 +94,23 @@ class FakeSourceRepository:
             records = [record for record in records if not record.is_deleted]
         return records[:limit]
 
+    async def count_sources(
+        self,
+        *,
+        workspace_id: str,
+        library_status: str | None = None,
+        include_deleted: bool = False,
+        include_excluded: bool = False,
+    ) -> int:
+        records = [record for record in self.sources.values() if record.workspace_id == workspace_id]
+        if library_status is not None:
+            records = [record for record in records if record.library_status == library_status]
+        elif not include_excluded:
+            records = [record for record in records if record.library_status != "excluded"]
+        if not include_deleted:
+            records = [record for record in records if not record.is_deleted]
+        return len(records)
+
     async def list_sources_by_citation_keys(
         self,
         *,
@@ -205,6 +222,32 @@ async def test_source_service_normalizes_title_and_lists_active_sources() -> Non
     assert created.normalized_title == "attention is all you need"
     assert listed[0].citation_key == "vaswani2017"
     assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_source_service_counts_sources_by_library_status() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    for citation_key, status in (
+        ("core2026", "core"),
+        ("included2026", "included"),
+        ("excluded2026", "excluded"),
+    ):
+        await service.create_source(
+            SourceCreateCommand(
+                workspace_id="ws-1",
+                title=citation_key,
+                citation_key=citation_key,
+                library_status=status,
+            )
+        )
+
+    assert await service.count_sources(workspace_id="ws-1") == 2
+    assert await service.count_sources(workspace_id="ws-1", library_status="core") == 1
+    assert await service.count_sources(workspace_id="ws-1", include_excluded=True) == 3
 
 
 @pytest.mark.asyncio

@@ -53,6 +53,24 @@ async def list_sources(
     return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
+@router.get("/sources/count")
+async def count_sources(
+    workspace_id: str = Query(),
+    library_status: str | None = Query(default=None),
+    include_deleted: bool = Query(default=False),
+    include_excluded: bool = Query(default=False),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    count = await service.count_sources(
+        workspace_id=workspace_id,
+        library_status=library_status,
+        include_deleted=include_deleted,
+        include_excluded=include_excluded,
+    )
+    return envelope_ok({"count": count})
+
+
 @router.post("/sources/citation-usage")
 async def record_source_citation_usage(
     command: SourceCitationUsageCreateCommand,

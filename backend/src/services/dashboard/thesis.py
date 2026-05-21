@@ -7,7 +7,8 @@ from typing import Any
 from sqlalchemy import func, select
 
 from src.artifacts.types import ArtifactType
-from src.database import Artifact, ReferenceLibraryStatus, WorkspaceReference
+from src.database import Artifact
+from src.dataservice.source_api import SourceDataService
 from src.services.dashboard.shared import DashboardStatusSharedMixin
 
 
@@ -63,23 +64,18 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         }
 
     async def _get_literature_management_status(self, workspace_id: str) -> dict[str, Any]:
-        total_result = await self.db.execute(
-            select(func.count()).where(
-                WorkspaceReference.workspace_id == workspace_id,
-                WorkspaceReference.is_deleted.is_(False),
-                WorkspaceReference.library_status != ReferenceLibraryStatus.EXCLUDED,
-            )
+        source_service = SourceDataService(self.db, autocommit=False)
+        total = await source_service.count_sources(
+            workspace_id=workspace_id,
+            include_deleted=False,
+            include_excluded=False,
         )
-        total = total_result.scalar() or 0
 
-        core_result = await self.db.execute(
-            select(func.count()).where(
-                WorkspaceReference.workspace_id == workspace_id,
-                WorkspaceReference.is_deleted.is_(False),
-                WorkspaceReference.library_status == ReferenceLibraryStatus.CORE,
-            )
+        core = await source_service.count_sources(
+            workspace_id=workspace_id,
+            library_status="core",
+            include_deleted=False,
         )
-        core = core_result.scalar() or 0
 
         running_count = await self._count_running_feature_executions(
             workspace_id,

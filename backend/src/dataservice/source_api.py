@@ -49,6 +49,21 @@ class SourceDataService:
             limit=limit,
         )
 
+    async def count_sources(
+        self,
+        *,
+        workspace_id: str,
+        library_status: str | None = None,
+        include_deleted: bool = False,
+        include_excluded: bool = False,
+    ) -> int:
+        return await self._domain.count_sources(
+            workspace_id=workspace_id,
+            library_status=library_status,
+            include_deleted=include_deleted,
+            include_excluded=include_excluded,
+        )
+
     async def list_sources_by_citation_keys(
         self,
         *,
