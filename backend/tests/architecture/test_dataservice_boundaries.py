@@ -21,6 +21,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.compute_session",
     "src.database.models.execution",
     "src.database.models.execution_node",
+    "src.database.models.prism",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
     "Decision",
@@ -34,6 +35,9 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "ComputeSessionRecord",
     "ExecutionRecord",
     "ExecutionNodeRecord",
+    "PrismReviewItem",
+    "PrismSourceLink",
+    "PrismProtectedSection",
 }
 MODEL_OWNER_PACKAGES = {
     "database",

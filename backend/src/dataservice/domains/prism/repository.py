@@ -13,6 +13,7 @@ from src.dataservice.domains.prism.models import (
     PrismFileRecord,
     PrismFileVersionRecord,
     PrismProjectRecord,
+    PrismProtectedScopeRecord,
 )
 
 
@@ -39,6 +40,11 @@ class PrismRepository:
 
     def create_file_version(self, values: dict[str, Any]) -> PrismFileVersionRecord:
         record = PrismFileVersionRecord(id=generate_uuid(), **values)
+        self.session.add(record)
+        return record
+
+    def create_protected_scope(self, values: dict[str, Any]) -> PrismProtectedScopeRecord:
+        record = PrismProtectedScopeRecord(id=generate_uuid(), **values)
         self.session.add(record)
         return record
 
@@ -115,6 +121,24 @@ class PrismRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_protected_scope(
+        self,
+        *,
+        project_id: str,
+        file_path: str,
+        section_key: str,
+        scope: str,
+    ) -> PrismProtectedScopeRecord | None:
+        result = await self.session.execute(
+            select(PrismProtectedScopeRecord).where(
+                PrismProtectedScopeRecord.project_id == project_id,
+                PrismProtectedScopeRecord.file_path == file_path,
+                PrismProtectedScopeRecord.section_key == section_key,
+                PrismProtectedScopeRecord.scope == scope,
+            )
+        )
+        return result.scalar_one_or_none()
+
     async def list_documents(self, project_id: str) -> list[PrismDocumentRecord]:
         result = await self.session.execute(
             select(PrismDocumentRecord)
@@ -131,6 +155,20 @@ class PrismRepository:
                 PrismFileRecord.deleted_at.is_(None),
             )
             .order_by(PrismFileRecord.sort_order.asc(), PrismFileRecord.path.asc())
+        )
+        return list(result.scalars().all())
+
+    async def list_protected_scopes(
+        self,
+        project_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[PrismProtectedScopeRecord]:
+        result = await self.session.execute(
+            select(PrismProtectedScopeRecord)
+            .where(PrismProtectedScopeRecord.project_id == project_id)
+            .order_by(PrismProtectedScopeRecord.updated_at.desc())
+            .limit(limit)
         )
         return list(result.scalars().all())
 

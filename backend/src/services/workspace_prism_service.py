@@ -13,10 +13,10 @@ from src.dataservice.execution_api import (
     ExecutionRunHistoryProjection,
 )
 from src.dataservice.prism_api import PrismDataService, build_latex_adapter_metadata
+from src.dataservice.provenance_api import ProvenanceDataService
 from src.dataservice.review_api import ReviewDataService, ReviewItemProjection
 from src.dataservice.rooms_api import MemoryFactProjection, RoomsDataService
 from src.services.prism_review_projection import prism_review_item_projection
-from src.services.prism_review_service import PrismReviewService
 from src.services.workspace_activity_contracts import (
     build_prism_review_activity_item,
     serialize_activity_item,
@@ -203,6 +203,27 @@ def _source_link_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _provenance_source_link_payload(item: Any, *, latex_project_id: str) -> dict[str, Any]:
+    target_ref = _json_object(getattr(item, "target_ref_json", None))
+    metadata = _json_object(getattr(item, "metadata_json", None))
+    logical_key = str(target_ref.get("logical_key") or metadata.get("section_key") or "")
+    file_path = str(target_ref.get("file_path") or metadata.get("file_path") or "")
+    return {
+        "id": str(getattr(item, "id", "")),
+        "workspace_id": str(getattr(item, "workspace_id", "")),
+        "latex_project_id": latex_project_id,
+        "review_item_id": getattr(item, "review_item_id", None),
+        "source_type": "source",
+        "source_id": str(getattr(item, "source_id", "") or ""),
+        "file_path": file_path,
+        "section_key": logical_key,
+        "quote": getattr(item, "claim_text", None),
+        "citation_key": getattr(item, "citation_key", None),
+        "usage": str(getattr(item, "relation_kind", None) or metadata.get("usage") or ""),
+        "created_at": _isoformat(getattr(item, "created_at", None)),
+    }
+
+
 def _protected_section_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(item.get("id") or ""),
@@ -210,6 +231,21 @@ def _protected_section_launch_payload(item: dict[str, Any]) -> dict[str, Any]:
         "section_key": item.get("section_key"),
         "scope": str(item.get("scope") or ""),
         "reason": item.get("reason"),
+    }
+
+
+def _protected_scope_payload(item: Any, *, latex_project_id: str) -> dict[str, Any]:
+    return {
+        "id": str(getattr(item, "id", "")),
+        "workspace_id": str(getattr(item, "workspace_id", "")),
+        "latex_project_id": latex_project_id,
+        "prism_project_id": str(getattr(item, "project_id", "")),
+        "file_path": str(getattr(item, "file_path", "")),
+        "section_key": str(getattr(item, "section_key", "") or ""),
+        "scope": str(getattr(item, "scope", "")),
+        "reason": getattr(item, "reason", None),
+        "source": str(getattr(item, "source", "")),
+        "updated_at": _isoformat(getattr(item, "updated_at", None)),
     }
 
 
@@ -331,9 +367,18 @@ class WorkspacePrismService:
             prism_review_item_projection(item)
             for item in [*pending_items, *applied_items]
         ]
-        review_service = PrismReviewService(self.db)
-        source_links = await review_service.list_project_source_links(project)
-        protected_sections = await review_service.list_project_protected_sections(project)
+        source_links = await self._list_source_links(
+            workspace_id=workspace_id,
+            latex_project_id=str(project.id),
+        )
+        protected_scopes = await PrismDataService(
+            self.db,
+            autocommit=False,
+        ).list_protected_scopes(str(surface.project.id))
+        protected_sections = [
+            _protected_scope_payload(item, latex_project_id=str(project.id))
+            for item in protected_scopes
+        ]
         decisions = await self._list_decisions(workspace_id)
         memory_preferences = await self._list_memory_preferences(workspace_id)
         recent_activity = await self._list_recent_activity(workspace_id)
@@ -440,6 +485,30 @@ class WorkspacePrismService:
             item
             for item in items
             if str(_review_target_ref(item).get("latex_project_id") or "") == latex_project_id
+        ]
+
+    async def _list_source_links(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        links = await ProvenanceDataService(
+            self.db,
+            autocommit=False,
+        ).list_links(
+            workspace_id=workspace_id,
+            target_domain="prism",
+            target_kind="prism_file_change",
+            relation_kind="cited",
+            limit=limit,
+        )
+        return [
+            _provenance_source_link_payload(item, latex_project_id=latex_project_id)
+            for item in links
+            if str(_json_object(item.target_ref_json).get("latex_project_id") or "")
+            == latex_project_id
         ]
 
     async def get_launch_context_projection(

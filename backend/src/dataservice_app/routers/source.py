@@ -75,7 +75,10 @@ async def list_provenance_links(
     workspace_id: str = Query(),
     source_id: str | None = Query(default=None),
     target_domain: str | None = Query(default=None),
+    target_kind: str | None = Query(default=None),
     target_id: str | None = Query(default=None),
+    review_item_id: str | None = Query(default=None),
+    relation_kind: str | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
@@ -84,7 +87,35 @@ async def list_provenance_links(
         workspace_id=workspace_id,
         source_id=source_id,
         target_domain=target_domain,
+        target_kind=target_kind,
         target_id=target_id,
+        review_item_id=review_item_id,
+        relation_kind=relation_kind,
         limit=limit,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.delete("/provenance/links")
+async def delete_provenance_links(
+    workspace_id: str = Query(),
+    source_id: str | None = Query(default=None),
+    target_domain: str | None = Query(default=None),
+    target_kind: str | None = Query(default=None),
+    target_id: str | None = Query(default=None),
+    review_item_id: str | None = Query(default=None),
+    relation_kind: str | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = ProvenanceDataDomainService(uow.required_session, autocommit=False)
+    deleted = await service.delete_links(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        target_domain=target_domain,
+        target_kind=target_kind,
+        target_id=target_id,
+        review_item_id=review_item_id,
+        relation_kind=relation_kind,
+    )
+    await uow.commit()
+    return envelope_ok({"deleted": deleted})

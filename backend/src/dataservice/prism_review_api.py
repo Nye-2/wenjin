@@ -2,21 +2,30 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCommand
 from src.dataservice.domains.review.contracts import (
     ReviewItemPatchCommand,
     ReviewItemProjection,
     ReviewItemTransitionCommand,
 )
+from src.dataservice.provenance_api import ProvenanceDataService
 from src.dataservice.review_api import ReviewDataService
+from src.dataservice.source_api import SourceDataService
 
 PRISM_REVIEW_TARGET_DOMAIN = "prism"
 PRISM_FILE_CHANGE_TARGET_KIND = "prism_file_change"
 PENDING_PRISM_FILE_CHANGE_STATUSES = ("pending", "accepted")
 APPLIED_PRISM_FILE_CHANGE_STATUSES = ("applied",)
+_SAFE_CITATION_KEY_RE = re.compile(r"^[A-Za-z0-9_:-]+$")
+_LATEX_CITE_RE = re.compile(
+    r"\\(?:cite|citep|citet|citealp|citealt|parencite|textcite|autocite|supercite)"
+    r"(?:\[[^\]]*\])*\{([^}]+)\}"
+)
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -52,10 +61,27 @@ def _matches_prism_file_change(
     )
 
 
+def _extract_citation_keys_from_text(text: str) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for match in _LATEX_CITE_RE.finditer(str(text or "")):
+        for raw_key in match.group(1).split(","):
+            key = raw_key.strip()
+            if not key or key == "*" or not _SAFE_CITATION_KEY_RE.fullmatch(key):
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
 class PrismReviewDataService:
     """Prism-targeted review operations backed by canonical review_items."""
 
     def __init__(self, session: AsyncSession, *, autocommit: bool = True) -> None:
+        self._session = session
+        self._autocommit = autocommit
         self._review = ReviewDataService(session, autocommit=autocommit)
 
     async def find_file_change(
@@ -143,6 +169,15 @@ class PrismReviewDataService:
             )
             if patched is None:
                 raise RuntimeError("Canonical Prism review item disappeared during patch")
+            await self._sync_citation_provenance_links(
+                item_id=patched.id,
+                workspace_id=workspace_id,
+                latex_project_id=latex_project_id,
+                logical_key=logical_key,
+                path=path,
+                pending_content=pending_content,
+                source_execution_id=source_execution_id,
+            )
             return patched
 
         detail = await self._review.create_batch_record(
@@ -177,7 +212,17 @@ class PrismReviewDataService:
                 }
             ],
         )
-        return detail.items[0]
+        created = detail.items[0]
+        await self._sync_citation_provenance_links(
+            item_id=created.id,
+            workspace_id=workspace_id,
+            latex_project_id=latex_project_id,
+            logical_key=logical_key,
+            path=path,
+            pending_content=pending_content,
+            source_execution_id=source_execution_id,
+        )
+        return created
 
     async def clear_pending_file_change(
         self,
@@ -196,6 +241,10 @@ class PrismReviewDataService:
             )
             if item is None:
                 return deleted
+            await self._delete_citation_provenance_links(
+                workspace_id=workspace_id,
+                review_item_id=item.id,
+            )
             deleted = await self._review.delete_item(
                 item.id,
                 reason="content_already_materialized",
@@ -204,6 +253,84 @@ class PrismReviewDataService:
                     "logical_key": logical_key,
                 },
             ) or deleted
+
+    async def _sync_citation_provenance_links(
+        self,
+        *,
+        item_id: str,
+        workspace_id: str,
+        latex_project_id: str,
+        logical_key: str,
+        path: str,
+        pending_content: str,
+        source_execution_id: str | None,
+    ) -> None:
+        await self._delete_citation_provenance_links(
+            workspace_id=workspace_id,
+            review_item_id=item_id,
+        )
+        citation_keys = [
+            key
+            for key in dict.fromkeys(_extract_citation_keys_from_text(pending_content))
+            if key
+        ]
+        if not citation_keys:
+            return
+
+        sources = await SourceDataService(
+            self._session,
+            autocommit=False,
+        ).list_sources(workspace_id=workspace_id, include_deleted=False, limit=1000)
+        source_by_key = {
+            source.citation_key: source
+            for source in sources
+            if source.citation_key in citation_keys
+        }
+        provenance = ProvenanceDataService(self._session, autocommit=self._autocommit)
+        for citation_key in citation_keys:
+            source = source_by_key.get(citation_key)
+            if source is None:
+                continue
+            await provenance.create_link(
+                ProvenanceLinkCreateCommand(
+                    workspace_id=workspace_id,
+                    source_id=source.id,
+                    target_domain=PRISM_REVIEW_TARGET_DOMAIN,
+                    target_kind=PRISM_FILE_CHANGE_TARGET_KIND,
+                    target_id=item_id,
+                    target_ref_json={
+                        "latex_project_id": latex_project_id,
+                        "logical_key": logical_key,
+                        "file_path": path,
+                    },
+                    relation_kind="cited",
+                    citation_key=citation_key,
+                    generated_text=pending_content,
+                    review_item_id=item_id,
+                    execution_id=source_execution_id,
+                    metadata_json={
+                        "usage": "cited",
+                        "section_key": logical_key,
+                    },
+                )
+            )
+
+    async def _delete_citation_provenance_links(
+        self,
+        *,
+        workspace_id: str,
+        review_item_id: str,
+    ) -> int:
+        return await ProvenanceDataService(
+            self._session,
+            autocommit=self._autocommit,
+        ).delete_links(
+            workspace_id=workspace_id,
+            target_domain=PRISM_REVIEW_TARGET_DOMAIN,
+            target_kind=PRISM_FILE_CHANGE_TARGET_KIND,
+            review_item_id=review_item_id,
+            relation_kind="cited",
+        )
 
     async def mark_applied_file_change(
         self,

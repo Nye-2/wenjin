@@ -14,6 +14,8 @@ from src.dataservice.domains.prism.contracts import (
     PrismFileVersionProjection,
     PrismPrimaryProjectCommand,
     PrismProjectProjection,
+    PrismProtectedScopeProjection,
+    PrismProtectedScopeUpsertCommand,
     PrismSurfaceProjection,
 )
 from src.dataservice.domains.prism.service import PrismDataDomainService
@@ -76,6 +78,48 @@ class PrismDataService:
         command: PrismFileVersionCreateCommand,
     ) -> PrismFileVersionProjection | None:
         return await self._domain.append_file_version(command)
+
+    async def upsert_protected_scope(
+        self,
+        command: PrismProtectedScopeUpsertCommand,
+    ) -> PrismProtectedScopeProjection:
+        return await self._domain.upsert_protected_scope(command)
+
+    async def upsert_latex_protected_scope(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        file_path: str,
+        section_key: str | None,
+        scope: str,
+        reason: str | None,
+        source: str,
+        metadata_json: dict[str, Any] | None = None,
+    ) -> PrismProtectedScopeProjection | None:
+        project = await self.get_primary_project(workspace_id)
+        if project is None or str(project.adapter_ref_id or "") != latex_project_id:
+            return None
+        return await self._domain.upsert_protected_scope(
+            PrismProtectedScopeUpsertCommand(
+                workspace_id=workspace_id,
+                project_id=project.id,
+                file_path=file_path,
+                section_key=str(section_key or ""),
+                scope=scope,
+                reason=reason,
+                source=source,
+                metadata_json=dict(metadata_json or {}),
+            )
+        )
+
+    async def list_protected_scopes(
+        self,
+        project_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[PrismProtectedScopeProjection]:
+        return await self._domain.list_protected_scopes(project_id, limit=limit)
 
 
 __all__ = ["PrismDataService", "build_latex_adapter_metadata"]

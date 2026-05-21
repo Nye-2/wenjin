@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -74,64 +75,16 @@ async def db(test_session: AsyncSession) -> AsyncSession:
     await test_session.execute(
         text(
             """
-            create table prism_review_items (
+            create table review_action_logs (
                 id varchar(36) primary key,
+                batch_id varchar(36) not null,
+                item_id varchar(36),
                 workspace_id varchar(36) not null,
-                latex_project_id varchar(36) not null,
-                logical_key varchar(255) not null,
-                source_type varchar(64) not null,
-                source_execution_id varchar(36),
-                source_task_id varchar(36),
-                target_kind varchar(64) not null,
-                target_file_path varchar(1024),
-                target_room varchar(64),
-                target_item_id varchar(36),
-                title varchar(255) not null,
-                summary varchar(1000),
-                status varchar(32) not null default 'pending',
-                preview_payload json not null default '{}',
-                applied_at datetime,
-                created_at datetime not null default current_timestamp,
-                updated_at datetime not null default current_timestamp,
-                unique (latex_project_id, logical_key)
-            )
-            """
-        )
-    )
-    await test_session.execute(
-        text(
-            """
-            create table prism_protected_sections (
-                id varchar(36) primary key,
-                workspace_id varchar(36) not null,
-                latex_project_id varchar(36) not null,
-                file_path varchar(1024) not null,
-                section_key varchar(255) not null default '',
-                scope varchar(32) not null,
-                reason varchar(1000),
-                source varchar(64) not null,
-                created_at datetime not null default current_timestamp,
-                updated_at datetime not null default current_timestamp,
-                unique (latex_project_id, file_path, section_key, scope)
-            )
-            """
-        )
-    )
-    await test_session.execute(
-        text(
-            """
-            create table prism_source_links (
-                id varchar(36) primary key,
-                workspace_id varchar(36) not null,
-                latex_project_id varchar(36) not null,
-                review_item_id varchar(36),
-                source_type varchar(64) not null,
-                source_id varchar(255) not null,
-                file_path varchar(1024) not null,
-                section_key varchar(255) not null default '',
-                quote varchar(4000),
-                citation_key varchar(255),
-                usage varchar(64) not null,
+                action varchar(64) not null,
+                actor_id varchar(36),
+                status_from varchar(32),
+                status_to varchar(32),
+                payload_json json not null default '{}',
                 created_at datetime not null default current_timestamp,
                 updated_at datetime not null default current_timestamp
             )
@@ -245,11 +198,95 @@ async def db(test_session: AsyncSession) -> AsyncSession:
     await test_session.execute(
         text(
             """
+            create table prism_protected_scopes (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                project_id varchar(36) not null,
+                document_id varchar(36),
+                file_id varchar(36),
+                file_path varchar(1024) not null,
+                section_key varchar(255) not null default '',
+                scope varchar(32) not null,
+                reason varchar(1000),
+                source varchar(64) not null,
+                metadata_json json not null default '{}',
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp,
+                unique (project_id, file_path, section_key, scope)
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
             create table workspace_references (
                 id varchar(36) primary key,
                 workspace_id varchar(36) not null,
                 citation_key varchar(255) not null,
                 is_deleted boolean not null default 0
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table sources (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                source_kind varchar(50) not null default 'paper',
+                title varchar(1000) not null,
+                normalized_title varchar(1000) not null,
+                authors_json json not null default '[]',
+                year integer,
+                venue varchar(500),
+                publication_type varchar(100),
+                doi varchar(255),
+                url varchar(1000),
+                abstract text,
+                citation_count integer,
+                ingest_kind varchar(50) not null default 'manual',
+                ingest_label varchar(255),
+                ingest_execution_id varchar(36),
+                verified_at datetime,
+                library_status varchar(50) not null default 'candidate',
+                evidence_level varchar(50) not null default 'metadata_only',
+                fulltext_status varchar(50) not null default 'none',
+                citation_key varchar(255) not null,
+                bibtex_entry_type varchar(50) not null default 'article',
+                bibtex_fields_json json not null default '{}',
+                read_status varchar(50) not null default 'unread',
+                tags_json json not null default '[]',
+                notes text,
+                is_deleted boolean not null default 0,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table provenance_links (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                source_id varchar(36),
+                source_anchor_id varchar(36),
+                target_domain varchar(64) not null,
+                target_kind varchar(64) not null,
+                target_id varchar(100),
+                target_ref_json json not null default '{}',
+                relation_kind varchar(64) not null,
+                citation_key varchar(255),
+                claim_text text,
+                generated_text text,
+                review_item_id varchar(36),
+                execution_id varchar(36),
+                metadata_json json not null default '{}',
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp
             )
             """
         )
@@ -415,7 +452,7 @@ async def test_pending_file_change_records_canonical_source_links_from_citations
     user: SimpleNamespace,
     workspace: SimpleNamespace,
 ) -> None:
-    from src.services.prism_review_service import PrismReviewService
+    from src.dataservice.prism_review_api import PrismReviewDataService
 
     project = LatexProject(
         id="latex-source-links",
@@ -430,20 +467,32 @@ async def test_pending_file_change_records_canonical_source_links_from_citations
     await db.execute(
         text(
             """
-            insert into workspace_references (
-                id, workspace_id, citation_key, is_deleted
+            insert into sources (
+                id, workspace_id, source_kind, title, normalized_title,
+                authors_json, ingest_kind, library_status, evidence_level,
+                fulltext_status, citation_key, bibtex_entry_type,
+                bibtex_fields_json, read_status, tags_json, is_deleted
             )
             values
-                ('ref-1', :workspace_id, 'doe2026', 0),
-                ('ref-deleted', :workspace_id, 'deleted2026', 1)
+                (
+                    'source-1', :workspace_id, 'paper', 'Doe 2026', 'doe 2026',
+                    '[]', 'manual', 'core', 'metadata_only', 'none',
+                    'doe2026', 'article', '{}', 'unread', '[]', 0
+                ),
+                (
+                    'source-deleted', :workspace_id, 'paper', 'Deleted 2026',
+                    'deleted 2026', '[]', 'manual', 'core', 'metadata_only',
+                    'none', 'deleted2026', 'article', '{}', 'unread', '[]', 1
+                )
             """
         ),
         {"workspace_id": workspace.id},
     )
     await db.commit()
 
-    review_item = await PrismReviewService(db).upsert_pending_file_change(
-        project,
+    review_item = await PrismReviewDataService(db).upsert_pending_file_change(
+        workspace_id=workspace.id,
+        latex_project_id=str(project.id),
         logical_key="section:intro",
         path="sections/intro.tex",
         reason="feature_proposal",
@@ -457,28 +506,35 @@ async def test_pending_file_change_records_canonical_source_links_from_citations
     result = await db.execute(
         text(
             """
-            select review_item_id, source_type, source_id, file_path,
-                   section_key, citation_key, usage
-            from prism_source_links
+            select review_item_id, source_id, target_ref_json, citation_key,
+                   relation_kind, metadata_json
+            from provenance_links
             order by source_id
             """
         )
     )
     links = [dict(row) for row in result.mappings().all()]
+    for link in links:
+        link["target_ref_json"] = json.loads(str(link["target_ref_json"]))
+        link["metadata_json"] = json.loads(str(link["metadata_json"]))
     assert links == [
         {
             "review_item_id": str(review_item.id),
-            "source_type": "library_item",
-            "source_id": "ref-1",
-            "file_path": "sections/intro.tex",
-            "section_key": "section:intro",
+            "source_id": "source-1",
+            "target_ref_json": {
+                "latex_project_id": "latex-source-links",
+                "logical_key": "section:intro",
+                "file_path": "sections/intro.tex",
+            },
             "citation_key": "doe2026",
-            "usage": "cited",
+            "relation_kind": "cited",
+            "metadata_json": {"usage": "cited", "section_key": "section:intro"},
         }
     ]
 
-    await PrismReviewService(db).upsert_pending_file_change(
-        project,
+    await PrismReviewDataService(db).upsert_pending_file_change(
+        workspace_id=workspace.id,
+        latex_project_id=str(project.id),
         logical_key="section:intro",
         path="sections/intro.tex",
         reason="feature_proposal",
@@ -487,7 +543,7 @@ async def test_pending_file_change_records_canonical_source_links_from_citations
         current_hash="hash-old",
     )
 
-    count_result = await db.execute(text("select count(*) from prism_source_links"))
+    count_result = await db.execute(text("select count(*) from provenance_links"))
     assert count_result.scalar_one() == 0
 
 
@@ -496,9 +552,15 @@ async def test_manual_protect_records_canonical_protected_section(
     db: AsyncSession,
     workspace: SimpleNamespace,
 ) -> None:
-    from src.services.prism_review_service import PrismReviewService
+    from src.dataservice.prism_api import PrismDataService
 
-    await PrismReviewService(db).upsert_protected_section(
+    surface = await PrismDataService(db, autocommit=False).ensure_latex_primary_project(
+        workspace_id=workspace.id,
+        title="Protected Manuscript",
+        latex_project_id="latex-manual-protect",
+        main_file="main.tex",
+    )
+    await PrismDataService(db, autocommit=False).upsert_latex_protected_scope(
         workspace_id=workspace.id,
         latex_project_id="latex-manual-protect",
         file_path="sections/introduction.tex",
@@ -513,10 +575,11 @@ async def test_manual_protect_records_canonical_protected_section(
         text(
             """
             select file_path, section_key, scope, reason, source
-            from prism_protected_sections
-            where latex_project_id = 'latex-manual-protect'
+            from prism_protected_scopes
+            where project_id = :project_id
             """
-        )
+        ),
+        {"project_id": surface.project.id},
     )
     assert dict(result.mappings().one()) == {
         "file_path": "sections/introduction.tex",
@@ -572,7 +635,7 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     )
     db.add(project)
     await db.flush()
-    await PrismDataService(db, autocommit=False).ensure_latex_primary_project(
+    surface = await PrismDataService(db, autocommit=False).ensure_latex_primary_project(
         workspace_id=workspace.id,
         title="Prism Manuscript",
         latex_project_id="latex-prism",
@@ -621,14 +684,17 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     await db.execute(
         text(
             """
-            insert into prism_source_links (
-                id, workspace_id, latex_project_id, review_item_id, source_type,
-                source_id, file_path, section_key, quote, citation_key, usage
+            insert into provenance_links (
+                id, workspace_id, source_id, target_domain, target_kind, target_id,
+                target_ref_json, relation_kind, citation_key, claim_text,
+                review_item_id, execution_id, metadata_json
             )
             values (
-                'source-1', :workspace_id, 'latex-prism', 'review-1', 'library',
-                'lib-1', 'sections/intro.tex', 'section:intro', 'key excerpt',
-                'doe2026', 'citation'
+                'source-1', :workspace_id, 'source-lib-1', 'prism',
+                'prism_file_change', 'review-1',
+                '{"latex_project_id":"latex-prism","logical_key":"section:intro","file_path":"sections/intro.tex"}',
+                'cited', 'doe2026', 'key excerpt', 'review-1', 'exec-1',
+                '{"usage":"cited","section_key":"section:intro"}'
             )
             """
         ),
@@ -637,17 +703,18 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     await db.execute(
         text(
             """
-            insert into prism_protected_sections (
-                id, workspace_id, latex_project_id, file_path, section_key,
-                scope, reason, source
+            insert into prism_protected_scopes (
+                id, workspace_id, project_id, file_path, section_key,
+                scope, reason, source, metadata_json
             )
             values (
-                'protected-1', :workspace_id, 'latex-prism', 'sections/intro.tex',
-                'section:intro', 'section', 'user_protected', 'review_reject'
+                'protected-1', :workspace_id, :project_id, 'sections/intro.tex',
+                'section:intro', 'section', 'user_protected', 'review_reject',
+                '{}'
             )
             """
         ),
-        {"workspace_id": workspace.id},
+        {"workspace_id": workspace.id, "project_id": surface.project.id},
     )
     await db.execute(
         text(

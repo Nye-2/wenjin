@@ -47,6 +47,21 @@ class PrismFileVersionCreateCommand(BaseModel):
         return self
 
 
+class PrismProtectedScopeUpsertCommand(BaseModel):
+    """Create or update a protected Prism writing scope."""
+
+    workspace_id: str = Field(min_length=1, max_length=36)
+    project_id: str = Field(min_length=1, max_length=36)
+    document_id: str | None = Field(default=None, max_length=36)
+    file_id: str | None = Field(default=None, max_length=36)
+    file_path: str = Field(min_length=1, max_length=1024)
+    section_key: str = Field(default="", max_length=255)
+    scope: str = Field(min_length=1, max_length=32)
+    reason: str | None = Field(default=None, max_length=1000)
+    source: str = Field(min_length=1, max_length=64)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class PrismProjectProjection(BaseModel):
     id: str
     workspace_id: str
@@ -102,6 +117,22 @@ class PrismFileVersionProjection(BaseModel):
     content_asset_id: str | None = None
     content_hash: str
     created_by: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PrismProtectedScopeProjection(BaseModel):
+    id: str
+    workspace_id: str
+    project_id: str
+    document_id: str | None = None
+    file_id: str | None = None
+    file_path: str
+    section_key: str = ""
+    scope: str
+    reason: str | None = None
+    source: str
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

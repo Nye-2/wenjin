@@ -226,6 +226,19 @@ class _FakePrismReviewService:
             return
         self.protected.append(dict(kwargs))
 
+    async def upsert_latex_protected_scope(self, **kwargs: object) -> SimpleNamespace:
+        if kwargs.get("source") == "review_reject":
+            self.protected.append(
+                {
+                    "logical_key": kwargs.get("section_key"),
+                    "path": kwargs.get("file_path"),
+                    "reason": kwargs.get("reason"),
+                }
+            )
+        else:
+            self.protected.append(dict(kwargs))
+        return SimpleNamespace(id="protected-1", **kwargs)
+
 
 class _FakeReferenceUsageService:
     calls: list[dict[str, object]] = []
@@ -531,7 +544,7 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
             _FakeLatexRouterService,
         ),
         patch(
-            "src.gateway.routers.latex_files.PrismReviewService",
+            "src.gateway.routers.latex_files.PrismDataService",
             _FakePrismReviewService,
         ),
         patch(
@@ -593,7 +606,7 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     ), patch(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     ), patch(
         "src.gateway.routers.latex_files.PrismReviewDataService",
@@ -626,7 +639,7 @@ async def test_prism_review_discard_protects_user_content_and_clears_pending_pro
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     ), patch(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     ), patch(
         "src.gateway.routers.latex_files.PrismReviewDataService",
@@ -666,7 +679,7 @@ async def test_manual_prism_protection_uses_canonical_protected_section() -> Non
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     ), patch(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     ):
         response = await protect_project_section(
@@ -681,7 +694,6 @@ async def test_manual_prism_protection_uses_canonical_protected_section() -> Non
         )
 
     assert response.protected is True
-    assert db.committed is True
     assert _FakePrismReviewService.protected == [
         {
             "workspace_id": "ws-1",

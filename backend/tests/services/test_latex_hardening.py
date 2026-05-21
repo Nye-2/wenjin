@@ -304,6 +304,16 @@ class _FakePrismReviewService:
             }
         )
 
+    async def upsert_latex_protected_scope(self, **kwargs: object) -> SimpleNamespace:
+        self.protected.append(
+            {
+                "logical_key": kwargs.get("section_key"),
+                "path": kwargs.get("file_path"),
+                "reason": kwargs.get("reason"),
+            }
+        )
+        return SimpleNamespace(id="protected-1", **kwargs)
+
 
 def _reset_fake_router_service() -> None:
     _FakePrismReviewService.reset()
@@ -740,7 +750,7 @@ async def test_file_change_preview_and_apply_use_signature_guard(
         _FakeLatexRouterService,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     )
     monkeypatch.setattr(
@@ -790,7 +800,7 @@ async def test_file_change_apply_rejects_stale_preview_signature(
         _FakeLatexRouterService,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     )
     monkeypatch.setattr(
@@ -832,7 +842,7 @@ async def test_file_change_discard_protects_current_content(
         _FakeLatexRouterService,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     )
     monkeypatch.setattr(
@@ -870,7 +880,7 @@ async def test_file_change_defer_is_no_longer_supported(
         _FakeLatexRouterService,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     )
     monkeypatch.setattr(
@@ -901,7 +911,7 @@ async def test_file_change_revert_restores_previous_content(
         _FakeLatexRouterService,
     )
     monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewService",
+        "src.gateway.routers.latex_files.PrismDataService",
         _FakePrismReviewService,
     )
     monkeypatch.setattr(

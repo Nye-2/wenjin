@@ -13,12 +13,15 @@ from src.dataservice.domains.prism.contracts import (
     PrismFileVersionProjection,
     PrismPrimaryProjectCommand,
     PrismProjectProjection,
+    PrismProtectedScopeProjection,
+    PrismProtectedScopeUpsertCommand,
     PrismSurfaceProjection,
 )
 from src.dataservice.domains.prism.projection import (
     document_to_projection,
     file_to_projection,
     project_to_projection,
+    protected_scope_to_projection,
     version_to_projection,
 )
 from src.dataservice.domains.prism.repository import PrismRepository
@@ -186,6 +189,56 @@ class PrismDataDomainService:
         file_record.updated_at = datetime.now(UTC)
         await self._finish()
         return version_to_projection(version)
+
+    async def upsert_protected_scope(
+        self,
+        command: PrismProtectedScopeUpsertCommand,
+    ) -> PrismProtectedScopeProjection:
+        normalized_section_key = str(command.section_key or "")
+        existing = await self.repository.get_protected_scope(
+            project_id=command.project_id,
+            file_path=command.file_path,
+            section_key=normalized_section_key,
+            scope=command.scope,
+        )
+        if existing is None:
+            existing = self.repository.create_protected_scope(
+                {
+                    "workspace_id": command.workspace_id,
+                    "project_id": command.project_id,
+                    "document_id": command.document_id,
+                    "file_id": command.file_id,
+                    "file_path": command.file_path,
+                    "section_key": normalized_section_key,
+                    "scope": command.scope,
+                    "reason": command.reason,
+                    "source": command.source,
+                    "metadata_json": dict(command.metadata_json or {}),
+                }
+            )
+        else:
+            existing.document_id = command.document_id
+            existing.file_id = command.file_id
+            existing.reason = command.reason
+            existing.source = command.source
+            existing.metadata_json = dict(command.metadata_json or {})
+            existing.updated_at = datetime.now(UTC)
+        await self._finish()
+        return protected_scope_to_projection(existing)
+
+    async def list_protected_scopes(
+        self,
+        project_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[PrismProtectedScopeProjection]:
+        return [
+            protected_scope_to_projection(record)
+            for record in await self.repository.list_protected_scopes(
+                project_id,
+                limit=limit,
+            )
+        ]
 
     async def _finish(self) -> None:
         if self.autocommit:

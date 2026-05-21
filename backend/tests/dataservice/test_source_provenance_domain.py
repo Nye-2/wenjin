@@ -87,7 +87,10 @@ class FakeProvenanceRepository:
         workspace_id: str,
         source_id: str | None = None,
         target_domain: str | None = None,
+        target_kind: str | None = None,
         target_id: str | None = None,
+        review_item_id: str | None = None,
+        relation_kind: str | None = None,
         limit: int = 50,
     ) -> list[SimpleNamespace]:
         records = [record for record in self.links if record.workspace_id == workspace_id]
@@ -95,9 +98,41 @@ class FakeProvenanceRepository:
             records = [record for record in records if record.source_id == source_id]
         if target_domain is not None:
             records = [record for record in records if record.target_domain == target_domain]
+        if target_kind is not None:
+            records = [record for record in records if record.target_kind == target_kind]
         if target_id is not None:
             records = [record for record in records if record.target_id == target_id]
+        if review_item_id is not None:
+            records = [record for record in records if record.review_item_id == review_item_id]
+        if relation_kind is not None:
+            records = [record for record in records if record.relation_kind == relation_kind]
         return records[:limit]
+
+    async def delete_links(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str | None = None,
+        target_domain: str | None = None,
+        target_kind: str | None = None,
+        target_id: str | None = None,
+        review_item_id: str | None = None,
+        relation_kind: str | None = None,
+    ) -> int:
+        before = len(self.links)
+        records = await self.list_links(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            target_domain=target_domain,
+            target_kind=target_kind,
+            target_id=target_id,
+            review_item_id=review_item_id,
+            relation_kind=relation_kind,
+            limit=len(self.links) or 1,
+        )
+        delete_ids = {record.id for record in records}
+        self.links = [record for record in self.links if record.id not in delete_ids]
+        return before - len(self.links)
 
 
 def test_source_and_provenance_models_are_registered_on_shared_metadata() -> None:
@@ -148,8 +183,21 @@ async def test_provenance_service_creates_and_filters_links() -> None:
             citation_key="vaswani2017",
         )
     )
-    listed = await service.list_links(workspace_id="ws-1", target_domain="prism")
+    listed = await service.list_links(
+        workspace_id="ws-1",
+        target_domain="prism",
+        target_kind="file",
+        relation_kind="cited",
+    )
+    deleted = await service.delete_links(
+        workspace_id="ws-1",
+        target_domain="prism",
+        target_kind="file",
+        relation_kind="cited",
+    )
 
     assert created.id == "link-1"
     assert listed[0].source_id == "source-1"
-    assert session.commit_count == 1
+    assert deleted == 1
+    assert repository.links == []
+    assert session.commit_count == 2

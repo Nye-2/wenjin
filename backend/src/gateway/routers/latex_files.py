@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
+from src.dataservice.prism_api import PrismDataService
 from src.dataservice.prism_review_api import (
     APPLIED_PRISM_FILE_CHANGE_STATUSES,
     PENDING_PRISM_FILE_CHANGE_STATUSES,
@@ -49,7 +50,6 @@ from src.gateway.routers.latex_helpers import (
 )
 from src.services.latex import LatexProjectService
 from src.services.latex.rewrite_diff import compute_content_hash
-from src.services.prism_review_service import PrismReviewService
 
 router = APIRouter(prefix="/latex", tags=["latex"])
 
@@ -372,7 +372,7 @@ async def discard_project_file_change(
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
     await review_service.mark_rejected_file_change(review_item.id, reason="user_protected")
-    await PrismReviewService(db).upsert_protected_section(
+    protected = await PrismDataService(db).upsert_latex_protected_scope(
         workspace_id=_project_workspace_id(project),
         latex_project_id=str(project.id),
         file_path=path,
@@ -381,7 +381,11 @@ async def discard_project_file_change(
         reason="user_protected",
         source="review_reject",
     )
-    await db.commit()
+    if protected is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Workspace Prism project is not available for protection",
+        )
     return LatexFileChangeDiscardResponse(
         ok=True,
         discarded=True,
@@ -547,8 +551,7 @@ async def protect_project_section(
 
     section_key = str(request.section_key or "").strip()
     reason = request.reason or "user_manual_protect"
-    review_service = PrismReviewService(db)
-    await review_service.upsert_protected_section(
+    protected = await PrismDataService(db).upsert_latex_protected_scope(
         workspace_id=workspace_id,
         latex_project_id=str(project.id),
         file_path=request.path,
@@ -557,7 +560,11 @@ async def protect_project_section(
         reason=reason,
         source="manual_edit",
     )
-    await db.commit()
+    if protected is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Workspace Prism project is not available for protection",
+        )
     return LatexProtectedSectionResponse(
         ok=True,
         protected=True,

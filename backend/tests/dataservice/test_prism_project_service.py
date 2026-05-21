@@ -13,6 +13,7 @@ from src.database.base import Base
 from src.dataservice.domains.prism.contracts import (
     PrismFileVersionCreateCommand,
     PrismPrimaryProjectCommand,
+    PrismProtectedScopeUpsertCommand,
 )
 from src.dataservice.domains.prism.models import (
     PrismDocumentRecord,
@@ -50,6 +51,7 @@ class FakePrismRepository:
         self.documents: dict[str, SimpleNamespace] = {}
         self.files: dict[str, SimpleNamespace] = {}
         self.versions: dict[str, SimpleNamespace] = {}
+        self.protected_scopes: dict[str, SimpleNamespace] = {}
 
     def create_project(self, values: dict[str, Any]) -> SimpleNamespace:
         project_id = f"project-{len(self.projects) + 1}"
@@ -83,6 +85,12 @@ class FakePrismRepository:
         self.versions[version_id] = record
         return record
 
+    def create_protected_scope(self, values: dict[str, Any]) -> SimpleNamespace:
+        scope_id = f"protected-{len(self.protected_scopes) + 1}"
+        record = _record({"id": scope_id, **values})
+        self.protected_scopes[scope_id] = record
+        return record
+
     async def get_primary_project(
         self,
         workspace_id: str,
@@ -114,6 +122,24 @@ class FakePrismRepository:
     async def get_file(self, file_id: str) -> SimpleNamespace | None:
         return self.files.get(file_id)
 
+    async def get_protected_scope(
+        self,
+        *,
+        project_id: str,
+        file_path: str,
+        section_key: str,
+        scope: str,
+    ) -> SimpleNamespace | None:
+        for record in self.protected_scopes.values():
+            if (
+                record.project_id == project_id
+                and record.file_path == file_path
+                and record.section_key == section_key
+                and record.scope == scope
+            ):
+                return record
+        return None
+
     async def list_documents(self, project_id: str) -> list[SimpleNamespace]:
         return [record for record in self.documents.values() if record.project_id == project_id]
 
@@ -123,6 +149,18 @@ class FakePrismRepository:
             for record in self.files.values()
             if record.document_id == document_id and record.deleted_at is None
         ]
+
+    async def list_protected_scopes(
+        self,
+        project_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[SimpleNamespace]:
+        return [
+            record
+            for record in self.protected_scopes.values()
+            if record.project_id == project_id
+        ][:limit]
 
     async def next_file_version_no(self, file_id: str) -> int:
         versions = [record.version_no for record in self.versions.values() if record.file_id == file_id]
@@ -206,3 +244,45 @@ async def test_append_file_version_updates_current_file_pointer() -> None:
     assert repository.files[file_id].current_version_id == version.id
     assert repository.files[file_id].content_hash == "hash-1"
     assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_upsert_and_list_protected_scope() -> None:
+    service, repository, session = _service()
+    surface = await service.ensure_primary_project(
+        PrismPrimaryProjectCommand(
+            workspace_id="ws-1",
+            title="Workspace Manuscript",
+            adapter_ref_id="latex-1",
+        )
+    )
+
+    created = await service.upsert_protected_scope(
+        PrismProtectedScopeUpsertCommand(
+            workspace_id="ws-1",
+            project_id=surface.project.id,
+            file_path="sections/intro.tex",
+            section_key="section:intro",
+            scope="section",
+            reason="user_protected",
+            source="review_reject",
+        )
+    )
+    updated = await service.upsert_protected_scope(
+        PrismProtectedScopeUpsertCommand(
+            workspace_id="ws-1",
+            project_id=surface.project.id,
+            file_path="sections/intro.tex",
+            section_key="section:intro",
+            scope="section",
+            reason="manual_override",
+            source="manual_edit",
+        )
+    )
+    listed = await service.list_protected_scopes(surface.project.id)
+
+    assert created.id == updated.id
+    assert updated.reason == "manual_override"
+    assert listed == [updated]
+    assert len(repository.protected_scopes) == 1
+    assert session.commit_count == 3

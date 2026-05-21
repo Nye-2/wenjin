@@ -7,12 +7,14 @@ from src.dataservice.domains.prism.contracts import (
     PrismFileProjection,
     PrismFileVersionProjection,
     PrismProjectProjection,
+    PrismProtectedScopeProjection,
 )
 from src.dataservice.domains.prism.models import (
     PrismDocumentRecord,
     PrismFileRecord,
     PrismFileVersionRecord,
     PrismProjectRecord,
+    PrismProtectedScopeRecord,
 )
 
 
@@ -78,6 +80,26 @@ def version_to_projection(record: PrismFileVersionRecord) -> PrismFileVersionPro
         content_asset_id=record.content_asset_id,
         content_hash=record.content_hash,
         created_by=record.created_by,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def protected_scope_to_projection(
+    record: PrismProtectedScopeRecord,
+) -> PrismProtectedScopeProjection:
+    return PrismProtectedScopeProjection(
+        id=str(record.id),
+        workspace_id=str(record.workspace_id),
+        project_id=str(record.project_id),
+        document_id=record.document_id,
+        file_id=record.file_id,
+        file_path=record.file_path,
+        section_key=record.section_key,
+        scope=record.scope,
+        reason=record.reason,
+        source=record.source,
+        metadata_json=dict(record.metadata_json or {}),
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
