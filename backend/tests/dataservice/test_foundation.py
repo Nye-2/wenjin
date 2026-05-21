@@ -47,7 +47,33 @@ from src.dataservice_client.contracts.execution import (
     ExecutionNodePatchPayload,
     ExecutionNodeUpsertPayload,
 )
+from src.dataservice_client.contracts.knowledge import (
+    KnowledgeArchiveLowConfidencePayload,
+    KnowledgeMemoryCreatePayload,
+    KnowledgeMemoryUpdatePayload,
+)
+from src.dataservice_client.contracts.latex import (
+    LatexCompileHistoryCreatePayload,
+    LatexProjectAttachWorkspacePayload,
+    LatexProjectCreatePayload,
+    LatexProjectTouchPayload,
+    LatexProjectUpdatePayload,
+)
+from src.dataservice_client.contracts.prism_review import (
+    PrismFileChangeAppliedPayload,
+    PrismFileChangeClearPayload,
+    PrismFileChangeRejectedPayload,
+    PrismFileChangeUpsertPayload,
+)
 from src.dataservice_client.contracts.provenance import ProvenanceLinkCreatePayload
+from src.dataservice_client.contracts.task import (
+    TaskRecordCompletedPayload,
+    TaskRecordCreateGuardedPayload,
+    TaskRecordCreatePayload,
+    TaskRecordPatchPayload,
+    TaskRecordRuntimeStatePayload,
+    TaskRecordStartedPayload,
+)
 from src.dataservice_client.contracts.template import (
     WorkspaceTemplateCreatePayload,
     WorkspaceTemplateDeactivatePayload,
@@ -1016,3 +1042,414 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
         ),
         ("PATCH", "/internal/v1/executions/nodes/node-row-1", {"status": "completed"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_knowledge_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def knowledge_payload(knowledge_id: str = "knowledge-1") -> dict[str, Any]:
+        return {
+            "id": knowledge_id,
+            "user_id": "user-1",
+            "category": "preference",
+            "content": "Use concise prose",
+            "confidence": 0.8,
+            "source": "manual",
+            "workspace_context": None,
+            "is_active": True,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if path.endswith("/archive-low-confidence"):
+            return httpx.Response(200, json={"status": "ok", "data": {"archived": 2}})
+        if path.endswith("/active-count"):
+            return httpx.Response(200, json={"status": "ok", "data": {"count": 3}})
+        if path.endswith("/deactivate"):
+            return httpx.Response(200, json={"status": "ok", "data": {"deactivated": True}})
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
+        if request.method == "GET" and "/users/" in path:
+            return httpx.Response(200, json={"status": "ok", "data": [knowledge_payload()]})
+        return httpx.Response(200, json={"status": "ok", "data": knowledge_payload("knowledge-2")})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        created = await client.create_knowledge_memory(
+            KnowledgeMemoryCreatePayload(
+                user_id="user-1",
+                category="preference",
+                content="Use concise prose",
+                confidence=0.8,
+                source="manual",
+            )
+        )
+        upserted = await client.upsert_knowledge_memory(
+            KnowledgeMemoryCreatePayload(
+                user_id="user-1",
+                category="preference",
+                content="Use concise prose",
+            )
+        )
+        fetched = await client.get_knowledge_memory("knowledge-2")
+        listed = await client.list_user_knowledge_memory(user_id="user-1")
+        active = await client.list_active_knowledge_memory(user_id="user-1", workspace_context="ws-1")
+        updated = await client.update_knowledge_memory(
+            "knowledge-2",
+            KnowledgeMemoryUpdatePayload(confidence=0.9),
+        )
+        deactivated = await client.deactivate_knowledge_memory("knowledge-2")
+        deleted = await client.delete_knowledge_memory("knowledge-2")
+        archived = await client.archive_low_confidence_knowledge_memory(
+            user_id="user-1",
+            command=KnowledgeArchiveLowConfidencePayload(threshold=0.4),
+        )
+        count = await client.count_active_knowledge_memory(user_id="user-1")
+
+    assert created is not None and created.id == "knowledge-2"
+    assert upserted is not None and upserted.category == "preference"
+    assert fetched is not None and fetched.id == "knowledge-2"
+    assert listed[0].user_id == "user-1"
+    assert active[0].content == "Use concise prose"
+    assert updated is not None and updated.confidence == 0.8
+    assert deactivated is True
+    assert deleted is True
+    assert archived == 2
+    assert count == 3
+    assert seen[0][1] == "/internal/v1/knowledge"
+    assert seen[-1][1] == "/internal/v1/knowledge/users/user-1/active-count"
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_latex_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def project_payload(project_id: str = "project-1") -> dict[str, Any]:
+        return {
+            "id": project_id,
+            "user_id": "user-1",
+            "name": "Paper",
+            "template_id": "acl",
+            "main_file": "main.tex",
+            "tags": [],
+            "archived": False,
+            "trashed": False,
+            "trashed_at": None,
+            "file_order": {},
+            "llm_config": None,
+            "workspace_id": "ws-1",
+            "surface_role": "primary_manuscript",
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    def template_payload() -> dict[str, Any]:
+        return {
+            "id": "acl",
+            "label": "ACL",
+            "main_file": "main.tex",
+            "category": "academic",
+            "description": "ACL template",
+            "description_en": "ACL template",
+            "tags": ["ACL"],
+            "author": "WenjinPrism",
+            "featured": True,
+            "template_path": "acl",
+        }
+
+    def history_payload() -> dict[str, Any]:
+        return {
+            "id": "history-1",
+            "project_id": "project-1",
+            "engine": "xelatex",
+            "main_file": "main.tex",
+            "status": 0,
+            "log": None,
+            "pdf_path": "/tmp/main.pdf",
+            "created_at": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
+        if path.endswith("/ensure-defaults"):
+            return httpx.Response(200, json={"status": "ok", "data": {"ensured": True}})
+        if path == "/internal/v1/latex/templates":
+            return httpx.Response(200, json={"status": "ok", "data": [template_payload()]})
+        if "/templates/" in path:
+            return httpx.Response(200, json={"status": "ok", "data": template_payload()})
+        if path.endswith("/compile-history") and request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "data": [history_payload()]})
+        if "/compile-history" in path:
+            return httpx.Response(200, json={"status": "ok", "data": history_payload()})
+        if request.method == "GET" and path == "/internal/v1/latex/projects":
+            return httpx.Response(200, json={"status": "ok", "data": [project_payload()]})
+        return httpx.Response(200, json={"status": "ok", "data": project_payload("project-2")})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        listed = await client.list_latex_projects_by_user(user_id="user-1")
+        fetched = await client.get_latex_project("project-2")
+        owned = await client.get_owned_latex_project(project_id="project-2", user_id="user-1")
+        primary = await client.get_workspace_primary_latex_project(workspace_id="ws-1", owner_user_id="user-1")
+        created = await client.create_latex_project(LatexProjectCreatePayload(user_id="user-1", name="Paper"))
+        updated = await client.update_latex_project("project-2", LatexProjectUpdatePayload(name="Paper 2"))
+        touched = await client.touch_latex_project("project-2", LatexProjectTouchPayload(main_file="paper.tex"))
+        attached = await client.attach_workspace_latex_project(
+            "project-2",
+            LatexProjectAttachWorkspacePayload(workspace_id="ws-1"),
+        )
+        soft_deleted = await client.soft_delete_latex_project("project-2")
+        deleted = await client.delete_latex_project("project-2")
+        template = await client.get_latex_template("acl")
+        ensured = await client.ensure_default_latex_templates()
+        templates = await client.list_latex_templates()
+        history = await client.record_latex_compile_history(
+            LatexCompileHistoryCreatePayload(
+                project_id="project-1",
+                engine="xelatex",
+                main_file="main.tex",
+                status=0,
+            )
+        )
+        fetched_history = await client.get_latex_compile_history("history-1")
+        histories = await client.list_latex_compile_history("project-1")
+        deleted_history = await client.delete_latex_compile_history("history-1")
+
+    assert listed[0].id == "project-1"
+    assert fetched is not None and fetched.id == "project-2"
+    assert owned is not None and owned.user_id == "user-1"
+    assert primary is not None and primary.workspace_id == "ws-1"
+    assert created is not None and created.name == "Paper"
+    assert updated is not None and updated.id == "project-2"
+    assert touched is not None and touched.main_file == "main.tex"
+    assert attached is not None and attached.surface_role == "primary_manuscript"
+    assert soft_deleted is not None and soft_deleted.id == "project-2"
+    assert deleted is True
+    assert template is not None and template.id == "acl"
+    assert ensured is True
+    assert templates[0].featured is True
+    assert history is not None and history.id == "history-1"
+    assert fetched_history is not None and fetched_history.project_id == "project-1"
+    assert histories[0].engine == "xelatex"
+    assert deleted_history is True
+    assert seen[0][1] == "/internal/v1/latex/projects"
+    assert seen[-1][1] == "/internal/v1/latex/compile-history/history-1"
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_task_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def task_payload(status: str = "pending") -> dict[str, Any]:
+        return {
+            "id": "task-1",
+            "user_id": "user-1",
+            "task_type": "lead",
+            "workspace_id": "ws-1",
+            "feature_id": "feature-1",
+            "thread_id": "thread-1",
+            "execution_id": "exec-1",
+            "action": "run",
+            "status": status,
+            "priority": 5,
+            "payload": {},
+            "result": None,
+            "error": None,
+            "runtime_state": None,
+            "progress": 0,
+            "message": None,
+            "created_at": "2026-05-22T00:00:00",
+            "started_at": None,
+            "completed_at": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if path.endswith("/active-count"):
+            return httpx.Response(200, json={"status": "ok", "data": {"count": 2}})
+        if path.endswith("/guarded"):
+            return httpx.Response(200, json={"status": "ok", "data": {"record": task_payload(), "active_count": 1}})
+        if request.method == "GET" and "/users/" in path:
+            return httpx.Response(200, json={"status": "ok", "data": [task_payload()]})
+        if path.endswith("/completed"):
+            return httpx.Response(200, json={"status": "ok", "data": task_payload("completed")})
+        if request.method == "PATCH":
+            return httpx.Response(200, json={"status": "ok", "data": task_payload("running")})
+        return httpx.Response(200, json={"status": "ok", "data": task_payload()})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        created = await client.create_task_record(
+            TaskRecordCreatePayload(
+                task_id="task-1",
+                user_id="user-1",
+                task_type="lead",
+                priority=5,
+                payload={},
+            )
+        )
+        guarded, active_count = await client.create_task_record_guarded(
+            TaskRecordCreateGuardedPayload(
+                task_id="task-1",
+                user_id="user-1",
+                task_type="lead",
+                priority=5,
+                payload={},
+                concurrency_limit=1,
+                active_statuses=["pending"],
+            )
+        )
+        fetched = await client.get_task_record("task-1")
+        updated = await client.update_task_record("task-1", TaskRecordPatchPayload(status="running"))
+        listed = await client.list_user_task_records(user_id="user-1", status=["pending"])
+        count = await client.count_active_task_records(user_id="user-1", active_statuses=["pending"])
+        started = await client.mark_task_record_started(
+            "task-1",
+            TaskRecordStartedPayload(started_at=datetime(2026, 5, 22)),
+        )
+        runtime = await client.persist_task_record_runtime_state(
+            "task-1",
+            TaskRecordRuntimeStatePayload(runtime_state={"step": 1}),
+        )
+        completed = await client.mark_task_record_completed(
+            "task-1",
+            TaskRecordCompletedPayload(
+                status="completed",
+                result={},
+                completed_at=datetime(2026, 5, 22),
+                progress=100,
+            ),
+        )
+
+    assert created.id == "task-1"
+    assert guarded is not None and guarded.id == "task-1"
+    assert active_count == 1
+    assert fetched is not None and fetched.task_type == "lead"
+    assert updated is not None and updated.status == "running"
+    assert listed[0].workspace_id == "ws-1"
+    assert count == 2
+    assert started is not None and started.id == "task-1"
+    assert runtime is not None and runtime.id == "task-1"
+    assert completed is not None and completed.status == "completed"
+    assert seen[0][1] == "/internal/v1/tasks"
+    assert seen[-1][1] == "/internal/v1/tasks/task-1/completed"
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_prism_review_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def item_payload(status: str = "pending") -> dict[str, Any]:
+        return {
+            "id": "item-1",
+            "batch_id": "batch-1",
+            "workspace_id": "ws-1",
+            "source_item_id": "intro",
+            "item_kind": "file_change",
+            "target_domain": "prism",
+            "target_kind": "prism_file_change",
+            "target_ref_json": {},
+            "status": status,
+            "title": "main.tex",
+            "summary": None,
+            "payload_json": {},
+            "preview_json": {},
+            "result_json": None,
+            "error_text": None,
+            "provenance_json": {},
+            "sort_order": 0,
+            "applied_at": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if path.endswith("/clear-pending"):
+            return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
+        if path.endswith("/applied"):
+            return httpx.Response(200, json={"status": "ok", "data": item_payload("applied")})
+        if path.endswith("/rejected"):
+            return httpx.Response(200, json={"status": "ok", "data": item_payload("rejected")})
+        if path.endswith("/reverted"):
+            return httpx.Response(200, json={"status": "ok", "data": item_payload("reverted")})
+        return httpx.Response(200, json={"status": "ok", "data": item_payload()})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        found = await client.find_prism_file_change(
+            workspace_id="ws-1",
+            latex_project_id="latex-1",
+            logical_key="intro",
+            statuses=["pending"],
+        )
+        upserted = await client.upsert_pending_prism_file_change(
+            PrismFileChangeUpsertPayload(
+                workspace_id="ws-1",
+                latex_project_id="latex-1",
+                logical_key="intro",
+                path="main.tex",
+                reason="draft",
+                pending_content="content",
+                pending_hash="hash-2",
+            )
+        )
+        cleared = await client.clear_pending_prism_file_change(
+            PrismFileChangeClearPayload(
+                workspace_id="ws-1",
+                latex_project_id="latex-1",
+                logical_key="intro",
+            )
+        )
+        applied = await client.mark_prism_file_change_applied(
+            "item-1",
+            PrismFileChangeAppliedPayload(
+                previous_content="old",
+                previous_hash="hash-1",
+                applied_hash="hash-2",
+                revert_signature="sig",
+            ),
+        )
+        rejected = await client.mark_prism_file_change_rejected(
+            "item-1",
+            PrismFileChangeRejectedPayload(reason="no"),
+        )
+        reverted = await client.mark_prism_file_change_reverted("item-1")
+
+    assert found is not None and found.id == "item-1"
+    assert upserted.status == "pending"
+    assert cleared is True
+    assert applied is not None and applied.status == "applied"
+    assert rejected is not None and rejected.status == "rejected"
+    assert reverted is not None and reverted.status == "reverted"
+    assert seen[0][1] == "/internal/v1/prism-review/file-changes/find"
+    assert seen[-1][1] == "/internal/v1/prism-review/items/item-1/reverted"

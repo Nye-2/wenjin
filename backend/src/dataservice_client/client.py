@@ -65,12 +65,34 @@ from src.dataservice_client.contracts.execution import (
     ExecutionPayload,
     ExecutionUpdatePayload,
 )
+from src.dataservice_client.contracts.knowledge import (
+    KnowledgeArchiveLowConfidencePayload,
+    KnowledgeMemoryCreatePayload,
+    KnowledgeMemoryPayload,
+    KnowledgeMemoryUpdatePayload,
+)
+from src.dataservice_client.contracts.latex import (
+    LatexCompileHistoryCreatePayload,
+    LatexCompileHistoryPayload,
+    LatexProjectAttachWorkspacePayload,
+    LatexProjectCreatePayload,
+    LatexProjectPayload,
+    LatexProjectTouchPayload,
+    LatexProjectUpdatePayload,
+    LatexTemplatePayload,
+)
 from src.dataservice_client.contracts.prism import (
     PrismFileVersionCreatePayload,
     PrismFileVersionPayload,
     PrismPrimaryProjectPayload,
     PrismProjectPayload,
     PrismSurfacePayload,
+)
+from src.dataservice_client.contracts.prism_review import (
+    PrismFileChangeAppliedPayload,
+    PrismFileChangeClearPayload,
+    PrismFileChangeRejectedPayload,
+    PrismFileChangeUpsertPayload,
 )
 from src.dataservice_client.contracts.provenance import (
     ProvenanceLinkCreatePayload,
@@ -121,6 +143,15 @@ from src.dataservice_client.contracts.source import (
     SourceImportResultPayload,
     SourcePayload,
     SourceUpdatePayload,
+)
+from src.dataservice_client.contracts.task import (
+    TaskRecordCompletedPayload,
+    TaskRecordCreateGuardedPayload,
+    TaskRecordCreatePayload,
+    TaskRecordPatchPayload,
+    TaskRecordPayload,
+    TaskRecordRuntimeStatePayload,
+    TaskRecordStartedPayload,
 )
 from src.dataservice_client.contracts.template import (
     WorkspaceTemplateCreatePayload,
@@ -247,6 +278,490 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("deactivated")) if isinstance(data, dict) else False
+
+    async def create_knowledge_memory(
+        self,
+        command: KnowledgeMemoryCreatePayload,
+    ) -> KnowledgeMemoryPayload | None:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/knowledge",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
+
+    async def upsert_knowledge_memory(
+        self,
+        command: KnowledgeMemoryCreatePayload,
+    ) -> KnowledgeMemoryPayload | None:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/knowledge/upsert",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
+
+    async def get_knowledge_memory(self, knowledge_id: str) -> KnowledgeMemoryPayload | None:
+        payload = await self._request("GET", f"/internal/v1/knowledge/{knowledge_id}")
+        data = payload.get("data")
+        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
+
+    async def list_user_knowledge_memory(
+        self,
+        *,
+        user_id: str,
+        category: str | None = None,
+        min_confidence: float | None = None,
+        active_only: bool = True,
+    ) -> list[KnowledgeMemoryPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/knowledge/users/{user_id}",
+            params={
+                "category": category,
+                "min_confidence": min_confidence,
+                "active_only": active_only,
+            },
+        )
+        return [KnowledgeMemoryPayload.model_validate(item) for item in payload["data"]]
+
+    async def list_active_knowledge_memory(
+        self,
+        *,
+        user_id: str,
+        workspace_context: str | None = None,
+        include_global: bool = True,
+        min_confidence: float = 0.5,
+        limit: int = 20,
+    ) -> list[KnowledgeMemoryPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/knowledge/users/{user_id}/active",
+            params={
+                "workspace_context": workspace_context,
+                "include_global": include_global,
+                "min_confidence": min_confidence,
+                "limit": limit,
+            },
+        )
+        return [KnowledgeMemoryPayload.model_validate(item) for item in payload["data"]]
+
+    async def update_knowledge_memory(
+        self,
+        knowledge_id: str,
+        command: KnowledgeMemoryUpdatePayload,
+    ) -> KnowledgeMemoryPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/knowledge/{knowledge_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return KnowledgeMemoryPayload.model_validate(data) if data is not None else None
+
+    async def deactivate_knowledge_memory(self, knowledge_id: str) -> bool:
+        payload = await self._request("POST", f"/internal/v1/knowledge/{knowledge_id}/deactivate")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deactivated")) if isinstance(data, dict) else False
+
+    async def delete_knowledge_memory(self, knowledge_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/knowledge/{knowledge_id}")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def archive_low_confidence_knowledge_memory(
+        self,
+        *,
+        user_id: str,
+        command: KnowledgeArchiveLowConfidencePayload | None = None,
+    ) -> int:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/knowledge/users/{user_id}/archive-low-confidence",
+            json=(command or KnowledgeArchiveLowConfidencePayload()).model_dump(mode="json"),
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return int(data.get("archived", 0)) if isinstance(data, dict) else 0
+
+    async def count_active_knowledge_memory(
+        self,
+        *,
+        user_id: str,
+        workspace_context: str | None = None,
+        include_global: bool | None = None,
+    ) -> int:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/knowledge/users/{user_id}/active-count",
+            params={
+                "workspace_context": workspace_context,
+                "include_global": include_global,
+            },
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return int(data.get("count", 0)) if isinstance(data, dict) else 0
+
+    async def list_latex_projects_by_user(
+        self,
+        *,
+        user_id: str,
+        include_trashed: bool = False,
+    ) -> list[LatexProjectPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/latex/projects",
+            params={"user_id": user_id, "include_trashed": include_trashed},
+        )
+        return [LatexProjectPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_latex_project(self, project_id: str) -> LatexProjectPayload | None:
+        payload = await self._request("GET", f"/internal/v1/latex/projects/{project_id}")
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def get_owned_latex_project(
+        self,
+        *,
+        project_id: str,
+        user_id: str,
+    ) -> LatexProjectPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/latex/projects/{project_id}/owned",
+            params={"user_id": user_id},
+        )
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def get_workspace_primary_latex_project(
+        self,
+        *,
+        workspace_id: str,
+        owner_user_id: str,
+        template: str | None = None,
+    ) -> LatexProjectPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/latex/workspaces/{workspace_id}/primary-project",
+            params={"owner_user_id": owner_user_id, "template": template},
+        )
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def create_latex_project(
+        self,
+        command: LatexProjectCreatePayload,
+    ) -> LatexProjectPayload | None:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/latex/projects",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def update_latex_project(
+        self,
+        project_id: str,
+        command: LatexProjectUpdatePayload,
+    ) -> LatexProjectPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/latex/projects/{project_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def touch_latex_project(
+        self,
+        project_id: str,
+        command: LatexProjectTouchPayload,
+    ) -> LatexProjectPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/latex/projects/{project_id}/touch",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def attach_workspace_latex_project(
+        self,
+        project_id: str,
+        command: LatexProjectAttachWorkspacePayload,
+    ) -> LatexProjectPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/latex/projects/{project_id}/attach-workspace",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def soft_delete_latex_project(self, project_id: str) -> LatexProjectPayload | None:
+        payload = await self._request("POST", f"/internal/v1/latex/projects/{project_id}/soft-delete")
+        data = payload.get("data")
+        return LatexProjectPayload.model_validate(data) if data is not None else None
+
+    async def delete_latex_project(self, project_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/latex/projects/{project_id}")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def get_latex_template(self, template_id: str) -> LatexTemplatePayload | None:
+        payload = await self._request("GET", f"/internal/v1/latex/templates/{template_id}")
+        data = payload.get("data")
+        return LatexTemplatePayload.model_validate(data) if data is not None else None
+
+    async def ensure_default_latex_templates(self) -> bool:
+        payload = await self._request("POST", "/internal/v1/latex/templates/ensure-defaults")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("ensured")) if isinstance(data, dict) else False
+
+    async def list_latex_templates(self) -> list[LatexTemplatePayload]:
+        payload = await self._request("GET", "/internal/v1/latex/templates")
+        return [LatexTemplatePayload.model_validate(item) for item in payload["data"]]
+
+    async def record_latex_compile_history(
+        self,
+        command: LatexCompileHistoryCreatePayload,
+    ) -> LatexCompileHistoryPayload | None:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/latex/compile-history",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return LatexCompileHistoryPayload.model_validate(data) if data is not None else None
+
+    async def get_latex_compile_history(
+        self,
+        history_id: str,
+    ) -> LatexCompileHistoryPayload | None:
+        payload = await self._request("GET", f"/internal/v1/latex/compile-history/{history_id}")
+        data = payload.get("data")
+        return LatexCompileHistoryPayload.model_validate(data) if data is not None else None
+
+    async def list_latex_compile_history(
+        self,
+        project_id: str,
+    ) -> list[LatexCompileHistoryPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/latex/projects/{project_id}/compile-history",
+        )
+        return [LatexCompileHistoryPayload.model_validate(item) for item in payload["data"]]
+
+    async def delete_latex_compile_history(self, history_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/latex/compile-history/{history_id}")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def create_task_record(
+        self,
+        command: TaskRecordCreatePayload,
+    ) -> TaskRecordPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/tasks",
+            json=command.model_dump(mode="json"),
+        )
+        return TaskRecordPayload.model_validate(payload["data"])
+
+    async def create_task_record_guarded(
+        self,
+        command: TaskRecordCreateGuardedPayload,
+    ) -> tuple[TaskRecordPayload | None, int]:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/tasks/guarded",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data") or {}
+        record = data.get("record")
+        return (
+            TaskRecordPayload.model_validate(record) if record is not None else None,
+            int(data.get("active_count", 0)),
+        )
+
+    async def get_task_record(self, task_id: str) -> TaskRecordPayload | None:
+        payload = await self._request("GET", f"/internal/v1/tasks/{task_id}")
+        data = payload.get("data")
+        return TaskRecordPayload.model_validate(data) if data is not None else None
+
+    async def update_task_record(
+        self,
+        task_id: str,
+        command: TaskRecordPatchPayload,
+    ) -> TaskRecordPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/tasks/{task_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return TaskRecordPayload.model_validate(data) if data is not None else None
+
+    async def list_user_task_records(
+        self,
+        *,
+        user_id: str,
+        status: str | list[str] | None = None,
+        task_type: str | None = None,
+        limit: int = 20,
+        workspace_id: str | None = None,
+        feature_id: str | None = None,
+        action: str | None = None,
+    ) -> list[TaskRecordPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/tasks/users/{user_id}",
+            params={
+                "status": status,
+                "task_type": task_type,
+                "limit": limit,
+                "workspace_id": workspace_id,
+                "feature_id": feature_id,
+                "action": action,
+            },
+        )
+        return [TaskRecordPayload.model_validate(item) for item in payload["data"]]
+
+    async def count_active_task_records(
+        self,
+        *,
+        user_id: str,
+        active_statuses: list[str],
+    ) -> int:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/tasks/users/{user_id}/active-count",
+            params={"active_statuses": active_statuses},
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return int(data.get("count", 0)) if isinstance(data, dict) else 0
+
+    async def mark_task_record_started(
+        self,
+        task_id: str,
+        command: TaskRecordStartedPayload,
+    ) -> TaskRecordPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/tasks/{task_id}/started",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return TaskRecordPayload.model_validate(data) if data is not None else None
+
+    async def persist_task_record_runtime_state(
+        self,
+        task_id: str,
+        command: TaskRecordRuntimeStatePayload,
+    ) -> TaskRecordPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/tasks/{task_id}/runtime-state",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return TaskRecordPayload.model_validate(data) if data is not None else None
+
+    async def mark_task_record_completed(
+        self,
+        task_id: str,
+        command: TaskRecordCompletedPayload,
+    ) -> TaskRecordPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/tasks/{task_id}/completed",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return TaskRecordPayload.model_validate(data) if data is not None else None
+
+    async def find_prism_file_change(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        logical_key: str,
+        statuses: list[str] | None = None,
+        limit: int = 1000,
+    ) -> ReviewItemPayload | None:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/prism-review/file-changes/find",
+            params={
+                "workspace_id": workspace_id,
+                "latex_project_id": latex_project_id,
+                "logical_key": logical_key,
+                "statuses": statuses,
+                "limit": limit,
+            },
+        )
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
+
+    async def upsert_pending_prism_file_change(
+        self,
+        command: PrismFileChangeUpsertPayload,
+    ) -> ReviewItemPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/prism-review/file-changes/upsert",
+            json=command.model_dump(mode="json"),
+        )
+        return ReviewItemPayload.model_validate(payload["data"])
+
+    async def clear_pending_prism_file_change(
+        self,
+        command: PrismFileChangeClearPayload,
+    ) -> bool:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/prism-review/file-changes/clear-pending",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def mark_prism_file_change_applied(
+        self,
+        item_id: str,
+        command: PrismFileChangeAppliedPayload,
+    ) -> ReviewItemPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/prism-review/items/{item_id}/applied",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
+
+    async def mark_prism_file_change_rejected(
+        self,
+        item_id: str,
+        command: PrismFileChangeRejectedPayload,
+    ) -> ReviewItemPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/prism-review/items/{item_id}/rejected",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
+
+    async def mark_prism_file_change_reverted(
+        self,
+        item_id: str,
+    ) -> ReviewItemPayload | None:
+        payload = await self._request("POST", f"/internal/v1/prism-review/items/{item_id}/reverted")
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
 
     async def create_account_user(
         self,
