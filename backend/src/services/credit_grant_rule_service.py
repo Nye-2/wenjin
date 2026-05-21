@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import CreditGrantRule, CreditGrantRuleType
+from src.dataservice.catalog_api import CatalogDataService
 
 
 class RegistrationConfig(BaseModel):
@@ -64,6 +65,20 @@ class CreditGrantRuleService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def _record_admin_log(
+        self,
+        *,
+        action: str,
+        admin_id: str,
+        details: dict[str, Any],
+    ) -> None:
+        await CatalogDataService(self.db, autocommit=False).record_admin_log(
+            action=action,
+            admin_id=admin_id,
+            target_user_id=None,
+            details=details,
+        )
+
     async def list_all(self) -> list[CreditGrantRule]:
         result = await self.db.execute(select(CreditGrantRule).order_by(CreditGrantRule.created_at))
         return list(result.scalars().all())
@@ -87,11 +102,11 @@ class CreditGrantRuleService:
         )
         self.db.add(rule)
 
-        from src.database import AdminLog
-        self.db.add(AdminLog(
-            action="credit_rule_create", admin_id=admin_id, target_user_id=None,
+        await self._record_admin_log(
+            action="credit_rule_create",
+            admin_id=admin_id,
             details={"rule_id": rule.id, "rule_type": rule_type.value, "amount": amount},
-        ))
+        )
         await self.db.commit()
         return rule
 
@@ -110,11 +125,11 @@ class CreditGrantRuleService:
         rule.description = description
         rule.config = config
 
-        from src.database import AdminLog
-        self.db.add(AdminLog(
-            action="credit_rule_update", admin_id=admin_id, target_user_id=None,
+        await self._record_admin_log(
+            action="credit_rule_update",
+            admin_id=admin_id,
             details={"rule_id": rule_id, "amount_after": amount},
-        ))
+        )
         await self.db.commit()
         return rule
 
@@ -125,11 +140,11 @@ class CreditGrantRuleService:
         previous = rule.enabled
         rule.enabled = not previous
 
-        from src.database import AdminLog
-        self.db.add(AdminLog(
-            action="credit_rule_toggle", admin_id=admin_id, target_user_id=None,
+        await self._record_admin_log(
+            action="credit_rule_toggle",
+            admin_id=admin_id,
             details={"rule_id": rule_id, "enabled_before": previous, "enabled_after": rule.enabled},
-        ))
+        )
         await self.db.commit()
         return rule
 
@@ -139,11 +154,11 @@ class CreditGrantRuleService:
             raise ValueError("not found")
         await self.db.delete(rule)
 
-        from src.database import AdminLog
-        self.db.add(AdminLog(
-            action="credit_rule_delete", admin_id=admin_id, target_user_id=None,
+        await self._record_admin_log(
+            action="credit_rule_delete",
+            admin_id=admin_id,
             details={"rule_id": rule_id, "rule_type": rule.rule_type.value},
-        ))
+        )
         await self.db.commit()
 
     async def get_active_rule(self, rule_type: CreditGrantRuleType) -> CreditGrantRule | None:

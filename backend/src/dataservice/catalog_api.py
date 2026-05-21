@@ -9,6 +9,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.catalog.contracts import (
+    AdminLogRecord,
     CapabilityDefinitionRecord,
     CapabilitySkillRecord,
     SeedLoadResult,
@@ -22,8 +23,18 @@ SeedValidator = Callable[[Path, str], dict[str, Any]]
 class CatalogDataService:
     """Catalog API exposed by DataService to runtime modules."""
 
-    def __init__(self, session: AsyncSession, *, autocommit: bool = True) -> None:
-        self._domain = DataServiceCatalogService(session, autocommit=autocommit)
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        autocommit: bool = True,
+        admin_log_model: Any | None = None,
+    ) -> None:
+        self._domain = DataServiceCatalogService(
+            session,
+            autocommit=autocommit,
+            admin_log_model=admin_log_model,
+        )
 
     async def has_capabilities(self) -> bool:
         return await self._domain.has_capabilities()
@@ -146,6 +157,40 @@ class CatalogDataService:
             checksum=checksum,
             loaded_count=loaded_count,
             metadata_json=metadata_json,
+        )
+
+    async def record_admin_log(
+        self,
+        *,
+        action: str,
+        admin_id: str,
+        target_user_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        target_type: str = "user",
+        ip_address: str | None = None,
+    ) -> AdminLogRecord:
+        return await self._domain.record_admin_log(
+            action=action,
+            admin_id=admin_id,
+            target_user_id=target_user_id,
+            details=details,
+            target_type=target_type,
+            ip_address=ip_address,
+        )
+
+    async def list_admin_logs(
+        self,
+        *,
+        action: str | None = None,
+        target_user_id: str | None = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[AdminLogRecord], int]:
+        return await self._domain.list_admin_logs(
+            action=action,
+            target_user_id=target_user_id,
+            offset=offset,
+            limit=limit,
         )
 
     async def load_capability_seed_dir(

@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from src.database.models.capability_skill import CapabilitySkill
-from src.dataservice.domains.catalog.contracts import CapabilityDefinitionRecord, CapabilitySkillRecord
+from src.dataservice.domains.catalog.contracts import (
+    AdminLogRecord,
+    CapabilityDefinitionRecord,
+    CapabilitySkillRecord,
+)
 from src.dataservice.domains.catalog.models import CapabilityDefinition
 
 
@@ -58,6 +62,43 @@ def skill_to_record(skill: CapabilitySkill) -> CapabilitySkillRecord:
         skill_json=skill_json,
         checksum=getattr(skill, "checksum", None),
         source_path=getattr(skill, "source_path", None),
+    )
+
+
+def admin_log_to_record(
+    log: Any,
+    *,
+    admin_email: str | None = None,
+    admin_name: str | None = None,
+    target_email: str | None = None,
+    target_name: str | None = None,
+) -> AdminLogRecord:
+    """Project an admin log row plus optional joined user metadata."""
+    action = getattr(log, "action", "")
+    action_value = action.value if hasattr(action, "value") else str(action)
+    target_user_id = getattr(log, "target_user_id", None)
+    return AdminLogRecord(
+        id=str(log.id) if getattr(log, "id", None) is not None else None,
+        action=action_value,
+        target_type=str(getattr(log, "target_type", None) or "user"),
+        target_user_id=target_user_id,
+        details=dict(getattr(log, "details", None) or {}),
+        ip_address=getattr(log, "ip_address", None),
+        created_at=getattr(log, "created_at", None),
+        admin={
+            "id": str(getattr(log, "admin_id", "")),
+            "email": admin_email,
+            "name": admin_name,
+        },
+        target_user=(
+            {
+                "id": str(target_user_id),
+                "email": target_email,
+                "name": target_name,
+            }
+            if target_user_id
+            else None
+        ),
     )
 
 

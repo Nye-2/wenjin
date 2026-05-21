@@ -5,16 +5,15 @@ from typing import Any
 
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
 
 from src.database import (
     AdminActionType,
-    AdminLog,
     CreditTransaction,
     CreditTransactionType,
     User,
 )
 from src.dataservice.asset_api import AssetDataService
+from src.dataservice.catalog_api import CatalogDataService
 from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
@@ -26,6 +25,7 @@ class AdminDashboardService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._assets = AssetDataService(db, autocommit=False)
+        self._catalog = CatalogDataService(db, autocommit=False)
         self._execution = ExecutionDataService(db, autocommit=False)
         self._workspace = WorkspaceDataService(db, autocommit=False)
 
@@ -365,20 +365,16 @@ class AdminDashboardService:
         target_user_id: str | None,
         details: dict[str, Any] | None = None,
         ip_address: str | None = None,
-    ) -> AdminLog:
+    ) -> Any:
         """Persist admin audit log entry."""
-        log = AdminLog(
+        return await CatalogDataService(self.db).record_admin_log(
             admin_id=admin_id,
-            action=action,
-            target_type="user",
+            action=action.value,
             target_user_id=target_user_id,
+            target_type="user",
             details=details or {},
             ip_address=ip_address,
         )
-        self.db.add(log)
-        await self.db.commit()
-        await self.db.refresh(log)
-        return log
 
     async def list_admin_logs(
         self,
@@ -400,73 +396,20 @@ class AdminDashboardService:
             except ValueError as exc:
                 raise ValueError(f"Unsupported action: {action}") from exc
 
-        admin_alias = aliased(User)
-        target_alias = aliased(User)
-
-        conditions = []
-        if action_enum:
-            conditions.append(AdminLog.action == action_enum)
-        if target_user_id:
-            conditions.append(AdminLog.target_user_id == target_user_id)
-
-        filtered_logs = select(AdminLog)
-        if conditions:
-            filtered_logs = filtered_logs.where(*conditions)
-
-        total = int(
-            (
-                await self.db.execute(
-                    select(func.count()).select_from(filtered_logs.subquery())
-                )
-            ).scalar()
-            or 0
+        records, total = await self._catalog.list_admin_logs(
+            action=action_enum.value if action_enum else None,
+            target_user_id=target_user_id,
+            offset=offset,
+            limit=page_size,
         )
 
-        rows = await self.db.execute(
-            select(
-                AdminLog,
-                admin_alias.email,
-                admin_alias.name,
-                target_alias.email,
-                target_alias.name,
-            )
-            .join(admin_alias, AdminLog.admin_id == admin_alias.id)
-            .outerjoin(target_alias, AdminLog.target_user_id == target_alias.id)
-            .where(*conditions)
-            .order_by(desc(AdminLog.created_at))
-            .offset(offset)
-            .limit(page_size)
-        )
-
-        items: list[dict[str, Any]] = []
-        for log, admin_email, admin_name, target_email, target_name in rows.all():
-            items.append(
-                {
-                    "id": str(log.id),
-                    "action": log.action.value,
-                    "target_type": log.target_type,
-                    "target_user_id": log.target_user_id,
-                    "details": log.details or {},
-                    "ip_address": log.ip_address,
-                    "created_at": log.created_at.isoformat() if log.created_at else None,
-                    "admin": {
-                        "id": str(log.admin_id),
-                        "email": admin_email,
-                        "name": admin_name,
-                    },
-                    "target_user": (
-                        {
-                            "id": str(log.target_user_id),
-                            "email": target_email,
-                            "name": target_name,
-                        }
-                        if log.target_user_id
-                        else None
-                    ),
-                }
-            )
-
-        return items, total
+        return [
+            {
+                **record.model_dump(),
+                "created_at": record.created_at.isoformat() if record.created_at else None,
+            }
+            for record in records
+        ], total
 
     def _user_to_dict(
         self,

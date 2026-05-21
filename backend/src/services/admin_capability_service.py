@@ -11,7 +11,6 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.admin_log import AdminLog
 from src.dataservice.catalog_api import CatalogDataService
 from src.services.capability_schema import CapabilityYamlModel, CrossRefValidator
 from src.services.event_bus import EventBus
@@ -19,6 +18,7 @@ from src.services.event_bus import EventBus
 logger = logging.getLogger(__name__)
 
 INVALIDATE_CHANNEL = "capability.invalidated"
+AdminLog: Any | None = None
 
 
 def _sha256(text: str) -> str:
@@ -85,13 +85,34 @@ class AdminCapabilityService:
         self._model = model
         self.validator = CrossRefValidator(db)
 
+    def _catalog(self) -> CatalogDataService:
+        return CatalogDataService(
+            self.db,
+            autocommit=False,
+            admin_log_model=AdminLog,
+        )
+
+    async def _record_admin_log(
+        self,
+        *,
+        action: str,
+        admin_id: str,
+        details: dict[str, Any],
+    ) -> None:
+        await self._catalog().record_admin_log(
+            action=action,
+            admin_id=admin_id,
+            target_user_id=None,
+            details=details,
+        )
+
     async def list_all(self) -> list[Any]:
         if self._model is not None:
             result = await self.db.execute(
                 select(self._model).order_by(self._model.workspace_type, self._model.id)
             )
             return list(result.scalars().all())
-        return await CatalogDataService(self.db, autocommit=False).list_capabilities()
+        return await self._catalog().list_capabilities()
 
     async def get(self, capability_id: str, workspace_type: str) -> Any | None:
         if self._model is not None:
@@ -102,7 +123,7 @@ class AdminCapabilityService:
                 )
             )
             return result.scalars().first()
-        return await CatalogDataService(self.db, autocommit=False).get_capability(
+        return await self._catalog().get_capability(
             capability_id=capability_id,
             workspace_type=workspace_type,
         )
@@ -133,22 +154,19 @@ class AdminCapabilityService:
             cap = self._model(**model_data)
             self.db.add(cap)
         else:
-            cap = await CatalogDataService(self.db, autocommit=False).upsert_capability(
+            cap = await self._catalog().upsert_capability(
                 _yaml_to_catalog_data(model),
                 checksum=_sha256(yaml_text),
             )
 
-        self.db.add(
-            AdminLog(
-                action="capability_create",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "capability_id": model.id,
-                    "workspace_type": model.workspace_type,
-                    "yaml_after_sha256": _sha256(yaml_text),
-                },
-            )
+        await self._record_admin_log(
+            action="capability_create",
+            admin_id=admin_id,
+            details={
+                "capability_id": model.id,
+                "workspace_type": model.workspace_type,
+                "yaml_after_sha256": _sha256(yaml_text),
+            },
         )
         await self.db.commit()
         await self.publish_invalidation(model.id, model.workspace_type)
@@ -180,24 +198,21 @@ class AdminCapabilityService:
                 setattr(cap, key, value)
             updated = cap
         else:
-            updated = await CatalogDataService(self.db, autocommit=False).upsert_capability(
+            updated = await self._catalog().upsert_capability(
                 after_data,
                 checksum=_sha256(yaml_text),
             )
 
-        self.db.add(
-            AdminLog(
-                action="capability_update",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "capability_id": model.id,
-                    "workspace_type": model.workspace_type,
-                    "yaml_before_sha256": _sha256(before_yaml),
-                    "yaml_after_sha256": _sha256(yaml_text),
-                    "diff_fields": _diff_fields(before_dict, _record_to_yaml_dict(updated)),
-                },
-            )
+        await self._record_admin_log(
+            action="capability_update",
+            admin_id=admin_id,
+            details={
+                "capability_id": model.id,
+                "workspace_type": model.workspace_type,
+                "yaml_before_sha256": _sha256(before_yaml),
+                "yaml_after_sha256": _sha256(yaml_text),
+                "diff_fields": _diff_fields(before_dict, _record_to_yaml_dict(updated)),
+            },
         )
         await self.db.commit()
         await self.publish_invalidation(model.id, model.workspace_type)
@@ -212,22 +227,19 @@ class AdminCapabilityService:
         if self._model is not None:
             await self.db.delete(cap)
         else:
-            await CatalogDataService(self.db, autocommit=False).delete_capability(
+            await self._catalog().delete_capability(
                 capability_id=capability_id,
                 workspace_type=workspace_type,
             )
 
-        self.db.add(
-            AdminLog(
-                action="capability_delete",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "capability_id": capability_id,
-                    "workspace_type": workspace_type,
-                    "yaml_before_sha256": _sha256(before_yaml),
-                },
-            )
+        await self._record_admin_log(
+            action="capability_delete",
+            admin_id=admin_id,
+            details={
+                "capability_id": capability_id,
+                "workspace_type": workspace_type,
+                "yaml_before_sha256": _sha256(before_yaml),
+            },
         )
         await self.db.commit()
         await self.publish_invalidation(capability_id, workspace_type)
@@ -242,7 +254,7 @@ class AdminCapabilityService:
             cap.enabled = not previous
             updated = cap
         else:
-            updated = await CatalogDataService(self.db, autocommit=False).set_capability_enabled(
+            updated = await self._catalog().set_capability_enabled(
                 capability_id=capability_id,
                 workspace_type=workspace_type,
                 enabled=not previous,
@@ -250,18 +262,15 @@ class AdminCapabilityService:
             if updated is None:
                 raise ValueError("not found")
 
-        self.db.add(
-            AdminLog(
-                action="capability_toggle",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "capability_id": capability_id,
-                    "workspace_type": workspace_type,
-                    "enabled_before": previous,
-                    "enabled_after": updated.enabled,
-                },
-            )
+        await self._record_admin_log(
+            action="capability_toggle",
+            admin_id=admin_id,
+            details={
+                "capability_id": capability_id,
+                "workspace_type": workspace_type,
+                "enabled_before": previous,
+                "enabled_after": updated.enabled,
+            },
         )
         await self.db.commit()
         await self.publish_invalidation(capability_id, workspace_type)

@@ -54,6 +54,20 @@ class CapabilitySkillRecord(BaseModel):
     source_path: str | None = None
 
 
+class AdminLogRecord(BaseModel):
+    """Admin audit log projection."""
+
+    id: str | None = None
+    action: str
+    target_type: str = "user"
+    target_user_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    ip_address: str | None = None
+    created_at: datetime | None = None
+    admin: dict[str, Any] = Field(default_factory=dict)
+    target_user: dict[str, Any] | None = None
+
+
 class SeedLoadResult(BaseModel):
     """Seed load result."""
 

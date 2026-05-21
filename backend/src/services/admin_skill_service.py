@@ -10,9 +10,10 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.admin_log import AdminLog
 from src.dataservice.catalog_api import CatalogDataService
 from src.services.capability_schema import CapabilitySkillYamlModel, CrossRefValidator
+
+AdminLog: Any | None = None
 
 
 def _sha256(text: str) -> str:
@@ -69,17 +70,38 @@ class AdminSkillService:
         self._model = model
         self.validator = CrossRefValidator(db)
 
+    def _catalog(self) -> CatalogDataService:
+        return CatalogDataService(
+            self.db,
+            autocommit=False,
+            admin_log_model=AdminLog,
+        )
+
+    async def _record_admin_log(
+        self,
+        *,
+        action: str,
+        admin_id: str,
+        details: dict[str, Any],
+    ) -> None:
+        await self._catalog().record_admin_log(
+            action=action,
+            admin_id=admin_id,
+            target_user_id=None,
+            details=details,
+        )
+
     async def list_all(self) -> list[Any]:
         if self._model is not None:
             result = await self.db.execute(select(self._model).order_by(self._model.id))
             return list(result.scalars().all())
-        return await CatalogDataService(self.db, autocommit=False).list_skills()
+        return await self._catalog().list_skills()
 
     async def get(self, skill_id: str) -> Any | None:
         if self._model is not None:
             result = await self.db.execute(select(self._model).where(self._model.id == skill_id))
             return result.scalars().first()
-        return await CatalogDataService(self.db, autocommit=False).get_skill(skill_id)
+        return await self._catalog().get_skill(skill_id)
 
     async def validate(self, yaml_text: str) -> list[str]:
         try:
@@ -101,21 +123,18 @@ class AdminSkillService:
             skill = self._model(**_yaml_to_legacy_model_data(model))
             self.db.add(skill)
         else:
-            skill = await CatalogDataService(self.db, autocommit=False).upsert_skill(
+            skill = await self._catalog().upsert_skill(
                 _yaml_to_catalog_data(model),
                 checksum=_sha256(yaml_text),
             )
 
-        self.db.add(
-            AdminLog(
-                action="skill_create",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "skill_id": model.id,
-                    "yaml_after_sha256": _sha256(yaml_text),
-                },
-            )
+        await self._record_admin_log(
+            action="skill_create",
+            admin_id=admin_id,
+            details={
+                "skill_id": model.id,
+                "yaml_after_sha256": _sha256(yaml_text),
+            },
         )
         await self.db.commit()
         return skill
@@ -136,22 +155,19 @@ class AdminSkillService:
                 setattr(skill, key, value)
             updated = skill
         else:
-            updated = await CatalogDataService(self.db, autocommit=False).upsert_skill(
+            updated = await self._catalog().upsert_skill(
                 _yaml_to_catalog_data(model),
                 checksum=_sha256(yaml_text),
             )
 
-        self.db.add(
-            AdminLog(
-                action="skill_update",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "skill_id": skill_id,
-                    "yaml_before_sha256": _sha256(before_yaml),
-                    "yaml_after_sha256": _sha256(yaml_text),
-                },
-            )
+        await self._record_admin_log(
+            action="skill_update",
+            admin_id=admin_id,
+            details={
+                "skill_id": skill_id,
+                "yaml_before_sha256": _sha256(before_yaml),
+                "yaml_after_sha256": _sha256(yaml_text),
+            },
         )
         await self.db.commit()
         return updated
@@ -165,18 +181,15 @@ class AdminSkillService:
         if self._model is not None:
             await self.db.delete(skill)
         else:
-            await CatalogDataService(self.db, autocommit=False).delete_skill(skill_id)
+            await self._catalog().delete_skill(skill_id)
 
-        self.db.add(
-            AdminLog(
-                action="skill_delete",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "skill_id": skill_id,
-                    "yaml_before_sha256": _sha256(before_yaml),
-                },
-            )
+        await self._record_admin_log(
+            action="skill_delete",
+            admin_id=admin_id,
+            details={
+                "skill_id": skill_id,
+                "yaml_before_sha256": _sha256(before_yaml),
+            },
         )
         await self.db.commit()
 
@@ -190,24 +203,21 @@ class AdminSkillService:
             skill.enabled = not previous
             updated = skill
         else:
-            updated = await CatalogDataService(self.db, autocommit=False).set_skill_enabled(
+            updated = await self._catalog().set_skill_enabled(
                 skill_id=skill_id,
                 enabled=not previous,
             )
             if updated is None:
                 raise ValueError("not found")
 
-        self.db.add(
-            AdminLog(
-                action="skill_toggle",
-                admin_id=admin_id,
-                target_user_id=None,
-                details={
-                    "skill_id": skill_id,
-                    "enabled_before": previous,
-                    "enabled_after": updated.enabled,
-                },
-            )
+        await self._record_admin_log(
+            action="skill_toggle",
+            admin_id=admin_id,
+            details={
+                "skill_id": skill_id,
+                "enabled_before": previous,
+                "enabled_after": updated.enabled,
+            },
         )
         await self.db.commit()
         return updated

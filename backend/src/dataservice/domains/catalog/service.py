@@ -8,21 +8,32 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.catalog.contracts import (
+    AdminLogRecord,
     CapabilityDefinitionRecord,
     CapabilitySkillRecord,
     SeedLoadResult,
 )
-from src.dataservice.domains.catalog.projection import capability_to_record, skill_to_record
+from src.dataservice.domains.catalog.projection import (
+    admin_log_to_record,
+    capability_to_record,
+    skill_to_record,
+)
 from src.dataservice.domains.catalog.repository import CatalogRepository
 
 
 class DataServiceCatalogService:
     """DataService-owned capability and skill catalog operations."""
 
-    def __init__(self, session: AsyncSession, *, autocommit: bool = True) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        *,
+        autocommit: bool = True,
+        admin_log_model: Any | None = None,
+    ) -> None:
         self.session = session
         self.autocommit = autocommit
-        self.repository = CatalogRepository(session)
+        self.repository = CatalogRepository(session, admin_log_model=admin_log_model)
 
     async def has_capabilities(self) -> bool:
         return await self.repository.has_capabilities()
@@ -186,6 +197,54 @@ class DataServiceCatalogService:
         )
         await self._finish()
         return SeedLoadResult(loaded=loaded_count, skipped=False, checksum=checksum)
+
+    async def record_admin_log(
+        self,
+        *,
+        action: str,
+        admin_id: str,
+        target_user_id: str | None = None,
+        details: dict[str, Any] | None = None,
+        target_type: str = "user",
+        ip_address: str | None = None,
+    ) -> AdminLogRecord:
+        record = self.repository.create_admin_log(
+            action=action,
+            admin_id=admin_id,
+            target_user_id=target_user_id,
+            details=dict(details or {}),
+            target_type=target_type,
+            ip_address=ip_address,
+        )
+        await self._finish()
+        if self.autocommit:
+            await self.session.refresh(record)
+        return admin_log_to_record(record)
+
+    async def list_admin_logs(
+        self,
+        *,
+        action: str | None = None,
+        target_user_id: str | None = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[AdminLogRecord], int]:
+        rows, total = await self.repository.list_admin_logs(
+            action=action,
+            target_user_id=target_user_id,
+            offset=offset,
+            limit=limit,
+        )
+        return [
+            admin_log_to_record(
+                log,
+                admin_email=admin_email,
+                admin_name=admin_name,
+                target_email=target_email,
+                target_name=target_name,
+            )
+            for log, admin_email, admin_name, target_email, target_name in rows
+        ], total
 
     @staticmethod
     def capability_values(

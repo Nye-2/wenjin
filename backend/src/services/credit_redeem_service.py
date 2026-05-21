@@ -14,13 +14,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import (
-    AdminLog,
     CreditRedeemCode,
     CreditRedemption,
     CreditTransaction,
     CreditTransactionType,
     User,
 )
+from src.dataservice.catalog_api import CatalogDataService
 from src.services.redeem_code_generator import generate_code
 
 
@@ -31,6 +31,20 @@ class RedeemError(Exception):
 class CreditRedeemService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+
+    async def _record_admin_log(
+        self,
+        *,
+        action: str,
+        admin_id: str,
+        details: dict[str, object],
+    ) -> None:
+        await CatalogDataService(self.db, autocommit=False).record_admin_log(
+            action=action,
+            admin_id=admin_id,
+            target_user_id=None,
+            details=dict(details),
+        )
 
     async def batch_generate(
         self,
@@ -74,11 +88,11 @@ class CreditRedeemService:
             else:
                 raise RuntimeError("failed to generate non-conflicting code after 5 attempts")
 
-        self.db.add(AdminLog(
+        await self._record_admin_log(
             action="redeem_code_batch_generate",
-            admin_id=admin_id, target_user_id=None,
+            admin_id=admin_id,
             details={"batch_id": batch_id, "count": count, "amount": amount},
-        ))
+        )
         await self.db.commit()
         return created
 
@@ -108,10 +122,11 @@ class CreditRedeemService:
         if code is None:
             raise ValueError("not found")
         code.enabled = False
-        self.db.add(AdminLog(
-            action="redeem_code_disable", admin_id=admin_id, target_user_id=None,
+        await self._record_admin_log(
+            action="redeem_code_disable",
+            admin_id=admin_id,
             details={"code_id": code_id, "code": code.code},
-        ))
+        )
         await self.db.commit()
         return code
 
