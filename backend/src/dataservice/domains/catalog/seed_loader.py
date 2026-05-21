@@ -12,6 +12,7 @@ from src.dataservice.domains.catalog.service import DataServiceCatalogService
 SeedValidator = Callable[[Path, str], dict[str, Any]]
 DeleteCommand = Callable[[], Awaitable[None]]
 UpsertCommand = Callable[[dict[str, Any], str, str], Awaitable[Any]]
+SeedItem = dict[str, Any]
 
 
 class DataServiceCatalogSeedLoader:
@@ -37,6 +38,23 @@ class DataServiceCatalogSeedLoader:
             upsert=self._upsert_capability,
         )
 
+    async def load_capability_items(
+        self,
+        *,
+        seed_root: str,
+        seed_items: list[SeedItem],
+        overwrite: bool = False,
+    ) -> SeedLoadResult:
+        return await self._load_items(
+            catalog_kind="capabilities",
+            schema_version="capability.v2",
+            seed_root=seed_root,
+            seed_items=seed_items,
+            overwrite=overwrite,
+            delete_all=self.service.delete_all_capabilities,
+            upsert=self._upsert_capability,
+        )
+
     async def load_skills(
         self,
         *,
@@ -48,6 +66,23 @@ class DataServiceCatalogSeedLoader:
             schema_version="capability_skill.v2",
             glob_pattern="*.yaml",
             validate_yaml_text=validate_yaml_text,
+            overwrite=overwrite,
+            delete_all=self.service.delete_all_skills,
+            upsert=self._upsert_skill,
+        )
+
+    async def load_skill_items(
+        self,
+        *,
+        seed_root: str,
+        seed_items: list[SeedItem],
+        overwrite: bool = False,
+    ) -> SeedLoadResult:
+        return await self._load_items(
+            catalog_kind="skills",
+            schema_version="capability_skill.v2",
+            seed_root=seed_root,
+            seed_items=seed_items,
             overwrite=overwrite,
             delete_all=self.service.delete_all_skills,
             upsert=self._upsert_skill,
@@ -68,11 +103,31 @@ class DataServiceCatalogSeedLoader:
             glob_pattern=glob_pattern,
             validate_yaml_text=validate_yaml_text,
         )
+        return await self._load_items(
+            catalog_kind=catalog_kind,
+            schema_version=schema_version,
+            seed_root=str(self.seed_dir),
+            seed_items=seed_items,
+            overwrite=overwrite,
+            delete_all=delete_all,
+            upsert=upsert,
+        )
+
+    async def _load_items(
+        self,
+        *,
+        catalog_kind: str,
+        schema_version: str,
+        seed_root: str,
+        seed_items: list[SeedItem],
+        overwrite: bool,
+        delete_all: DeleteCommand,
+        upsert: UpsertCommand,
+    ) -> SeedLoadResult:
         if not seed_items:
             return SeedLoadResult(loaded=0, skipped=False, checksum=None)
 
         root_checksum = self._root_checksum(seed_items)
-        seed_root = str(self.seed_dir)
         if not overwrite and await self.service.seed_revision_matches(
             catalog_kind=catalog_kind,
             seed_root=seed_root,

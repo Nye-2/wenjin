@@ -32,6 +32,8 @@ from src.dataservice_client.contracts.catalog import (
 )
 from src.dataservice_client.contracts.catalog import (
     CatalogEnabledPayload,
+    CatalogSeedItemPayload,
+    CatalogSeedLoadPayload,
     CatalogUpsertPayload,
 )
 from src.dataservice_client.contracts.conversation import (
@@ -594,6 +596,11 @@ async def test_dataservice_client_catalog_contract_methods() -> None:
         path = request.url.path
         if path.endswith("/exists"):
             return httpx.Response(200, json={"status": "ok", "data": {"exists": True}})
+        if path.endswith("/seed-load"):
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"loaded": 1, "skipped": False, "checksum": "root"}},
+            )
         if request.method == "DELETE":
             return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
         if path.endswith("/admin-logs") and request.method == "GET":
@@ -633,6 +640,19 @@ async def test_dataservice_client_catalog_contract_methods() -> None:
             workspace_type="thesis",
             capability_id="idea_to_manuscript",
         )
+        capability_seed_result = await client.load_catalog_capability_seed_items(
+            CatalogSeedLoadPayload(
+                seed_root="/seed/capabilities",
+                overwrite=True,
+                items=[
+                    CatalogSeedItemPayload(
+                        data=capability_payload(),
+                        checksum="cap-checksum",
+                        source_path="/seed/capabilities/thesis/idea.yaml",
+                    )
+                ],
+            )
+        )
         skills = await client.list_catalog_skills(enabled_only=True)
         has_skills = await client.has_catalog_skills()
         skill = await client.get_catalog_skill("writer", enabled_only=True)
@@ -645,6 +665,18 @@ async def test_dataservice_client_catalog_contract_methods() -> None:
             CatalogEnabledPayload(enabled=False),
         )
         deleted_skill = await client.delete_catalog_skill("writer")
+        skill_seed_result = await client.load_catalog_skill_seed_items(
+            CatalogSeedLoadPayload(
+                seed_root="/seed/skills",
+                items=[
+                    CatalogSeedItemPayload(
+                        data=skill_payload(),
+                        checksum="skill-checksum",
+                        source_path="/seed/skills/writer.yaml",
+                    )
+                ],
+            )
+        )
         admin_log = await client.record_catalog_admin_log(
             CatalogAdminLogCreatePayload(
                 action="capability_create",
@@ -660,12 +692,14 @@ async def test_dataservice_client_catalog_contract_methods() -> None:
     assert upserted_capability.id == "idea_to_manuscript"
     assert toggled_capability is not None and toggled_capability.enabled is True
     assert deleted_capability is True
+    assert capability_seed_result.loaded == 1
     assert skills[0].id == "writer"
     assert has_skills is True
     assert skill is not None and skill.subagent_type == "writer"
     assert upserted_skill.id == "writer"
     assert toggled_skill is not None and toggled_skill.enabled is True
     assert deleted_skill is True
+    assert skill_seed_result.loaded == 1
     assert admin_log.action == "capability_create"
     assert admin_logs[0].id == "log-1"
     assert admin_total == 1

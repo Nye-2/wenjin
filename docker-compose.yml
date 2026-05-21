@@ -94,6 +94,8 @@ services:
       - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@wenjin.ai}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
@@ -101,6 +103,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
     restart: "no"
     networks:
       - wenjin-network

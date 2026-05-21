@@ -34,6 +34,8 @@ from src.dataservice_client.contracts.catalog import (
     CapabilityDefinitionPayload,
     CapabilitySkillPayload,
     CatalogEnabledPayload,
+    CatalogSeedLoadPayload,
+    CatalogSeedLoadResultPayload,
     CatalogUpsertPayload,
 )
 from src.dataservice_client.contracts.conversation import (
@@ -1164,6 +1166,17 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return CapabilityDefinitionPayload.model_validate(data) if data is not None else None
 
+    async def load_catalog_capability_seed_items(
+        self,
+        command: CatalogSeedLoadPayload,
+    ) -> CatalogSeedLoadResultPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/catalog/capabilities/seed-load",
+            json=command.model_dump(mode="json"),
+        )
+        return CatalogSeedLoadResultPayload.model_validate(payload["data"])
+
     async def list_catalog_skills(self, *, enabled_only: bool = False) -> list[CapabilitySkillPayload]:
         payload = await self._request(
             "GET",
@@ -1220,6 +1233,17 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return CapabilitySkillPayload.model_validate(data) if data is not None else None
+
+    async def load_catalog_skill_seed_items(
+        self,
+        command: CatalogSeedLoadPayload,
+    ) -> CatalogSeedLoadResultPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/catalog/skills/seed-load",
+            json=command.model_dump(mode="json"),
+        )
+        return CatalogSeedLoadResultPayload.model_validate(payload["data"])
 
     async def record_catalog_admin_log(
         self,

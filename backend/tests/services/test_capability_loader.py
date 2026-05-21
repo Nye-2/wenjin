@@ -1,6 +1,7 @@
 """Tests for CapabilityLoader — YAML seed loading."""
 
 import textwrap
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
@@ -167,3 +168,38 @@ async def test_loads_ui_meta_from_yaml(test_session, tmp_path):
         "stages": [{"id": "s1", "label": "第一步"}],
         "follow_up_prompt": "继续吧",
     }
+
+
+@pytest.mark.asyncio
+async def test_dataservice_branch_loads_seed_items(test_session, tmp_path):
+    seed_dir = tmp_path / "capabilities" / "thesis"
+    seed_dir.mkdir(parents=True)
+    yaml_file = seed_dir / "test_cap.yaml"
+    yaml_file.write_text(textwrap.dedent("""\
+        id: test_cap
+        workspace_type: thesis
+        display_name: Test
+        intent_description: test intent
+        brief_schema: {type: object}
+        graph_template: {phases: []}
+        ui_meta: {}
+    """))
+
+    from src.services.capability_loader import CapabilityLoader
+
+    dataservice = AsyncMock()
+    dataservice.has_catalog_capabilities.return_value = False
+    dataservice.load_catalog_capability_seed_items.return_value.loaded = 1
+    loader = CapabilityLoader(
+        session=test_session,
+        seed_dir=str(tmp_path / "capabilities"),
+        dataservice=dataservice,
+    )
+
+    count = await loader.load_seeds_if_empty()
+
+    assert count == 1
+    command = dataservice.load_catalog_capability_seed_items.await_args.args[0]
+    assert command.seed_root == str(tmp_path / "capabilities")
+    assert command.items[0].data["id"] == "test_cap"
+    assert command.items[0].source_path == str(yaml_file)

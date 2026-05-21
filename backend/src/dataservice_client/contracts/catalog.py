@@ -60,6 +60,24 @@ class CatalogEnabledPayload(BaseModel):
     enabled: bool
 
 
+class CatalogSeedItemPayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+    checksum: str
+    source_path: str
+
+
+class CatalogSeedLoadPayload(BaseModel):
+    seed_root: str
+    overwrite: bool = False
+    items: list[CatalogSeedItemPayload] = Field(default_factory=list)
+
+
+class CatalogSeedLoadResultPayload(BaseModel):
+    loaded: int
+    skipped: bool = False
+    checksum: str | None = None
+
+
 class AdminLogCreatePayload(BaseModel):
     action: str
     admin_id: str

@@ -6,12 +6,14 @@ from fastapi import APIRouter, Depends, Query
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
+from src.dataservice.domains.catalog.seed_loader import DataServiceCatalogSeedLoader
 from src.dataservice.domains.catalog.service import DataServiceCatalogService
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
 from src.dataservice_client.contracts.catalog import (
     AdminLogCreatePayload,
     CatalogEnabledPayload,
+    CatalogSeedLoadPayload,
     CatalogUpsertPayload,
 )
 
@@ -112,6 +114,22 @@ async def set_capability_enabled(
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
+@router.post("/capabilities/seed-load")
+async def load_capability_seed_items(
+    payload: CatalogSeedLoadPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    loader = DataServiceCatalogSeedLoader(service, payload.seed_root)
+    result = await loader.load_capability_items(
+        seed_root=payload.seed_root,
+        seed_items=[item.model_dump(mode="json") for item in payload.items],
+        overwrite=payload.overwrite,
+    )
+    await uow.commit()
+    return envelope_ok(result.model_dump(mode="json"))
+
+
 @router.get("/skills")
 async def list_skills(
     enabled_only: bool = Query(default=False),
@@ -180,6 +198,22 @@ async def set_skill_enabled(
     record = await service.set_skill_enabled(skill_id=skill_id, enabled=payload.enabled)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/skills/seed-load")
+async def load_skill_seed_items(
+    payload: CatalogSeedLoadPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    loader = DataServiceCatalogSeedLoader(service, payload.seed_root)
+    result = await loader.load_skill_items(
+        seed_root=payload.seed_root,
+        seed_items=[item.model_dump(mode="json") for item in payload.items],
+        overwrite=payload.overwrite,
+    )
+    await uow.commit()
+    return envelope_ok(result.model_dump(mode="json"))
 
 
 @router.post("/admin-logs")

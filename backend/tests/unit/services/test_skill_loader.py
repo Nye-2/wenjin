@@ -1,6 +1,7 @@
 """Tests for SkillLoader — YAML → DB seed loader."""
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
@@ -57,3 +58,25 @@ async def test_load_seeds_if_empty_skips_when_populated(db_session: AsyncSession
     loader = SkillLoader(db_session, seed_dir=tmp_path, model=UnitCapabilitySkill)
     count = await loader.load_seeds_if_empty()
     assert count == 0
+
+
+@pytest.mark.asyncio
+async def test_dataservice_branch_loads_seed_items(db_session: AsyncSession, tmp_path: Path) -> None:
+    skill_yaml = tmp_path / "writer.yaml"
+    skill_yaml.write_text(yaml.safe_dump({
+        "id": "writer",
+        "display_name": "Writer",
+        "subagent_type": "react",
+    }))
+    dataservice = AsyncMock()
+    dataservice.has_catalog_skills.return_value = False
+    dataservice.load_catalog_skill_seed_items.return_value.loaded = 1
+    loader = SkillLoader(db_session, seed_dir=tmp_path, dataservice=dataservice)
+
+    count = await loader.load_seeds_if_empty()
+
+    assert count == 1
+    command = dataservice.load_catalog_skill_seed_items.await_args.args[0]
+    assert command.seed_root == str(tmp_path)
+    assert command.items[0].data["id"] == "writer"
+    assert command.items[0].source_path == str(skill_yaml)
