@@ -907,10 +907,11 @@ Implementation status:
 - `services/rooms/settings_service.py` delegates workspace settings projection and update operations to `WorkspaceDataService`; settings writes are now owned by the Workspace aggregate.
 - `services/workspace_run_service.py` has been deleted; product run state stays on DataService execution projections, and `workspace_run` remains only as a legacy physical table pending archive/drop validation.
 - `compute/session_service.py`, compute routes, and compute projection reads now use Execution DataService compute-session commands/projections; DataService app routes and typed client contracts expose the same compute shell boundary for future split deployment.
+- `services/workspace_activity_service.py` now builds artifact activity from `AssetDataService` / `workspace_assets` instead of querying the legacy `artifacts` table.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q` passes with 672 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1917 tests.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/services/test_workspace_activity_service.py tests/gateway/routers/test_workspace_activity.py tests/dataservice tests/architecture tests/services tests/gateway/routers -q` passes with 668 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1918 tests.
 
 ### Task 14: Final Drop/Archive Gate
 

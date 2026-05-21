@@ -6,8 +6,9 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Artifact, Thread
+from src.database import Thread
 from src.database.models.prism import PrismReviewItem
+from src.dataservice.asset_api import AssetDataService, WorkspaceAssetProjection
 from src.dataservice.conversation_api import ConversationDataService
 from src.dataservice.execution_api import (
     ExecutionDataService,
@@ -35,6 +36,11 @@ from src.services.workspace_skill_labels import (
 )
 
 
+def _artifact_metadata(artifact: WorkspaceAssetProjection | Any) -> dict[str, Any]:
+    metadata = getattr(artifact, "metadata_json", None)
+    return dict(metadata) if isinstance(metadata, dict) else {}
+
+
 class WorkspaceActivityService:
     """Aggregate workspace activity across tasks, threads, subagents, and artifacts."""
 
@@ -42,6 +48,7 @@ class WorkspaceActivityService:
         self.db = db
         self._conversation = ConversationDataService(db, autocommit=False)
         self._execution = ExecutionDataService(db, autocommit=False)
+        self._assets = AssetDataService(db, autocommit=False)
 
     async def get_activity(
         self,
@@ -288,13 +295,11 @@ class WorkspaceActivityService:
         workspace_type: str | None,
         limit: int,
     ) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(Artifact)
-            .where(Artifact.workspace_id == workspace_id)
-            .order_by(Artifact.created_at.desc())
-            .limit(limit)
+        artifacts = await self._assets.list_assets(
+            workspace_id=workspace_id,
+            include_deleted=False,
+            limit=limit,
         )
-        artifacts = list(result.scalars().all())
         return [
             self._artifact_to_activity(artifact, workspace_type=workspace_type)
             for artifact in artifacts
@@ -302,14 +307,26 @@ class WorkspaceActivityService:
 
     def _artifact_to_activity(
         self,
-        artifact: Artifact,
+        artifact: Any,
         *,
         workspace_type: str | None,
     ) -> dict[str, Any]:
-        artifact_type = getattr(artifact, "type", "artifact")
-        created_by_skill = getattr(artifact, "created_by_skill", None)
+        metadata = _artifact_metadata(artifact)
+        artifact_type = (
+            metadata.get("artifact_type")
+            or metadata.get("legacy_kind")
+            or getattr(artifact, "asset_kind", None)
+            or getattr(artifact, "type", "artifact")
+        )
+        created_by_skill = (
+            metadata.get("created_by_skill")
+            or metadata.get("skill_name")
+            or getattr(artifact, "created_by_skill", None)
+            or getattr(artifact, "created_by", None)
+        )
         created_by_skill_name = None
-        artifact_title = getattr(artifact, "title", None)
+        artifact_title = getattr(artifact, "title", None) or getattr(artifact, "name", None)
+        status = metadata.get("status") or getattr(artifact, "status", None) or "available"
         return {
             "id": f"artifact:{artifact.id}",
             "kind": "artifact",
@@ -319,7 +336,7 @@ class WorkspaceActivityService:
             "summary": truncate_activity_preview(created_by_skill_name or created_by_skill)
             if (created_by_skill_name or created_by_skill)
             else humanize_activity_identifier(artifact_type),
-            "status": artifact.status,
+            "status": status,
             "thread_id": None,
             "task_id": None,
             "artifact_id": str(artifact.id),
@@ -331,9 +348,12 @@ class WorkspaceActivityService:
             "subagent_type": None,
             "metadata": {
                 "artifact_type": artifact_type,
+                "asset_kind": getattr(artifact, "asset_kind", None),
+                "source_kind": getattr(artifact, "source_kind", None),
+                "source_id": getattr(artifact, "source_id", None),
                 "created_by_skill": created_by_skill,
                 "created_by_skill_name": created_by_skill_name,
-                "version": getattr(artifact, "version", None),
+                "version": metadata.get("version") or getattr(artifact, "version", None),
             },
         }
 

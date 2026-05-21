@@ -1076,8 +1076,9 @@ Implementation status as of 2026-05-21:
 - Runtime code outside DataService/database ownership packages is guarded from importing `WorkspaceRunRow`.
 - Compute session shell state is now controlled through the Execution DataService aggregate, internal DataService routes, and typed DataService client contracts; compute routes/projections no longer query `compute_sessions` directly.
 - Runtime code outside DataService/database ownership packages is guarded from importing `ComputeSessionRecord`.
+- Workspace Activity artifact entries now read from `AssetDataService` / `workspace_assets`; the activity projection no longer queries the legacy `artifacts` table for artifact cards.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1917 backend tests.
+- Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1918 backend tests.
 
 ### Phase 4: Review Materialization
 

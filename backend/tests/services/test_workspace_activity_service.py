@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from src.dataservice.domains.asset.contracts import WorkspaceAssetProjection
 from src.dataservice.domains.execution.contracts import (
     ExecutionNodeProjection,
     ExecutionRecordProjection,
@@ -75,6 +76,30 @@ def _node_projection(**overrides) -> ExecutionNodeProjection:
         node_metadata=overrides.get("node_metadata"),
         started_at=overrides.get("started_at"),
         completed_at=overrides.get("completed_at"),
+        created_at=now,
+        updated_at=overrides.get("updated_at", now),
+    )
+
+
+def _asset_projection(**overrides) -> WorkspaceAssetProjection:
+    now = overrides.get("created_at") or datetime.now(UTC)
+    return WorkspaceAssetProjection(
+        id=overrides.get("id", "asset-1"),
+        workspace_id=overrides.get("workspace_id", "ws-1"),
+        asset_kind=overrides.get("asset_kind", "figure"),
+        name=overrides.get("name", "Figure Draft"),
+        title=overrides.get("title", "图表草稿"),
+        mime_type=overrides.get("mime_type", "image/png"),
+        storage_backend=overrides.get("storage_backend", "local"),
+        storage_path=overrides.get("storage_path", "/tmp/figure.png"),
+        size_bytes=overrides.get("size_bytes"),
+        content_hash=overrides.get("content_hash"),
+        parent_asset_id=overrides.get("parent_asset_id"),
+        created_by=overrides.get("created_by", "figure-designer"),
+        source_kind=overrides.get("source_kind", "artifacts"),
+        source_id=overrides.get("source_id", "artifact-1"),
+        metadata_json=overrides.get("metadata_json", {"status": "draft", "version": 2}),
+        deleted_at=overrides.get("deleted_at"),
         created_at=now,
         updated_at=overrides.get("updated_at", now),
     )
@@ -591,6 +616,27 @@ def test_artifact_activity_uses_canonical_creator_skill_name() -> None:
     assert item["metadata"]["created_by_skill_name"] is None
     # Summary falls back to the raw created_by_skill id when no display name is available.
     assert item["summary"] == "figure-designer"
+
+
+@pytest.mark.asyncio
+async def test_get_artifact_activity_reads_workspace_assets() -> None:
+    db = AsyncMock()
+    service = WorkspaceActivityService(db)
+    asset = _asset_projection(id="asset-1")
+    service._assets.list_assets = AsyncMock(return_value=[asset])
+
+    items = await service._get_artifact_activity("ws-1", workspace_type="thesis", limit=10)
+
+    service._assets.list_assets.assert_awaited_once_with(
+        workspace_id="ws-1",
+        include_deleted=False,
+        limit=10,
+    )
+    assert items[0]["id"] == "artifact:asset-1"
+    assert items[0]["artifact_id"] == "asset-1"
+    assert items[0]["status"] == "draft"
+    assert items[0]["metadata"]["asset_kind"] == "figure"
+    assert items[0]["metadata"]["version"] == 2
 
 
 @pytest.mark.asyncio
