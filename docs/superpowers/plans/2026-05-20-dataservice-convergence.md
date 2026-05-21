@@ -892,7 +892,7 @@ Implementation status:
 Steps:
 
 - [x] Replace direct model imports for migrated room, sandbox, source/library, document-room, and settings-room slices with DataService APIs.
-- [x] Add architecture guard coverage for migrated room, sandbox, source/library, document-room, and settings-room legacy models.
+- [x] Add architecture guard coverage for migrated room, sandbox, source/library, document-room, settings-room, and legacy workspace-run models.
 - [ ] Replace remaining direct model imports for domains not yet migrated.
 - [ ] Delete old service facade files once gateway routes and smoke tests no longer instantiate them.
 - [x] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q`.
@@ -900,15 +900,16 @@ Steps:
 
 Implementation status:
 
-- 2026-05-21: Projection cleanup slices are implemented for migrated room, sandbox, source/library, document-room, and settings-room state. Runtime code no longer imports `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, `LibraryItem`, `DocumentV2`, or `WorkspaceSettings` legacy models directly outside DataService/database ownership packages.
+- 2026-05-21: Projection cleanup slices are implemented for migrated room, sandbox, source/library, document-room, settings-room, and legacy workspace-run state. Runtime code no longer imports `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, `LibraryItem`, `DocumentV2`, `WorkspaceSettings`, or `WorkspaceRunRow` legacy models directly outside DataService/database ownership packages.
 - `WorkspacePrismService` now reads decision and memory context through `RoomsDataService`; `services/rooms/sandbox_service.py` delegates environment state to `SandboxDataService`.
 - `services/rooms/library_service.py` delegates reference-library state to `SourceDataService`; `SourceDataService` now exposes source soft-delete for room delete flows.
 - `services/rooms/documents_service.py` delegates document room create/read/update/delete/version operations to `AssetDataService`; document room writes now create canonical `workspace_assets` rows instead of `documents_v2` rows.
 - `services/rooms/settings_service.py` delegates workspace settings projection and update operations to `WorkspaceDataService`; settings writes are now owned by the Workspace aggregate.
-- Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings legacy model modules and model names.
+- `services/workspace_run_service.py` has been deleted; product run state stays on DataService execution projections, and `workspace_run` remains only as a legacy physical table pending archive/drop validation.
+- Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q` passes with 672 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1919 tests.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers tests/integration/test_paper_analysis_flow.py -q` passes with 674 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1914 tests.
 
 ### Task 14: Final Drop/Archive Gate
 

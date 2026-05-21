@@ -17,6 +17,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.library_item",
     "src.database.models.document_v2",
     "src.database.models.workspace_settings",
+    "src.database.models.workspace_run",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
     "Decision",
@@ -26,6 +27,7 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "LibraryItem",
     "DocumentV2",
     "WorkspaceSettings",
+    "WorkspaceRunRow",
 }
 MODEL_OWNER_PACKAGES = {
     "database",
