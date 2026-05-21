@@ -60,6 +60,22 @@ class ExecutionEventCreateCommand(BaseModel):
     occurred_at: datetime | None = None
 
 
+class GenerationRecordCreateCommand(BaseModel):
+    """Record one legacy skill-generation usage event behind DataService."""
+
+    workspace_id: str = Field(min_length=1, max_length=36)
+    skill_name: str = Field(min_length=1, max_length=100)
+    thread_id: str | None = Field(default=None, max_length=36)
+    model_name: str | None = Field(default=None, max_length=100)
+    input_summary: str | None = None
+    output_summary: str | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
+    token_usage: dict[str, Any] | None = None
+    status: str = Field(default="success", max_length=20)
+    error_message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ExecutionNodeUpsertCommand(BaseModel):
     """Create or update one execution node lifecycle snapshot."""
 
@@ -221,6 +237,43 @@ class ExecutionEventProjection(BaseModel):
     occurred_at: datetime
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class GenerationRecordProjection(BaseModel):
+    """Projection for legacy generation usage rows owned by DataService."""
+
+    id: str
+    workspace_id: str
+    thread_id: str | None = None
+    skill_name: str
+    model_name: str | None = None
+    input_summary: str | None = None
+    output_summary: str | None = None
+    duration_ms: int | None = None
+    token_usage: dict[str, Any] | None = None
+    status: str
+    error_message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @property
+    def total_tokens(self) -> int:
+        if self.token_usage:
+            return int(self.token_usage.get("total", 0))
+        return 0
+
+    @property
+    def input_tokens(self) -> int:
+        if self.token_usage:
+            return int(self.token_usage.get("input", 0))
+        return 0
+
+    @property
+    def output_tokens(self) -> int:
+        if self.token_usage:
+            return int(self.token_usage.get("output", 0))
+        return 0
 
 
 class ExecutionRunHistoryProjection(BaseModel):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from src.database.models.compute_session import ComputeSessionRecord
 from src.database.models.execution import ExecutionRecord
 from src.database.models.execution_node import ExecutionNodeRecord
@@ -11,6 +13,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionNodeProjection,
     ExecutionRecordProjection,
     ExecutionRunHistoryProjection,
+    GenerationRecordProjection,
 )
 from src.dataservice.domains.execution.models import ExecutionEventRecord
 
@@ -97,6 +100,25 @@ def event_to_projection(record: ExecutionEventRecord) -> ExecutionEventProjectio
         sequence_index=record.sequence_index,
         payload_json=dict(record.payload_json or {}),
         occurred_at=record.occurred_at,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def generation_record_to_projection(record: Any) -> GenerationRecordProjection:
+    return GenerationRecordProjection(
+        id=str(record.id),
+        workspace_id=str(record.workspace_id),
+        thread_id=record.thread_id,
+        skill_name=str(record.skill_name),
+        model_name=record.model_name,
+        input_summary=record.input_summary,
+        output_summary=record.output_summary,
+        duration_ms=record.duration_ms,
+        token_usage=record.token_usage,
+        status=str(record.status),
+        error_message=record.error_message,
+        metadata=dict(record.extra_data or {}),
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

@@ -23,6 +23,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.compute_session",
     "src.database.models.execution",
     "src.database.models.execution_node",
+    "src.database.models.generation",
     "src.database.models.prism",
     "src.database.models.reference",
 }
@@ -40,6 +41,7 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "ComputeSessionRecord",
     "ExecutionRecord",
     "ExecutionNodeRecord",
+    "GenerationRecord",
     "PrismReviewItem",
     "PrismSourceLink",
     "PrismProtectedSection",

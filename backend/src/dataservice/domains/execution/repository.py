@@ -12,6 +12,7 @@ from src.database.base import generate_uuid
 from src.database.models.compute_session import ComputeSessionRecord
 from src.database.models.execution import ExecutionRecord
 from src.database.models.execution_node import ExecutionNodeRecord
+from src.database.models.generation import GenerationRecord
 from src.dataservice.domains.execution.models import ExecutionEventRecord
 
 
@@ -30,6 +31,67 @@ class ExecutionRepository:
         record = ComputeSessionRecord(id=generate_uuid(), **values)
         self.session.add(record)
         return record
+
+    def create_generation_record(self, values: dict[str, Any]) -> GenerationRecord:
+        record = GenerationRecord(id=generate_uuid(), **values)
+        self.session.add(record)
+        return record
+
+    async def get_generation_record(self, record_id: str) -> GenerationRecord | None:
+        result = await self.session.execute(
+            select(GenerationRecord).where(GenerationRecord.id == record_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_generation_records(
+        self,
+        *,
+        workspace_id: str,
+        skill_name: str | None = None,
+        status: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[GenerationRecord]:
+        query = (
+            select(GenerationRecord)
+            .where(GenerationRecord.workspace_id == workspace_id)
+            .order_by(GenerationRecord.created_at.desc())
+            .limit(limit)
+        )
+        if skill_name:
+            query = query.where(GenerationRecord.skill_name == skill_name)
+        if status:
+            query = query.where(GenerationRecord.status == status)
+        if since:
+            query = query.where(GenerationRecord.created_at >= since)
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def list_generation_records_by_thread(
+        self,
+        thread_id: str,
+    ) -> list[GenerationRecord]:
+        result = await self.session.execute(
+            select(GenerationRecord)
+            .where(GenerationRecord.thread_id == thread_id)
+            .order_by(GenerationRecord.created_at.asc())
+        )
+        return list(result.scalars().all())
+
+    async def delete_generation_records_before(
+        self,
+        *,
+        cutoff: datetime,
+        workspace_id: str | None = None,
+    ) -> int:
+        query = select(GenerationRecord).where(GenerationRecord.created_at < cutoff)
+        if workspace_id is not None:
+            query = query.where(GenerationRecord.workspace_id == workspace_id)
+        result = await self.session.execute(query)
+        records = list(result.scalars().all())
+        for record in records:
+            await self.session.delete(record)
+        return len(records)
 
     async def get_compute_session(self, compute_session_id: str) -> ComputeSessionRecord | None:
         result = await self.session.execute(

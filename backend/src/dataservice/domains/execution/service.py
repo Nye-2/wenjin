@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,12 +20,15 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionRecordProjection,
     ExecutionRunHistoryProjection,
     ExecutionUpdateCommand,
+    GenerationRecordCreateCommand,
+    GenerationRecordProjection,
 )
 from src.dataservice.domains.execution.projection import (
     compute_session_to_projection,
     event_to_projection,
     execution_to_projection,
     execution_to_run_history_projection,
+    generation_record_to_projection,
     node_to_projection,
 )
 from src.dataservice.domains.execution.repository import ExecutionRepository
@@ -224,6 +227,107 @@ class DataServiceExecutionService:
 
         await self._finish()
         return len(records)
+
+    async def create_generation_record(
+        self,
+        command: GenerationRecordCreateCommand,
+    ) -> GenerationRecordProjection:
+        record = self.repository.create_generation_record(
+            {
+                "workspace_id": command.workspace_id,
+                "thread_id": command.thread_id,
+                "skill_name": command.skill_name,
+                "model_name": command.model_name,
+                "input_summary": command.input_summary,
+                "output_summary": command.output_summary,
+                "duration_ms": command.duration_ms,
+                "token_usage": command.token_usage,
+                "status": command.status,
+                "error_message": command.error_message,
+                "extra_data": dict(command.metadata or {}),
+            }
+        )
+        await self._finish()
+        return generation_record_to_projection(record)
+
+    async def get_generation_record(
+        self,
+        record_id: str,
+    ) -> GenerationRecordProjection | None:
+        record = await self.repository.get_generation_record(record_id)
+        return generation_record_to_projection(record) if record else None
+
+    async def list_generation_records(
+        self,
+        *,
+        workspace_id: str,
+        skill_name: str | None = None,
+        status: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[GenerationRecordProjection]:
+        return [
+            generation_record_to_projection(record)
+            for record in await self.repository.list_generation_records(
+                workspace_id=workspace_id,
+                skill_name=skill_name,
+                status=status,
+                since=since,
+                limit=limit,
+            )
+        ]
+
+    async def list_generation_records_by_thread(
+        self,
+        thread_id: str,
+    ) -> list[GenerationRecordProjection]:
+        return [
+            generation_record_to_projection(record)
+            for record in await self.repository.list_generation_records_by_thread(thread_id)
+        ]
+
+    async def get_generation_usage_stats(
+        self,
+        *,
+        workspace_id: str,
+        since: datetime | None = None,
+    ) -> dict[str, Any]:
+        records = await self.list_generation_records(
+            workspace_id=workspace_id,
+            since=since,
+            limit=100_000,
+        )
+        skill_counts: dict[str, int] = {}
+        status_counts: dict[str, int] = {}
+        for record in records:
+            skill_counts[record.skill_name] = skill_counts.get(record.skill_name, 0) + 1
+            status_counts[record.status] = status_counts.get(record.status, 0) + 1
+
+        return {
+            "total_executions": len(records),
+            "successful_executions": status_counts.get("success", 0),
+            "failed_executions": status_counts.get("failed", 0),
+            "total_tokens": sum(record.total_tokens for record in records),
+            "total_input_tokens": sum(record.input_tokens for record in records),
+            "total_output_tokens": sum(record.output_tokens for record in records),
+            "total_duration_ms": sum(record.duration_ms or 0 for record in records),
+            "skill_breakdown": skill_counts,
+            "status_breakdown": status_counts,
+        }
+
+    async def cleanup_old_generation_records(
+        self,
+        *,
+        days_old: int = 90,
+        workspace_id: str | None = None,
+    ) -> int:
+        cutoff = datetime.now(UTC) - timedelta(days=days_old)
+        deleted = await self.repository.delete_generation_records_before(
+            cutoff=cutoff,
+            workspace_id=workspace_id,
+        )
+        await self._finish()
+        return deleted
 
     async def ensure_compute_session(
         self,

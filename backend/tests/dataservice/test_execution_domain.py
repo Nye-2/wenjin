@@ -16,6 +16,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionNodePatchCommand,
     ExecutionNodeUpsertCommand,
     ExecutionUpdateCommand,
+    GenerationRecordCreateCommand,
 )
 from src.dataservice.domains.execution.service import DataServiceExecutionService
 
@@ -113,12 +114,35 @@ def _node(values: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def _generation(values: dict[str, Any]) -> SimpleNamespace:
+    now = values.get("created_at") or datetime.now(UTC)
+    defaults = {
+        "id": "generation-1",
+        "workspace_id": "ws-1",
+        "thread_id": None,
+        "skill_name": "idea_to_manuscript",
+        "model_name": None,
+        "input_summary": None,
+        "output_summary": None,
+        "duration_ms": None,
+        "token_usage": None,
+        "status": "success",
+        "error_message": None,
+        "extra_data": {},
+        "created_at": now,
+        "updated_at": now,
+    }
+    defaults.update(values)
+    return SimpleNamespace(**defaults)
+
+
 class FakeExecutionRepository:
     def __init__(self) -> None:
         self.record: SimpleNamespace | None = None
         self.events: list[SimpleNamespace] = []
         self.compute_session: SimpleNamespace | None = None
         self.nodes: list[SimpleNamespace] = []
+        self.generation_records: list[SimpleNamespace] = []
 
     def create_execution(self, values: dict[str, Any]) -> SimpleNamespace:
         self.record = _execution({"id": "exec-created", **values})
@@ -255,6 +279,60 @@ class FakeExecutionRepository:
         _ = kwargs
         return [self.compute_session] if self.compute_session is not None else []
 
+    def create_generation_record(self, values: dict[str, Any]) -> SimpleNamespace:
+        record = _generation({"id": f"generation-{len(self.generation_records) + 1}", **values})
+        self.generation_records.append(record)
+        return record
+
+    async def get_generation_record(self, record_id: str) -> SimpleNamespace | None:
+        for record in self.generation_records:
+            if record.id == record_id:
+                return record
+        return None
+
+    async def list_generation_records(self, **kwargs: Any) -> list[SimpleNamespace]:
+        workspace_id = kwargs.get("workspace_id")
+        skill_name = kwargs.get("skill_name")
+        status = kwargs.get("status")
+        since = kwargs.get("since")
+        limit = kwargs.get("limit", 100)
+        records = [
+            record
+            for record in self.generation_records
+            if record.workspace_id == workspace_id
+            and (skill_name is None or record.skill_name == skill_name)
+            and (status is None or record.status == status)
+            and (since is None or record.created_at >= since)
+        ]
+        return records[:limit]
+
+    async def list_generation_records_by_thread(
+        self,
+        thread_id: str,
+    ) -> list[SimpleNamespace]:
+        return [
+            record
+            for record in self.generation_records
+            if record.thread_id == thread_id
+        ]
+
+    async def delete_generation_records_before(
+        self,
+        *,
+        cutoff: datetime,
+        workspace_id: str | None = None,
+    ) -> int:
+        before = len(self.generation_records)
+        self.generation_records = [
+            record
+            for record in self.generation_records
+            if not (
+                record.created_at < cutoff
+                and (workspace_id is None or record.workspace_id == workspace_id)
+            )
+        ]
+        return before - len(self.generation_records)
+
 
 def _service() -> tuple[DataServiceExecutionService, FakeExecutionRepository, FakeSession]:
     session = FakeSession()
@@ -367,6 +445,33 @@ async def test_feature_status_helpers_read_execution_domain() -> None:
 
     assert running_count == 2
     assert latest_status == "running"
+
+
+@pytest.mark.asyncio
+async def test_generation_usage_records_are_owned_by_execution_domain() -> None:
+    service, repository, session = _service()
+
+    created = await service.create_generation_record(
+        GenerationRecordCreateCommand(
+            workspace_id="ws-1",
+            thread_id="thread-1",
+            skill_name="idea_to_manuscript",
+            model_name="gpt-x",
+            duration_ms=1200,
+            token_usage={"input": 10, "output": 20, "total": 30},
+            metadata={"source": "legacy"},
+        )
+    )
+    listed = await service.list_generation_records_by_thread("thread-1")
+    stats = await service.get_generation_usage_stats(workspace_id="ws-1")
+
+    assert created.id == "generation-1"
+    assert created.metadata == {"source": "legacy"}
+    assert [record.id for record in listed] == [created.id]
+    assert stats["total_executions"] == 1
+    assert stats["total_tokens"] == 30
+    assert repository.generation_records[0].skill_name == "idea_to_manuscript"
+    assert session.commit_count == 1
 
 
 @pytest.mark.asyncio

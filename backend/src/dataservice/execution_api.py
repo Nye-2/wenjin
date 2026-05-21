@@ -20,6 +20,8 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionRecordProjection,
     ExecutionRunHistoryProjection,
     ExecutionUpdateCommand,
+    GenerationRecordCreateCommand,
+    GenerationRecordProjection,
 )
 from src.dataservice.domains.execution.service import DataServiceExecutionService
 
@@ -148,6 +150,94 @@ class ExecutionDataService:
 
     async def reconcile_interrupted_executions(self) -> int:
         return await self._domain.reconcile_interrupted_executions()
+
+    async def create_generation_record(
+        self,
+        command: GenerationRecordCreateCommand,
+    ) -> GenerationRecordProjection:
+        return await self._domain.create_generation_record(command)
+
+    async def create_generation_usage(
+        self,
+        *,
+        workspace_id: str,
+        skill_name: str,
+        thread_id: str | None = None,
+        model_name: str | None = None,
+        input_summary: str | None = None,
+        output_summary: str | None = None,
+        duration_ms: int | None = None,
+        token_usage: dict[str, Any] | None = None,
+        status: str = "success",
+        error_message: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> GenerationRecordProjection:
+        return await self._domain.create_generation_record(
+            GenerationRecordCreateCommand(
+                workspace_id=workspace_id,
+                skill_name=skill_name,
+                thread_id=thread_id,
+                model_name=model_name,
+                input_summary=input_summary,
+                output_summary=output_summary,
+                duration_ms=duration_ms,
+                token_usage=token_usage,
+                status=status,
+                error_message=error_message,
+                metadata=dict(metadata or {}),
+            )
+        )
+
+    async def get_generation_record(
+        self,
+        record_id: str,
+    ) -> GenerationRecordProjection | None:
+        return await self._domain.get_generation_record(record_id)
+
+    async def list_generation_records(
+        self,
+        *,
+        workspace_id: str,
+        skill_name: str | None = None,
+        status: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[GenerationRecordProjection]:
+        return await self._domain.list_generation_records(
+            workspace_id=workspace_id,
+            skill_name=skill_name,
+            status=status,
+            since=since,
+            limit=limit,
+        )
+
+    async def list_generation_records_by_thread(
+        self,
+        thread_id: str,
+    ) -> list[GenerationRecordProjection]:
+        return await self._domain.list_generation_records_by_thread(thread_id)
+
+    async def get_generation_usage_stats(
+        self,
+        *,
+        workspace_id: str,
+        since: datetime | None = None,
+    ) -> dict[str, Any]:
+        return await self._domain.get_generation_usage_stats(
+            workspace_id=workspace_id,
+            since=since,
+        )
+
+    async def cleanup_old_generation_records(
+        self,
+        *,
+        days_old: int = 90,
+        workspace_id: str | None = None,
+    ) -> int:
+        return await self._domain.cleanup_old_generation_records(
+            days_old=days_old,
+            workspace_id=workspace_id,
+        )
 
     async def ensure_compute_session(
         self,
