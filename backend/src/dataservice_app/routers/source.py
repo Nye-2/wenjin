@@ -71,6 +71,37 @@ async def count_sources(
     return envelope_ok({"count": count})
 
 
+@router.get("/sources/library-outline")
+async def get_source_library_outline(
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(await service.get_library_outline(workspace_id))
+
+
+@router.get("/sources/toc-summary")
+async def get_source_toc_summary(
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok({"summary": await service.get_workspace_toc_summary(workspace_id)})
+
+
+@router.get("/sources/text-units/search")
+async def search_source_text_units(
+    workspace_id: str = Query(),
+    query: str = Query(),
+    limit: int = Query(default=8, ge=1, le=50),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(
+        await service.search_workspace_sections(workspace_id, query, limit=limit)
+    )
+
+
 @router.post("/sources/citation-usage")
 async def record_source_citation_usage(
     command: SourceCitationUsageCreateCommand,
@@ -90,6 +121,38 @@ async def build_source_bibliography(
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     record = await service.build_bibliography(command)
     return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.get("/sources/{source_id}/sections/by-path")
+async def get_source_section_by_path(
+    source_id: str,
+    workspace_id: str = Query(),
+    section_path: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    section = await service.get_source_section(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        section_path=section_path,
+    )
+    return envelope_ok(section)
+
+
+@router.get("/sources/{source_id}/sections/by-title")
+async def get_source_section_by_title(
+    source_id: str,
+    workspace_id: str = Query(),
+    section_title: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    section = await service.get_source_section_by_title(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        section_title=section_title,
+    )
+    return envelope_ok(section)
 
 
 @router.get("/sources/{source_id}")

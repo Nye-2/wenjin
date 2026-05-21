@@ -920,6 +920,7 @@ Implementation status:
 - Workspace built-in tools now resolve workspace access through `WorkspaceDataService` and list recent artifacts through `AssetDataService` / `workspace_assets`; they no longer import `Workspace` or `Artifact` ORM models directly.
 - Thesis literature-management dashboard counts now use Source DataService count projections for total/core source state instead of reading `workspace_references`.
 - Reference Library built-in tools now read outlines, search text units, and fetch source sections through Source DataService. Section access auditing now writes `provenance_links` instead of `reference_usage_events`.
+- Source outline/text-unit/section read projections are exposed through internal DataService routes and typed client methods, keeping the Reference Library tool path ready for split DataService deployment.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - Verification after the Prism cleanup and Source citation/bibliography/dashboard/tool slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1925 backend tests.

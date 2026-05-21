@@ -699,6 +699,66 @@ class AsyncDataServiceClient:
         )
         return int(payload["data"]["count"])
 
+    async def get_source_library_outline(self, *, workspace_id: str) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sources/library-outline",
+            params={"workspace_id": workspace_id},
+        )
+        return list(payload["data"])
+
+    async def get_source_toc_summary(self, *, workspace_id: str) -> str:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sources/toc-summary",
+            params={"workspace_id": workspace_id},
+        )
+        return str(payload["data"].get("summary") or "")
+
+    async def search_source_text_units(
+        self,
+        *,
+        workspace_id: str,
+        query: str,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sources/text-units/search",
+            params={"workspace_id": workspace_id, "query": query, "limit": limit},
+        )
+        return list(payload["data"])
+
+    async def get_source_section_by_path(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        section_path: str,
+    ) -> dict[str, Any] | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/sections/by-path",
+            params={"workspace_id": workspace_id, "section_path": section_path},
+        )
+        data = payload.get("data")
+        return dict(data) if isinstance(data, dict) else None
+
+    async def get_source_section_by_title(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        section_title: str,
+    ) -> dict[str, Any] | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/sections/by-title",
+            params={"workspace_id": workspace_id, "section_title": section_title},
+        )
+        data = payload.get("data")
+        return dict(data) if isinstance(data, dict) else None
+
     async def get_source(self, source_id: str) -> SourcePayload | None:
         payload = await self._request("GET", f"/internal/v1/sources/{source_id}")
         data = payload.get("data")
