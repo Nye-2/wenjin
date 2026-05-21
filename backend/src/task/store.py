@@ -1,17 +1,14 @@
 """Task storage layer - Redis for runtime, PostgreSQL for persistence."""
 
-import hashlib
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
-from sqlalchemy import func as sa_func
-from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.task_config import task_settings
-from src.database.models.task import TaskRecord
+from src.dataservice.task_api import TaskDataService, TaskRecordProjection
 from src.runtime.serialization import dumps_json
 from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_contracts import (
@@ -37,15 +34,16 @@ class TaskStore:
         """Expose the backing DB session for higher-level orchestration hooks."""
         return self._db
 
-    def _record_model(self) -> type[TaskRecord]:
-        """Return the SQLAlchemy model used for task persistence."""
-        return cast(type[TaskRecord], getattr(self, "_model", getattr(self, "_test_model", TaskRecord)))
+    def _record_model(self) -> Any | None:
+        """Return an optional test model override for task persistence."""
+        return getattr(self, "_model", getattr(self, "_test_model", None))
 
-    @staticmethod
-    def _advisory_lock_key(user_id: str) -> int:
-        """Derive a stable signed bigint lock key for per-user task submission."""
-        digest = hashlib.blake2b(user_id.encode("utf-8"), digest_size=8).digest()
-        return int.from_bytes(digest, byteorder="big", signed=True)
+    def _task_data_service(self, *, autocommit: bool = True) -> TaskDataService:
+        return TaskDataService(
+            self._db,
+            autocommit=autocommit,
+            record_model=self._record_model(),
+        )
 
     # === Redis Operations (Runtime State) ===
 
@@ -115,28 +113,15 @@ class TaskStore:
         task_type: str,
         priority: int,
         payload: dict[str, Any],
-    ) -> TaskRecord:
+    ) -> TaskRecordProjection:
         """Create a new task record in PostgreSQL."""
-        record_model = self._record_model()
-        _payload = payload or {}
-        _params = _payload.get("params", {}) if isinstance(_payload, dict) else {}
-        record = record_model(
-            id=task_id,
+        return await self._task_data_service().create_task_record(
+            task_id=task_id,
             user_id=user_id,
             task_type=task_type,
-            status=TaskStatus.PENDING.value,
             priority=priority,
             payload=payload,
-            workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
-            feature_id=_payload.get("feature_id"),
-            thread_id=_payload.get("thread_id"),
-            execution_id=_payload.get("execution_id"),
-            action=_payload.get("action") or _params.get("action"),
         )
-        self._db.add(record)
-        await self._db.commit()
-        await self._db.refresh(record)
-        return record
 
     async def create_task_record_guarded(
         self,
@@ -147,63 +132,25 @@ class TaskStore:
         priority: int,
         payload: dict[str, Any],
         concurrency_limit: int,
-    ) -> tuple[TaskRecord | None, int]:
+    ) -> tuple[TaskRecordProjection | None, int]:
         """Atomically enforce per-user active-task limit and create the task record."""
-        record_model = self._record_model()
         active_statuses = [
             TaskStatus.PENDING.value,
             TaskStatus.RUNNING.value,
         ]
-
-        tx = self._db.begin_nested() if self._db.in_transaction() else self._db.begin()
-        async with tx:
-            bind = self._db.get_bind()
-            if bind is not None and bind.dialect.name == "postgresql":
-                await self._db.execute(
-                    text("SELECT pg_advisory_xact_lock(:lock_key)"),
-                    {"lock_key": self._advisory_lock_key(user_id)},
-                )
-
-            count_result = await self._db.execute(
-                select(sa_func.count())
-                .select_from(record_model)
-                .where(
-                    record_model.user_id == user_id,
-                    record_model.status.in_(active_statuses),
-                )
-            )
-            active_count = count_result.scalar() or 0
-            if active_count >= concurrency_limit:
-                return None, active_count
-
-            _payload = payload or {}
-            _params = _payload.get("params", {}) if isinstance(_payload, dict) else {}
-            record = record_model(
-                id=task_id,
-                user_id=user_id,
-                task_type=task_type,
-                status=TaskStatus.PENDING.value,
-                priority=priority,
-                payload=payload,
-                workspace_id=_payload.get("workspace_id") or _params.get("workspace_id"),
-                feature_id=_payload.get("feature_id"),
-                thread_id=_payload.get("thread_id"),
-                execution_id=_payload.get("execution_id"),
-                action=_payload.get("action") or _params.get("action"),
-            )
-            self._db.add(record)
-            await self._db.flush()
-
-        await self._db.refresh(record)
-        return record, active_count
-
-    async def get_task_record(self, task_id: str) -> TaskRecord | None:
-        """Get task record from PostgreSQL."""
-        record_model = self._record_model()
-        result = await self._db.execute(
-            select(record_model).where(record_model.id == task_id)
+        return await self._task_data_service().create_task_record_guarded(
+            task_id=task_id,
+            user_id=user_id,
+            task_type=task_type,
+            priority=priority,
+            payload=payload,
+            concurrency_limit=concurrency_limit,
+            active_statuses=active_statuses,
         )
-        return result.scalar_one_or_none()
+
+    async def get_task_record(self, task_id: str) -> TaskRecordProjection | None:
+        """Get task record from PostgreSQL."""
+        return await self._task_data_service().get_task_record(task_id)
 
     async def update_task_record(
         self,
@@ -211,20 +158,12 @@ class TaskStore:
         *,
         commit: bool = True,
         **updates: Any,
-    ) -> TaskRecord | None:
+    ) -> TaskRecordProjection | None:
         """Update task record in PostgreSQL."""
-        record = await self.get_task_record(task_id)
-        if not record:
-            return None
-
-        for key, value in updates.items():
-            if hasattr(record, key):
-                setattr(record, key, value)
-
-        if commit:
-            await self._db.commit()
-            await self._db.refresh(record)
-        return record
+        return await self._task_data_service(autocommit=commit).update_task_record(
+            task_id,
+            **updates,
+        )
 
     async def list_user_tasks(
         self,
@@ -235,50 +174,25 @@ class TaskStore:
         workspace_id: str | None = None,
         feature_id: str | None = None,
         action: str | None = None,
-    ) -> list[TaskRecord]:
+    ) -> list[TaskRecordProjection]:
         """List tasks for a user."""
-        record_model = self._record_model()
-        query = select(record_model).where(record_model.user_id == user_id)
-
-        if isinstance(status, str):
-            normalized_status = status.strip()
-            if normalized_status:
-                query = query.where(record_model.status == normalized_status)
-        elif isinstance(status, (list, tuple)):
-            normalized_statuses = [
-                str(item).strip()
-                for item in status
-                if isinstance(item, str) and str(item).strip()
-            ]
-            if normalized_statuses:
-                query = query.where(record_model.status.in_(normalized_statuses))
-        if task_type:
-            query = query.where(record_model.task_type == task_type)
-        if workspace_id is not None:
-            query = query.where(record_model.workspace_id == workspace_id)
-        if feature_id is not None:
-            query = query.where(record_model.feature_id == feature_id)
-        if action is not None:
-            query = query.where(record_model.action == action)
-
-        query = query.order_by(record_model.created_at.desc()).limit(limit)
-        result = await self._db.execute(query)
-        return list(result.scalars().all())
+        return await self._task_data_service().list_user_tasks(
+            user_id=user_id,
+            status=status,
+            task_type=task_type,
+            limit=limit,
+            workspace_id=workspace_id,
+            feature_id=feature_id,
+            action=action,
+        )
 
     async def count_active_tasks(self, user_id: str) -> int:
         """Count active (pending/running) tasks for a user."""
-        record_model = self._record_model()
         active_statuses = [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]
-        query = (
-            select(sa_func.count())
-            .select_from(record_model)
-            .where(
-                record_model.user_id == user_id,
-                record_model.status.in_(active_statuses),
-            )
+        return await self._task_data_service().count_active_tasks(
+            user_id=user_id,
+            active_statuses=active_statuses,
         )
-        result = await self._db.execute(query)
-        return result.scalar() or 0
 
     async def mark_task_started(self, task_id: str, worker_id: str | None = None) -> None:
         """Mark task as started.
@@ -288,15 +202,13 @@ class TaskStore:
 
         Unified path: execution lifecycle is managed by ``ExecutionService``.
         """
-        record = await self.get_task_record(task_id)
+        started_at = datetime.now(UTC)
+        record = await self._task_data_service(autocommit=False).mark_task_started(
+            task_id=task_id,
+            started_at=started_at,
+        )
         if not record:
             return
-
-        started_at = datetime.now(UTC)
-
-        # Modify TaskRecord in-memory (not yet flushed)
-        record.status = TaskStatus.RUNNING.value
-        record.started_at = started_at
 
         # Modify the canonical ExecutionRecord in the same transaction
         if record.execution_id:
@@ -312,7 +224,6 @@ class TaskStore:
 
         # Single atomic commit for both TaskRecord and ExecutionRecord
         await self._db.commit()
-        await self._db.refresh(record)
 
         # Redis runtime cache (always derived from committed DB state)
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
@@ -368,19 +279,18 @@ class TaskStore:
 
         Runtime state is carried by the execution stream for canonical executions.
         """
-        record = await self.get_task_record(task_id)
-        if not record:
-            return
-
         runtime_state: dict[str, Any] | None = None
         if isinstance(metadata, dict):
             runtime_candidate = metadata.get("runtime")
             if isinstance(runtime_candidate, dict):
                 runtime_state = runtime_candidate
 
-        # Modify TaskRecord in-memory (not yet flushed)
-        if runtime_state is not None:
-            record.runtime_state = runtime_state
+        record = await self._task_data_service(autocommit=False).persist_runtime_state(
+            task_id=task_id,
+            runtime_state=runtime_state,
+        )
+        if not record:
+            return
 
         # Modify the canonical ExecutionRecord in the same transaction
         if record.execution_id and runtime_state is not None:
@@ -394,7 +304,6 @@ class TaskStore:
 
         # Single atomic commit for both TaskRecord and ExecutionRecord
         await self._db.commit()
-        await self._db.refresh(record)
 
         # Post-commit: touch compute projection and broadcast task.updated.
         if record.execution_id and runtime_state is not None:
@@ -472,14 +381,18 @@ class TaskStore:
             else None
         )
 
-        # Modify TaskRecord in-memory (not yet flushed)
-        record.status = status
-        record.result = result
-        record.error = error
-        record.completed_at = completed_at
-        record.progress = final_progress
-        record.message = final_message
-        record.runtime_state = runtime_snapshot
+        record = await self._task_data_service(autocommit=False).mark_task_completed(
+            task_id=task_id,
+            status=status,
+            result=result,
+            error=error,
+            completed_at=completed_at,
+            progress=final_progress,
+            message=final_message,
+            runtime_state=runtime_snapshot,
+        )
+        if not record:
+            return
 
         # Modify the canonical ExecutionRecord in the same transaction
         if record.execution_id:
@@ -503,7 +416,6 @@ class TaskStore:
 
         # Single atomic commit for both TaskRecord and ExecutionRecord
         await self._db.commit()
-        await self._db.refresh(record)
 
         # Redis runtime cache (always derived from committed DB state)
         await self.set_task_state(
