@@ -6,10 +6,9 @@ import json
 import logging
 from typing import Any
 
-from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.workspace_template import WorkspaceTemplate
+from src.dataservice.template_api import TemplateDataService
 from src.services.workspace_uploads import (
     resolve_workspace_upload_stored_path,
     workspace_upload_root,
@@ -53,32 +52,17 @@ TEMPLATE_PARSE_PROMPT = '''从以下模板文件中提取论文写作规范。�
 class TemplateService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._templates = TemplateDataService(db)
+        self._templates_no_commit = TemplateDataService(db, autocommit=False)
 
-    async def get(self, template_id: str) -> WorkspaceTemplate | None:
-        result = await self.db.execute(
-            select(WorkspaceTemplate).where(WorkspaceTemplate.id == template_id)
-        )
-        return result.scalar_one_or_none()
+    async def get(self, template_id: str) -> Any | None:
+        return await self._templates_no_commit.get(template_id)
 
-    async def get_active(self, workspace_id: str) -> WorkspaceTemplate | None:
-        result = await self.db.execute(
-            select(WorkspaceTemplate)
-            .where(
-                WorkspaceTemplate.workspace_id == workspace_id,
-                WorkspaceTemplate.is_active,
-            )
-            .order_by(WorkspaceTemplate.updated_at.desc())
-            .limit(1)
-        )
-        return result.scalar_one_or_none()
+    async def get_active(self, workspace_id: str) -> Any | None:
+        return await self._templates_no_commit.get_active(workspace_id)
 
-    async def list_by_workspace(self, workspace_id: str) -> list[WorkspaceTemplate]:
-        result = await self.db.execute(
-            select(WorkspaceTemplate)
-            .where(WorkspaceTemplate.workspace_id == workspace_id)
-            .order_by(WorkspaceTemplate.updated_at.desc())
-        )
-        return list(result.scalars().all())
+    async def list_by_workspace(self, workspace_id: str) -> list[Any]:
+        return await self._templates_no_commit.list_by_workspace(workspace_id)
 
     async def create(
         self,
@@ -91,18 +75,8 @@ class TemplateService:
         format_spec: dict[str, Any] | None = None,
         content_guidelines: dict[str, Any] | None = None,
         latex_preamble: str | None = None,
-    ) -> WorkspaceTemplate:
-        # Deactivate existing active templates
-        await self.db.execute(
-            update(WorkspaceTemplate)
-            .where(
-                WorkspaceTemplate.workspace_id == workspace_id,
-                WorkspaceTemplate.is_active,
-            )
-            .values(is_active=False)
-        )
-
-        template = WorkspaceTemplate(
+    ) -> Any:
+        return await self._templates.create(
             workspace_id=workspace_id,
             name=name,
             category=category,
@@ -112,27 +86,16 @@ class TemplateService:
             format_spec=format_spec,
             content_guidelines=content_guidelines,
             latex_preamble=latex_preamble,
-            is_active=True,
-            is_builtin=False,
         )
-        self.db.add(template)
-        await self.db.commit()
-        await self.db.refresh(template)
-        return template
 
-    async def activate(self, template_id: str, workspace_id: str) -> WorkspaceTemplate | None:
+    async def activate(self, template_id: str, workspace_id: str) -> Any | None:
         template = await self.get(template_id)
         if template is None or template.workspace_id != workspace_id:
             return None
 
-        await self.db.execute(
-            update(WorkspaceTemplate)
-            .where(
-                WorkspaceTemplate.workspace_id == workspace_id,
-                WorkspaceTemplate.is_active,
-                WorkspaceTemplate.id != template_id,
-            )
-            .values(is_active=False)
+        await self._templates_no_commit.deactivate_active_templates(
+            workspace_id=workspace_id,
+            exclude_template_id=template_id,
         )
         template.is_active = True
         await self.db.commit()

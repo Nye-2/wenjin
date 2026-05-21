@@ -1,0 +1,1 @@
+"""Workspace template persistence domain."""
