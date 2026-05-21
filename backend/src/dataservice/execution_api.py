@@ -8,6 +8,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.execution.contracts import (
+    ComputeSessionEnsureCommand,
+    ComputeSessionProjection,
+    ComputeSessionUpdateCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
@@ -105,6 +108,55 @@ class ExecutionDataService:
         user_ids: list[str],
     ) -> dict[str, int]:
         return await self._domain.count_executions_by_user_ids(user_ids)
+
+    async def ensure_compute_session(
+        self,
+        *,
+        execution_id: str,
+        workspace_id: str,
+        user_id: str,
+        sandbox_session_id: str | None = None,
+    ) -> tuple[ComputeSessionProjection, bool]:
+        return await self._domain.ensure_compute_session(
+            ComputeSessionEnsureCommand(
+                execution_id=execution_id,
+                workspace_id=workspace_id,
+                user_id=user_id,
+                sandbox_session_id=sandbox_session_id,
+            )
+        )
+
+    async def get_compute_session(self, compute_session_id: str) -> ComputeSessionProjection | None:
+        return await self._domain.get_compute_session(compute_session_id)
+
+    async def get_compute_session_by_execution(
+        self,
+        execution_id: str,
+    ) -> ComputeSessionProjection | None:
+        return await self._domain.get_compute_session_by_execution(execution_id)
+
+    async def list_compute_sessions(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[ComputeSessionProjection]:
+        return await self._domain.list_compute_sessions(
+            workspace_id=workspace_id,
+            user_id=user_id,
+            limit=limit,
+        )
+
+    async def update_compute_session(
+        self,
+        compute_session_id: str,
+        **fields: Any,
+    ) -> ComputeSessionProjection | None:
+        return await self._domain.update_compute_session(
+            compute_session_id,
+            ComputeSessionUpdateCommand(**fields),
+        )
 
     async def list_run_history(
         self,

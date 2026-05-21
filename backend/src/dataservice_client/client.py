@@ -23,6 +23,9 @@ from src.dataservice_client.contracts.conversation import (
     ConversationMessagesRebuildPayload,
 )
 from src.dataservice_client.contracts.execution import (
+    ComputeSessionEnsurePayload,
+    ComputeSessionPayload,
+    ComputeSessionUpdatePayload,
     ExecutionCreatePayload,
     ExecutionEventCreatePayload,
     ExecutionEventPayload,
@@ -241,6 +244,64 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def ensure_compute_session(
+        self,
+        command: ComputeSessionEnsurePayload,
+    ) -> tuple[ComputeSessionPayload, bool]:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/executions/compute-sessions/ensure",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload["data"]
+        return ComputeSessionPayload.model_validate(data["session"]), bool(data["changed"])
+
+    async def get_compute_session(self, compute_session_id: str) -> ComputeSessionPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/executions/compute-sessions/{compute_session_id}",
+        )
+        data = payload.get("data")
+        return ComputeSessionPayload.model_validate(data) if data is not None else None
+
+    async def get_compute_session_by_execution(
+        self,
+        execution_id: str,
+    ) -> ComputeSessionPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/executions/compute-sessions/by-execution/{execution_id}",
+        )
+        data = payload.get("data")
+        return ComputeSessionPayload.model_validate(data) if data is not None else None
+
+    async def list_compute_sessions(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[ComputeSessionPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/compute-sessions/list",
+            params={"workspace_id": workspace_id, "user_id": user_id, "limit": limit},
+        )
+        return [ComputeSessionPayload.model_validate(item) for item in payload["data"]]
+
+    async def update_compute_session(
+        self,
+        compute_session_id: str,
+        command: ComputeSessionUpdatePayload,
+    ) -> ComputeSessionPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/executions/compute-sessions/{compute_session_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return ComputeSessionPayload.model_validate(data) if data is not None else None
 
     async def list_execution_nodes(self, execution_id: str) -> list[ExecutionNodePayload]:
         payload = await self._request("GET", f"/internal/v1/executions/{execution_id}/nodes")

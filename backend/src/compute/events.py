@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.database.models.compute_session import ComputeSessionRecord
 from src.workspace_events import publish_workspace_event
 
 
-def serialize_compute_session(session: ComputeSessionRecord) -> dict[str, Any]:
-    """Convert a compute session ORM object into an event/API payload."""
+def serialize_compute_session(session: Any) -> dict[str, Any]:
+    """Convert a compute session projection into an event/API payload."""
     return {
         "id": session.id,
         "execution_id": session.execution_id,
@@ -24,7 +23,7 @@ def serialize_compute_session(session: ComputeSessionRecord) -> dict[str, Any]:
 
 
 async def publish_compute_session_event(
-    session: ComputeSessionRecord,
+    session: Any,
     *,
     event_type: str,
 ) -> None:

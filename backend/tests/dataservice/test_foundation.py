@@ -24,6 +24,10 @@ from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagesRebuildPayload,
 )
+from src.dataservice_client.contracts.execution import (
+    ComputeSessionEnsurePayload,
+    ComputeSessionUpdatePayload,
+)
 from src.dataservice_client.contracts.workspace import WorkspaceCreatePayload, WorkspaceUpdatePayload
 
 
@@ -289,3 +293,79 @@ async def test_dataservice_client_conversation_contract_methods() -> None:
     assert seen[0][0] == "POST"
     assert seen[1][0] == "PUT"
     assert seen[2] == ("GET", "/internal/v1/conversations/thread-1/messages", None)
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_compute_session_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def session_payload(session_id: str = "compute-1") -> dict[str, Any]:
+        return {
+            "id": session_id,
+            "execution_id": "exec-1",
+            "workspace_id": "ws-1",
+            "user_id": "user-1",
+            "sandbox_session_id": "sandbox-1",
+            "active_view": "overview",
+            "ui_state": {},
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.method == "POST":
+            return httpx.Response(200, json={"status": "ok", "data": {"session": session_payload(), "changed": True}})
+        if request.method == "GET" and request.url.path.endswith("/list"):
+            return httpx.Response(200, json={"status": "ok", "data": [session_payload()]})
+        if request.method == "PATCH":
+            payload = session_payload()
+            payload["active_view"] = body["active_view"] if body else "files"
+            return httpx.Response(200, json={"status": "ok", "data": payload})
+        return httpx.Response(200, json={"status": "ok", "data": session_payload("compute-2")})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        ensured, changed = await client.ensure_compute_session(
+            ComputeSessionEnsurePayload(
+                execution_id="exec-1",
+                workspace_id="ws-1",
+                user_id="user-1",
+                sandbox_session_id="sandbox-1",
+            )
+        )
+        fetched = await client.get_compute_session("compute-2")
+        by_execution = await client.get_compute_session_by_execution("exec-1")
+        listed = await client.list_compute_sessions(workspace_id="ws-1", user_id="user-1")
+        updated = await client.update_compute_session(
+            "compute-1",
+            ComputeSessionUpdatePayload(active_view="files"),
+        )
+
+    assert ensured.id == "compute-1"
+    assert changed is True
+    assert fetched is not None and fetched.id == "compute-2"
+    assert by_execution is not None and by_execution.execution_id == "exec-1"
+    assert listed[0].workspace_id == "ws-1"
+    assert updated is not None and updated.active_view == "files"
+    assert seen == [
+        (
+            "POST",
+            "/internal/v1/executions/compute-sessions/ensure",
+            {
+                "execution_id": "exec-1",
+                "workspace_id": "ws-1",
+                "user_id": "user-1",
+                "sandbox_session_id": "sandbox-1",
+            },
+        ),
+        ("GET", "/internal/v1/executions/compute-sessions/compute-2", None),
+        ("GET", "/internal/v1/executions/compute-sessions/by-execution/exec-1", None),
+        ("GET", "/internal/v1/executions/compute-sessions/list", None),
+        ("PATCH", "/internal/v1/executions/compute-sessions/compute-1", {"active_view": "files"}),
+    ]

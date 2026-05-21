@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.compute.events import serialize_compute_session
-from src.database.models.compute_session import ComputeSessionRecord
 from src.dataservice.catalog_api import CatalogDataService
 from src.dataservice.execution_api import (
+    ComputeSessionProjection,
     ExecutionDataService,
     ExecutionNodeProjection,
     ExecutionRecordProjection,
@@ -726,7 +725,7 @@ async def _build_runtime_profile_projection(
 
 def _build_sandbox_projection(
     *,
-    compute_session: ComputeSessionRecord,
+    compute_session: ComputeSessionProjection,
     files: list[dict[str, Any]],
     logs: list[dict[str, Any]],
     runtime_profile: dict[str, Any],
@@ -764,17 +763,10 @@ class ComputeProjectionService:
         compute_session_id: str,
         user_id: str,
     ) -> dict[str, Any] | None:
-        result = await self.db.execute(
-            select(ComputeSessionRecord).where(
-                ComputeSessionRecord.id == compute_session_id,
-                ComputeSessionRecord.user_id == user_id,
-            )
-        )
-        compute_session = result.scalar_one_or_none()
-        if compute_session is None:
-            return None
-
         execution_api = ExecutionDataService(self.db, autocommit=False)
+        compute_session = await execution_api.get_compute_session(compute_session_id)
+        if compute_session is None or str(compute_session.user_id) != str(user_id):
+            return None
         execution = await execution_api.get_execution(str(compute_session.execution_id))
         if execution is None or str(execution.user_id) != str(user_id):
             return None

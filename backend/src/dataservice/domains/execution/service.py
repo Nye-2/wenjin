@@ -8,6 +8,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.execution.contracts import (
+    ComputeSessionEnsureCommand,
+    ComputeSessionProjection,
+    ComputeSessionUpdateCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
@@ -18,6 +21,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionUpdateCommand,
 )
 from src.dataservice.domains.execution.projection import (
+    compute_session_to_projection,
     event_to_projection,
     execution_to_projection,
     execution_to_run_history_projection,
@@ -112,6 +116,95 @@ class DataServiceExecutionService:
         user_ids: list[str],
     ) -> dict[str, int]:
         return await self.repository.count_executions_by_user_ids(user_ids)
+
+    async def ensure_compute_session(
+        self,
+        command: ComputeSessionEnsureCommand,
+    ) -> tuple[ComputeSessionProjection, bool]:
+        existing = await self.repository.get_compute_session_by_execution(command.execution_id)
+        if existing is not None:
+            changed = False
+            if command.sandbox_session_id and existing.sandbox_session_id != command.sandbox_session_id:
+                existing.sandbox_session_id = command.sandbox_session_id
+                existing.updated_at = datetime.now(UTC)
+                changed = True
+            if changed:
+                await self._finish()
+            return compute_session_to_projection(existing), changed
+
+        now = datetime.now(UTC)
+        record = self.repository.create_compute_session(
+            {
+                "execution_id": command.execution_id,
+                "workspace_id": command.workspace_id,
+                "user_id": command.user_id,
+                "sandbox_session_id": command.sandbox_session_id,
+                "active_view": "overview",
+                "ui_state": {},
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+        await self._finish()
+        return compute_session_to_projection(record), True
+
+    async def get_compute_session(
+        self,
+        compute_session_id: str,
+    ) -> ComputeSessionProjection | None:
+        record = await self.repository.get_compute_session(compute_session_id)
+        return compute_session_to_projection(record) if record is not None else None
+
+    async def get_compute_session_by_execution(
+        self,
+        execution_id: str,
+    ) -> ComputeSessionProjection | None:
+        record = await self.repository.get_compute_session_by_execution(execution_id)
+        return compute_session_to_projection(record) if record is not None else None
+
+    async def list_compute_sessions(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[ComputeSessionProjection]:
+        return [
+            compute_session_to_projection(record)
+            for record in await self.repository.list_compute_sessions(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                limit=limit,
+            )
+        ]
+
+    async def update_compute_session(
+        self,
+        compute_session_id: str,
+        command: ComputeSessionUpdateCommand,
+    ) -> ComputeSessionProjection | None:
+        record = await self.repository.get_compute_session(compute_session_id)
+        if record is None:
+            return None
+        changed = False
+        if "sandbox_session_id" in command.model_fields_set and command.sandbox_session_id != record.sandbox_session_id:
+            record.sandbox_session_id = command.sandbox_session_id
+            changed = True
+        if command.active_view is not None and command.active_view != record.active_view:
+            record.active_view = command.active_view
+            changed = True
+        if command.ui_state is not None and command.ui_state != dict(record.ui_state or {}):
+            record.ui_state = dict(command.ui_state)
+            changed = True
+        if "ui_state_delta" in command.model_fields_set:
+            current_ui = dict(record.ui_state or {})
+            current_ui.update(command.ui_state_delta or {})
+            record.ui_state = current_ui
+            changed = True
+        if changed:
+            record.updated_at = datetime.now(UTC)
+            await self._finish()
+        return compute_session_to_projection(record)
 
     async def list_run_history(
         self,

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
+from src.database.models.compute_session import ComputeSessionRecord
 from src.database.models.execution import ExecutionRecord
 from src.database.models.execution_node import ExecutionNodeRecord
 from src.dataservice.domains.execution.models import ExecutionEventRecord
@@ -24,6 +25,41 @@ class ExecutionRepository:
         record = ExecutionRecord(id=generate_uuid(), **values)
         self.session.add(record)
         return record
+
+    def create_compute_session(self, values: dict[str, Any]) -> ComputeSessionRecord:
+        record = ComputeSessionRecord(id=generate_uuid(), **values)
+        self.session.add(record)
+        return record
+
+    async def get_compute_session(self, compute_session_id: str) -> ComputeSessionRecord | None:
+        result = await self.session.execute(
+            select(ComputeSessionRecord).where(ComputeSessionRecord.id == compute_session_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_compute_session_by_execution(self, execution_id: str) -> ComputeSessionRecord | None:
+        result = await self.session.execute(
+            select(ComputeSessionRecord).where(ComputeSessionRecord.execution_id == execution_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_compute_sessions(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+        limit: int = 20,
+    ) -> list[ComputeSessionRecord]:
+        result = await self.session.execute(
+            select(ComputeSessionRecord)
+            .where(
+                ComputeSessionRecord.workspace_id == workspace_id,
+                ComputeSessionRecord.user_id == user_id,
+            )
+            .order_by(ComputeSessionRecord.updated_at.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
     async def get_execution(self, execution_id: str) -> ExecutionRecord | None:
         result = await self.session.execute(

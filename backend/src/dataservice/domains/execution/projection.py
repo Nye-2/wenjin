@@ -2,15 +2,31 @@
 
 from __future__ import annotations
 
+from src.database.models.compute_session import ComputeSessionRecord
 from src.database.models.execution import ExecutionRecord
 from src.database.models.execution_node import ExecutionNodeRecord
 from src.dataservice.domains.execution.contracts import (
+    ComputeSessionProjection,
     ExecutionEventProjection,
     ExecutionNodeProjection,
     ExecutionRecordProjection,
     ExecutionRunHistoryProjection,
 )
 from src.dataservice.domains.execution.models import ExecutionEventRecord
+
+
+def compute_session_to_projection(record: ComputeSessionRecord) -> ComputeSessionProjection:
+    return ComputeSessionProjection(
+        id=str(record.id),
+        execution_id=str(record.execution_id),
+        workspace_id=str(record.workspace_id),
+        user_id=str(record.user_id),
+        sandbox_session_id=record.sandbox_session_id,
+        active_view=record.active_view,
+        ui_state=dict(record.ui_state or {}),
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
 
 
 def execution_to_projection(record: ExecutionRecord) -> ExecutionRecordProjection:

@@ -46,6 +46,20 @@ class ExecutionUpdatePayload(BaseModel):
     completed_at: datetime | None = None
 
 
+class ComputeSessionEnsurePayload(BaseModel):
+    execution_id: str
+    workspace_id: str
+    user_id: str
+    sandbox_session_id: str | None = None
+
+
+class ComputeSessionUpdatePayload(BaseModel):
+    sandbox_session_id: str | None = None
+    active_view: str | None = None
+    ui_state: dict[str, Any] | None = None
+    ui_state_delta: dict[str, Any] | None = None
+
+
 class ExecutionPayload(BaseModel):
     id: str
     user_id: str
@@ -77,6 +91,18 @@ class ExecutionPayload(BaseModel):
     created_at: datetime | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ComputeSessionPayload(BaseModel):
+    id: str
+    execution_id: str
+    workspace_id: str
+    user_id: str
+    sandbox_session_id: str | None = None
+    active_view: str = "overview"
+    ui_state: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
     updated_at: datetime | None = None
 
 

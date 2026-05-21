@@ -78,6 +78,24 @@ class ExecutionNodeUpsertCommand(BaseModel):
     completed_at: datetime | None = None
 
 
+class ComputeSessionEnsureCommand(BaseModel):
+    """Ensure a compute work-plane shell exists for an execution."""
+
+    execution_id: str = Field(min_length=1, max_length=36)
+    workspace_id: str = Field(min_length=1, max_length=36)
+    user_id: str = Field(min_length=1, max_length=36)
+    sandbox_session_id: str | None = Field(default=None, max_length=100)
+
+
+class ComputeSessionUpdateCommand(BaseModel):
+    """Update mutable compute shell state."""
+
+    sandbox_session_id: str | None = Field(default=None, max_length=100)
+    active_view: str | None = Field(default=None, max_length=50)
+    ui_state: dict[str, Any] | None = None
+    ui_state_delta: dict[str, Any] | None = None
+
+
 class ExecutionRecordProjection(BaseModel):
     """Canonical execution projection with v2 field names."""
 
@@ -140,6 +158,20 @@ class ExecutionRecordProjection(BaseModel):
     @property
     def runtime_state(self) -> dict[str, Any] | None:
         return self.runtime_state_json
+
+
+class ComputeSessionProjection(BaseModel):
+    """Rebuildable compute work-plane shell projection."""
+
+    id: str
+    execution_id: str
+    workspace_id: str
+    user_id: str
+    sandbox_session_id: str | None = None
+    active_view: str = "overview"
+    ui_state: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class ExecutionNodeProjection(BaseModel):

@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 
 from src.dataservice.domains.execution.contracts import (
+    ComputeSessionEnsureCommand,
+    ComputeSessionUpdateCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionUpdateCommand,
@@ -67,10 +69,28 @@ def _execution(values: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def _compute_session(values: dict[str, Any]) -> SimpleNamespace:
+    now = values.get("created_at") or datetime.now(UTC)
+    defaults = {
+        "id": "compute-1",
+        "execution_id": "exec-1",
+        "workspace_id": "ws-1",
+        "user_id": "user-1",
+        "sandbox_session_id": None,
+        "active_view": "overview",
+        "ui_state": {},
+        "created_at": now,
+        "updated_at": now,
+    }
+    defaults.update(values)
+    return SimpleNamespace(**defaults)
+
+
 class FakeExecutionRepository:
     def __init__(self) -> None:
         self.record: SimpleNamespace | None = None
         self.events: list[SimpleNamespace] = []
+        self.compute_session: SimpleNamespace | None = None
 
     def create_execution(self, values: dict[str, Any]) -> SimpleNamespace:
         self.record = _execution({"id": "exec-created", **values})
@@ -116,6 +136,24 @@ class FakeExecutionRepository:
 
     async def list_events(self, execution_id: str) -> list[SimpleNamespace]:
         return [event for event in self.events if event.execution_id == execution_id]
+
+    def create_compute_session(self, values: dict[str, Any]) -> SimpleNamespace:
+        self.compute_session = _compute_session({"id": "compute-created", **values})
+        return self.compute_session
+
+    async def get_compute_session(self, compute_session_id: str) -> SimpleNamespace | None:
+        if self.compute_session is not None and self.compute_session.id == compute_session_id:
+            return self.compute_session
+        return None
+
+    async def get_compute_session_by_execution(self, execution_id: str) -> SimpleNamespace | None:
+        if self.compute_session is not None and self.compute_session.execution_id == execution_id:
+            return self.compute_session
+        return None
+
+    async def list_compute_sessions(self, **kwargs: Any) -> list[SimpleNamespace]:
+        _ = kwargs
+        return [self.compute_session] if self.compute_session is not None else []
 
 
 def _service() -> tuple[DataServiceExecutionService, FakeExecutionRepository, FakeSession]:
@@ -200,3 +238,45 @@ async def test_append_execution_events_are_ordered() -> None:
     assert second.sequence_index == 2
     assert second.node_id == "node-1"
     assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_ensure_compute_session_creates_projection() -> None:
+    service, repository, session = _service()
+
+    projection, changed = await service.ensure_compute_session(
+        ComputeSessionEnsureCommand(
+            execution_id="exec-1",
+            workspace_id="ws-1",
+            user_id="user-1",
+            sandbox_session_id="sandbox-1",
+        )
+    )
+
+    assert changed is True
+    assert projection.id == "compute-created"
+    assert projection.sandbox_session_id == "sandbox-1"
+    assert repository.compute_session is not None
+    assert repository.compute_session.active_view == "overview"
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_update_compute_session_merges_ui_state_delta() -> None:
+    service, repository, session = _service()
+    repository.compute_session = _compute_session(
+        {"id": "compute-1", "ui_state": {"selected": "overview"}}
+    )
+
+    projection = await service.update_compute_session(
+        "compute-1",
+        ComputeSessionUpdateCommand(
+            active_view="files",
+            ui_state_delta={"panel": "artifacts"},
+        ),
+    )
+
+    assert projection is not None
+    assert projection.active_view == "files"
+    assert projection.ui_state == {"selected": "overview", "panel": "artifacts"}
+    assert session.commit_count == 1

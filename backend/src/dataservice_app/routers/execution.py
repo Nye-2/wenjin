@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, Query
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.execution.contracts import (
+    ComputeSessionEnsureCommand,
+    ComputeSessionUpdateCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionUpdateCommand,
@@ -73,6 +75,65 @@ async def update_execution(
 ) -> dict:
     service = DataServiceExecutionService(uow.required_session, autocommit=False)
     record = await service.update_execution(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/compute-sessions/ensure")
+async def ensure_compute_session(
+    command: ComputeSessionEnsureCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record, changed = await service.ensure_compute_session(command)
+    await uow.commit()
+    return envelope_ok({"session": record.model_dump(mode="json"), "changed": changed})
+
+
+@router.get("/compute-sessions/list")
+async def list_compute_sessions(
+    workspace_id: str = Query(...),
+    user_id: str = Query(...),
+    limit: int = Query(default=20, ge=1, le=100),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    records = await service.list_compute_sessions(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        limit=limit,
+    )
+    return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/compute-sessions/by-execution/{execution_id}")
+async def get_compute_session_by_execution(
+    execution_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.get_compute_session_by_execution(execution_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.get("/compute-sessions/{compute_session_id}")
+async def get_compute_session(
+    compute_session_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.get_compute_session(compute_session_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.patch("/compute-sessions/{compute_session_id}")
+async def update_compute_session(
+    compute_session_id: str,
+    command: ComputeSessionUpdateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.update_compute_session(compute_session_id, command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
