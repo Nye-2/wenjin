@@ -11,6 +11,7 @@ from src.dataservice.app_boundary import FORBIDDEN_DOMAIN_IMPORT_PREFIXES
 
 MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.workspace",
+    "src.database.models.artifact",
     "src.database.models.decision",
     "src.database.models.memory_fact",
     "src.database.models.workspace_task",
@@ -27,6 +28,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
     "Workspace",
+    "Artifact",
     "Decision",
     "MemoryFact",
     "WorkspaceTask",

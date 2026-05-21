@@ -66,7 +66,6 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
             _ScalarResult(6),
             _ScalarResult(5),
             _ScalarResult(1),
-            _ScalarResult(8),
             _ScalarResult(260),
             _ScalarResult(180),
             _ScalarResult(67),
@@ -100,6 +99,7 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
     )
 
     service = AdminDashboardService(db)
+    service._assets.count_legacy_artifacts = AsyncMock(return_value=8)
     service._workspace.get_admin_workspace_stats = AsyncMock(
         return_value=WorkspaceAdminStatsRecord(
             total=4,

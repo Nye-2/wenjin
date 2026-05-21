@@ -10,11 +10,11 @@ from sqlalchemy.orm import aliased
 from src.database import (
     AdminActionType,
     AdminLog,
-    Artifact,
     CreditTransaction,
     CreditTransactionType,
     User,
 )
+from src.dataservice.asset_api import AssetDataService
 from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
@@ -25,6 +25,7 @@ class AdminDashboardService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._assets = AssetDataService(db, autocommit=False)
         self._execution = ExecutionDataService(db, autocommit=False)
         self._workspace = WorkspaceDataService(db, autocommit=False)
 
@@ -62,7 +63,7 @@ class AdminDashboardService:
             created_since=since_24h,
         )
 
-        artifact_total = int((await self.db.execute(select(func.count()).select_from(Artifact))).scalar() or 0)
+        artifact_total = await self._assets.count_legacy_artifacts()
 
         credits_issued = int(
             (

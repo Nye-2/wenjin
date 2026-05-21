@@ -4,10 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
-
 from src.artifacts.types import ArtifactType
-from src.database import Artifact
 from src.dataservice.source_api import SourceDataService
 from src.services.dashboard.shared import DashboardStatusSharedMixin
 
@@ -107,21 +104,15 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
 
     async def _get_opening_research_status(self, workspace_id: str) -> dict[str, Any]:
         creator_ids = self._creator_ids("opening_research")
-        result = await self.db.execute(
-            select(Artifact)
-            .where(Artifact.workspace_id == workspace_id)
-            .where(
-                Artifact.type.in_(
-                    [
-                        ArtifactType.OPENING_REPORT.value,
-                        ArtifactType.LITERATURE_REVIEW.value,
-                        ArtifactType.FEASIBILITY_ANALYSIS.value,
-                    ]
-                )
-            )
-            .where(Artifact.created_by_skill.in_(creator_ids))
+        artifacts = await self._list_artifacts(
+            workspace_id,
+            artifact_types=[
+                ArtifactType.OPENING_REPORT.value,
+                ArtifactType.LITERATURE_REVIEW.value,
+                ArtifactType.FEASIBILITY_ANALYSIS.value,
+            ],
+            created_by_skills=creator_ids,
         )
-        artifacts = result.scalars().all()
 
         if artifacts:
             status = "completed"
@@ -148,20 +139,16 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         }
 
     async def _get_thesis_writing_status(self, workspace_id: str) -> dict[str, Any]:
-        outline_result = await self.db.execute(
-            select(Artifact)
-            .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == ArtifactType.FRAMEWORK_OUTLINE.value)
+        outline_artifact = await self._get_latest_artifact(
+            workspace_id,
+            ArtifactType.FRAMEWORK_OUTLINE.value,
         )
-        outline_artifact = outline_result.scalar_one_or_none()
         outline_done = outline_artifact is not None
 
-        chapters_result = await self.db.execute(
-            select(func.count())
-            .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == ArtifactType.THESIS_CHAPTER.value)
+        chapters_count = await self._count_artifacts(
+            workspace_id,
+            ArtifactType.THESIS_CHAPTER.value,
         )
-        chapters_count = int(chapters_result.scalar() or 0)
 
         running_count = await self._count_running_feature_executions(
             workspace_id,

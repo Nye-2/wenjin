@@ -5,12 +5,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
 
 from src.database.base import Base
 from src.dataservice.domains.asset.contracts import (
+    LegacyArtifactCreateCommand,
+    LegacyArtifactUpdateCommand,
     WorkspaceAssetCreateCommand,
     WorkspaceAssetUpdateCommand,
 )
@@ -58,9 +61,29 @@ def _asset(values: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def _legacy_artifact(values: dict[str, Any]) -> SimpleNamespace:
+    now = datetime.now(UTC)
+    defaults = {
+        "id": "artifact-1",
+        "workspace_id": "ws-1",
+        "type": "research_idea",
+        "title": "Idea",
+        "content": {"body": "test"},
+        "created_by_skill": None,
+        "parent_artifact_id": None,
+        "version": 1,
+        "status": "draft",
+        "created_at": now,
+        "updated_at": now,
+    }
+    defaults.update(values)
+    return SimpleNamespace(**defaults)
+
+
 class FakeAssetRepository:
     def __init__(self) -> None:
         self.assets: dict[str, SimpleNamespace] = {}
+        self.artifacts: dict[str, SimpleNamespace] = {}
 
     def create_asset(self, values: dict[str, Any]) -> SimpleNamespace:
         asset_id = f"asset-{len(self.assets) + 1}"
@@ -91,6 +114,94 @@ class FakeAssetRepository:
         if not include_deleted:
             records = [record for record in records if record.deleted_at is None]
         return records[:limit]
+
+    def create_legacy_artifact(self, values: dict[str, Any]) -> SimpleNamespace:
+        artifact_id = f"artifact-{len(self.artifacts) + 1}"
+        record = _legacy_artifact({"id": artifact_id, **values})
+        self.artifacts[artifact_id] = record
+        return record
+
+    async def get_legacy_artifact(self, artifact_id: str) -> SimpleNamespace | None:
+        return self.artifacts.get(artifact_id)
+
+    async def find_latest_legacy_artifact(
+        self,
+        *,
+        workspace_id: str,
+        artifact_type: str,
+        title: str,
+    ) -> SimpleNamespace | None:
+        matches = [
+            record
+            for record in self.artifacts.values()
+            if record.workspace_id == workspace_id
+            and record.type == artifact_type
+            and record.title == title
+        ]
+        return max(matches, key=lambda record: record.version, default=None)
+
+    async def list_legacy_artifacts(
+        self,
+        *,
+        workspace_id: str,
+        artifact_type: str | None = None,
+        artifact_types: list[str] | None = None,
+        status: str | None = None,
+        created_by_skill: str | None = None,
+        created_by_skills: list[str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SimpleNamespace]:
+        records = [record for record in self.artifacts.values() if record.workspace_id == workspace_id]
+        if artifact_type:
+            records = [record for record in records if record.type == artifact_type]
+        if artifact_types:
+            records = [record for record in records if record.type in artifact_types]
+        if status:
+            records = [record for record in records if record.status == status]
+        if created_by_skills:
+            records = [record for record in records if record.created_by_skill in created_by_skills]
+        elif created_by_skill:
+            records = [record for record in records if record.created_by_skill == created_by_skill]
+        return records[offset : offset + limit]
+
+    async def count_legacy_artifacts(
+        self,
+        *,
+        workspace_id: str | None = None,
+        artifact_type: str | None = None,
+        created_by_skill: str | None = None,
+        created_by_skills: list[str] | None = None,
+    ) -> int:
+        records = list(self.artifacts.values())
+        if workspace_id is not None:
+            records = [record for record in records if record.workspace_id == workspace_id]
+        if artifact_type is not None:
+            records = [record for record in records if record.type == artifact_type]
+        if created_by_skills:
+            records = [record for record in records if record.created_by_skill in created_by_skills]
+        elif created_by_skill:
+            records = [record for record in records if record.created_by_skill == created_by_skill]
+        return len(records)
+
+    async def list_legacy_artifact_versions(
+        self,
+        *,
+        workspace_id: str,
+        artifact_type: str,
+        title: str,
+    ) -> list[SimpleNamespace]:
+        records = [
+            record
+            for record in self.artifacts.values()
+            if record.workspace_id == workspace_id
+            and record.type == artifact_type
+            and record.title == title
+        ]
+        return sorted(records, key=lambda record: record.version, reverse=True)
+
+    async def delete_legacy_artifact(self, artifact: SimpleNamespace) -> None:
+        self.artifacts.pop(str(artifact.id), None)
 
 
 def _service() -> tuple[WorkspaceAssetService, FakeAssetRepository, FakeSession]:
@@ -186,3 +297,66 @@ async def test_workspace_asset_review_handler_registers_asset_from_review_payloa
     result = await handler(item)
 
     assert result == {"asset_id": "asset-1", "storage_path": "figures/figure-1.png"}
+
+
+@pytest.mark.asyncio
+async def test_legacy_artifact_create_increments_version_inside_dataservice() -> None:
+    service, repository, session = _service()
+    service.autocommit = False
+    repository.artifacts["artifact-existing"] = _legacy_artifact(
+        {"id": "artifact-existing", "version": 3}
+    )
+
+    with patch(
+        "src.dataservice.domains.asset.service.DataServiceWorkspaceService"
+    ) as workspace_service_cls:
+        workspace_service_cls.return_value.lock_workspace_for_update = AsyncMock()
+        created = await service.create_legacy_artifact(
+            LegacyArtifactCreateCommand(
+                workspace_id="ws-1",
+                artifact_type="research_idea",
+                title="Idea",
+                content={"body": "next"},
+            )
+        )
+
+    assert created.version == 4
+    assert created.parent_artifact_id == "artifact-existing"
+    assert repository.artifacts[created.id].content == {"body": "next"}
+    assert session.flush_count == 1
+    workspace_service_cls.return_value.lock_workspace_for_update.assert_awaited_once_with(
+        "ws-1"
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_artifact_list_count_update_delete_and_lineage() -> None:
+    service, repository, _ = _service()
+    service.autocommit = False
+    repository.artifacts["root"] = _legacy_artifact({"id": "root", "title": "Root"})
+    repository.artifacts["child"] = _legacy_artifact(
+        {"id": "child", "title": "Child", "parent_artifact_id": "root", "version": 2}
+    )
+
+    listed = await service.list_legacy_artifacts(workspace_id="ws-1")
+    count = await service.count_legacy_artifacts(workspace_id="ws-1")
+    versions = await service.list_legacy_artifact_versions(
+        workspace_id="ws-1",
+        artifact_type="research_idea",
+        title="Child",
+    )
+    lineage = await service.get_legacy_artifact_lineage("child")
+    updated = await service.update_legacy_artifact(
+        "child",
+        command=LegacyArtifactUpdateCommand(title="Updated"),
+    )
+    deleted = await service.delete_legacy_artifact("child")
+
+    assert [artifact.id for artifact in listed] == ["root", "child"]
+    assert count == 2
+    assert [artifact.id for artifact in versions] == ["child"]
+    assert [artifact.id for artifact in lineage] == ["root", "child"]
+    assert updated is not None
+    assert updated.title == "Updated"
+    assert deleted is True
+    assert "child" not in repository.artifacts

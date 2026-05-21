@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Artifact
+from src.dataservice.asset_api import AssetDataService
 from src.dataservice.catalog_api import CatalogDataService
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.dashboard import (
@@ -107,13 +107,10 @@ class DashboardService(
         workspace_id: str,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(Artifact)
-            .where(Artifact.workspace_id == workspace_id)
-            .order_by(Artifact.created_at.desc())
-            .limit(limit)
+        artifacts = await AssetDataService(self.db, autocommit=False).list_legacy_artifacts(
+            workspace_id=workspace_id,
+            limit=limit,
         )
-        artifacts = result.scalars().all()
 
         return [
             {

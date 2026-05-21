@@ -67,3 +67,41 @@ class WorkspaceAssetDownloadProjection(BaseModel):
     storage_path: str
     mime_type: str | None = None
     filename: str
+
+
+class LegacyArtifactCreateCommand(BaseModel):
+    """Create one legacy artifact payload while the artifact table is being converged."""
+
+    workspace_id: str = Field(min_length=1, max_length=36)
+    artifact_type: str = Field(min_length=1, max_length=100)
+    content: dict[str, Any] = Field(default_factory=dict)
+    title: str | None = Field(default=None, max_length=500)
+    created_by_skill: str | None = Field(default=None, max_length=100)
+    parent_artifact_id: str | None = Field(default=None, max_length=36)
+
+
+class LegacyArtifactUpdateCommand(BaseModel):
+    """Update mutable legacy artifact payload fields."""
+
+    title: str | None = Field(default=None, max_length=500)
+    content: dict[str, Any] | None = None
+    status: str | None = Field(default=None, max_length=20)
+    artifact_type: str | None = Field(default=None, max_length=100)
+    version: int | None = Field(default=None, ge=1)
+    parent_artifact_id: str | None = Field(default=None, max_length=36)
+
+
+class LegacyArtifactProjection(BaseModel):
+    """Projection over legacy artifacts owned by DataService during convergence."""
+
+    id: str
+    workspace_id: str
+    type: str
+    title: str | None = None
+    content: dict[str, Any] = Field(default_factory=dict)
+    created_by_skill: str | None = None
+    parent_artifact_id: str | None = None
+    version: int = 1
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

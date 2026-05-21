@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any
 
-from sqlalchemy import func, select
-
-from src.database import Artifact
+from src.dataservice.asset_api import AssetDataService
 from src.dataservice.execution_api import ExecutionDataService
 
 
@@ -24,22 +22,17 @@ class DashboardStatusSharedMixin:
         created_by_skill: str | None = None,
         created_by_skills: Sequence[str] | None = None,
     ) -> int:
-        stmt = (
-            select(func.count())
-            .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == artifact_type)
-        )
         normalized_creator_skills = [
             skill_id.strip()
             for skill_id in (created_by_skills or ())
             if isinstance(skill_id, str) and skill_id.strip()
         ]
-        if normalized_creator_skills:
-            stmt = stmt.where(Artifact.created_by_skill.in_(normalized_creator_skills))
-        elif created_by_skill:
-            stmt = stmt.where(Artifact.created_by_skill == created_by_skill)
-        result = await self.db.execute(stmt)
-        return int(result.scalar() or 0)
+        return await AssetDataService(self.db, autocommit=False).count_legacy_artifacts(
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+            created_by_skill=created_by_skill,
+            created_by_skills=normalized_creator_skills or None,
+        )
 
     async def _get_latest_artifact(
         self,
@@ -48,25 +41,47 @@ class DashboardStatusSharedMixin:
         *,
         created_by_skill: str | None = None,
         created_by_skills: Sequence[str] | None = None,
-    ) -> Artifact | None:
-        stmt = (
-            select(Artifact)
-            .where(Artifact.workspace_id == workspace_id)
-            .where(Artifact.type == artifact_type)
-            .order_by(Artifact.created_at.desc())
-            .limit(1)
-        )
+    ) -> Any | None:
         normalized_creator_skills = [
             skill_id.strip()
             for skill_id in (created_by_skills or ())
             if isinstance(skill_id, str) and skill_id.strip()
         ]
-        if normalized_creator_skills:
-            stmt = stmt.where(Artifact.created_by_skill.in_(normalized_creator_skills))
-        elif created_by_skill:
-            stmt = stmt.where(Artifact.created_by_skill == created_by_skill)
-        result = await self.db.execute(stmt)
-        return cast(Artifact | None, result.scalar_one_or_none())
+        artifacts = await AssetDataService(self.db, autocommit=False).list_legacy_artifacts(
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+            created_by_skill=created_by_skill,
+            created_by_skills=normalized_creator_skills or None,
+            limit=1,
+        )
+        return artifacts[0] if artifacts else None
+
+    async def _list_artifacts(
+        self,
+        workspace_id: str,
+        *,
+        artifact_types: Sequence[str],
+        created_by_skills: Sequence[str] | None = None,
+        limit: int = 50,
+    ) -> list[Any]:
+        normalized_artifact_types = [
+            artifact_type.strip()
+            for artifact_type in artifact_types
+            if isinstance(artifact_type, str) and artifact_type.strip()
+        ]
+        normalized_creator_skills = [
+            skill_id.strip()
+            for skill_id in (created_by_skills or ())
+            if isinstance(skill_id, str) and skill_id.strip()
+        ]
+        if not normalized_artifact_types:
+            return []
+        return await AssetDataService(self.db, autocommit=False).list_legacy_artifacts(
+            workspace_id=workspace_id,
+            artifact_types=normalized_artifact_types,
+            created_by_skills=normalized_creator_skills or None,
+            limit=limit,
+        )
 
     async def _count_running_feature_executions(
         self,

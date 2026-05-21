@@ -7,6 +7,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.asset.contracts import (
+    LegacyArtifactCreateCommand,
+    LegacyArtifactProjection,
+    LegacyArtifactUpdateCommand,
     WorkspaceAssetCreateCommand,
     WorkspaceAssetDownloadProjection,
     WorkspaceAssetProjection,
@@ -100,3 +103,92 @@ class AssetDataService:
 
     async def resolve_download(self, asset_id: str) -> WorkspaceAssetDownloadProjection | None:
         return await self._domain.resolve_download(asset_id)
+
+    async def create_legacy_artifact(
+        self,
+        command: LegacyArtifactCreateCommand,
+    ) -> LegacyArtifactProjection:
+        return await self._domain.create_legacy_artifact(command)
+
+    async def get_legacy_artifact(self, artifact_id: str) -> LegacyArtifactProjection | None:
+        return await self._domain.get_legacy_artifact(artifact_id)
+
+    async def find_latest_legacy_artifact(
+        self,
+        *,
+        workspace_id: str,
+        artifact_type: str,
+        title: str,
+    ) -> LegacyArtifactProjection | None:
+        return await self._domain.find_latest_legacy_artifact(
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+            title=title,
+        )
+
+    async def list_legacy_artifacts(
+        self,
+        *,
+        workspace_id: str,
+        artifact_type: str | None = None,
+        artifact_types: list[str] | None = None,
+        status: str | None = None,
+        created_by_skill: str | None = None,
+        created_by_skills: list[str] | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[LegacyArtifactProjection]:
+        return await self._domain.list_legacy_artifacts(
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+            artifact_types=artifact_types,
+            status=status,
+            created_by_skill=created_by_skill,
+            created_by_skills=created_by_skills,
+            limit=limit,
+            offset=offset,
+        )
+
+    async def count_legacy_artifacts(
+        self,
+        *,
+        workspace_id: str | None = None,
+        artifact_type: str | None = None,
+        created_by_skill: str | None = None,
+        created_by_skills: list[str] | None = None,
+    ) -> int:
+        return await self._domain.count_legacy_artifacts(
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+            created_by_skill=created_by_skill,
+            created_by_skills=created_by_skills,
+        )
+
+    async def list_legacy_artifact_versions(
+        self,
+        *,
+        workspace_id: str,
+        artifact_type: str,
+        title: str,
+    ) -> list[LegacyArtifactProjection]:
+        return await self._domain.list_legacy_artifact_versions(
+            workspace_id=workspace_id,
+            artifact_type=artifact_type,
+            title=title,
+        )
+
+    async def update_legacy_artifact(
+        self,
+        artifact_id: str,
+        command: LegacyArtifactUpdateCommand,
+    ) -> LegacyArtifactProjection | None:
+        return await self._domain.update_legacy_artifact(artifact_id, command)
+
+    async def delete_legacy_artifact(self, artifact_id: str) -> bool:
+        return await self._domain.delete_legacy_artifact(artifact_id)
+
+    async def get_legacy_artifact_lineage(
+        self,
+        artifact_id: str,
+    ) -> list[LegacyArtifactProjection]:
+        return await self._domain.get_legacy_artifact_lineage(artifact_id)

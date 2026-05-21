@@ -1,333 +1,118 @@
-"""Tests for artifact versioning in ArtifactService.
+"""Tests for the ArtifactService DataService facade."""
 
-This module tests the version-aware artifact creation including:
-- Auto-increment version when same workspace+type+title exists
-- Parent artifact linking for version chains
-- Explicit parent_artifact_id override
-- Version history listing
-"""
+from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 
 from src.academic.services.artifact_service import ArtifactService
-
-
-def _make_mock_artifact(
-    id: str = "artifact-1",
-    workspace_id: str = "ws-1",
-    type: str = "research_idea",
-    title: str = "My Research",
-    version: int = 1,
-    parent_artifact_id: str | None = None,
-    status: str = "draft",
-    content: dict | None = None,
-):
-    """Create a mock Artifact with the given attributes."""
-    artifact = MagicMock()
-    artifact.id = id
-    artifact.workspace_id = workspace_id
-    artifact.type = type
-    artifact.title = title
-    artifact.version = version
-    artifact.parent_artifact_id = parent_artifact_id
-    artifact.status = status
-    artifact.content = content or {"body": "test"}
-    return artifact
+from src.dataservice.domains.asset.contracts import LegacyArtifactProjection
 
 
 def _make_db_session():
-    """Create a mock AsyncSession."""
     db = AsyncMock()
-    db.add = MagicMock()
-    db.commit = AsyncMock()
-    db.refresh = AsyncMock()
     db.execute = AsyncMock()
     return db
 
 
-class TestCreateFirstVersion:
-    """Tests for creating the first version of an artifact."""
-
-    @pytest.mark.asyncio
-    async def test_create_first_version(self):
-        """Creating artifact with no existing versions gives version=1, no auto parent."""
-        db = _make_db_session()
-
-        service = ArtifactService(db)
-
-        with patch.object(service, "_find_latest_version", new_callable=AsyncMock) as mock_find, \
-             patch.object(service, "_lock_workspace_for_artifact_versioning", new_callable=AsyncMock, create=True) as mock_lock, \
-             patch("src.academic.services.artifact_service.Artifact") as MockArtifact, \
-             patch("src.academic.services.artifact_service.ArtifactType") as MockType:
-            mock_find.return_value = None
-            mock_instance = MagicMock()
-            MockArtifact.return_value = mock_instance
-            MockType.side_effect = lambda v: v
-
-            await service.create(
-                workspace_id="ws-1",
-                type="research_idea",
-                content={"body": "test"},
-                title="My Research",
-            )
-
-            mock_lock.assert_awaited_once_with("ws-1")
-            # _find_latest_version was called with the right args
-            mock_find.assert_awaited_once_with("ws-1", "research_idea", "My Research")
-
-            # Verify Artifact was created with version=1, no parent
-            MockArtifact.assert_called_once()
-            call_kwargs = MockArtifact.call_args[1]
-            assert call_kwargs["version"] == 1
-            assert call_kwargs["parent_artifact_id"] is None
-            assert call_kwargs["title"] == "My Research"
-            assert call_kwargs["status"] == "draft"
-
-    @pytest.mark.asyncio
-    async def test_lock_workspace_uses_dataservice_workspace_boundary(self):
-        """Workspace row locking is delegated to WorkspaceDataService."""
-        db = _make_db_session()
-        service = ArtifactService(db)
-        service._workspace.lock_workspace_for_update = AsyncMock()
-
-        await service._lock_workspace_for_artifact_versioning("ws-1")
-
-        service._workspace.lock_workspace_for_update.assert_awaited_once_with("ws-1")
-        db.execute.assert_not_awaited()
+def _projection(**overrides) -> LegacyArtifactProjection:
+    now = datetime.now(UTC)
+    return LegacyArtifactProjection(
+        id=overrides.get("id", "artifact-1"),
+        workspace_id=overrides.get("workspace_id", "ws-1"),
+        type=overrides.get("type", "research_idea"),
+        title=overrides.get("title", "My Research"),
+        content=overrides.get("content", {"body": "test"}),
+        created_by_skill=overrides.get("created_by_skill"),
+        parent_artifact_id=overrides.get("parent_artifact_id"),
+        version=overrides.get("version", 1),
+        status=overrides.get("status", "draft"),
+        created_at=overrides.get("created_at", now),
+        updated_at=overrides.get("updated_at", now),
+    )
 
 
-class TestCreateAutoIncrementsVersion:
-    """Tests for auto-incrementing version on duplicate workspace+type+title."""
+@pytest.mark.asyncio
+async def test_create_delegates_to_dataservice_legacy_artifact_command() -> None:
+    db = _make_db_session()
+    service = ArtifactService(db)
+    expected = _projection(id="artifact-new")
+    service._assets.create_legacy_artifact = AsyncMock(return_value=expected)
 
-    @pytest.mark.asyncio
-    async def test_create_auto_increments_version(self):
-        """Creating with same workspace+type+title gives version=N+1, parent set."""
-        db = _make_db_session()
+    result = await service.create(
+        workspace_id="ws-1",
+        type="research_idea",
+        content={"body": "test"},
+        title="My Research",
+        created_by_skill="deep_research",
+        parent_artifact_id="parent-1",
+    )
 
-        existing = _make_mock_artifact(
-            id="existing-v3",
-            version=3,
-        )
-
-        service = ArtifactService(db)
-
-        with patch.object(service, "_find_latest_version", new_callable=AsyncMock) as mock_find, \
-             patch("src.academic.services.artifact_service.Artifact") as MockArtifact, \
-             patch("src.academic.services.artifact_service.ArtifactType") as MockType:
-            mock_find.return_value = existing
-            mock_instance = MagicMock()
-            MockArtifact.return_value = mock_instance
-            MockType.side_effect = lambda v: v
-
-            await service.create(
-                workspace_id="ws-1",
-                type="research_idea",
-                content={"body": "test v4"},
-                title="My Research",
-            )
-
-            mock_find.assert_awaited_once_with("ws-1", "research_idea", "My Research")
-
-            MockArtifact.assert_called_once()
-            call_kwargs = MockArtifact.call_args[1]
-            assert call_kwargs["version"] == 4
-            assert call_kwargs["parent_artifact_id"] == "existing-v3"
-
-    @pytest.mark.asyncio
-    async def test_retries_on_unique_version_conflict(self):
-        """When unique(version) conflicts, create should rollback and retry."""
-        db = _make_db_session()
-        db.commit = AsyncMock(
-            side_effect=[
-                IntegrityError(
-                    "INSERT",
-                    {"workspace_id": "ws-1"},
-                    Exception(
-                        'duplicate key value violates unique constraint '
-                        '"uq_artifacts_workspace_type_title_version"'
-                    ),
-                ),
-                None,
-            ]
-        )
-        db.rollback = AsyncMock()
-
-        service = ArtifactService(db)
-        v1 = _make_mock_artifact(id="existing-v1", version=1)
-        v2 = _make_mock_artifact(id="existing-v2", version=2)
-
-        with patch.object(service, "_find_latest_version", new_callable=AsyncMock) as mock_find, \
-             patch.object(service, "_lock_workspace_for_artifact_versioning", new_callable=AsyncMock, create=True), \
-             patch("src.academic.services.artifact_service.Artifact") as MockArtifact, \
-             patch("src.academic.services.artifact_service.ArtifactType") as MockType:
-            mock_find.side_effect = [v1, v2]
-            first = MagicMock()
-            second = MagicMock()
-            MockArtifact.side_effect = [first, second]
-            MockType.side_effect = lambda v: v
-
-            result = await service.create(
-                workspace_id="ws-1",
-                type="research_idea",
-                content={"body": "test"},
-                title="My Research",
-            )
-
-            assert result is second
-            assert db.commit.await_count == 2
-            db.rollback.assert_awaited_once()
-            assert MockArtifact.call_args_list[0][1]["version"] == 2
-            assert MockArtifact.call_args_list[1][1]["version"] == 3
+    command = service._assets.create_legacy_artifact.await_args.args[0]
+    assert command.workspace_id == "ws-1"
+    assert command.artifact_type == "research_idea"
+    assert command.content == {"body": "test"}
+    assert command.title == "My Research"
+    assert command.created_by_skill == "deep_research"
+    assert command.parent_artifact_id == "parent-1"
+    assert result == expected
+    db.execute.assert_not_called()
 
 
-class TestCreateRespectsExplicitParent:
-    """Tests for explicit parent_artifact_id override."""
+@pytest.mark.asyncio
+async def test_find_latest_and_list_versions_delegate_to_dataservice() -> None:
+    service = ArtifactService(_make_db_session())
+    latest = _projection(id="latest", version=5)
+    versions = [
+        _projection(id="v3", version=3),
+        _projection(id="v2", version=2),
+    ]
+    service._assets.find_latest_legacy_artifact = AsyncMock(return_value=latest)
+    service._assets.list_legacy_artifact_versions = AsyncMock(return_value=versions)
 
-    @pytest.mark.asyncio
-    async def test_create_respects_explicit_parent(self):
-        """If caller passes parent_artifact_id, use it instead of auto."""
-        db = _make_db_session()
+    found = await service._find_latest_version("ws-1", "research_idea", "My Research")
+    listed = await service.list_versions("ws-1", "research_idea", "My Research")
 
-        existing = _make_mock_artifact(id="existing-v1", version=1)
-
-        service = ArtifactService(db)
-
-        with patch.object(service, "_find_latest_version", new_callable=AsyncMock) as mock_find, \
-             patch("src.academic.services.artifact_service.Artifact") as MockArtifact, \
-             patch("src.academic.services.artifact_service.ArtifactType") as MockType:
-            mock_find.return_value = existing
-            mock_instance = MagicMock()
-            MockArtifact.return_value = mock_instance
-            MockType.side_effect = lambda v: v
-
-            await service.create(
-                workspace_id="ws-1",
-                type="research_idea",
-                content={"body": "test"},
-                title="My Research",
-                parent_artifact_id="explicit-parent-id",
-            )
-
-            call_kwargs = MockArtifact.call_args[1]
-            # Explicit parent takes precedence over auto-linked parent
-            assert call_kwargs["parent_artifact_id"] == "explicit-parent-id"
-            # Version still increments based on existing
-            assert call_kwargs["version"] == 2
+    assert found == latest
+    assert listed == versions
+    service._assets.find_latest_legacy_artifact.assert_awaited_once_with(
+        workspace_id="ws-1",
+        artifact_type="research_idea",
+        title="My Research",
+    )
+    service._assets.list_legacy_artifact_versions.assert_awaited_once_with(
+        workspace_id="ws-1",
+        artifact_type="research_idea",
+        title="My Research",
+    )
 
 
-class TestCreateNoVersioningWithoutTitle:
-    """Tests for skipping versioning when title is None."""
+@pytest.mark.asyncio
+async def test_crud_and_lineage_delegate_to_dataservice() -> None:
+    service = ArtifactService(_make_db_session())
+    artifact = _projection(id="artifact-1")
+    lineage = [_projection(id="root"), artifact]
+    service._assets.get_legacy_artifact = AsyncMock(return_value=artifact)
+    service._assets.list_legacy_artifacts = AsyncMock(return_value=[artifact])
+    service._assets.update_legacy_artifact = AsyncMock(return_value=artifact)
+    service._assets.delete_legacy_artifact = AsyncMock(return_value=True)
+    service._assets.get_legacy_artifact_lineage = AsyncMock(return_value=lineage)
 
-    @pytest.mark.asyncio
-    async def test_create_no_versioning_without_title(self):
-        """If title is None, version stays 1 (no lookup)."""
-        db = _make_db_session()
+    assert await service.get("artifact-1") == artifact
+    assert await service.list_by_workspace("ws-1", type="research_idea") == [artifact]
+    assert await service.list_by_type("ws-1", "research_idea") == [artifact]
+    assert await service.update("artifact-1", title="Updated") == artifact
+    assert await service.delete("artifact-1") is True
+    assert await service.get_lineage("artifact-1") == lineage
 
-        service = ArtifactService(db)
-
-        with patch.object(service, "_find_latest_version", new_callable=AsyncMock) as mock_find, \
-             patch("src.academic.services.artifact_service.Artifact") as MockArtifact, \
-             patch("src.academic.services.artifact_service.ArtifactType") as MockType:
-            mock_instance = MagicMock()
-            MockArtifact.return_value = mock_instance
-            MockType.side_effect = lambda v: v
-
-            await service.create(
-                workspace_id="ws-1",
-                type="research_idea",
-                content={"body": "untitled artifact"},
-                title=None,
-            )
-
-            call_kwargs = MockArtifact.call_args[1]
-            assert call_kwargs["version"] == 1
-            assert call_kwargs["parent_artifact_id"] is None
-            assert call_kwargs["title"] is None
-
-            # _find_latest_version should NOT have been called (title is None)
-            mock_find.assert_not_awaited()
-
-
-class TestFindLatestVersion:
-    """Tests for _find_latest_version private method."""
-
-    @pytest.mark.asyncio
-    async def test_find_latest_version_none(self):
-        """No matching artifact returns None."""
-        db = _make_db_session()
-
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        db.execute.return_value = mock_result
-
-        service = ArtifactService(db)
-        result = await service._find_latest_version("ws-1", "research_idea", "Nonexistent")
-
-        assert result is None
-        db.execute.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_find_latest_version_found(self):
-        """Matching artifact returns it."""
-        db = _make_db_session()
-
-        existing = _make_mock_artifact(id="found-1", version=5)
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = existing
-        db.execute.return_value = mock_result
-
-        service = ArtifactService(db)
-        result = await service._find_latest_version("ws-1", "research_idea", "My Research")
-
-        assert result is not None
-        assert result.id == "found-1"
-        assert result.version == 5
-        db.execute.assert_called_once()
-
-
-class TestListVersions:
-    """Tests for list_versions method."""
-
-    @pytest.mark.asyncio
-    async def test_list_versions_empty(self):
-        """No versions returns empty list."""
-        db = _make_db_session()
-
-        mock_result = MagicMock()
-        mock_scalars = MagicMock()
-        mock_scalars.all.return_value = []
-        mock_result.scalars.return_value = mock_scalars
-        db.execute.return_value = mock_result
-
-        service = ArtifactService(db)
-        result = await service.list_versions("ws-1", "research_idea", "Nonexistent")
-
-        assert result == []
-        db.execute.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_list_versions_ordered(self):
-        """Multiple versions returned newest first."""
-        db = _make_db_session()
-
-        v3 = _make_mock_artifact(id="v3", version=3)
-        v2 = _make_mock_artifact(id="v2", version=2)
-        v1 = _make_mock_artifact(id="v1", version=1)
-
-        mock_result = MagicMock()
-        mock_scalars = MagicMock()
-        mock_scalars.all.return_value = [v3, v2, v1]
-        mock_result.scalars.return_value = mock_scalars
-        db.execute.return_value = mock_result
-
-        service = ArtifactService(db)
-        result = await service.list_versions("ws-1", "research_idea", "My Research")
-
-        assert len(result) == 3
-        assert result[0].version == 3
-        assert result[1].version == 2
-        assert result[2].version == 1
-        db.execute.assert_called_once()
+    service._assets.list_legacy_artifacts.assert_any_await(
+        workspace_id="ws-1",
+        artifact_type="research_idea",
+        status=None,
+        limit=50,
+        offset=0,
+    )
+    update_command = service._assets.update_legacy_artifact.await_args.args[1]
+    assert update_command.title == "Updated"

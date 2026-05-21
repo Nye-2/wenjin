@@ -8,13 +8,11 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.citation.bibtex.parser import BibTeXParser
 from src.academic.literature.search_service import LiteratureSearchService
 from src.database import (
-    Artifact,
     ReferenceBibtexScope,
     ReferenceEvidenceLevel,
     ReferenceFulltextStatus,
@@ -315,13 +313,16 @@ class SourceLibraryImportService:
     ) -> dict[str, Any]:
         if not artifact_ids:
             return {"imported": 0, "created": 0, "items": []}
-        result = await self.db.execute(
-            select(Artifact).where(
-                Artifact.workspace_id == workspace_id,
-                Artifact.id.in_([str(item) for item in artifact_ids]),
+        asset_data = AssetDataService(self.db, autocommit=False)
+        artifacts = [
+            artifact
+            for artifact_id in artifact_ids
+            if (
+                artifact := await asset_data.get_legacy_artifact(str(artifact_id))
             )
-        )
-        artifacts = list(result.scalars().all())
+            is not None
+            and str(artifact.workspace_id) == workspace_id
+        ]
         candidates: list[dict[str, Any]] = []
         for artifact in artifacts:
             content = artifact.content if isinstance(artifact.content, dict) else {}
