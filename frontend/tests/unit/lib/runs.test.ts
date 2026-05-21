@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  deleteWorkspaceRun,
+  deleteRunLifecycle,
   pauseRunLifecycle,
   resumeRunLifecycle,
 } from "@/lib/api/runs";
@@ -29,11 +29,11 @@ describe("runs lifecycle wrappers (Plan 2 T2)", () => {
     );
   });
 
-  it("DELETEs /api/runs/{id} (soft-delete the workspace_run row)", async () => {
+  it("DELETEs /api/runs/{id}", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await deleteWorkspaceRun("r1");
+    await deleteRunLifecycle("r1");
     expect(fetchSpy).toHaveBeenCalledWith(
       "/api/runs/r1",
       expect.objectContaining({ method: "DELETE" }),

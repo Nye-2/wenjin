@@ -106,7 +106,7 @@ export const pauseRunLifecycle = (runId: string) =>
 export const resumeRunLifecycle = (runId: string) =>
   postNoBody(`/api/runs/${encodeURIComponent(runId)}/resume`);
 
-export async function deleteWorkspaceRun(runId: string): Promise<void> {
+export async function deleteRunLifecycle(runId: string): Promise<void> {
   const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`DELETE run failed: ${res.status}`);
 }
