@@ -1,9 +1,3 @@
-"""Academic module for literature management, knowledge storage, and citation handling."""
+"""Academic module for literature management and citation handling."""
 
-from src.database import (
-    UserKnowledge,
-)
-
-__all__ = [
-    "UserKnowledge",
-]
+__all__: list[str] = []

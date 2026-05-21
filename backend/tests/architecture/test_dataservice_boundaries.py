@@ -27,6 +27,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.generation",
     "src.database.models.task",
     "src.database.models.admin_log",
+    "src.database.models.knowledge",
     "src.database.models.prism",
     "src.database.models.reference",
 }
@@ -48,6 +49,8 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "GenerationRecord",
     "TaskRecord",
     "AdminLog",
+    "KnowledgeCategory",
+    "UserKnowledge",
     "PrismReviewItem",
     "PrismSourceLink",
     "PrismProtectedSection",

@@ -6,7 +6,11 @@ import json
 import logging
 from typing import Any, cast
 
-from src.database.models.knowledge import KnowledgeCategory
+from src.dataservice.knowledge_api import (
+    KNOWLEDGE_CATEGORY_CONTEXT,
+    KNOWLEDGE_CATEGORY_PREFERENCE,
+    normalize_knowledge_category,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +74,10 @@ def _normalize_compacted_items(raw_items: Any) -> list[dict[str, Any]]:
         if not text:
             continue
         try:
-            category = KnowledgeCategory(cat)
+            category = normalize_knowledge_category(cat)
         except ValueError:
             continue
-        key = (category.value, text)
+        key = (category, text)
         if key in seen:
             continue
         seen.add(key)
@@ -98,15 +102,15 @@ def _with_preserved_preferences(
         for item in result
     }
     for entry in entries:
-        if entry.category != KnowledgeCategory.PREFERENCE:
+        if normalize_knowledge_category(entry.category) != KNOWLEDGE_CATEGORY_PREFERENCE:
             continue
-        key = (KnowledgeCategory.PREFERENCE, entry.content)
+        key = (KNOWLEDGE_CATEGORY_PREFERENCE, entry.content)
         if key in seen:
             continue
         seen.add(key)
         result.append(
             {
-                "category": KnowledgeCategory.PREFERENCE,
+                "category": KNOWLEDGE_CATEGORY_PREFERENCE,
                 "content": entry.content,
                 "confidence": _coerce_confidence(entry.confidence),
             }
@@ -220,7 +224,7 @@ async def compact_user_memory(
         if summary:
             await service.upsert(
                 user_id,
-                KnowledgeCategory.CONTEXT,
+                KNOWLEDGE_CATEGORY_CONTEXT,
                 summary,
                 confidence=0.9,
                 source="compaction_summary",

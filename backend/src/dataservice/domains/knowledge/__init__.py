@@ -1,0 +1,1 @@
+"""Knowledge memory persistence domain."""

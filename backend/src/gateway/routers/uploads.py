@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.artifacts import ArtifactType
-from src.database import KnowledgeCategory, User
+from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
@@ -525,7 +525,7 @@ async def upload_thread_files(
             try:
                 await knowledge_service.upsert(
                     str(current_user.id),
-                    KnowledgeCategory.CONTEXT,
+                    "context",
                     knowledge_text,
                     confidence=0.85,
                     source="thread_upload.workspace_context",

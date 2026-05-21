@@ -1,85 +1,65 @@
-"""CRUD service for UserKnowledge persistence."""
+"""Facade for DataService-owned user knowledge persistence."""
 
 from __future__ import annotations
 
-import logging
+from typing import Any
 
-from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.knowledge import KnowledgeCategory, UserKnowledge
-
-logger = logging.getLogger(__name__)
+from src.dataservice.knowledge_api import KnowledgeDataService, normalize_knowledge_category
 
 
 class KnowledgeService:
-    """Canonical service for UserKnowledge lifecycle."""
+    """Compatibility facade for UserKnowledge lifecycle."""
 
     def __init__(self, db: AsyncSession) -> None:
         self._db = db
-        # Expose a consistent service session attribute used across service classes.
         self.db = db
+        self._knowledge = KnowledgeDataService(db)
+        self._knowledge_no_commit = KnowledgeDataService(db, autocommit=False)
 
     @staticmethod
-    def _normalize_category(category: KnowledgeCategory | str) -> KnowledgeCategory:
-        """Coerce string category into enum for consistent DB writes."""
-        if isinstance(category, str):
-            return KnowledgeCategory(category)
-        return category
+    def _normalize_category(category: Any) -> str:
+        """Coerce category values without exposing ORM enums."""
+        return normalize_knowledge_category(category)
 
     async def create(
         self,
         user_id: str,
-        category: KnowledgeCategory | str,
+        category: Any,
         content: str,
         confidence: float = 0.7,
         source: str | None = None,
         workspace_context: str | None = None,
-    ) -> UserKnowledge:
-        """Create a new knowledge entry (CRUD style API)."""
-        entry = UserKnowledge(
+    ) -> Any:
+        """Create a new knowledge entry."""
+        return await self._knowledge.create(
             user_id=user_id,
-            category=self._normalize_category(category),
+            category=category,
             content=content,
             confidence=confidence,
             source=source,
             workspace_context=workspace_context,
         )
-        self._db.add(entry)
-        await self._db.commit()
-        await self._db.refresh(entry)
-        return entry
 
-    async def get(self, knowledge_id: str) -> UserKnowledge | None:
+    async def get(self, knowledge_id: str) -> Any | None:
         """Get knowledge by ID."""
-        stmt = select(UserKnowledge).where(UserKnowledge.id == knowledge_id)
-        result = await self._db.execute(stmt)
-        return result.scalar_one_or_none()
+        return await self._knowledge.get(knowledge_id)
 
     async def list_by_user(
         self,
         user_id: str,
-        category: KnowledgeCategory | str | None = None,
+        category: Any | None = None,
         min_confidence: float | None = None,
         active_only: bool = True,
-    ) -> list[UserKnowledge]:
-        """List knowledge entries for a user (CRUD style API)."""
-        conditions = [UserKnowledge.user_id == user_id]
-
-        if category is not None:
-            conditions.append(UserKnowledge.category == self._normalize_category(category))
-        if min_confidence is not None:
-            conditions.append(UserKnowledge.confidence >= min_confidence)
-        if active_only:
-            conditions.append(UserKnowledge.is_active == True)  # noqa: E712
-
-        stmt = (
-            select(UserKnowledge)
-            .where(and_(*conditions))
-            .order_by(UserKnowledge.confidence.desc(), UserKnowledge.updated_at.desc())
+    ) -> list[Any]:
+        """List knowledge entries for a user."""
+        return await self._knowledge.list_by_user(
+            user_id=user_id,
+            category=category,
+            min_confidence=min_confidence,
+            active_only=active_only,
         )
-        result = await self._db.execute(stmt)
-        return list(result.scalars().all())
 
     async def update(
         self,
@@ -87,19 +67,17 @@ class KnowledgeService:
         content: str | None = None,
         confidence: float | None = None,
         is_active: bool | None = None,
-    ) -> UserKnowledge | None:
-        """Update a knowledge entry (CRUD style API)."""
+    ) -> Any | None:
+        """Update a knowledge entry."""
         entry = await self.get(knowledge_id)
-        if not entry:
+        if entry is None:
             return None
-
         if content is not None:
             entry.content = content
         if confidence is not None:
             entry.confidence = confidence
         if is_active is not None:
             entry.is_active = is_active
-
         await self._db.commit()
         await self._db.refresh(entry)
         return entry
@@ -107,9 +85,8 @@ class KnowledgeService:
     async def deactivate(self, knowledge_id: str) -> bool:
         """Deactivate a knowledge entry."""
         entry = await self.get(knowledge_id)
-        if not entry:
+        if entry is None:
             return False
-
         entry.is_active = False
         await self._db.commit()
         return True
@@ -117,9 +94,8 @@ class KnowledgeService:
     async def delete(self, knowledge_id: str) -> bool:
         """Delete a knowledge entry."""
         entry = await self.get(knowledge_id)
-        if not entry:
+        if entry is None:
             return False
-
         await self._db.delete(entry)
         await self._db.commit()
         return True
@@ -132,93 +108,35 @@ class KnowledgeService:
         include_global: bool = True,
         min_confidence: float = 0.5,
         limit: int = 20,
-    ) -> list[UserKnowledge]:
-        """Return active knowledge ordered by confidence desc.
-
-        Retrieval rules:
-        - with workspace_context + include_global: include current-workspace + global entries
-        - with workspace_context + not include_global: include current-workspace entries only
-        - without workspace_context: include global entries only
-        Entries are ordered by workspace match first (when applicable), then confidence.
-        """
-        scope_condition = (
-            or_(
-                UserKnowledge.workspace_context == workspace_context,
-                UserKnowledge.workspace_context.is_(None),
-            )
-            if workspace_context and include_global
-            else UserKnowledge.workspace_context == workspace_context
-            if workspace_context
-            else UserKnowledge.workspace_context.is_(None)
+    ) -> list[Any]:
+        """Return active knowledge ordered by confidence desc."""
+        return await self._knowledge_no_commit.list_active(
+            user_id=user_id,
+            workspace_context=workspace_context,
+            include_global=include_global,
+            min_confidence=min_confidence,
+            limit=limit,
         )
-        stmt = (
-            select(UserKnowledge)
-            .where(
-                and_(
-                    UserKnowledge.user_id == user_id,
-                    UserKnowledge.is_active == True,  # noqa: E712
-                    UserKnowledge.confidence >= min_confidence,
-                    scope_condition,
-                )
-            )
-            .order_by(
-                # workspace-specific first
-                (UserKnowledge.workspace_context == workspace_context).desc()
-                if workspace_context
-                else UserKnowledge.confidence.desc(),
-                UserKnowledge.confidence.desc(),
-            )
-            .limit(limit)
-        )
-        result = await self._db.execute(stmt)
-        return list(result.scalars().all())
 
     async def upsert(
         self,
         user_id: str,
-        category: KnowledgeCategory | str,
+        category: Any,
         content: str,
         *,
         confidence: float = 0.7,
         source: str | None = None,
         workspace_context: str | None = None,
-    ) -> UserKnowledge:
-        """Insert or update (boost confidence if duplicate content)."""
-        normalized_category = self._normalize_category(category)
-
-        # Check for existing similar entry
-        conditions = [
-            UserKnowledge.user_id == user_id,
-            UserKnowledge.category == normalized_category,
-            UserKnowledge.content == content,
-            UserKnowledge.is_active == True,  # noqa: E712
-        ]
-        if workspace_context is None:
-            conditions.append(UserKnowledge.workspace_context.is_(None))
-        else:
-            conditions.append(UserKnowledge.workspace_context == workspace_context)
-
-        stmt = select(UserKnowledge).where(and_(*conditions))
-        result = await self._db.execute(stmt)
-        existing = result.scalar_one_or_none()
-
-        if existing:
-            existing.boost_confidence(0.1)
-            existing.source = source or existing.source
-            await self._db.flush()
-            return existing
-
-        entry = UserKnowledge(
+    ) -> Any:
+        """Insert or update, boosting confidence for duplicate active content."""
+        return await self._knowledge_no_commit.upsert(
             user_id=user_id,
-            category=normalized_category,
+            category=category,
             content=content,
             confidence=confidence,
             source=source,
             workspace_context=workspace_context,
         )
-        self._db.add(entry)
-        await self._db.flush()
-        return entry
 
     async def archive_low_confidence(
         self,
@@ -226,22 +144,10 @@ class KnowledgeService:
         threshold: float = 0.5,
     ) -> int:
         """Deactivate entries below threshold. Returns count."""
-        stmt = (
-            select(UserKnowledge)
-            .where(
-                and_(
-                    UserKnowledge.user_id == user_id,
-                    UserKnowledge.is_active == True,  # noqa: E712
-                    UserKnowledge.confidence < threshold,
-                )
-            )
+        return await self._knowledge_no_commit.archive_low_confidence(
+            user_id=user_id,
+            threshold=threshold,
         )
-        result = await self._db.execute(stmt)
-        entries = result.scalars().all()
-        for entry in entries:
-            entry.is_active = False
-        await self._db.flush()
-        return len(entries)
 
     async def count_active(
         self,
@@ -250,32 +156,9 @@ class KnowledgeService:
         workspace_context: str | None = None,
         include_global: bool | None = None,
     ) -> int:
-        """Count active knowledge entries for a user.
-
-        By default this preserves the historic behavior and counts all active
-        entries for the user. Pass ``workspace_context`` with
-        ``include_global=False`` for exact-scope maintenance jobs such as
-        memory compaction.
-        """
-        conditions = [
-            UserKnowledge.user_id == user_id,
-            UserKnowledge.is_active == True,  # noqa: E712
-        ]
-        if workspace_context is not None:
-            if include_global:
-                conditions.append(
-                    or_(
-                        UserKnowledge.workspace_context == workspace_context,
-                        UserKnowledge.workspace_context.is_(None),
-                    )
-                )
-            else:
-                conditions.append(UserKnowledge.workspace_context == workspace_context)
-        elif include_global is False:
-            conditions.append(UserKnowledge.workspace_context.is_(None))
-
-        stmt = select(func.count()).select_from(UserKnowledge).where(
-            and_(*conditions)
+        """Count active knowledge entries for a user."""
+        return await self._knowledge_no_commit.count_active(
+            user_id=user_id,
+            workspace_context=workspace_context,
+            include_global=include_global,
         )
-        result = await self._db.execute(stmt)
-        return result.scalar_one()

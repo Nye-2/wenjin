@@ -9,7 +9,7 @@ import re
 from collections import Counter
 from typing import Any, cast
 
-from src.database.models.knowledge import KnowledgeCategory
+from src.dataservice.knowledge_api import normalize_knowledge_category
 
 logger = logging.getLogger(__name__)
 _SIMILARITY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
@@ -420,7 +420,7 @@ async def extract_and_persist_knowledge(
                 if not text or conf < threshold:
                     continue
                 try:
-                    KnowledgeCategory(cat)
+                    normalize_knowledge_category(cat)
                 except ValueError:
                     continue
                 await service.upsert(
