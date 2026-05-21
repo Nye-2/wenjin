@@ -7,7 +7,6 @@ from .boundaries import (
 from .service import (
     REFERENCE_PREPROCESS_THRESHOLD_BYTES,
     ReferenceBibTeXService,
-    ReferenceEvidenceService,
     ReferenceImportService,
     ReferenceIndexService,
     ReferencePreprocessService,
@@ -25,7 +24,6 @@ __all__ = [
     "ReferenceImportService",
     "ReferencePreprocessService",
     "ReferenceIndexService",
-    "ReferenceEvidenceService",
     "ReferenceBibTeXService",
     "ReferenceUsageService",
     "serialize_reference",

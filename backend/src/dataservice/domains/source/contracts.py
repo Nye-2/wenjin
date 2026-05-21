@@ -128,3 +128,18 @@ class SourceCitationUsageProjection(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     citation_keys: list[str] = Field(default_factory=list)
     provenance_link_ids: list[str] = Field(default_factory=list)
+
+
+class SourceEvidencePackCreateCommand(BaseModel):
+    workspace_id: str = Field(min_length=1, max_length=36)
+    query: str | None = None
+    source_ids: list[str] | None = None
+    max_units: int = Field(default=8, ge=1, le=50)
+
+
+class SourceEvidencePackProjection(BaseModel):
+    workspace_id: str
+    query: str | None = None
+    library_outline: list[dict[str, Any]] = Field(default_factory=list)
+    selected_units: list[dict[str, Any]] = Field(default_factory=list)
+    policy: str = "outline_first_no_vector_rag"

@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.database import ReferenceEvidenceLevel, ReferenceLibraryStatus
+from src.dataservice.source_api import SourceDataService, SourceEvidencePackCreateCommand
 from src.services.references import (
     ReferenceBibTeXService,
-    ReferenceEvidenceService,
     ReferenceUsageService,
 )
 
@@ -109,15 +109,17 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
     db.add = MagicMock()
     db.commit = AsyncMock()
 
-    evidence_pack = await ReferenceEvidenceService(db).build_evidence_pack(
-        workspace_id="ws-1",
-        query="grounded",
-        max_units=4,
+    evidence_pack = await SourceDataService(db, autocommit=False).build_evidence_pack(
+        SourceEvidencePackCreateCommand(
+            workspace_id="ws-1",
+            query="grounded",
+            max_units=4,
+        )
     )
 
-    assert evidence_pack["policy"] == "outline_first_no_vector_rag"
-    assert evidence_pack["library_outline"][0]["reference"]["citation_key"] == "lovelace2026"
-    assert evidence_pack["selected_units"] == []
+    assert evidence_pack.policy == "outline_first_no_vector_rag"
+    assert evidence_pack.library_outline[0]["reference"]["citation_key"] == "lovelace2026"
+    assert evidence_pack.selected_units == []
 
     usage_result = await ReferenceUsageService(db).record_usage_by_citation_keys(
         workspace_id="ws-1",

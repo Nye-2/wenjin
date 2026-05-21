@@ -16,6 +16,7 @@ from src.dataservice.domains.source.contracts import (
     SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
+    SourceEvidencePackCreateCommand,
     SourceUpdateCommand,
 )
 from src.dataservice.domains.source.models import SourceAssetRecord, SourceRecord
@@ -224,6 +225,29 @@ class FakeSourceRepository:
             for record in self.outline_nodes
             if not (record.workspace_id == workspace_id and record.source_id == source_id)
         ]
+        self.text_units = [
+            record
+            for record in self.text_units
+            if not (record.workspace_id == workspace_id and record.source_id == source_id)
+        ]
+
+    async def search_text_units(
+        self,
+        *,
+        workspace_id: str,
+        query: str,
+        source_ids: list[str] | None = None,
+        limit: int = 12,
+    ) -> list[SimpleNamespace]:
+        normalized = query.strip().lower()
+        records = [
+            record
+            for record in self.text_units
+            if record.workspace_id == workspace_id and normalized in record.search_text.lower()
+        ]
+        if source_ids:
+            records = [record for record in records if record.source_id in source_ids]
+        return records[:limit]
 
     async def list_source_assets(
         self,
@@ -235,11 +259,6 @@ class FakeSourceRepository:
             (record, None)
             for record in self.source_assets
             if record.workspace_id == workspace_id and record.source_id == source_id
-        ]
-        self.text_units = [
-            record
-            for record in self.text_units
-            if not (record.workspace_id == workspace_id and record.source_id == source_id)
         ]
 
     async def list_sources_by_citation_keys(
@@ -562,6 +581,88 @@ async def test_source_service_replaces_source_index() -> None:
     assert updated is not None
     assert updated.fulltext_status == "indexed"
     assert updated.evidence_level == "indexed_fulltext"
+
+
+@pytest.mark.asyncio
+async def test_source_service_builds_evidence_pack_from_source_index() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    source = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Grounded Evidence",
+            citation_key="grounded2026",
+            library_status="included",
+            fulltext_status="uploaded",
+            evidence_level="uploaded_fulltext",
+        )
+    )
+    excluded = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Excluded Evidence",
+            citation_key="excluded2026",
+            library_status="excluded",
+        )
+    )
+    await service.replace_source_index(
+        workspace_id="ws-1",
+        source_id=source.id,
+        outline_nodes=[
+            {
+                "id": "node-1",
+                "workspace_id": "ws-1",
+                "source_id": source.id,
+                "parent_id": None,
+                "section_path": "1",
+                "title": "Method",
+                "level": 1,
+                "sort_order": 0,
+                "page_start": 1,
+                "page_end": 2,
+                "char_start": 0,
+                "char_end": 100,
+                "summary": "Grounded method",
+                "keywords_json": ["method"],
+            }
+        ],
+        text_units=[
+            {
+                "id": "unit-1",
+                "workspace_id": "ws-1",
+                "source_id": source.id,
+                "outline_node_id": "node-1",
+                "source_asset_id": "asset-1",
+                "unit_type": "section",
+                "unit_index": 0,
+                "content": "Grounded evidence content",
+                "search_text": "Grounded Evidence\nMethod\nGrounded evidence content",
+                "token_count": 3,
+                "page_start": 1,
+                "page_end": 2,
+                "char_start": 0,
+                "char_end": 100,
+                "metadata_json": {"section_path": "1"},
+            }
+        ],
+    )
+
+    pack = await service.build_evidence_pack(
+        SourceEvidencePackCreateCommand(
+            workspace_id="ws-1",
+            query="grounded",
+            source_ids=[source.id, excluded.id],
+            max_units=4,
+        )
+    )
+
+    assert pack.policy == "outline_first_no_vector_rag"
+    assert [item["source"]["citation_key"] for item in pack.library_outline] == ["grounded2026"]
+    assert [unit["id"] for unit in pack.selected_units] == ["unit-1"]
+    assert pack.selected_units[0]["source_id"] == source.id
 
 
 @pytest.mark.asyncio

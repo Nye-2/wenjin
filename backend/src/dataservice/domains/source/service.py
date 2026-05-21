@@ -16,6 +16,8 @@ from src.dataservice.domains.source.contracts import (
     SourceCitationUsageCreateCommand,
     SourceCitationUsageProjection,
     SourceCreateCommand,
+    SourceEvidencePackCreateCommand,
+    SourceEvidencePackProjection,
     SourceProjection,
     SourceUpdateCommand,
 )
@@ -478,6 +480,29 @@ class SourceDataDomainService:
             limit=limit,
         )
         return [self._serialize_text_unit(record) for record in records]
+
+    async def build_evidence_pack(
+        self,
+        command: SourceEvidencePackCreateCommand,
+    ) -> SourceEvidencePackProjection:
+        outline = await self.get_library_outline(command.workspace_id)
+        query = command.query.strip() if command.query else None
+        selected_units = (
+            await self.search_text_units(
+                workspace_id=command.workspace_id,
+                query=query,
+                source_ids=command.source_ids,
+                limit=command.max_units,
+            )
+            if query
+            else []
+        )
+        return SourceEvidencePackProjection(
+            workspace_id=command.workspace_id,
+            query=query,
+            library_outline=outline,
+            selected_units=selected_units,
+        )
 
     async def search_workspace_sections(
         self,

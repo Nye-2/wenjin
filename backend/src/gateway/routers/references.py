@@ -15,14 +15,13 @@ from src.database import (
     ReferenceSourceType,
     User,
 )
-from src.dataservice.source_api import SourceDataService, SourceUpdateCommand
+from src.dataservice.source_api import SourceDataService, SourceEvidencePackCreateCommand, SourceUpdateCommand
 from src.gateway.access_control import require_workspace_owner
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_task_service, get_workspace_service
 from src.gateway.deps.core import get_db
 from src.services.references import (
     ReferenceBibTeXService,
-    ReferenceEvidenceService,
     ReferenceImportService,
 )
 from src.task.service import TaskService
@@ -380,12 +379,15 @@ async def build_evidence_pack(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    return await ReferenceEvidenceService(db).build_evidence_pack(
-        workspace_id=workspace_id,
-        query=request.query,
-        reference_ids=request.reference_ids,
-        max_units=request.max_units,
+    result = await SourceDataService(db, autocommit=False).build_evidence_pack(
+        SourceEvidencePackCreateCommand(
+            workspace_id=workspace_id,
+            query=request.query,
+            source_ids=request.reference_ids,
+            max_units=request.max_units,
+        )
     )
+    return result.model_dump(mode="json")
 
 
 @router.get("/bibtex")

@@ -10,6 +10,8 @@ from src.dataservice.domains.source.contracts import (
     SourceCitationUsageCreateCommand,
     SourceCitationUsageProjection,
     SourceCreateCommand,
+    SourceEvidencePackCreateCommand,
+    SourceEvidencePackProjection,
     SourceProjection,
     SourceUpdateCommand,
 )
@@ -298,6 +300,12 @@ class SourceDataService:
             source_ids=source_ids,
             limit=limit,
         )
+
+    async def build_evidence_pack(
+        self,
+        command: SourceEvidencePackCreateCommand,
+    ) -> SourceEvidencePackProjection:
+        return await self._domain.build_evidence_pack(command)
 
     async def list_sources_by_citation_keys(
         self,

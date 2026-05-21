@@ -2088,40 +2088,6 @@ class ReferenceIndexService:
         }
 
 
-class ReferenceEvidenceService:
-    """Build evidence packs for writing-time support."""
-
-    def __init__(self, db: AsyncSession) -> None:
-        self.source = SourceDataService(db, autocommit=False)
-
-    async def build_evidence_pack(
-        self,
-        *,
-        workspace_id: str,
-        query: str | None = None,
-        reference_ids: Sequence[str] | None = None,
-        max_units: int = 8,
-    ) -> dict[str, Any]:
-        outline = await self.source.get_library_outline(workspace_id)
-        units = (
-            await self.source.search_text_units(
-                workspace_id=workspace_id,
-                query=query or "",
-                source_ids=[str(item) for item in reference_ids] if reference_ids else None,
-                limit=max_units,
-            )
-            if query
-            else []
-        )
-        return {
-            "workspace_id": workspace_id,
-            "query": query,
-            "library_outline": outline,
-            "selected_units": units,
-            "policy": "outline_first_no_vector_rag",
-        }
-
-
 class ReferenceUsageService:
     """Persist writing-time reference usage and keep citation state queryable."""
 
