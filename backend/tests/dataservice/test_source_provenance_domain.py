@@ -46,6 +46,7 @@ class FakeSourceRepository:
         self.sources: dict[str, SimpleNamespace] = {}
         self.outline_nodes: list[SimpleNamespace] = []
         self.text_units: list[SimpleNamespace] = []
+        self.source_assets: list[SimpleNamespace] = []
 
     def create_source(self, values: dict[str, Any]) -> SimpleNamespace:
         source_id = str(values.pop("source_id", None) or f"source-{len(self.sources) + 1}")
@@ -69,6 +70,14 @@ class FakeSourceRepository:
         record = _record({"id": values.pop("id", f"unit-{len(self.text_units) + 1}"), **values})
         self.text_units.append(record)
         return record
+
+    def create_source_asset(self, values: dict[str, Any]) -> SimpleNamespace:
+        record = _record({"id": values.pop("id", f"asset-{len(self.source_assets) + 1}"), **values})
+        self.source_assets.append(record)
+        return record
+
+    async def get_source_asset(self, source_asset_id: str) -> SimpleNamespace | None:
+        return next((record for record in self.source_assets if record.id == source_asset_id), None)
 
     async def get_source(self, source_id: str) -> SimpleNamespace | None:
         return self.sources.get(source_id)
@@ -214,6 +223,18 @@ class FakeSourceRepository:
             record
             for record in self.outline_nodes
             if not (record.workspace_id == workspace_id and record.source_id == source_id)
+        ]
+
+    async def list_source_assets(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> list[tuple[SimpleNamespace, SimpleNamespace | None]]:
+        return [
+            (record, None)
+            for record in self.source_assets
+            if record.workspace_id == workspace_id and record.source_id == source_id
         ]
         self.text_units = [
             record
@@ -541,6 +562,37 @@ async def test_source_service_replaces_source_index() -> None:
     assert updated is not None
     assert updated.fulltext_status == "indexed"
     assert updated.evidence_level == "indexed_fulltext"
+
+
+@pytest.mark.asyncio
+async def test_source_service_links_source_assets() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    source = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Asset Paper",
+            citation_key="asset2026",
+        )
+    )
+    linked = await service.link_source_asset(
+        workspace_id="ws-1",
+        source_id=source.id,
+        workspace_asset_id="workspace-asset-1",
+        source_asset_id="source-asset-1",
+        asset_type="pdf",
+        preprocess_status="pending",
+        metadata_json={"virtual_path": "references/paper.pdf"},
+    )
+    assets = await service.list_source_assets(workspace_id="ws-1", source_id=source.id)
+
+    assert linked["id"] == "source-asset-1"
+    assert assets[0]["workspace_asset_id"] == "workspace-asset-1"
+    assert assets[0]["asset_type"] == "pdf"
+    assert assets[0]["virtual_path"] == "references/paper.pdf"
 
 
 @pytest.mark.asyncio

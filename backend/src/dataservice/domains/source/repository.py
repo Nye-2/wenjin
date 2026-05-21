@@ -8,7 +8,9 @@ from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
+from src.dataservice.domains.asset.models import WorkspaceAssetRecord
 from src.dataservice.domains.source.models import (
+    SourceAssetRecord,
     SourceOutlineNodeRecord,
     SourceRecord,
     SourceTextUnitRecord,
@@ -33,6 +35,17 @@ class SourceRepository:
         record = SourceTextUnitRecord(id=str(values.pop("id", None) or generate_uuid()), **values)
         self.session.add(record)
         return record
+
+    def create_source_asset(self, values: dict[str, Any]) -> SourceAssetRecord:
+        record = SourceAssetRecord(id=str(values.pop("id", None) or generate_uuid()), **values)
+        self.session.add(record)
+        return record
+
+    async def get_source_asset(self, source_asset_id: str) -> SourceAssetRecord | None:
+        result = await self.session.execute(
+            select(SourceAssetRecord).where(SourceAssetRecord.id == source_asset_id)
+        )
+        return result.scalar_one_or_none()
 
     async def get_source(self, source_id: str) -> SourceRecord | None:
         result = await self.session.execute(select(SourceRecord).where(SourceRecord.id == source_id))
@@ -186,6 +199,26 @@ class SourceRepository:
                 SourceOutlineNodeRecord.source_id == source_id,
             )
         )
+
+    async def list_source_assets(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> list[tuple[SourceAssetRecord, WorkspaceAssetRecord | None]]:
+        result = await self.session.execute(
+            select(SourceAssetRecord, WorkspaceAssetRecord)
+            .outerjoin(
+                WorkspaceAssetRecord,
+                WorkspaceAssetRecord.id == SourceAssetRecord.workspace_asset_id,
+            )
+            .where(
+                SourceAssetRecord.workspace_id == workspace_id,
+                SourceAssetRecord.source_id == source_id,
+            )
+            .order_by(SourceAssetRecord.created_at.desc())
+        )
+        return [(source_asset, workspace_asset) for source_asset, workspace_asset in result.all()]
 
     async def list_outline_nodes(
         self,

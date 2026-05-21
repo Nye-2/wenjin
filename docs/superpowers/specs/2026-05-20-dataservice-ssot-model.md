@@ -1632,7 +1632,7 @@ Projection modules cannot call repository write methods.
 - `reference_usage_events` and `prism_source_links` converge into `provenance_links`.
 - Source-backed Prism edits have provenance links.
 - Gateway Reference Library curation reads/writes, BibTeX generation/validation, and citation middleware use Source DataService contracts.
-- Legacy reference import/preprocess services may remain only as adapter services while they upsert same-id canonical `sources` and mirror rebuilt outline/text-unit indexes into Source DataService; Source asset metadata ownership replaces the remaining adapter rows in the follow-up Source asset slice.
+- Legacy reference import/preprocess services may remain only as adapter services while they upsert same-id canonical `sources`, register `workspace_assets` / `source_assets`, and mirror rebuilt outline/text-unit indexes into Source DataService. The final cleanup step rewrites those adapters into Source/Asset commands and deletes the old reference tables.
 
 ### Task 9: Move Sandbox Runtime
 

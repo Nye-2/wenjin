@@ -1099,11 +1099,12 @@ Implementation status as of 2026-05-21:
 - Chat/LangGraph citation and literature-context middleware now receives Source DataService projections from FastAPI and Celery run entrypoints, parses LaTeX `\cite{...}` keys, and records usage through Source citation usage/provenance commands.
 - Reference evidence-pack assembly now reads Source library outlines and Source text-unit search results.
 - PDF preprocessing now mirrors rebuilt reference outline/text-unit indexes into Source DataService, including Source status/evidence promotion to indexed full text.
-- Remaining Source convergence debt is limited to source asset metadata ownership and deletion of the legacy reference adapter tables/services after upload/preprocess routes no longer need them.
+- Reference PDF and derived markdown/manifest assets now register canonical `workspace_assets` rows and `source_assets` links; Source detail/list projections can return asset metadata from DataService.
+- Remaining Source convergence debt is limited to deleting the legacy reference adapter tables/services after upload/preprocess routes are fully rewritten against Source/Asset commands.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Source curation/evidence/indexer slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1931 backend tests.
+- Verification through the Source curation/evidence/indexer/asset slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1932 backend tests.
 
 ### Phase 4: Review Materialization
 

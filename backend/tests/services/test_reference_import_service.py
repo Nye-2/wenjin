@@ -59,6 +59,7 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
         patch("src.services.references.service.workspace_upload_public_url", return_value="/file.pdf"),
         patch("src.services.references.service.serialize_reference", return_value={"id": "reference-1"}),
         patch("src.services.references.service.serialize_asset", return_value={"id": "asset-1"}),
+        patch("src.services.references.service._sync_reference_assets_to_dataservice", new_callable=AsyncMock),
         patch("src.services.references.service.REFERENCE_PREPROCESS_THRESHOLD_BYTES", 1),
     ):
         result = await service.import_uploaded_pdf(

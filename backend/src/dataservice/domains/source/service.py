@@ -100,11 +100,12 @@ class SourceDataDomainService:
         if source is None:
             return None
         serialized = self._serialize_reference_compat(source)
+        assets = await self.list_source_assets(workspace_id=workspace_id, source_id=source_id)
         outline = await self.get_source_outline(workspace_id, source_id, limit=200)
         return {
-            "reference": {**serialized, "assets": []},
+            "reference": {**serialized, "assets": assets},
             "source": source.model_dump(mode="json"),
-            "assets": [],
+            "assets": assets,
             "external_ids": [],
             "source_history": [
                 {
@@ -162,6 +163,42 @@ class SourceDataDomainService:
         record.updated_at = datetime.now(UTC)
         await self._finish()
         return source_to_projection(record)
+
+    async def link_source_asset(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        workspace_asset_id: str,
+        asset_type: str,
+        source_asset_id: str | None = None,
+        preprocess_status: str = "skipped",
+        manifest_asset_id: str | None = None,
+        metadata_json: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        values = {
+            "workspace_id": workspace_id,
+            "source_id": source_id,
+            "workspace_asset_id": workspace_asset_id,
+            "asset_type": asset_type,
+            "preprocess_status": preprocess_status,
+            "manifest_asset_id": manifest_asset_id,
+            "metadata_json": dict(metadata_json or {}),
+        }
+        record = await self.repository.get_source_asset(source_asset_id) if source_asset_id else None
+        if record is None:
+            record = self.repository.create_source_asset(
+                {
+                    **values,
+                    **({"id": source_asset_id} if source_asset_id else {}),
+                }
+            )
+        else:
+            for field, value in values.items():
+                setattr(record, field, value)
+            record.updated_at = datetime.now(UTC)
+        await self._finish()
+        return self._serialize_source_asset(record, None)
 
     async def mark_deleted_for_workspace(
         self,
@@ -299,7 +336,10 @@ class SourceDataDomainService:
             "items": [
                 {
                     **self._serialize_reference_compat(item),
-                    "assets": [],
+                    "assets": await self.list_source_assets(
+                        workspace_id=workspace_id,
+                        source_id=item.id,
+                    ),
                 }
                 for item in items
             ],
@@ -399,6 +439,15 @@ class SourceDataDomainService:
                 else:
                     lines.append(f"- Full-text status: {status}; no outline is available yet.")
         return "\n".join(lines)
+
+    async def list_source_assets(self, *, workspace_id: str, source_id: str) -> list[dict[str, object]]:
+        return [
+            self._serialize_source_asset(source_asset, workspace_asset)
+            for source_asset, workspace_asset in await self.repository.list_source_assets(
+                workspace_id=workspace_id,
+                source_id=source_id,
+            )
+        ]
 
     async def get_source_outline(
         self,
@@ -746,6 +795,37 @@ class SourceDataDomainService:
             "is_deleted": bool(source.is_deleted),
             "created_at": source.created_at.isoformat() if source.created_at else None,
             "updated_at": source.updated_at.isoformat() if source.updated_at else None,
+        }
+
+    @staticmethod
+    def _serialize_source_asset(source_asset: object, workspace_asset: object | None) -> dict[str, object]:
+        metadata = dict(getattr(source_asset, "metadata_json", None) or {})
+        created_at = getattr(source_asset, "created_at", None)
+        updated_at = getattr(source_asset, "updated_at", None)
+        return {
+            "id": str(source_asset.id),
+            "workspace_id": str(source_asset.workspace_id),
+            "reference_id": str(source_asset.source_id),
+            "source_id": str(source_asset.source_id),
+            "workspace_asset_id": str(source_asset.workspace_asset_id),
+            "source_asset_id": metadata.get("source_asset_id"),
+            "asset_type": getattr(source_asset, "asset_type", None),
+            "file_path": getattr(workspace_asset, "storage_path", None) if workspace_asset else metadata.get("file_path"),
+            "virtual_path": metadata.get("virtual_path"),
+            "public_url": metadata.get("public_url"),
+            "content_type": getattr(workspace_asset, "mime_type", None) if workspace_asset else metadata.get("content_type"),
+            "file_size": getattr(workspace_asset, "size_bytes", None) if workspace_asset else metadata.get("file_size"),
+            "file_hash": getattr(workspace_asset, "content_hash", None) if workspace_asset else metadata.get("file_hash"),
+            "page_count": metadata.get("page_count"),
+            "language": metadata.get("language"),
+            "preprocess_status": getattr(source_asset, "preprocess_status", None),
+            "preprocess_task_id": metadata.get("preprocess_task_id"),
+            "preprocess_error": metadata.get("preprocess_error"),
+            "manifest_path": metadata.get("manifest_path"),
+            "markdown_paths": list(metadata.get("markdown_paths") or []),
+            "metadata": metadata,
+            "created_at": created_at.isoformat() if created_at else None,
+            "updated_at": updated_at.isoformat() if updated_at else None,
         }
 
     async def _section_from_node(

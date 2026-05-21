@@ -54,6 +54,29 @@ class SourceDataService:
             source_id=source_id,
         )
 
+    async def link_source_asset(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        workspace_asset_id: str,
+        asset_type: str,
+        source_asset_id: str | None = None,
+        preprocess_status: str = "skipped",
+        manifest_asset_id: str | None = None,
+        metadata_json: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        return await self._domain.link_source_asset(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            workspace_asset_id=workspace_asset_id,
+            asset_type=asset_type,
+            source_asset_id=source_asset_id,
+            preprocess_status=preprocess_status,
+            manifest_asset_id=manifest_asset_id,
+            metadata_json=metadata_json,
+        )
+
     async def build_bibliography(
         self,
         command: SourceBibliographyCreateCommand,
@@ -176,6 +199,9 @@ class SourceDataService:
 
     async def get_library_outline(self, workspace_id: str) -> list[dict[str, object]]:
         return await self._domain.get_library_outline(workspace_id)
+
+    async def list_source_assets(self, *, workspace_id: str, source_id: str) -> list[dict[str, object]]:
+        return await self._domain.list_source_assets(workspace_id=workspace_id, source_id=source_id)
 
     async def get_workspace_toc_summary(self, workspace_id: str) -> str:
         return await self._domain.get_workspace_toc_summary(workspace_id)

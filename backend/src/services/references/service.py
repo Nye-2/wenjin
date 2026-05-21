@@ -36,6 +36,7 @@ from src.database import (
     Workspace,
     WorkspaceReference,
 )
+from src.dataservice.asset_api import AssetDataService
 from src.dataservice.source_api import (
     SourceBibliographyCreateCommand,
     SourceCreateCommand,
@@ -287,6 +288,73 @@ def _paper_candidate_from_bibtex(entry: dict[str, str]) -> dict[str, Any]:
         if key not in {"key", "entry_type"}
     }
     return result
+
+
+async def _sync_reference_assets_to_dataservice(
+    db: AsyncSession,
+    reference: WorkspaceReference,
+) -> list[dict[str, object]]:
+    result = await db.execute(
+        select(ReferenceAsset).where(
+            ReferenceAsset.workspace_id == reference.workspace_id,
+            ReferenceAsset.reference_id == reference.id,
+        )
+    )
+    synced: list[dict[str, object]] = []
+    asset_service = AssetDataService(db, autocommit=False)
+    source_service = SourceDataService(db, autocommit=False)
+    existing_assets = {
+        str(item["id"]): item
+        for item in await source_service.list_source_assets(
+            workspace_id=str(reference.workspace_id),
+            source_id=str(reference.id),
+        )
+    }
+    for asset in result.scalars().all():
+        metadata = {
+            "legacy_table": "reference_assets",
+            "legacy_id": str(asset.id),
+            "source_asset_id": str(asset.source_asset_id) if asset.source_asset_id else None,
+            "reference_id": str(asset.reference_id),
+            "virtual_path": asset.virtual_path,
+            "public_url": asset.public_url,
+            "page_count": asset.page_count,
+            "language": asset.language,
+            "manifest_path": asset.manifest_path,
+            "markdown_paths": list(asset.markdown_paths or []),
+            "preprocess_task_id": asset.preprocess_task_id,
+            "preprocess_error": asset.preprocess_error,
+        }
+        existing_asset = existing_assets.get(str(asset.id))
+        workspace_asset_id = str(existing_asset.get("workspace_asset_id")) if existing_asset else None
+        if not workspace_asset_id:
+            workspace_asset = await asset_service.register_asset_record(
+                workspace_id=str(asset.workspace_id),
+                asset_kind="source_file",
+                name=asset.virtual_path or Path(asset.file_path or str(asset.id)).name,
+                title=asset.virtual_path,
+                mime_type=asset.content_type,
+                storage_path=asset.file_path or asset.public_url or asset.virtual_path or str(asset.id),
+                size_bytes=asset.file_size,
+                content_hash=asset.file_hash,
+                created_by="reference_import",
+                source_kind="source",
+                source_id=str(reference.id),
+                metadata_json=metadata,
+            )
+            workspace_asset_id = workspace_asset.id
+        synced.append(
+            await source_service.link_source_asset(
+                workspace_id=str(asset.workspace_id),
+                source_id=str(reference.id),
+                workspace_asset_id=workspace_asset_id,
+                source_asset_id=str(asset.id),
+                asset_type=_enum_value(asset.asset_type),
+                preprocess_status=_enum_value(asset.preprocess_status),
+                metadata_json=metadata,
+            )
+        )
+    return synced
 
 
 class WorkspaceReferenceService:
@@ -1314,6 +1382,9 @@ class ReferenceImportService:
             await self.db.refresh(reference)
             await self.db.refresh(asset)
 
+        await _sync_reference_assets_to_dataservice(self.db, reference)
+        await self.db.commit()
+
         return {
             "success": True,
             "reference": serialize_reference(reference),
@@ -1434,6 +1505,7 @@ class ReferencePreprocessService:
             asset.preprocess_status = ReferencePreprocessStatus.FAILED
             reference.fulltext_status = ReferenceFulltextStatus.FAILED
         await WorkspaceReferenceService(self.db)._sync_source_record(reference)
+        await _sync_reference_assets_to_dataservice(self.db, reference)
         return metadata
 
     async def _get_asset(self, workspace_id: str, asset_id: str) -> ReferenceAsset | None:

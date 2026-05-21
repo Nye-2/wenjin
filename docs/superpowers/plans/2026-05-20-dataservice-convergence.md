@@ -927,14 +927,15 @@ Implementation status:
 - Chat/LangGraph citation and literature-context middleware now receives Source DataService projections from FastAPI and Celery run entrypoints, parses LaTeX `\cite{...}` keys, and records usage through Source citation usage/provenance commands.
 - Reference evidence-pack assembly now reads Source library outlines and Source text-unit search results.
 - PDF preprocessing now mirrors rebuilt reference outline/text-unit indexes into Source DataService, including Source status/evidence promotion to indexed full text.
-- Remaining Source convergence debt is limited to source asset metadata ownership and deletion of the legacy reference adapter tables/services after upload/preprocess routes no longer need them.
+- Reference PDF and derived markdown/manifest assets now register canonical `workspace_assets` rows and `source_assets` links; Source detail/list projections can return asset metadata from DataService.
+- Remaining Source convergence debt is limited to deleting the legacy reference adapter tables/services after upload/preprocess routes are fully rewritten against Source/Asset commands.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
-- Verification after the Source curation/evidence/indexer slice is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1931 backend tests.
+- Verification after the Source curation/evidence/indexer/asset slice is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1932 backend tests.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/services/test_reference_bibtex_service.py tests/services/test_reference_writing_workflow_gate.py tests/services/test_reference_import_service.py tests/agents/middlewares/test_citation_context.py tests/agents/middlewares/test_academic_middlewares.py tests/tools/test_reference_builtins.py tests/architecture/test_dataservice_boundaries.py -q` passes with 52 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1931 tests.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/services/test_reference_bibtex_service.py tests/services/test_reference_writing_workflow_gate.py tests/services/test_reference_import_service.py tests/agents/middlewares/test_citation_context.py tests/agents/middlewares/test_academic_middlewares.py tests/tools/test_reference_builtins.py tests/architecture/test_dataservice_boundaries.py -q` passes with 53 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1932 tests.
 
 ### Task 14: Final Drop/Archive Gate
 
