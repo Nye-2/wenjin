@@ -46,6 +46,7 @@ from src.dataservice_client.contracts.execution import (
     ExecutionNodePatchPayload,
     ExecutionNodeUpsertPayload,
 )
+from src.dataservice_client.contracts.provenance import ProvenanceLinkCreatePayload
 from src.dataservice_client.contracts.workspace import WorkspaceCreatePayload, WorkspaceUpdatePayload
 
 
@@ -533,6 +534,78 @@ async def test_dataservice_client_credit_contract_methods() -> None:
     assert code is not None and codes[0].id == "code-1" and disabled is not None
     assert referral is not None and found_referral is not None
     assert len(seen) == 20
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_provenance_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def link_payload() -> dict[str, Any]:
+        return {
+            "id": "link-1",
+            "workspace_id": "workspace-1",
+            "source_id": "source-1",
+            "target_domain": "prism",
+            "target_kind": "file",
+            "target_ref_json": {},
+            "relation_kind": "cites",
+            "metadata_json": {},
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "data": [link_payload()]})
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"status": "ok", "data": {"deleted": 1}})
+        return httpx.Response(200, json={"status": "ok", "data": link_payload()})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        created = await client.create_provenance_link(
+            ProvenanceLinkCreatePayload(
+                workspace_id="workspace-1",
+                source_id="source-1",
+                target_domain="prism",
+                target_kind="file",
+                relation_kind="cites",
+            )
+        )
+        listed = await client.list_provenance_links(workspace_id="workspace-1")
+        deleted = await client.delete_provenance_links(workspace_id="workspace-1")
+
+    assert created.id == "link-1"
+    assert listed[0].id == "link-1"
+    assert deleted == 1
+    assert seen == [
+        (
+            "POST",
+            "/internal/v1/provenance/links",
+            {
+                "workspace_id": "workspace-1",
+                "source_id": "source-1",
+                "source_anchor_id": None,
+                "target_domain": "prism",
+                "target_kind": "file",
+                "target_id": None,
+                "target_ref_json": {},
+                "relation_kind": "cites",
+                "citation_key": None,
+                "claim_text": None,
+                "generated_text": None,
+                "review_item_id": None,
+                "execution_id": None,
+                "metadata_json": {},
+            },
+        ),
+        ("GET", "/internal/v1/provenance/links", None),
+        ("DELETE", "/internal/v1/provenance/links", None),
+    ]
 
 
 @pytest.mark.asyncio

@@ -72,7 +72,7 @@ async def handle_unexpected_error(request: Request, exc: Exception) -> JSONRespo
     )
 
 
-from .routers import account, asset, catalog, conversation, credit, execution, health, prism, review, rooms, sandbox, source, workspace  # noqa: E402
+from .routers import account, asset, catalog, conversation, credit, execution, health, prism, provenance, review, rooms, sandbox, source, workspace  # noqa: E402
 
 app.include_router(account.router)
 app.include_router(asset.router)
@@ -82,6 +82,7 @@ app.include_router(credit.router)
 app.include_router(execution.router)
 app.include_router(health.router)
 app.include_router(prism.router)
+app.include_router(provenance.router)
 app.include_router(review.router)
 app.include_router(rooms.router)
 app.include_router(sandbox.router)
