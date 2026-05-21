@@ -1118,6 +1118,7 @@ Implementation status as of 2026-05-21:
 - Gateway import/BibTeX service classes have been renamed to `SourceLibraryImportService` and `SourceBibliographyService`; no legacy `ReferenceImportService` / `ReferenceBibTeXService` aliases remain.
 - Remaining Source convergence debt is limited to broad product route naming decisions, not data ownership or compatibility fallback.
 - Architecture guard has an explicit empty `LEGACY_ALLOWED_FILES` set for migrated legacy database model imports; migrated domains have no runtime import exceptions.
+- Architecture guard also prevents the retired `src.services.rooms` service facade package from returning.
 - Alembic env no longer imports legacy reference/workspace-run/thread-message JSON ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `075_enforce_workspace_owner_membership` as the single head.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.

@@ -141,3 +141,21 @@ def test_runtime_code_does_not_access_thread_messages_json() -> None:
                 violations.append(f"{relative}:{node.lineno} accesses thread.messages")
 
     assert not violations, "Runtime code accesses legacy threads.messages JSON:\n" + "\n".join(violations)
+
+
+def test_retired_room_service_facades_do_not_return() -> None:
+    """Workspace room endpoints must use DataService APIs directly."""
+
+    violations: list[str] = []
+    rooms_root = SRC_ROOT / "services" / "rooms"
+    if rooms_root.exists():
+        retired_files = sorted(path.relative_to(SRC_ROOT) for path in rooms_root.rglob("*.py"))
+        violations.extend(str(path) for path in retired_files)
+
+    for path in _python_files(SRC_ROOT):
+        relative = path.relative_to(SRC_ROOT)
+        for module in _imports(path):
+            if module == "src.services.rooms" or module.startswith("src.services.rooms."):
+                violations.append(f"{relative} imports {module}")
+
+    assert not violations, "Retired room service facades are present or imported:\n" + "\n".join(violations)
