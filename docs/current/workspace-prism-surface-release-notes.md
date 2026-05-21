@@ -1,6 +1,6 @@
 # Workspace Prism Surface Release Notes
 
-Date: 2026-05-20
+Date: 2026-05-21
 
 ## Summary
 
@@ -16,7 +16,7 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 - Prism context rail now surfaces sources, recent activity, decisions, memory context, and protected sections tied to the manuscript.
 - Source links can deep-link back to Library / Documents detail views.
 - Pending file changes must be reviewed and applied in Prism before they change the manuscript.
-- Prism review actions support apply, reject, defer, revert, and manual section protection from the same contract.
+- Prism review actions support apply, reject, revert, and manual section protection from the same contract.
 - The legacy standalone `/latex/:projectId` page route is removed instead of redirected.
 - Prism loading, empty, and error states now use the v2 surface-state pattern and localized copy.
 
@@ -27,16 +27,16 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 - Workspace Prism projection also includes canonical `review_items`, `source_links`, `protected_sections`, `activity`, and `review_summary`.
 - `POST /api/workspaces/{workspace_id}/prism/ensure` creates or repairs the primary manuscript binding.
 - `POST /api/latex/projects/{project_id}/protected-sections` persists protected manuscript sections for workspace-owned Prism projects.
-- Legacy `llm_config.metadata.file_changes` and `applied_file_changes` are migrated into canonical Prism review tables and stripped from project metadata.
-- `prism_review_items`, `prism_source_links`, and `prism_protected_sections` are the canonical persistence layer for review state, provenance, and manual protection.
+- Legacy `llm_config.metadata.file_changes` and `applied_file_changes` are migrated into canonical review/provenance/protection tables and stripped from project metadata.
+- `review_items`, `provenance_links`, and `prism_protected_scopes` are the canonical persistence layer for review state, provenance, and manual protection.
 - `TaskBrief.manuscript_context` carries lightweight manuscript state into execution without embedding full manuscript content.
 - The database now enforces one `primary_manuscript` Prism project per workspace through a partial unique index.
 - Workspace Prism integrity reporting is available through `python -m scripts.workspace_prism_integrity_report`.
 
 ## Verification
 
-- Backend: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1861 passed.
-- Frontend unit: `cd frontend && npx vitest run` -> 200 passed.
+- Backend: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1934 passed.
+- Frontend unit: last full rollout baseline `cd frontend && npx vitest run` -> 200 passed.
 - Frontend typecheck: `cd frontend && npm run typecheck` -> passed.
 - Frontend lint: `cd frontend && npm run lint` -> passed.
 - Frontend build: `cd frontend && npm run build` -> passed.
@@ -49,4 +49,4 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 - Watch unexpected traffic to legacy `/latex/:projectId`; it should now 404 rather than redirect.
 - Run the integrity report before deploying the unique-index migration in environments with pre-existing Prism data.
 - Monitor Prism file-change apply/revert errors for stale hashes or unexpected manual overwrite conflicts.
-- Monitor review action activity volume to confirm apply/reject/defer/revert events are reaching workspace activity as expected.
+- Monitor review action activity volume to confirm apply/reject/revert events are reaching workspace activity as expected.

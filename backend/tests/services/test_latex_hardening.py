@@ -25,7 +25,6 @@ from src.gateway.routers.latex import (
     _profiled_comment,
     _read_upload_bytes_with_limit,
     apply_project_file_change,
-    defer_project_file_change,
     discard_project_file_change,
     preview_project_file_change,
     revert_project_file_change,
@@ -289,10 +288,6 @@ class _FakePrismReviewService:
         if item is None or item.id != item_id:
             return None
         item.status = "reverted"
-        return item
-
-    async def mark_deferred(self, item: SimpleNamespace) -> SimpleNamespace:
-        item.status = "deferred"
         return item
 
     async def upsert_protected_section(self, **kwargs: object) -> None:
@@ -868,37 +863,6 @@ async def test_file_change_discard_protects_current_content(
             "reason": "user_protected",
         }
     ]
-
-
-@pytest.mark.asyncio
-async def test_file_change_defer_is_no_longer_supported(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _reset_fake_router_service()
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.LatexProjectService",
-        _FakeLatexRouterService,
-    )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
-    )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewDataService",
-        _FakePrismReviewService,
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        await defer_project_file_change(
-            "project-1",
-            LatexFileChangeActionRequest(logical_key="project:main"),
-            current_user=SimpleNamespace(id="user-1"),
-            db=object(),
-        )
-
-    assert exc_info.value.status_code == 410
-    assert _FakeLatexRouterService.files["main.tex"] == "\\section{Current}\n"
-    assert _FakePrismReviewService.review_item.status == "pending"
 
 
 @pytest.mark.asyncio

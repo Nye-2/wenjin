@@ -129,5 +129,5 @@
 - Thread message 只承载发起、追问、完成摘要和 pointer metadata，不用于恢复当前执行状态。
 - Thread message 的 `metadata.orchestration.execution_id` 只用作归属锚点，不替代 `ExecutionRecord` 的实时状态。
 - LiveWorkflowPanel 必须能从 `/api/workspaces/{workspace_id}/compute/sessions` 和 `/api/compute/sessions/{compute_session_id}/projection` 恢复任务状态。
-- WenjinPrism file changes 必须走 DB-backed review item 与 `preview -> apply/reject/defer/revert`；前端不得直接把 capability 生成内容写入 Prism 文件。
+- WenjinPrism file changes 必须走 DB-backed review item 与 `preview -> apply/reject/revert`；前端不得直接把 capability 生成内容写入 Prism 文件。
 - Prism protected sections 与 source links 由后端 canonical tables 投影；前端只做展示、聚焦导航和用户动作触发。

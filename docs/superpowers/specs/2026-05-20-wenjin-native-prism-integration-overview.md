@@ -45,7 +45,7 @@ Implementation closure on 2026-05-20:
 1. Canonical schema landed in `backend/alembic/versions/058_prism_canonical_review_tables.py`.
 2. Workspace projection, Compute projection, result cards, completed view, and Prism Changes tab now use the same DB-backed review state.
 3. Source links are generated from canonical Prism review content and workspace references, then deep-link back to Library / Documents.
-4. Prism apply / reject / defer / revert and manual protection write workspace activity and refresh the Prism context rail.
+4. Prism apply / reject / revert and manual protection write workspace activity and refresh the Prism context rail.
 5. Execution launch injects lightweight `manuscript_context` into `TaskBrief`; protected sections and pending review items are visible to later agent work.
 6. Full local gate passed: backend tests, frontend typecheck/lint/unit/build, and full Playwright E2E.
 
@@ -125,7 +125,7 @@ Lead Agent 不能直接覆盖用户稿件。Agent output 进入 Prism pending ch
 ```text
 review item
   -> preview
-  -> accept / reject / defer
+  -> accept / reject
   -> apply target
   -> audit / activity
 ```
@@ -407,7 +407,7 @@ type ResultReviewItem = {
   };
   title: string;
   summary: string | null;
-  status: "pending" | "accepted" | "applied" | "rejected" | "deferred" | "reverted";
+  status: "pending" | "accepted" | "applied" | "rejected" | "reverted";
   preview: {
     mode: "diff" | "markdown" | "plain_text" | "citation" | "json";
     before?: string | null;
@@ -432,10 +432,6 @@ pending
 
 pending
   -> rejected
-
-pending
-  -> deferred
-  -> accepted / rejected
 ```
 
 语义：
@@ -444,7 +440,6 @@ pending
 - `accepted`：用户确认接受，目标写入尚未完成或正在事务中处理。
 - `applied`：目标已经写入 Prism 文件或 room，并完成 audit/activity。
 - `rejected`：用户拒绝，目标不变。
-- `deferred`：用户暂缓，目标不变，但保留 item。
 - `reverted`：曾经 applied 的变更被用户回滚。
 
 `selected` 不是持久状态，只是前端批量操作前的临时 UI state。
@@ -560,7 +555,7 @@ Status: completed on branch `codex/workspace-prism-surface-impl`.
 - 新增 backend presenter：canonical review rows -> review item projection
 - CompletedView / ResultCard / Prism Changes tab 使用同一 review renderer
 - `preview_prism_changes` 支持 focus 到具体 review item
-- apply/reject/defer/revert 走同一 backend action contract
+- apply/reject/revert 走同一 backend action contract
 
 验收：
 

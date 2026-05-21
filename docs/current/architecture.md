@@ -158,15 +158,15 @@ User action
 
 - `TaskReport` 是结构化执行结果
 - `ResultOutput` 经用户确认后 commit 到 rooms
-- Prism 文件改动必须走 DB-backed review item → preview/apply/reject/defer/revert
-- Prism apply/reject/defer/revert 和 protected-section 操作写入 workspace activity / Prism projection
+- Prism 文件改动必须走 DB-backed review item → preview/apply/reject/revert
+- Prism apply/reject/revert 和 protected-section 操作写入 workspace activity / Prism projection
 
 #### Commit 代码入口
 
 - commit router：`backend/src/gateway/routers/execution_commit.py`
 - commit service：`backend/src/services/execution_commit_service.py`
 - room services：对应 `backend/src/services/rooms/` 或相关 room service
-- Prism review service：`backend/src/services/prism_review_service.py`
+- Prism review service：`backend/src/dataservice/prism_review_api.py`
 
 ## 4. Frontend Contract
 
@@ -245,7 +245,6 @@ User action
 - `POST /api/latex/projects/{project_id}/file-changes/preview`
 - `POST /api/latex/projects/{project_id}/file-changes/apply`
 - `POST /api/latex/projects/{project_id}/file-changes/discard`
-- `POST /api/latex/projects/{project_id}/file-changes/defer`
 - `POST /api/latex/projects/{project_id}/file-changes/revert`
 - `POST /api/latex/projects/{project_id}/protected-sections`
 
@@ -262,7 +261,7 @@ User action
 
 - `launch_feature`
 - execution commit
-- Prism preview/apply/reject/defer/revert/protect
+- Prism preview/apply/reject/revert/protect
 
 新功能优先扩写入面或读取面中的一个，不要把读取接口偷偷变成写入接口。
 
@@ -312,9 +311,9 @@ User action
 ### 6.3 Prism Manuscript Domain
 
 - `LatexProject.workspace_id + surface_role=primary_manuscript` 是 workspace 与主稿的绑定事实
-- `prism_review_items` 是 Prism review state 的事实源
-- `prism_source_links` 是稿件变更 provenance 的事实源
-- `prism_protected_sections` 是用户保护稿件范围的事实源
+- Canonical `review_items` 是 Prism review state 的事实源
+- Canonical `provenance_links` 是稿件变更 provenance 的事实源
+- Canonical `prism_protected_scopes` 是用户保护稿件范围的事实源
 - `WorkspacePrismService` 聚合 editor state、review items、source links、protected sections、activity 和 compile status
 - `TaskBrief.manuscript_context` 只接收 lightweight manuscript projection，不接收完整正文或 PDF
 

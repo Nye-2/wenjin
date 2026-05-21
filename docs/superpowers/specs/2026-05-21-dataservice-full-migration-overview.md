@@ -1037,7 +1037,7 @@ Implementation status as of 2026-05-21:
 - Public `ExecutionService` create/read/list/update/cancel/node-state write paths now delegate to `ExecutionDataService` while preserving compatibility attributes for existing callers.
 - Subagent task semantics now land in `execution_nodes` and `execution_events`; `subagent_task_records` is no longer a product projection input.
 - Compute projection, Workspace Activity, User Dashboard, and Admin Dashboard now build from DataService execution/node projections rather than `task_records` / `subagent_task_records`.
-- Run History room and Prism recent activity now use `ExecutionRunHistoryProjection` derived from `executions`; `workspace_run` has been removed from active runtime routes, and `compute_sessions` is treated only as a rebuildable UI shell/cache around canonical executions.
+- Run History room and Prism recent activity now use `ExecutionRunHistoryProjection` derived from `executions`; `workspace_run` has been removed from active runtime routes and dropped by migration `073_drop_legacy_workspace_run_table.py`, and `compute_sessions` is treated only as a rebuildable UI shell/cache around canonical executions.
 - Review batch aggregate foundation is implemented.
 - `064_dataservice_review_queue.py` creates `review_batches`, `review_items`, and `review_action_logs`.
 - `backend/src/dataservice/domains/review/` owns review contracts, repository, projections, state-machine service, and target handler registry. `dataservice_app` exposes internal review routes and `dataservice_client` has typed review methods.
@@ -1072,8 +1072,8 @@ Implementation status as of 2026-05-21:
 - Runtime code outside DataService/database ownership packages is also guarded from importing `DocumentV2`; migrated `documents_v2` rows are represented only as `workspace_assets` with legacy source metadata.
 - The settings room facade delegates settings projection and updates to `WorkspaceDataService`, so `workspace_settings` is now owned by the Workspace aggregate instead of a standalone room service.
 - Runtime code outside DataService/database ownership packages is guarded from importing `WorkspaceSettings`.
-- The legacy `WorkspaceRunService` runtime path has been deleted; product run state stays on DataService execution projections, while the old `workspace_run` table remains only as a database model/legacy table until archive/drop validation.
-- Runtime code outside DataService/database ownership packages is guarded from importing `WorkspaceRunRow`.
+- The legacy `WorkspaceRunService` runtime path has been deleted; product run state stays on DataService execution projections. Legacy `WorkspaceRunRow` ORM has been removed, `subagent_task_records.run_id` is now an unconstrained historical id field, and `subagent_task_records.execution_id` is the canonical execution FK.
+- Runtime code outside DataService/database ownership packages is guarded from importing `WorkspaceRunRow`, and the model no longer exists in ORM metadata.
 - Compute session shell state is now controlled through the Execution DataService aggregate, internal DataService routes, and typed DataService client contracts; compute routes/projections no longer query `compute_sessions` directly.
 - Runtime code outside DataService/database ownership packages is guarded from importing `ComputeSessionRecord`.
 - Workspace Activity artifact entries now read from `AssetDataService` / `workspace_assets`; the activity projection no longer queries the legacy `artifacts` table for artifact cards.
@@ -1085,7 +1085,7 @@ Implementation status as of 2026-05-21:
 - `WorkspacePrismService` now uses canonical `review_items` for Prism file-change review cards, file-change counts, launch-context pending review items, and recent review activity.
 - `ReviewDataService` now exposes canonical item get/patch/delete operations across in-process, internal HTTP, and typed client boundaries. `PrismReviewDataService` owns Prism file-change review identity over canonical `review_items`.
 - `WorkspaceLatexProjectService` now creates and clears pending Prism file-change review items through `PrismReviewDataService` instead of `prism_review_items`.
-- LaTeX file-change preview/apply/discard/revert actions now resolve and transition canonical `review_items`; `defer` is no longer a supported Prism action state and returns `410 Gone`.
+- LaTeX file-change preview/apply/discard/revert actions now resolve and transition canonical `review_items`; `defer` has been removed from the Prism action contract, backend routes, frontend API/store, and review UI.
 - Prism source links now use canonical `provenance_links` and Prism protected sections now use `prism_protected_scopes`. `WorkspacePrismService` no longer reads legacy `prism_source_links` or `prism_protected_sections`.
 - Source citation usage is now a DataService command. Applying a LaTeX/Prism file change records source usage through canonical `sources` and `provenance_links`, marks eligible sources `used_in_draft`, and exposes the same contract through the internal DataService route and typed client. `PrismReviewDataService` also resolves citations through citation-key Source lookup instead of scanning workspace sources.
 - Legacy `ReferenceUsageService` and `WorkspaceReferenceService.record_reference_usage` have been removed; runtime citation usage writes only through `SourceDataService.record_citation_usage`.
@@ -1111,11 +1111,11 @@ Implementation status as of 2026-05-21:
 - Legacy reference ORM table models have been removed. Migration `072_drop_legacy_reference_tables.py` drops `workspace_references`, `reference_external_ids`, `reference_assets`, `reference_outline_nodes`, `reference_text_units`, `reference_usage_events`, and `reference_bibtex_snapshots` after the Source DataService cutover.
 - Gateway import/BibTeX service classes have been renamed to `SourceLibraryImportService` and `SourceBibliographyService`; no legacy `ReferenceImportService` / `ReferenceBibTeXService` aliases remain.
 - Remaining Source convergence debt is limited to broad product route naming decisions, not data ownership or compatibility fallback.
-- Alembic env no longer imports legacy reference ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `072_drop_legacy_reference_tables` as the single head.
+- Alembic env no longer imports legacy reference/workspace-run ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `073_drop_legacy_workspace_run_table` as the single head.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1935 backend tests.
+- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, workspace-run table drop, and Prism action-contract cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1934 backend tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` also pass.
 
 ### Phase 4: Review Materialization
 

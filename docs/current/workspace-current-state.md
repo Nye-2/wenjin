@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-05-20
+更新时间：2026-05-21
 状态：Current
 适用项目：`wenjin`
 
@@ -47,16 +47,16 @@
 4. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item
 5. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
 6. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
-7. Prism 写作变更必须先走 Prism apply/reject/defer/revert；接受后才写入稿件文件
+7. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
 8. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
 
 ## 6. Prism 主稿协作面
 
 1. Prism 是 workspace 的第二主 surface，canonical route 为 `/workspaces/{workspace_id}/prism`
 2. `LatexProject.workspace_id + surface_role=primary_manuscript` 是 workspace 与主稿项目的绑定事实
-3. `prism_review_items` 是文件变更 review 状态事实源；ResultCard、CompletedView、Compute、Prism Changes 共享同一 projection
-4. `prism_source_links` 记录稿件变更与 Library / Documents / execution 输出的 provenance
-5. `prism_protected_sections` 记录用户手动保护的稿件范围，并进入后续 agent launch context
+3. Canonical `review_items` 是文件变更 review 状态事实源；ResultCard、CompletedView、Compute、Prism Changes 共享同一 projection
+4. Canonical `provenance_links` 记录稿件变更与 Library / Documents / execution 输出的 provenance
+5. Canonical `prism_protected_scopes` 记录用户手动保护的稿件范围，并进入后续 agent launch context
 6. `WorkspacePrismService` 对外提供 surface projection：main file、target files、pending/applied review items、source links、protected sections、activity、compile status
 7. `TaskBrief.manuscript_context` 只注入 lightweight manuscript projection，不传完整正文、完整 diff 或 PDF
 
@@ -90,7 +90,7 @@
    - `file-changes/discard` 丢弃待确认写入。
    - `file-changes/revert` 使用 `applied_file_changes` 中的签名和文件 hash 撤回。
 6. Workbench ResultCard、CompletedView、chat result block 和 Prism Changes 共享 `WorkspacePrismReviewItem` / `PrismReviewList`。
-7. Prism apply / reject / defer / revert / protect 会写入 canonical review state、protected section 或 workspace activity，不走 frontend-only 状态。
+7. Prism apply / reject / revert / protect 会写入 canonical review state、protected scope 或 workspace activity，不走 frontend-only 状态。
 8. 当前 UX 约定：
    - 支持候选切换、inline/side-by-side、hunk 折叠、空白改动过滤、重生成、复制候选。
    - 支持快捷键：`Ctrl/Cmd + Enter` 应用候选，`Esc` 取消预览。

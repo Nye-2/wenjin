@@ -31,7 +31,6 @@ export function prismReviewItemSummary(item: WorkspacePrismReviewItem): string |
 
 function statusLabel(status: string): string {
   if (status === "pending") return "待确认";
-  if (status === "deferred") return "稍后";
   if (status === "applied") return "已写入";
   if (status === "rejected") return "已忽略";
   if (status === "reverted") return "已撤回";
@@ -44,9 +43,6 @@ function statusClass(status: string): string {
   }
   if (status === "rejected" || status === "reverted") {
     return "border-red-500/20 bg-red-500/10 text-red-700";
-  }
-  if (status === "deferred") {
-    return "border-blue-500/20 bg-blue-500/10 text-blue-700";
   }
   return "border-amber-500/25 bg-amber-500/10 text-amber-800";
 }

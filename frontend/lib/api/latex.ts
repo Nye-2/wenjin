@@ -3,7 +3,6 @@ import type {
   LatexCompileEngine,
   LatexCompileResult,
   LatexFileChangeApplyResponse,
-  LatexFileChangeDeferResponse,
   LatexFileChangeDiscardResponse,
   LatexFileChangePreviewResponse,
   LatexFileChangeRevertResponse,
@@ -347,19 +346,6 @@ export async function discardLatexFileChange(
 ): Promise<LatexFileChangeDiscardResponse> {
   const response = await apiClient.post(
     `/latex/projects/${projectId}/file-changes/discard`,
-    payload,
-  );
-  return response.data;
-}
-
-export async function deferLatexFileChange(
-  projectId: string,
-  payload: {
-    logical_key: string;
-  },
-): Promise<LatexFileChangeDeferResponse> {
-  const response = await apiClient.post(
-    `/latex/projects/${projectId}/file-changes/defer`,
     payload,
   );
   return response.data;

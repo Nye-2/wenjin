@@ -262,7 +262,6 @@ export async function installWorkspaceRouteMocks(
               { action: "preview_prism_change", label: "预览 diff" },
               { action: "apply_prism_change", label: "应用到 Prism" },
               { action: "reject_prism_change", label: "忽略并保护" },
-              { action: "defer_prism_change", label: "稍后处理" },
             ],
           })),
           source_links: [],

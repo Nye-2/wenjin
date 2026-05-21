@@ -13,7 +13,7 @@ from ..base import Base, generate_uuid
 class ExecutionRecord(Base):
     """Unified execution record — SSOT for all execution types.
 
-    Replaces: legacy execution/session tracking rows and WorkspaceRunRow
+    Replaces: legacy execution/session tracking rows and the workspace_run table.
     """
 
     __tablename__ = "executions"

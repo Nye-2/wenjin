@@ -276,7 +276,7 @@ def _build_prism_review_action(
         (
             item
             for item in review_items
-            if _read_string(item.get("status")) in {"pending", "deferred"}
+            if _read_string(item.get("status")) == "pending"
         ),
         None,
     )
@@ -414,7 +414,6 @@ def build_prism_review_activity_item(
     normalized_status = str(status or "pending")
     title_prefix = {
         "pending": "待确认稿件修改",
-        "deferred": "已暂缓稿件修改",
         "applied": "已写入稿件修改",
         "rejected": "已拒绝稿件修改",
         "reverted": "已撤回稿件修改",

@@ -53,7 +53,7 @@ class SubagentTaskRecord(Base):
         nullable=True,
     )
     criticality: Mapped[str] = mapped_column(String(8), default="low", nullable=False)
-    run_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("workspace_run.id"), nullable=True)
+    run_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     execution_id: Mapped[str] = mapped_column(
         String(36),
         ForeignKey("executions.id", ondelete="CASCADE"),

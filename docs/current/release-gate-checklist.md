@@ -1,10 +1,10 @@
 # Release Gate Checklist
 
-更新时间: 2026-05-20
+更新时间: 2026-05-21
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
 
-最新验证：2026-05-20 workspace Prism rollout gate 通过：backend full pytest 1861 passed；frontend typecheck / lint / unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
+最新验证：2026-05-21 DataService / Prism contract cleanup：backend full pytest 1934 passed；frontend typecheck / lint passed；Alembic single head 为 `073_drop_legacy_workspace_run_table`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
 
 ## 1. Core Gate (必须全绿)
 
@@ -18,7 +18,7 @@
 8. Artifact refresh 闭环可回归：feature 产物持久化后必须发布 `workspace.refresh(["artifacts"])`，前端必须重新拉取 artifact 列表。
 9. Artifact follow-up 闭环可回归：任务完成卡片必须显式输出 `open_artifact` 与带 `source_artifact_id/context_artifact_ids` 的 rerun seed，activity retry 必须复用任务结果 artifact。
 10. Failure recovery 闭环可回归：失败卡片必须显示明确错误；有 `execution_id` 时才暴露 resume；重试必须保留原始参数和 artifact seed。
-11. Prism Review 闭环可回归：主稿待确认写入必须进入 canonical `prism_review_items` / Compute projection / Prism Changes，preview/apply/reject/defer/revert 后状态回流，并产生 workspace activity。
+11. Prism Review 闭环可回归：主稿待确认写入必须进入 canonical `review_items` / Compute projection / Prism Changes，preview/apply/reject/revert 后状态回流，并产生 workspace activity。
 12. Auth Email 闭环可回归：SMTP 开启时注册必须验证 code；验证码只能一次性消费；前端注册页必须先请求验证码并提交 `verification_code`。
 13. 统一门禁命令（发布前需要运行）：
   - `cd backend && uv run python -m src.quality.release_gate_cli`
@@ -107,5 +107,5 @@ npm test
 - [x] artifact 列表可反映最新产出
 - [x] 文献检索和 thesis deep research 的 Semantic Scholar 结果会进入参考库，且只导入 `verified_papers`
 - [x] 大 PDF 上传后 pending -> preprocess -> ready/failed 状态可见
-- [x] 写作结果进入 Prism pending review，apply/reject/defer/revert 后状态可观察
+- [x] 写作结果进入 Prism pending review，apply/reject/revert 后状态可观察
 - [x] SMTP 验证码链路（如启用）可稳定工作

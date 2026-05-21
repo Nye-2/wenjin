@@ -595,7 +595,6 @@ export function LatexEditorShell({
     uploadDirectory,
     uploadArchive,
     applyFileChange,
-    deferFileChange,
     discardFileChange,
     revertFileChange,
     deleteProject,
@@ -1553,22 +1552,6 @@ export function LatexEditorShell({
     }
   }, [discardFileChange, onReviewStateChanged]);
 
-  const deferPendingFileChange = useCallback(async (change: LatexFileChange) => {
-    setBusyFileChangeKey(change.logical_key);
-    setFileChangeError("");
-    try {
-      await deferFileChange(change.logical_key);
-      onReviewStateChanged?.();
-      setFileChangePreviews((prev) => {
-        const next = { ...prev };
-        delete next[change.logical_key];
-        return next;
-      });
-    } finally {
-      setBusyFileChangeKey(null);
-    }
-  }, [deferFileChange, onReviewStateChanged]);
-
   const revertAppliedFileChange = useCallback(async (change: {
     logical_key: string;
     revert_signature: string;
@@ -1731,14 +1714,6 @@ export function LatexEditorShell({
                             : preview
                               ? "刷新 diff"
                               : "预览 diff"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void deferPendingFileChange(change)}
-                          disabled={isBusy || change.status === "deferred"}
-                        >
-                          {change.status === "deferred" ? "已稍后" : "稍后处理"}
                         </Button>
                         <Button
                           size="sm"

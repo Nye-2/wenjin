@@ -320,13 +320,6 @@ export interface LatexFileChangeDiscardResponse {
   path: string;
 }
 
-export interface LatexFileChangeDeferResponse {
-  ok: boolean;
-  deferred: boolean;
-  logical_key: string;
-  path: string;
-}
-
 export interface LatexFileChangeRevertResponse {
   ok: boolean;
   reverted: boolean;

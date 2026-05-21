@@ -392,15 +392,6 @@ class LatexFileChangeDiscardResponse(BaseModel):
     path: str
 
 
-class LatexFileChangeDeferResponse(BaseModel):
-    """Defer response for a pending Prism file change."""
-
-    ok: bool = True
-    deferred: bool = True
-    logical_key: str
-    path: str
-
-
 class LatexFileChangeRevertResponse(BaseModel):
     """Revert response for an applied Prism file change."""
 
