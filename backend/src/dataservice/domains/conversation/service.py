@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,9 @@ from src.dataservice.domains.conversation.contracts import (
     ConversationMessageCreateCommand,
     ConversationMessageRecord,
     ConversationMessagesRebuildCommand,
+    ConversationThreadCreateCommand,
     ConversationThreadProjection,
+    ConversationThreadUpdateCommand,
 )
 from src.dataservice.domains.conversation.models import MessageBlock, ThreadMessage
 from src.dataservice.domains.conversation.repository import ConversationRepository
@@ -32,6 +34,106 @@ class DataServiceConversationService:
         self.session = session
         self.autocommit = autocommit
         self.repository = ConversationRepository(session)
+
+    async def create_thread(
+        self,
+        command: ConversationThreadCreateCommand,
+    ) -> ConversationThreadProjection:
+        now = datetime.now(UTC)
+        thread = self.repository.create_thread(
+            {
+                "user_id": command.user_id,
+                "workspace_id": command.workspace_id,
+                "title": command.title,
+                "model": command.model,
+                "skill": command.skill,
+                "message_count": 0,
+                "last_message_preview": None,
+                "last_message_role": None,
+                "created_at": command.created_at or now,
+                "updated_at": command.updated_at or command.created_at or now,
+            }
+        )
+        await self._finish()
+        return self.to_thread_projection(thread)
+
+    async def lock_thread(self, thread_id: str) -> None:
+        await self.repository.lock_thread(thread_id)
+        await self._finish()
+
+    async def get_thread(self, thread_id: str) -> ConversationThreadProjection | None:
+        thread = await self.repository.get_thread(thread_id)
+        return self.to_thread_projection(thread) if thread is not None else None
+
+    async def get_owned_thread(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+    ) -> ConversationThreadProjection | None:
+        thread = await self.repository.get_owned_thread(
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        return self.to_thread_projection(thread) if thread is not None else None
+
+    async def get_latest_workspace_thread(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+    ) -> ConversationThreadProjection | None:
+        thread = await self.repository.get_latest_workspace_thread(
+            user_id=user_id,
+            workspace_id=workspace_id,
+        )
+        return self.to_thread_projection(thread) if thread is not None else None
+
+    async def list_threads(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None = None,
+        limit: int = 20,
+    ) -> list[ConversationThreadProjection]:
+        return [
+            self.to_thread_projection(thread)
+            for thread in await self.repository.list_threads(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                limit=limit,
+            )
+        ]
+
+    async def update_thread(
+        self,
+        thread_id: str,
+        command: ConversationThreadUpdateCommand,
+    ) -> ConversationThreadProjection | None:
+        thread = await self.repository.get_thread(thread_id)
+        if thread is None:
+            return None
+        data = command.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            setattr(thread, key, value)
+        await self._finish()
+        return self.to_thread_projection(thread)
+
+    async def delete_thread(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+    ) -> bool:
+        thread = await self.repository.get_owned_thread(
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        if thread is None:
+            return False
+        await self.repository.delete_thread(thread)
+        await self._finish()
+        return True
 
     async def append_message(self, command: ConversationMessageCreateCommand) -> ThreadMessage:
         message = self.repository.create_message(

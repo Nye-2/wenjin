@@ -51,6 +51,10 @@ def _make_thread(
     return thread
 
 
+def _mock_update_thread(service: ThreadService, thread: Thread) -> None:
+    service._conversation.update_thread = AsyncMock(return_value=thread)  # noqa: SLF001
+
+
 class TestThreadService:
     """Tests for ThreadService behavior."""
 
@@ -75,9 +79,13 @@ class TestThreadService:
                 skill="deep-research",
             )
 
-        mock_db_session.add.assert_called_once_with(thread)
+        persisted = mock_db_session.add.call_args.args[0]
+        assert persisted.user_id == "user-1"
+        assert persisted.workspace_id == "ws-1"
+        assert persisted.title == "Draft thread"
+        assert persisted.model == "resolved-tool-model"
+        assert persisted.skill == "deep-research"
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
         assert thread.user_id == "user-1"
         assert thread.workspace_id == "ws-1"
         assert thread.title == "Draft thread"
@@ -126,10 +134,9 @@ class TestThreadService:
             workspace_id="ws-2",
         )
 
-        assert resolved is thread
+        assert resolved.id == thread.id
         assert resolved.workspace_id == "ws-2"
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_get_or_create_thread_updates_model_when_explicitly_selected(
@@ -160,10 +167,9 @@ class TestThreadService:
                 model="some-user-selected-model",
             )
 
-        assert resolved is thread
+        assert resolved.id == thread.id
         assert resolved.model == "resolved-model-id"
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_get_or_create_thread_updates_skill_when_explicitly_selected(
@@ -185,10 +191,9 @@ class TestThreadService:
             skill_explicit=True,
         )
 
-        assert resolved is thread
+        assert resolved.id == thread.id
         assert resolved.skill == "literature-review"
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_get_or_create_thread_reuses_latest_workspace_thread_without_thread_id(
@@ -207,7 +212,7 @@ class TestThreadService:
             workspace_id="ws-1",
         )
 
-        assert resolved is thread
+        assert resolved.id == thread.id
         mock_db_session.add.assert_not_called()
         mock_db_session.commit.assert_not_awaited()
 
@@ -251,6 +256,7 @@ class TestThreadService:
     async def test_add_message_writes_conversation_rows_not_json_history(self, service, mock_db_session):
         """Message append updates thread summary and delegates canonical storage to DataService."""
         thread = _make_thread()
+        _mock_update_thread(service, thread)
         service._conversation.append_thread_message = AsyncMock()  # noqa: SLF001
 
         message = await service.add_message(
@@ -269,7 +275,6 @@ class TestThreadService:
         assert stored_message["content"] == "Hello"
         assert service._conversation.append_thread_message.await_args.kwargs["sequence_index"] == 0  # noqa: SLF001
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_update_attachment_extraction_state_updates_matching_attachment(
@@ -299,6 +304,7 @@ class TestThreadService:
                 },
             }
         ]
+        _mock_update_thread(service, thread)
         service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         updated = await service.update_attachment_extraction_state(
@@ -320,7 +326,6 @@ class TestThreadService:
         assert extraction["current_step"] == "complete"
         assert thread.updated_at is not None
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_update_attachment_extraction_state_reads_projection_by_default(
@@ -350,6 +355,7 @@ class TestThreadService:
                 }
             ]
         )
+        _mock_update_thread(service, thread)
         service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         updated = await service.update_attachment_extraction_state(
@@ -395,6 +401,7 @@ class TestThreadService:
                 },
             }
         ]
+        _mock_update_thread(service, thread)
         service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         updated = await service.update_attachment_preprocess_state(
@@ -424,7 +431,6 @@ class TestThreadService:
         assert preprocess["current_step"] == "complete"
         assert attachment_metadata["preprocessed_markdown_paths"] == ["/references/_preprocessed/paper/doc_0.md"]
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_update_attachment_extraction_state_returns_false_when_missing_task(
@@ -480,6 +486,7 @@ class TestThreadService:
             {"role": "assistant", "content": "recent answer", "timestamp": "2026-04-14T00:03:00+00:00"},
         ]
         thread.message_count = 4
+        _mock_update_thread(service, thread)
         service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         compacted = await service.compact_messages(
@@ -505,7 +512,6 @@ class TestThreadService:
         assert thread.last_message_role == "assistant"
         assert thread.last_message_preview == "recent answer"
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_rollback_last_user_message_removes_tail_user_turn(
@@ -530,6 +536,7 @@ class TestThreadService:
         thread.message_count = 2
         thread.last_message_role = "user"
         thread.last_message_preview = "new question"
+        _mock_update_thread(service, thread)
         service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         rolled_back = await service.rollback_last_user_message(
@@ -546,7 +553,6 @@ class TestThreadService:
         assert thread.last_message_role == "assistant"
         assert thread.last_message_preview == "previous answer"
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_rollback_last_user_message_requires_matching_tail(
@@ -600,6 +606,7 @@ class TestThreadService:
         """Title derivation only applies to the first user-assistant exchange."""
         thread = _make_thread()
         thread.message_count = 2
+        _mock_update_thread(service, thread)
 
         await service.set_title_if_empty(
             thread,
@@ -609,7 +616,6 @@ class TestThreadService:
         assert thread.title is not None
         assert thread.title.startswith("A much longer opening message")
         mock_db_session.commit.assert_awaited_once()
-        mock_db_session.refresh.assert_awaited_once_with(thread)
 
     @pytest.mark.asyncio
     async def test_delete_thread_removes_local_thread_directory(
@@ -630,11 +636,15 @@ class TestThreadService:
                 "src.services.thread_service.delete_thread_directory",
             ) as delete_thread_directory,
         ):
+            service._conversation.delete_thread = AsyncMock(return_value=True)  # noqa: SLF001
             deleted = await service.delete_thread("thread-1", "user-1")
 
         assert deleted is True
-        mock_db_session.delete.assert_awaited_once_with(thread)
         mock_db_session.commit.assert_awaited_once()
+        service._conversation.delete_thread.assert_awaited_once_with(  # noqa: SLF001
+            thread_id="thread-1",
+            user_id="user-1",
+        )
         delete_thread_directory.assert_called_once_with("thread-1")
 
     @pytest.mark.asyncio
@@ -657,8 +667,8 @@ class TestThreadService:
                 side_effect=RuntimeError("boom"),
             ),
         ):
+            service._conversation.delete_thread = AsyncMock(return_value=True)  # noqa: SLF001
             deleted = await service.delete_thread("thread-1", "user-1")
 
         assert deleted is True
-        mock_db_session.delete.assert_awaited_once_with(thread)
         mock_db_session.commit.assert_awaited_once()

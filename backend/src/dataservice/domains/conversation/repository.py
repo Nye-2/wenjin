@@ -30,6 +30,67 @@ class ConversationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
+    def create_thread(self, values: dict[str, Any]) -> Thread:
+        thread = Thread(**values)
+        self.session.add(thread)
+        return thread
+
+    async def lock_thread(self, thread_id: str) -> None:
+        await self.session.execute(
+            select(Thread)
+            .where(Thread.id == thread_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+    async def get_thread(self, thread_id: str) -> Thread | None:
+        result = await self.session.execute(select(Thread).where(Thread.id == thread_id))
+        return result.scalar_one_or_none()
+
+    async def get_owned_thread(self, *, thread_id: str, user_id: str) -> Thread | None:
+        result = await self.session.execute(
+            select(Thread).where(
+                Thread.id == thread_id,
+                Thread.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_latest_workspace_thread(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+    ) -> Thread | None:
+        result = await self.session.execute(
+            select(Thread)
+            .where(
+                Thread.user_id == user_id,
+                Thread.workspace_id == workspace_id,
+            )
+            .order_by(Thread.updated_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def list_threads(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None = None,
+        limit: int = 20,
+    ) -> list[Thread]:
+        query = select(Thread).where(Thread.user_id == user_id)
+        if workspace_id:
+            query = query.where(Thread.workspace_id == workspace_id)
+        result = await self.session.execute(
+            query.order_by(Thread.updated_at.desc()).limit(limit)
+        )
+        return list(result.scalars().all())
+
+    async def delete_thread(self, thread: Thread) -> None:
+        await self.session.delete(thread)
+
     def create_message(
         self,
         *,

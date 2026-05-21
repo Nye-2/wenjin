@@ -32,6 +32,31 @@ class ConversationMessagesRebuildCommand(BaseModel):
     messages: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ConversationThreadCreateCommand(BaseModel):
+    """Create one persisted conversation thread."""
+
+    user_id: str = Field(min_length=1, max_length=36)
+    workspace_id: str | None = Field(default=None, max_length=36)
+    title: str | None = Field(default=None, max_length=255)
+    model: str = Field(min_length=1, max_length=100)
+    skill: str | None = Field(default=None, max_length=100)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ConversationThreadUpdateCommand(BaseModel):
+    """Patch mutable thread summary fields."""
+
+    workspace_id: str | None = Field(default=None, max_length=36)
+    title: str | None = Field(default=None, max_length=255)
+    model: str | None = Field(default=None, max_length=100)
+    skill: str | None = Field(default=None, max_length=100)
+    message_count: int | None = Field(default=None, ge=0)
+    last_message_preview: str | None = Field(default=None, max_length=255)
+    last_message_role: str | None = Field(default=None, max_length=32)
+    updated_at: datetime | None = None
+
+
 class ConversationBlockRecord(BaseModel):
     """Canonical block projection."""
 
@@ -69,6 +94,8 @@ class ConversationThreadProjection(BaseModel):
     title: str | None = None
     model: str | None = None
     skill: str | None = None
+    skill_name: str | None = None
+    workspace_type: str | None = None
     message_count: int = 0
     last_message_preview: str | None = None
     last_message_role: str | None = None
