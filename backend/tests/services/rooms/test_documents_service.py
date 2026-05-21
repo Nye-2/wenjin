@@ -1,4 +1,4 @@
-"""Tests for the asset-backed workspace documents facade."""
+"""Tests for document-room projections over DataService assets."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.dataservice.asset_api import WorkspaceAssetProjection
-from src.services.rooms.documents_service import DocumentsService, _asset_to_document
+from src.gateway.routers.workspace_rooms import _asset_to_document, _create_document_asset
 
 
 def _asset(**overrides: object) -> WorkspaceAssetProjection:
@@ -37,7 +37,6 @@ def _asset(**overrides: object) -> WorkspaceAssetProjection:
 
 @pytest.mark.asyncio
 async def test_add_with_parent_creates_document_asset_version() -> None:
-    service = DocumentsService(MagicMock())
     assets = MagicMock()
     assets.get_asset = AsyncMock(
         return_value=_asset(
@@ -53,11 +52,11 @@ async def test_add_with_parent_creates_document_asset_version() -> None:
             metadata_json={"kind": "draft", "version": 3, "parent_id": "parent-doc"},
         )
     )
-    service._assets = assets
 
-    document = await service.add(
-        "ws-1",
-        {
+    document = await _create_document_asset(
+        assets,
+        workspace_id="ws-1",
+        data={
             "name": "Draft v3",
             "kind": "draft",
             "parent_id": "parent-doc",
@@ -70,8 +69,8 @@ async def test_add_with_parent_creates_document_asset_version() -> None:
     assert kwargs["parent_asset_id"] == "parent-doc"
     assert kwargs["source_kind"] == "documents_room"
     assert kwargs["source_id"] == "parent-doc"
-    assert document.id == "child-doc"
-    assert document.version == 3
+    assert document["id"] == "child-doc"
+    assert document["version"] == 3
 
 
 def test_legacy_document_asset_projection_preserves_document_semantics() -> None:
@@ -86,6 +85,6 @@ def test_legacy_document_asset_projection_preserves_document_semantics() -> None
         )
     )
 
-    assert view.kind == "outline"
-    assert view.version == 4
-    assert view.parent_id == "parent-legacy"
+    assert view["kind"] == "outline"
+    assert view["version"] == 4
+    assert view["parent_id"] == "parent-legacy"

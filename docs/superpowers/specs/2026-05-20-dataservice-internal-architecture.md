@@ -417,6 +417,11 @@ Invariants:
 - `workspace_assets` owns file/blob metadata, not business meaning.
 - Business domains link to assets instead of duplicating storage fields.
 
+Implementation checkpoint, 2026-05-21:
+
+- Workspace documents room endpoints now call `AssetDataService` directly for list/create/get/update/version/delete.
+- The former `services/rooms/documents_service.py` facade has been deleted.
+
 ### 6.6 Prism Domain
 
 Current scattered logic:

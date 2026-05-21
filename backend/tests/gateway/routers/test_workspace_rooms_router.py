@@ -69,6 +69,27 @@ def _fake_row(**kwargs: object) -> SimpleNamespace:
     return ns
 
 
+def _fake_asset(**overrides: object) -> SimpleNamespace:
+    values: dict[str, object] = {
+        "id": "asset-1",
+        "workspace_id": WS_ID,
+        "asset_kind": "document",
+        "name": "Draft",
+        "mime_type": "text/markdown",
+        "storage_path": "inline://documents/draft",
+        "size_bytes": 10,
+        "parent_asset_id": None,
+        "created_by": "user",
+        "source_kind": "documents_room",
+        "metadata_json": {"kind": "draft", "version": 1},
+        "deleted_at": None,
+        "created_at": None,
+        "updated_at": None,
+    }
+    values.update(overrides)
+    return _fake_row(**values)
+
+
 # ===========================================================================
 # LIBRARY
 # ===========================================================================
@@ -145,12 +166,12 @@ class TestLibraryRoom:
 class TestDocumentsRoom:
     def test_list_documents_happy(self) -> None:
         app, client = _make_app()
-        fake_doc = _fake_row(id="doc-1", workspace_id=WS_ID, name="Intro", kind="draft")
+        fake_doc = _fake_asset(id="doc-1", name="Intro", metadata_json={"kind": "draft", "version": 1})
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.list = AsyncMock(return_value=[fake_doc])
-            mp.setattr(workspace_rooms, "_documents_service", lambda db: mock_svc)
+            mock_svc.list_assets = AsyncMock(side_effect=[[fake_doc], []])
+            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/documents")
 
         assert resp.status_code == 200
@@ -159,12 +180,12 @@ class TestDocumentsRoom:
 
     def test_create_document_returns_201(self) -> None:
         app, client = _make_app()
-        fake_doc = _fake_row(id="doc-2", workspace_id=WS_ID, name="Chapter 1", kind="draft")
+        fake_doc = _fake_asset(id="doc-2", name="Chapter 1", metadata_json={"kind": "draft", "version": 1})
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.add = AsyncMock(return_value=fake_doc)
-            mp.setattr(workspace_rooms, "_documents_service", lambda db: mock_svc)
+            mock_svc.register_asset_record = AsyncMock(return_value=fake_doc)
+            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
             resp = client.post(
                 f"/workspaces/{WS_ID}/documents",
                 json={"name": "Chapter 1", "kind": "draft", "added_by": "user"},
@@ -175,18 +196,16 @@ class TestDocumentsRoom:
 
     def test_get_document_happy(self) -> None:
         app, client = _make_app()
-        fake_doc = _fake_row(
+        fake_doc = _fake_asset(
             id="doc-3",
-            workspace_id=WS_ID,
             name="Outline",
-            kind="outline",
-            metadata_json={"content": "# Intro"},
+            metadata_json={"kind": "outline", "version": 1, "content": "# Intro"},
         )
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.get = AsyncMock(return_value=fake_doc)
-            mp.setattr(workspace_rooms, "_documents_service", lambda db: mock_svc)
+            mock_svc.get_asset = AsyncMock(return_value=fake_doc)
+            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/documents/doc-3")
 
         assert resp.status_code == 200
@@ -198,8 +217,9 @@ class TestDocumentsRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.delete = AsyncMock(return_value=False)
-            mp.setattr(workspace_rooms, "_documents_service", lambda db: mock_svc)
+            mock_svc.get_asset = AsyncMock(return_value=None)
+            mock_svc.mark_deleted = AsyncMock(return_value=None)
+            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
             resp = client.delete(f"/workspaces/{WS_ID}/documents/missing-doc")
 
         assert resp.status_code == 404

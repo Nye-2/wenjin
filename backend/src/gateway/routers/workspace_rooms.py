@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User
+from src.dataservice.asset_api import AssetDataService, WorkspaceAssetProjection, WorkspaceAssetUpdateCommand
 from src.dataservice.rooms_api import (
     DecisionSetCommand,
     MemoryFactCreateCommand,
@@ -34,11 +35,14 @@ from src.gateway.deps import get_db, get_workspace_service
 
 if TYPE_CHECKING:
     from src.dataservice.execution_api import ExecutionDataService
-    from src.services.rooms.documents_service import DocumentsService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workspaces", tags=["workspace_rooms"])
+
+_DOCUMENT_SOURCE_KIND = "documents_room"
+_MIGRATED_DOCUMENT_SOURCE_KIND = "documents_v2"
+_DOCUMENT_SOURCE_KINDS = {_DOCUMENT_SOURCE_KIND, _MIGRATED_DOCUMENT_SOURCE_KIND}
 
 
 # ---------------------------------------------------------------------------
@@ -73,10 +77,8 @@ async def _assert_workspace_owner(
 # ---------------------------------------------------------------------------
 
 
-def _documents_service(db: AsyncSession) -> DocumentsService:
-    from src.services.rooms.documents_service import DocumentsService
-
-    return DocumentsService(db)
+def _asset_data_service(db: AsyncSession) -> AssetDataService:
+    return AssetDataService(db)
 
 
 def _rooms_service(db: AsyncSession) -> RoomsDataService:
@@ -260,6 +262,175 @@ def _source_citation_key(data: dict[str, Any]) -> str:
     return (key or "source")[:240]
 
 
+def _asset_to_document(asset: WorkspaceAssetProjection) -> dict[str, Any]:
+    metadata = dict(asset.metadata_json or {})
+    return {
+        "id": asset.id,
+        "workspace_id": asset.workspace_id,
+        "name": asset.name,
+        "kind": str(metadata.get("kind") or metadata.get("legacy_kind") or asset.asset_kind or "document"),
+        "mime_type": asset.mime_type,
+        "storage_path": asset.storage_path,
+        "size_bytes": asset.size_bytes,
+        "parent_id": asset.parent_asset_id or metadata.get("parent_id") or metadata.get("legacy_parent_id"),
+        "version": int(metadata.get("version") or metadata.get("legacy_version") or 1),
+        "metadata_json": metadata,
+        "added_by": asset.created_by,
+        "created_at": asset.created_at,
+        "updated_at": asset.updated_at,
+        "deleted_at": asset.deleted_at,
+    }
+
+
+def _asset_sort_value(asset: WorkspaceAssetProjection) -> float:
+    stamp = asset.created_at or asset.updated_at
+    return stamp.timestamp() if hasattr(stamp, "timestamp") else 0.0
+
+
+def _inline_storage_path(data: dict[str, Any]) -> str:
+    name = str(data.get("name") or "document").lower()
+    slug = re.sub(r"[^a-z0-9._-]+", "-", name).strip("-") or "document"
+    return f"inline://documents/{slug}"
+
+
+def _inline_size(metadata: dict[str, Any]) -> int | None:
+    content = metadata.get("content")
+    return len(content.encode("utf-8")) if isinstance(content, str) else None
+
+
+async def _list_document_assets(
+    assets: AssetDataService,
+    *,
+    workspace_id: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    room_assets = await assets.list_assets(
+        workspace_id=workspace_id,
+        source_kind=_DOCUMENT_SOURCE_KIND,
+        include_deleted=False,
+        limit=limit,
+    )
+    migrated_assets = await assets.list_assets(
+        workspace_id=workspace_id,
+        source_kind=_MIGRATED_DOCUMENT_SOURCE_KIND,
+        include_deleted=False,
+        limit=max(0, limit - len(room_assets)),
+    )
+    combined = sorted([*room_assets, *migrated_assets], key=_asset_sort_value, reverse=True)
+    return [_asset_to_document(asset) for asset in combined[:limit]]
+
+
+async def _get_document_asset(
+    assets: AssetDataService,
+    *,
+    workspace_id: str,
+    doc_id: str,
+) -> dict[str, Any] | None:
+    asset = await assets.get_asset(doc_id)
+    if asset is None or asset.workspace_id != workspace_id or asset.deleted_at is not None:
+        return None
+    if asset.source_kind not in _DOCUMENT_SOURCE_KINDS:
+        return None
+    return _asset_to_document(asset)
+
+
+async def _create_document_asset(
+    assets: AssetDataService,
+    *,
+    workspace_id: str,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    if parent_id := data.get("parent_id"):
+        version_data = dict(data)
+        version_data.pop("parent_id", None)
+        return await _commit_document_asset_version(
+            assets,
+            workspace_id=workspace_id,
+            parent_id=str(parent_id),
+            data=version_data,
+        )
+
+    metadata = dict(data.get("metadata_json") or {})
+    kind = str(data.get("kind") or "document")
+    metadata.setdefault("kind", kind)
+    metadata.setdefault("version", 1)
+    asset = await assets.register_asset_record(
+        workspace_id=workspace_id,
+        asset_kind=kind,
+        name=str(data["name"]),
+        title=str(data.get("name") or ""),
+        mime_type=data.get("mime_type") or "text/markdown",
+        storage_backend="local",
+        storage_path=data.get("storage_path") or _inline_storage_path(data),
+        size_bytes=data.get("size_bytes") or _inline_size(metadata),
+        created_by=str(data.get("added_by") or "user"),
+        source_kind=_DOCUMENT_SOURCE_KIND,
+        source_id=None,
+        metadata_json=metadata,
+    )
+    return _asset_to_document(asset)
+
+
+async def _commit_document_asset_version(
+    assets: AssetDataService,
+    *,
+    workspace_id: str,
+    parent_id: str,
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    parent = await _get_document_asset(assets, workspace_id=workspace_id, doc_id=parent_id)
+    if parent is None:
+        raise ValueError(f"Parent document {parent_id} not found")
+    metadata = dict(data.get("metadata_json") or {})
+    version = int(parent.get("version") or 1) + 1
+    metadata.setdefault("kind", data.get("kind") or parent.get("kind"))
+    metadata["version"] = version
+    metadata["parent_id"] = parent_id
+    asset = await assets.register_asset_record(
+        workspace_id=workspace_id,
+        asset_kind=str(metadata["kind"]),
+        name=str(data.get("name") or parent["name"]),
+        title=str(data.get("name") or parent["name"]),
+        mime_type=data.get("mime_type") or parent.get("mime_type"),
+        storage_backend="local",
+        storage_path=data.get("storage_path") or _inline_storage_path(data),
+        size_bytes=data.get("size_bytes") or _inline_size(metadata),
+        parent_asset_id=parent_id,
+        created_by=str(data.get("added_by") or parent.get("added_by") or "user"),
+        source_kind=_DOCUMENT_SOURCE_KIND,
+        source_id=parent_id,
+        metadata_json=metadata,
+    )
+    return _asset_to_document(asset)
+
+
+async def _update_document_asset(
+    assets: AssetDataService,
+    *,
+    workspace_id: str,
+    doc_id: str,
+    data: dict[str, Any],
+) -> dict[str, Any] | None:
+    current = await _get_document_asset(assets, workspace_id=workspace_id, doc_id=doc_id)
+    if current is None:
+        return None
+    metadata = dict(current.get("metadata_json") or {})
+    if data.get("kind") is not None:
+        metadata["kind"] = data["kind"]
+    if data.get("metadata_json") is not None:
+        metadata.update(dict(data["metadata_json"] or {}))
+    asset = await assets.update_asset(
+        doc_id,
+        WorkspaceAssetUpdateCommand(
+            name=data.get("name"),
+            title=data.get("name"),
+            mime_type=data.get("mime_type"),
+            metadata_json=metadata,
+        ),
+    )
+    return _asset_to_document(asset) if asset is not None else None
+
+
 # ===========================================================================
 # LIBRARY endpoints
 # ===========================================================================
@@ -348,7 +519,7 @@ async def list_documents(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    docs = await _documents_service(db).list(ws_id, limit=limit)
+    docs = await _list_document_assets(_asset_data_service(db), workspace_id=ws_id, limit=limit)
     return {"items": [_row_to_dict(d) for d in docs], "count": len(docs)}
 
 
@@ -361,7 +532,11 @@ async def create_document(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    doc = await _documents_service(db).add(ws_id, body.model_dump())
+    doc = await _create_document_asset(
+        _asset_data_service(db),
+        workspace_id=ws_id,
+        data=body.model_dump(),
+    )
     return _row_to_dict(doc)
 
 
@@ -374,7 +549,7 @@ async def get_document(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    doc = await _documents_service(db).get(ws_id, doc_id)
+    doc = await _get_document_asset(_asset_data_service(db), workspace_id=ws_id, doc_id=doc_id)
     if doc is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -395,17 +570,27 @@ async def update_document(
     """Update a document.  When ``parent_id`` is provided a new version is
     committed (commit_version) instead of an in-place update."""
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    svc = _documents_service(db)
+    assets = _asset_data_service(db)
     data = body.model_dump(exclude_none=True)
 
     if "parent_id" in data:
         parent_id = data.pop("parent_id")
         try:
-            doc = await svc.commit_version(ws_id, parent_id, data)
+            doc = await _commit_document_asset_version(
+                assets,
+                workspace_id=ws_id,
+                parent_id=parent_id,
+                data=data,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     else:
-        doc = await svc.update(ws_id, doc_id, data)
+        doc = await _update_document_asset(
+            assets,
+            workspace_id=ws_id,
+            doc_id=doc_id,
+            data=data,
+        )
         if doc is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
@@ -421,7 +606,9 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _documents_service(db).delete(ws_id, doc_id)
+    assets = _asset_data_service(db)
+    current = await _get_document_asset(assets, workspace_id=ws_id, doc_id=doc_id)
+    found = current is not None and await assets.mark_deleted(doc_id) is not None
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
