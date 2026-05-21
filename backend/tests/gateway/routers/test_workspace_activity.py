@@ -229,7 +229,7 @@ def test_workspace_executions_returns_items():
         "src.gateway.routers.workspaces.ExecutionService.list_executions",
         new=AsyncMock(return_value=[execution]),
     ), patch(
-        "src.gateway.routers.workspaces.PrismReviewService.list_execution_review_item_projections",
+        "src.gateway.routers.workspaces.ReviewDataService.list_items",
         new=AsyncMock(return_value=[]),
     ):
         response = client.get("/workspaces/ws-1/executions")

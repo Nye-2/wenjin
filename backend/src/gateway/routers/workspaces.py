@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User, get_db_session
 from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice.review_api import ReviewDataService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
@@ -41,7 +42,7 @@ from src.gateway.routers.workspaces_serializers import (
 from src.services.dashboard_service import DashboardService
 from src.services.execution_service import ExecutionService
 from src.services.feature_action_resolution_service import resolve_feature_action_state
-from src.services.prism_review_service import PrismReviewService
+from src.services.prism_review_projection import prism_review_item_projection
 from src.services.workspace_activity_service import WorkspaceActivityService
 from src.services.workspace_prism_service import WorkspacePrismService
 from src.services.workspace_summary_service import WorkspaceSummaryService
@@ -424,16 +425,19 @@ async def list_workspace_executions(
             user_id=str(current_user.id),
             limit=limit,
         )
-        review_service = PrismReviewService(db)
+        review_service = ReviewDataService(db, autocommit=False)
         serialized_items = []
         for item in items:
             serialized = serialize_execution_record(item)
-            serialized["review_items"] = (
-                await review_service.list_execution_review_item_projections(
-                    workspace_id=workspace_id,
-                    execution_id=str(item.id),
-                )
+            review_items = await review_service.list_items(
+                workspace_id=workspace_id,
+                execution_id=str(item.id),
+                target_domain="prism",
             )
+            serialized["review_items"] = [
+                prism_review_item_projection(review_item, execution_id=str(item.id))
+                for review_item in review_items
+            ]
             serialized_items.append(serialized)
     return WorkspaceExecutionsResponse(
         items=serialized_items,

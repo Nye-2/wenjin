@@ -457,6 +457,30 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return ReviewBatchDetailPayload.model_validate(data) if data is not None else None
 
+    async def list_review_items(
+        self,
+        *,
+        workspace_id: str | None = None,
+        execution_id: str | None = None,
+        target_domain: str | None = None,
+        target_kind: str | None = None,
+        status: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[ReviewItemPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/review/items",
+            params={
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+                "target_domain": target_domain,
+                "target_kind": target_kind,
+                "status": status,
+                "limit": limit,
+            },
+        )
+        return [ReviewItemPayload.model_validate(item) for item in payload["data"]]
+
     async def set_review_item_decision(
         self,
         item_id: str,

@@ -61,6 +61,28 @@ async def get_batch(
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
+@router.get("/items")
+async def list_items(
+    workspace_id: str | None = Query(default=None),
+    execution_id: str | None = Query(default=None),
+    target_domain: str | None = Query(default=None),
+    target_kind: str | None = Query(default=None),
+    status: list[str] | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceReviewService(uow.required_session, autocommit=False)
+    records = await service.list_items(
+        workspace_id=workspace_id,
+        execution_id=execution_id,
+        target_domain=target_domain,
+        target_kind=target_kind,
+        status=status,
+        limit=limit,
+    )
+    return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
 @router.patch("/items/{item_id}/decision")
 async def set_item_decision(
     item_id: str,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -54,6 +54,41 @@ class ReviewRepository:
             .where(ReviewItemRecord.batch_id == batch_id)
             .order_by(ReviewItemRecord.sort_order.asc(), ReviewItemRecord.created_at.asc())
         )
+        return list(result.scalars().all())
+
+    async def list_items_filtered(
+        self,
+        *,
+        workspace_id: str | None = None,
+        execution_id: str | None = None,
+        target_domain: str | None = None,
+        target_kind: str | None = None,
+        status: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[ReviewItemRecord]:
+        query = (
+            select(ReviewItemRecord)
+            .join(ReviewBatchRecord, ReviewBatchRecord.id == ReviewItemRecord.batch_id)
+            .order_by(
+                func.coalesce(
+                    ReviewItemRecord.applied_at,
+                    ReviewItemRecord.updated_at,
+                    ReviewItemRecord.created_at,
+                ).desc()
+            )
+            .limit(limit)
+        )
+        if workspace_id is not None:
+            query = query.where(ReviewItemRecord.workspace_id == workspace_id)
+        if execution_id is not None:
+            query = query.where(ReviewBatchRecord.execution_id == execution_id)
+        if target_domain is not None:
+            query = query.where(ReviewItemRecord.target_domain == target_domain)
+        if target_kind is not None:
+            query = query.where(ReviewItemRecord.target_kind == target_kind)
+        if status is not None:
+            query = query.where(ReviewItemRecord.status.in_(status))
+        result = await self.session.execute(query)
         return list(result.scalars().all())
 
     async def list_batches(

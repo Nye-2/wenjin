@@ -3,11 +3,10 @@
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Thread
-from src.database.models.prism import PrismReviewItem
 from src.dataservice.asset_api import AssetDataService, WorkspaceAssetProjection
 from src.dataservice.conversation_api import ConversationDataService
 from src.dataservice.execution_api import (
@@ -15,6 +14,7 @@ from src.dataservice.execution_api import (
     ExecutionNodeProjection,
     ExecutionRecordProjection,
 )
+from src.dataservice.review_api import ReviewDataService, ReviewItemProjection
 from src.services.thread_billing import (
     combine_token_usage,
     extract_persisted_message_usage,
@@ -49,6 +49,7 @@ class WorkspaceActivityService:
         self._conversation = ConversationDataService(db, autocommit=False)
         self._execution = ExecutionDataService(db, autocommit=False)
         self._assets = AssetDataService(db, autocommit=False)
+        self._review = ReviewDataService(db, autocommit=False)
 
     async def get_activity(
         self,
@@ -135,42 +136,59 @@ class WorkspaceActivityService:
         *,
         limit: int,
     ) -> list[dict[str, Any]]:
-        result = await self.db.execute(
-            select(PrismReviewItem)
-            .where(PrismReviewItem.workspace_id == workspace_id)
-            .order_by(
-                func.coalesce(
-                    PrismReviewItem.applied_at,
-                    PrismReviewItem.updated_at,
-                    PrismReviewItem.created_at,
-                ).desc()
-            )
-            .limit(limit)
+        items = await self._review.list_items(
+            workspace_id=workspace_id,
+            target_domain="prism",
+            limit=limit,
         )
         return [
             self._prism_review_record_to_activity(record)
-            for record in result.scalars().all()
+            for record in items
         ]
 
     def _prism_review_record_to_activity(
         self,
-        record: PrismReviewItem,
+        record: ReviewItemProjection,
     ) -> dict[str, Any]:
         occurred_at = record.applied_at or record.updated_at or record.created_at
+        target_ref = dict(record.target_ref_json or {})
+        payload = dict(record.payload_json or {})
+        preview = dict(record.preview_json or {})
+        provenance = dict(record.provenance_json or {})
+        logical_key = (
+            target_ref.get("logical_key")
+            or payload.get("logical_key")
+            or preview.get("logical_key")
+            or record.source_item_id
+            or record.id
+        )
+        target_file_path = (
+            target_ref.get("file_path")
+            or target_ref.get("path")
+            or payload.get("path")
+            or preview.get("path")
+        )
+        latex_project_id = (
+            target_ref.get("latex_project_id")
+            or target_ref.get("project_id")
+            or payload.get("latex_project_id")
+            or payload.get("project_id")
+            or ""
+        )
         return build_prism_review_activity_item(
             review_item_id=str(record.id),
             workspace_id=str(record.workspace_id),
-            latex_project_id=str(record.latex_project_id),
-            logical_key=str(record.logical_key),
+            latex_project_id=str(latex_project_id),
+            logical_key=str(logical_key),
             title=record.title,
             summary=record.summary,
             status=record.status,
-            source_execution_id=record.source_execution_id,
-            source_task_id=record.source_task_id,
+            source_execution_id=provenance.get("execution_id") or payload.get("source_execution_id"),
+            source_task_id=provenance.get("task_id") or payload.get("source_task_id"),
             target_kind=record.target_kind,
-            target_file_path=record.target_file_path,
-            target_room=record.target_room,
-            target_item_id=record.target_item_id,
+            target_file_path=str(target_file_path) if target_file_path else None,
+            target_room=target_ref.get("room"),
+            target_item_id=target_ref.get("item_id"),
             occurred_at=occurred_at,
             created_at=record.created_at,
             updated_at=record.updated_at,

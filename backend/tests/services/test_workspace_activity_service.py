@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,6 +11,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionNodeProjection,
     ExecutionRecordProjection,
 )
+from src.dataservice.domains.review.contracts import ReviewItemProjection
 from src.services.workspace_activity_contracts import (
     build_prism_review_activity_item,
     build_subagent_activity_item,
@@ -225,30 +226,39 @@ async def test_get_prism_review_activity_reads_persisted_items() -> None:
     db = AsyncMock()
     service = WorkspaceActivityService(db)
     now = datetime.now(UTC)
-    record = SimpleNamespace(
+    record = ReviewItemProjection(
         id="review-1",
+        batch_id="batch-1",
         workspace_id="ws-1",
-        latex_project_id="latex-1",
-        logical_key="section:intro",
-        source_execution_id="exec-1",
-        source_task_id="task-1",
+        source_item_id="section:intro",
+        item_kind="file_change",
+        target_domain="prism",
         target_kind="prism_file_change",
-        target_file_path="sections/intro.tex",
-        target_room=None,
-        target_item_id=None,
+        target_ref_json={
+            "latex_project_id": "latex-1",
+            "logical_key": "section:intro",
+            "file_path": "sections/intro.tex",
+        },
         title="sections/intro.tex",
         summary="Tighten introduction",
         status="rejected",
+        payload_json={"source_execution_id": "exec-1", "source_task_id": "task-1"},
+        preview_json={},
+        provenance_json={},
+        sort_order=0,
         created_at=now - timedelta(minutes=5),
         updated_at=now,
         applied_at=None,
     )
-    db.execute.return_value = MagicMock(
-        scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[record])))
-    )
+    service._review.list_items = AsyncMock(return_value=[record])
 
     items = await service._get_prism_review_activity("ws-1", limit=10)
 
+    service._review.list_items.assert_awaited_once_with(
+        workspace_id="ws-1",
+        target_domain="prism",
+        limit=10,
+    )
     assert len(items) == 1
     assert items[0]["id"] == "prism_review:review-1"
     assert items[0]["kind"] == "prism_review"

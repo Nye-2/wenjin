@@ -124,6 +124,28 @@ class DataServiceReviewService:
             )
         ]
 
+    async def list_items(
+        self,
+        *,
+        workspace_id: str | None = None,
+        execution_id: str | None = None,
+        target_domain: str | None = None,
+        target_kind: str | None = None,
+        status: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[ReviewItemProjection]:
+        return [
+            item_to_projection(record)
+            for record in await self.repository.list_items_filtered(
+                workspace_id=workspace_id,
+                execution_id=execution_id,
+                target_domain=target_domain,
+                target_kind=target_kind,
+                status=status,
+                limit=limit,
+            )
+        ]
+
     async def set_item_decision(
         self,
         item_id: str,

@@ -910,6 +910,8 @@ Implementation status:
 - `services/workspace_activity_service.py` now builds artifact activity from `AssetDataService` / `workspace_assets` instead of querying the legacy `artifacts` table.
 - `services/execution_service.py` now delegates execution-node create/update/find operations and interrupted-execution reconciliation to `ExecutionDataService`; internal DataService routes and typed client contracts expose node get/find/upsert/patch and reconciliation commands for future split deployment.
 - Admin analytics execution DAU/WAU and execution stats now read from `ExecutionDataService`; dashboard feature running-count/latest-status helpers also read through `ExecutionDataService`.
+- `ReviewDataService` now exposes filtered review-item listing across in-process, internal HTTP, and typed client boundaries. Workspace activity Prism review cards, workspace execution review summaries, and Lead runtime completion reports now read Prism review items from canonical `review_items` instead of direct `prism_review_items` queries.
+- Remaining Prism review debt is now localized to legacy LaTeX adapter apply/reject/defer/revert endpoints and `WorkspacePrismService` surface assembly.
 - Verification after the execution-record/read and execution-node slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1923 backend tests.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.

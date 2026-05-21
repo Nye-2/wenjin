@@ -1081,6 +1081,8 @@ Implementation status as of 2026-05-21:
 - Process-restart reconciliation for stale `pending` / `running` / `cancelling` executions is now an Execution DataService aggregate command instead of a runtime-side direct ORM mutation.
 - Admin analytics execution DAU/WAU and execution stats now read from Execution DataService aggregate methods. Dashboard feature running-count/latest-status helpers also read through Execution DataService instead of querying `executions` directly.
 - Runtime code outside DataService/database ownership packages is guarded from importing `ExecutionRecord` and `ExecutionNodeRecord`.
+- Review aggregate item listing now supports workspace/execution/target filters through in-process DataService, internal DataService routes, and typed client contracts. Workspace activity Prism review cards, workspace execution review summaries, and Lead runtime completion reports now read execution-produced Prism review items from canonical `review_items` instead of the legacy `prism_review_items` table.
+- Remaining Prism review debt is concentrated in the LaTeX adapter apply/reject/defer/revert endpoints and `WorkspacePrismService` surface construction; those still use the legacy `PrismReviewService` until the Prism action contract is fully moved to review handlers and Prism file-version commands.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
 - Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1923 backend tests.
 
