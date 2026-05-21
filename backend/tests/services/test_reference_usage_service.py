@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.database import ReferenceLibraryStatus
-from src.services.references import ReferenceUsageService
+from src.dataservice.source_api import SourceCitationUsageCreateCommand, SourceDataService
 from src.services.references.utils import extract_citation_keys_from_payload
 
 
@@ -18,57 +18,67 @@ def _execute_result(values: list[object]) -> MagicMock:
 
 @pytest.mark.asyncio
 async def test_record_usage_can_record_access_without_marking_used_in_draft() -> None:
-    reference = SimpleNamespace(
+    source = SimpleNamespace(
         id="ref-1",
         citation_key="smith2020",
         library_status=ReferenceLibraryStatus.INCLUDED,
+        is_deleted=False,
     )
     db = MagicMock()
-    db.execute = AsyncMock(return_value=_execute_result([reference]))
+    db.execute = AsyncMock(return_value=_execute_result([source]))
     db.commit = AsyncMock()
 
-    result = await ReferenceUsageService(db).record_usage(
-        workspace_id="ws-1",
-        reference_ids=["ref-1"],
-        outline_node_id="node-1",
-        text_unit_id="unit-1",
-        usage_type="background",
-        mark_used_in_draft=False,
+    result = await SourceDataService(db).record_citation_usage(
+        SourceCitationUsageCreateCommand(
+            workspace_id="ws-1",
+            citation_keys=["smith2020"],
+            target_domain="reference_library",
+            target_kind="source_text_unit",
+            target_id="unit-1",
+            target_ref_json={
+                "outline_node_id": "node-1",
+                "text_unit_id": "unit-1",
+            },
+            usage_type="background",
+            mark_used_in_draft=False,
+        )
     )
 
-    assert result["recorded"] == 1
-    assert reference.library_status == ReferenceLibraryStatus.INCLUDED
-    event = db.add.call_args.args[0]
-    assert event.outline_node_id == "node-1"
-    assert event.text_unit_id == "unit-1"
-    assert event.citation_key == "smith2020"
+    assert result.recorded == 1
+    assert result.source_ids == ["ref-1"]
+    assert source.library_status == ReferenceLibraryStatus.INCLUDED
+    link = db.add.call_args.args[0]
+    assert link.source_id == "ref-1"
+    assert link.target_domain == "reference_library"
+    assert link.target_kind == "source_text_unit"
+    assert link.target_ref_json["outline_node_id"] == "node-1"
+    assert link.target_ref_json["text_unit_id"] == "unit-1"
+    assert link.citation_key == "smith2020"
 
 
 @pytest.mark.asyncio
 async def test_record_usage_by_citation_keys_marks_used_in_draft() -> None:
-    reference = SimpleNamespace(
+    source = SimpleNamespace(
         id="ref-1",
         citation_key="smith2020",
         library_status=ReferenceLibraryStatus.INCLUDED,
+        is_deleted=False,
     )
     db = MagicMock()
-    db.execute = AsyncMock(
-        side_effect=[
-            _execute_result([reference]),
-            _execute_result([reference]),
-        ]
-    )
+    db.execute = AsyncMock(return_value=_execute_result([source]))
     db.commit = AsyncMock()
 
-    result = await ReferenceUsageService(db).record_usage_by_citation_keys(
-        workspace_id="ws-1",
-        citation_keys=["smith2020"],
-        artifact_id="artifact-1",
+    result = await SourceDataService(db).record_citation_usage(
+        SourceCitationUsageCreateCommand(
+            workspace_id="ws-1",
+            citation_keys=["smith2020"],
+            artifact_id="artifact-1",
+        )
     )
 
-    assert result["recorded"] == 1
-    assert result["citation_keys"] == ["smith2020"]
-    assert reference.library_status == ReferenceLibraryStatus.USED_IN_DRAFT
+    assert result.recorded == 1
+    assert result.citation_keys == ["smith2020"]
+    assert source.library_status == "used_in_draft"
 
 
 def test_extract_citation_keys_from_nested_payload() -> None:

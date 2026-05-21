@@ -78,93 +78,62 @@ class CitationContextMiddleware(Middleware):
 
         Returns list of valid reference IDs.
         """
-        valid_reference_ids = []
+        valid_source_ids = []
 
+        if self.reference_service is None:
+            return []
+        list_sources = getattr(self.reference_service, "list_sources", None)
+        if not callable(list_sources):
+            return []
         for citation in citations:
-            list_sources = getattr(self.reference_service, "list_sources", None)
-            search_in_workspace = getattr(self.reference_service, "search_in_workspace", None)
-            if callable(list_sources) and not callable(search_in_workspace):
-                references = await list_sources(
-                    workspace_id=workspace_id,
-                    query=citation,
-                    include_excluded=False,
-                    limit=1,
-                )
-            else:
-                # Legacy service path used only by tests and not by runtime injection.
-                references = await search_in_workspace(
-                    workspace_id=workspace_id,
-                    query=citation,
-                )
-            if references:
-                valid_reference_ids.append(str(references[0].id))
+            sources = await list_sources(
+                workspace_id=workspace_id,
+                query=citation,
+                include_excluded=False,
+                limit=1,
+            )
+            if sources:
+                valid_source_ids.append(str(sources[0].id))
 
-        return list(set(valid_reference_ids))
+        return list(set(valid_source_ids))
 
-    async def _record_reference_usage(
+    async def _record_source_usage(
         self,
         *,
         workspace_id: str,
-        reference_ids: list[str],
+        source_ids: list[str],
         citation_keys: list[str],
         content: str,
         state: ThreadState,
         config: RunnableConfig,
     ) -> None:
-        if not reference_ids or self.reference_service is None:
+        if not source_ids or self.reference_service is None:
             return
         source_recorder = getattr(self.reference_service, "record_citation_usage", None)
-        if source_recorder is not None:
-            configurable = config.get("configurable", {}) if isinstance(config, Mapping) else {}
-            if not isinstance(configurable, Mapping):
-                configurable = {}
-            try:
-                await source_recorder(
-                    SourceCitationUsageCreateCommand(
-                        workspace_id=workspace_id,
-                        citation_keys=citation_keys,
-                        execution_id=(
-                            state.get("execution_id")
-                            or configurable.get("execution_id")
-                            or None
-                        ),
-                        task_id=state.get("task_id") or configurable.get("task_id") or None,
-                        artifact_id=state.get("artifact_id") or configurable.get("artifact_id") or None,
-                        target_section=state.get("current_skill") or configurable.get("skill_id") or None,
-                        generated_text=content[:4000],
-                    )
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to record Source citation usage for workspace %s",
-                    workspace_id,
-                    exc_info=True,
-                )
-            return
-
-        recorder = getattr(self.reference_service, "record_reference_usage", None)
-        if recorder is None:
+        if source_recorder is None:
             return
         configurable = config.get("configurable", {}) if isinstance(config, Mapping) else {}
         if not isinstance(configurable, Mapping):
             configurable = {}
         try:
-            await recorder(
-                workspace_id=workspace_id,
-                reference_ids=reference_ids,
-                execution_id=(
-                    state.get("execution_id")
-                    or configurable.get("execution_id")
-                    or None
-                ),
-                task_id=state.get("task_id") or configurable.get("task_id") or None,
-                artifact_id=state.get("artifact_id") or configurable.get("artifact_id") or None,
-                target_section=state.get("current_skill") or configurable.get("skill_id") or None,
-                generated_text=content[:4000],
+            await source_recorder(
+                SourceCitationUsageCreateCommand(
+                    workspace_id=workspace_id,
+                    citation_keys=citation_keys,
+                    execution_id=(
+                        state.get("execution_id")
+                        or configurable.get("execution_id")
+                        or None
+                    ),
+                    task_id=state.get("task_id") or configurable.get("task_id") or None,
+                    artifact_id=state.get("artifact_id") or configurable.get("artifact_id") or None,
+                    target_section=state.get("current_skill") or configurable.get("skill_id") or None,
+                    generated_text=content[:4000],
+                )
             )
         except Exception:
             logger.warning(
-                "Failed to record reference usage for workspace %s",
+                "Failed to record Source citation usage for workspace %s",
                 workspace_id,
                 exc_info=True,
             )
@@ -198,10 +167,10 @@ class CitationContextMiddleware(Middleware):
             return dict(state)
 
         # Validate citations
-        valid_reference_ids = await self._validate_citations(citations, workspace_id)
-        await self._record_reference_usage(
+        valid_source_ids = await self._validate_citations(citations, workspace_id)
+        await self._record_source_usage(
             workspace_id=workspace_id,
-            reference_ids=valid_reference_ids,
+            source_ids=valid_source_ids,
             citation_keys=citations,
             content=content,
             state=state,
@@ -210,7 +179,7 @@ class CitationContextMiddleware(Middleware):
 
         # Update state
         existing_cited = list(state.get("cited_references", []))
-        new_cited = list(dict.fromkeys(existing_cited + valid_reference_ids))
+        new_cited = list(dict.fromkeys(existing_cited + valid_source_ids))
 
         return {
             **state,

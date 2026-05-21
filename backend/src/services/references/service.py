@@ -16,7 +16,6 @@ from src.academic.citation.bibtex.parser import BibTeXParser
 from src.academic.literature.search_service import LiteratureSearchService
 from src.database import (
     Artifact,
-    ReferenceAcceptedStatus,
     ReferenceAsset,
     ReferenceAssetType,
     ReferenceBibtexScope,
@@ -32,7 +31,6 @@ from src.database import (
     ReferenceTextUnit,
     ReferenceTextUnitType,
     ReferenceUsageEvent,
-    ReferenceUsageType,
     Workspace,
     WorkspaceReference,
 )
@@ -657,41 +655,6 @@ class WorkspaceReferenceService:
         if read_status is not None:
             updates["read_status"] = _enum_value(read_status)
         return await self.update_reference(workspace_id, reference_id, **updates)
-
-    async def record_reference_usage(
-        self,
-        *,
-        workspace_id: str,
-        reference_ids: Sequence[str],
-        outline_node_id: str | None = None,
-        text_unit_id: str | None = None,
-        execution_id: str | None = None,
-        task_id: str | None = None,
-        artifact_id: str | None = None,
-        latex_project_id: str | None = None,
-        target_section: str | None = None,
-        claim_text: str | None = None,
-        generated_text: str | None = None,
-        usage_type: ReferenceUsageType | str = ReferenceUsageType.CITATION_ONLY,
-        accepted_status: ReferenceAcceptedStatus | str = ReferenceAcceptedStatus.PENDING,
-        mark_used_in_draft: bool = True,
-    ) -> dict[str, Any]:
-        return await ReferenceUsageService(self.db).record_usage(
-            workspace_id=workspace_id,
-            reference_ids=reference_ids,
-            outline_node_id=outline_node_id,
-            text_unit_id=text_unit_id,
-            execution_id=execution_id,
-            task_id=task_id,
-            artifact_id=artifact_id,
-            latex_project_id=latex_project_id,
-            target_section=target_section,
-            claim_text=claim_text,
-            generated_text=generated_text,
-            usage_type=usage_type,
-            accepted_status=accepted_status,
-            mark_used_in_draft=mark_used_in_draft,
-        )
 
     async def soft_delete(self, workspace_id: str, reference_id: str) -> bool:
         reference = await self.get(workspace_id, reference_id)
@@ -2086,144 +2049,6 @@ class ReferenceIndexService:
             "content": content["content"] if content else "",
             "units": content["units"] if content else [],
         }
-
-
-class ReferenceUsageService:
-    """Persist writing-time reference usage and keep citation state queryable."""
-
-    def __init__(self, db: AsyncSession) -> None:
-        self.db = db
-
-    async def record_usage(
-        self,
-        *,
-        workspace_id: str,
-        reference_ids: Sequence[str],
-        outline_node_id: str | None = None,
-        text_unit_id: str | None = None,
-        execution_id: str | None = None,
-        task_id: str | None = None,
-        artifact_id: str | None = None,
-        latex_project_id: str | None = None,
-        target_section: str | None = None,
-        claim_text: str | None = None,
-        generated_text: str | None = None,
-        usage_type: ReferenceUsageType | str = ReferenceUsageType.CITATION_ONLY,
-        accepted_status: ReferenceAcceptedStatus | str = ReferenceAcceptedStatus.PENDING,
-        mark_used_in_draft: bool = True,
-        commit: bool = True,
-    ) -> dict[str, Any]:
-        unique_ids = [
-            item
-            for item in dict.fromkeys(str(reference_id).strip() for reference_id in reference_ids)
-            if item
-        ]
-        if not workspace_id or not unique_ids:
-            return {"recorded": 0, "reference_ids": []}
-
-        result = await self.db.execute(
-            select(WorkspaceReference).where(
-                WorkspaceReference.workspace_id == workspace_id,
-                WorkspaceReference.id.in_(unique_ids),
-                WorkspaceReference.is_deleted.is_(False),
-                WorkspaceReference.library_status != ReferenceLibraryStatus.EXCLUDED,
-            )
-        )
-        references = list(result.scalars().all())
-        recorded_ids: list[str] = []
-        resolved_usage_type = _coerce_enum_value(
-            ReferenceUsageType,
-            usage_type,
-            "usage_type",
-        )
-        resolved_accepted_status = _coerce_enum_value(
-            ReferenceAcceptedStatus,
-            accepted_status,
-            "accepted_status",
-        )
-        for reference in references:
-            reference_id = str(reference.id)
-            self.db.add(
-                ReferenceUsageEvent(
-                    workspace_id=workspace_id,
-                    reference_id=reference_id,
-                    outline_node_id=outline_node_id,
-                    text_unit_id=text_unit_id,
-                    execution_id=execution_id,
-                    task_id=task_id,
-                    artifact_id=artifact_id,
-                    latex_project_id=latex_project_id,
-                    target_section=target_section,
-                    claim_text=claim_text,
-                    generated_text=generated_text,
-                    citation_key=reference.citation_key,
-                    usage_type=resolved_usage_type,
-                    accepted_status=resolved_accepted_status,
-                )
-            )
-            if mark_used_in_draft and _enum_value(reference.library_status) in {
-                ReferenceLibraryStatus.CANDIDATE.value,
-                ReferenceLibraryStatus.INCLUDED.value,
-            }:
-                reference.library_status = ReferenceLibraryStatus.USED_IN_DRAFT
-            recorded_ids.append(reference_id)
-
-        if commit:
-            await self.db.commit()
-        return {"recorded": len(recorded_ids), "reference_ids": recorded_ids}
-
-    async def record_usage_by_citation_keys(
-        self,
-        *,
-        workspace_id: str,
-        citation_keys: Sequence[str],
-        execution_id: str | None = None,
-        task_id: str | None = None,
-        artifact_id: str | None = None,
-        latex_project_id: str | None = None,
-        target_section: str | None = None,
-        claim_text: str | None = None,
-        generated_text: str | None = None,
-        usage_type: ReferenceUsageType | str = ReferenceUsageType.CITATION_ONLY,
-        accepted_status: ReferenceAcceptedStatus | str = ReferenceAcceptedStatus.PENDING,
-        mark_used_in_draft: bool = True,
-        commit: bool = True,
-    ) -> dict[str, Any]:
-        unique_keys = [
-            key
-            for key in dict.fromkeys(str(item).strip() for item in citation_keys)
-            if key
-        ]
-        if not workspace_id or not unique_keys:
-            return {"recorded": 0, "reference_ids": [], "citation_keys": []}
-        result = await self.db.execute(
-            select(WorkspaceReference).where(
-                WorkspaceReference.workspace_id == workspace_id,
-                WorkspaceReference.citation_key.in_(unique_keys),
-                WorkspaceReference.is_deleted.is_(False),
-                WorkspaceReference.library_status != ReferenceLibraryStatus.EXCLUDED,
-            )
-        )
-        references = list(result.scalars().all())
-        usage_result = await self.record_usage(
-            workspace_id=workspace_id,
-            reference_ids=[str(reference.id) for reference in references],
-            execution_id=execution_id,
-            task_id=task_id,
-            artifact_id=artifact_id,
-            latex_project_id=latex_project_id,
-            target_section=target_section,
-            claim_text=claim_text,
-            generated_text=generated_text,
-            usage_type=usage_type,
-            accepted_status=accepted_status,
-            mark_used_in_draft=mark_used_in_draft,
-            commit=commit,
-        )
-        usage_result["citation_keys"] = [
-            str(reference.citation_key) for reference in references
-        ]
-        return usage_result
 
 
 _LATEX_CITATION_RE = re.compile(r"\\cite[a-zA-Z]*(?:\[[^\]]*\])*\{([^{}]*)\}")

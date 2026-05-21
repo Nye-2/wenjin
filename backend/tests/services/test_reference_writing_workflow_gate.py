@@ -8,11 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.database import ReferenceEvidenceLevel, ReferenceLibraryStatus
-from src.dataservice.source_api import SourceDataService, SourceEvidencePackCreateCommand
-from src.services.references import (
-    ReferenceBibTeXService,
-    ReferenceUsageService,
+from src.dataservice.source_api import (
+    SourceCitationUsageCreateCommand,
+    SourceDataService,
+    SourceEvidencePackCreateCommand,
 )
+from src.services.references import ReferenceBibTeXService
 
 
 def _execute_result(values: list[object]) -> MagicMock:
@@ -99,7 +100,6 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
             _execute_result([]),
             _execute_result([]),
             _execute_result([reference]),
-            _execute_result([reference]),
             _execute_result([reference, excluded_reference]),
             _execute_result([reference]),
             _execute_result([reference]),
@@ -121,24 +121,28 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
     assert evidence_pack.library_outline[0]["reference"]["citation_key"] == "lovelace2026"
     assert evidence_pack.selected_units == []
 
-    usage_result = await ReferenceUsageService(db).record_usage_by_citation_keys(
-        workspace_id="ws-1",
-        citation_keys=["lovelace2026"],
-        latex_project_id="latex-1",
-        target_section="Introduction",
-        generated_text=r"Grounded claim \cite{lovelace2026}.",
+    usage_result = await SourceDataService(db).record_citation_usage(
+        SourceCitationUsageCreateCommand(
+            workspace_id="ws-1",
+            citation_keys=["lovelace2026"],
+            latex_project_id="latex-1",
+            target_id="latex-1",
+            target_section="Introduction",
+            generated_text=r"Grounded claim \cite{lovelace2026}.",
+        )
     )
 
-    assert usage_result == {
-        "recorded": 1,
-        "reference_ids": ["ref-1"],
-        "citation_keys": ["lovelace2026"],
-    }
-    assert reference.library_status == ReferenceLibraryStatus.USED_IN_DRAFT
-    usage_event = db.add.call_args.args[0]
-    assert usage_event.citation_key == "lovelace2026"
-    assert usage_event.latex_project_id == "latex-1"
-    assert usage_event.target_section == "Introduction"
+    assert usage_result.recorded == 1
+    assert usage_result.source_ids == ["ref-1"]
+    assert usage_result.citation_keys == ["lovelace2026"]
+    assert reference.library_status == "used_in_draft"
+    usage_link = db.add.call_args.args[0]
+    assert usage_link.citation_key == "lovelace2026"
+    assert usage_link.target_domain == "prism"
+    assert usage_link.target_kind == "prism_file"
+    assert usage_link.target_id == "latex-1"
+    assert usage_link.target_ref_json["latex_project_id"] == "latex-1"
+    assert usage_link.target_ref_json["target_section"] == "Introduction"
 
     validation = await ReferenceBibTeXService(db).validate_citations(
         workspace_id="ws-1",

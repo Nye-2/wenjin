@@ -61,7 +61,7 @@ class TestCitationValidation:
         result = await middleware.after_model(state, {})
         assert result == dict(state)
 
-    async def test_after_model_records_reference_usage(self):
+    async def test_after_model_ignores_legacy_reference_usage_contract(self):
         class _Reference:
             id = "reference-1"
 
@@ -79,13 +79,9 @@ class TestCitationValidation:
             {"configurable": {"execution_id": "exec-1", "task_id": "task-1"}},
         )
 
-        assert result["cited_references"] == ["reference-1"]
-        reference_service.record_reference_usage.assert_awaited_once()
-        kwargs = reference_service.record_reference_usage.await_args.kwargs
-        assert kwargs["workspace_id"] == "ws-1"
-        assert kwargs["reference_ids"] == ["reference-1"]
-        assert kwargs["execution_id"] == "exec-1"
-        assert kwargs["task_id"] == "task-1"
+        assert result["cited_references"] == []
+        reference_service.search_in_workspace.assert_not_awaited()
+        reference_service.record_reference_usage.assert_not_awaited()
 
     async def test_after_model_records_source_citation_usage(self):
         class _Source:
