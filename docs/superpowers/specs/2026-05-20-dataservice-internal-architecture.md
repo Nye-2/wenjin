@@ -309,8 +309,8 @@ Current scattered logic:
 - `execution_service.py`
 - `execution/engine.py`
 - `compute/projection_service.py`
-- `workspace_run_service.py`
-- `run_history_service.py`
+- former `workspace_run_service.py` runtime path
+- former `run_history_service.py` room facade
 - `task_records` product reads
 
 Target commands:
@@ -341,6 +341,7 @@ Implementation checkpoint, 2026-05-21:
 - Subagent lifecycle is now represented through `execution_nodes` plus ordered `execution_events`; `subagent_task_records` is no longer read by user-facing projections.
 - Compute projection, workspace activity, user dashboard, and admin dashboard read execution/node projections instead of `task_records` and `subagent_task_records`.
 - Run History reads are derived from `executions` through `ExecutionRunHistoryProjection`; `compute_sessions` remains a rebuildable UI shell/cache and not a business lifecycle source.
+- Workspace runs room endpoints now read `ExecutionDataService.list_run_history()` / `get_run_history_item()` directly; the former `RunHistoryService` room facade has been removed from runtime and tests.
 
 ### 6.4 Review Domain
 

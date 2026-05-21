@@ -22,11 +22,11 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_db, get_workspace_service
 
 if TYPE_CHECKING:
+    from src.dataservice.execution_api import ExecutionDataService
     from src.services.rooms.decisions_service import DecisionsService
     from src.services.rooms.documents_service import DocumentsService
     from src.services.rooms.library_service import LibraryService
     from src.services.rooms.memory_service import MemoryService
-    from src.services.rooms.run_history_service import RunHistoryService
     from src.services.rooms.settings_service import WorkspaceSettingsService
     from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 
@@ -91,10 +91,10 @@ def _memory_service(db: AsyncSession) -> MemoryService:
     return MemoryService(db)
 
 
-def _run_history_service(db: AsyncSession) -> RunHistoryService:
-    from src.services.rooms.run_history_service import RunHistoryService
+def _execution_history_service(db: AsyncSession) -> ExecutionDataService:
+    from src.dataservice.execution_api import ExecutionDataService
 
-    return RunHistoryService(db)
+    return ExecutionDataService(db)
 
 
 def _workspace_tasks_service(db: AsyncSession) -> WorkspaceTasksService:
@@ -508,7 +508,7 @@ async def list_runs(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    runs = await _run_history_service(db).list(ws_id, limit=limit)
+    runs = await _execution_history_service(db).list_run_history(workspace_id=ws_id, limit=limit)
     return {"items": [_row_to_dict(r) for r in runs], "count": len(runs)}
 
 
@@ -521,7 +521,7 @@ async def get_run(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    run = await _run_history_service(db).get(ws_id, run_id)
+    run = await _execution_history_service(db).get_run_history_item(workspace_id=ws_id, run_id=run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return _row_to_dict(run)

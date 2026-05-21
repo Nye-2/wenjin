@@ -336,8 +336,8 @@ class TestRunsRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.list = AsyncMock(return_value=[fake_run])
-            mp.setattr(workspace_rooms, "_run_history_service", lambda db: mock_svc)
+            mock_svc.list_run_history = AsyncMock(return_value=[fake_run])
+            mp.setattr(workspace_rooms, "_execution_history_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/runs")
 
         assert resp.status_code == 200
@@ -349,8 +349,8 @@ class TestRunsRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.get = AsyncMock(return_value=None)
-            mp.setattr(workspace_rooms, "_run_history_service", lambda db: mock_svc)
+            mock_svc.get_run_history_item = AsyncMock(return_value=None)
+            mp.setattr(workspace_rooms, "_execution_history_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/runs/nonexistent")
 
         assert resp.status_code == 404
