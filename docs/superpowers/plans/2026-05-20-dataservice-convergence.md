@@ -832,7 +832,7 @@ Steps:
 - [x] Enforce Python-only sandbox job contract.
 - [x] Ensure sandbox artifact creation also creates a pending review batch/item.
 - [x] Ensure sandbox policy blocks host/container/server control while allowing approved data/API/web workflows.
-- [ ] Commit `feat: add sandbox environment aggregate`.
+- [x] Commit `feat: add sandbox environment aggregate`.
 
 Implementation status:
 
@@ -864,7 +864,7 @@ Steps:
 - [x] Move all room query/write code into DataService room repository/service.
 - [x] Make candidate room writes go through `review_batches` / `review_items`.
 - [x] Replace `ExecutionCommitService` room writes with `ReviewBatchService.apply_many()`.
-- [ ] Commit `refactor: move workspace rooms aggregate into dataservice`.
+- [x] Commit `refactor: move workspace rooms aggregate into dataservice`.
 
 Implementation status:
 
