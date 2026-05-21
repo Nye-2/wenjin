@@ -117,3 +117,24 @@ def test_runtime_code_does_not_import_migrated_legacy_room_or_sandbox_models() -
                     if alias.name in MIGRATED_LEGACY_MODEL_MODULES:
                         violations.append(f"{relative} imports {alias.name}")
     assert not violations, "Runtime code imports migrated legacy models:\n" + "\n".join(violations)
+
+
+def test_runtime_code_does_not_access_thread_messages_json() -> None:
+    """Conversation messages must flow through DataService conversation projections."""
+
+    violations: list[str] = []
+    for path in _python_files(SRC_ROOT):
+        relative = path.relative_to(SRC_ROOT)
+        if relative.parts and relative.parts[0] in {"database", "dataservice", "dataservice_app"}:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "messages"
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "thread"
+            ):
+                violations.append(f"{relative}:{node.lineno} accesses thread.messages")
+
+    assert not violations, "Runtime code accesses legacy threads.messages JSON:\n" + "\n".join(violations)

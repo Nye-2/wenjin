@@ -1002,10 +1002,10 @@ Implementation status as of 2026-05-21:
 - Conversation/block first slice is implemented.
 - `061_dataservice_conversation_blocks.py` adds `thread_messages`, `message_blocks`, `tool_invocation_records`, and `tool_result_records`, then backfills existing `threads.messages` JSON into canonical message/block rows.
 - DataService conversation contracts preserve the canonical 7 block types: `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, and `tool_result`.
-- `ThreadService` now writes message appends and bridge rebuilds through the DataService conversation boundary while preserving `threads.messages` as the temporary response bridge.
+- `ThreadService` now writes message appends, attachment metadata updates, compaction, and rollback through the DataService conversation boundary without mutating `threads.messages`.
 - Thread detail/state/history now read through the DataService conversation projection boundary instead of directly reading `threads.messages`.
 - Chat Agent message building, context compaction, interruption rollback, attachment status updates, run wait payloads, and workspace activity feed now consume DataService conversation projections rather than `threads.messages`.
-- The remaining conversation step is bridge removal: `threads.messages` is still maintained only as a temporary JSON compatibility bridge for older response shapes and should be deleted after those compatibility consumers are removed.
+- Runtime code is guarded from accessing `thread.messages`; the remaining conversation storage step is a physical migration that drops or archives the legacy `threads.messages` column after deployment backup validation.
 
 ### Phase 3: Catalog And Execution Skeleton
 
@@ -1115,7 +1115,7 @@ Implementation status as of 2026-05-21:
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, workspace-run table drop, and Prism action-contract cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1934 backend tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` also pass.
+- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, workspace-run table drop, Prism action-contract cleanup, and conversation JSON-write removal slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1935 backend tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` also pass.
 
 ### Phase 4: Review Materialization
 

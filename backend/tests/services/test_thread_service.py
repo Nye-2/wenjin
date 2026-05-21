@@ -84,7 +84,6 @@ class TestThreadService:
         assert thread.title == "Draft thread"
         assert thread.model == "resolved-tool-model"
         assert thread.skill == "deep-research"
-        assert thread.messages == []
 
     @pytest.mark.asyncio
     async def test_create_thread_without_model_uses_resolved_default(self, service):
@@ -250,9 +249,10 @@ class TestThreadService:
             )
 
     @pytest.mark.asyncio
-    async def test_add_message_appends_json_history(self, service, mock_db_session):
-        """Message append reassigns JSON history so ORM persistence can detect it."""
+    async def test_add_message_writes_conversation_rows_not_json_history(self, service, mock_db_session):
+        """Message append updates thread summary and delegates canonical storage to DataService."""
         thread = _make_thread()
+        service._conversation.append_thread_message = AsyncMock()  # noqa: SLF001
 
         message = await service.add_message(
             thread,
@@ -262,11 +262,14 @@ class TestThreadService:
 
         assert message["role"] == "user"
         assert message["content"] == "Hello"
-        assert len(thread.messages) == 1
-        assert thread.messages[0]["content"] == "Hello"
+        assert thread.messages == []
         assert thread.message_count == 1
         assert thread.last_message_role == "user"
         assert thread.last_message_preview == "Hello"
+        service._conversation.append_thread_message.assert_awaited_once()  # noqa: SLF001
+        _, stored_message = service._conversation.append_thread_message.await_args.args[:2]  # noqa: SLF001
+        assert stored_message["content"] == "Hello"
+        assert service._conversation.append_thread_message.await_args.kwargs["sequence_index"] == 0  # noqa: SLF001
         mock_db_session.commit.assert_awaited_once()
         mock_db_session.refresh.assert_awaited_once_with(thread)
 
@@ -278,7 +281,7 @@ class TestThreadService:
     ):
         """Extraction task state should be written back into the matching attachment."""
         thread = _make_thread()
-        thread.messages = [
+        source_messages = [
             {
                 "role": "user",
                 "content": "please read this paper",
@@ -298,6 +301,7 @@ class TestThreadService:
                 },
             }
         ]
+        service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         updated = await service.update_attachment_extraction_state(
             thread,
@@ -306,11 +310,12 @@ class TestThreadService:
             message="Paper extraction completed",
             progress=100,
             current_step="complete",
-            source_messages=thread.messages,
+            source_messages=source_messages,
         )
 
         assert updated is True
-        extraction = thread.messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]
+        stored_messages = service._conversation.replace_thread_messages.await_args.args[1]  # noqa: SLF001
+        extraction = stored_messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]
         assert extraction["status"] == "success"
         assert extraction["message"] == "Paper extraction completed"
         assert extraction["progress"] == 100
@@ -327,7 +332,7 @@ class TestThreadService:
         """Attachment state updates should use DataService projection messages by default."""
         thread = _make_thread()
         thread.messages = [{"role": "user", "content": "raw bridge"}]
-        service._conversation.list_bridge_messages = AsyncMock(  # noqa: SLF001
+        service._conversation.list_thread_messages = AsyncMock(  # noqa: SLF001
             return_value=[
                 {
                     "role": "user",
@@ -348,6 +353,7 @@ class TestThreadService:
                 }
             ]
         )
+        service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         updated = await service.update_attachment_extraction_state(
             thread,
@@ -356,12 +362,13 @@ class TestThreadService:
         )
 
         assert updated is True
-        assert thread.messages[0]["content"] == "canonical message"
+        stored_messages = service._conversation.replace_thread_messages.await_args.args[1]  # noqa: SLF001
+        assert stored_messages[0]["content"] == "canonical message"
         assert (
-            thread.messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]["status"]
+            stored_messages[0]["metadata"]["attachments"][0]["metadata"]["extraction"]["status"]
             == "success"
         )
-        service._conversation.list_bridge_messages.assert_awaited_once_with("thread-1")  # noqa: SLF001
+        service._conversation.list_thread_messages.assert_awaited_once_with("thread-1")  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_update_attachment_preprocess_state_updates_matching_attachment(
@@ -371,7 +378,7 @@ class TestThreadService:
     ):
         """Preprocess task state should be written back into matching attachments."""
         thread = _make_thread()
-        thread.messages = [
+        source_messages = [
             {
                 "role": "user",
                 "content": "please read this large pdf",
@@ -391,6 +398,7 @@ class TestThreadService:
                 },
             }
         ]
+        service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         updated = await service.update_attachment_preprocess_state(
             thread,
@@ -405,11 +413,12 @@ class TestThreadService:
             message="Document preprocessing completed",
             progress=100,
             current_step="complete",
-            source_messages=thread.messages,
+            source_messages=source_messages,
         )
 
         assert updated is True
-        attachment_metadata = thread.messages[0]["metadata"]["attachments"][0]["metadata"]
+        stored_messages = service._conversation.replace_thread_messages.await_args.args[1]  # noqa: SLF001
+        attachment_metadata = stored_messages[0]["metadata"]["attachments"][0]["metadata"]
         preprocess = attachment_metadata["preprocess"]
         assert preprocess["task_id"] == "task-preprocess-1"
         assert preprocess["status"] == "succeeded"
@@ -428,7 +437,7 @@ class TestThreadService:
     ):
         """Non-matching attachments should not trigger writes."""
         thread = _make_thread()
-        thread.messages = [
+        source_messages = [
             {
                 "role": "user",
                 "content": "hello",
@@ -453,7 +462,7 @@ class TestThreadService:
             task_id="task-paper-1",
             status="failed",
             error="boom",
-            source_messages=thread.messages,
+            source_messages=source_messages,
         )
 
         assert updated is False
@@ -467,29 +476,31 @@ class TestThreadService:
         mock_db_session,
     ):
         thread = _make_thread()
-        thread.messages = [
+        source_messages = [
             {"role": "user", "content": "old question", "timestamp": "2026-04-14T00:00:00+00:00"},
             {"role": "assistant", "content": "old answer", "timestamp": "2026-04-14T00:01:00+00:00"},
             {"role": "user", "content": "recent question", "timestamp": "2026-04-14T00:02:00+00:00"},
             {"role": "assistant", "content": "recent answer", "timestamp": "2026-04-14T00:03:00+00:00"},
         ]
         thread.message_count = 4
+        service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         compacted = await service.compact_messages(
             thread,
             summary="old exchange summary",
             keep_messages=2,
             timestamp=datetime(2026, 4, 14, tzinfo=UTC),
-            source_messages=thread.messages,
+            source_messages=source_messages,
         )
 
         assert compacted is True
-        assert len(thread.messages) == 3
-        assert thread.messages[0]["role"] == "system"
-        assert thread.messages[0]["metadata"]["type"] == "thread_compaction"
-        assert thread.messages[0]["metadata"]["compacted_message_count"] == 2
-        assert "old exchange summary" in thread.messages[0]["content"]
-        assert [message["content"] for message in thread.messages[1:]] == [
+        stored_messages = service._conversation.replace_thread_messages.await_args.args[1]  # noqa: SLF001
+        assert len(stored_messages) == 3
+        assert stored_messages[0]["role"] == "system"
+        assert stored_messages[0]["metadata"]["type"] == "thread_compaction"
+        assert stored_messages[0]["metadata"]["compacted_message_count"] == 2
+        assert "old exchange summary" in stored_messages[0]["content"]
+        assert [message["content"] for message in stored_messages[1:]] == [
             "recent question",
             "recent answer",
         ]
@@ -507,7 +518,7 @@ class TestThreadService:
     ):
         """Rollback should remove the most recent user message and refresh summary fields."""
         thread = _make_thread()
-        thread.messages = [
+        source_messages = [
             {
                 "role": "assistant",
                 "content": "previous answer",
@@ -522,16 +533,18 @@ class TestThreadService:
         thread.message_count = 2
         thread.last_message_role = "user"
         thread.last_message_preview = "new question"
+        service._conversation.replace_thread_messages = AsyncMock()  # noqa: SLF001
 
         rolled_back = await service.rollback_last_user_message(
             thread,
             expected_content="new question",
-            source_messages=thread.messages,
+            source_messages=source_messages,
         )
 
         assert rolled_back is True
-        assert len(thread.messages) == 1
-        assert thread.messages[0]["role"] == "assistant"
+        stored_messages = service._conversation.replace_thread_messages.await_args.args[1]  # noqa: SLF001
+        assert len(stored_messages) == 1
+        assert stored_messages[0]["role"] == "assistant"
         assert thread.message_count == 1
         assert thread.last_message_role == "assistant"
         assert thread.last_message_preview == "previous answer"
@@ -546,7 +559,7 @@ class TestThreadService:
     ):
         """Rollback should be a no-op when trailing message does not match request content."""
         thread = _make_thread()
-        thread.messages = [
+        source_messages = [
             {
                 "role": "assistant",
                 "content": "already done",
@@ -560,11 +573,10 @@ class TestThreadService:
         rolled_back = await service.rollback_last_user_message(
             thread,
             expected_content="new question",
-            source_messages=thread.messages,
+            source_messages=source_messages,
         )
 
         assert rolled_back is False
-        assert len(thread.messages) == 1
         assert thread.message_count == 1
         mock_db_session.commit.assert_not_awaited()
         mock_db_session.refresh.assert_not_awaited()
@@ -573,14 +585,14 @@ class TestThreadService:
     async def test_list_thread_messages_reads_conversation_projection(self, service):
         """Thread API readers should use DataService conversation rows."""
         thread = _make_thread()
-        service._conversation.list_bridge_messages = AsyncMock(  # noqa: SLF001
+        service._conversation.list_thread_messages = AsyncMock(  # noqa: SLF001
             return_value=[{"role": "assistant", "content": "canonical"}]
         )
 
         messages = await service.list_thread_messages(thread)
 
         assert messages == [{"role": "assistant", "content": "canonical"}]
-        service._conversation.list_bridge_messages.assert_awaited_once_with("thread-1")  # noqa: SLF001
+        service._conversation.list_thread_messages.assert_awaited_once_with("thread-1")  # noqa: SLF001
 
     @pytest.mark.asyncio
     async def test_set_title_if_empty_only_updates_opening_exchange(

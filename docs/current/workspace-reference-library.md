@@ -120,7 +120,7 @@ API 面：
 - Legacy reference ORM table models 已删除；`Reference*` enum 仅作为 API/status 校验类型保留。
 - Prism context rail 已能展示 canonical source links，并 deep-link 回 Library / Documents。
 - Release gate 覆盖 Semantic Scholar verified import、上传预处理、Reference writing workflow、Prism Review workflow、Reference Import Service、前端 action contract。
-- Backend verification：`cd backend && .venv/bin/python -m pytest tests/ -q` 通过，`1934 passed`。
+- Backend verification：`cd backend && .venv/bin/python -m pytest tests/ -q` 通过，`1935 passed`。
 
 ## 7. Workflow Gate
 

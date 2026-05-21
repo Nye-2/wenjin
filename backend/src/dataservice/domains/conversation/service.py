@@ -80,7 +80,7 @@ class DataServiceConversationService:
         await self._finish()
         return created
 
-    async def append_bridge_message(
+    async def append_thread_message(
         self,
         thread: Thread,
         message: Mapping[str, Any],
@@ -94,13 +94,17 @@ class DataServiceConversationService:
         )
         return await self.append_message(command)
 
-    async def rebuild_thread_bridge(self, thread: Thread) -> list[ThreadMessage]:
+    async def replace_thread_messages(
+        self,
+        thread: Thread,
+        messages: list[dict[str, Any]],
+    ) -> list[ThreadMessage]:
         return await self.rebuild_messages(
             ConversationMessagesRebuildCommand(
                 thread_id=str(thread.id),
                 user_id=str(thread.user_id),
                 workspace_id=str(thread.workspace_id) if thread.workspace_id else None,
-                messages=[message for message in list(thread.messages or []) if isinstance(message, dict)],
+                messages=[message for message in messages if isinstance(message, dict)],
             )
         )
 
@@ -115,8 +119,8 @@ class DataServiceConversationService:
             for message in messages
         ]
 
-    async def list_bridge_messages(self, thread_id: str) -> list[dict[str, Any]]:
-        """Project canonical conversation rows into the legacy API message shape."""
+    async def list_thread_messages(self, thread_id: str) -> list[dict[str, Any]]:
+        """Project canonical conversation rows into the public API message shape."""
         return [
             self.to_bridge_message(record)
             for record in await self.list_message_records(thread_id)

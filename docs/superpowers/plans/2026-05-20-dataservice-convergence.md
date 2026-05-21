@@ -621,7 +621,7 @@ Steps:
 - [x] Route `ThreadService.add_message` / bridge rebuild paths through the DataService conversation boundary.
 - [x] Cut thread detail/state/history readers from `threads.messages` to DataService message projections.
 - [x] Cut Chat Agent runtime context, run wait views, workspace activity, compaction, rollback, and attachment status updates to DataService message projections.
-- [ ] Remove `threads.messages` bridge writes after message append, attachment metadata, compaction, and rollback consumers no longer require JSON response compatibility.
+- [x] Remove `threads.messages` bridge writes after message append, attachment metadata, compaction, and rollback consumers no longer require JSON response compatibility.
 - [x] Run thread/block protocol tests plus architecture guard.
 - [x] Commit `feat: add dataservice conversation blocks`.
 - [x] Commit `feat: read threads from dataservice conversation projection`.
@@ -901,6 +901,7 @@ Steps:
 Implementation status:
 
 - 2026-05-21: Projection cleanup slices are implemented for migrated room, sandbox, source/library, document-room, settings-room, legacy workspace-run, compute-session state, execution-record read projections, and execution-node lifecycle snapshots. Runtime code no longer imports `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, `LibraryItem`, `DocumentV2`, `WorkspaceSettings`, `WorkspaceRunRow`, `ComputeSessionRecord`, `ExecutionRecord`, or `ExecutionNodeRecord` legacy models directly outside DataService/database ownership packages.
+- `ThreadService` no longer writes `threads.messages` JSON for message append, attachment metadata updates, compaction, or rollback. It updates thread summary fields and writes/rebuilds canonical `thread_messages` / `message_blocks` through `ConversationDataService`; architecture guard coverage blocks runtime `thread.messages` access from returning.
 - `WorkspacePrismService` now reads decision and memory context through `RoomsDataService`; `services/rooms/sandbox_service.py` delegates environment state to `SandboxDataService`.
 - `services/rooms/library_service.py` delegates reference-library state to `SourceDataService`; `SourceDataService` now exposes source soft-delete for room delete flows.
 - `services/rooms/documents_service.py` delegates document room create/read/update/delete/version operations to `AssetDataService`; document room writes now create canonical `workspace_assets` rows instead of `documents_v2` rows.
@@ -942,11 +943,11 @@ Implementation status:
 - Alembic env no longer imports legacy reference/workspace-run ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `073_drop_legacy_workspace_run_table` as the single head.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
-- Verification after the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup and Prism action-contract cleanup slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1934 backend tests.
-- Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names; `WorkspaceRunRow` no longer exists in ORM metadata.
+- Verification after the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, Prism action-contract cleanup, and conversation JSON-write removal slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1935 backend tests.
+- Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names; `WorkspaceRunRow` no longer exists in ORM metadata. The guard also blocks runtime access to legacy `threads.messages` JSON.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Source-named gateway services (`SourceLibraryImportService`, `SourceBibliographyService`) delegate canonical business logic to DataService; no legacy reference service class aliases remain.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/services/test_latex_hardening.py tests/database/test_workspace_run_model.py tests/architecture/test_dataservice_boundaries.py -q` passes with 49 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1934 tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` pass.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py tests/services/test_thread_service.py tests/dataservice/test_conversation_domain.py tests/services/test_workspace_activity_service.py -q` passes with 44 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1935 tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` pass.
 
 ### Task 14: Final Drop/Archive Gate
 

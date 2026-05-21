@@ -89,16 +89,16 @@ async def test_append_message_materializes_ordered_blocks_and_tool_record() -> N
 
 
 @pytest.mark.asyncio
-async def test_conversation_public_api_rebuilds_bridge_messages() -> None:
+async def test_conversation_public_api_replaces_thread_messages() -> None:
     session = FakeSession()
     api = ConversationDataService(session, autocommit=False)  # type: ignore[arg-type]
     thread = _thread_like()
-    thread.messages = [
+    messages = [
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hi", "blocks": [{"kind": "text", "content": "Hi"}]},
     ]
 
-    await api.rebuild_thread_bridge(thread)
+    await api.replace_thread_messages(thread, messages)
 
     assert session.execute.await_count == 1
     message_rows = [item for item in session.added if isinstance(item, ThreadMessage)]

@@ -35,7 +35,7 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 
 ## Verification
 
-- Backend: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1934 passed.
+- Backend: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1935 passed.
 - Frontend unit: last full rollout baseline `cd frontend && npx vitest run` -> 200 passed.
 - Frontend typecheck: `cd frontend && npm run typecheck` -> passed.
 - Frontend lint: `cd frontend && npm run lint` -> passed.

@@ -24,7 +24,7 @@ class ConversationMessageCreateCommand(BaseModel):
 
 
 class ConversationMessagesRebuildCommand(BaseModel):
-    """Replace canonical message/block rows from a bridge message list."""
+    """Replace canonical message/block rows from an API message list."""
 
     thread_id: str = Field(min_length=1, max_length=36)
     user_id: str = Field(min_length=1, max_length=36)

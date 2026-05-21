@@ -279,7 +279,7 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
         updated_at=datetime.now(UTC),
         messages=[{"role": "user", "content": "raw bridge"}],
     )
-    service._conversation.list_bridge_messages = AsyncMock(
+    service._conversation.list_thread_messages = AsyncMock(
         return_value=[
             {"role": "user", "content": "Please review these papers."},
             {"role": "assistant", "content": "I found three themes across the literature."},
@@ -295,7 +295,7 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
     assert items[0]["skill_name"] is None
     assert items[0]["metadata"]["skill"] == "deep-research"
     assert items[0]["metadata"]["skill_name"] is None
-    service._conversation.list_bridge_messages.assert_awaited_once_with("thread-1")
+    service._conversation.list_thread_messages.assert_awaited_once_with("thread-1")
 
 
 @pytest.mark.asyncio
@@ -310,7 +310,7 @@ async def test_build_thread_activity_includes_token_usage_metadata():
         updated_at=datetime.now(UTC),
         messages=[],
     )
-    service._conversation.list_bridge_messages = AsyncMock(
+    service._conversation.list_thread_messages = AsyncMock(
         return_value=[
             {"role": "user", "content": "hello"},
             {

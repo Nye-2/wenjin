@@ -49,7 +49,7 @@ class ThreadService:
         self._conversation = ConversationDataService(db, autocommit=False)
 
     async def _lock_thread_row(self, thread_id: str) -> None:
-        """Lock and refresh a thread row to prevent lost updates on JSON message writes."""
+        """Lock and refresh a thread row to prevent lost summary updates."""
         await self.db.execute(select(self._model).where(self._model.id == thread_id).with_for_update().execution_options(populate_existing=True))
 
     @staticmethod
@@ -127,7 +127,6 @@ class ThreadService:
             message_count=0,
             last_message_preview=None,
             last_message_role=None,
-            messages=[],
             created_at=now,
             updated_at=now,
         )
@@ -243,7 +242,7 @@ class ThreadService:
         blocks: list[dict[str, Any]] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Append a message and persist JSON history safely."""
+        """Append a message through the DataService conversation boundary."""
         await self._lock_thread_row(str(thread.id))
         resolved_timestamp = timestamp or datetime.now(UTC)
         message: dict[str, Any] = {
@@ -255,18 +254,16 @@ class ThreadService:
             message["blocks"] = [block for block in blocks if isinstance(block, Mapping)]
         if isinstance(metadata, Mapping) and metadata:
             message["metadata"] = dict(metadata)
-        messages = list(thread.messages or [])
-        messages.append(message)
-        thread.messages = messages
-        thread.message_count = len(messages)
+        sequence_index = max(int(thread.message_count or 0), 0)
+        thread.message_count = sequence_index + 1
         normalized_role = str(role).strip()
         thread.last_message_role = normalized_role or None
         thread.last_message_preview = _truncate_message_preview(content)
         thread.updated_at = resolved_timestamp
-        await self._conversation.append_bridge_message(
+        await self._conversation.append_thread_message(
             thread,
             message,
-            sequence_index=len(messages) - 1,
+            sequence_index=sequence_index,
         )
         await self.db.commit()
         await self.db.refresh(thread)
@@ -335,9 +332,8 @@ class ThreadService:
             return False
 
         thread.updated_at = datetime.now(UTC)
-        thread.messages = messages
         thread.message_count = len(messages)
-        await self._conversation.rebuild_thread_bridge(thread)
+        await self._conversation.replace_thread_messages(thread, messages)
         await self.db.commit()
         await self.db.refresh(thread)
         return True
@@ -419,9 +415,8 @@ class ThreadService:
             return False
 
         thread.updated_at = datetime.now(UTC)
-        thread.messages = messages
         thread.message_count = len(messages)
-        await self._conversation.rebuild_thread_bridge(thread)
+        await self._conversation.replace_thread_messages(thread, messages)
         await self.db.commit()
         await self.db.refresh(thread)
         return True
@@ -462,7 +457,6 @@ class ThreadService:
         }
 
         next_messages = [summary_message] + kept_messages
-        thread.messages = next_messages
         thread.message_count = len(next_messages)
         previous = next_messages[-1] if next_messages else None
         if isinstance(previous, Mapping):
@@ -473,7 +467,7 @@ class ThreadService:
             thread.last_message_role = None
             thread.last_message_preview = None
         thread.updated_at = resolved_timestamp
-        await self._conversation.rebuild_thread_bridge(thread)
+        await self._conversation.replace_thread_messages(thread, next_messages)
         await self.db.commit()
         await self.db.refresh(thread)
         return True
@@ -513,7 +507,6 @@ class ThreadService:
                 return False
 
         messages.pop()
-        thread.messages = messages
         thread.message_count = len(messages)
         previous = messages[-1] if messages else None
         if isinstance(previous, Mapping):
@@ -524,14 +517,14 @@ class ThreadService:
             thread.last_message_role = None
             thread.last_message_preview = None
         thread.updated_at = datetime.now(UTC)
-        await self._conversation.rebuild_thread_bridge(thread)
+        await self._conversation.replace_thread_messages(thread, messages)
         await self.db.commit()
         await self.db.refresh(thread)
         return True
 
     async def list_thread_messages(self, thread: Thread) -> list[dict[str, Any]]:
         """Read thread messages from the DataService conversation projection."""
-        return await self._conversation.list_bridge_messages(str(thread.id))
+        return await self._conversation.list_thread_messages(str(thread.id))
 
     async def list_threads(
         self,

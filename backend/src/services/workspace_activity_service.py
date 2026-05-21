@@ -271,7 +271,7 @@ class WorkspaceActivityService:
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for thread in threads:
-            messages = await self._conversation.list_bridge_messages(str(thread.id))
+            messages = await self._conversation.list_thread_messages(str(thread.id))
             last_message = messages[-1] if messages else {}
             last_message_content = (
                 last_message.get("content") if isinstance(last_message, dict) else None
