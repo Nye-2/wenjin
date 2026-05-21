@@ -4,22 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select, text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
-from src.database.models.prism import PrismReviewItem
 from src.dataservice.execution_api import (
     ExecutionDataService,
     ExecutionRunHistoryProjection,
 )
 from src.dataservice.prism_api import PrismDataService, build_latex_adapter_metadata
+from src.dataservice.review_api import ReviewDataService, ReviewItemProjection
 from src.dataservice.rooms_api import MemoryFactProjection, RoomsDataService
-from src.services.prism_review_service import (
-    APPLIED_STATUSES,
-    PENDING_STATUSES,
-    PrismReviewService,
-)
+from src.services.prism_review_projection import prism_review_item_projection
+from src.services.prism_review_service import PrismReviewService
 from src.services.workspace_activity_contracts import (
     build_prism_review_activity_item,
     serialize_activity_item,
@@ -27,6 +24,8 @@ from src.services.workspace_activity_contracts import (
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 
 PRIMARY_MANUSCRIPT_ROLE = "primary_manuscript"
+PENDING_REVIEW_STATUSES = ("pending", "accepted")
+APPLIED_REVIEW_STATUSES = ("applied",)
 
 
 def _metadata_from_project(project: LatexProject) -> dict[str, Any]:
@@ -71,23 +70,96 @@ def _run_history_payload(item: ExecutionRunHistoryProjection) -> dict[str, Any]:
     }
 
 
-def _prism_review_activity_payload(item: PrismReviewItem) -> dict[str, Any]:
+def _json_object(value: Any) -> dict[str, Any]:
+    return dict(value) if isinstance(value, dict) else {}
+
+
+def _review_target_ref(item: ReviewItemProjection) -> dict[str, Any]:
+    return _json_object(item.target_ref_json)
+
+
+def _review_payload(item: ReviewItemProjection) -> dict[str, Any]:
+    payload = _json_object(item.payload_json)
+    preview = _json_object(item.preview_json)
+    merged = {**payload}
+    for key in (
+        "pending_content",
+        "pending_hash",
+        "current_hash",
+        "previous_content",
+        "previous_hash",
+        "applied_hash",
+        "revert_signature",
+    ):
+        if key in preview:
+            merged[key] = preview[key]
+    return merged
+
+
+def _review_file_change_payload(item: ReviewItemProjection) -> dict[str, Any]:
+    target_ref = _review_target_ref(item)
+    payload = _review_payload(item)
+    path = str(
+        target_ref.get("file_path")
+        or target_ref.get("path")
+        or payload.get("path")
+        or "",
+    ).strip()
+    logical_key = str(
+        target_ref.get("logical_key")
+        or payload.get("logical_key")
+        or item.source_item_id
+        or item.id
+    )
+    result = {
+        "id": str(item.id),
+        "logical_key": logical_key,
+        "source_type": "review_batch",
+        "source_execution_id": payload.get("source_execution_id"),
+        "source_task_id": payload.get("source_task_id"),
+        "target_kind": str(item.target_kind or ""),
+        "path": path,
+        "title": str(item.title or path or logical_key),
+        "reason": str(item.summary or payload.get("reason") or ""),
+        "status": str(item.status),
+        "created_at": _isoformat(item.created_at),
+        "updated_at": _isoformat(item.updated_at),
+        "applied_at": _isoformat(item.applied_at),
+    }
+    for key, value in payload.items():
+        if key not in result and value is not None:
+            result[key] = value
+    return result
+
+
+def _prism_review_activity_payload(item: ReviewItemProjection) -> dict[str, Any]:
     occurred_at = item.applied_at or item.updated_at or item.created_at
+    target_ref = _review_target_ref(item)
+    payload = _review_payload(item)
+    logical_key = str(
+        target_ref.get("logical_key")
+        or payload.get("logical_key")
+        or item.source_item_id
+        or item.id
+    )
+    target_file_path = target_ref.get("file_path") or target_ref.get("path") or payload.get("path")
     return serialize_activity_item(
         build_prism_review_activity_item(
             review_item_id=str(item.id),
             workspace_id=str(item.workspace_id),
-            latex_project_id=str(item.latex_project_id),
-            logical_key=str(item.logical_key),
+            latex_project_id=str(
+                target_ref.get("latex_project_id") or target_ref.get("project_id") or ""
+            ),
+            logical_key=logical_key,
             title=item.title,
             summary=item.summary,
             status=item.status,
-            source_execution_id=item.source_execution_id,
-            source_task_id=item.source_task_id,
+            source_execution_id=payload.get("source_execution_id"),
+            source_task_id=payload.get("source_task_id"),
             target_kind=item.target_kind,
-            target_file_path=item.target_file_path,
-            target_room=item.target_room,
-            target_item_id=item.target_item_id,
+            target_file_path=str(target_file_path) if target_file_path else None,
+            target_room=target_ref.get("room"),
+            target_item_id=target_ref.get("item_id"),
             occurred_at=occurred_at,
             created_at=item.created_at,
             updated_at=item.updated_at,
@@ -142,7 +214,7 @@ def _build_launch_context(surface: dict[str, Any]) -> dict[str, Any]:
     review_items = [
         item
         for item in surface.get("review_items", [])
-        if isinstance(item, dict) and item.get("status") in PENDING_STATUSES
+        if isinstance(item, dict) and item.get("status") in PENDING_REVIEW_STATUSES
     ]
     source_links = [
         item for item in surface.get("source_links", []) if isinstance(item, dict)
@@ -179,6 +251,7 @@ class WorkspacePrismService:
         self.db = db
         self.bridge = WorkspaceLatexProjectService(db)
         self._rooms = RoomsDataService(db, autocommit=False)
+        self._review = ReviewDataService(db, autocommit=False)
 
     async def get_primary_project(
         self,
@@ -239,22 +312,23 @@ class WorkspacePrismService:
             raise ValueError(f"Workspace Prism adapter project not found: {workspace_id}")
 
         metadata = _metadata_from_project(project)
+        pending_items = await self._list_prism_review_items(
+            workspace_id=workspace_id,
+            latex_project_id=str(project.id),
+            statuses=PENDING_REVIEW_STATUSES,
+        )
+        applied_items = await self._list_prism_review_items(
+            workspace_id=workspace_id,
+            latex_project_id=str(project.id),
+            statuses=APPLIED_REVIEW_STATUSES,
+        )
+        file_changes = [_review_file_change_payload(item) for item in pending_items]
+        applied_file_changes = [_review_file_change_payload(item) for item in applied_items]
+        review_items = [
+            prism_review_item_projection(item)
+            for item in [*pending_items, *applied_items]
+        ]
         review_service = PrismReviewService(self.db)
-        pending_items = await review_service.list_project_review_items(
-            project,
-            statuses=PENDING_STATUSES,
-        )
-        applied_items = await review_service.list_project_review_items(
-            project,
-            statuses=APPLIED_STATUSES,
-        )
-        file_changes = review_service.file_change_payloads(pending_items)
-        applied_file_changes = review_service.file_change_payloads(
-            [item for item in applied_items if item.status != "reverted"]
-        )
-        review_items = review_service.review_item_projections(
-            [*pending_items, *applied_items]
-        )
         source_links = await review_service.list_project_source_links(project)
         protected_sections = await review_service.list_project_protected_sections(project)
         decisions = await self._list_decisions(workspace_id)
@@ -344,6 +418,27 @@ class WorkspacePrismService:
         )
         return result.scalar_one_or_none()
 
+    async def _list_prism_review_items(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        statuses: tuple[str, ...],
+        limit: int = 200,
+    ) -> list[ReviewItemProjection]:
+        items = await self._review.list_items(
+            workspace_id=workspace_id,
+            target_domain="prism",
+            target_kind="prism_file_change",
+            status=list(statuses),
+            limit=limit,
+        )
+        return [
+            item
+            for item in items
+            if str(_review_target_ref(item).get("latex_project_id") or "") == latex_project_id
+        ]
+
     async def get_launch_context_projection(
         self,
         workspace_id: str,
@@ -380,22 +475,15 @@ class WorkspacePrismService:
             workspace_id=workspace_id,
             limit=5,
         )
-        review_result = await self.db.execute(
-            select(PrismReviewItem)
-            .where(PrismReviewItem.workspace_id == workspace_id)
-            .order_by(
-                func.coalesce(
-                    PrismReviewItem.applied_at,
-                    PrismReviewItem.updated_at,
-                    PrismReviewItem.created_at,
-                ).desc(),
-            )
-            .limit(5)
+        review_records = await self._review.list_items(
+            workspace_id=workspace_id,
+            target_domain="prism",
+            limit=5,
         )
         run_history_items = [_run_history_payload(item) for item in run_history]
         review_items = [
             _prism_review_activity_payload(item)
-            for item in review_result.scalars().all()
+            for item in review_records
         ]
         items = [*run_history_items, *review_items]
         items.sort(key=_recent_activity_sort_key, reverse=True)

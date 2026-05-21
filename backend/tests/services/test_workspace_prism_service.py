@@ -20,6 +20,60 @@ async def db(test_session: AsyncSession) -> AsyncSession:
     await test_session.execute(
         text(
             """
+            create table review_batches (
+                id varchar(36) primary key,
+                workspace_id varchar(36) not null,
+                execution_id varchar(36),
+                source_type varchar(64) not null,
+                source_id varchar(255),
+                review_kind varchar(64) not null,
+                status varchar(32) not null default 'pending',
+                title varchar(255) not null,
+                summary text,
+                schema_version varchar(50) not null default 'review_batch.v1',
+                item_count integer not null default 0,
+                accepted_count integer not null default 0,
+                rejected_count integer not null default 0,
+                applied_count integer not null default 0,
+                failed_count integer not null default 0,
+                payload_json json not null default '{}',
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
+            create table review_items (
+                id varchar(36) primary key,
+                batch_id varchar(36) not null,
+                workspace_id varchar(36) not null,
+                source_item_id varchar(255),
+                item_kind varchar(64) not null,
+                target_domain varchar(64) not null,
+                target_kind varchar(64) not null,
+                target_ref_json json not null default '{}',
+                status varchar(32) not null default 'pending',
+                title varchar(255) not null,
+                summary text,
+                payload_json json not null default '{}',
+                preview_json json not null default '{}',
+                result_json json,
+                error_text text,
+                provenance_json json not null default '{}',
+                sort_order integer not null default 0,
+                applied_at datetime,
+                created_at datetime not null default current_timestamp,
+                updated_at datetime not null default current_timestamp
+            )
+            """
+        )
+    )
+    await test_session.execute(
+        text(
+            """
             create table prism_review_items (
                 id varchar(36) primary key,
                 workspace_id varchar(36) not null,
@@ -532,15 +586,32 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     await db.execute(
         text(
             """
-            insert into prism_review_items (
-                id, workspace_id, latex_project_id, logical_key, source_type,
-                source_execution_id, source_task_id, target_kind, target_file_path,
-                title, summary, status, preview_payload
+            insert into review_batches (
+                id, workspace_id, execution_id, source_type, source_id,
+                review_kind, status, title, item_count
             )
             values (
-                'review-1', :workspace_id, 'latex-prism', 'section:intro', 'execution',
-                'exec-1', 'task-1', 'prism_file_change', 'sections/intro.tex',
+                'batch-1', :workspace_id, 'exec-1', 'execution', 'exec-1',
+                'prism_file_change', 'pending', 'Prism changes', 1
+            )
+            """
+        ),
+        {"workspace_id": workspace.id},
+    )
+    await db.execute(
+        text(
+            """
+            insert into review_items (
+                id, batch_id, workspace_id, source_item_id, item_kind,
+                target_domain, target_kind, target_ref_json, title, summary,
+                status, payload_json, preview_json
+            )
+            values (
+                'review-1', 'batch-1', :workspace_id, 'section:intro',
+                'file_change', 'prism', 'prism_file_change',
+                '{"latex_project_id":"latex-prism","logical_key":"section:intro","file_path":"sections/intro.tex"}',
                 'Intro rewrite', 'feature_proposal', 'pending',
+                '{"source_execution_id":"exec-1","source_task_id":"task-1","path":"sections/intro.tex","pending_content":"Generated intro"}',
                 '{"pending_content":"Generated intro"}'
             )
             """
@@ -644,7 +715,6 @@ async def test_surface_projection_includes_review_provenance_and_protection(
         "preview_prism_change",
         "apply_prism_change",
         "reject_prism_change",
-        "defer_prism_change",
     }
     assert projection["source_links"][0]["citation_key"] == "doe2026"
     assert projection["protected_sections"][0]["reason"] == "user_protected"

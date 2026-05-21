@@ -45,11 +45,13 @@ def _review_item(
     *,
     logical_key: str,
     path: str,
+    latex_project_id: str,
     status: str = "pending",
     reason: str = "feature_proposal",
     payload: dict | None = None,
 ) -> SimpleNamespace:
-    preview_payload = {
+    now = datetime.now(UTC)
+    preview_json = {
         "logical_key": logical_key,
         "path": path,
         "reason": reason,
@@ -57,11 +59,29 @@ def _review_item(
     }
     return SimpleNamespace(
         id=f"review-{logical_key}",
-        logical_key=logical_key,
-        target_file_path=path,
+        batch_id=f"batch-{logical_key}",
+        workspace_id="ws-1",
+        source_item_id=logical_key,
+        item_kind="file_change",
+        target_domain="prism",
+        target_kind="prism_file_change",
+        target_ref_json={
+            "latex_project_id": latex_project_id,
+            "logical_key": logical_key,
+            "file_path": path,
+        },
+        title=path,
         summary=reason,
         status=status,
-        preview_payload=preview_payload,
+        payload_json={"path": path, **(payload or {})},
+        preview_json=preview_json,
+        result_json=None,
+        error_text=None,
+        provenance_json={},
+        sort_order=0,
+        applied_at=now if status == "applied" else None,
+        created_at=now,
+        updated_at=now,
     )
 
 
@@ -314,12 +334,13 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
                 _Result(scalar=latex_project),
             _Result(
                 scalars=[
-                    _review_item(
-                        logical_key="project:main",
-                        path="main.tex",
-                        reason="user_modified",
-                        payload={"pending_content": "\\section{Generated}"},
-                    )
+                        _review_item(
+                            logical_key="project:main",
+                            path="main.tex",
+                            latex_project_id="latex-project-1",
+                            reason="user_modified",
+                            payload={"pending_content": "\\section{Generated}"},
+                        )
                 ]
             ),
             _Result(scalars=[]),
@@ -630,12 +651,13 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
             _Result(scalars=[]),
             _Result(
                 scalars=[
-                    _review_item(
-                        logical_key="section:introduction",
-                        path="sections/introduction.tex",
-                        status="applied",
-                        payload={
-                            "previous_hash": "sha256:old",
+                        _review_item(
+                            logical_key="section:introduction",
+                            path="sections/introduction.tex",
+                            latex_project_id="latex-project-3",
+                            status="applied",
+                            payload={
+                                "previous_hash": "sha256:old",
                             "applied_hash": "sha256:new",
                             "revert_signature": "signature",
                         },
@@ -725,10 +747,11 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
                 _Result(scalar=authoritative_project),
             _Result(
                 scalars=[
-                    _review_item(
-                        logical_key="section:current",
-                        path="sections/current.tex",
-                    )
+                        _review_item(
+                            logical_key="section:current",
+                            path="sections/current.tex",
+                            latex_project_id="latex-authoritative",
+                        )
                 ]
             ),
             _Result(scalars=[]),

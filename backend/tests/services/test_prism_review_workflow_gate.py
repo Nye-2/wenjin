@@ -365,8 +365,13 @@ def _task(now: datetime) -> SimpleNamespace:
 async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]:
     now = datetime.now(UTC)
     item = _FakePrismReviewService.review_item
-    pending_items = [item] if item is not None and item.status in {"pending", "deferred"} else []
-    applied_items = [item] if item is not None and item.status == "applied" else []
+    projected_item = _canonical_review_item(item, project=project, now=now) if item else None
+    pending_items = [
+        projected_item
+    ] if projected_item is not None and projected_item.status in {"pending", "accepted"} else []
+    applied_items = [
+        projected_item
+    ] if projected_item is not None and projected_item.status == "applied" else []
     execution = _execution(now)
     execution.result = _task(now).result
     db = _FakeDb(
@@ -407,6 +412,41 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
     )
     assert projection is not None
     return projection
+
+
+def _canonical_review_item(
+    item: SimpleNamespace,
+    *,
+    project: SimpleNamespace,
+    now: datetime,
+) -> SimpleNamespace:
+    preview = dict(item.preview_payload or {})
+    return SimpleNamespace(
+        id=item.id,
+        batch_id="batch-review-introduction",
+        workspace_id=project.workspace_id,
+        source_item_id=item.logical_key,
+        item_kind="file_change",
+        target_domain="prism",
+        target_kind="prism_file_change",
+        target_ref_json={
+            "latex_project_id": project.id,
+            "logical_key": item.logical_key,
+            "file_path": item.target_file_path,
+        },
+        title=item.target_file_path,
+        summary=item.summary,
+        status=item.status,
+        payload_json=preview,
+        preview_json=preview,
+        result_json=None,
+        error_text=None,
+        provenance_json={},
+        sort_order=0,
+        applied_at=getattr(item, "applied_at", None),
+        created_at=now,
+        updated_at=now,
+    )
 
 
 @pytest.mark.asyncio
