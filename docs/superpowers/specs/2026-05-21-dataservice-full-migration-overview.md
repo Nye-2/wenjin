@@ -1005,7 +1005,7 @@ Implementation status as of 2026-05-21:
 - `ThreadService` now writes message appends, attachment metadata updates, compaction, and rollback through the DataService conversation boundary without mutating `threads.messages`.
 - Thread detail/state/history now read through the DataService conversation projection boundary instead of directly reading `threads.messages`.
 - Chat Agent message building, context compaction, interruption rollback, attachment status updates, run wait payloads, and workspace activity feed now consume DataService conversation projections rather than `threads.messages`.
-- Runtime code is guarded from accessing `thread.messages`; the remaining conversation storage step is a physical migration that drops or archives the legacy `threads.messages` column after deployment backup validation.
+- Runtime code is guarded from accessing `thread.messages`; legacy `Thread.messages` ORM mapping has been removed, and migration `074_drop_legacy_thread_messages_column.py` drops the old JSON column after canonical conversation cutover.
 
 ### Phase 3: Catalog And Execution Skeleton
 
@@ -1111,7 +1111,7 @@ Implementation status as of 2026-05-21:
 - Legacy reference ORM table models have been removed. Migration `072_drop_legacy_reference_tables.py` drops `workspace_references`, `reference_external_ids`, `reference_assets`, `reference_outline_nodes`, `reference_text_units`, `reference_usage_events`, and `reference_bibtex_snapshots` after the Source DataService cutover.
 - Gateway import/BibTeX service classes have been renamed to `SourceLibraryImportService` and `SourceBibliographyService`; no legacy `ReferenceImportService` / `ReferenceBibTeXService` aliases remain.
 - Remaining Source convergence debt is limited to broad product route naming decisions, not data ownership or compatibility fallback.
-- Alembic env no longer imports legacy reference/workspace-run ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `073_drop_legacy_workspace_run_table` as the single head.
+- Alembic env no longer imports legacy reference/workspace-run/thread-message JSON ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `074_drop_legacy_thread_messages_column` as the single head.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.

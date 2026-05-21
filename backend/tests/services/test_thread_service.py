@@ -44,7 +44,6 @@ def _make_thread(
         message_count=0,
         last_message_preview=None,
         last_message_role=None,
-        messages=[],
         created_at=datetime.now(UTC),
         updated_at=datetime.now(UTC),
     )
@@ -262,7 +261,6 @@ class TestThreadService:
 
         assert message["role"] == "user"
         assert message["content"] == "Hello"
-        assert thread.messages == []
         assert thread.message_count == 1
         assert thread.last_message_role == "user"
         assert thread.last_message_preview == "Hello"
@@ -331,7 +329,6 @@ class TestThreadService:
     ):
         """Attachment state updates should use DataService projection messages by default."""
         thread = _make_thread()
-        thread.messages = [{"role": "user", "content": "raw bridge"}]
         service._conversation.list_thread_messages = AsyncMock(  # noqa: SLF001
             return_value=[
                 {
@@ -602,10 +599,7 @@ class TestThreadService:
     ):
         """Title derivation only applies to the first user-assistant exchange."""
         thread = _make_thread()
-        thread.messages = [
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "world"},
-        ]
+        thread.message_count = 2
 
         await service.set_title_if_empty(
             thread,

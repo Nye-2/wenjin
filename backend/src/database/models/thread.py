@@ -1,9 +1,8 @@
 """Thread model for persisted conversations."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, CheckConstraint, ForeignKey, Index, Integer, String
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..base import Base, TimestampMixin, UUIDMixin
@@ -11,9 +10,6 @@ from ..base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from .user import User
     from .workspace import Workspace
-
-
-MESSAGES_JSON_TYPE = JSON().with_variant(JSONB(), "postgresql")
 
 
 class Thread(Base, UUIDMixin, TimestampMixin):
@@ -63,13 +59,6 @@ class Thread(Base, UUIDMixin, TimestampMixin):
         String(32),
         nullable=True,
     )
-    messages: Mapped[list[dict[str, Any]]] = mapped_column(
-        MESSAGES_JSON_TYPE,
-        nullable=False,
-        default=list,
-        server_default="[]",
-    )
-
     user: Mapped["User"] = relationship("User", back_populates="threads")
     workspace: Mapped["Workspace | None"] = relationship(
         "Workspace",
