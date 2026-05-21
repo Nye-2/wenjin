@@ -1100,6 +1100,7 @@ Implementation status as of 2026-05-21:
 - Source DataService now owns `source_external_ids` read/upsert APIs, internal routes, and typed client methods; reference adapter synchronization carries Semantic Scholar/upload hashes into Source detail instead of leaving external ids as an empty projection.
 - Manual, Semantic Scholar, Deep Search artifact, BibTeX metadata imports, and PDF upload now use Source/Asset DataService as the canonical write path, so metadata dedupe, citation-key uniqueness, external-id upsert, asset registration, and Source projection serialization are owned by DataService.
 - Reference BibTeX build, citation validation, and Prism sync now read canonical Source metadata through Source DataService; Source curation state is reflected in exported `refs.bib`.
+- Prism BibTeX sync now writes projection snapshots through Source DataService into canonical `source_bibtex_snapshots`; runtime no longer writes `reference_bibtex_snapshots`.
 - Chat/LangGraph citation and literature-context middleware now receives Source DataService projections from FastAPI and Celery run entrypoints, parses LaTeX `\cite{...}` keys, and records usage through Source citation usage/provenance commands. Legacy `search_in_workspace` / `record_reference_usage` fallback has been removed.
 - Reference evidence-pack assembly is now a canonical `SourceDataService.build_evidence_pack` contract over Source library outlines and Source text-unit search results; the gateway no longer exports or calls `ReferenceEvidenceService`.
 - PDF preprocessing now mirrors rebuilt reference outline/text-unit indexes into Source DataService, including Source status/evidence promotion to indexed full text.
@@ -1107,11 +1108,11 @@ Implementation status as of 2026-05-21:
 - Source DataService now exposes source asset read/update APIs for preprocess status and metadata, enabling PDF preprocess to move off `reference_assets`.
 - Reference PDF upload now creates canonical `sources`, `workspace_assets`, and `source_assets` directly; queued preprocess payloads use `source_id`, `source_asset_id`, and `workspace_asset_id`, and `SourcePreprocessService` writes canonical Source indexes.
 - Legacy `WorkspaceReferenceService` and `ReferencePreprocessService` have been removed from the runtime service surface; reference detail and PDF preprocess no longer use legacy reference ORM tables.
-- Remaining Source convergence debt is limited to archive/drop validation for legacy reference physical tables, `reference_bibtex_snapshots` replacement, and facade naming cleanup after gateway contract stabilization.
+- Remaining Source convergence debt is limited to archive/drop validation for legacy reference physical tables and facade naming cleanup after gateway contract stabilization.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Source curation/evidence/indexer/asset/upload-preprocess cleanup slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1934 backend tests.
+- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1935 backend tests.
 
 ### Phase 4: Review Materialization
 

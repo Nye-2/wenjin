@@ -14,6 +14,8 @@ from src.dataservice.domains.source.contracts import (
     SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
     SourceBibliographyProjection,
+    SourceBibliographySnapshotCreateCommand,
+    SourceBibliographySnapshotProjection,
     SourceCitationUsageCreateCommand,
     SourceCitationUsageProjection,
     SourceCreateCommand,
@@ -25,7 +27,10 @@ from src.dataservice.domains.source.contracts import (
     SourceProjection,
     SourceUpdateCommand,
 )
-from src.dataservice.domains.source.projection import source_to_projection
+from src.dataservice.domains.source.projection import (
+    source_bibtex_snapshot_to_projection,
+    source_to_projection,
+)
 from src.dataservice.domains.source.repository import SourceRepository
 
 _SOURCE_USED_IN_DRAFT_STATUSES = {"candidate", "included"}
@@ -263,6 +268,14 @@ class SourceDataDomainService:
             source_ids=[str(record.id) for record in ordered_records],
             citation_keys=[str(record.citation_key) for record in ordered_records],
         )
+
+    async def create_bibliography_snapshot(
+        self,
+        command: SourceBibliographySnapshotCreateCommand,
+    ) -> SourceBibliographySnapshotProjection:
+        record = self.repository.create_bibtex_snapshot(command.model_dump())
+        await self._finish()
+        return source_bibtex_snapshot_to_projection(record)
 
     async def mark_deleted(self, source_id: str) -> SourceProjection | None:
         record = await self.repository.get_source(source_id)

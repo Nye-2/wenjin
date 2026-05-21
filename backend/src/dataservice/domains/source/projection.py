@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from src.dataservice.domains.source.contracts import SourceProjection
-from src.dataservice.domains.source.models import SourceRecord
+from src.dataservice.domains.source.contracts import (
+    SourceBibliographySnapshotProjection,
+    SourceProjection,
+)
+from src.dataservice.domains.source.models import SourceBibtexSnapshotRecord, SourceRecord
 
 
 def source_to_projection(record: SourceRecord) -> SourceProjection:
@@ -35,6 +38,22 @@ def source_to_projection(record: SourceRecord) -> SourceProjection:
         tags_json=list(record.tags_json or []),
         notes=record.notes,
         is_deleted=bool(record.is_deleted),
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def source_bibtex_snapshot_to_projection(
+    record: SourceBibtexSnapshotRecord,
+) -> SourceBibliographySnapshotProjection:
+    return SourceBibliographySnapshotProjection(
+        id=str(record.id),
+        workspace_id=str(record.workspace_id),
+        prism_project_id=record.prism_project_id,
+        scope=record.scope,
+        content=record.content,
+        reference_count=record.reference_count,
+        checksum=record.checksum,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )

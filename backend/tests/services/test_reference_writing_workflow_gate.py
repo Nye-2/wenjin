@@ -107,6 +107,7 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
         ]
     )
     db.add = MagicMock()
+    db.flush = AsyncMock()
     db.commit = AsyncMock()
 
     evidence_pack = await SourceDataService(db, autocommit=False).build_evidence_pack(
@@ -189,7 +190,7 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
     assert "\\bibliography{refs}" in project_service.write_text_file.await_args_list[-1].args[2]
     snapshot = db.add.call_args.args[0]
     assert snapshot.workspace_id == "ws-1"
-    assert snapshot.latex_project_id == "latex-1"
+    assert snapshot.prism_project_id == "latex-1"
     assert snapshot.scope == "used_only"
 
 

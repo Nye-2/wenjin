@@ -130,6 +130,27 @@ class SourceBibliographyProjection(BaseModel):
     citation_keys: list[str] = Field(default_factory=list)
 
 
+class SourceBibliographySnapshotCreateCommand(BaseModel):
+    workspace_id: str = Field(min_length=1, max_length=36)
+    prism_project_id: str | None = Field(default=None, max_length=36)
+    scope: str = Field(default="included_and_core", min_length=1, max_length=50)
+    content: str
+    reference_count: int = Field(default=0, ge=0)
+    checksum: str = Field(min_length=1, max_length=128)
+
+
+class SourceBibliographySnapshotProjection(BaseModel):
+    id: str
+    workspace_id: str
+    prism_project_id: str | None = None
+    scope: str
+    content: str
+    reference_count: int
+    checksum: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class SourceCitationUsageCreateCommand(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=36)
     citation_keys: list[str] = Field(default_factory=list)

@@ -52,7 +52,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 - `source_outline_nodes`：目录/页码索引节点。
 - `source_text_units`：可检索全文单元。
 - `provenance_links`：引用、证据、Prism 变更、文档来源与写作使用审计。
-- `source_bibliography_snapshots` / `reference_bibtex_snapshots`：`refs.bib` projection 快照；运行时内容从 Source metadata 生成。
+- `source_bibtex_snapshots`：`refs.bib` projection 快照；运行时内容从 Source metadata 生成。
 - `workspace_references*` / `reference_*`：legacy physical tables，保留到 archive/drop gate 后删除。
 
 关键枚举：
@@ -114,10 +114,11 @@ API 面：
 - API、服务、前端 LiteraturePanel、Agent tools、BibTeX/citation validation 已落地。
 - Reference detail 已接入 Source detail、canonical assets、source history、preprocess summary 和 provenance usage。
 - Reference PDF upload 直接创建 canonical `sources`、`workspace_assets`、`source_assets`，queued preprocess payload 使用 `source_id` / `source_asset_id` / `workspace_asset_id`。
+- `sync_prism` 将 BibTeX projection 快照写入 canonical `source_bibtex_snapshots`，不再写 `reference_bibtex_snapshots`。
 - Legacy `WorkspaceReferenceService`、`ReferencePreprocessService`、`ReferenceIndexService` 和 `ReferenceUsageService` 已从 runtime service surface 删除。
 - Prism context rail 已能展示 canonical source links，并 deep-link 回 Library / Documents。
 - Release gate 覆盖 Semantic Scholar verified import、上传预处理、Reference writing workflow、Prism Review workflow、Reference Import Service、前端 action contract。
-- Backend verification：`cd backend && .venv/bin/python -m pytest tests/ -q` 通过，`1934 passed`。
+- Backend verification：`cd backend && .venv/bin/python -m pytest tests/ -q` 通过，`1935 passed`。
 
 ## 7. Workflow Gate
 

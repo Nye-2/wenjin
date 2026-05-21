@@ -22,6 +22,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.execution",
     "src.database.models.execution_node",
     "src.database.models.prism",
+    "src.database.models.reference",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
     "Decision",
@@ -38,6 +39,13 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "PrismReviewItem",
     "PrismSourceLink",
     "PrismProtectedSection",
+    "WorkspaceReference",
+    "ReferenceExternalId",
+    "ReferenceAsset",
+    "ReferenceOutlineNode",
+    "ReferenceTextUnit",
+    "ReferenceUsageEvent",
+    "ReferenceBibtexSnapshot",
 }
 MODEL_OWNER_PACKAGES = {
     "database",

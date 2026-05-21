@@ -11,6 +11,7 @@ from src.database.base import generate_uuid
 from src.dataservice.domains.asset.models import WorkspaceAssetRecord
 from src.dataservice.domains.source.models import (
     SourceAssetRecord,
+    SourceBibtexSnapshotRecord,
     SourceExternalIdRecord,
     SourceOutlineNodeRecord,
     SourceRecord,
@@ -44,6 +45,11 @@ class SourceRepository:
 
     def create_external_id(self, values: dict[str, Any]) -> SourceExternalIdRecord:
         record = SourceExternalIdRecord(id=str(values.pop("id", None) or generate_uuid()), **values)
+        self.session.add(record)
+        return record
+
+    def create_bibtex_snapshot(self, values: dict[str, Any]) -> SourceBibtexSnapshotRecord:
+        record = SourceBibtexSnapshotRecord(id=str(values.pop("id", None) or generate_uuid()), **values)
         self.session.add(record)
         return record
 

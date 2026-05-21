@@ -11,6 +11,7 @@ from src.dataservice.domains.provenance.service import ProvenanceDataDomainServi
 from src.dataservice.domains.source.contracts import (
     SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
+    SourceBibliographySnapshotCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
     SourceExternalIdCreateCommand,
@@ -173,6 +174,17 @@ async def build_source_bibliography(
 ) -> dict:
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     record = await service.build_bibliography(command)
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.post("/sources/bibliography/snapshots")
+async def create_source_bibliography_snapshot(
+    command: SourceBibliographySnapshotCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.create_bibliography_snapshot(command)
+    await uow.commit()
     return envelope_ok(record.model_dump(mode="json"))
 
 

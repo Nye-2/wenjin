@@ -16,7 +16,6 @@ from src.academic.literature.search_service import LiteratureSearchService
 from src.database import (
     Artifact,
     ReferenceBibtexScope,
-    ReferenceBibtexSnapshot,
     ReferenceEvidenceLevel,
     ReferenceFulltextStatus,
     ReferenceLibraryStatus,
@@ -29,6 +28,7 @@ from src.dataservice.asset_api import AssetDataService
 from src.dataservice.source_api import (
     SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
+    SourceBibliographySnapshotCreateCommand,
     SourceDataService,
     SourceExternalIdCreateCommand,
     SourceImportCommand,
@@ -1078,15 +1078,16 @@ class ReferenceBibTeXService:
         await project_service.write_text_file(project, "refs.bib", bibtex["content"])
         await self._ensure_main_tex_bibliography(project_service, project)
 
-        snapshot = ReferenceBibtexSnapshot(
-            workspace_id=workspace_id,
-            latex_project_id=str(project.id),
-            scope=bibtex["scope"],
-            content=bibtex["content"],
-            reference_count=bibtex["reference_count"],
-            checksum=bibtex["checksum"],
+        await SourceDataService(self.db, autocommit=False).create_bibliography_snapshot(
+            SourceBibliographySnapshotCreateCommand(
+                workspace_id=workspace_id,
+                prism_project_id=str(project.id),
+                scope=bibtex["scope"],
+                content=bibtex["content"],
+                reference_count=bibtex["reference_count"],
+                checksum=bibtex["checksum"],
+            )
         )
-        self.db.add(snapshot)
         await self.db.commit()
         return {
             **bibtex,

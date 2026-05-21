@@ -15,6 +15,7 @@ from src.dataservice.domains.provenance.service import ProvenanceDataDomainServi
 from src.dataservice.domains.source.contracts import (
     SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
+    SourceBibliographySnapshotCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
     SourceEvidencePackCreateCommand,
@@ -52,6 +53,7 @@ class FakeSourceRepository:
         self.outline_nodes: list[SimpleNamespace] = []
         self.text_units: list[SimpleNamespace] = []
         self.source_assets: list[SimpleNamespace] = []
+        self.bibtex_snapshots: list[SimpleNamespace] = []
 
     def create_source(self, values: dict[str, Any]) -> SimpleNamespace:
         source_id = str(values.pop("source_id", None) or f"source-{len(self.sources) + 1}")
@@ -84,6 +86,11 @@ class FakeSourceRepository:
     def create_external_id(self, values: dict[str, Any]) -> SimpleNamespace:
         record = _record({"id": values.pop("id", f"external-{len(self.external_ids) + 1}"), **values})
         self.external_ids.append(record)
+        return record
+
+    def create_bibtex_snapshot(self, values: dict[str, Any]) -> SimpleNamespace:
+        record = _record({"id": values.pop("id", f"snapshot-{len(self.bibtex_snapshots) + 1}"), **values})
+        self.bibtex_snapshots.append(record)
         return record
 
     async def get_external_id(
@@ -961,6 +968,33 @@ async def test_source_service_builds_bibliography_from_sources() -> None:
     assert "author = {First Author}" in bibliography.content
     assert "journal = {Test Journal}" in bibliography.content
     assert "note = {Accepted}" in bibliography.content
+
+
+@pytest.mark.asyncio
+async def test_source_service_creates_bibliography_snapshot() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    snapshot = await service.create_bibliography_snapshot(
+        SourceBibliographySnapshotCreateCommand(
+            workspace_id="ws-1",
+            prism_project_id="latex-1",
+            scope="used_only",
+            content="@article{lovelace2026}",
+            reference_count=1,
+            checksum="checksum-1",
+        )
+    )
+
+    assert snapshot.id == "snapshot-1"
+    assert snapshot.workspace_id == "ws-1"
+    assert snapshot.prism_project_id == "latex-1"
+    assert snapshot.scope == "used_only"
+    assert snapshot.reference_count == 1
+    assert repository.bibtex_snapshots[0].content == "@article{lovelace2026}"
+    assert session.commit_count == 1
 
 
 @pytest.mark.asyncio

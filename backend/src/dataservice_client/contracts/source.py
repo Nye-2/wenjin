@@ -103,6 +103,27 @@ class SourceBibliographyPayload(BaseModel):
     citation_keys: list[str] = Field(default_factory=list)
 
 
+class SourceBibliographySnapshotCreatePayload(BaseModel):
+    workspace_id: str
+    prism_project_id: str | None = None
+    scope: str = "included_and_core"
+    content: str
+    reference_count: int = 0
+    checksum: str
+
+
+class SourceBibliographySnapshotPayload(BaseModel):
+    id: str
+    workspace_id: str
+    prism_project_id: str | None = None
+    scope: str
+    content: str
+    reference_count: int
+    checksum: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class SourceCitationUsageCreatePayload(BaseModel):
     workspace_id: str
     citation_keys: list[str] = Field(default_factory=list)

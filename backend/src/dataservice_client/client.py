@@ -82,6 +82,8 @@ from src.dataservice_client.contracts.source import (
     SourceAssetUpdatePayload,
     SourceBibliographyCreatePayload,
     SourceBibliographyPayload,
+    SourceBibliographySnapshotCreatePayload,
+    SourceBibliographySnapshotPayload,
     SourceCitationUsageCreatePayload,
     SourceCitationUsagePayload,
     SourceCreatePayload,
@@ -922,6 +924,17 @@ class AsyncDataServiceClient:
             json=command.model_dump(mode="json"),
         )
         return SourceBibliographyPayload.model_validate(payload["data"])
+
+    async def create_source_bibliography_snapshot(
+        self,
+        command: SourceBibliographySnapshotCreatePayload,
+    ) -> SourceBibliographySnapshotPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sources/bibliography/snapshots",
+            json=command.model_dump(mode="json"),
+        )
+        return SourceBibliographySnapshotPayload.model_validate(payload["data"])
 
     async def record_source_citation_usage(
         self,

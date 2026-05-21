@@ -8,6 +8,8 @@ from src.dataservice.domains.source.contracts import (
     SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
     SourceBibliographyProjection,
+    SourceBibliographySnapshotCreateCommand,
+    SourceBibliographySnapshotProjection,
     SourceCitationUsageCreateCommand,
     SourceCitationUsageProjection,
     SourceCreateCommand,
@@ -139,6 +141,12 @@ class SourceDataService:
         command: SourceBibliographyCreateCommand,
     ) -> SourceBibliographyProjection:
         return await self._domain.build_bibliography(command)
+
+    async def create_bibliography_snapshot(
+        self,
+        command: SourceBibliographySnapshotCreateCommand,
+    ) -> SourceBibliographySnapshotProjection:
+        return await self._domain.create_bibliography_snapshot(command)
 
     async def mark_deleted(self, source_id: str) -> SourceProjection | None:
         return await self._domain.mark_deleted(source_id)
