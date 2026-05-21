@@ -10,7 +10,13 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.catalog import (
+    AdminLogCreatePayload,
+    CatalogEnabledPayload,
+    CatalogUpsertPayload,
+)
+from src.dataservice_client.provider import dataservice_client
 from src.services.capability_schema import CapabilitySkillYamlModel, CrossRefValidator
 
 AdminLog: Any | None = None
@@ -65,17 +71,61 @@ def _record_to_yaml_dict(skill: Any) -> dict[str, Any]:
 
 
 class AdminSkillService:
-    def __init__(self, db: AsyncSession, *, model: Any | None = None) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        model: Any | None = None,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
         self._model = model
+        self._dataservice = dataservice
         self.validator = CrossRefValidator(db)
 
-    def _catalog(self) -> CatalogDataService:
-        return CatalogDataService(
-            self.db,
-            autocommit=False,
-            admin_log_model=AdminLog,
-        )
+    async def _list_skills(self) -> list[Any]:
+        if self._dataservice is not None:
+            return await self._dataservice.list_catalog_skills()
+        async with dataservice_client() as client:
+            return await client.list_catalog_skills()
+
+    async def _get_skill(self, skill_id: str) -> Any | None:
+        if self._dataservice is not None:
+            return await self._dataservice.get_catalog_skill(skill_id)
+        async with dataservice_client() as client:
+            return await client.get_catalog_skill(skill_id)
+
+    async def _upsert_skill(self, data: dict[str, Any], *, checksum: str) -> Any:
+        command = CatalogUpsertPayload(data=data, checksum=checksum)
+        if self._dataservice is not None:
+            return await self._dataservice.upsert_catalog_skill(
+                skill_id=str(data["id"]),
+                command=command,
+            )
+        async with dataservice_client() as client:
+            return await client.upsert_catalog_skill(
+                skill_id=str(data["id"]),
+                command=command,
+            )
+
+    async def _delete_skill(self, skill_id: str) -> bool:
+        if self._dataservice is not None:
+            return await self._dataservice.delete_catalog_skill(skill_id)
+        async with dataservice_client() as client:
+            return await client.delete_catalog_skill(skill_id)
+
+    async def _set_skill_enabled(self, *, skill_id: str, enabled: bool) -> Any | None:
+        command = CatalogEnabledPayload(enabled=enabled)
+        if self._dataservice is not None:
+            return await self._dataservice.set_catalog_skill_enabled(
+                skill_id=skill_id,
+                command=command,
+            )
+        async with dataservice_client() as client:
+            return await client.set_catalog_skill_enabled(
+                skill_id=skill_id,
+                command=command,
+            )
 
     async def _record_admin_log(
         self,
@@ -84,24 +134,43 @@ class AdminSkillService:
         admin_id: str,
         details: dict[str, Any],
     ) -> None:
-        await self._catalog().record_admin_log(
+        if self._model is not None:
+            if AdminLog is not None:
+                self.db.add(
+                    AdminLog(
+                        action=action,
+                        admin_id=admin_id,
+                        target_user_id=None,
+                        details=details,
+                        target_type="skill",
+                    )
+                )
+            return
+
+        command = AdminLogCreatePayload(
             action=action,
             admin_id=admin_id,
             target_user_id=None,
             details=details,
+            target_type="skill",
         )
+        if self._dataservice is not None:
+            await self._dataservice.record_catalog_admin_log(command)
+            return
+        async with dataservice_client() as client:
+            await client.record_catalog_admin_log(command)
 
     async def list_all(self) -> list[Any]:
         if self._model is not None:
             result = await self.db.execute(select(self._model).order_by(self._model.id))
             return list(result.scalars().all())
-        return await self._catalog().list_skills()
+        return await self._list_skills()
 
     async def get(self, skill_id: str) -> Any | None:
         if self._model is not None:
             result = await self.db.execute(select(self._model).where(self._model.id == skill_id))
             return result.scalars().first()
-        return await self._catalog().get_skill(skill_id)
+        return await self._get_skill(skill_id)
 
     async def validate(self, yaml_text: str) -> list[str]:
         try:
@@ -123,7 +192,7 @@ class AdminSkillService:
             skill = self._model(**_yaml_to_legacy_model_data(model))
             self.db.add(skill)
         else:
-            skill = await self._catalog().upsert_skill(
+            skill = await self._upsert_skill(
                 _yaml_to_catalog_data(model),
                 checksum=_sha256(yaml_text),
             )
@@ -136,7 +205,8 @@ class AdminSkillService:
                 "yaml_after_sha256": _sha256(yaml_text),
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
         return skill
 
     async def update(self, skill_id: str, yaml_text: str, admin_id: str) -> Any:
@@ -155,7 +225,7 @@ class AdminSkillService:
                 setattr(skill, key, value)
             updated = skill
         else:
-            updated = await self._catalog().upsert_skill(
+            updated = await self._upsert_skill(
                 _yaml_to_catalog_data(model),
                 checksum=_sha256(yaml_text),
             )
@@ -169,7 +239,8 @@ class AdminSkillService:
                 "yaml_after_sha256": _sha256(yaml_text),
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
         return updated
 
     async def delete(self, skill_id: str, admin_id: str) -> None:
@@ -181,7 +252,7 @@ class AdminSkillService:
         if self._model is not None:
             await self.db.delete(skill)
         else:
-            await self._catalog().delete_skill(skill_id)
+            await self._delete_skill(skill_id)
 
         await self._record_admin_log(
             action="skill_delete",
@@ -191,7 +262,8 @@ class AdminSkillService:
                 "yaml_before_sha256": _sha256(before_yaml),
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
 
     async def toggle(self, skill_id: str, admin_id: str) -> Any:
         skill = await self.get(skill_id)
@@ -203,7 +275,7 @@ class AdminSkillService:
             skill.enabled = not previous
             updated = skill
         else:
-            updated = await self._catalog().set_skill_enabled(
+            updated = await self._set_skill_enabled(
                 skill_id=skill_id,
                 enabled=not previous,
             )
@@ -219,7 +291,8 @@ class AdminSkillService:
                 "enabled_after": updated.enabled,
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
         return updated
 
     def to_yaml_text(self, skill: Any) -> str:

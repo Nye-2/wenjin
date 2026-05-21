@@ -11,7 +11,13 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.catalog import (
+    AdminLogCreatePayload,
+    CatalogEnabledPayload,
+    CatalogUpsertPayload,
+)
+from src.dataservice_client.provider import dataservice_client
 from src.services.capability_schema import CapabilityYamlModel, CrossRefValidator
 from src.services.event_bus import EventBus
 
@@ -79,18 +85,84 @@ class AdminCapabilityService:
         event_bus: EventBus,
         *,
         model: Any | None = None,
+        dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.db = db
         self.event_bus = event_bus
         self._model = model
+        self._dataservice = dataservice
         self.validator = CrossRefValidator(db)
 
-    def _catalog(self) -> CatalogDataService:
-        return CatalogDataService(
-            self.db,
-            autocommit=False,
-            admin_log_model=AdminLog,
-        )
+    async def _list_capabilities(self) -> list[Any]:
+        if self._dataservice is not None:
+            return await self._dataservice.list_catalog_capabilities()
+        async with dataservice_client() as client:
+            return await client.list_catalog_capabilities()
+
+    async def _get_capability(self, capability_id: str, workspace_type: str) -> Any | None:
+        if self._dataservice is not None:
+            return await self._dataservice.get_catalog_capability(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+            )
+        async with dataservice_client() as client:
+            return await client.get_catalog_capability(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+            )
+
+    async def _upsert_capability(
+        self,
+        data: dict[str, Any],
+        *,
+        checksum: str,
+    ) -> Any:
+        command = CatalogUpsertPayload(data=data, checksum=checksum)
+        if self._dataservice is not None:
+            return await self._dataservice.upsert_catalog_capability(
+                workspace_type=str(data["workspace_type"]),
+                capability_id=str(data["id"]),
+                command=command,
+            )
+        async with dataservice_client() as client:
+            return await client.upsert_catalog_capability(
+                workspace_type=str(data["workspace_type"]),
+                capability_id=str(data["id"]),
+                command=command,
+            )
+
+    async def _delete_capability(self, *, capability_id: str, workspace_type: str) -> bool:
+        if self._dataservice is not None:
+            return await self._dataservice.delete_catalog_capability(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+            )
+        async with dataservice_client() as client:
+            return await client.delete_catalog_capability(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+            )
+
+    async def _set_capability_enabled(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+        enabled: bool,
+    ) -> Any | None:
+        command = CatalogEnabledPayload(enabled=enabled)
+        if self._dataservice is not None:
+            return await self._dataservice.set_catalog_capability_enabled(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+                command=command,
+            )
+        async with dataservice_client() as client:
+            return await client.set_catalog_capability_enabled(
+                capability_id=capability_id,
+                workspace_type=workspace_type,
+                command=command,
+            )
 
     async def _record_admin_log(
         self,
@@ -99,12 +171,31 @@ class AdminCapabilityService:
         admin_id: str,
         details: dict[str, Any],
     ) -> None:
-        await self._catalog().record_admin_log(
+        if self._model is not None:
+            if AdminLog is not None:
+                self.db.add(
+                    AdminLog(
+                        action=action,
+                        admin_id=admin_id,
+                        target_user_id=None,
+                        details=details,
+                        target_type="capability",
+                    )
+                )
+            return
+
+        command = AdminLogCreatePayload(
             action=action,
             admin_id=admin_id,
             target_user_id=None,
             details=details,
+            target_type="capability",
         )
+        if self._dataservice is not None:
+            await self._dataservice.record_catalog_admin_log(command)
+            return
+        async with dataservice_client() as client:
+            await client.record_catalog_admin_log(command)
 
     async def list_all(self) -> list[Any]:
         if self._model is not None:
@@ -112,7 +203,7 @@ class AdminCapabilityService:
                 select(self._model).order_by(self._model.workspace_type, self._model.id)
             )
             return list(result.scalars().all())
-        return await self._catalog().list_capabilities()
+        return await self._list_capabilities()
 
     async def get(self, capability_id: str, workspace_type: str) -> Any | None:
         if self._model is not None:
@@ -123,10 +214,7 @@ class AdminCapabilityService:
                 )
             )
             return result.scalars().first()
-        return await self._catalog().get_capability(
-            capability_id=capability_id,
-            workspace_type=workspace_type,
-        )
+        return await self._get_capability(capability_id, workspace_type)
 
     async def validate(self, yaml_text: str) -> list[str]:
         try:
@@ -154,7 +242,7 @@ class AdminCapabilityService:
             cap = self._model(**model_data)
             self.db.add(cap)
         else:
-            cap = await self._catalog().upsert_capability(
+            cap = await self._upsert_capability(
                 _yaml_to_catalog_data(model),
                 checksum=_sha256(yaml_text),
             )
@@ -168,7 +256,8 @@ class AdminCapabilityService:
                 "yaml_after_sha256": _sha256(yaml_text),
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
         await self.publish_invalidation(model.id, model.workspace_type)
         return cap
 
@@ -198,7 +287,7 @@ class AdminCapabilityService:
                 setattr(cap, key, value)
             updated = cap
         else:
-            updated = await self._catalog().upsert_capability(
+            updated = await self._upsert_capability(
                 after_data,
                 checksum=_sha256(yaml_text),
             )
@@ -214,7 +303,8 @@ class AdminCapabilityService:
                 "diff_fields": _diff_fields(before_dict, _record_to_yaml_dict(updated)),
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
         await self.publish_invalidation(model.id, model.workspace_type)
         return updated
 
@@ -227,7 +317,7 @@ class AdminCapabilityService:
         if self._model is not None:
             await self.db.delete(cap)
         else:
-            await self._catalog().delete_capability(
+            await self._delete_capability(
                 capability_id=capability_id,
                 workspace_type=workspace_type,
             )
@@ -241,7 +331,8 @@ class AdminCapabilityService:
                 "yaml_before_sha256": _sha256(before_yaml),
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
         await self.publish_invalidation(capability_id, workspace_type)
 
     async def toggle(self, capability_id: str, workspace_type: str, admin_id: str) -> Any:
@@ -254,7 +345,7 @@ class AdminCapabilityService:
             cap.enabled = not previous
             updated = cap
         else:
-            updated = await self._catalog().set_capability_enabled(
+            updated = await self._set_capability_enabled(
                 capability_id=capability_id,
                 workspace_type=workspace_type,
                 enabled=not previous,
@@ -272,7 +363,8 @@ class AdminCapabilityService:
                 "enabled_after": updated.enabled,
             },
         )
-        await self.db.commit()
+        if self._model is not None:
+            await self.db.commit()
         await self.publish_invalidation(capability_id, workspace_type)
         return updated
 

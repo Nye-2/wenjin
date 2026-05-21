@@ -192,3 +192,23 @@ async def test_to_yaml_text_round_trips(service):
     yaml_text = service.to_yaml_text(skill)
     assert "test-skill" in yaml_text
     assert "react" in yaml_text
+
+
+@pytest.mark.asyncio
+async def test_create_uses_dataservice_client_without_gateway_commit():
+    dataservice = AsyncMock()
+    dataservice.get_catalog_skill.return_value = None
+    dataservice.upsert_catalog_skill.return_value = MagicMock(
+        id="test-skill",
+        subagent_type="react",
+    )
+    db = AsyncMock()
+    service = AdminSkillService(db=db, dataservice=dataservice)
+    service.validator.validate_skill = AsyncMock(return_value=[])
+
+    skill = await service.create(yaml_text=SAMPLE_SKILL_YAML, admin_id="admin-uuid")
+
+    assert skill.id == "test-skill"
+    dataservice.upsert_catalog_skill.assert_awaited_once()
+    dataservice.record_catalog_admin_log.assert_awaited_once()
+    db.commit.assert_not_awaited()

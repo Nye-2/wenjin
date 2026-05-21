@@ -252,3 +252,28 @@ async def test_to_yaml_text_round_trips(service):
     yaml_text = service.to_yaml_text(cap)
     assert "test_cap" in yaml_text
     assert "thesis" in yaml_text
+
+
+@pytest.mark.asyncio
+async def test_create_uses_dataservice_client_without_gateway_commit():
+    dataservice = AsyncMock()
+    dataservice.get_catalog_capability.return_value = None
+    dataservice.upsert_catalog_capability.return_value = MagicMock(
+        id="test_cap",
+        workspace_type="thesis",
+    )
+    db = AsyncMock()
+    bus = AsyncMock()
+    service = AdminCapabilityService(db=db, event_bus=bus, dataservice=dataservice)
+    service.validator.validate_capability = AsyncMock(return_value=[])
+
+    cap = await service.create(yaml_text=SAMPLE_YAML, admin_id="admin-uuid")
+
+    assert cap.id == "test_cap"
+    dataservice.upsert_catalog_capability.assert_awaited_once()
+    dataservice.record_catalog_admin_log.assert_awaited_once()
+    db.commit.assert_not_awaited()
+    bus.publish.assert_awaited_once_with(
+        "capability.invalidated",
+        {"id": "test_cap", "workspace_type": "thesis"},
+    )
