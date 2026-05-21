@@ -96,3 +96,11 @@ class WorkspaceStatsRecord(BaseModel):
     total: int
     by_type: dict[str, int] = Field(default_factory=dict)
     created_last_7d: int
+
+
+class WorkspaceAdminStatsRecord(BaseModel):
+    """Workspace aggregate stats for admin dashboards."""
+
+    total: int
+    by_type: dict[str, int] = Field(default_factory=dict)
+    users_with_workspaces: int

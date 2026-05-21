@@ -10,6 +10,7 @@ SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 from src.dataservice.app_boundary import FORBIDDEN_DOMAIN_IMPORT_PREFIXES
 
 MIGRATED_LEGACY_MODEL_MODULES = {
+    "src.database.models.workspace",
     "src.database.models.decision",
     "src.database.models.memory_fact",
     "src.database.models.workspace_task",
@@ -25,6 +26,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.reference",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
+    "Workspace",
     "Decision",
     "MemoryFact",
     "WorkspaceTask",
@@ -70,6 +72,36 @@ def _python_files(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
 
 
+def _is_type_checking_guard(node: ast.AST) -> bool:
+    return (
+        isinstance(node, ast.Name)
+        and node.id == "TYPE_CHECKING"
+        or isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "typing"
+        and node.attr == "TYPE_CHECKING"
+    )
+
+
+class _RuntimeImportVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.import_from_nodes: list[ast.ImportFrom] = []
+        self.import_nodes: list[ast.Import] = []
+
+    def visit_If(self, node: ast.If) -> None:
+        if _is_type_checking_guard(node.test):
+            for statement in node.orelse:
+                self.visit(statement)
+            return
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        self.import_from_nodes.append(node)
+
+    def visit_Import(self, node: ast.Import) -> None:
+        self.import_nodes.append(node)
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"
@@ -106,19 +138,22 @@ def test_runtime_code_does_not_import_migrated_legacy_room_or_sandbox_models() -
         if relative.parts and relative.parts[0] in MODEL_OWNER_PACKAGES:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                if node.module in MIGRATED_LEGACY_MODEL_MODULES:
-                    violations.append(f"{relative} imports {node.module}")
-                if node.module in {"src.database", "src.database.models"}:
-                    names = {alias.name for alias in node.names}
-                    migrated = sorted(names.intersection(MIGRATED_LEGACY_MODEL_NAMES))
-                    if migrated:
-                        violations.append(f"{relative} imports migrated models {migrated}")
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if alias.name in MIGRATED_LEGACY_MODEL_MODULES:
-                        violations.append(f"{relative} imports {alias.name}")
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        for node in visitor.import_from_nodes:
+            if node.module is None:
+                continue
+            if node.module in MIGRATED_LEGACY_MODEL_MODULES:
+                violations.append(f"{relative} imports {node.module}")
+            if node.module in {"src.database", "src.database.models"}:
+                names = {alias.name for alias in node.names}
+                migrated = sorted(names.intersection(MIGRATED_LEGACY_MODEL_NAMES))
+                if migrated:
+                    violations.append(f"{relative} imports migrated models {migrated}")
+        for node in visitor.import_nodes:
+            for alias in node.names:
+                if alias.name in MIGRATED_LEGACY_MODEL_MODULES:
+                    violations.append(f"{relative} imports {alias.name}")
     assert not violations, "Runtime code imports migrated legacy models:\n" + "\n".join(violations)
 
 

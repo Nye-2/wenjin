@@ -1,6 +1,7 @@
 """Workspace aggregate owned by DataService."""
 
 from .contracts import (
+    WorkspaceAdminStatsRecord,
     WorkspaceCreateCommand,
     WorkspaceMembershipRole,
     WorkspaceMembershipStatus,
@@ -13,6 +14,7 @@ from .service import DataServiceWorkspaceService
 
 __all__ = [
     "DataServiceWorkspaceService",
+    "WorkspaceAdminStatsRecord",
     "WorkspaceCreateCommand",
     "WorkspaceMembership",
     "WorkspaceMembershipRole",

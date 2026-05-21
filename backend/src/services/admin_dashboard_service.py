@@ -14,9 +14,9 @@ from src.database import (
     CreditTransaction,
     CreditTransactionType,
     User,
-    Workspace,
 )
 from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
+from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
 
@@ -26,6 +26,7 @@ class AdminDashboardService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._execution = ExecutionDataService(db, autocommit=False)
+        self._workspace = WorkspaceDataService(db, autocommit=False)
 
     async def get_dashboard(self) -> dict[str, Any]:
         """Aggregate admin dashboard payload."""
@@ -50,17 +51,7 @@ class AdminDashboardService:
             or 0
         )
 
-        workspace_total = int(
-            (await self.db.execute(select(func.count()).select_from(Workspace))).scalar()
-            or 0
-        )
-        workspace_rows = await self.db.execute(
-            select(Workspace.type, func.count()).group_by(Workspace.type)
-        )
-        workspace_by_type = {
-            (workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)): int(count)
-            for workspace_type, count in workspace_rows.all()
-        }
+        workspace_stats = await self._workspace.get_admin_workspace_stats()
 
         task_total = await self._execution.count_executions()
         task_running = await self._execution.count_executions(
@@ -139,8 +130,8 @@ class AdminDashboardService:
                     "admins": admin_users,
                 },
                 "workspaces": {
-                    "total": workspace_total,
-                    "by_type": workspace_by_type,
+                    "total": workspace_stats.total,
+                    "by_type": workspace_stats.by_type,
                 },
                 "tasks": {
                     "total": task_total,
@@ -294,15 +285,7 @@ class AdminDashboardService:
         workspace_counts: dict[str, int] = {}
         task_counts: dict[str, int] = {}
         if user_ids:
-            workspace_rows = await self.db.execute(
-                select(Workspace.user_id, func.count())
-                .where(Workspace.user_id.in_(user_ids))
-                .group_by(Workspace.user_id)
-            )
-            workspace_counts = {
-                str(user_id): int(count)
-                for user_id, count in workspace_rows.all()
-            }
+            workspace_counts = await self._workspace.count_workspaces_by_member_ids(user_ids)
 
             task_counts = await self._execution.count_executions_by_user_ids(user_ids)
 

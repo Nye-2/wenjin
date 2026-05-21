@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.thread import Thread
@@ -67,6 +67,33 @@ class WorkspaceRepository:
         )
         result = await self.session.execute(statement)
         return list(result.scalars().all())
+
+    async def count_workspaces_by_type(self) -> list[tuple[Any, int]]:
+        result = await self.session.execute(
+            select(Workspace.type, func.count()).group_by(Workspace.type)
+        )
+        return [(workspace_type, int(count)) for workspace_type, count in result.all()]
+
+    async def count_active_members_with_workspaces(self) -> int:
+        result = await self.session.execute(
+            select(func.count(distinct(WorkspaceMembership.user_id))).where(
+                WorkspaceMembership.status == WorkspaceMembershipStatus.ACTIVE.value
+            )
+        )
+        return int(result.scalar() or 0)
+
+    async def count_workspaces_by_member_ids(self, user_ids: list[str]) -> dict[str, int]:
+        if not user_ids:
+            return {}
+        result = await self.session.execute(
+            select(WorkspaceMembership.user_id, func.count(distinct(WorkspaceMembership.workspace_id)))
+            .where(
+                WorkspaceMembership.user_id.in_(user_ids),
+                WorkspaceMembership.status == WorkspaceMembershipStatus.ACTIVE.value,
+            )
+            .group_by(WorkspaceMembership.user_id)
+        )
+        return {str(user_id): int(count) for user_id, count in result.all()}
 
     async def has_active_membership(
         self,

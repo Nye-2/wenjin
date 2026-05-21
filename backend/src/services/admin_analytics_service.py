@@ -9,16 +9,16 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import (
     CreditTransaction,
     CreditTransactionType,
     User,
-    Workspace,
 )
 from src.dataservice.execution_api import ExecutionDataService
+from src.dataservice.workspace_api import WorkspaceDataService
 
 Granularity = Literal["day", "week"]
 
@@ -32,6 +32,7 @@ class AdminAnalyticsService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._workspace = WorkspaceDataService(db, autocommit=False)
 
     # ------------------------------------------------------------------
     # 1. User growth
@@ -186,26 +187,14 @@ class AdminAnalyticsService:
     # 4. Workspace adoption
     # ------------------------------------------------------------------
     async def workspace_adoption_stats(self) -> dict[str, Any]:
-        ws_result = await self.db.execute(
-            select(Workspace.type, func.count()).group_by(Workspace.type)
-        )
+        stats = await self._workspace.get_admin_workspace_stats()
         by_type = [
             {
-                "type": (
-                    t if isinstance(t, str) else t.value
-                ),
-                "count": int(c),
+                "type": workspace_type,
+                "count": int(count),
             }
-            for t, c in ws_result.all()
+            for workspace_type, count in stats.by_type.items()
         ]
-
-        total_ws = sum(item["count"] for item in by_type)
-
-        # Users with at least one workspace
-        users_with_ws = await self.db.execute(
-            select(func.count(distinct(Workspace.user_id)))
-        )
-        users_count = int(users_with_ws.scalar() or 0)
 
         total_users_result = await self.db.execute(
             select(func.count()).select_from(User)
@@ -214,7 +203,7 @@ class AdminAnalyticsService:
 
         return {
             "by_type": by_type,
-            "total_workspaces": total_ws,
-            "users_with_workspaces": users_count,
-            "adoption_rate": (users_count / total_users) if total_users > 0 else 0.0,
+            "total_workspaces": stats.total,
+            "users_with_workspaces": stats.users_with_workspaces,
+            "adoption_rate": (stats.users_with_workspaces / total_users) if total_users > 0 else 0.0,
         }

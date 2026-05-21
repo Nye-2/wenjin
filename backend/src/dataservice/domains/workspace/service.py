@@ -11,6 +11,7 @@ from src.database.models.workspace import Workspace
 from src.database.models.workspace_settings import WorkspaceSettings
 from src.dataservice.common.errors import DataServiceConflictError, DataServiceNotFoundError
 from src.dataservice.domains.workspace.contracts import (
+    WorkspaceAdminStatsRecord,
     WorkspaceCreateCommand,
     WorkspaceRecord,
     WorkspaceSettingsRecord,
@@ -91,6 +92,21 @@ class DataServiceWorkspaceService:
             by_type=by_type,
             created_last_7d=created_last_7d,
         )
+
+    async def get_admin_workspace_stats(self) -> WorkspaceAdminStatsRecord:
+        by_type_rows = await self.repository.count_workspaces_by_type()
+        by_type = {
+            workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type): count
+            for workspace_type, count in by_type_rows
+        }
+        return WorkspaceAdminStatsRecord(
+            total=sum(by_type.values()),
+            by_type=by_type,
+            users_with_workspaces=await self.repository.count_active_members_with_workspaces(),
+        )
+
+    async def count_workspaces_by_member_ids(self, user_ids: list[str]) -> dict[str, int]:
+        return await self.repository.count_workspaces_by_member_ids(user_ids)
 
     async def user_has_active_membership(
         self,

@@ -21,7 +21,6 @@ from src.database import (
     ReferenceLibraryStatus,
     ReferencePreprocessStatus,
     ReferenceSourceType,
-    Workspace,
 )
 from src.database.base import generate_uuid
 from src.dataservice.asset_api import AssetDataService
@@ -34,6 +33,7 @@ from src.dataservice.source_api import (
     SourceImportCommand,
     SourceUpdateCommand,
 )
+from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.latex.project_service import LatexProjectService
 from src.services.upload_preprocessor import UploadPreprocessResult, get_upload_preprocessor_service
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
@@ -1065,8 +1065,7 @@ class SourceBibliographyService:
         scope: ReferenceBibtexScope | str = ReferenceBibtexScope.INCLUDED_AND_CORE,
     ) -> dict[str, Any]:
         bibtex = await self.build_bibtex(workspace_id=workspace_id, scope=scope)
-        workspace_result = await self.db.execute(select(Workspace).where(Workspace.id == workspace_id))
-        workspace = workspace_result.scalar_one_or_none()
+        workspace = await WorkspaceDataService(self.db, autocommit=False).get_workspace(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
 

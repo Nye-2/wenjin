@@ -161,3 +161,33 @@ async def test_lock_workspace_for_update_delegates_to_repository() -> None:
     await service.lock_workspace_for_update("ws-1")
 
     service.repository.lock_workspace_for_update.assert_awaited_once_with("ws-1")  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_get_admin_workspace_stats_aggregates_membership_projection() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
+    service.repository.count_workspaces_by_type = AsyncMock(  # type: ignore[method-assign]
+        return_value=[(WorkspaceType.THESIS, 2), ("sci", 1)]
+    )
+    service.repository.count_active_members_with_workspaces = AsyncMock(return_value=2)  # type: ignore[method-assign]
+
+    stats = await service.get_admin_workspace_stats()
+
+    assert stats.total == 3
+    assert stats.by_type == {"thesis": 2, "sci": 1}
+    assert stats.users_with_workspaces == 2
+
+
+@pytest.mark.asyncio
+async def test_count_workspaces_by_member_ids_delegates_to_repository() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
+    service.repository.count_workspaces_by_member_ids = AsyncMock(  # type: ignore[method-assign]
+        return_value={"user-1": 2}
+    )
+
+    counts = await service.count_workspaces_by_member_ids(["user-1"])
+
+    assert counts == {"user-1": 2}
+    service.repository.count_workspaces_by_member_ids.assert_awaited_once_with(["user-1"])  # type: ignore[attr-defined]

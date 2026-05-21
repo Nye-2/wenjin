@@ -11,6 +11,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionNodeProjection,
     ExecutionRecordProjection,
 )
+from src.dataservice.domains.workspace.contracts import WorkspaceAdminStatsRecord
 from src.services.admin_dashboard_service import AdminDashboardService
 
 
@@ -65,8 +66,6 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
             _ScalarResult(6),
             _ScalarResult(5),
             _ScalarResult(1),
-            _ScalarResult(4),
-            _RowsResult([("thesis", 3), ("sci", 1)]),
             _ScalarResult(8),
             _ScalarResult(260),
             _ScalarResult(180),
@@ -101,6 +100,13 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
     )
 
     service = AdminDashboardService(db)
+    service._workspace.get_admin_workspace_stats = AsyncMock(
+        return_value=WorkspaceAdminStatsRecord(
+            total=4,
+            by_type={"thesis": 3, "sci": 1},
+            users_with_workspaces=2,
+        )
+    )
     service._execution.count_executions = AsyncMock(side_effect=[12, 2, 1])
     service._execution.list_executions = AsyncMock(
         return_value=[

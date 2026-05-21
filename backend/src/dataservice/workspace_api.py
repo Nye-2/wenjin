@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import Workspace, WorkspaceType
 from src.dataservice.domains.workspace.contracts import (
+    WorkspaceAdminStatsRecord,
     WorkspaceCreateCommand,
     WorkspaceSettingsRecord,
     WorkspaceSettingsUpdateCommand,
@@ -72,6 +73,12 @@ class WorkspaceDataService:
 
     async def get_workspace_stats_for_member(self, user_id: str) -> WorkspaceStatsRecord:
         return await self._domain.get_workspace_stats_for_member(user_id)
+
+    async def get_admin_workspace_stats(self) -> WorkspaceAdminStatsRecord:
+        return await self._domain.get_admin_workspace_stats()
+
+    async def count_workspaces_by_member_ids(self, user_ids: list[str]) -> dict[str, int]:
+        return await self._domain.count_workspaces_by_member_ids(user_ids)
 
     async def user_has_active_membership(
         self,
