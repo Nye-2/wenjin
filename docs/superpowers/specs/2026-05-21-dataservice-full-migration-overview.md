@@ -1091,10 +1091,11 @@ Implementation status as of 2026-05-21:
 - Agent-side LaTeX compilation bibliography generation now resolves `citation_ids` through Source DataService within the runtime workspace and formats BibTeX from canonical Source metadata. `ExecutionMiddleware` no longer imports `WorkspaceReference` or `ReferenceBibTeXService`.
 - Workspace built-in tools now resolve workspace access through `WorkspaceDataService` and list recent artifacts through `AssetDataService` / `workspace_assets`; they no longer import `Workspace` or `Artifact` ORM models directly.
 - Thesis literature-management dashboard counts now use Source DataService count projections for total/core source state instead of reading `workspace_references`.
+- Reference Library built-in tools now read outlines, search text units, and fetch source sections through Source DataService. Section access auditing now writes `provenance_links` instead of `reference_usage_events`.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Prism cleanup and Source citation/bibliography/dashboard-count slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1925 backend tests.
+- Verification through the Prism cleanup and Source citation/bibliography/dashboard/tool slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1925 backend tests.
 
 ### Phase 4: Review Materialization
 

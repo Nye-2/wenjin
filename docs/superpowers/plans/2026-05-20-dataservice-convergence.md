@@ -919,13 +919,14 @@ Implementation status:
 - Agent-side LaTeX compilation bibliography generation now resolves `citation_ids` through Source DataService within the runtime workspace and formats BibTeX from canonical Source metadata. `ExecutionMiddleware` no longer imports `WorkspaceReference` or `ReferenceBibTeXService`.
 - Workspace built-in tools now resolve workspace access through `WorkspaceDataService` and list recent artifacts through `AssetDataService` / `workspace_assets`; they no longer import `Workspace` or `Artifact` ORM models directly.
 - Thesis literature-management dashboard counts now use Source DataService count projections for total/core source state instead of reading `workspace_references`.
+- Reference Library built-in tools now read outlines, search text units, and fetch source sections through Source DataService. Section access auditing now writes `provenance_links` instead of `reference_usage_events`.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
-- Verification after the Prism cleanup and Source citation/bibliography/dashboard-count slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1925 backend tests.
+- Verification after the Prism cleanup and Source citation/bibliography/dashboard/tool slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1925 backend tests.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/services/test_dashboard_service.py tests/architecture/test_dataservice_boundaries.py -q` passes with 29 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1925 tests.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/tools/test_reference_builtins.py tests/dataservice/test_source_provenance_domain.py tests/architecture/test_dataservice_boundaries.py -q` passes with 16 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1925 tests.
 
 ### Task 14: Final Drop/Archive Gate
 

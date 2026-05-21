@@ -116,6 +116,126 @@ class SourceDataDomainService:
             include_excluded=include_excluded,
         )
 
+    async def get_library_outline(self, workspace_id: str) -> list[dict[str, object]]:
+        sources = await self.repository.list_sources(
+            workspace_id=workspace_id,
+            include_deleted=False,
+            limit=500,
+        )
+        output: list[dict[str, object]] = []
+        for source in sources:
+            if str(source.library_status) == "excluded":
+                continue
+            nodes = await self.get_source_outline(workspace_id, str(source.id), limit=24)
+            output.append(
+                {
+                    "source": source_to_projection(source).model_dump(mode="json"),
+                    "reference": source_to_projection(source).model_dump(mode="json"),
+                    "outline": nodes,
+                }
+            )
+        return output
+
+    async def get_workspace_toc_summary(self, workspace_id: str) -> str:
+        outline = await self.get_library_outline(workspace_id)
+        if not outline:
+            return ""
+        lines = ["## Source Library Outline"]
+        for index, item in enumerate(outline[:30], start=1):
+            source = item["source"]
+            assert isinstance(source, dict)
+            lines.append(
+                f"### [{index}] {source['title']} "
+                f"({source.get('year') or 'n.d.'}, key={source['citation_key']})"
+            )
+            nodes = item.get("outline") or []
+            if isinstance(nodes, list) and nodes:
+                toc = "; ".join(
+                    f"{node['section_path']} {node['title']}"
+                    for node in nodes[:12]
+                    if isinstance(node, dict)
+                )
+                lines.append(f"- Outline: {toc}")
+            else:
+                status = source.get("fulltext_status")
+                abstract = str(source.get("abstract") or "").strip()
+                if abstract:
+                    lines.append(f"- Metadata/abstract only: {' '.join(abstract.split())[:240]}")
+                else:
+                    lines.append(f"- Full-text status: {status}; no outline is available yet.")
+        return "\n".join(lines)
+
+    async def get_source_outline(
+        self,
+        workspace_id: str,
+        source_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, object]]:
+        records = await self.repository.list_outline_nodes(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            limit=limit,
+        )
+        return [self._serialize_outline_node(record) for record in records]
+
+    async def search_text_units(
+        self,
+        *,
+        workspace_id: str,
+        query: str,
+        source_ids: list[str] | None = None,
+        limit: int = 12,
+    ) -> list[dict[str, object]]:
+        records = await self.repository.search_text_units(
+            workspace_id=workspace_id,
+            query=query,
+            source_ids=source_ids,
+            limit=limit,
+        )
+        return [self._serialize_text_unit(record) for record in records]
+
+    async def search_workspace_sections(
+        self,
+        workspace_id: str,
+        query: str,
+        *,
+        limit: int = 8,
+    ) -> list[dict[str, object]]:
+        return await self.search_text_units(workspace_id=workspace_id, query=query, limit=limit)
+
+    async def get_source_section(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        section_path: str,
+    ) -> dict[str, object] | None:
+        node = await self.repository.find_outline_node_by_path(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            section_path=section_path,
+        )
+        if node is None:
+            return None
+        return await self._section_from_node(workspace_id=workspace_id, source_id=source_id, node=node)
+
+    async def get_source_section_by_title(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        section_title: str,
+    ) -> dict[str, object] | None:
+        node = await self.repository.find_outline_node_by_title(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            section_title=section_title,
+        )
+        if node is None:
+            return None
+        return await self._section_from_node(workspace_id=workspace_id, source_id=source_id, node=node)
+
     async def list_sources_by_citation_keys(
         self,
         *,
@@ -268,3 +388,66 @@ class SourceDataDomainService:
     def _clean_citation_key(value: object, *, fallback: str) -> str:
         cleaned = str(value or "").strip().replace("{", "").replace("}", "")
         return cleaned or fallback
+
+    async def _section_from_node(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        node: object,
+    ) -> dict[str, object]:
+        units = [
+            self._serialize_text_unit(unit)
+            for unit in await self.repository.list_text_units_by_outline_node(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                outline_node_id=str(node.id),
+            )
+        ]
+        return {
+            "source_id": source_id,
+            "reference_id": source_id,
+            "node_id": str(node.id),
+            "title": str(node.title),
+            "section_path": str(node.section_path),
+            "content": "\n\n".join(str(unit["content"]) for unit in units),
+            "units": units,
+        }
+
+    @staticmethod
+    def _serialize_outline_node(record: object) -> dict[str, object]:
+        return {
+            "id": str(record.id),
+            "workspace_id": str(record.workspace_id),
+            "source_id": str(record.source_id),
+            "reference_id": str(record.source_id),
+            "parent_id": getattr(record, "parent_id", None),
+            "section_path": getattr(record, "section_path", None),
+            "title": getattr(record, "title", None),
+            "level": getattr(record, "level", None),
+            "sort_order": getattr(record, "sort_order", None),
+            "page_start": getattr(record, "page_start", None),
+            "page_end": getattr(record, "page_end", None),
+            "summary": getattr(record, "summary", None),
+            "keywords": list(getattr(record, "keywords_json", None) or []),
+        }
+
+    @staticmethod
+    def _serialize_text_unit(record: object) -> dict[str, object]:
+        return {
+            "id": str(record.id),
+            "workspace_id": str(record.workspace_id),
+            "source_id": str(record.source_id),
+            "reference_id": str(record.source_id),
+            "outline_node_id": getattr(record, "outline_node_id", None),
+            "asset_id": getattr(record, "source_asset_id", None),
+            "unit_type": getattr(record, "unit_type", None),
+            "unit_index": getattr(record, "unit_index", None),
+            "page_start": getattr(record, "page_start", None),
+            "page_end": getattr(record, "page_end", None),
+            "content": getattr(record, "content", None),
+            "token_count": getattr(record, "token_count", None),
+            "metadata": dict(getattr(record, "metadata_json", None) or {}),
+            "created_at": getattr(record, "created_at", None),
+            "updated_at": getattr(record, "updated_at", None),
+        }

@@ -64,6 +64,47 @@ class SourceDataService:
             include_excluded=include_excluded,
         )
 
+    async def get_library_outline(self, workspace_id: str) -> list[dict[str, object]]:
+        return await self._domain.get_library_outline(workspace_id)
+
+    async def get_workspace_toc_summary(self, workspace_id: str) -> str:
+        return await self._domain.get_workspace_toc_summary(workspace_id)
+
+    async def search_workspace_sections(
+        self,
+        workspace_id: str,
+        query: str,
+        *,
+        limit: int = 8,
+    ) -> list[dict[str, object]]:
+        return await self._domain.search_workspace_sections(workspace_id, query, limit=limit)
+
+    async def get_source_section(
+        self,
+        *,
+        source_id: str,
+        section_path: str,
+        workspace_id: str,
+    ) -> dict[str, object] | None:
+        return await self._domain.get_source_section(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            section_path=section_path,
+        )
+
+    async def get_source_section_by_title(
+        self,
+        *,
+        source_id: str,
+        section_title: str,
+        workspace_id: str,
+    ) -> dict[str, object] | None:
+        return await self._domain.get_source_section_by_title(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            section_title=section_title,
+        )
+
     async def list_sources_by_citation_keys(
         self,
         *,

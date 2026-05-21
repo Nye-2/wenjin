@@ -12,7 +12,8 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.database import get_db_session
-from src.services.references import ReferenceIndexService, ReferenceUsageService
+from src.dataservice.provenance_api import ProvenanceDataService, ProvenanceLinkCreateCommand
+from src.dataservice.source_api import SourceDataService
 
 logger = logging.getLogger(__name__)
 
@@ -106,20 +107,29 @@ async def _record_reference_access(
         raw_units = section.get("units")
         units = raw_units if isinstance(raw_units, list) else []
         first_unit = next((item for item in units if isinstance(item, dict)), {})
-        await ReferenceUsageService(db).record_usage(
-            workspace_id=workspace_id,
-            reference_ids=[reference_id],
-            outline_node_id=str(section.get("node_id") or "").strip() or None,
-            text_unit_id=str(first_unit.get("id") or "").strip() or None,
-            execution_id=_runtime_value(config, "execution_id"),
-            task_id=_runtime_value(config, "task_id"),
-            artifact_id=_runtime_value(config, "artifact_id"),
-            target_section=_runtime_value(config, "skill_id"),
-            claim_text=str(section.get("title") or "").strip() or None,
-            generated_text=str(section.get("content") or "")[:4000],
-            usage_type="background",
-            accepted_status="pending",
-            mark_used_in_draft=False,
+        await ProvenanceDataService(db).create_link(
+            ProvenanceLinkCreateCommand(
+                workspace_id=workspace_id,
+                source_id=reference_id,
+                target_domain="agent_tool",
+                target_kind="source_section_access",
+                target_id=str(section.get("node_id") or "").strip() or None,
+                target_ref_json={
+                    "section_path": section.get("section_path"),
+                    "outline_node_id": str(section.get("node_id") or "").strip() or None,
+                    "text_unit_id": str(first_unit.get("id") or "").strip() or None,
+                    "skill_id": _runtime_value(config, "skill_id"),
+                },
+                relation_kind="used_as_context",
+                claim_text=str(section.get("title") or "").strip() or None,
+                generated_text=str(section.get("content") or "")[:4000],
+                execution_id=_runtime_value(config, "execution_id"),
+                metadata_json={
+                    "task_id": _runtime_value(config, "task_id"),
+                    "artifact_id": _runtime_value(config, "artifact_id"),
+                    "accepted_status": "pending",
+                },
+            )
         )
     except Exception:
         logger.debug(
@@ -141,8 +151,9 @@ async def list_reference_library_tool(
         return json.dumps(error, ensure_ascii=False)
     assert resolved_workspace_id is not None
     async with get_db_session() as db:
-        index_service = ReferenceIndexService(db)
-        summary = await index_service.get_workspace_toc_summary(resolved_workspace_id)
+        summary = await SourceDataService(db, autocommit=False).get_workspace_toc_summary(
+            resolved_workspace_id
+        )
     return summary or "该工作区暂无可用参考文献目录。"
 
 
@@ -159,8 +170,7 @@ async def search_reference_text_units_tool(
         return json.dumps(error, ensure_ascii=False)
     assert resolved_workspace_id is not None
     async with get_db_session() as db:
-        index_service = ReferenceIndexService(db)
-        records = await index_service.search_workspace_sections(
+        records = await SourceDataService(db, autocommit=False).search_workspace_sections(
             resolved_workspace_id,
             query,
             limit=limit,
@@ -199,16 +209,16 @@ async def read_reference_outline_node_tool(
         return "请至少提供 section_path 或 section_title。"
 
     async with get_db_session() as db:
-        index_service = ReferenceIndexService(db)
+        source_service = SourceDataService(db, autocommit=False)
         if normalized_path:
-            section = await index_service.get_reference_section(
-                reference_id=reference_id,
+            section = await source_service.get_source_section(
+                source_id=reference_id,
                 section_path=normalized_path,
                 workspace_id=resolved_workspace_id,
             )
         else:
-            section = await index_service.get_reference_section_by_title(
-                reference_id=reference_id,
+            section = await source_service.get_source_section_by_title(
+                source_id=reference_id,
                 section_title=normalized_title,
                 workspace_id=resolved_workspace_id,
             )
