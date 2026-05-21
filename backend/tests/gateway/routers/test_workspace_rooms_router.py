@@ -216,8 +216,8 @@ class TestDecisionsRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.get_active = AsyncMock(return_value={"citation_style": "IEEE"})
-            mp.setattr(workspace_rooms, "_decisions_service", lambda db: mock_svc)
+            mock_svc.list_active_decisions = AsyncMock(return_value={"citation_style": "IEEE"})
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/decisions")
 
         assert resp.status_code == 200
@@ -234,8 +234,8 @@ class TestDecisionsRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.set = AsyncMock(return_value=fake_decision)
-            mp.setattr(workspace_rooms, "_decisions_service", lambda db: mock_svc)
+            mock_svc.set_decision = AsyncMock(return_value=fake_decision)
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.post(
                 f"/workspaces/{WS_ID}/decisions",
                 json={"key": "citation_style", "value": "APA", "extracted_by": "user"},
@@ -249,8 +249,8 @@ class TestDecisionsRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.delete = AsyncMock(return_value=False)
-            mp.setattr(workspace_rooms, "_decisions_service", lambda db: mock_svc)
+            mock_svc.delete_decision = AsyncMock(return_value=False)
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.delete(f"/workspaces/{WS_ID}/decisions/nope")
 
         assert resp.status_code == 404
@@ -268,8 +268,8 @@ class TestMemoryRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.top = AsyncMock(return_value=[fake_fact])
-            mp.setattr(workspace_rooms, "_memory_service", lambda db: mock_svc)
+            mock_svc.list_memory_facts = AsyncMock(return_value=[fake_fact])
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/memory")
 
         assert resp.status_code == 200
@@ -281,12 +281,8 @@ class TestMemoryRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.add_facts = AsyncMock(return_value=[fake_fact])
-
-            import src.services.rooms.memory_service as mem_mod
-
-            mp.setattr(workspace_rooms, "_memory_service", lambda db: mock_svc)
-            mp.setattr(mem_mod, "FactCreate", mem_mod.FactCreate)
+            mock_svc.add_memory_facts = AsyncMock(return_value=[fake_fact])
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.post(
                 f"/workspaces/{WS_ID}/memory",
                 json={"facts": [{"category": "pref", "content": "APA"}]},
@@ -368,8 +364,8 @@ class TestTasksRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.list = AsyncMock(return_value=[fake_task])
-            mp.setattr(workspace_rooms, "_workspace_tasks_service", lambda db: mock_svc)
+            mock_svc.list_workspace_tasks = AsyncMock(return_value=[fake_task])
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.get(f"/workspaces/{WS_ID}/tasks")
 
         assert resp.status_code == 200
@@ -382,8 +378,8 @@ class TestTasksRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.add = AsyncMock(return_value=fake_task)
-            mp.setattr(workspace_rooms, "_workspace_tasks_service", lambda db: mock_svc)
+            mock_svc.create_workspace_task = AsyncMock(return_value=fake_task)
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.post(
                 f"/workspaces/{WS_ID}/tasks",
                 json={"title": "Do Y", "created_by": "user"},
@@ -397,8 +393,8 @@ class TestTasksRoom:
 
         with pytest.MonkeyPatch.context() as mp:
             mock_svc = MagicMock()
-            mock_svc.delete = AsyncMock(return_value=False)
-            mp.setattr(workspace_rooms, "_workspace_tasks_service", lambda db: mock_svc)
+            mock_svc.soft_delete_workspace_task = AsyncMock(return_value=False)
+            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
             resp = client.delete(f"/workspaces/{WS_ID}/tasks/missing")
 
         assert resp.status_code == 404

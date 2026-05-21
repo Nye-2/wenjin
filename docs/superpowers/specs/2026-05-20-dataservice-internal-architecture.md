@@ -517,9 +517,9 @@ Invariants:
 
 Current scattered logic:
 
-- `rooms/decisions_service.py`
-- `rooms/memory_service.py`
-- `rooms/workspace_tasks_service.py`
+- former `rooms/decisions_service.py`
+- former `rooms/memory_service.py`
+- former `rooms/workspace_tasks_service.py`
 - direct room writes from commit flow
 
 Target commands:
@@ -536,6 +536,12 @@ Invariants:
 - Candidate room writes come through review.
 - User direct edits can write rooms directly through DataService commands.
 - Memory and decisions are workspace-scoped, not global user knowledge.
+
+Implementation checkpoint, 2026-05-21:
+
+- Decisions, memory, and workspace tasks are now routed through `RoomsDataService` directly from workspace room endpoints.
+- The former decisions, memory, and workspace task room facades have been deleted.
+- Execution commit stages memory/decision/task candidates into canonical review items and applies them through the Rooms review handler.
 
 ### 6.11 Operations Domain
 

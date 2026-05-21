@@ -249,21 +249,17 @@ async def test_event_bus_publish_subscribe_with_mock_redis():
 
 @pytest.mark.asyncio
 async def test_room_services_boot(db_session):
-    """Room adapters and run-history DataService projection boot without error."""
+    """Room adapters and DataService room/execution projections boot without error."""
     from src.dataservice.execution_api import ExecutionDataService
-    from src.services.rooms.decisions_service import DecisionsService
+    from src.dataservice.rooms_api import RoomsDataService
     from src.services.rooms.documents_service import DocumentsService
     from src.services.rooms.library_service import LibraryService
-    from src.services.rooms.memory_service import MemoryService
     from src.services.rooms.sandbox_service import SandboxService
     from src.services.rooms.settings_service import WorkspaceSettingsService
-    from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 
     LibraryService(db_session)
     DocumentsService(db_session)
-    DecisionsService(db_session)
-    MemoryService(db_session)
+    RoomsDataService(db_session)
     ExecutionDataService(db_session)
     SandboxService(db_session)
-    WorkspaceTasksService(db_session)
     WorkspaceSettingsService(db_session)

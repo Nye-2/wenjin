@@ -18,17 +18,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User
+from src.dataservice.rooms_api import (
+    DecisionSetCommand,
+    MemoryFactCreateCommand,
+    RoomsDataService,
+    WorkspaceTaskCreateCommand,
+    WorkspaceTaskUpdateCommand,
+)
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_db, get_workspace_service
 
 if TYPE_CHECKING:
     from src.dataservice.execution_api import ExecutionDataService
-    from src.services.rooms.decisions_service import DecisionsService
     from src.services.rooms.documents_service import DocumentsService
     from src.services.rooms.library_service import LibraryService
-    from src.services.rooms.memory_service import MemoryService
     from src.services.rooms.settings_service import WorkspaceSettingsService
-    from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
 
 logger = logging.getLogger(__name__)
 
@@ -79,28 +83,14 @@ def _documents_service(db: AsyncSession) -> DocumentsService:
     return DocumentsService(db)
 
 
-def _decisions_service(db: AsyncSession) -> DecisionsService:
-    from src.services.rooms.decisions_service import DecisionsService
-
-    return DecisionsService(db)
-
-
-def _memory_service(db: AsyncSession) -> MemoryService:
-    from src.services.rooms.memory_service import MemoryService
-
-    return MemoryService(db)
+def _rooms_service(db: AsyncSession) -> RoomsDataService:
+    return RoomsDataService(db)
 
 
 def _execution_history_service(db: AsyncSession) -> ExecutionDataService:
     from src.dataservice.execution_api import ExecutionDataService
 
     return ExecutionDataService(db)
-
-
-def _workspace_tasks_service(db: AsyncSession) -> WorkspaceTasksService:
-    from src.services.rooms.workspace_tasks_service import WorkspaceTasksService
-
-    return WorkspaceTasksService(db)
 
 
 def _settings_service(db: AsyncSession) -> WorkspaceSettingsService:
@@ -405,7 +395,7 @@ async def list_decisions(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    active = await _decisions_service(db).get_active(ws_id)
+    active = await _rooms_service(db).list_active_decisions(ws_id)
     return {"active": active}
 
 
@@ -418,12 +408,14 @@ async def set_decision(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    decision = await _decisions_service(db).set(
-        workspace_id=ws_id,
-        key=body.key,
-        value=body.value,
-        extracted_by=body.extracted_by,
-        confidence=body.confidence,
+    decision = await _rooms_service(db).set_decision(
+        DecisionSetCommand(
+            workspace_id=ws_id,
+            key=body.key,
+            value=body.value,
+            extracted_by=body.extracted_by,
+            confidence=body.confidence,
+        )
     )
     return _row_to_dict(decision)
 
@@ -437,7 +429,7 @@ async def delete_decision(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _decisions_service(db).delete(decision_id)
+    found = await _rooms_service(db).delete_decision(decision_id)
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Decision not found")
 
@@ -457,7 +449,11 @@ async def list_memory(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    facts = await _memory_service(db).top(ws_id, k=k, category=category)
+    facts = await _rooms_service(db).list_memory_facts(
+        workspace_id=ws_id,
+        limit=k,
+        category=category,
+    )
     return {"items": [_row_to_dict(f) for f in facts], "count": len(facts)}
 
 
@@ -469,14 +465,17 @@ async def add_memory_facts(
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    from src.services.rooms.memory_service import FactCreate
-
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    fact_creates = [
-        FactCreate(category=f.category, content=f.content, confidence=f.confidence)
+    commands = [
+        MemoryFactCreateCommand(
+            workspace_id=ws_id,
+            category=f.category,
+            content=f.content,
+            confidence=f.confidence,
+        )
         for f in body.facts
     ]
-    rows = await _memory_service(db).add_facts(ws_id, fact_creates)
+    rows = await _rooms_service(db).add_memory_facts(commands)
     return {"items": [_row_to_dict(r) for r in rows], "count": len(rows)}
 
 
@@ -489,7 +488,7 @@ async def delete_memory_fact(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _memory_service(db).delete(ws_id, fact_id)
+    found = await _rooms_service(db).soft_delete_memory_fact(workspace_id=ws_id, fact_id=fact_id)
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory fact not found")
 
@@ -541,7 +540,7 @@ async def list_workspace_tasks(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    tasks = await _workspace_tasks_service(db).list(ws_id, status=task_status)
+    tasks = await _rooms_service(db).list_workspace_tasks(workspace_id=ws_id, status=task_status)
     return {"items": [_row_to_dict(t) for t in tasks], "count": len(tasks)}
 
 
@@ -554,7 +553,9 @@ async def create_workspace_task(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    task = await _workspace_tasks_service(db).add(ws_id, body.model_dump())
+    task = await _rooms_service(db).create_workspace_task(
+        WorkspaceTaskCreateCommand(workspace_id=ws_id, **body.model_dump())
+    )
     return _row_to_dict(task)
 
 
@@ -569,7 +570,11 @@ async def update_workspace_task(
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     data = body.model_dump(exclude_none=True)
-    task = await _workspace_tasks_service(db).update(ws_id, task_id, **data)
+    task = await _rooms_service(db).update_workspace_task(
+        workspace_id=ws_id,
+        task_id=task_id,
+        command=WorkspaceTaskUpdateCommand(**data),
+    )
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return _row_to_dict(task)
@@ -584,7 +589,7 @@ async def delete_workspace_task(
     db: AsyncSession = Depends(get_db),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _workspace_tasks_service(db).delete(ws_id, task_id)
+    found = await _rooms_service(db).soft_delete_workspace_task(workspace_id=ws_id, task_id=task_id)
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
