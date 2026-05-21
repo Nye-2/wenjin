@@ -156,6 +156,31 @@ class SourceRepository:
         )
         return list(result.scalars().all())
 
+    async def list_text_units_by_pages(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        page_start: int,
+        page_end: int,
+    ) -> list[SourceTextUnitRecord]:
+        result = await self.session.execute(
+            select(SourceTextUnitRecord)
+            .where(
+                SourceTextUnitRecord.workspace_id == workspace_id,
+                SourceTextUnitRecord.source_id == source_id,
+                SourceTextUnitRecord.page_start.is_not(None),
+                SourceTextUnitRecord.page_start <= page_end,
+                func.coalesce(
+                    SourceTextUnitRecord.page_end,
+                    SourceTextUnitRecord.page_start,
+                )
+                >= page_start,
+            )
+            .order_by(SourceTextUnitRecord.unit_index.asc())
+        )
+        return list(result.scalars().all())
+
     async def search_text_units(
         self,
         *,

@@ -105,6 +105,49 @@ class SourceDataService:
             section_title=section_title,
         )
 
+    async def read_source_outline_node(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        outline_node_id: str,
+    ) -> dict[str, object] | None:
+        return await self._domain.read_source_outline_node(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            outline_node_id=outline_node_id,
+        )
+
+    async def read_source_pages(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        page_start: int,
+        page_end: int,
+    ) -> list[dict[str, object]]:
+        return await self._domain.read_source_pages(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            page_start=page_start,
+            page_end=page_end,
+        )
+
+    async def search_text_units(
+        self,
+        *,
+        workspace_id: str,
+        query: str,
+        source_ids: list[str] | None = None,
+        limit: int = 12,
+    ) -> list[dict[str, object]]:
+        return await self._domain.search_text_units(
+            workspace_id=workspace_id,
+            query=query,
+            source_ids=source_ids,
+            limit=limit,
+        )
+
     async def list_sources_by_citation_keys(
         self,
         *,

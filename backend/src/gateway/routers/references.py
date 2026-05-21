@@ -15,6 +15,7 @@ from src.database import (
     ReferenceSourceType,
     User,
 )
+from src.dataservice.source_api import SourceDataService
 from src.gateway.access_control import require_workspace_owner
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_task_service, get_workspace_service
@@ -23,7 +24,6 @@ from src.services.references import (
     ReferenceBibTeXService,
     ReferenceEvidenceService,
     ReferenceImportService,
-    ReferenceIndexService,
     WorkspaceReferenceService,
     serialize_reference,
 )
@@ -188,7 +188,7 @@ async def get_library_outline(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    outline = await ReferenceIndexService(db).get_library_outline(workspace_id)
+    outline = await SourceDataService(db, autocommit=False).get_library_outline(workspace_id)
     return {"items": outline, "count": len(outline)}
 
 
@@ -326,10 +326,10 @@ async def search_text_units(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    items = await ReferenceIndexService(db).search_text_units(
+    items = await SourceDataService(db, autocommit=False).search_text_units(
         workspace_id=workspace_id,
         query=request.query,
-        reference_ids=request.reference_ids,
+        source_ids=request.reference_ids,
         limit=request.limit,
     )
     return {"items": items, "count": len(items)}
@@ -610,7 +610,7 @@ async def get_reference_outline(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    items = await ReferenceIndexService(db).get_reference_outline(workspace_id, reference_id)
+    items = await SourceDataService(db, autocommit=False).get_source_outline(workspace_id, reference_id)
     return {"items": items, "count": len(items)}
 
 
@@ -628,10 +628,10 @@ async def read_outline_node(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await ReferenceIndexService(db).read_outline_node(
+    result = await SourceDataService(db, autocommit=False).read_source_outline_node(
         workspace_id=workspace_id,
-        reference_id=reference_id,
-        node_id=node_id,
+        source_id=reference_id,
+        outline_node_id=node_id,
     )
     if result is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference outline node not found")
@@ -655,9 +655,9 @@ async def read_reference_pages(
     )
     if page_end < page_start:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="page_end must be >= page_start")
-    items = await ReferenceIndexService(db).read_pages(
+    items = await SourceDataService(db, autocommit=False).read_source_pages(
         workspace_id=workspace_id,
-        reference_id=reference_id,
+        source_id=reference_id,
         page_start=page_start,
         page_end=page_end,
     )

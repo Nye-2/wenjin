@@ -236,6 +236,41 @@ class SourceDataDomainService:
             return None
         return await self._section_from_node(workspace_id=workspace_id, source_id=source_id, node=node)
 
+    async def read_source_outline_node(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        outline_node_id: str,
+    ) -> dict[str, object] | None:
+        units = [
+            self._serialize_text_unit(unit)
+            for unit in await self.repository.list_text_units_by_outline_node(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                outline_node_id=outline_node_id,
+            )
+        ]
+        if not units:
+            return None
+        return {"units": units, "content": "\n\n".join(str(unit["content"]) for unit in units)}
+
+    async def read_source_pages(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        page_start: int,
+        page_end: int,
+    ) -> list[dict[str, object]]:
+        records = await self.repository.list_text_units_by_pages(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            page_start=page_start,
+            page_end=page_end,
+        )
+        return [self._serialize_text_unit(record) for record in records]
+
     async def list_sources_by_citation_keys(
         self,
         *,
