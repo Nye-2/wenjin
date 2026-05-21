@@ -6,14 +6,10 @@ from typing import Any
 from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import (
-    AdminActionType,
-    CreditTransaction,
-    CreditTransactionType,
-    User,
-)
+from src.database import AdminActionType, User
 from src.dataservice.asset_api import AssetDataService
 from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice.credit_api import CreditDataService
 from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
@@ -26,6 +22,7 @@ class AdminDashboardService:
         self.db = db
         self._assets = AssetDataService(db, autocommit=False)
         self._catalog = CatalogDataService(db, autocommit=False)
+        self._credit = CreditDataService(db, autocommit=False)
         self._execution = ExecutionDataService(db, autocommit=False)
         self._workspace = WorkspaceDataService(db, autocommit=False)
 
@@ -65,62 +62,7 @@ class AdminDashboardService:
 
         artifact_total = await self._assets.count_legacy_artifacts()
 
-        credits_issued = int(
-            (
-                await self.db.execute(
-                    select(func.coalesce(func.sum(User.total_credits_earned), 0))
-                )
-            ).scalar()
-            or 0
-        )
-        credits_spent = int(
-            (
-                await self.db.execute(
-                    select(func.coalesce(func.sum(User.total_credits_spent), 0))
-                )
-            ).scalar()
-            or 0
-        )
-        credit_balance_total = int(
-            (
-                await self.db.execute(
-                    select(func.coalesce(func.sum(User.credits), 0))
-                )
-            ).scalar()
-            or 0
-        )
-        overdraft_users = int(
-            (
-                await self.db.execute(
-                    select(func.count()).where(User.credits < 0)
-                )
-            ).scalar()
-            or 0
-        )
-        overdraft_credits_total = int(
-            (
-                await self.db.execute(
-                    select(func.coalesce(func.sum(func.abs(User.credits)), 0)).where(
-                        User.credits < 0
-                    )
-                )
-            ).scalar()
-            or 0
-        )
-        manual_deductions_total = int(
-            (
-                await self.db.execute(
-                    select(func.coalesce(func.sum(func.abs(CreditTransaction.amount)), 0)).where(
-                        CreditTransaction.transaction_type == CreditTransactionType.ADMIN_DEDUCT
-                    )
-                )
-            ).scalar()
-            or 0
-        )
-        tx_total = int(
-            (await self.db.execute(select(func.count()).select_from(CreditTransaction))).scalar()
-            or 0
-        )
+        credit_summary = await self._credit.get_admin_credit_summary()
         token_usage_summary = await self._get_token_usage_summary()
 
         return {
@@ -143,13 +85,13 @@ class AdminDashboardService:
                     "total": artifact_total,
                 },
                 "credits": {
-                    "total_issued": credits_issued,
-                    "total_spent": credits_spent,
-                    "in_circulation": credit_balance_total,
-                    "manual_deductions": manual_deductions_total,
-                    "overdraft_users": overdraft_users,
-                    "overdraft_credits_total": overdraft_credits_total,
-                    "total_transactions": tx_total,
+                    "total_issued": credit_summary["total_issued"],
+                    "total_spent": credit_summary["total_spent"],
+                    "in_circulation": credit_summary["in_circulation"],
+                    "manual_deductions": credit_summary["manual_deductions"],
+                    "overdraft_users": credit_summary["overdraft_users"],
+                    "overdraft_credits_total": credit_summary["overdraft_credits_total"],
+                    "total_transactions": credit_summary["total_transactions"],
                 },
                 "token_usage": token_usage_summary,
             },
@@ -158,45 +100,7 @@ class AdminDashboardService:
 
     async def _get_token_usage_summary(self) -> dict[str, Any]:
         """Aggregate non-deduplicated token usage snapshots for admin overview."""
-        thread_rows = await self.db.execute(
-            select(
-                CreditTransaction.id,
-                CreditTransaction.user_id,
-                CreditTransaction.transaction_type,
-                CreditTransaction.tx_metadata,
-            ).where(
-                CreditTransaction.transaction_type.in_(
-                    [
-                        CreditTransactionType.THREAD_TOKEN_CONSUME,
-                        CreditTransactionType.REFUND,
-                    ]
-                )
-            )
-        )
-        thread_transactions = list(thread_rows.all())
-        refunded_ids = {
-            str(metadata.get("original_transaction_id"))
-            for _, _, transaction_type, metadata in thread_transactions
-            if transaction_type == CreditTransactionType.REFUND
-            and isinstance(metadata, dict)
-            and metadata.get("original_transaction_id")
-        }
-        thread_total_tokens = 0
-        thread_tx_count = 0
-        thread_user_ids: set[str] = set()
-        for tx_id, user_id, transaction_type, metadata in thread_transactions:
-            if transaction_type != CreditTransactionType.THREAD_TOKEN_CONSUME:
-                continue
-            if str(tx_id) in refunded_ids:
-                continue
-            usage = normalize_token_usage(
-                metadata.get("token_usage") if isinstance(metadata, dict) else None
-            )
-            if usage is None:
-                continue
-            thread_total_tokens += usage.total_tokens
-            thread_tx_count += 1
-            thread_user_ids.add(str(user_id))
+        thread_summary = await self._credit.get_thread_token_usage_summary()
 
         executions = await self._execution.list_executions(limit=100000)
         feature_usages = []
@@ -221,9 +125,9 @@ class AdminDashboardService:
 
         return {
             "thread": {
-                "total_tokens": thread_total_tokens,
-                "transactions": thread_tx_count,
-                "users": len(thread_user_ids),
+                "total_tokens": thread_summary["total_tokens"],
+                "transactions": thread_summary["transactions"],
+                "users": thread_summary["users"],
             },
             "feature_tasks": {
                 "input_tokens": feature_total.input_tokens if feature_total is not None else 0,

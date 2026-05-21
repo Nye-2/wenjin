@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.database import CreditTransactionType
 from src.dataservice.domains.execution.contracts import (
     ExecutionNodeProjection,
     ExecutionRecordProjection,
@@ -66,35 +65,6 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
             _ScalarResult(6),
             _ScalarResult(5),
             _ScalarResult(1),
-            _ScalarResult(260),
-            _ScalarResult(180),
-            _ScalarResult(67),
-            _ScalarResult(2),
-            _ScalarResult(7),
-            _ScalarResult(13),
-            _ScalarResult(29),
-            _RowsResult(
-                [
-                    (
-                        "tx-chat-1",
-                        "user-1",
-                        CreditTransactionType.THREAD_TOKEN_CONSUME,
-                        {"token_usage": {"total_tokens": 9000}},
-                    ),
-                    (
-                        "tx-refund-1",
-                        "user-1",
-                        CreditTransactionType.REFUND,
-                        {"original_transaction_id": "tx-chat-2"},
-                    ),
-                    (
-                        "tx-chat-2",
-                        "user-2",
-                        CreditTransactionType.THREAD_TOKEN_CONSUME,
-                        {"token_usage": {"total_tokens": 3000}},
-                    ),
-                ]
-            ),
         ]
     )
 
@@ -108,6 +78,24 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
         )
     )
     service._execution.count_executions = AsyncMock(side_effect=[12, 2, 1])
+    service._credit.get_admin_credit_summary = AsyncMock(
+        return_value={
+            "total_issued": 260,
+            "total_spent": 180,
+            "in_circulation": 67,
+            "manual_deductions": 13,
+            "overdraft_users": 2,
+            "overdraft_credits_total": 7,
+            "total_transactions": 29,
+        }
+    )
+    service._credit.get_thread_token_usage_summary = AsyncMock(
+        return_value={
+            "total_tokens": 9000,
+            "transactions": 1,
+            "users": 1,
+        }
+    )
     service._execution.list_executions = AsyncMock(
         return_value=[
             _execution_projection(

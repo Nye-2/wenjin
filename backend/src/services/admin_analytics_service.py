@@ -12,11 +12,8 @@ from typing import Any, Literal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import (
-    CreditTransaction,
-    CreditTransactionType,
-    User,
-)
+from src.database import User
+from src.dataservice.credit_api import CreditDataService
 from src.dataservice.execution_api import ExecutionDataService
 from src.dataservice.workspace_api import WorkspaceDataService
 
@@ -32,6 +29,7 @@ class AdminAnalyticsService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._credit = CreditDataService(db, autocommit=False)
         self._workspace = WorkspaceDataService(db, autocommit=False)
 
     # ------------------------------------------------------------------
@@ -115,73 +113,10 @@ class AdminAnalyticsService:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         since = now - timedelta(days=range_days)
-
-        inflow_types = {
-            CreditTransactionType.ADMIN_GRANT,
-            CreditTransactionType.REGISTRATION_BONUS,
-            CreditTransactionType.REFUND,
-        }
-
-        bucket_col = _date_trunc(granularity, CreditTransaction.created_at).label(
-            "bucket"
+        return await self._credit.aggregate_credit_consumption_stats(
+            since=since,
+            granularity=granularity,
         )
-        ttype_col = CreditTransaction.transaction_type
-        stmt = (
-            select(
-                bucket_col,
-                ttype_col.label("ttype"),
-                func.sum(CreditTransaction.amount).label("total"),
-            )
-            .where(CreditTransaction.created_at >= since)
-            .group_by(bucket_col, ttype_col)
-            .order_by(bucket_col)
-        )
-        rows = (await self.db.execute(stmt)).all()
-
-        series_by_bucket: dict[str, dict[str, Any]] = {}
-        for r in rows:
-            bucket = r.bucket.isoformat()
-            ttype = (
-                r.ttype if isinstance(r.ttype, str) else r.ttype.value
-            )
-            amount = int(r.total)
-            series_by_bucket.setdefault(
-                bucket, {"date": bucket, "inflow": 0, "outflow": 0, "by_type": {}}
-            )
-            try:
-                ttype_enum = CreditTransactionType(ttype)
-            except ValueError:
-                continue
-            if ttype_enum in inflow_types:
-                series_by_bucket[bucket]["inflow"] += amount
-            else:
-                series_by_bucket[bucket]["outflow"] += abs(amount)
-            series_by_bucket[bucket]["by_type"][ttype] = amount
-
-        credit_series = [series_by_bucket[k] for k in sorted(series_by_bucket)]
-
-        # KPIs
-        kpis_result = await self.db.execute(
-            select(
-                func.coalesce(func.sum(User.total_credits_earned), 0).label(
-                    "issued"
-                ),
-                func.coalesce(func.sum(User.total_credits_spent), 0).label(
-                    "spent"
-                ),
-                func.coalesce(func.sum(User.credits), 0).label("pool"),
-            )
-        )
-        kpi_row = kpis_result.one()
-
-        return {
-            "kpis": {
-                "total_issued": int(kpi_row.issued),
-                "total_spent": int(kpi_row.spent),
-                "current_pool": int(kpi_row.pool),
-            },
-            "credit_series": credit_series,
-        }
 
     # ------------------------------------------------------------------
     # 4. Workspace adoption

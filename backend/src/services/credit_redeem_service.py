@@ -7,20 +7,13 @@ transaction, preventing over-redemption under concurrent requests.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
-from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import (
-    CreditRedeemCode,
-    CreditRedemption,
-    CreditTransaction,
-    CreditTransactionType,
-    User,
-)
 from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice.credit_api import CreditDataService
 from src.services.redeem_code_generator import generate_code
 
 
@@ -31,6 +24,7 @@ class RedeemError(Exception):
 class CreditRedeemService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._credit = CreditDataService(db, autocommit=False)
 
     async def _record_admin_log(
         self,
@@ -56,7 +50,7 @@ class CreditRedeemService:
         expires_at: datetime | None,
         description: str | None,
         admin_id: str,
-    ) -> list[CreditRedeemCode]:
+    ) -> list[object]:
         if amount <= 0:
             raise ValueError("amount must be > 0")
         if count <= 0 or count > 10000:
@@ -65,24 +59,25 @@ class CreditRedeemService:
             raise ValueError("max_uses and per_user_limit must be > 0")
 
         batch_id = str(uuid.uuid4())
-        created: list[CreditRedeemCode] = []
+        created: list[object] = []
 
         for _ in range(count):
             for _attempt in range(5):
                 code = generate_code()
-                obj = CreditRedeemCode(
-                    code=code, amount=amount, max_uses=max_uses,
-                    use_count=0, per_user_limit=per_user_limit,
-                    expires_at=expires_at, valid_from=None, enabled=True,
-                    batch_id=batch_id, description=description,
-                    created_by_admin_id=admin_id,
-                )
-                async with self.db.begin_nested():
-                    self.db.add(obj)
-                    try:
-                        await self.db.flush()
-                    except IntegrityError:
-                        continue  # savepoint auto-rolled-back; retry with new code
+                try:
+                    async with self.db.begin_nested():
+                        obj = await self._credit.create_redeem_code(
+                            code=code,
+                            amount=amount,
+                            max_uses=max_uses,
+                            per_user_limit=per_user_limit,
+                            expires_at=expires_at,
+                            batch_id=batch_id,
+                            description=description,
+                            admin_id=admin_id,
+                        )
+                except IntegrityError:
+                    continue
                 created.append(obj)
                 break
             else:
@@ -104,24 +99,19 @@ class CreditRedeemService:
         keyword: str | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[CreditRedeemCode]:
-        stmt = select(CreditRedeemCode).order_by(CreditRedeemCode.created_at.desc())
-        if batch_id:
-            stmt = stmt.where(CreditRedeemCode.batch_id == batch_id)
-        if enabled is not None:
-            stmt = stmt.where(CreditRedeemCode.enabled == enabled)
-        if keyword:
-            stmt = stmt.where(CreditRedeemCode.code.ilike(f"%{keyword}%"))
-        stmt = stmt.limit(limit).offset(offset)
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
+    ) -> list[object]:
+        return await self._credit.list_redeem_codes(
+            batch_id=batch_id,
+            enabled=enabled,
+            keyword=keyword,
+            limit=limit,
+            offset=offset,
+        )
 
-    async def disable(self, code_id: str, admin_id: str) -> CreditRedeemCode:
-        result = await self.db.execute(select(CreditRedeemCode).where(CreditRedeemCode.id == code_id))
-        code = result.scalars().first()
+    async def disable(self, code_id: str, admin_id: str) -> object:
+        code = await self._credit.disable_redeem_code(code_id)
         if code is None:
             raise ValueError("not found")
-        code.enabled = False
         await self._record_admin_log(
             action="redeem_code_disable",
             admin_id=admin_id,
@@ -130,67 +120,14 @@ class CreditRedeemService:
         await self.db.commit()
         return code
 
-    async def redeem(self, *, code: str, user_id: str) -> CreditTransaction:
+    async def redeem(self, *, code: str, user_id: str) -> object:
         """Atomic redemption.
 
         Acquires a row-level lock on the redeem code (SELECT ... FOR UPDATE),
         validates all constraints, writes redemption + transaction, increments use_count.
         Any failure raises RedeemError and the transaction is rolled back.
         """
-        async with self.db.begin():
-            stmt = (
-                select(CreditRedeemCode)
-                .where(CreditRedeemCode.code == code)
-                .with_for_update()
-            )
-            result = await self.db.execute(stmt)
-            row = result.scalars().first()
-
-            if row is None:
-                raise RedeemError("code not found")
-            if not row.enabled:
-                raise RedeemError("code disabled")
-            now = datetime.now(UTC)
-            if row.expires_at and row.expires_at < now:
-                raise RedeemError("code expired")
-            if row.valid_from and row.valid_from > now:
-                raise RedeemError("code not yet valid")
-            if row.use_count >= row.max_uses:
-                raise RedeemError("code exhausted")
-
-            user_uses_result = await self.db.execute(
-                select(func.count())
-                .select_from(CreditRedemption)
-                .where(CreditRedemption.code_id == row.id)
-                .where(CreditRedemption.user_id == user_id)
-            )
-            user_uses = int(user_uses_result.scalar_one())
-            if user_uses >= row.per_user_limit:
-                raise RedeemError("per-user limit reached")
-
-            user_result = await self.db.execute(select(User).where(User.id == user_id))
-            user = user_result.scalars().first()
-            if user is None:
-                raise RedeemError("user not found")
-
-            new_balance = (user.credits or 0) + row.amount
-            user.credits = new_balance
-            user.total_credits_earned = (user.total_credits_earned or 0) + row.amount
-
-            txn = CreditTransaction(
-                user_id=user_id,
-                transaction_type=CreditTransactionType.REDEEM_CODE,
-                amount=row.amount,
-                balance_after=new_balance,
-                description=f"兑换码 {row.code[:9]}***",
-            )
-            self.db.add(txn)
-            await self.db.flush()
-
-            redemption = CreditRedemption(
-                code_id=row.id, user_id=user_id, transaction_id=txn.id,
-            )
-            self.db.add(redemption)
-            row.use_count += 1
-
-        return txn
+        try:
+            return await self._credit.redeem_code(code=code, user_id=user_id)
+        except ValueError as exc:
+            raise RedeemError(str(exc)) from exc
