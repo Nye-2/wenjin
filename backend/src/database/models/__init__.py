@@ -23,23 +23,16 @@ from .library_item import LibraryItem
 from .memory_fact import MemoryFact
 from .reference import (
     ReferenceAcceptedStatus,
-    ReferenceAsset,
     ReferenceAssetType,
     ReferenceBibtexScope,
-    ReferenceBibtexSnapshot,
     ReferenceEvidenceLevel,
-    ReferenceExternalId,
     ReferenceFulltextStatus,
     ReferenceLibraryStatus,
-    ReferenceOutlineNode,
     ReferencePreprocessStatus,
     ReferenceReadStatus,
     ReferenceSourceType,
-    ReferenceTextUnit,
     ReferenceTextUnitType,
-    ReferenceUsageEvent,
     ReferenceUsageType,
-    WorkspaceReference,
 )
 from .referral import Referral
 from .run_history import RunHistory
@@ -61,13 +54,6 @@ __all__ = [
     "WorkspaceType",
     "WorkspaceSettings",
     # Reference Library
-    "WorkspaceReference",
-    "ReferenceExternalId",
-    "ReferenceAsset",
-    "ReferenceOutlineNode",
-    "ReferenceTextUnit",
-    "ReferenceUsageEvent",
-    "ReferenceBibtexSnapshot",
     "ReferenceSourceType",
     "ReferenceLibraryStatus",
     "ReferenceEvidenceLevel",

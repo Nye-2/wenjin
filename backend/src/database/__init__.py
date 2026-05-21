@@ -29,21 +29,15 @@ from .models import (
     LatexProject,
     LatexTemplate,
     ReferenceAcceptedStatus,
-    ReferenceAsset,
     ReferenceAssetType,
     ReferenceBibtexScope,
-    ReferenceBibtexSnapshot,
     ReferenceEvidenceLevel,
-    ReferenceExternalId,
     ReferenceFulltextStatus,
     ReferenceLibraryStatus,
-    ReferenceOutlineNode,
     ReferencePreprocessStatus,
     ReferenceReadStatus,
     ReferenceSourceType,
-    ReferenceTextUnit,
     ReferenceTextUnitType,
-    ReferenceUsageEvent,
     ReferenceUsageType,
     # Referral
     Referral,
@@ -57,7 +51,6 @@ from .models import (
     UserKnowledge,
     # Workspace
     Workspace,
-    WorkspaceReference,
     WorkspaceType,
 )
 from .session import (
@@ -94,13 +87,6 @@ __all__ = [
     # Models - Thread
     "Thread",
     # Models - Reference Library
-    "WorkspaceReference",
-    "ReferenceExternalId",
-    "ReferenceAsset",
-    "ReferenceOutlineNode",
-    "ReferenceTextUnit",
-    "ReferenceUsageEvent",
-    "ReferenceBibtexSnapshot",
     "ReferenceSourceType",
     "ReferenceLibraryStatus",
     "ReferenceEvidenceLevel",

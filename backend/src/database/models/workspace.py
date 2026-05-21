@@ -13,7 +13,6 @@ from ..base import Base, TimestampMixin, UUIDMixin
 if TYPE_CHECKING:
     from .artifact import Artifact
     from .generation import GenerationRecord
-    from .reference import WorkspaceReference
     from .thread import Thread
     from .user import User
     from .workspace_settings import WorkspaceSettings
@@ -87,11 +86,6 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         "Thread",
         foreign_keys=[thread_id],
         lazy="selectin",
-    )
-    references: Mapped[list["WorkspaceReference"]] = relationship(
-        "WorkspaceReference",
-        back_populates="workspace",
-        cascade="all, delete-orphan",
     )
     artifacts: Mapped[list["Artifact"]] = relationship(
         "Artifact",

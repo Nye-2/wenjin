@@ -6,12 +6,10 @@ from .models import (
     DataServiceOutboxEvent,
 )
 from .outbox import OutboxEventDraft
-from .repository import OperationsRepository
 
 __all__ = [
     "DataServiceIdempotencyKey",
     "DataServiceMigrationReport",
     "DataServiceOutboxEvent",
     "OutboxEventDraft",
-    "OperationsRepository",
 ]

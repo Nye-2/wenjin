@@ -1108,7 +1108,9 @@ Implementation status as of 2026-05-21:
 - Source DataService now exposes source asset read/update APIs for preprocess status and metadata, enabling PDF preprocess to move off `reference_assets`.
 - Reference PDF upload now creates canonical `sources`, `workspace_assets`, and `source_assets` directly; queued preprocess payloads use `source_id`, `source_asset_id`, and `workspace_asset_id`, and `SourcePreprocessService` writes canonical Source indexes.
 - Legacy `WorkspaceReferenceService` and `ReferencePreprocessService` have been removed from the runtime service surface; reference detail and PDF preprocess no longer use legacy reference ORM tables.
-- Remaining Source convergence debt is limited to archive/drop validation for legacy reference physical tables and facade naming cleanup after gateway contract stabilization.
+- Legacy reference ORM table models have been removed. Migration `072_drop_legacy_reference_tables.py` drops `workspace_references`, `reference_external_ids`, `reference_assets`, `reference_outline_nodes`, `reference_text_units`, `reference_usage_events`, and `reference_bibtex_snapshots` after the Source DataService cutover.
+- Remaining Source convergence debt is limited to facade naming cleanup after gateway contract stabilization.
+- Alembic env no longer imports legacy reference ORM models; `cd backend && .venv/bin/python -m alembic heads` resolves `072_drop_legacy_reference_tables` as the single head.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.

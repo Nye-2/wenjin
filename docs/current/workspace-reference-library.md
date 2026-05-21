@@ -31,7 +31,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 
 ## 2. 事实源不变量
 
-1. 文献中心唯一事实源是 canonical `sources`；legacy `workspace_references*` / `reference_*` 只作为历史物理表等待 archive/drop gate，不再承载运行时 import、detail、preprocess 或 usage 逻辑。
+1. 文献中心唯一事实源是 canonical `sources`；legacy `workspace_references*` / `reference_*` 不再承载运行时 import、detail、preprocess 或 usage 逻辑，并由 migration `072_drop_legacy_reference_tables.py` 删除。
 2. 所有文献资产必须绑定 `workspace_id`，workspace 间不共享全文、索引、状态或 citation key。
 3. citation key 由系统生成并在 workspace 内唯一，LLM 只能使用已有 key。
 4. Semantic Scholar 的 `verified_papers` 是检索导入事实来源；`model_synthesis` 和 `unverified_leads` 只能作为分析或下一轮检索线索。
@@ -53,7 +53,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 - `source_text_units`：可检索全文单元。
 - `provenance_links`：引用、证据、Prism 变更、文档来源与写作使用审计。
 - `source_bibtex_snapshots`：`refs.bib` projection 快照；运行时内容从 Source metadata 生成。
-- `workspace_references*` / `reference_*`：legacy physical tables，保留到 archive/drop gate 后删除。
+- `workspace_references*` / `reference_*`：legacy physical tables；migration `072_drop_legacy_reference_tables.py` 删除，ORM 模型已移除。
 
 关键枚举：
 
@@ -116,6 +116,7 @@ API 面：
 - Reference PDF upload 直接创建 canonical `sources`、`workspace_assets`、`source_assets`，queued preprocess payload 使用 `source_id` / `source_asset_id` / `workspace_asset_id`。
 - `sync_prism` 将 BibTeX projection 快照写入 canonical `source_bibtex_snapshots`，不再写 `reference_bibtex_snapshots`。
 - Legacy `WorkspaceReferenceService`、`ReferencePreprocessService`、`ReferenceIndexService` 和 `ReferenceUsageService` 已从 runtime service surface 删除。
+- Legacy reference ORM table models 已删除；`Reference*` enum 仅作为 API/status 校验类型保留。
 - Prism context rail 已能展示 canonical source links，并 deep-link 回 Library / Documents。
 - Release gate 覆盖 Semantic Scholar verified import、上传预处理、Reference writing workflow、Prism Review workflow、Reference Import Service、前端 action contract。
 - Backend verification：`cd backend && .venv/bin/python -m pytest tests/ -q` 通过，`1935 passed`。
