@@ -21,6 +21,11 @@ from src.dataservice.domains.operations.models import (
     DataServiceOutboxEvent,
 )
 from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.account import (
+    AccountUserCreatePayload,
+    AccountUserRolePayload,
+    AccountUserStatusPayload,
+)
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagesRebuildPayload,
@@ -224,6 +229,111 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
             {"name": "Updated"},
         ),
         ("DELETE", "/internal/v1/workspaces/workspace-2", None),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_account_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def user_payload(user_id: str = "user-1") -> dict[str, Any]:
+        return {
+            "id": user_id,
+            "email": "user@example.com",
+            "name": "User",
+            "role": "user",
+            "is_active": True,
+            "is_superuser": False,
+            "credits": 10,
+            "total_credits_earned": 20,
+            "total_credits_spent": 10,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if request.method == "POST":
+            return httpx.Response(200, json={"status": "ok", "data": user_payload()})
+        if path.endswith("/admin-stats"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "data": {"total_users": 3, "active_users": 2, "admin_users": 1},
+                },
+            )
+        if path.endswith("/growth"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "data": {
+                        "total_users": 3,
+                        "new_in_range": 1,
+                        "time_series": [{"date": "2026-05-22T00:00:00", "signups": 1}],
+                    },
+                },
+            )
+        if request.method == "GET" and path == "/internal/v1/account/users":
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"users": [user_payload()], "total": 1}},
+            )
+        return httpx.Response(200, json={"status": "ok", "data": user_payload("user-2")})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        created = await client.create_account_user(
+            AccountUserCreatePayload(
+                email="user@example.com",
+                hashed_password="hashed",
+                name="User",
+            )
+        )
+        fetched = await client.get_account_user("user-2")
+        stats = await client.get_account_admin_stats()
+        listed = await client.list_account_users(page=1, page_size=10)
+        status = await client.update_account_user_status(
+            "user-2",
+            AccountUserStatusPayload(is_active=False),
+        )
+        role = await client.update_account_user_role(
+            "user-2",
+            AccountUserRolePayload(role="admin"),
+        )
+        growth = await client.aggregate_account_user_growth(
+            since=datetime.fromisoformat("2026-05-22T00:00:00"),
+        )
+
+    assert created is not None and created.id == "user-1"
+    assert fetched is not None and fetched.id == "user-2"
+    assert stats.admin_users == 1
+    assert listed.total == 1
+    assert status is not None and status.id == "user-2"
+    assert role is not None and role.id == "user-2"
+    assert growth.new_in_range == 1
+    assert seen == [
+        (
+            "POST",
+            "/internal/v1/account/users",
+            {
+                "email": "user@example.com",
+                "hashed_password": "hashed",
+                "name": "User",
+                "auto_commit": True,
+            },
+        ),
+        ("GET", "/internal/v1/account/users/user-2", None),
+        ("GET", "/internal/v1/account/admin-stats", None),
+        ("GET", "/internal/v1/account/users", None),
+        ("PATCH", "/internal/v1/account/users/user-2/status", {"is_active": False}),
+        ("PATCH", "/internal/v1/account/users/user-2/role", {"role": "admin"}),
+        ("GET", "/internal/v1/account/growth", None),
     ]
 
 

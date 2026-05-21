@@ -8,6 +8,15 @@ from typing import Any
 import httpx
 
 from src.config import dataservice_settings
+from src.dataservice_client.contracts.account import (
+    AccountAdminStatsPayload,
+    AccountUserCreatePayload,
+    AccountUserGrowthPayload,
+    AccountUserListPayload,
+    AccountUserPayload,
+    AccountUserRolePayload,
+    AccountUserStatusPayload,
+)
 from src.dataservice_client.contracts.asset import (
     WorkspaceAssetCreatePayload,
     WorkspaceAssetDownloadPayload,
@@ -134,6 +143,88 @@ class AsyncDataServiceClient:
 
     async def readyz(self) -> dict[str, Any]:
         return await self._request("GET", "/readyz", authenticated=False)
+
+    async def create_account_user(
+        self,
+        command: AccountUserCreatePayload,
+    ) -> AccountUserPayload | None:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/account/users",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def get_account_user(self, user_id: str) -> AccountUserPayload | None:
+        payload = await self._request("GET", f"/internal/v1/account/users/{user_id}")
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def get_account_admin_stats(self) -> AccountAdminStatsPayload:
+        payload = await self._request("GET", "/internal/v1/account/admin-stats")
+        return AccountAdminStatsPayload.model_validate(payload["data"])
+
+    async def list_account_users(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        keyword: str | None = None,
+        is_active: bool | None = None,
+        is_superuser: bool | None = None,
+    ) -> AccountUserListPayload:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/account/users",
+            params={
+                "page": page,
+                "page_size": page_size,
+                "keyword": keyword,
+                "is_active": is_active,
+                "is_superuser": is_superuser,
+            },
+        )
+        return AccountUserListPayload.model_validate(payload["data"])
+
+    async def update_account_user_status(
+        self,
+        user_id: str,
+        command: AccountUserStatusPayload,
+    ) -> AccountUserPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/account/users/{user_id}/status",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def update_account_user_role(
+        self,
+        user_id: str,
+        command: AccountUserRolePayload,
+    ) -> AccountUserPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/account/users/{user_id}/role",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def aggregate_account_user_growth(
+        self,
+        *,
+        since: datetime,
+        granularity: str = "day",
+    ) -> AccountUserGrowthPayload:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/account/growth",
+            params={"since": since.isoformat(), "granularity": granularity},
+        )
+        return AccountUserGrowthPayload.model_validate(payload["data"])
 
     async def append_conversation_message(
         self,
