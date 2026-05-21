@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -21,6 +21,16 @@ class SourceRepository:
 
     def create_source(self, values: dict[str, Any]) -> SourceRecord:
         record = SourceRecord(id=str(values.pop("source_id", None) or generate_uuid()), **values)
+        self.session.add(record)
+        return record
+
+    def create_outline_node(self, values: dict[str, Any]) -> SourceOutlineNodeRecord:
+        record = SourceOutlineNodeRecord(id=str(values.pop("id", None) or generate_uuid()), **values)
+        self.session.add(record)
+        return record
+
+    def create_text_unit(self, values: dict[str, Any]) -> SourceTextUnitRecord:
+        record = SourceTextUnitRecord(id=str(values.pop("id", None) or generate_uuid()), **values)
         self.session.add(record)
         return record
 
@@ -162,6 +172,20 @@ class SourceRepository:
             stmt = stmt.where(SourceRecord.id != exclude_source_id)
         result = await self.session.execute(stmt.limit(1))
         return result.scalar_one_or_none() is not None
+
+    async def delete_source_index(self, *, workspace_id: str, source_id: str) -> None:
+        await self.session.execute(
+            delete(SourceTextUnitRecord).where(
+                SourceTextUnitRecord.workspace_id == workspace_id,
+                SourceTextUnitRecord.source_id == source_id,
+            )
+        )
+        await self.session.execute(
+            delete(SourceOutlineNodeRecord).where(
+                SourceOutlineNodeRecord.workspace_id == workspace_id,
+                SourceOutlineNodeRecord.source_id == source_id,
+            )
+        )
 
     async def list_outline_nodes(
         self,

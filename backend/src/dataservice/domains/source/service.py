@@ -506,6 +506,31 @@ class SourceDataDomainService:
         )
         return [self._serialize_text_unit(record) for record in records]
 
+    async def replace_source_index(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        outline_nodes: list[dict[str, object]],
+        text_units: list[dict[str, object]],
+    ) -> dict[str, int]:
+        await self.repository.delete_source_index(workspace_id=workspace_id, source_id=source_id)
+        for item in outline_nodes:
+            self.repository.create_outline_node(dict(item))
+        for item in text_units:
+            self.repository.create_text_unit(dict(item))
+        source = await self.repository.get_source_for_workspace(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            include_deleted=True,
+        )
+        if source is not None:
+            source.fulltext_status = "indexed" if text_units else source.fulltext_status
+            source.evidence_level = "indexed_fulltext" if text_units else source.evidence_level
+            source.updated_at = datetime.now(UTC)
+        await self._finish()
+        return {"outline_nodes": len(outline_nodes), "text_units": len(text_units)}
+
     async def list_sources_by_citation_keys(
         self,
         *,

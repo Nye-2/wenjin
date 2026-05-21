@@ -243,6 +243,21 @@ class SourceDataService:
             page_end=page_end,
         )
 
+    async def replace_source_index(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        outline_nodes: list[dict[str, object]],
+        text_units: list[dict[str, object]],
+    ) -> dict[str, int]:
+        return await self._domain.replace_source_index(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            outline_nodes=outline_nodes,
+            text_units=text_units,
+        )
+
     async def search_text_units(
         self,
         *,

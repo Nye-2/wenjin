@@ -44,6 +44,8 @@ def _record(values: dict[str, Any]) -> SimpleNamespace:
 class FakeSourceRepository:
     def __init__(self) -> None:
         self.sources: dict[str, SimpleNamespace] = {}
+        self.outline_nodes: list[SimpleNamespace] = []
+        self.text_units: list[SimpleNamespace] = []
 
     def create_source(self, values: dict[str, Any]) -> SimpleNamespace:
         source_id = str(values.pop("source_id", None) or f"source-{len(self.sources) + 1}")
@@ -56,6 +58,16 @@ class FakeSourceRepository:
             }
         )
         self.sources[source_id] = record
+        return record
+
+    def create_outline_node(self, values: dict[str, Any]) -> SimpleNamespace:
+        record = _record({"id": values.pop("id", f"node-{len(self.outline_nodes) + 1}"), **values})
+        self.outline_nodes.append(record)
+        return record
+
+    def create_text_unit(self, values: dict[str, Any]) -> SimpleNamespace:
+        record = _record({"id": values.pop("id", f"unit-{len(self.text_units) + 1}"), **values})
+        self.text_units.append(record)
         return record
 
     async def get_source(self, source_id: str) -> SimpleNamespace | None:
@@ -191,7 +203,23 @@ class FakeSourceRepository:
         source_id: str,
         limit: int = 200,
     ) -> list[SimpleNamespace]:
-        return []
+        return [
+            record
+            for record in self.outline_nodes
+            if record.workspace_id == workspace_id and record.source_id == source_id
+        ][:limit]
+
+    async def delete_source_index(self, *, workspace_id: str, source_id: str) -> None:
+        self.outline_nodes = [
+            record
+            for record in self.outline_nodes
+            if not (record.workspace_id == workspace_id and record.source_id == source_id)
+        ]
+        self.text_units = [
+            record
+            for record in self.text_units
+            if not (record.workspace_id == workspace_id and record.source_id == source_id)
+        ]
 
     async def list_sources_by_citation_keys(
         self,
@@ -446,6 +474,73 @@ async def test_source_service_updates_and_deletes_reference_state() -> None:
     assert updated.tags_json == ["important"]
     assert deleted is True
     assert await service.get_source_for_workspace(workspace_id="ws-1", source_id=first.id) is None
+
+
+@pytest.mark.asyncio
+async def test_source_service_replaces_source_index() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    source = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Indexed Paper",
+            citation_key="indexed2026",
+            fulltext_status="uploaded",
+            evidence_level="uploaded_fulltext",
+        )
+    )
+    result = await service.replace_source_index(
+        workspace_id="ws-1",
+        source_id=source.id,
+        outline_nodes=[
+            {
+                "id": "node-1",
+                "workspace_id": "ws-1",
+                "source_id": source.id,
+                "parent_id": None,
+                "section_path": "1",
+                "title": "Introduction",
+                "level": 1,
+                "sort_order": 0,
+                "page_start": 1,
+                "page_end": 1,
+                "char_start": 0,
+                "char_end": 50,
+                "summary": "Intro",
+                "keywords_json": ["intro"],
+            }
+        ],
+        text_units=[
+            {
+                "id": "unit-1",
+                "workspace_id": "ws-1",
+                "source_id": source.id,
+                "outline_node_id": "node-1",
+                "source_asset_id": "asset-1",
+                "unit_type": "section",
+                "unit_index": 0,
+                "content": "Indexed content",
+                "search_text": "Indexed Paper\nIntroduction\nIndexed content",
+                "token_count": 2,
+                "page_start": 1,
+                "page_end": 1,
+                "char_start": 0,
+                "char_end": 50,
+                "metadata_json": {"section_path": "1"},
+            }
+        ],
+    )
+    updated = await service.get_source_for_workspace(workspace_id="ws-1", source_id=source.id)
+
+    assert result == {"outline_nodes": 1, "text_units": 1}
+    assert len(repository.outline_nodes) == 1
+    assert len(repository.text_units) == 1
+    assert updated is not None
+    assert updated.fulltext_status == "indexed"
+    assert updated.evidence_level == "indexed_fulltext"
 
 
 @pytest.mark.asyncio

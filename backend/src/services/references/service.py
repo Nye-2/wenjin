@@ -1422,6 +1422,7 @@ class ReferencePreprocessService:
                 result.markdown_paths,
                 page_map=page_map,
             )
+            await self._sync_source_index(reference)
         elif result.status in {"disabled", "skipped"}:
             asset.preprocess_status = ReferencePreprocessStatus.SKIPPED
             reference.fulltext_status = ReferenceFulltextStatus.UPLOADED
@@ -1432,6 +1433,7 @@ class ReferencePreprocessService:
         else:
             asset.preprocess_status = ReferencePreprocessStatus.FAILED
             reference.fulltext_status = ReferenceFulltextStatus.FAILED
+        await WorkspaceReferenceService(self.db)._sync_source_record(reference)
         return metadata
 
     async def _get_asset(self, workspace_id: str, asset_id: str) -> ReferenceAsset | None:
@@ -1604,6 +1606,69 @@ class ReferencePreprocessService:
                 page_source=page_source,
                 initial_sort_order=sort_order,
             )
+
+    async def _sync_source_index(self, reference: WorkspaceReference) -> None:
+        outline_result = await self.db.execute(
+            select(ReferenceOutlineNode)
+            .where(
+                ReferenceOutlineNode.workspace_id == reference.workspace_id,
+                ReferenceOutlineNode.reference_id == reference.id,
+            )
+            .order_by(ReferenceOutlineNode.sort_order)
+        )
+        text_unit_result = await self.db.execute(
+            select(ReferenceTextUnit)
+            .where(
+                ReferenceTextUnit.workspace_id == reference.workspace_id,
+                ReferenceTextUnit.reference_id == reference.id,
+            )
+            .order_by(ReferenceTextUnit.unit_index)
+        )
+        outline_nodes = [
+            {
+                "id": str(node.id),
+                "workspace_id": str(node.workspace_id),
+                "source_id": str(node.reference_id),
+                "parent_id": node.parent_id,
+                "section_path": node.section_path,
+                "title": node.title,
+                "level": node.level,
+                "sort_order": node.sort_order,
+                "page_start": node.page_start,
+                "page_end": node.page_end,
+                "char_start": node.char_start,
+                "char_end": node.char_end,
+                "summary": node.summary,
+                "keywords_json": list(node.keywords or []),
+            }
+            for node in outline_result.scalars().all()
+        ]
+        text_units = [
+            {
+                "id": str(unit.id),
+                "workspace_id": str(unit.workspace_id),
+                "source_id": str(unit.reference_id),
+                "outline_node_id": unit.outline_node_id,
+                "source_asset_id": unit.asset_id,
+                "unit_type": _enum_value(unit.unit_type),
+                "unit_index": unit.unit_index,
+                "content": unit.content,
+                "search_text": unit.search_text,
+                "token_count": unit.token_count,
+                "page_start": unit.page_start,
+                "page_end": unit.page_end,
+                "char_start": unit.char_start,
+                "char_end": unit.char_end,
+                "metadata_json": dict(unit.unit_metadata or {}),
+            }
+            for unit in text_unit_result.scalars().all()
+        ]
+        await SourceDataService(self.db, autocommit=False).replace_source_index(
+            workspace_id=str(reference.workspace_id),
+            source_id=str(reference.id),
+            outline_nodes=outline_nodes,
+            text_units=text_units,
+        )
 
     async def _index_markdown_document(
         self,
@@ -1955,7 +2020,7 @@ class ReferenceEvidenceService:
     """Build evidence packs for writing-time support."""
 
     def __init__(self, db: AsyncSession) -> None:
-        self.index = ReferenceIndexService(db)
+        self.source = SourceDataService(db, autocommit=False)
 
     async def build_evidence_pack(
         self,
@@ -1965,13 +2030,17 @@ class ReferenceEvidenceService:
         reference_ids: Sequence[str] | None = None,
         max_units: int = 8,
     ) -> dict[str, Any]:
-        outline = await self.index.get_library_outline(workspace_id)
-        units = await self.index.search_text_units(
-            workspace_id=workspace_id,
-            query=query or "",
-            reference_ids=reference_ids,
-            limit=max_units,
-        ) if query else []
+        outline = await self.source.get_library_outline(workspace_id)
+        units = (
+            await self.source.search_text_units(
+                workspace_id=workspace_id,
+                query=query or "",
+                source_ids=[str(item) for item in reference_ids] if reference_ids else None,
+                limit=max_units,
+            )
+            if query
+            else []
+        )
         return {
             "workspace_id": workspace_id,
             "query": query,
