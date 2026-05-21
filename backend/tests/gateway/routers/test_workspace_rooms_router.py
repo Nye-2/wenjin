@@ -443,21 +443,14 @@ class TestSandboxExecRoom:
             state="active",
         )
 
-        from unittest.mock import patch
-
-        with patch("src.services.rooms.sandbox_service.SandboxService") as MockSvc:
-            instance = MockSvc.return_value
-            instance.get_or_create = AsyncMock(return_value=fake_sandbox)
-            instance.touch = AsyncMock(return_value=fake_sandbox)
-
-            with pytest.MonkeyPatch.context() as mp:
-                from src.services.rooms import sandbox_service as sb_mod
-
-                mp.setattr(sb_mod, "SandboxService", MockSvc)
-                resp = client.post(
-                    f"/workspaces/{WS_ID}/sandbox/exec",
-                    json={"command": "echo hello"},
-                )
+        with pytest.MonkeyPatch.context() as mp:
+            mock_svc = MagicMock()
+            mock_svc.get_or_create_environment = AsyncMock(return_value=fake_sandbox)
+            mp.setattr(workspace_rooms, "_sandbox_data_service", lambda db: mock_svc)
+            resp = client.post(
+                f"/workspaces/{WS_ID}/sandbox/exec",
+                json={"command": "echo hello"},
+            )
 
         assert resp.status_code == 200
         data = resp.json()

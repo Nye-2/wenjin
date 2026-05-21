@@ -25,6 +25,7 @@ from src.dataservice.rooms_api import (
     WorkspaceTaskCreateCommand,
     WorkspaceTaskUpdateCommand,
 )
+from src.dataservice.sandbox_api import SandboxDataService, SandboxEnvironmentCreateCommand
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_db, get_workspace_service
@@ -95,6 +96,10 @@ def _execution_history_service(db: AsyncSession) -> ExecutionDataService:
 
 def _workspace_data_service(db: AsyncSession) -> WorkspaceDataService:
     return WorkspaceDataService(db)
+
+
+def _sandbox_data_service(db: AsyncSession) -> SandboxDataService:
+    return SandboxDataService(db)
 
 
 # ---------------------------------------------------------------------------
@@ -653,13 +658,9 @@ async def sandbox_exec(
     )
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
 
-    from src.services.rooms.sandbox_service import SandboxService
-
-    sandbox_svc = SandboxService(db)
-    sandbox = await sandbox_svc.get_or_create(ws_id)
-
-    # V1 stub: record the sandbox touch and return an ack.
-    await sandbox_svc.touch(ws_id)
+    sandbox = await _sandbox_data_service(db).get_or_create_environment(
+        SandboxEnvironmentCreateCommand(workspace_id=ws_id, provider="local")
+    )
     return {
         "sandbox_id": sandbox.sandbox_id,
         "provider": sandbox.provider,

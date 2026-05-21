@@ -477,7 +477,7 @@ Invariants:
 
 Current scattered logic:
 
-- `rooms/sandbox_service.py`
+- former `rooms/sandbox_service.py`
 - execution Docker service
 - compute projection sandbox output parsing
 
@@ -495,6 +495,11 @@ Invariants:
 - Sandbox jobs are Python-only in the first version.
 - Sandbox policy blocks Docker socket, host network, privileged mode, host paths, sibling container access, and server-level operations.
 - Sandbox execution implementation remains outside DataService; DataService records state and artifacts.
+
+Implementation checkpoint, 2026-05-21:
+
+- Workspace sandbox exec endpoint now calls `SandboxDataService.get_or_create_environment()` directly for environment touch/state.
+- The former `services/rooms/sandbox_service.py` facade has been deleted.
 
 ### 6.9 Provenance Domain
 
