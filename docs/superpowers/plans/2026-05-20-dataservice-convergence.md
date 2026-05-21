@@ -892,7 +892,7 @@ Implementation status:
 Steps:
 
 - [x] Replace direct model imports for migrated room, sandbox, source/library, document-room, and settings-room slices with DataService APIs.
-- [x] Add architecture guard coverage for migrated room, sandbox, source/library, document-room, settings-room, legacy workspace-run, and compute-session models.
+- [x] Add architecture guard coverage for migrated room, sandbox, source/library, document-room, settings-room, legacy workspace-run, compute-session, and execution-node models.
 - [ ] Replace remaining direct model imports for domains not yet migrated.
 - [ ] Delete old service facade files once gateway routes and smoke tests no longer instantiate them.
 - [x] Run `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/dataservice tests/architecture tests/compute tests/services tests/gateway/routers -q`.
@@ -900,7 +900,7 @@ Steps:
 
 Implementation status:
 
-- 2026-05-21: Projection cleanup slices are implemented for migrated room, sandbox, source/library, document-room, settings-room, legacy workspace-run, and compute-session state. Runtime code no longer imports `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, `LibraryItem`, `DocumentV2`, `WorkspaceSettings`, `WorkspaceRunRow`, or `ComputeSessionRecord` legacy models directly outside DataService/database ownership packages.
+- 2026-05-21: Projection cleanup slices are implemented for migrated room, sandbox, source/library, document-room, settings-room, legacy workspace-run, compute-session state, and execution-node lifecycle snapshots. Runtime code no longer imports `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, `LibraryItem`, `DocumentV2`, `WorkspaceSettings`, `WorkspaceRunRow`, `ComputeSessionRecord`, or `ExecutionNodeRecord` legacy models directly outside DataService/database ownership packages.
 - `WorkspacePrismService` now reads decision and memory context through `RoomsDataService`; `services/rooms/sandbox_service.py` delegates environment state to `SandboxDataService`.
 - `services/rooms/library_service.py` delegates reference-library state to `SourceDataService`; `SourceDataService` now exposes source soft-delete for room delete flows.
 - `services/rooms/documents_service.py` delegates document room create/read/update/delete/version operations to `AssetDataService`; document room writes now create canonical `workspace_assets` rows instead of `documents_v2` rows.
@@ -908,6 +908,9 @@ Implementation status:
 - `services/workspace_run_service.py` has been deleted; product run state stays on DataService execution projections, and `workspace_run` remains only as a legacy physical table pending archive/drop validation.
 - `compute/session_service.py`, compute routes, and compute projection reads now use Execution DataService compute-session commands/projections; DataService app routes and typed client contracts expose the same compute shell boundary for future split deployment.
 - `services/workspace_activity_service.py` now builds artifact activity from `AssetDataService` / `workspace_assets` instead of querying the legacy `artifacts` table.
+- `services/execution_service.py` now delegates execution-node create/update/find operations and interrupted-execution reconciliation to `ExecutionDataService`; internal DataService routes and typed client contracts expose node get/find/upsert/patch and reconciliation commands for future split deployment.
+- `ExecutionRecord` still has direct read consumers in admin analytics and dashboard status helpers. That read cleanup is the next execution aggregate debt before the execution record model can be added to the migrated-model guard.
+- Verification after the execution-node slice is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1921 backend tests.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.

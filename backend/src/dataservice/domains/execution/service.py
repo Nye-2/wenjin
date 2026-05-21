@@ -14,6 +14,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
+    ExecutionNodePatchCommand,
     ExecutionNodeProjection,
     ExecutionNodeUpsertCommand,
     ExecutionRecordProjection,
@@ -116,6 +117,36 @@ class DataServiceExecutionService:
         user_ids: list[str],
     ) -> dict[str, int]:
         return await self.repository.count_executions_by_user_ids(user_ids)
+
+    async def reconcile_interrupted_executions(self) -> int:
+        """Mark stale in-flight executions terminal after process restart."""
+        records = await self.repository.list_executions_by_status(
+            ["pending", "running", "cancelling"]
+        )
+        if not records:
+            return 0
+
+        now = datetime.now(UTC)
+        interrupted_summary = "Execution interrupted by process restart"
+        for record in records:
+            if record.status == "cancelling":
+                record.status = "cancelled"
+                if not record.result_summary:
+                    record.result_summary = interrupted_summary
+                if not record.error:
+                    record.error = interrupted_summary
+                if not record.last_error:
+                    record.last_error = interrupted_summary
+            else:
+                record.status = "failed"
+                record.error = interrupted_summary
+                record.last_error = interrupted_summary
+                record.result_summary = interrupted_summary
+            record.completed_at = record.completed_at or now
+            record.updated_at = now
+
+        await self._finish()
+        return len(records)
 
     async def ensure_compute_session(
         self,
@@ -260,6 +291,25 @@ class DataServiceExecutionService:
             for record in await self.repository.list_nodes_by_execution_ids(execution_ids)
         ]
 
+    async def get_node_by_record_id(
+        self,
+        node_record_id: str,
+    ) -> ExecutionNodeProjection | None:
+        record = await self.repository.get_node_by_record_id(node_record_id)
+        return node_to_projection(record) if record else None
+
+    async def find_node_by_node_id(
+        self,
+        *,
+        execution_id: str,
+        node_id: str,
+    ) -> ExecutionNodeProjection | None:
+        record = await self.repository.get_node_by_node_id(
+            execution_id=execution_id,
+            node_id=node_id,
+        )
+        return node_to_projection(record) if record else None
+
     async def upsert_node(
         self,
         execution_id: str,
@@ -294,6 +344,20 @@ class DataServiceExecutionService:
         else:
             self._apply_node_upsert(record, command)
             record.updated_at = now
+        await self._finish()
+        return node_to_projection(record)
+
+    async def update_node(
+        self,
+        node_record_id: str,
+        command: ExecutionNodePatchCommand,
+    ) -> ExecutionNodeProjection | None:
+        record = await self.repository.get_node_by_record_id(node_record_id)
+        if record is None:
+            return None
+        changed = self._apply_node_patch(record, command)
+        if changed:
+            record.updated_at = datetime.now(UTC)
         await self._finish()
         return node_to_projection(record)
 
@@ -380,6 +444,16 @@ class DataServiceExecutionService:
             record.started_at = command.started_at
         if command.completed_at is not None:
             record.completed_at = command.completed_at
+
+    @staticmethod
+    def _apply_node_patch(record: Any, command: ExecutionNodePatchCommand) -> bool:
+        changed = False
+        data = command.model_dump(exclude_unset=True)
+        for key, value in data.items():
+            if getattr(record, key) != value:
+                setattr(record, key, value)
+                changed = True
+        return changed
 
     async def _finish(self) -> None:
         if self.autocommit:

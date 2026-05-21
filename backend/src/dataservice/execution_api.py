@@ -14,6 +14,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
+    ExecutionNodePatchCommand,
     ExecutionNodeProjection,
     ExecutionNodeUpsertCommand,
     ExecutionRecordProjection,
@@ -108,6 +109,9 @@ class ExecutionDataService:
         user_ids: list[str],
     ) -> dict[str, int]:
         return await self._domain.count_executions_by_user_ids(user_ids)
+
+    async def reconcile_interrupted_executions(self) -> int:
+        return await self._domain.reconcile_interrupted_executions()
 
     async def ensure_compute_session(
         self,
@@ -206,6 +210,20 @@ class ExecutionDataService:
     ) -> list[ExecutionNodeProjection]:
         return await self._domain.list_nodes_by_execution_ids(execution_ids)
 
+    async def get_node_by_record_id(self, node_record_id: str) -> ExecutionNodeProjection | None:
+        return await self._domain.get_node_by_record_id(node_record_id)
+
+    async def find_node_by_node_id(
+        self,
+        *,
+        execution_id: str,
+        node_id: str,
+    ) -> ExecutionNodeProjection | None:
+        return await self._domain.find_node_by_node_id(
+            execution_id=execution_id,
+            node_id=node_id,
+        )
+
     async def upsert_node(
         self,
         execution_id: str,
@@ -221,6 +239,16 @@ class ExecutionDataService:
         return await self._domain.upsert_node(
             execution_id,
             ExecutionNodeUpsertCommand(**fields),
+        )
+
+    async def update_node(
+        self,
+        node_record_id: str,
+        **fields: Any,
+    ) -> ExecutionNodeProjection | None:
+        return await self._domain.update_node(
+            node_record_id,
+            ExecutionNodePatchCommand(**fields),
         )
 
     async def append_event(

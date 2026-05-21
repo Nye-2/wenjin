@@ -13,6 +13,8 @@ from src.dataservice.domains.execution.contracts import (
     ComputeSessionUpdateCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
+    ExecutionNodePatchCommand,
+    ExecutionNodeUpsertCommand,
     ExecutionUpdateCommand,
 )
 from src.dataservice.domains.execution.service import DataServiceExecutionService
@@ -86,11 +88,37 @@ def _compute_session(values: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
+def _node(values: dict[str, Any]) -> SimpleNamespace:
+    now = values.get("created_at") or datetime.now(UTC)
+    defaults = {
+        "id": "node-row-1",
+        "execution_id": "exec-1",
+        "parent_node_id": None,
+        "node_id": "node-1",
+        "node_type": "agent",
+        "label": None,
+        "status": "pending",
+        "input_data": None,
+        "output_data": None,
+        "thinking": None,
+        "tool_calls": None,
+        "token_usage": None,
+        "node_metadata": None,
+        "started_at": None,
+        "completed_at": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    defaults.update(values)
+    return SimpleNamespace(**defaults)
+
+
 class FakeExecutionRepository:
     def __init__(self) -> None:
         self.record: SimpleNamespace | None = None
         self.events: list[SimpleNamespace] = []
         self.compute_session: SimpleNamespace | None = None
+        self.nodes: list[SimpleNamespace] = []
 
     def create_execution(self, values: dict[str, Any]) -> SimpleNamespace:
         self.record = _execution({"id": "exec-created", **values})
@@ -104,6 +132,11 @@ class FakeExecutionRepository:
     async def list_executions(self, **kwargs: Any) -> list[SimpleNamespace]:
         _ = kwargs
         return [self.record] if self.record is not None else []
+
+    async def list_executions_by_status(self, statuses: list[str]) -> list[SimpleNamespace]:
+        if self.record is None or self.record.status not in statuses:
+            return []
+        return [self.record]
 
     async def append_event(
         self,
@@ -130,9 +163,33 @@ class FakeExecutionRepository:
         self.events.append(event)
         return event
 
-    async def list_nodes(self, execution_id: str) -> list:
-        _ = execution_id
-        return []
+    async def list_nodes(self, execution_id: str) -> list[SimpleNamespace]:
+        return [node for node in self.nodes if node.execution_id == execution_id]
+
+    async def list_nodes_by_execution_ids(self, execution_ids: list[str]) -> list[SimpleNamespace]:
+        return [node for node in self.nodes if node.execution_id in execution_ids]
+
+    async def get_node_by_node_id(
+        self,
+        *,
+        execution_id: str,
+        node_id: str,
+    ) -> SimpleNamespace | None:
+        for node in self.nodes:
+            if node.execution_id == execution_id and node.node_id == node_id:
+                return node
+        return None
+
+    async def get_node_by_record_id(self, node_record_id: str) -> SimpleNamespace | None:
+        for node in self.nodes:
+            if node.id == node_record_id:
+                return node
+        return None
+
+    def create_node(self, values: dict[str, Any]) -> SimpleNamespace:
+        node = _node({"id": f"node-row-{len(self.nodes) + 1}", **values})
+        self.nodes.append(node)
+        return node
 
     async def list_events(self, execution_id: str) -> list[SimpleNamespace]:
         return [event for event in self.events if event.execution_id == execution_id]
@@ -210,6 +267,51 @@ async def test_update_execution_maps_v2_fields_to_storage_fields() -> None:
     assert repository.record.graph_structure == {"nodes": []}
     assert repository.record.runtime_state == {"phase": "draft"}
     assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_interrupted_executions_marks_in_flight_terminal() -> None:
+    service, repository, session = _service()
+    repository.record = _execution({"id": "exec-1", "status": "running"})
+
+    reconciled = await service.reconcile_interrupted_executions()
+
+    assert reconciled == 1
+    assert repository.record.status == "failed"
+    assert repository.record.error == "Execution interrupted by process restart"
+    assert repository.record.completed_at is not None
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_upsert_and_patch_node_project_lifecycle_snapshot() -> None:
+    service, repository, session = _service()
+
+    created = await service.upsert_node(
+        "exec-1",
+        ExecutionNodeUpsertCommand(
+            node_id="node-1",
+            node_type="agent",
+            label="Draft",
+            status="running",
+            input_data={"topic": "agents"},
+        ),
+    )
+    patched = await service.update_node(
+        created.id,
+        ExecutionNodePatchCommand(
+            status="completed",
+            output_data={"summary": "done"},
+            token_usage={"total": 42},
+        ),
+    )
+
+    assert created.id == "node-row-1"
+    assert patched is not None
+    assert patched.status == "completed"
+    assert patched.output_data == {"summary": "done"}
+    assert repository.nodes[0].token_usage == {"total": 42}
+    assert session.commit_count == 2
 
 
 @pytest.mark.asyncio

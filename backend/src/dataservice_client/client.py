@@ -29,7 +29,9 @@ from src.dataservice_client.contracts.execution import (
     ExecutionCreatePayload,
     ExecutionEventCreatePayload,
     ExecutionEventPayload,
+    ExecutionNodePatchPayload,
     ExecutionNodePayload,
+    ExecutionNodeUpsertPayload,
     ExecutionPayload,
     ExecutionUpdatePayload,
 )
@@ -245,6 +247,13 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return ExecutionPayload.model_validate(data) if data is not None else None
 
+    async def reconcile_interrupted_executions(self) -> int:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/executions/reconcile-interrupted",
+        )
+        return int(payload["data"]["reconciled"])
+
     async def ensure_compute_session(
         self,
         command: ComputeSessionEnsurePayload,
@@ -306,6 +315,49 @@ class AsyncDataServiceClient:
     async def list_execution_nodes(self, execution_id: str) -> list[ExecutionNodePayload]:
         payload = await self._request("GET", f"/internal/v1/executions/{execution_id}/nodes")
         return [ExecutionNodePayload.model_validate(item) for item in payload["data"]]
+
+    async def get_execution_node(self, node_record_id: str) -> ExecutionNodePayload | None:
+        payload = await self._request("GET", f"/internal/v1/executions/nodes/{node_record_id}")
+        data = payload.get("data")
+        return ExecutionNodePayload.model_validate(data) if data is not None else None
+
+    async def find_execution_node(
+        self,
+        *,
+        execution_id: str,
+        node_id: str,
+    ) -> ExecutionNodePayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/executions/{execution_id}/nodes/{node_id}",
+        )
+        data = payload.get("data")
+        return ExecutionNodePayload.model_validate(data) if data is not None else None
+
+    async def upsert_execution_node(
+        self,
+        execution_id: str,
+        command: ExecutionNodeUpsertPayload,
+    ) -> ExecutionNodePayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/nodes",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        return ExecutionNodePayload.model_validate(payload["data"])
+
+    async def update_execution_node(
+        self,
+        node_record_id: str,
+        command: ExecutionNodePatchPayload,
+    ) -> ExecutionNodePayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/executions/nodes/{node_record_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return ExecutionNodePayload.model_validate(data) if data is not None else None
 
     async def append_execution_event(
         self,

@@ -91,6 +91,19 @@ class ExecutionRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
+    async def list_executions_by_status(
+        self,
+        statuses: list[str],
+    ) -> list[ExecutionRecord]:
+        if not statuses:
+            return []
+        result = await self.session.execute(
+            select(ExecutionRecord)
+            .where(ExecutionRecord.status.in_(statuses))
+            .order_by(ExecutionRecord.created_at.asc())
+        )
+        return list(result.scalars().all())
+
     async def count_executions(
         self,
         *,
@@ -164,6 +177,12 @@ class ExecutionRepository:
                 ExecutionNodeRecord.execution_id == execution_id,
                 ExecutionNodeRecord.node_id == node_id,
             )
+        )
+        return result.scalar_one_or_none()
+
+    async def get_node_by_record_id(self, node_record_id: str) -> ExecutionNodeRecord | None:
+        result = await self.session.execute(
+            select(ExecutionNodeRecord).where(ExecutionNodeRecord.id == node_record_id)
         )
         return result.scalar_one_or_none()
 

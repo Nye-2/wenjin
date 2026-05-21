@@ -27,6 +27,8 @@ from src.dataservice_client.contracts.conversation import (
 from src.dataservice_client.contracts.execution import (
     ComputeSessionEnsurePayload,
     ComputeSessionUpdatePayload,
+    ExecutionNodePatchPayload,
+    ExecutionNodeUpsertPayload,
 )
 from src.dataservice_client.contracts.workspace import WorkspaceCreatePayload, WorkspaceUpdatePayload
 
@@ -368,4 +370,91 @@ async def test_dataservice_client_compute_session_contract_methods() -> None:
         ("GET", "/internal/v1/executions/compute-sessions/by-execution/exec-1", None),
         ("GET", "/internal/v1/executions/compute-sessions/list", None),
         ("PATCH", "/internal/v1/executions/compute-sessions/compute-1", {"active_view": "files"}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_execution_node_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def node_payload(status: str = "running") -> dict[str, Any]:
+        return {
+            "id": "node-row-1",
+            "execution_id": "exec-1",
+            "parent_node_id": None,
+            "node_id": "node-1",
+            "node_type": "agent",
+            "label": "Draft",
+            "status": status,
+            "input_data": None,
+            "output_data": None,
+            "thinking": None,
+            "tool_calls": None,
+            "token_usage": None,
+            "node_metadata": None,
+            "started_at": None,
+            "completed_at": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.url.path.endswith("/reconcile-interrupted"):
+            return httpx.Response(200, json={"status": "ok", "data": {"reconciled": 2}})
+        if request.method == "GET" and request.url.path.endswith("/nodes"):
+            return httpx.Response(200, json={"status": "ok", "data": [node_payload()]})
+        if request.method == "PATCH":
+            return httpx.Response(200, json={"status": "ok", "data": node_payload("completed")})
+        if request.method == "POST":
+            return httpx.Response(200, json={"status": "ok", "data": node_payload("running")})
+        return httpx.Response(200, json={"status": "ok", "data": node_payload()})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        reconciled = await client.reconcile_interrupted_executions()
+        listed = await client.list_execution_nodes("exec-1")
+        fetched = await client.get_execution_node("node-row-1")
+        found = await client.find_execution_node(execution_id="exec-1", node_id="node-1")
+        upserted = await client.upsert_execution_node(
+            "exec-1",
+            ExecutionNodeUpsertPayload(
+                node_id="node-1",
+                node_type="agent",
+                label="Draft",
+                status="running",
+            ),
+        )
+        updated = await client.update_execution_node(
+            "node-row-1",
+            ExecutionNodePatchPayload(status="completed"),
+        )
+
+    assert reconciled == 2
+    assert listed[0].id == "node-row-1"
+    assert fetched is not None and fetched.node_id == "node-1"
+    assert found is not None and found.execution_id == "exec-1"
+    assert upserted.status == "running"
+    assert updated is not None and updated.status == "completed"
+    assert seen == [
+        ("POST", "/internal/v1/executions/reconcile-interrupted", None),
+        ("GET", "/internal/v1/executions/exec-1/nodes", None),
+        ("GET", "/internal/v1/executions/nodes/node-row-1", None),
+        ("GET", "/internal/v1/executions/exec-1/nodes/node-1", None),
+        (
+            "POST",
+            "/internal/v1/executions/exec-1/nodes",
+            {
+                "node_id": "node-1",
+                "node_type": "agent",
+                "label": "Draft",
+                "status": "running",
+            },
+        ),
+        ("PATCH", "/internal/v1/executions/nodes/node-row-1", {"status": "completed"}),
     ]

@@ -11,6 +11,8 @@ from src.dataservice.domains.execution.contracts import (
     ComputeSessionUpdateCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
+    ExecutionNodePatchCommand,
+    ExecutionNodeUpsertCommand,
     ExecutionUpdateCommand,
 )
 from src.dataservice.domains.execution.service import DataServiceExecutionService
@@ -55,6 +57,16 @@ async def list_executions(
         limit=limit,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.post("/reconcile-interrupted")
+async def reconcile_interrupted_executions(
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    reconciled = await service.reconcile_interrupted_executions()
+    await uow.commit()
+    return envelope_ok({"reconciled": reconciled})
 
 
 @router.get("/{execution_id}")
@@ -138,6 +150,28 @@ async def update_compute_session(
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
+@router.get("/nodes/{node_record_id}")
+async def get_node_by_record_id(
+    node_record_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.get_node_by_record_id(node_record_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.patch("/nodes/{node_record_id}")
+async def update_node(
+    node_record_id: str,
+    command: ExecutionNodePatchCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.update_node(node_record_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
 @router.get("/{execution_id}/nodes")
 async def list_nodes(
     execution_id: str,
@@ -146,6 +180,32 @@ async def list_nodes(
     service = DataServiceExecutionService(uow.required_session, autocommit=False)
     records = await service.list_nodes(execution_id)
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.post("/{execution_id}/nodes")
+async def upsert_node(
+    execution_id: str,
+    command: ExecutionNodeUpsertCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.upsert_node(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.get("/{execution_id}/nodes/{node_id}")
+async def find_node_by_node_id(
+    execution_id: str,
+    node_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.find_node_by_node_id(
+        execution_id=execution_id,
+        node_id=node_id,
+    )
+    return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
 @router.post("/{execution_id}/events")

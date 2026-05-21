@@ -19,6 +19,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.workspace_settings",
     "src.database.models.workspace_run",
     "src.database.models.compute_session",
+    "src.database.models.execution_node",
 }
 MIGRATED_LEGACY_MODEL_NAMES = {
     "Decision",
@@ -30,6 +31,7 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "WorkspaceSettings",
     "WorkspaceRunRow",
     "ComputeSessionRecord",
+    "ExecutionNodeRecord",
 }
 MODEL_OWNER_PACKAGES = {
     "database",

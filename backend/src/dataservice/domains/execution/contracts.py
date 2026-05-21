@@ -78,6 +78,18 @@ class ExecutionNodeUpsertCommand(BaseModel):
     completed_at: datetime | None = None
 
 
+class ExecutionNodePatchCommand(BaseModel):
+    """Patch one execution node lifecycle snapshot by storage id."""
+
+    status: str | None = Field(default=None, max_length=20)
+    output_data: dict[str, Any] | None = None
+    thinking: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    token_usage: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class ComputeSessionEnsureCommand(BaseModel):
     """Ensure a compute work-plane shell exists for an execution."""
 

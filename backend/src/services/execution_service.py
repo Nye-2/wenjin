@@ -5,12 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.base import generate_uuid
-from src.database.models.execution import ExecutionRecord
-from src.database.models.execution_node import ExecutionNodeRecord
 from src.dataservice.execution_api import ExecutionDataService
 
 _UNSET = object()
@@ -20,11 +16,11 @@ def _normalize_str_list(values: list[str] | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for value in values or []:
-      item = str(value or "").strip()
-      if not item or item in seen:
-          continue
-      normalized.append(item)
-      seen.add(item)
+        item = str(value or "").strip()
+        if not item or item in seen:
+            continue
+        normalized.append(item)
+        seen.add(item)
     return normalized
 
 
@@ -36,7 +32,7 @@ def _normalize_action_list(values: list[dict[str, Any]] | None) -> list[dict[str
     return normalized
 
 
-def serialize_execution_record(record: ExecutionRecord) -> dict[str, Any]:
+def serialize_execution_record(record: Any) -> dict[str, Any]:
     """Serialize an execution record into the canonical API shape."""
     return {
         "id": record.id,
@@ -150,38 +146,10 @@ class ExecutionService:
         execution left in a non-terminal state after restart is treated as
         interrupted and closed out conservatively.
         """
-        result = await self.db.execute(
-            select(ExecutionRecord).where(
-                ExecutionRecord.status.in_(["pending", "running", "cancelling"])
-            )
-        )
-        records = list(result.scalars().all())
-        if not records:
-            return 0
-
-        now = datetime.now(UTC)
-        reconciled = 0
-        for record in records:
-            interrupted_summary = "Execution interrupted by process restart"
-            if record.status == "cancelling":
-                record.status = "cancelled"
-                if not record.result_summary:
-                    record.result_summary = interrupted_summary
-                if not record.error:
-                    record.error = interrupted_summary
-                if not record.last_error:
-                    record.last_error = interrupted_summary
-            else:
-                record.status = "failed"
-                record.error = interrupted_summary
-                record.last_error = interrupted_summary
-                record.result_summary = interrupted_summary
-            record.completed_at = record.completed_at or now
-            record.updated_at = now
-            reconciled += 1
-
-        await self.db.commit()
-        return reconciled
+        return await ExecutionDataService(
+            self.db,
+            autocommit=True,
+        ).reconcile_interrupted_executions()
 
     async def get_execution_graph(self, execution_id: str) -> dict[str, Any]:
         record = await self.get_by_id(execution_id)
@@ -232,7 +200,7 @@ class ExecutionService:
         worker_task_id: str | None | object = _UNSET,
         started_at: datetime | None | object = _UNSET,
         completed_at: datetime | None | object = _UNSET,
-    ) -> ExecutionRecord | None:
+    ) -> Any | None:
         """Update business-state fields on an execution record."""
         fields: dict[str, Any] = {}
         if status is not None:
@@ -302,7 +270,7 @@ class ExecutionService:
         message: str | None | object = _UNSET,
         progress: int | None = None,
         commit: bool = True,
-    ) -> ExecutionRecord | None:
+    ) -> Any | None:
         """Apply task-driven lifecycle updates to the canonical execution record."""
         return await self.update_execution(
             execution_id,
@@ -327,7 +295,7 @@ class ExecutionService:
         execution_id: str,
         *,
         commit: bool = True,
-    ) -> ExecutionRecord | None:
+    ) -> Any | None:
         return await self.update_execution(
             execution_id,
             status="running",
@@ -369,7 +337,7 @@ class ExecutionService:
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
         commit: bool = True,
-    ) -> ExecutionRecord | None:
+    ) -> Any | None:
         record = await self.get_by_id(execution_id)
         if record is None:
             return None
@@ -413,7 +381,7 @@ class ExecutionService:
         error: str | None = None,
         result_summary: str | None = None,
         commit: bool = True,
-    ) -> ExecutionRecord | None:
+    ) -> Any | None:
         return await self.update_execution(
             execution_id,
             status=status,
@@ -429,7 +397,7 @@ class ExecutionService:
         execution_id: str,
         graph_structure: dict[str, Any],
     ) -> None:
-        """Persist the computed graph_structure onto the ExecutionRecord."""
+        """Persist the computed graph_structure onto the canonical execution."""
         await self.update_execution(execution_id, graph_structure=graph_structure)
 
     async def append_artifact_id(
@@ -438,7 +406,7 @@ class ExecutionService:
         artifact_id: str,
         *,
         commit: bool = True,
-    ) -> ExecutionRecord | None:
+    ) -> Any | None:
         """Associate a newly created artifact with an execution record."""
         record = await self.get_by_id(execution_id)
         if record is None:
@@ -459,7 +427,7 @@ class ExecutionService:
         execution_id: str,
         *,
         commit: bool = True,
-    ) -> ExecutionRecord | None:
+    ) -> Any | None:
         record = await self.get_by_id(execution_id)
         if record is None:
             return None
@@ -489,7 +457,7 @@ class ExecutionService:
         return updated
 
     # ------------------------------------------------------------------
-    # ExecutionNodeRecord (optional granular persistence)
+    # Execution node lifecycle snapshots
     # ------------------------------------------------------------------
     async def create_execution_node(
         self,
@@ -501,10 +469,9 @@ class ExecutionService:
         input_data: dict[str, Any] | None = None,
         parent_node_id: str | None = None,
         commit: bool = True,
-    ) -> ExecutionNodeRecord:
-        record = ExecutionNodeRecord(
-            id=generate_uuid(),
-            execution_id=execution_id,
+    ) -> Any:
+        return await ExecutionDataService(self.db, autocommit=commit).upsert_node_record(
+            execution_id,
             node_id=node_id,
             node_type=node_type,
             label=label,
@@ -512,13 +479,6 @@ class ExecutionService:
             parent_node_id=parent_node_id,
             status="pending",
         )
-        self.db.add(record)
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(record)
-        else:
-            await self.db.flush()
-        return record
 
     async def update_execution_node(
         self,
@@ -532,47 +492,45 @@ class ExecutionService:
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
         commit: bool = True,
-    ) -> ExecutionNodeRecord | None:
-        result = await self.db.execute(
-            select(ExecutionNodeRecord).where(ExecutionNodeRecord.id == node_db_id)
-        )
-        record = result.scalar_one_or_none()
-        if record is None:
-            return None
-
+    ) -> Any | None:
+        fields: dict[str, Any] = {}
         if status is not None:
-            record.status = status
+            fields["status"] = status
         if output_data is not None:
-            record.output_data = output_data
+            fields["output_data"] = output_data
         if thinking is not None:
-            record.thinking = thinking
+            fields["thinking"] = thinking
         if tool_calls is not None:
-            record.tool_calls = tool_calls
+            fields["tool_calls"] = tool_calls
         if token_usage is not None:
-            record.token_usage = token_usage
+            fields["token_usage"] = token_usage
         if started_at is not None:
-            record.started_at = started_at
+            fields["started_at"] = started_at
         if completed_at is not None:
-            record.completed_at = completed_at
-
-        if commit:
-            await self.db.commit()
-            await self.db.refresh(record)
-        return record
+            fields["completed_at"] = completed_at
+        if not fields:
+            return await ExecutionDataService(
+                self.db,
+                autocommit=False,
+            ).get_node_by_record_id(node_db_id)
+        return await ExecutionDataService(self.db, autocommit=commit).update_node(
+            node_db_id,
+            **fields,
+        )
 
     async def find_node_by_node_id(
         self,
         execution_id: str,
         node_id: str,
-    ) -> ExecutionNodeRecord | None:
-        """Look up an ExecutionNodeRecord by (execution_id, node_id) tuple."""
-        result = await self.db.execute(
-            select(ExecutionNodeRecord).where(
-                ExecutionNodeRecord.execution_id == execution_id,
-                ExecutionNodeRecord.node_id == node_id,
-            )
+    ) -> Any | None:
+        """Look up an execution node by (execution_id, node_id) tuple."""
+        return await ExecutionDataService(
+            self.db,
+            autocommit=False,
+        ).find_node_by_node_id(
+            execution_id=execution_id,
+            node_id=node_id,
         )
-        return result.scalar_one_or_none()
 
     async def upsert_node_event(
         self,
@@ -590,7 +548,7 @@ class ExecutionService:
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
     ):
-        """Upsert an ExecutionNodeRecord for one lifecycle event.
+        """Upsert an execution node lifecycle snapshot.
 
         Used by ``LeadAgentRuntime``'s runner to record running/completed/failed
         transitions so the FE node-detail endpoint returns real state.

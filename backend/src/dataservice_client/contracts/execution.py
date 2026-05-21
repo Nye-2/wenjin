@@ -114,6 +114,32 @@ class ExecutionEventCreatePayload(BaseModel):
     occurred_at: datetime | None = None
 
 
+class ExecutionNodeUpsertPayload(BaseModel):
+    node_id: str
+    node_type: str
+    label: str | None = None
+    parent_node_id: str | None = None
+    status: str
+    input_data: dict[str, Any] | None = None
+    output_data: dict[str, Any] | None = None
+    thinking: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    token_usage: dict[str, Any] | None = None
+    node_metadata: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class ExecutionNodePatchPayload(BaseModel):
+    status: str | None = None
+    output_data: dict[str, Any] | None = None
+    thinking: str | None = None
+    tool_calls: list[dict[str, Any]] | None = None
+    token_usage: dict[str, Any] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
 class ExecutionEventPayload(BaseModel):
     id: str
     execution_id: str
