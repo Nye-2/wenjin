@@ -89,6 +89,85 @@ MODEL_OWNER_PACKAGES = {
     "dataservice_app",
 }
 LEGACY_ALLOWED_FILES: set[str] = set()
+RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
+    "dataservice",
+    "dataservice_app",
+    "dataservice_client",
+}
+RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
+    "academic/services/artifact_service.py",
+    "academic/services/generation_service.py",
+    "academic/services/workspace_service.py",
+    "agents/lead_agent/v2/runtime.py",
+    "agents/middlewares/capability_skill_preload.py",
+    "agents/middlewares/citation_context.py",
+    "agents/middlewares/execution.py",
+    "compute/projection_service.py",
+    "compute/session_service.py",
+    "gateway/access_control.py",
+    "gateway/deps/academic.py",
+    "gateway/routers/admin_credit_rules.py",
+    "gateway/routers/execution_commit.py",
+    "gateway/routers/latex_files.py",
+    "gateway/routers/latex_helpers.py",
+    "gateway/routers/references.py",
+    "gateway/routers/workspace_rooms.py",
+    "gateway/routers/workspaces.py",
+    "services/admin_analytics_service.py",
+    "services/admin_capability_service.py",
+    "services/admin_dashboard_service.py",
+    "services/admin_skill_service.py",
+    "services/audit_service.py",
+    "services/auth.py",
+    "services/capability_loader.py",
+    "services/capability_resolver.py",
+    "services/capability_schema.py",
+    "services/credit_grant_rule_service.py",
+    "services/credit_redeem_service.py",
+    "services/credit_service.py",
+    "services/dashboard/shared.py",
+    "services/dashboard/thesis.py",
+    "services/dashboard_service.py",
+    "services/execution_commit_service.py",
+    "services/execution_service.py",
+    "services/knowledge_service.py",
+    "services/latex/compile_service.py",
+    "services/latex/project_service.py",
+    "services/latex/template_service.py",
+    "services/memory_compaction.py",
+    "services/references/service.py",
+    "services/referral_service.py",
+    "services/skill_loader.py",
+    "services/skill_resolver.py",
+    "services/template_service.py",
+    "services/thread_service.py",
+    "services/user_dashboard_service.py",
+    "services/user_memory_service.py",
+    "services/user_service.py",
+    "services/workspace_activity_service.py",
+    "services/workspace_latex_projects.py",
+    "services/workspace_prism_service.py",
+    "services/workspace_skill_labels.py",
+    "services/workspace_summary_service.py",
+    "task/store.py",
+    "task/tasks/credit_periodic.py",
+    "task/tasks/run.py",
+    "tools/builtins/launch_feature.py",
+    "tools/builtins/references.py",
+    "tools/builtins/workspace.py",
+}
+RUNTIME_DIRECT_SQL_ALLOWED_FILES = {
+    "gateway/routers/dev_test_hooks.py",
+    "services/admin_capability_service.py",
+    "services/admin_skill_service.py",
+    "services/capability_loader.py",
+    "services/capability_resolver.py",
+    "services/dashboard_service.py",
+    "services/skill_loader.py",
+    "services/skill_resolver.py",
+    "services/workspace_prism_service.py",
+    "services/workspace_summary_service.py",
+}
 
 
 def _imports(path: Path) -> list[str]:
@@ -136,6 +215,31 @@ class _RuntimeImportVisitor(ast.NodeVisitor):
         self.import_nodes.append(node)
 
 
+class _RuntimeSqlVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.violations: list[int] = []
+
+    @staticmethod
+    def _is_session_receiver(node: ast.AST) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in {"session", "db"}
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr in {"session", "db"}
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "self"
+        )
+
+    def visit_Call(self, node: ast.Call) -> None:
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == "select":
+            self.violations.append(node.lineno)
+        elif isinstance(func, ast.Attribute):
+            if func.attr in {"execute", "get"} and self._is_session_receiver(func.value):
+                self.violations.append(node.lineno)
+        self.generic_visit(node)
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"
@@ -159,6 +263,63 @@ def test_dataservice_domain_repositories_are_not_imported_by_runtime_code() -> N
             if module.startswith("src.dataservice.domains"):
                 violations.append(f"{relative} imports {module}")
     assert not violations, "Only DataService itself may import DataService domain modules:\n" + "\n".join(violations)
+
+
+def test_runtime_code_uses_dataservice_client_not_in_process_apis() -> None:
+    """Runtime code should call standalone DataService through the HTTP client."""
+    violations: list[str] = []
+    observed_allowed: set[str] = set()
+    for path in _python_files(SRC_ROOT):
+        relative = path.relative_to(SRC_ROOT)
+        relative_posix = relative.as_posix()
+        if relative.parts and relative.parts[0] in RUNTIME_DATASERVICE_API_ALLOWED_ROOTS:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        file_violations: list[str] = []
+        for node in visitor.import_from_nodes:
+            module = node.module or ""
+            if module.startswith("src.dataservice.") and module.endswith("_api"):
+                file_violations.append(f"{relative}:{node.lineno} imports {module}")
+        for node in visitor.import_nodes:
+            for alias in node.names:
+                if alias.name.startswith("src.dataservice.") and alias.name.endswith("_api"):
+                    file_violations.append(f"{relative}:{node.lineno} imports {alias.name}")
+        if not file_violations:
+            continue
+        if relative_posix in RUNTIME_DATASERVICE_API_ALLOWED_FILES:
+            observed_allowed.add(relative_posix)
+            continue
+        violations.extend(file_violations)
+
+    stale_allowed = sorted(RUNTIME_DATASERVICE_API_ALLOWED_FILES - observed_allowed)
+    assert not stale_allowed, "Remove stale DataService API runtime allowlist entries:\n" + "\n".join(stale_allowed)
+    assert not violations, "Runtime code must use dataservice_client, not in-process DataService APIs:\n" + "\n".join(violations)
+
+
+def test_runtime_code_does_not_run_business_sql() -> None:
+    """Runtime business code should not query database tables directly."""
+    violations: list[str] = []
+    observed_allowed: set[str] = set()
+    for path in _python_files(SRC_ROOT):
+        relative = path.relative_to(SRC_ROOT)
+        relative_posix = relative.as_posix()
+        if relative.parts and relative.parts[0] in MODEL_OWNER_PACKAGES:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _RuntimeSqlVisitor()
+        visitor.visit(tree)
+        if not visitor.violations:
+            continue
+        if relative_posix in RUNTIME_DIRECT_SQL_ALLOWED_FILES:
+            observed_allowed.add(relative_posix)
+            continue
+        violations.extend(f"{relative}:{line} runs direct runtime SQL" for line in visitor.violations)
+
+    stale_allowed = sorted(RUNTIME_DIRECT_SQL_ALLOWED_FILES - observed_allowed)
+    assert not stale_allowed, "Remove stale direct SQL runtime allowlist entries:\n" + "\n".join(stale_allowed)
+    assert not violations, "Runtime code must route business data access through DataService client:\n" + "\n".join(violations)
 
 
 def test_runtime_code_does_not_import_migrated_legacy_room_or_sandbox_models() -> None:
