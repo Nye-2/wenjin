@@ -65,6 +65,12 @@ class SourceExternalIdCreatePayload(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class SourceAssetUpdatePayload(BaseModel):
+    preprocess_status: str | None = None
+    manifest_asset_id: str | None = None
+    metadata_json: dict[str, Any] | None = None
+
+
 class SourceImportPayload(SourceCreatePayload):
     external_ids: list[SourceExternalIdCreatePayload] = Field(default_factory=list)
     dedupe_by_title: bool = True

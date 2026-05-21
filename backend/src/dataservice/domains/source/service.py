@@ -11,6 +11,7 @@ from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCom
 from src.dataservice.domains.provenance.projection import provenance_link_to_projection
 from src.dataservice.domains.provenance.repository import ProvenanceRepository
 from src.dataservice.domains.source.contracts import (
+    SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
     SourceBibliographyProjection,
     SourceCitationUsageCreateCommand,
@@ -305,6 +306,40 @@ class SourceDataDomainService:
             for field, value in values.items():
                 setattr(record, field, value)
             record.updated_at = datetime.now(UTC)
+        await self._finish()
+        return self._serialize_source_asset(record, None)
+
+    async def get_source_asset(
+        self,
+        *,
+        workspace_id: str,
+        source_asset_id: str,
+    ) -> dict[str, object] | None:
+        record = await self.repository.get_source_asset(source_asset_id)
+        if record is None or str(record.workspace_id) != workspace_id:
+            return None
+        return self._serialize_source_asset(record, None)
+
+    async def update_source_asset(
+        self,
+        *,
+        workspace_id: str,
+        source_asset_id: str,
+        command: SourceAssetUpdateCommand,
+    ) -> dict[str, object] | None:
+        record = await self.repository.get_source_asset(source_asset_id)
+        if record is None or str(record.workspace_id) != workspace_id:
+            return None
+        if command.preprocess_status is not None:
+            record.preprocess_status = command.preprocess_status
+        if command.manifest_asset_id is not None:
+            record.manifest_asset_id = command.manifest_asset_id
+        if command.metadata_json is not None:
+            record.metadata_json = {
+                **dict(record.metadata_json or {}),
+                **dict(command.metadata_json or {}),
+            }
+        record.updated_at = datetime.now(UTC)
         await self._finish()
         return self._serialize_source_asset(record, None)
 

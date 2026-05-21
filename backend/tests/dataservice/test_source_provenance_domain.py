@@ -13,6 +13,7 @@ from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCom
 from src.dataservice.domains.provenance.models import ProvenanceLinkRecord, SourceAnchorRecord
 from src.dataservice.domains.provenance.service import ProvenanceDataDomainService
 from src.dataservice.domains.source.contracts import (
+    SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
@@ -872,6 +873,45 @@ async def test_source_service_links_source_assets() -> None:
     assert assets[0]["workspace_asset_id"] == "workspace-asset-1"
     assert assets[0]["asset_type"] == "pdf"
     assert assets[0]["virtual_path"] == "references/paper.pdf"
+
+
+@pytest.mark.asyncio
+async def test_source_service_updates_source_asset_status_and_metadata() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    source = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Asset Status Paper",
+            citation_key="assetstatus2026",
+        )
+    )
+    await service.link_source_asset(
+        workspace_id="ws-1",
+        source_id=source.id,
+        workspace_asset_id="workspace-asset-1",
+        source_asset_id="source-asset-1",
+        asset_type="pdf",
+        preprocess_status="pending",
+        metadata_json={"virtual_path": "references/paper.pdf"},
+    )
+
+    updated = await service.update_source_asset(
+        workspace_id="ws-1",
+        source_asset_id="source-asset-1",
+        command=SourceAssetUpdateCommand(
+            preprocess_status="succeeded",
+            metadata_json={"manifest_path": "references/manifest.json"},
+        ),
+    )
+
+    assert updated is not None
+    assert updated["preprocess_status"] == "succeeded"
+    assert updated["manifest_path"] == "references/manifest.json"
+    assert updated["metadata"]["virtual_path"] == "references/paper.pdf"
 
 
 @pytest.mark.asyncio

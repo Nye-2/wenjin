@@ -79,6 +79,7 @@ from src.dataservice_client.contracts.sandbox import (
     SandboxJobUpdatePayload,
 )
 from src.dataservice_client.contracts.source import (
+    SourceAssetUpdatePayload,
     SourceBibliographyCreatePayload,
     SourceBibliographyPayload,
     SourceCitationUsageCreatePayload,
@@ -851,6 +852,36 @@ class AsyncDataServiceClient:
             params={"workspace_id": workspace_id},
         )
         return list(payload["data"])
+
+    async def get_source_asset(
+        self,
+        *,
+        source_asset_id: str,
+        workspace_id: str,
+    ) -> dict[str, Any] | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/source-assets/{source_asset_id}",
+            params={"workspace_id": workspace_id},
+        )
+        data = payload.get("data")
+        return dict(data) if isinstance(data, dict) else None
+
+    async def update_source_asset(
+        self,
+        *,
+        source_asset_id: str,
+        workspace_id: str,
+        command: SourceAssetUpdatePayload,
+    ) -> dict[str, Any] | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/source-assets/{source_asset_id}",
+            params={"workspace_id": workspace_id},
+            json=command.model_dump(mode="json", exclude_none=True),
+        )
+        data = payload.get("data")
+        return dict(data) if isinstance(data, dict) else None
 
     async def update_source(
         self,

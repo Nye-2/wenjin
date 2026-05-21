@@ -49,6 +49,8 @@ class SourceUpdateCommand(BaseModel):
     url: str | None = None
     abstract: str | None = None
     citation_count: int | None = None
+    evidence_level: str | None = None
+    fulltext_status: str | None = None
     library_status: str | None = None
     citation_key: str | None = None
     bibtex_entry_type: str | None = None
@@ -63,6 +65,12 @@ class SourceExternalIdCreateCommand(BaseModel):
     external_id: str = Field(min_length=1, max_length=255)
     url: str | None = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceAssetUpdateCommand(BaseModel):
+    preprocess_status: str | None = Field(default=None, max_length=32)
+    manifest_asset_id: str | None = Field(default=None, max_length=36)
+    metadata_json: dict[str, Any] | None = None
 
 
 class SourceImportCommand(SourceCreateCommand):

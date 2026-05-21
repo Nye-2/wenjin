@@ -9,6 +9,7 @@ from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCommand
 from src.dataservice.domains.provenance.service import ProvenanceDataDomainService
 from src.dataservice.domains.source.contracts import (
+    SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
@@ -225,6 +226,35 @@ async def get_source_detail(
 ) -> dict:
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     return envelope_ok(await service.get_source_detail(workspace_id=workspace_id, source_id=source_id))
+
+
+@router.get("/source-assets/{source_asset_id}")
+async def get_source_asset(
+    source_asset_id: str,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(
+        await service.get_source_asset(workspace_id=workspace_id, source_asset_id=source_asset_id)
+    )
+
+
+@router.patch("/source-assets/{source_asset_id}")
+async def update_source_asset(
+    source_asset_id: str,
+    command: SourceAssetUpdateCommand,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.update_source_asset(
+        workspace_id=workspace_id,
+        source_asset_id=source_asset_id,
+        command=command,
+    )
+    await uow.commit()
+    return envelope_ok(record)
 
 
 @router.post("/sources/{source_id}/external-ids")

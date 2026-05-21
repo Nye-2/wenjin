@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.source.contracts import (
+    SourceAssetUpdateCommand,
     SourceBibliographyCreateCommand,
     SourceBibliographyProjection,
     SourceCitationUsageCreateCommand,
@@ -107,6 +108,30 @@ class SourceDataService:
             preprocess_status=preprocess_status,
             manifest_asset_id=manifest_asset_id,
             metadata_json=metadata_json,
+        )
+
+    async def get_source_asset(
+        self,
+        *,
+        workspace_id: str,
+        source_asset_id: str,
+    ) -> dict[str, object] | None:
+        return await self._domain.get_source_asset(
+            workspace_id=workspace_id,
+            source_asset_id=source_asset_id,
+        )
+
+    async def update_source_asset(
+        self,
+        *,
+        workspace_id: str,
+        source_asset_id: str,
+        command: SourceAssetUpdateCommand,
+    ) -> dict[str, object] | None:
+        return await self._domain.update_source_asset(
+            workspace_id=workspace_id,
+            source_asset_id=source_asset_id,
+            command=command,
         )
 
     async def build_bibliography(
