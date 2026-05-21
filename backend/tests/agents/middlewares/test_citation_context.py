@@ -25,6 +25,11 @@ class TestCitationExtraction:
         citations = self.middleware._extract_citations("doi:10.1234/test.5678")
         assert any("10.1234/test.5678" in c for c in citations)
 
+    def test_extract_latex_cite_keys(self):
+        citations = self.middleware._extract_citations(r"Prior work \cite{smith2026,doe2025}.")
+        assert "smith2026" in citations
+        assert "doe2025" in citations
+
     def test_extract_et_al(self):
         citations = self.middleware._extract_citations("(Smith et al., 2023)")
         assert any("Smith" in c and "2023" in c for c in citations)
@@ -81,6 +86,32 @@ class TestCitationValidation:
         assert kwargs["reference_ids"] == ["reference-1"]
         assert kwargs["execution_id"] == "exec-1"
         assert kwargs["task_id"] == "task-1"
+
+    async def test_after_model_records_source_citation_usage(self):
+        class _Source:
+            id = "source-1"
+
+        reference_service = type("SourceService", (), {})()
+        reference_service.list_sources = AsyncMock(return_value=[_Source()])
+        reference_service.record_citation_usage = AsyncMock()
+        middleware = CitationContextMiddleware(reference_service=reference_service)
+        state = {
+            "workspace_id": "ws-1",
+            "messages": [AIMessage(content=r"Prior work \cite{source2026}.")],
+        }
+
+        result = await middleware.after_model(
+            state,
+            {"configurable": {"execution_id": "exec-1", "task_id": "task-1"}},
+        )
+
+        assert result["cited_references"] == ["source-1"]
+        reference_service.record_citation_usage.assert_awaited_once()
+        command = reference_service.record_citation_usage.await_args.args[0]
+        assert command.workspace_id == "ws-1"
+        assert command.citation_keys == ["source2026"]
+        assert command.execution_id == "exec-1"
+        assert command.task_id == "task-1"
 
 
 class TestCitationLogging:

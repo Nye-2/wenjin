@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +17,7 @@ from src.dataservice.domains.source.contracts import (
     SourceCitationUsageProjection,
     SourceCreateCommand,
     SourceProjection,
+    SourceUpdateCommand,
 )
 from src.dataservice.domains.source.projection import source_to_projection
 from src.dataservice.domains.source.repository import SourceRepository
@@ -42,9 +44,89 @@ class SourceDataDomainService:
         await self._finish()
         return source_to_projection(record)
 
+    async def upsert_source(self, command: SourceCreateCommand) -> SourceProjection:
+        record = None
+        if command.source_id:
+            record = await self.repository.get_source_for_workspace(
+                workspace_id=command.workspace_id,
+                source_id=command.source_id,
+                include_deleted=True,
+            )
+        normalized_title = command.normalized_title or command.title.strip().lower()
+        values = {
+            **command.model_dump(exclude={"source_id", "normalized_title"}),
+            "normalized_title": normalized_title,
+        }
+        if record is None:
+            record = self.repository.create_source(
+                {
+                    **values,
+                    **({"source_id": command.source_id} if command.source_id else {}),
+                }
+            )
+        else:
+            for field, value in values.items():
+                if hasattr(record, field):
+                    setattr(record, field, value)
+            record.updated_at = datetime.now(UTC)
+        await self._finish()
+        return source_to_projection(record)
+
     async def get_source(self, source_id: str) -> SourceProjection | None:
         record = await self.repository.get_source(source_id)
         return source_to_projection(record) if record else None
+
+    async def get_source_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        include_deleted: bool = False,
+    ) -> SourceProjection | None:
+        record = await self.repository.get_source_for_workspace(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            include_deleted=include_deleted,
+        )
+        return source_to_projection(record) if record else None
+
+    async def get_source_detail(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> dict[str, object] | None:
+        source = await self.get_source_for_workspace(workspace_id=workspace_id, source_id=source_id)
+        if source is None:
+            return None
+        serialized = self._serialize_reference_compat(source)
+        outline = await self.get_source_outline(workspace_id, source_id, limit=200)
+        return {
+            "reference": {**serialized, "assets": []},
+            "source": source.model_dump(mode="json"),
+            "assets": [],
+            "external_ids": [],
+            "source_history": [
+                {
+                    "source_type": source.ingest_kind,
+                    "source_label": source.ingest_label,
+                    "source_run_id": source.ingest_execution_id,
+                    "verified_at": source.verified_at.isoformat() if source.verified_at else None,
+                }
+            ],
+            "preprocess": {
+                "status": source.fulltext_status,
+                "markdown_count": 0,
+                "has_manifest": False,
+            },
+            "outline": outline,
+            "usage_events": [],
+            "usage_summary": {
+                "recent_count": 0,
+                "status_counts": {},
+                "last_used_at": None,
+            },
+        }
 
     async def build_bibliography(
         self,
@@ -81,12 +163,85 @@ class SourceDataDomainService:
         await self._finish()
         return source_to_projection(record)
 
+    async def mark_deleted_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> bool:
+        record = await self.repository.get_source_for_workspace(
+            workspace_id=workspace_id,
+            source_id=source_id,
+        )
+        if record is None:
+            return False
+        record.is_deleted = True
+        record.updated_at = datetime.now(UTC)
+        await self._finish()
+        return True
+
+    async def update_source(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        command: SourceUpdateCommand,
+    ) -> SourceProjection | None:
+        record = await self.repository.get_source_for_workspace(
+            workspace_id=workspace_id,
+            source_id=source_id,
+        )
+        if record is None:
+            return None
+        updates = command.model_dump(exclude_unset=True)
+        if "title" in updates and updates["title"]:
+            updates["normalized_title"] = str(updates["title"]).strip().lower()
+        if "doi" in updates and updates["doi"] is not None:
+            updates["doi"] = self._normalize_doi(updates["doi"])
+        if "citation_key" in updates and updates["citation_key"]:
+            updates["citation_key"] = await self._ensure_unique_citation_key(
+                workspace_id=workspace_id,
+                base_key=str(updates["citation_key"]),
+                exclude_source_id=source_id,
+            )
+        now = datetime.now(UTC)
+        for field, value in updates.items():
+            if hasattr(record, field):
+                setattr(record, field, value)
+        record.updated_at = now
+        await self._finish()
+        return source_to_projection(record)
+
+    async def mark_status(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        library_status: str | None = None,
+        read_status: str | None = None,
+    ) -> SourceProjection | None:
+        return await self.update_source(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            command=SourceUpdateCommand(
+                **{
+                    **({"library_status": library_status} if library_status is not None else {}),
+                    **({"read_status": read_status} if read_status is not None else {}),
+                }
+            ),
+        )
+
     async def list_sources(
         self,
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
         include_deleted: bool = False,
+        include_excluded: bool = True,
+        offset: int = 0,
         limit: int = 50,
     ) -> list[SourceProjection]:
         return [
@@ -94,16 +249,73 @@ class SourceDataDomainService:
             for record in await self.repository.list_sources(
                 workspace_id=workspace_id,
                 library_status=library_status,
+                source_kind=source_kind,
+                ingest_kind=ingest_kind,
+                query=query,
                 include_deleted=include_deleted,
+                include_excluded=include_excluded,
+                offset=offset,
                 limit=limit,
             )
         ]
+
+    async def list_sources_page(
+        self,
+        *,
+        workspace_id: str,
+        library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, object]:
+        items = await self.list_sources(
+            workspace_id=workspace_id,
+            library_status=library_status,
+            source_kind=source_kind,
+            ingest_kind=ingest_kind,
+            query=query,
+            include_deleted=False,
+            include_excluded=True,
+            offset=offset,
+            limit=limit,
+        )
+        total = await self.count_sources(
+            workspace_id=workspace_id,
+            library_status=library_status,
+            source_kind=source_kind,
+            ingest_kind=ingest_kind,
+            query=query,
+            include_deleted=False,
+            include_excluded=True,
+        )
+        core = await self.count_sources(
+            workspace_id=workspace_id,
+            library_status="core",
+            include_deleted=False,
+        )
+        return {
+            "items": [
+                {
+                    **self._serialize_reference_compat(item),
+                    "assets": [],
+                }
+                for item in items
+            ],
+            "total": total,
+            "core_count": core,
+        }
 
     async def count_sources(
         self,
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
+        fulltext_status: str | None = None,
         include_deleted: bool = False,
         include_excluded: bool = False,
     ) -> int:
@@ -112,9 +324,32 @@ class SourceDataDomainService:
         return await self.repository.count_sources(
             workspace_id=workspace_id,
             library_status=library_status,
+            source_kind=source_kind,
+            ingest_kind=ingest_kind,
+            query=query,
+            fulltext_status=fulltext_status,
             include_deleted=include_deleted,
             include_excluded=include_excluded,
         )
+
+    async def count_reference_summary(self, workspace_id: str) -> dict[str, int]:
+        total = await self.count_sources(
+            workspace_id=workspace_id,
+            include_deleted=False,
+            include_excluded=False,
+        )
+        core = await self.count_sources(
+            workspace_id=workspace_id,
+            library_status="core",
+            include_deleted=False,
+        )
+        indexed = await self.count_sources(
+            workspace_id=workspace_id,
+            fulltext_status="indexed",
+            include_deleted=False,
+            include_excluded=True,
+        )
+        return {"total": total, "core": core, "indexed": indexed}
 
     async def get_library_outline(self, workspace_id: str) -> list[dict[str, object]]:
         sources = await self.repository.list_sources(
@@ -381,6 +616,25 @@ class SourceDataDomainService:
             if item
         ]
 
+    async def _ensure_unique_citation_key(
+        self,
+        *,
+        workspace_id: str,
+        base_key: str,
+        exclude_source_id: str | None = None,
+    ) -> str:
+        base = re.sub(r"[^A-Za-z0-9_:-]+", "", str(base_key or "").strip()) or "ref"
+        candidate = base
+        suffix = 2
+        while await self.repository.citation_key_exists(
+            workspace_id=workspace_id,
+            citation_key=candidate,
+            exclude_source_id=exclude_source_id,
+        ):
+            candidate = f"{base}{suffix}"
+            suffix += 1
+        return candidate
+
     @staticmethod
     def _format_bibtex_entry(record: object) -> str:
         fields = dict(getattr(record, "bibtex_fields_json", None) or {})
@@ -423,6 +677,51 @@ class SourceDataDomainService:
     def _clean_citation_key(value: object, *, fallback: str) -> str:
         cleaned = str(value or "").strip().replace("{", "").replace("}", "")
         return cleaned or fallback
+
+    @staticmethod
+    def _normalize_doi(value: object) -> str | None:
+        normalized = str(value or "").strip()
+        if not normalized:
+            return None
+        lower = normalized.lower()
+        for prefix in ("https://doi.org/", "http://doi.org/", "doi:"):
+            if lower.startswith(prefix):
+                return normalized[len(prefix) :].strip().lower() or None
+        return normalized.lower()
+
+    @staticmethod
+    def _serialize_reference_compat(source: SourceProjection) -> dict[str, object]:
+        return {
+            "id": source.id,
+            "workspace_id": source.workspace_id,
+            "title": source.title,
+            "normalized_title": source.normalized_title,
+            "authors": list(source.authors_json or []),
+            "year": source.year,
+            "venue": source.venue,
+            "publication_type": source.publication_type,
+            "doi": source.doi,
+            "url": source.url,
+            "abstract": source.abstract,
+            "citation_count": source.citation_count,
+            "source_type": source.ingest_kind,
+            "source_label": source.ingest_label,
+            "source_run_id": source.ingest_execution_id,
+            "source_artifact_id": None,
+            "verified_at": source.verified_at.isoformat() if source.verified_at else None,
+            "library_status": source.library_status,
+            "evidence_level": source.evidence_level,
+            "fulltext_status": source.fulltext_status,
+            "citation_key": source.citation_key,
+            "bibtex_entry_type": source.bibtex_entry_type,
+            "bibtex_fields": dict(source.bibtex_fields_json or {}),
+            "read_status": source.read_status,
+            "tags": list(source.tags_json or []),
+            "notes": source.notes,
+            "is_deleted": bool(source.is_deleted),
+            "created_at": source.created_at.isoformat() if source.created_at else None,
+            "updated_at": source.updated_at.isoformat() if source.updated_at else None,
+        }
 
     async def _section_from_node(
         self,

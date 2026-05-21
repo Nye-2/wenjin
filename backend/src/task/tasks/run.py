@@ -69,7 +69,6 @@ async def _execute_run_async(
     from src.database import get_db_session, reset_db_engine
     from src.dataservice.source_api import SourceDataService
     from src.services import ThreadService
-    from src.services.references import WorkspaceReferenceService
 
     if not redis_settings.enabled:
         raise RuntimeError("execute_run requires REDIS_ENABLED=true")
@@ -105,7 +104,7 @@ async def _execute_run_async(
             workspace_service=WorkspaceService(db),
             index_service=SourceDataService(db, autocommit=False),
             artifact_service=ArtifactService(db),
-            reference_service=WorkspaceReferenceService(db),
+            reference_service=SourceDataService(db, autocommit=False),
         )
         await run_thread_turn(
             bridge,

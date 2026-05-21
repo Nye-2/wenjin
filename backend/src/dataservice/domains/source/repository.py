@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -20,12 +20,28 @@ class SourceRepository:
         self.session = session
 
     def create_source(self, values: dict[str, Any]) -> SourceRecord:
-        record = SourceRecord(id=generate_uuid(), **values)
+        record = SourceRecord(id=str(values.pop("source_id", None) or generate_uuid()), **values)
         self.session.add(record)
         return record
 
     async def get_source(self, source_id: str) -> SourceRecord | None:
         result = await self.session.execute(select(SourceRecord).where(SourceRecord.id == source_id))
+        return result.scalar_one_or_none()
+
+    async def get_source_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        include_deleted: bool = False,
+    ) -> SourceRecord | None:
+        query = select(SourceRecord).where(
+            SourceRecord.workspace_id == workspace_id,
+            SourceRecord.id == source_id,
+        )
+        if not include_deleted:
+            query = query.where(SourceRecord.is_deleted.is_(False))
+        result = await self.session.execute(query)
         return result.scalar_one_or_none()
 
     async def list_sources_by_ids(
@@ -54,15 +70,41 @@ class SourceRepository:
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
         include_deleted: bool = False,
+        include_excluded: bool = True,
+        offset: int = 0,
         limit: int = 50,
     ) -> list[SourceRecord]:
-        query = select(SourceRecord).where(SourceRecord.workspace_id == workspace_id).limit(limit)
+        stmt = select(SourceRecord).where(SourceRecord.workspace_id == workspace_id)
         if library_status is not None:
-            query = query.where(SourceRecord.library_status == library_status)
+            stmt = stmt.where(SourceRecord.library_status == library_status)
+        elif not include_excluded:
+            stmt = stmt.where(SourceRecord.library_status != "excluded")
+        if source_kind is not None:
+            stmt = stmt.where(SourceRecord.source_kind == source_kind)
+        if ingest_kind is not None:
+            stmt = stmt.where(SourceRecord.ingest_kind == ingest_kind)
+        if query and query.strip():
+            pattern = f"%{query.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    SourceRecord.title.ilike(pattern),
+                    SourceRecord.venue.ilike(pattern),
+                    SourceRecord.doi.ilike(pattern),
+                    SourceRecord.abstract.ilike(pattern),
+                    SourceRecord.citation_key.ilike(pattern),
+                )
+            )
         if not include_deleted:
-            query = query.where(SourceRecord.is_deleted.is_(False))
-        result = await self.session.execute(query.order_by(SourceRecord.created_at.desc()))
+            stmt = stmt.where(SourceRecord.is_deleted.is_(False))
+        result = await self.session.execute(
+            stmt.order_by(SourceRecord.updated_at.desc())
+            .offset(max(0, int(offset)))
+            .limit(max(1, min(int(limit), 5000)))
+        )
         return list(result.scalars().all())
 
     async def count_sources(
@@ -70,18 +112,56 @@ class SourceRepository:
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
+        fulltext_status: str | None = None,
         include_deleted: bool = False,
         include_excluded: bool = False,
     ) -> int:
-        query = select(func.count()).select_from(SourceRecord).where(SourceRecord.workspace_id == workspace_id)
+        stmt = select(func.count()).select_from(SourceRecord).where(SourceRecord.workspace_id == workspace_id)
         if library_status is not None:
-            query = query.where(SourceRecord.library_status == library_status)
+            stmt = stmt.where(SourceRecord.library_status == library_status)
         elif not include_excluded:
-            query = query.where(SourceRecord.library_status != "excluded")
+            stmt = stmt.where(SourceRecord.library_status != "excluded")
+        if source_kind is not None:
+            stmt = stmt.where(SourceRecord.source_kind == source_kind)
+        if ingest_kind is not None:
+            stmt = stmt.where(SourceRecord.ingest_kind == ingest_kind)
+        if fulltext_status is not None:
+            stmt = stmt.where(SourceRecord.fulltext_status == fulltext_status)
+        if query and query.strip():
+            pattern = f"%{query.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    SourceRecord.title.ilike(pattern),
+                    SourceRecord.venue.ilike(pattern),
+                    SourceRecord.doi.ilike(pattern),
+                    SourceRecord.abstract.ilike(pattern),
+                    SourceRecord.citation_key.ilike(pattern),
+                )
+            )
         if not include_deleted:
-            query = query.where(SourceRecord.is_deleted.is_(False))
-        result = await self.session.execute(query)
+            stmt = stmt.where(SourceRecord.is_deleted.is_(False))
+        result = await self.session.execute(stmt)
         return int(result.scalar() or 0)
+
+    async def citation_key_exists(
+        self,
+        *,
+        workspace_id: str,
+        citation_key: str,
+        exclude_source_id: str | None = None,
+    ) -> bool:
+        stmt = select(SourceRecord.id).where(
+            SourceRecord.workspace_id == workspace_id,
+            SourceRecord.citation_key == citation_key,
+            SourceRecord.is_deleted.is_(False),
+        )
+        if exclude_source_id:
+            stmt = stmt.where(SourceRecord.id != exclude_source_id)
+        result = await self.session.execute(stmt.limit(1))
+        return result.scalar_one_or_none() is not None
 
     async def list_outline_nodes(
         self,

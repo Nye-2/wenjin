@@ -36,6 +36,11 @@ from src.database import (
     Workspace,
     WorkspaceReference,
 )
+from src.dataservice.source_api import (
+    SourceBibliographyCreateCommand,
+    SourceCreateCommand,
+    SourceDataService,
+)
 from src.services.latex.project_service import LatexProjectService
 from src.services.upload_preprocessor import UploadPreprocessResult, get_upload_preprocessor_service
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
@@ -847,11 +852,45 @@ class WorkspaceReferenceService:
             reference_id=str(existing.id),
             external_ids=external_ids or [],
         )
+        await self._sync_source_record(existing)
         await self._ensure_abstract_text_unit(existing)
         if commit:
             await self.db.commit()
             await self.db.refresh(existing)
         return existing, created
+
+    async def _sync_source_record(self, reference: WorkspaceReference) -> None:
+        await SourceDataService(self.db, autocommit=False).upsert_source(
+            SourceCreateCommand(
+                source_id=str(reference.id),
+                workspace_id=str(reference.workspace_id),
+                source_kind="paper",
+                title=reference.title,
+                normalized_title=reference.normalized_title,
+                authors_json=list(reference.authors or []),
+                year=reference.year,
+                venue=reference.venue,
+                publication_type=reference.publication_type,
+                doi=reference.doi,
+                url=reference.url,
+                abstract=reference.abstract,
+                citation_count=reference.citation_count,
+                ingest_kind=_enum_value(reference.source_type),
+                ingest_label=reference.source_label,
+                ingest_execution_id=reference.source_run_id,
+                verified_at=reference.verified_at,
+                library_status=_enum_value(reference.library_status),
+                evidence_level=_enum_value(reference.evidence_level),
+                fulltext_status=_enum_value(reference.fulltext_status),
+                citation_key=reference.citation_key,
+                bibtex_entry_type=reference.bibtex_entry_type,
+                bibtex_fields_json=dict(reference.bibtex_fields or {}),
+                read_status=_enum_value(reference.read_status),
+                tags_json=list(reference.tags or []),
+                notes=reference.notes,
+                is_deleted=bool(reference.is_deleted),
+            )
+        )
 
     async def _ensure_unique_citation_key(
         self,
@@ -2109,12 +2148,19 @@ class ReferenceBibTeXService:
     ) -> dict[str, Any]:
         scope_value = _coerce_enum_value(ReferenceBibtexScope, scope, "scope")
         references = await self._load_scope(workspace_id, scope_value)
-        content = "\n\n".join(self._format_entry(reference) for reference in references)
+        bibliography = await SourceDataService(self.db, autocommit=False).build_bibliography(
+            SourceBibliographyCreateCommand(
+                workspace_id=workspace_id,
+                source_ids=[str(reference.id) for reference in references],
+                include_excluded=True,
+            )
+        )
+        content = bibliography.content or ""
         return {
             "workspace_id": workspace_id,
             "scope": scope_value,
             "content": content,
-            "reference_count": len(references),
+            "reference_count": bibliography.count,
             "checksum": sha256_bytes(content.encode("utf-8")),
         }
 
@@ -2145,19 +2191,17 @@ class ReferenceBibTeXService:
             dict with valid, missing_keys, unused_bib_keys, unverified_keys.
         """
         cited_keys = _extract_citation_keys(latex_content)
-        result = await self.db.execute(
-            select(WorkspaceReference).where(
-                WorkspaceReference.workspace_id == workspace_id,
-                WorkspaceReference.is_deleted.is_(False),
-            )
+        references = await SourceDataService(self.db, autocommit=False).list_sources(
+            workspace_id=workspace_id,
+            include_excluded=True,
+            limit=5000,
         )
-        references = list(result.scalars().all())
         workspace_keys = {ref.citation_key for ref in references if ref.citation_key}
         verified_keys = {
             ref.citation_key
             for ref in references
             if ref.citation_key
-            and ref.evidence_level not in {
+            and str(ref.evidence_level) not in {
                 ReferenceEvidenceLevel.METADATA_ONLY.value,
             }
         }
@@ -2213,38 +2257,45 @@ class ReferenceBibTeXService:
         self,
         workspace_id: str,
         scope: ReferenceBibtexScope | str,
-    ) -> list[WorkspaceReference]:
+    ) -> list[Any]:
         scope_value = _coerce_enum_value(ReferenceBibtexScope, scope, "scope")
-        stmt = select(WorkspaceReference).where(
-            WorkspaceReference.workspace_id == workspace_id,
-            WorkspaceReference.is_deleted.is_(False),
-        )
+        source_service = SourceDataService(self.db, autocommit=False)
         if scope_value == ReferenceBibtexScope.CORE.value:
-            stmt = stmt.where(WorkspaceReference.library_status == ReferenceLibraryStatus.CORE)
+            return await source_service.list_sources(
+                workspace_id=workspace_id,
+                library_status=ReferenceLibraryStatus.CORE.value,
+                include_excluded=True,
+                limit=5000,
+            )
         elif scope_value == ReferenceBibtexScope.INCLUDED_AND_CORE.value:
-            stmt = stmt.where(
-                WorkspaceReference.library_status.in_(
-                    [
-                        ReferenceLibraryStatus.INCLUDED,
-                        ReferenceLibraryStatus.CORE,
-                        ReferenceLibraryStatus.USED_IN_DRAFT,
-                    ]
+            sources = []
+            for library_status in (
+                ReferenceLibraryStatus.CORE.value,
+                ReferenceLibraryStatus.INCLUDED.value,
+                ReferenceLibraryStatus.USED_IN_DRAFT.value,
+            ):
+                sources.extend(
+                    await source_service.list_sources(
+                        workspace_id=workspace_id,
+                        library_status=library_status,
+                        include_excluded=True,
+                        limit=5000,
+                    )
                 )
-            )
+            return sorted(sources, key=lambda source: source.citation_key)
         elif scope_value == ReferenceBibtexScope.USED_ONLY.value:
-            used_reference_ids = select(ReferenceUsageEvent.reference_id).where(
-                ReferenceUsageEvent.workspace_id == workspace_id
+            return await source_service.list_sources(
+                workspace_id=workspace_id,
+                library_status=ReferenceLibraryStatus.USED_IN_DRAFT.value,
+                include_excluded=True,
+                limit=5000,
             )
-            stmt = stmt.where(
-                or_(
-                    WorkspaceReference.library_status == ReferenceLibraryStatus.USED_IN_DRAFT,
-                    WorkspaceReference.id.in_(used_reference_ids),
-                )
-            )
-        else:
-            stmt = stmt.where(WorkspaceReference.library_status != ReferenceLibraryStatus.EXCLUDED)
-        result = await self.db.execute(stmt.order_by(WorkspaceReference.citation_key))
-        return list(result.scalars().all())
+        sources = await source_service.list_sources(
+            workspace_id=workspace_id,
+            include_excluded=False,
+            limit=5000,
+        )
+        return sorted(sources, key=lambda source: source.citation_key)
 
     def _format_entry(self, reference: WorkspaceReference) -> str:
         fields = dict(reference.bibtex_fields or {})

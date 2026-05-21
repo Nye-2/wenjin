@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class SourceCreatePayload(BaseModel):
+    source_id: str | None = None
     workspace_id: str
     source_kind: str = "paper"
     title: str
@@ -24,6 +25,7 @@ class SourceCreatePayload(BaseModel):
     ingest_kind: str = "manual"
     ingest_label: str | None = None
     ingest_execution_id: str | None = None
+    verified_at: datetime | None = None
     library_status: str = "candidate"
     evidence_level: str = "metadata_only"
     fulltext_status: str = "none"
@@ -33,13 +35,32 @@ class SourceCreatePayload(BaseModel):
     read_status: str = "unread"
     tags_json: list[str] = Field(default_factory=list)
     notes: str | None = None
+    is_deleted: bool = False
+
+
+class SourceUpdatePayload(BaseModel):
+    title: str | None = None
+    normalized_title: str | None = None
+    authors_json: list[Any] | None = None
+    year: int | None = None
+    venue: str | None = None
+    publication_type: str | None = None
+    doi: str | None = None
+    url: str | None = None
+    abstract: str | None = None
+    citation_count: int | None = None
+    library_status: str | None = None
+    citation_key: str | None = None
+    bibtex_entry_type: str | None = None
+    bibtex_fields_json: dict[str, Any] | None = None
+    read_status: str | None = None
+    tags_json: list[str] | None = None
+    notes: str | None = None
 
 
 class SourcePayload(SourceCreatePayload):
     id: str
     normalized_title: str
-    verified_at: datetime | None = None
-    is_deleted: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

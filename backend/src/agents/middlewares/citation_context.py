@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
+from src.dataservice.source_api import SourceCitationUsageCreateCommand
 
 
 class CitationContextMiddleware(Middleware):
@@ -24,6 +25,7 @@ class CitationContextMiddleware(Middleware):
 
     # Patterns for citation extraction
     CITATION_PATTERNS = [
+        r"\\cite\w*\{([^}]+)\}",  # \cite{key1,key2}
         r"\(([^)]+),\s*(\d{4})\)",  # (Author, Year)
         r"\[(\d+)\]",  # [1]
         r"\(([^)]+)\s+et\s+al\.?,\s*(\d{4})\)",  # (Author et al., Year)
@@ -64,7 +66,7 @@ class CitationContextMiddleware(Middleware):
                 if isinstance(match, tuple):
                     citations.append(" ".join(match))
                 else:
-                    citations.append(match)
+                    citations.extend(item.strip() for item in str(match).split(",") if item.strip())
 
         unique = list(set(citations))
         if unique:
@@ -79,11 +81,21 @@ class CitationContextMiddleware(Middleware):
         valid_reference_ids = []
 
         for citation in citations:
-            # Try to find reference by DOI, citation key, title, or author/year.
-            references = await self.reference_service.search_in_workspace(
-                workspace_id=workspace_id,
-                query=citation,
-            )
+            list_sources = getattr(self.reference_service, "list_sources", None)
+            search_in_workspace = getattr(self.reference_service, "search_in_workspace", None)
+            if callable(list_sources) and not callable(search_in_workspace):
+                references = await list_sources(
+                    workspace_id=workspace_id,
+                    query=citation,
+                    include_excluded=False,
+                    limit=1,
+                )
+            else:
+                # Legacy service path used only by tests and not by runtime injection.
+                references = await search_in_workspace(
+                    workspace_id=workspace_id,
+                    query=citation,
+                )
             if references:
                 valid_reference_ids.append(str(references[0].id))
 
@@ -94,12 +106,42 @@ class CitationContextMiddleware(Middleware):
         *,
         workspace_id: str,
         reference_ids: list[str],
+        citation_keys: list[str],
         content: str,
         state: ThreadState,
         config: RunnableConfig,
     ) -> None:
         if not reference_ids or self.reference_service is None:
             return
+        source_recorder = getattr(self.reference_service, "record_citation_usage", None)
+        if source_recorder is not None:
+            configurable = config.get("configurable", {}) if isinstance(config, Mapping) else {}
+            if not isinstance(configurable, Mapping):
+                configurable = {}
+            try:
+                await source_recorder(
+                    SourceCitationUsageCreateCommand(
+                        workspace_id=workspace_id,
+                        citation_keys=citation_keys,
+                        execution_id=(
+                            state.get("execution_id")
+                            or configurable.get("execution_id")
+                            or None
+                        ),
+                        task_id=state.get("task_id") or configurable.get("task_id") or None,
+                        artifact_id=state.get("artifact_id") or configurable.get("artifact_id") or None,
+                        target_section=state.get("current_skill") or configurable.get("skill_id") or None,
+                        generated_text=content[:4000],
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to record Source citation usage for workspace %s",
+                    workspace_id,
+                    exc_info=True,
+                )
+            return
+
         recorder = getattr(self.reference_service, "record_reference_usage", None)
         if recorder is None:
             return
@@ -160,6 +202,7 @@ class CitationContextMiddleware(Middleware):
         await self._record_reference_usage(
             workspace_id=workspace_id,
             reference_ids=valid_reference_ids,
+            citation_keys=citations,
             content=content,
             state=state,
             config=config,

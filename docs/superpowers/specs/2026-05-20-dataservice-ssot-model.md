@@ -1631,6 +1631,8 @@ Projection modules cannot call repository write methods.
 - `library_items` and `workspace_references` converge into `sources`.
 - `reference_usage_events` and `prism_source_links` converge into `provenance_links`.
 - Source-backed Prism edits have provenance links.
+- Gateway Reference Library curation reads/writes, BibTeX generation/validation, and citation middleware use Source DataService contracts.
+- Legacy reference import/preprocess services may remain only as adapter services while they upsert same-id canonical `sources`; Source asset and text-index ownership replaces them in the follow-up Source indexer slice.
 
 ### Task 9: Move Sandbox Runtime
 

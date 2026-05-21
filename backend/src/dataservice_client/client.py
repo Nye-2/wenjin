@@ -85,6 +85,7 @@ from src.dataservice_client.contracts.source import (
     SourceCitationUsagePayload,
     SourceCreatePayload,
     SourcePayload,
+    SourceUpdatePayload,
 )
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
@@ -659,12 +660,25 @@ class AsyncDataServiceClient:
         )
         return SourcePayload.model_validate(payload["data"])
 
+    async def upsert_source(self, command: SourceCreatePayload) -> SourcePayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sources/upsert",
+            json=command.model_dump(mode="json"),
+        )
+        return SourcePayload.model_validate(payload["data"])
+
     async def list_sources(
         self,
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
         include_deleted: bool = False,
+        include_excluded: bool = True,
+        offset: int = 0,
         limit: int = 50,
     ) -> list[SourcePayload]:
         payload = await self._request(
@@ -673,7 +687,12 @@ class AsyncDataServiceClient:
             params={
                 "workspace_id": workspace_id,
                 "library_status": library_status,
+                "source_kind": source_kind,
+                "ingest_kind": ingest_kind,
+                "query": query,
                 "include_deleted": include_deleted,
+                "include_excluded": include_excluded,
+                "offset": offset,
                 "limit": limit,
             },
         )
@@ -684,6 +703,10 @@ class AsyncDataServiceClient:
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
+        fulltext_status: str | None = None,
         include_deleted: bool = False,
         include_excluded: bool = False,
     ) -> int:
@@ -693,11 +716,23 @@ class AsyncDataServiceClient:
             params={
                 "workspace_id": workspace_id,
                 "library_status": library_status,
+                "source_kind": source_kind,
+                "ingest_kind": ingest_kind,
+                "query": query,
+                "fulltext_status": fulltext_status,
                 "include_deleted": include_deleted,
                 "include_excluded": include_excluded,
             },
         )
         return int(payload["data"]["count"])
+
+    async def count_source_reference_summary(self, *, workspace_id: str) -> dict[str, int]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sources/count/reference-summary",
+            params={"workspace_id": workspace_id},
+        )
+        return dict(payload["data"])
 
     async def get_source_library_outline(self, *, workspace_id: str) -> list[dict[str, Any]]:
         payload = await self._request(
@@ -763,6 +798,49 @@ class AsyncDataServiceClient:
         payload = await self._request("GET", f"/internal/v1/sources/{source_id}")
         data = payload.get("data")
         return SourcePayload.model_validate(data) if data is not None else None
+
+    async def get_source_detail(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+    ) -> dict[str, Any] | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/detail",
+            params={"workspace_id": workspace_id},
+        )
+        data = payload.get("data")
+        return dict(data) if isinstance(data, dict) else None
+
+    async def update_source(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        command: SourceUpdatePayload,
+    ) -> SourcePayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/sources/{source_id}",
+            params={"workspace_id": workspace_id},
+            json=command.model_dump(mode="json", exclude_none=True),
+        )
+        data = payload.get("data")
+        return SourcePayload.model_validate(data) if data is not None else None
+
+    async def delete_source(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+    ) -> bool:
+        payload = await self._request(
+            "DELETE",
+            f"/internal/v1/sources/{source_id}",
+            params={"workspace_id": workspace_id},
+        )
+        return bool(payload["data"].get("deleted"))
 
     async def build_source_bibliography(
         self,

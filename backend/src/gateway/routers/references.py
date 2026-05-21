@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import (
@@ -15,7 +15,7 @@ from src.database import (
     ReferenceSourceType,
     User,
 )
-from src.dataservice.source_api import SourceDataService
+from src.dataservice.source_api import SourceDataService, SourceUpdateCommand
 from src.gateway.access_control import require_workspace_owner
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_task_service, get_workspace_service
@@ -24,8 +24,6 @@ from src.services.references import (
     ReferenceBibTeXService,
     ReferenceEvidenceService,
     ReferenceImportService,
-    WorkspaceReferenceService,
-    serialize_reference,
 )
 from src.task.service import TaskService
 from src.workspace_events import publish_workspace_event
@@ -131,6 +129,43 @@ async def _publish_references_refresh(workspace_id: str) -> None:
     )
 
 
+def _enum_value(value: Any) -> Any:
+    return getattr(value, "value", value)
+
+
+def _source_update_command(request: ReferenceUpdateRequest) -> SourceUpdateCommand:
+    payload = request.model_dump(exclude_none=True)
+    if "authors" in payload:
+        payload["authors_json"] = payload.pop("authors")
+    if "tags" in payload:
+        payload["tags_json"] = payload.pop("tags")
+    if "bibtex_fields" in payload:
+        payload["bibtex_fields_json"] = payload.pop("bibtex_fields")
+    if "library_status" in payload:
+        payload["library_status"] = _enum_value(payload["library_status"])
+    if "read_status" in payload:
+        payload["read_status"] = _enum_value(payload["read_status"])
+    try:
+        return SourceUpdateCommand(**payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+async def _source_reference_payload(
+    service: SourceDataService,
+    *,
+    workspace_id: str,
+    source_id: str,
+) -> dict[str, Any]:
+    detail = await service.get_source_detail(workspace_id=workspace_id, source_id=source_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
+    reference = detail.get("reference")
+    if not isinstance(reference, dict):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
+    return reference
+
+
 @router.get("")
 async def list_references(
     workspace_id: str,
@@ -148,17 +183,14 @@ async def list_references(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    try:
-        return await WorkspaceReferenceService(db).list_references(
-            workspace_id,
-            library_status=library_status,
-            source_type=source_type,
-            query=query,
-            offset=offset,
-            limit=limit,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return await SourceDataService(db, autocommit=False).list_sources_page(
+        workspace_id=workspace_id,
+        library_status=_enum_value(library_status) if library_status else None,
+        ingest_kind=_enum_value(source_type) if source_type else None,
+        query=query,
+        offset=offset,
+        limit=limit,
+    )
 
 
 @router.get("/count")
@@ -173,7 +205,7 @@ async def count_references(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    return await WorkspaceReferenceService(db).count_references(workspace_id)
+    return await SourceDataService(db, autocommit=False).count_reference_summary(workspace_id)
 
 
 @router.get("/outline")
@@ -438,9 +470,9 @@ async def get_reference(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    detail = await WorkspaceReferenceService(db).get_reference_detail(
-        workspace_id,
-        reference_id,
+    detail = await SourceDataService(db, autocommit=False).get_source_detail(
+        workspace_id=workspace_id,
+        source_id=reference_id,
     )
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
@@ -461,18 +493,16 @@ async def update_reference(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    try:
-        reference = await WorkspaceReferenceService(db).update_reference(
-            workspace_id,
-            reference_id,
-            **request.model_dump(exclude_none=True),
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    if reference is None:
+    source_service = SourceDataService(db)
+    source = await source_service.update_source(
+        workspace_id=workspace_id,
+        source_id=reference_id,
+        command=_source_update_command(request),
+    )
+    if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     await _publish_references_refresh(workspace_id)
-    return serialize_reference(reference)
+    return await _source_reference_payload(source_service, workspace_id=workspace_id, source_id=reference_id)
 
 
 @router.delete("/{reference_id}")
@@ -488,7 +518,10 @@ async def delete_reference(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    deleted = await WorkspaceReferenceService(db).soft_delete(workspace_id, reference_id)
+    deleted = await SourceDataService(db).mark_deleted_for_workspace(
+        workspace_id=workspace_id,
+        source_id=reference_id,
+    )
     if not deleted:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     await _publish_references_refresh(workspace_id)
@@ -562,15 +595,16 @@ async def mark_read(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    reference = await WorkspaceReferenceService(db).mark_status(
-        workspace_id,
-        reference_id,
+    source_service = SourceDataService(db)
+    source = await source_service.mark_status(
+        workspace_id=workspace_id,
+        source_id=reference_id,
         read_status="read",
     )
-    if reference is None:
+    if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     await _publish_references_refresh(workspace_id)
-    return serialize_reference(reference)
+    return await _source_reference_payload(source_service, workspace_id=workspace_id, source_id=reference_id)
 
 
 async def _mark_reference_status(
@@ -586,15 +620,16 @@ async def _mark_reference_status(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    reference = await WorkspaceReferenceService(db).mark_status(
-        workspace_id,
-        reference_id,
+    source_service = SourceDataService(db)
+    source = await source_service.mark_status(
+        workspace_id=workspace_id,
+        source_id=reference_id,
         library_status=library_status,
     )
-    if reference is None:
+    if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     await _publish_references_refresh(workspace_id)
-    return serialize_reference(reference)
+    return await _source_reference_payload(source_service, workspace_id=workspace_id, source_id=reference_id)
 
 
 @router.get("/{reference_id}/outline")

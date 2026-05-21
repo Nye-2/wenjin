@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class SourceCreateCommand(BaseModel):
+    source_id: str | None = Field(default=None, min_length=1, max_length=36)
     workspace_id: str = Field(min_length=1, max_length=36)
     source_kind: str = Field(default="paper", min_length=1, max_length=50)
     title: str = Field(min_length=1, max_length=1000)
@@ -24,6 +25,7 @@ class SourceCreateCommand(BaseModel):
     ingest_kind: str = "manual"
     ingest_label: str | None = None
     ingest_execution_id: str | None = None
+    verified_at: datetime | None = None
     library_status: str = "candidate"
     evidence_level: str = "metadata_only"
     fulltext_status: str = "none"
@@ -32,6 +34,27 @@ class SourceCreateCommand(BaseModel):
     bibtex_fields_json: dict[str, Any] = Field(default_factory=dict)
     read_status: str = "unread"
     tags_json: list[str] = Field(default_factory=list)
+    notes: str | None = None
+    is_deleted: bool = False
+
+
+class SourceUpdateCommand(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=1000)
+    normalized_title: str | None = None
+    authors_json: list[Any] | None = None
+    year: int | None = None
+    venue: str | None = None
+    publication_type: str | None = None
+    doi: str | None = None
+    url: str | None = None
+    abstract: str | None = None
+    citation_count: int | None = None
+    library_status: str | None = None
+    citation_key: str | None = None
+    bibtex_entry_type: str | None = None
+    bibtex_fields_json: dict[str, Any] | None = None
+    read_status: str | None = None
+    tags_json: list[str] | None = None
     notes: str | None = None
 
 

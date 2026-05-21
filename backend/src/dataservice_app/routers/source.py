@@ -12,6 +12,7 @@ from src.dataservice.domains.source.contracts import (
     SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
+    SourceUpdateCommand,
 )
 from src.dataservice.domains.source.service import SourceDataDomainService
 from src.dataservice_app.auth import require_internal_token
@@ -35,19 +36,40 @@ async def create_source(
     return envelope_ok(record.model_dump(mode="json"))
 
 
+@router.post("/sources/upsert")
+async def upsert_source(
+    command: SourceCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.upsert_source(command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
 @router.get("/sources")
 async def list_sources(
     workspace_id: str = Query(),
     library_status: str | None = Query(default=None),
+    source_kind: str | None = Query(default=None),
+    ingest_kind: str | None = Query(default=None),
+    query: str | None = Query(default=None),
     include_deleted: bool = Query(default=False),
-    limit: int = Query(default=50, ge=1, le=200),
+    include_excluded: bool = Query(default=True),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=5000),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     records = await service.list_sources(
         workspace_id=workspace_id,
         library_status=library_status,
+        source_kind=source_kind,
+        ingest_kind=ingest_kind,
+        query=query,
         include_deleted=include_deleted,
+        include_excluded=include_excluded,
+        offset=offset,
         limit=limit,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
@@ -57,6 +79,10 @@ async def list_sources(
 async def count_sources(
     workspace_id: str = Query(),
     library_status: str | None = Query(default=None),
+    source_kind: str | None = Query(default=None),
+    ingest_kind: str | None = Query(default=None),
+    query: str | None = Query(default=None),
+    fulltext_status: str | None = Query(default=None),
     include_deleted: bool = Query(default=False),
     include_excluded: bool = Query(default=False),
     uow: DataServiceUnitOfWork = Depends(get_uow),
@@ -65,10 +91,23 @@ async def count_sources(
     count = await service.count_sources(
         workspace_id=workspace_id,
         library_status=library_status,
+        source_kind=source_kind,
+        ingest_kind=ingest_kind,
+        query=query,
+        fulltext_status=fulltext_status,
         include_deleted=include_deleted,
         include_excluded=include_excluded,
     )
     return envelope_ok({"count": count})
+
+
+@router.get("/sources/count/reference-summary")
+async def count_source_reference_summary(
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(await service.count_reference_summary(workspace_id))
 
 
 @router.get("/sources/library-outline")
@@ -163,6 +202,45 @@ async def get_source(
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     record = await service.get_source(source_id)
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.get("/sources/{source_id}/detail")
+async def get_source_detail(
+    source_id: str,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(await service.get_source_detail(workspace_id=workspace_id, source_id=source_id))
+
+
+@router.patch("/sources/{source_id}")
+async def update_source(
+    source_id: str,
+    command: SourceUpdateCommand,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.update_source(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        command=command,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.delete("/sources/{source_id}")
+async def delete_source(
+    source_id: str,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    deleted = await service.mark_deleted_for_workspace(workspace_id=workspace_id, source_id=source_id)
+    await uow.commit()
+    return envelope_ok({"deleted": deleted})
 
 
 @router.post("/provenance/links")

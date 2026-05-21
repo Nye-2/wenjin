@@ -16,6 +16,7 @@ from src.dataservice.domains.source.contracts import (
     SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
+    SourceUpdateCommand,
 )
 from src.dataservice.domains.source.models import SourceAssetRecord, SourceRecord
 from src.dataservice.domains.source.service import SourceDataDomainService
@@ -45,7 +46,7 @@ class FakeSourceRepository:
         self.sources: dict[str, SimpleNamespace] = {}
 
     def create_source(self, values: dict[str, Any]) -> SimpleNamespace:
-        source_id = f"source-{len(self.sources) + 1}"
+        source_id = str(values.pop("source_id", None) or f"source-{len(self.sources) + 1}")
         record = _record(
             {
                 "id": source_id,
@@ -59,6 +60,20 @@ class FakeSourceRepository:
 
     async def get_source(self, source_id: str) -> SimpleNamespace | None:
         return self.sources.get(source_id)
+
+    async def get_source_for_workspace(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        include_deleted: bool = False,
+    ) -> SimpleNamespace | None:
+        record = self.sources.get(source_id)
+        if record is None or record.workspace_id != workspace_id:
+            return None
+        if not include_deleted and record.is_deleted:
+            return None
+        return record
 
     async def list_sources_by_ids(
         self,
@@ -84,21 +99,47 @@ class FakeSourceRepository:
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
         include_deleted: bool = False,
+        include_excluded: bool = True,
+        offset: int = 0,
         limit: int = 50,
     ) -> list[SimpleNamespace]:
         records = [record for record in self.sources.values() if record.workspace_id == workspace_id]
         if library_status is not None:
             records = [record for record in records if record.library_status == library_status]
+        elif not include_excluded:
+            records = [record for record in records if record.library_status != "excluded"]
+        if source_kind is not None:
+            records = [record for record in records if record.source_kind == source_kind]
+        if ingest_kind is not None:
+            records = [record for record in records if record.ingest_kind == ingest_kind]
+        if query and query.strip():
+            normalized = query.strip().lower()
+            records = [
+                record
+                for record in records
+                if normalized in record.title.lower()
+                or normalized in str(record.venue or "").lower()
+                or normalized in str(record.doi or "").lower()
+                or normalized in str(record.abstract or "").lower()
+                or normalized in record.citation_key.lower()
+            ]
         if not include_deleted:
             records = [record for record in records if not record.is_deleted]
-        return records[:limit]
+        return records[offset : offset + limit]
 
     async def count_sources(
         self,
         *,
         workspace_id: str,
         library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
+        fulltext_status: str | None = None,
         include_deleted: bool = False,
         include_excluded: bool = False,
     ) -> int:
@@ -107,9 +148,50 @@ class FakeSourceRepository:
             records = [record for record in records if record.library_status == library_status]
         elif not include_excluded:
             records = [record for record in records if record.library_status != "excluded"]
+        if source_kind is not None:
+            records = [record for record in records if record.source_kind == source_kind]
+        if ingest_kind is not None:
+            records = [record for record in records if record.ingest_kind == ingest_kind]
+        if fulltext_status is not None:
+            records = [record for record in records if record.fulltext_status == fulltext_status]
+        if query and query.strip():
+            normalized = query.strip().lower()
+            records = [
+                record
+                for record in records
+                if normalized in record.title.lower()
+                or normalized in str(record.venue or "").lower()
+                or normalized in str(record.doi or "").lower()
+                or normalized in str(record.abstract or "").lower()
+                or normalized in record.citation_key.lower()
+            ]
         if not include_deleted:
             records = [record for record in records if not record.is_deleted]
         return len(records)
+
+    async def citation_key_exists(
+        self,
+        *,
+        workspace_id: str,
+        citation_key: str,
+        exclude_source_id: str | None = None,
+    ) -> bool:
+        return any(
+            record.workspace_id == workspace_id
+            and record.citation_key == citation_key
+            and not record.is_deleted
+            and record.id != exclude_source_id
+            for record in self.sources.values()
+        )
+
+    async def list_outline_nodes(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        limit: int = 200,
+    ) -> list[SimpleNamespace]:
+        return []
 
     async def list_sources_by_citation_keys(
         self,
@@ -248,6 +330,122 @@ async def test_source_service_counts_sources_by_library_status() -> None:
     assert await service.count_sources(workspace_id="ws-1") == 2
     assert await service.count_sources(workspace_id="ws-1", library_status="core") == 1
     assert await service.count_sources(workspace_id="ws-1", include_excluded=True) == 3
+
+
+@pytest.mark.asyncio
+async def test_source_service_lists_reference_page_with_ingest_filter() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Uploaded Paper",
+            citation_key="uploaded2026",
+            ingest_kind="upload",
+            library_status="included",
+            fulltext_status="indexed",
+        )
+    )
+    await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Manual Paper",
+            citation_key="manual2026",
+            ingest_kind="manual",
+            library_status="core",
+        )
+    )
+
+    page = await service.list_sources_page(
+        workspace_id="ws-1",
+        ingest_kind="upload",
+        query="uploaded",
+    )
+    summary = await service.count_reference_summary("ws-1")
+
+    assert [item["citation_key"] for item in page["items"]] == ["uploaded2026"]
+    assert page["total"] == 1
+    assert page["core_count"] == 1
+    assert summary == {"total": 2, "core": 1, "indexed": 1}
+
+
+@pytest.mark.asyncio
+async def test_source_service_upserts_with_explicit_source_id() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    created = await service.upsert_source(
+        SourceCreateCommand(
+            source_id="reference-1",
+            workspace_id="ws-1",
+            title="Original",
+            citation_key="original2026",
+        )
+    )
+    updated = await service.upsert_source(
+        SourceCreateCommand(
+            source_id="reference-1",
+            workspace_id="ws-1",
+            title="Updated",
+            citation_key="updated2026",
+            library_status="included",
+        )
+    )
+
+    assert created.id == "reference-1"
+    assert updated.id == "reference-1"
+    assert updated.title == "Updated"
+    assert updated.library_status == "included"
+    assert len(repository.sources) == 1
+
+
+@pytest.mark.asyncio
+async def test_source_service_updates_and_deletes_reference_state() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    first = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="First Paper",
+            citation_key="paper2026",
+            library_status="included",
+        )
+    )
+    second = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Second Paper",
+            citation_key="other2026",
+        )
+    )
+
+    updated = await service.update_source(
+        workspace_id="ws-1",
+        source_id=second.id,
+        command=SourceUpdateCommand(
+            title="Second Paper Revised",
+            citation_key=first.citation_key,
+            library_status="core",
+            tags_json=["important"],
+        ),
+    )
+    deleted = await service.mark_deleted_for_workspace(workspace_id="ws-1", source_id=first.id)
+
+    assert updated is not None
+    assert updated.normalized_title == "second paper revised"
+    assert updated.citation_key == "paper20262"
+    assert updated.library_status == "core"
+    assert updated.tags_json == ["important"]
+    assert deleted is True
+    assert await service.get_source_for_workspace(workspace_id="ws-1", source_id=first.id) is None
 
 
 @pytest.mark.asyncio
