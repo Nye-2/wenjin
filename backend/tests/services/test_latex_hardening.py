@@ -95,8 +95,9 @@ class _FakeLatexRouterService:
     )
     files = {"main.tex": "\\section{Current}\n"}
 
-    def __init__(self, db: object) -> None:
+    def __init__(self, db: object, *, autocommit: bool = True) -> None:
         _ = db
+        _ = autocommit
 
     async def get_owned(self, project_id: str, user_id: str) -> object | None:
         if project_id == "project-1" and user_id == "user-1":
@@ -124,8 +125,9 @@ class _FakePrismReviewService:
     cleared: list[str] = []
     protected: list[dict[str, object]] = []
 
-    def __init__(self, db: object) -> None:
+    def __init__(self, db: object, *, autocommit: bool = True) -> None:
         _ = db
+        _ = autocommit
 
     @classmethod
     def reset(cls) -> None:
@@ -161,7 +163,28 @@ class _FakePrismReviewService:
             return None
         return item
 
-    async def upsert_pending_file_change(self, project: object, **kwargs: object) -> SimpleNamespace:
+    async def find_file_change(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        logical_key: str,
+        statuses: tuple[str, ...] | None = None,
+    ) -> SimpleNamespace | None:
+        _ = workspace_id
+        _ = latex_project_id
+        item = self.review_item
+        if item is None or item.logical_key != logical_key:
+            return None
+        if statuses and item.status not in statuses:
+            return None
+        return item
+
+    async def upsert_pending_file_change(
+        self,
+        project: object | None = None,
+        **kwargs: object,
+    ) -> SimpleNamespace:
         _ = project
         kwargs.setdefault("source_execution_id", None)
         kwargs.setdefault("source_task_id", None)
@@ -189,9 +212,37 @@ class _FakePrismReviewService:
         if self.review_item is not None and self.review_item.logical_key == logical_key:
             self.review_item = None
 
+    async def clear_pending_file_change(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        logical_key: str,
+    ) -> bool:
+        _ = workspace_id
+        _ = latex_project_id
+        self.cleared.append(logical_key)
+        if self.review_item is not None and self.review_item.logical_key == logical_key:
+            self.review_item = None
+            return True
+        return False
+
     async def mark_applied(self, item: SimpleNamespace, **kwargs: object) -> SimpleNamespace:
         item.status = "applied"
         item.preview_payload = {**item.preview_payload, **kwargs}
+        return item
+
+    async def mark_applied_file_change(
+        self,
+        item_id: str,
+        **kwargs: object,
+    ) -> SimpleNamespace | None:
+        item = self.review_item
+        if item is None or item.id != item_id:
+            return None
+        item.status = "applied"
+        item.preview_payload = {**item.preview_payload, **kwargs}
+        item.result_json = dict(kwargs)
         return item
 
     async def mark_rejected(
@@ -213,13 +264,45 @@ class _FakePrismReviewService:
             )
         return item
 
+    async def mark_rejected_file_change(
+        self,
+        item_id: str,
+        *,
+        reason: str | None = None,
+    ) -> SimpleNamespace | None:
+        item = self.review_item
+        if item is None or item.id != item_id:
+            return None
+        item.status = "rejected"
+        item.summary = reason or item.summary
+        return item
+
     async def mark_reverted(self, item: SimpleNamespace) -> SimpleNamespace:
+        item.status = "reverted"
+        return item
+
+    async def mark_reverted_file_change(
+        self,
+        item_id: str,
+    ) -> SimpleNamespace | None:
+        item = self.review_item
+        if item is None or item.id != item_id:
+            return None
         item.status = "reverted"
         return item
 
     async def mark_deferred(self, item: SimpleNamespace) -> SimpleNamespace:
         item.status = "deferred"
         return item
+
+    async def upsert_protected_section(self, **kwargs: object) -> None:
+        self.protected.append(
+            {
+                "logical_key": kwargs.get("section_key"),
+                "path": kwargs.get("file_path"),
+                "reason": kwargs.get("reason"),
+            }
+        )
 
 
 def _reset_fake_router_service() -> None:
@@ -566,7 +649,7 @@ async def test_bridge_write_records_managed_change_as_feature_proposal(
 ) -> None:
     _FakePrismReviewService.reset()
     monkeypatch.setattr(
-        "src.services.workspace_latex_projects.PrismReviewService",
+        "src.services.workspace_latex_projects.PrismReviewDataService",
         _FakePrismReviewService,
     )
     service = WorkspaceLatexProjectService(AsyncMock())
@@ -597,6 +680,8 @@ async def test_bridge_write_records_managed_change_as_feature_proposal(
     assert "file_changes" not in metadata
     assert _FakePrismReviewService.pending_changes == [
         {
+            "workspace_id": "workspace-1",
+            "latex_project_id": "project-1",
             "logical_key": "project:main",
             "path": "main.tex",
             "reason": "feature_proposal",
@@ -615,7 +700,7 @@ async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict(
 ) -> None:
     _FakePrismReviewService.reset()
     monkeypatch.setattr(
-        "src.services.workspace_latex_projects.PrismReviewService",
+        "src.services.workspace_latex_projects.PrismReviewDataService",
         _FakePrismReviewService,
     )
     service = WorkspaceLatexProjectService(AsyncMock())
@@ -656,6 +741,10 @@ async def test_file_change_preview_and_apply_use_signature_guard(
     )
     monkeypatch.setattr(
         "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
+    )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewDataService",
         _FakePrismReviewService,
     )
     user = SimpleNamespace(id="user-1")
@@ -704,6 +793,10 @@ async def test_file_change_apply_rejects_stale_preview_signature(
         "src.gateway.routers.latex_files.PrismReviewService",
         _FakePrismReviewService,
     )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewDataService",
+        _FakePrismReviewService,
+    )
     user = SimpleNamespace(id="user-1")
 
     preview = await preview_project_file_change(
@@ -742,12 +835,16 @@ async def test_file_change_discard_protects_current_content(
         "src.gateway.routers.latex_files.PrismReviewService",
         _FakePrismReviewService,
     )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewDataService",
+        _FakePrismReviewService,
+    )
 
     response = await discard_project_file_change(
         "project-1",
         LatexFileChangeActionRequest(logical_key="project:main"),
         current_user=SimpleNamespace(id="user-1"),
-        db=object(),
+        db=AsyncMock(),
     )
 
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]
@@ -764,7 +861,7 @@ async def test_file_change_discard_protects_current_content(
 
 
 @pytest.mark.asyncio
-async def test_file_change_defer_keeps_content_and_marks_review_item(
+async def test_file_change_defer_is_no_longer_supported(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _reset_fake_router_service()
@@ -776,18 +873,22 @@ async def test_file_change_defer_keeps_content_and_marks_review_item(
         "src.gateway.routers.latex_files.PrismReviewService",
         _FakePrismReviewService,
     )
-
-    response = await defer_project_file_change(
-        "project-1",
-        LatexFileChangeActionRequest(logical_key="project:main"),
-        current_user=SimpleNamespace(id="user-1"),
-        db=object(),
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewDataService",
+        _FakePrismReviewService,
     )
 
-    assert response.deferred is True
-    assert response.path == "main.tex"
+    with pytest.raises(HTTPException) as exc_info:
+        await defer_project_file_change(
+            "project-1",
+            LatexFileChangeActionRequest(logical_key="project:main"),
+            current_user=SimpleNamespace(id="user-1"),
+            db=object(),
+        )
+
+    assert exc_info.value.status_code == 410
     assert _FakeLatexRouterService.files["main.tex"] == "\\section{Current}\n"
-    assert _FakePrismReviewService.review_item.status == "deferred"
+    assert _FakePrismReviewService.review_item.status == "pending"
 
 
 @pytest.mark.asyncio
@@ -801,6 +902,10 @@ async def test_file_change_revert_restores_previous_content(
     )
     monkeypatch.setattr(
         "src.gateway.routers.latex_files.PrismReviewService",
+        _FakePrismReviewService,
+    )
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.PrismReviewDataService",
         _FakePrismReviewService,
     )
     user = SimpleNamespace(id="user-1")

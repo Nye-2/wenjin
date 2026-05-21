@@ -48,6 +48,9 @@ class ReviewRepository:
         )
         return result.scalar_one_or_none()
 
+    async def delete_item(self, item: ReviewItemRecord) -> None:
+        await self.session.delete(item)
+
     async def list_items(self, batch_id: str) -> list[ReviewItemRecord]:
         result = await self.session.execute(
             select(ReviewItemRecord)

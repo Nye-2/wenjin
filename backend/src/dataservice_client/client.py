@@ -52,6 +52,8 @@ from src.dataservice_client.contracts.review import (
     ReviewBatchDetailPayload,
     ReviewBatchPayload,
     ReviewItemDecisionPayload,
+    ReviewItemDeletePayload,
+    ReviewItemPatchPayload,
     ReviewItemPayload,
     ReviewItemTransitionPayload,
 )
@@ -457,6 +459,11 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return ReviewBatchDetailPayload.model_validate(data) if data is not None else None
 
+    async def get_review_item(self, item_id: str) -> ReviewItemPayload | None:
+        payload = await self._request("GET", f"/internal/v1/review/items/{item_id}")
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
+
     async def list_review_items(
         self,
         *,
@@ -480,6 +487,19 @@ class AsyncDataServiceClient:
             },
         )
         return [ReviewItemPayload.model_validate(item) for item in payload["data"]]
+
+    async def patch_review_item(
+        self,
+        item_id: str,
+        command: ReviewItemPatchPayload,
+    ) -> ReviewItemPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/review/items/{item_id}",
+            json=command.model_dump(mode="json", exclude_none=True),
+        )
+        data = payload.get("data")
+        return ReviewItemPayload.model_validate(data) if data is not None else None
 
     async def set_review_item_decision(
         self,
@@ -506,6 +526,19 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return ReviewItemPayload.model_validate(data) if data is not None else None
+
+    async def delete_review_item(
+        self,
+        item_id: str,
+        command: ReviewItemDeletePayload,
+    ) -> bool:
+        payload = await self._request(
+            "DELETE",
+            f"/internal/v1/review/items/{item_id}",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data") or {}
+        return bool(data.get("deleted"))
 
     async def register_asset(self, command: WorkspaceAssetCreatePayload) -> WorkspaceAssetPayload:
         payload = await self._request(

@@ -59,6 +59,32 @@ class ReviewItemTransitionCommand(BaseModel):
     payload_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class ReviewItemPatchCommand(BaseModel):
+    """Patch non-transition review item metadata and payload."""
+
+    source_item_id: str | None = Field(default=None, max_length=255)
+    item_kind: str | None = Field(default=None, min_length=1, max_length=64)
+    target_domain: str | None = Field(default=None, min_length=1, max_length=64)
+    target_kind: str | None = Field(default=None, min_length=1, max_length=64)
+    target_ref_json: dict[str, Any] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=255)
+    summary: str | None = None
+    payload_json: dict[str, Any] | None = None
+    preview_json: dict[str, Any] | None = None
+    result_json: dict[str, Any] | None = None
+    error_text: str | None = None
+    provenance_json: dict[str, Any] | None = None
+    sort_order: int | None = None
+
+
+class ReviewItemDeleteCommand(BaseModel):
+    """Delete a review item that should no longer be user-reviewable."""
+
+    actor_id: str | None = Field(default=None, max_length=36)
+    reason: str | None = None
+    payload_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class ReviewBatchProjection(BaseModel):
     """Canonical review batch projection."""
 

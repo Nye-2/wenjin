@@ -48,6 +48,28 @@ class ReviewItemTransitionPayload(BaseModel):
     payload_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class ReviewItemPatchPayload(BaseModel):
+    source_item_id: str | None = None
+    item_kind: str | None = None
+    target_domain: str | None = None
+    target_kind: str | None = None
+    target_ref_json: dict[str, Any] | None = None
+    title: str | None = None
+    summary: str | None = None
+    payload_json: dict[str, Any] | None = None
+    preview_json: dict[str, Any] | None = None
+    result_json: dict[str, Any] | None = None
+    error_text: str | None = None
+    provenance_json: dict[str, Any] | None = None
+    sort_order: int | None = None
+
+
+class ReviewItemDeletePayload(BaseModel):
+    actor_id: str | None = None
+    reason: str | None = None
+    payload_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class ReviewBatchPayload(BaseModel):
     id: str
     workspace_id: str

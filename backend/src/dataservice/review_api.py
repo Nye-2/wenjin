@@ -11,6 +11,8 @@ from src.dataservice.domains.review.contracts import (
     ReviewBatchDetailProjection,
     ReviewBatchProjection,
     ReviewItemDecisionCommand,
+    ReviewItemDeleteCommand,
+    ReviewItemPatchCommand,
     ReviewItemProjection,
     ReviewItemTransitionCommand,
 )
@@ -81,6 +83,9 @@ class ReviewDataService:
     async def get_batch(self, batch_id: str) -> ReviewBatchDetailProjection | None:
         return await self._domain.get_batch(batch_id)
 
+    async def get_item(self, item_id: str) -> ReviewItemProjection | None:
+        return await self._domain.get_item(item_id)
+
     async def list_batches(
         self,
         *,
@@ -122,6 +127,13 @@ class ReviewDataService:
     ) -> ReviewItemProjection | None:
         return await self._domain.set_item_decision(item_id, command)
 
+    async def patch_item(
+        self,
+        item_id: str,
+        command: ReviewItemPatchCommand,
+    ) -> ReviewItemProjection | None:
+        return await self._domain.patch_item(item_id, command)
+
     async def decide_item(
         self,
         item_id: str,
@@ -145,6 +157,23 @@ class ReviewDataService:
         command: ReviewItemTransitionCommand,
     ) -> ReviewItemProjection | None:
         return await self._domain.apply_item(item_id, command)
+
+    async def delete_item(
+        self,
+        item_id: str,
+        *,
+        actor_id: str | None = None,
+        reason: str | None = None,
+        payload_json: dict[str, Any] | None = None,
+    ) -> bool:
+        return await self._domain.delete_item(
+            item_id,
+            ReviewItemDeleteCommand(
+                actor_id=actor_id,
+                reason=reason,
+                payload_json=dict(payload_json or {}),
+            ),
+        )
 
     async def apply_item(
         self,

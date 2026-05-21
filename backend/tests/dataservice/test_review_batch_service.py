@@ -13,6 +13,8 @@ from src.dataservice.domains.review.contracts import (
     ReviewBatchCreateCommand,
     ReviewItemCreateCommand,
     ReviewItemDecisionCommand,
+    ReviewItemDeleteCommand,
+    ReviewItemPatchCommand,
     ReviewItemTransitionCommand,
 )
 from src.dataservice.domains.review.registry import ReviewHandlerRegistry
@@ -87,6 +89,9 @@ class FakeReviewRepository:
 
     async def get_item(self, item_id: str) -> SimpleNamespace | None:
         return self.items.get(item_id)
+
+    async def delete_item(self, item: SimpleNamespace) -> None:
+        self.items.pop(item.id, None)
 
     async def list_items(self, batch_id: str) -> list[SimpleNamespace]:
         return sorted(
@@ -202,6 +207,41 @@ async def test_item_decisions_transition_counts_and_batch_status() -> None:
         "item.rejected",
         "item.pending",
     ]
+
+
+@pytest.mark.asyncio
+async def test_patch_and_delete_item_update_canonical_batch_state() -> None:
+    service, repository, session = _service()
+    detail = await service.create_batch(_batch_command(item_count=1))
+    item_id = detail.items[0].id
+
+    patched = await service.patch_item(
+        item_id,
+        ReviewItemPatchCommand(
+            title="Updated patch",
+            payload_json={"text": "updated paragraph"},
+            preview_json={"diff": "+ updated paragraph"},
+        ),
+    )
+    deleted = await service.delete_item(
+        item_id,
+        ReviewItemDeleteCommand(actor_id="user-1", reason="content_matched"),
+    )
+
+    assert patched is not None
+    assert patched.title == "Updated patch"
+    assert patched.payload_json == {"text": "updated paragraph"}
+    assert deleted is True
+    assert repository.items == {}
+    assert repository.batches[detail.batch.id].item_count == 0
+    assert [log.action for log in repository.action_logs] == [
+        "batch.created",
+        "item.patched",
+        "item.deleted",
+    ]
+    assert repository.action_logs[-1].item_id is None
+    assert repository.action_logs[-1].payload_json["deleted_item_id"] == item_id
+    assert session.commit_count == 3
 
 
 @pytest.mark.asyncio

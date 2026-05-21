@@ -10,8 +10,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
+from src.dataservice.prism_review_api import PrismReviewDataService
 from src.services.latex import LatexProjectService
-from src.services.prism_review_service import PrismReviewService
 
 _SCI_SECTION_SPECS: tuple[tuple[str, str, str], ...] = (
     ("abstract", "Abstract", "sections/00_abstract.tex"),
@@ -166,8 +166,9 @@ class WorkspaceLatexProjectService:
             current_content = None
 
         if current_content == content:
-            await PrismReviewService(self.db).clear_review_item(
-                project,
+            await PrismReviewDataService(self.db, autocommit=False).clear_pending_file_change(
+                workspace_id=workspace_id,
+                latex_project_id=str(project.id),
                 logical_key=logical_key,
             )
             managed_files[logical_key] = {
@@ -183,8 +184,9 @@ class WorkspaceLatexProjectService:
 
         if current_content is None or allow_existing_write:
             await self.project_service.write_text_file(project, relative_path, content)
-            await PrismReviewService(self.db).clear_review_item(
-                project,
+            await PrismReviewDataService(self.db, autocommit=False).clear_pending_file_change(
+                workspace_id=workspace_id,
+                latex_project_id=str(project.id),
                 logical_key=logical_key,
             )
             managed_files[logical_key] = {
@@ -207,8 +209,9 @@ class WorkspaceLatexProjectService:
             pending_content=content,
             current_content=current_content,
         )
-        await PrismReviewService(self.db).upsert_pending_file_change(
-            project,
+        await PrismReviewDataService(self.db, autocommit=False).upsert_pending_file_change(
+            workspace_id=workspace_id,
+            latex_project_id=str(project.id),
             logical_key=logical_key,
             path=relative_path,
             reason=self._proposal_reason(

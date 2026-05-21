@@ -9,6 +9,8 @@ from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.review.contracts import (
     ReviewBatchCreateCommand,
     ReviewItemDecisionCommand,
+    ReviewItemDeleteCommand,
+    ReviewItemPatchCommand,
     ReviewItemTransitionCommand,
 )
 from src.dataservice.domains.review.service import DataServiceReviewService
@@ -61,6 +63,16 @@ async def get_batch(
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
+@router.get("/items/{item_id}")
+async def get_item(
+    item_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceReviewService(uow.required_session, autocommit=False)
+    record = await service.get_item(item_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
 @router.get("/items")
 async def list_items(
     workspace_id: str | None = Query(default=None),
@@ -81,6 +93,18 @@ async def list_items(
         limit=limit,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.patch("/items/{item_id}")
+async def patch_item(
+    item_id: str,
+    command: ReviewItemPatchCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceReviewService(uow.required_session, autocommit=False)
+    record = await service.patch_item(item_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
 @router.patch("/items/{item_id}/decision")
@@ -105,3 +129,15 @@ async def transition_item(
     record = await service.apply_item(item_id, command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.delete("/items/{item_id}")
+async def delete_item(
+    item_id: str,
+    command: ReviewItemDeleteCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceReviewService(uow.required_session, autocommit=False)
+    deleted = await service.delete_item(item_id, command)
+    await uow.commit()
+    return envelope_ok({"deleted": deleted})

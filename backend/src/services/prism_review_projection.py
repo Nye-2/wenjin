@@ -22,6 +22,7 @@ def prism_review_item_projection(
     target_ref = _json_object(getattr(item, "target_ref_json", None))
     payload = _json_object(getattr(item, "payload_json", None))
     preview = _json_object(getattr(item, "preview_json", None))
+    result = _json_object(getattr(item, "result_json", None))
     path = str(
         target_ref.get("file_path")
         or target_ref.get("path")
@@ -68,8 +69,12 @@ def prism_review_item_projection(
             "mode": str(preview.get("mode") or "diff"),
             "pending_hash": preview.get("pending_hash") or payload.get("pending_hash"),
             "current_hash": preview.get("current_hash") or payload.get("current_hash"),
-            "applied_hash": preview.get("applied_hash") or payload.get("applied_hash"),
-            "revert_signature": preview.get("revert_signature") or payload.get("revert_signature"),
+            "applied_hash": result.get("applied_hash")
+            or preview.get("applied_hash")
+            or payload.get("applied_hash"),
+            "revert_signature": result.get("revert_signature")
+            or preview.get("revert_signature")
+            or payload.get("revert_signature"),
         },
         "actions": actions,
         "created_at": _timestamp(getattr(item, "created_at", None)),

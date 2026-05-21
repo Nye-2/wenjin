@@ -81,6 +81,7 @@ def _review_target_ref(item: ReviewItemProjection) -> dict[str, Any]:
 def _review_payload(item: ReviewItemProjection) -> dict[str, Any]:
     payload = _json_object(item.payload_json)
     preview = _json_object(item.preview_json)
+    result = _json_object(item.result_json)
     merged = {**payload}
     for key in (
         "pending_content",
@@ -93,6 +94,8 @@ def _review_payload(item: ReviewItemProjection) -> dict[str, Any]:
     ):
         if key in preview:
             merged[key] = preview[key]
+        if key in result:
+            merged[key] = result[key]
     return merged
 
 

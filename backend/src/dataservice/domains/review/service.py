@@ -12,6 +12,8 @@ from src.dataservice.domains.review.contracts import (
     ReviewBatchDetailProjection,
     ReviewBatchProjection,
     ReviewItemDecisionCommand,
+    ReviewItemDeleteCommand,
+    ReviewItemPatchCommand,
     ReviewItemProjection,
     ReviewItemTransitionCommand,
 )
@@ -106,6 +108,10 @@ class DataServiceReviewService:
             items=[item_to_projection(item) for item in items],
         )
 
+    async def get_item(self, item_id: str) -> ReviewItemProjection | None:
+        item = await self.repository.get_item(item_id)
+        return item_to_projection(item) if item is not None else None
+
     async def list_batches(
         self,
         *,
@@ -176,6 +182,58 @@ class DataServiceReviewService:
         await self._finish()
         return item_to_projection(item)
 
+    async def patch_item(
+        self,
+        item_id: str,
+        command: ReviewItemPatchCommand,
+    ) -> ReviewItemProjection | None:
+        item = await self.repository.get_item(item_id)
+        if item is None:
+            return None
+        before_payload = {
+            "source_item_id": item.source_item_id,
+            "item_kind": item.item_kind,
+            "target_domain": item.target_domain,
+            "target_kind": item.target_kind,
+            "title": item.title,
+        }
+        for field_name in (
+            "source_item_id",
+            "item_kind",
+            "target_domain",
+            "target_kind",
+            "target_ref_json",
+            "title",
+            "summary",
+            "payload_json",
+            "preview_json",
+            "result_json",
+            "error_text",
+            "provenance_json",
+            "sort_order",
+        ):
+            value = getattr(command, field_name)
+            if value is not None:
+                setattr(item, field_name, dict(value) if isinstance(value, dict) else value)
+        item.updated_at = datetime.now(UTC)
+        batch = await self._refresh_batch(item.batch_id)
+        self.repository.append_action_log(
+            {
+                "batch_id": item.batch_id,
+                "item_id": item.id,
+                "workspace_id": item.workspace_id,
+                "action": "item.patched",
+                "actor_id": None,
+                "status_from": item.status,
+                "status_to": item.status,
+                "payload_json": before_payload,
+            }
+        )
+        if batch is not None:
+            batch.updated_at = datetime.now(UTC)
+        await self._finish()
+        return item_to_projection(item)
+
     async def apply_item(
         self,
         item_id: str,
@@ -226,6 +284,43 @@ class DataServiceReviewService:
             batch.updated_at = datetime.now(UTC)
         await self._finish()
         return item_to_projection(item)
+
+    async def delete_item(
+        self,
+        item_id: str,
+        command: ReviewItemDeleteCommand,
+    ) -> bool:
+        item = await self.repository.get_item(item_id)
+        if item is None:
+            return False
+        batch_id = item.batch_id
+        workspace_id = item.workspace_id
+        payload = {
+            "deleted_item_id": item.id,
+            "status": item.status,
+            "title": item.title,
+            **dict(command.payload_json or {}),
+        }
+        if command.reason:
+            payload["reason"] = command.reason
+        await self.repository.delete_item(item)
+        batch = await self._refresh_batch(batch_id)
+        self.repository.append_action_log(
+            {
+                "batch_id": batch_id,
+                "item_id": None,
+                "workspace_id": workspace_id,
+                "action": "item.deleted",
+                "actor_id": command.actor_id,
+                "status_from": item.status,
+                "status_to": None,
+                "payload_json": payload,
+            }
+        )
+        if batch is not None:
+            batch.updated_at = datetime.now(UTC)
+        await self._finish()
+        return True
 
     async def apply_many(
         self,
