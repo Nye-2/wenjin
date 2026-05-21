@@ -1088,7 +1088,7 @@ Implementation status as of 2026-05-21:
 - LaTeX file-change preview/apply/discard/revert actions now resolve and transition canonical `review_items`; `defer` is no longer a supported Prism action state and returns `410 Gone`.
 - Prism source links now use canonical `provenance_links` and Prism protected sections now use `prism_protected_scopes`. `WorkspacePrismService` no longer reads legacy `prism_source_links` or `prism_protected_sections`.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
-- Remaining Prism data debt is physical-table cleanup only: archive/drop `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after deployment validation.
+- Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
 - Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1923 backend tests.
 

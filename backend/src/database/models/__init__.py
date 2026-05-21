@@ -21,7 +21,6 @@ from .latex_project import LatexProject
 from .latex_template import LatexTemplate
 from .library_item import LibraryItem
 from .memory_fact import MemoryFact
-from .prism import PrismProtectedSection, PrismReviewItem, PrismSourceLink
 from .reference import (
     ReferenceAcceptedStatus,
     ReferenceAsset,
@@ -108,9 +107,6 @@ __all__ = [
     "LatexProject",
     "LatexTemplate",
     "LatexCompileHistory",
-    "PrismReviewItem",
-    "PrismSourceLink",
-    "PrismProtectedSection",
     # Generation
     "GenerationRecord",
     # Task
