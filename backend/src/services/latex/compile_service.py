@@ -9,13 +9,13 @@ import re
 import shlex
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_compile_history import LatexCompileHistory
-from src.database.models.latex_project import LatexProject
 from src.execution.docker.client import DockerClient, DockerExecutionError
 
 from .engine_config import (
@@ -29,6 +29,9 @@ from .paths import (
     project_root,
     resolve_project_relative,
 )
+
+if TYPE_CHECKING:
+    from src.database.models.latex_project import LatexProject
 
 _DEFAULT_LATEX_DOCKER_IMAGE = "wenjin/texlive:2024"
 _DEFAULT_COMPILE_TIMEOUT_SECONDS = 300

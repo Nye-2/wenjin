@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.latex_project import LatexProject
 from src.dataservice.execution_api import (
     ExecutionDataService,
     ExecutionRunHistoryProjection,
@@ -22,6 +21,9 @@ from src.services.workspace_activity_contracts import (
     serialize_activity_item,
 )
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
+
+if TYPE_CHECKING:
+    from src.database.models.latex_project import LatexProject
 
 PRIMARY_MANUSCRIPT_ROLE = "primary_manuscript"
 PENDING_REVIEW_STATUSES = ("pending", "accepted")
@@ -461,10 +463,7 @@ class WorkspacePrismService:
         )
 
     async def _get_latex_adapter_project(self, project_id: str) -> LatexProject | None:
-        result = await self.db.execute(
-            select(LatexProject).where(LatexProject.id == project_id).limit(1)
-        )
-        return result.scalar_one_or_none()
+        return await self.bridge.get_project_by_id(project_id)
 
     async def _list_prism_review_items(
         self,

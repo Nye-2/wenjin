@@ -6,7 +6,7 @@ import hashlib
 import re
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
@@ -412,6 +412,16 @@ class WorkspaceLatexProjectService:
                 return project
 
         return None
+
+    async def get_project_by_id(self, project_id: str) -> LatexProject | None:
+        """Return a LaTeX adapter project by id."""
+        getter = getattr(self.db, "get", None)
+        if callable(getter):
+            return await getter(LatexProject, project_id)
+        result = await self.db.execute(
+            select(LatexProject).where(LatexProject.id == project_id).limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def sync_sci_outline_project(
         self,
