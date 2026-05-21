@@ -86,6 +86,18 @@ class TestCreateFirstVersion:
             assert call_kwargs["title"] == "My Research"
             assert call_kwargs["status"] == "draft"
 
+    @pytest.mark.asyncio
+    async def test_lock_workspace_uses_dataservice_workspace_boundary(self):
+        """Workspace row locking is delegated to WorkspaceDataService."""
+        db = _make_db_session()
+        service = ArtifactService(db)
+        service._workspace.lock_workspace_for_update = AsyncMock()
+
+        await service._lock_workspace_for_artifact_versioning("ws-1")
+
+        service._workspace.lock_workspace_for_update.assert_awaited_once_with("ws-1")
+        db.execute.assert_not_awaited()
+
 
 class TestCreateAutoIncrementsVersion:
     """Tests for auto-incrementing version on duplicate workspace+type+title."""

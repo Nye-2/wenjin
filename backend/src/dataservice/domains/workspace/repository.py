@@ -48,6 +48,13 @@ class WorkspaceRepository:
         result = await self.session.execute(select(Workspace).where(Workspace.id == workspace_id))
         return result.scalar_one_or_none()
 
+    async def lock_workspace_for_update(self, workspace_id: str) -> None:
+        await self.session.execute(
+            select(Workspace.id)
+            .where(Workspace.id == workspace_id)
+            .with_for_update()
+        )
+
     async def list_workspaces_for_member(self, user_id: str) -> list[Workspace]:
         statement = (
             select(Workspace)

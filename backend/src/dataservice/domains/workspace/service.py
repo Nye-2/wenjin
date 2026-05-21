@@ -68,6 +68,9 @@ class DataServiceWorkspaceService:
     async def get_workspace(self, workspace_id: str) -> Workspace | None:
         return await self.repository.get_workspace(workspace_id)
 
+    async def lock_workspace_for_update(self, workspace_id: str) -> None:
+        await self.repository.lock_workspace_for_update(workspace_id)
+
     async def list_workspaces_for_member(self, user_id: str) -> list[Workspace]:
         return await self.repository.list_workspaces_for_member(user_id)
 

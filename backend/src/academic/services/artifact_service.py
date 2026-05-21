@@ -12,7 +12,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Artifact, ArtifactType, Workspace
+from src.database import Artifact, ArtifactType
+from src.dataservice.workspace_api import WorkspaceDataService
 
 _ARTIFACT_VERSION_UNIQUE_CONSTRAINT = "uq_artifacts_workspace_type_title_version"
 _CREATE_RETRY_LIMIT = 3
@@ -36,6 +37,7 @@ class ArtifactService:
             db: AsyncSession for database operations
         """
         self.db = db
+        self._workspace = WorkspaceDataService(db, autocommit=False)
 
     async def create(
         self,
@@ -122,11 +124,7 @@ class ArtifactService:
 
     async def _lock_workspace_for_artifact_versioning(self, workspace_id: str) -> None:
         """Serialize version assignment for artifacts within one workspace."""
-        await self.db.execute(
-            select(Workspace.id)
-            .where(Workspace.id == workspace_id)
-            .with_for_update()
-        )
+        await self._workspace.lock_workspace_for_update(workspace_id)
 
     @staticmethod
     def _is_version_uniqueness_conflict(error: IntegrityError) -> bool:

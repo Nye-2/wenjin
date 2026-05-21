@@ -150,3 +150,14 @@ async def test_get_workspace_stats_for_member_aggregates_workspace_projection() 
     assert stats.total == 3
     assert stats.by_type == {"thesis": 1, "sci": 2}
     assert stats.created_last_7d == 2
+
+
+@pytest.mark.asyncio
+async def test_lock_workspace_for_update_delegates_to_repository() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
+    service.repository.lock_workspace_for_update = AsyncMock()  # type: ignore[method-assign]
+
+    await service.lock_workspace_for_update("ws-1")
+
+    service.repository.lock_workspace_for_update.assert_awaited_once_with("ws-1")  # type: ignore[attr-defined]
