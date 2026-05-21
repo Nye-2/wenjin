@@ -7,12 +7,11 @@ This service provides user management functionality including:
 - Last login timestamp updates
 """
 
-from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User
+from src.dataservice.account_api import AccountDataService
 from src.services.auth import hash_password, verify_password
 
 
@@ -33,6 +32,7 @@ class UserService:
             db: AsyncSession for database operations
         """
         self.db = db
+        self._account = AccountDataService(db)
 
     async def create_user(
         self,
@@ -40,7 +40,7 @@ class UserService:
         password: str,
         name: str | None = None,
         auto_commit: bool = True,
-    ) -> User:
+    ) -> Any:
         """Create a new user with hashed password.
 
         Args:
@@ -63,24 +63,14 @@ class UserService:
         if name is None:
             name = email.split("@")[0]
 
-        user = User(
+        return await self._account.create_user(
             email=email.lower().strip(),
             name=name,
             hashed_password=hashed_password,
-            is_active=True,
-            is_superuser=False,
+            auto_commit=auto_commit,
         )
 
-        self.db.add(user)
-        await self.db.flush()
-
-        if auto_commit:
-            await self.db.commit()
-            await self.db.refresh(user)
-
-        return user
-
-    async def get_by_email(self, email: str) -> User | None:
+    async def get_by_email(self, email: str) -> Any | None:
         """Get user by email address.
 
         Args:
@@ -89,12 +79,9 @@ class UserService:
         Returns:
             User if found, None otherwise
         """
-        result = await self.db.execute(
-            select(User).where(User.email == email.lower().strip())
-        )
-        return result.scalar_one_or_none()
+        return await self._account.get_by_email(email)
 
-    async def get_by_id(self, user_id: str) -> User | None:
+    async def get_by_id(self, user_id: str) -> Any | None:
         """Get user by UUID.
 
         Args:
@@ -103,12 +90,9 @@ class UserService:
         Returns:
             User if found, None otherwise
         """
-        result = await self.db.execute(
-            select(User).where(User.id == user_id)
-        )
-        return result.scalar_one_or_none()
+        return await self._account.get_by_id(user_id)
 
-    async def authenticate(self, email: str, password: str) -> User | None:
+    async def authenticate(self, email: str, password: str) -> Any | None:
         """Authenticate user with email and password.
 
         This method verifies the user's credentials and returns the user
@@ -135,7 +119,7 @@ class UserService:
 
         return user
 
-    async def update_last_login(self, user_id: str) -> User | None:
+    async def update_last_login(self, user_id: str) -> Any | None:
         """Update user's last login timestamp.
 
         Sets the last_login field to the current UTC time.
@@ -146,13 +130,4 @@ class UserService:
         Returns:
             Updated user if found, None otherwise
         """
-        user = await self.get_by_id(user_id)
-
-        if user is None:
-            return None
-
-        user.last_login = datetime.now(UTC)
-        await self.db.commit()
-        await self.db.refresh(user)
-
-        return user
+        return await self._account.update_last_login(user_id)

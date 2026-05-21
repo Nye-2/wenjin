@@ -3,10 +3,10 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import AdminActionType, User
+from src.database import AdminActionType
+from src.dataservice.account_api import AccountDataService, AccountUserRecord
 from src.dataservice.asset_api import AssetDataService
 from src.dataservice.catalog_api import CatalogDataService
 from src.dataservice.credit_api import CreditDataService
@@ -20,6 +20,7 @@ class AdminDashboardService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._account = AccountDataService(db, autocommit=False)
         self._assets = AssetDataService(db, autocommit=False)
         self._catalog = CatalogDataService(db, autocommit=False)
         self._credit = CreditDataService(db, autocommit=False)
@@ -31,23 +32,7 @@ class AdminDashboardService:
         now = datetime.now(UTC)
         since_24h = now - timedelta(hours=24)
 
-        total_users = int((await self.db.execute(select(func.count()).select_from(User))).scalar() or 0)
-        active_users = int(
-            (
-                await self.db.execute(
-                    select(func.count()).where(User.is_active == True)  # noqa: E712
-                )
-            ).scalar()
-            or 0
-        )
-        admin_users = int(
-            (
-                await self.db.execute(
-                    select(func.count()).where(User.is_superuser == True)  # noqa: E712
-                )
-            ).scalar()
-            or 0
-        )
+        account_stats = await self._account.get_admin_stats()
 
         workspace_stats = await self._workspace.get_admin_workspace_stats()
 
@@ -68,9 +53,9 @@ class AdminDashboardService:
         return {
             "summary": {
                 "users": {
-                    "total": total_users,
-                    "active": active_users,
-                    "admins": admin_users,
+                    "total": account_stats.total_users,
+                    "active": account_stats.active_users,
+                    "admins": account_stats.admin_users,
                 },
                 "workspaces": {
                     "total": workspace_stats.total,
@@ -155,37 +140,14 @@ class AdminDashboardService:
         is_superuser: bool | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """List users for admin table."""
-        page = max(1, page)
-        page_size = min(max(1, page_size), 100)
-        offset = (page - 1) * page_size
-
-        base_query = select(User)
-        if keyword:
-            pattern = f"%{keyword}%"
-            base_query = base_query.where(
-                or_(
-                    User.email.ilike(pattern),
-                    User.name.ilike(pattern),
-                )
-            )
-        if is_active is not None:
-            base_query = base_query.where(User.is_active == is_active)
-        if is_superuser is not None:
-            base_query = base_query.where(User.is_superuser == is_superuser)
-
-        total = int(
-            (
-                await self.db.execute(
-                    select(func.count()).select_from(base_query.subquery())
-                )
-            ).scalar()
-            or 0
+        result = await self._account.list_users(
+            page=page,
+            page_size=page_size,
+            keyword=keyword,
+            is_active=is_active,
+            is_superuser=is_superuser,
         )
-
-        rows = await self.db.execute(
-            base_query.order_by(desc(User.created_at)).offset(offset).limit(page_size)
-        )
-        users = rows.scalars().all()
+        users = result.users
         user_ids = [str(user.id) for user in users]
         workspace_counts: dict[str, int] = {}
         task_counts: dict[str, int] = {}
@@ -201,20 +163,11 @@ class AdminDashboardService:
                 task_count=task_counts.get(str(user.id), 0),
             )
             for user in users
-        ], total
+        ], result.total
 
     async def _count_active_admins(self) -> int:
         """Count currently active admin users."""
-        return int(
-            (
-                await self.db.execute(
-                    select(func.count())
-                    .where(User.is_superuser == True)  # noqa: E712
-                    .where(User.is_active == True)  # noqa: E712
-                )
-            ).scalar()
-            or 0
-        )
+        return await self._account.count_active_admins()
 
     @staticmethod
     def _node_token_usage(record: ExecutionNodeProjection) -> Any | None:
@@ -230,16 +183,12 @@ class AdminDashboardService:
 
     async def update_user_status(self, *, user_id: str, is_active: bool) -> dict[str, Any]:
         """Enable or disable user account."""
-        user = await self.db.get(User, user_id)
+        user = await self._account.update_user_status(
+            user_id=user_id,
+            is_active=is_active,
+        )
         if user is None:
             raise ValueError("User not found")
-        if not is_active and user.is_superuser and user.is_active:
-            active_admins = await self._count_active_admins()
-            if active_admins <= 1:
-                raise ValueError("Cannot disable the last active admin")
-        user.is_active = is_active
-        await self.db.commit()
-        await self.db.refresh(user)
         return self._user_to_dict(user)
 
     async def update_user_role(self, *, user_id: str, role: str) -> dict[str, Any]:
@@ -248,17 +197,9 @@ class AdminDashboardService:
         if role not in {"user", "admin"}:
             raise ValueError("Unsupported role")
 
-        user = await self.db.get(User, user_id)
+        user = await self._account.update_user_role(user_id=user_id, role=role)
         if user is None:
             raise ValueError("User not found")
-        if role == "user" and user.is_superuser and user.is_active:
-            active_admins = await self._count_active_admins()
-            if active_admins <= 1:
-                raise ValueError("Cannot demote the last active admin")
-
-        user.is_superuser = role == "admin"
-        await self.db.commit()
-        await self.db.refresh(user)
         return self._user_to_dict(user)
 
     async def create_admin_log(
@@ -317,7 +258,7 @@ class AdminDashboardService:
 
     def _user_to_dict(
         self,
-        user: User,
+        user: AccountUserRecord,
         *,
         workspace_count: int = 0,
         task_count: int = 0,
@@ -326,7 +267,7 @@ class AdminDashboardService:
             "id": str(user.id),
             "email": user.email,
             "name": user.name,
-            "role": "admin" if user.is_superuser else "user",
+            "role": user.role,
             "is_active": user.is_active,
             "credits": int(user.credits),
             "total_credits_earned": int(user.total_credits_earned),

@@ -215,10 +215,10 @@ async def _get_user_record(
     db: AsyncSession,
     user_id: str,
 ) -> "User | None":
-    """Load the concrete user record lazily to avoid circular imports."""
-    from src.database import User
+    """Load the concrete user record through the Account DataService boundary."""
+    from src.dataservice.account_api import AccountDataService
 
-    return cast("User | None", await db.get(User, user_id))
+    return cast("User | None", await AccountDataService(db).get_by_id(user_id))
 
 
 async def persist_refresh_token(

@@ -9,10 +9,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User
+from src.dataservice.account_api import AccountDataService
 from src.dataservice.credit_api import CreditDataService
 from src.dataservice.execution_api import ExecutionDataService
 from src.dataservice.workspace_api import WorkspaceDataService
@@ -20,15 +19,12 @@ from src.dataservice.workspace_api import WorkspaceDataService
 Granularity = Literal["day", "week"]
 
 
-def _date_trunc(granularity: Granularity, col: Any) -> Any:
-    return func.date_trunc(granularity, col)
-
-
 class AdminAnalyticsService:
     """Service for admin analytics aggregation queries."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._account = AccountDataService(db, autocommit=False)
         self._credit = CreditDataService(db, autocommit=False)
         self._workspace = WorkspaceDataService(db, autocommit=False)
 
@@ -40,36 +36,10 @@ class AdminAnalyticsService:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         since = now - timedelta(days=range_days)
-
-        bucket_col = _date_trunc(granularity, User.created_at).label("bucket")
-        signups_stmt = (
-            select(
-                bucket_col,
-                func.count().label("signups"),
-            )
-            .where(User.created_at >= since)
-            .group_by(bucket_col)
-            .order_by(bucket_col)
+        growth = await self._account.aggregate_user_growth(
+            since=since,
+            granularity=granularity,
         )
-        signups_rows = (await self.db.execute(signups_stmt)).all()
-
-        signups_map = {
-            r.bucket.isoformat(): int(r.signups) for r in signups_rows
-        }
-        all_buckets = sorted(signups_map.keys())
-
-        time_series = [
-            {"date": b, "signups": signups_map.get(b, 0)} for b in all_buckets
-        ]
-
-        # KPIs
-        total_users = int(
-            (
-                await self.db.execute(select(func.count()).select_from(User))
-            ).scalar()
-            or 0
-        )
-        new_in_range = sum(signups_map.values())
 
         execution_data = ExecutionDataService(self.db, autocommit=False)
         active_since = now - timedelta(days=1)
@@ -84,12 +54,12 @@ class AdminAnalyticsService:
 
         return {
             "kpis": {
-                "total_users": total_users,
-                "new_in_range": new_in_range,
+                "total_users": growth.total_users,
+                "new_in_range": growth.new_in_range,
                 "dau": dau,
                 "wau": wau,
             },
-            "time_series": time_series,
+            "time_series": growth.time_series,
         }
 
     # ------------------------------------------------------------------
@@ -131,10 +101,8 @@ class AdminAnalyticsService:
             for workspace_type, count in stats.by_type.items()
         ]
 
-        total_users_result = await self.db.execute(
-            select(func.count()).select_from(User)
-        )
-        total_users = int(total_users_result.scalar() or 0)
+        account_stats = await self._account.get_admin_stats()
+        total_users = account_stats.total_users
 
         return {
             "by_type": by_type,

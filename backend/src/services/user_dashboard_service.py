@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User
+from src.dataservice.account_api import AccountDataService
 from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.credit_service import CreditService
@@ -17,12 +17,13 @@ class UserDashboardService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
+        self._account = AccountDataService(db, autocommit=False)
         self._execution = ExecutionDataService(db, autocommit=False)
         self._workspace = WorkspaceDataService(db, autocommit=False)
 
     async def get_dashboard(self, user_id: str) -> dict[str, Any]:
         """Build user dashboard payload."""
-        user = await self.db.get(User, user_id)
+        user = await self._account.get_user_record(user_id)
         if user is None:
             raise ValueError("User not found")
 
@@ -44,7 +45,7 @@ class UserDashboardService:
                 "id": str(user.id),
                 "email": user.email,
                 "name": user.name,
-                "role": "admin" if user.is_superuser else "user",
+                "role": user.role,
                 "is_active": user.is_active,
                 "created_at": user.created_at.isoformat() if user.created_at else None,
                 "last_login": user.last_login.isoformat() if user.last_login else None,
