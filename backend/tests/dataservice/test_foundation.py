@@ -27,6 +27,13 @@ from src.dataservice_client.contracts.account import (
     AccountUserStatusPayload,
 )
 from src.dataservice_client.contracts.audit import AuditLogCreatePayload
+from src.dataservice_client.contracts.catalog import (
+    AdminLogCreatePayload as CatalogAdminLogCreatePayload,
+)
+from src.dataservice_client.contracts.catalog import (
+    CatalogEnabledPayload,
+    CatalogUpsertPayload,
+)
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagesRebuildPayload,
@@ -518,6 +525,152 @@ async def test_dataservice_client_template_contract_methods() -> None:
         ),
         ("GET", "/internal/v1/templates/template-2", None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_catalog_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def capability_payload(capability_id: str = "idea_to_manuscript") -> dict[str, Any]:
+        return {
+            "id": capability_id,
+            "workspace_type": "thesis",
+            "schema_version": "capability.v2",
+            "enabled": True,
+            "tier": "primary",
+            "entry_surface": "workbench",
+            "display_name": "Idea to Manuscript",
+            "description": "",
+            "intent_description": "",
+            "trigger_phrases": [],
+            "required_decisions": [],
+            "brief_schema": {},
+            "graph_template": {},
+            "ui_meta": {},
+            "runtime": {},
+            "dashboard_meta": {},
+            "definition_json": {},
+            "notes": None,
+            "checksum": None,
+            "source_path": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    def skill_payload(skill_id: str = "writer") -> dict[str, Any]:
+        return {
+            "id": skill_id,
+            "schema_version": "capability_skill.v2",
+            "enabled": True,
+            "display_name": "Writer",
+            "description": "",
+            "worker_type": "writer",
+            "subagent_type": "writer",
+            "prompt": "",
+            "allowed_tools": [],
+            "resources": [],
+            "config": {},
+            "skill_json": {},
+            "checksum": None,
+            "source_path": None,
+        }
+
+    def admin_log_payload() -> dict[str, Any]:
+        return {
+            "id": "log-1",
+            "action": "capability_create",
+            "target_type": "user",
+            "target_user_id": None,
+            "details": {"capability_id": "idea_to_manuscript"},
+            "ip_address": None,
+            "created_at": None,
+            "admin": {},
+            "target_user": None,
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if path.endswith("/exists"):
+            return httpx.Response(200, json={"status": "ok", "data": {"exists": True}})
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
+        if path.endswith("/admin-logs") and request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "data": {"items": [admin_log_payload()], "total": 1}})
+        if path.endswith("/admin-logs"):
+            return httpx.Response(200, json={"status": "ok", "data": admin_log_payload()})
+        if "/skills" in path:
+            data: Any = [skill_payload()] if request.method == "GET" and path.endswith("/skills") else skill_payload()
+            return httpx.Response(200, json={"status": "ok", "data": data})
+        data = [capability_payload()] if request.method == "GET" and path.endswith("/capabilities") else capability_payload()
+        return httpx.Response(200, json={"status": "ok", "data": data})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        capabilities = await client.list_catalog_capabilities(workspace_type="thesis", enabled_only=True)
+        has_capabilities = await client.has_catalog_capabilities()
+        capability = await client.get_catalog_capability(
+            workspace_type="thesis",
+            capability_id="idea_to_manuscript",
+            enabled_only=True,
+        )
+        upserted_capability = await client.upsert_catalog_capability(
+            workspace_type="thesis",
+            capability_id="idea_to_manuscript",
+            command=CatalogUpsertPayload(data=capability_payload(), checksum="abc"),
+        )
+        toggled_capability = await client.set_catalog_capability_enabled(
+            workspace_type="thesis",
+            capability_id="idea_to_manuscript",
+            command=CatalogEnabledPayload(enabled=False),
+        )
+        deleted_capability = await client.delete_catalog_capability(
+            workspace_type="thesis",
+            capability_id="idea_to_manuscript",
+        )
+        skills = await client.list_catalog_skills(enabled_only=True)
+        has_skills = await client.has_catalog_skills()
+        skill = await client.get_catalog_skill("writer", enabled_only=True)
+        upserted_skill = await client.upsert_catalog_skill(
+            "writer",
+            CatalogUpsertPayload(data=skill_payload(), checksum="def"),
+        )
+        toggled_skill = await client.set_catalog_skill_enabled(
+            "writer",
+            CatalogEnabledPayload(enabled=False),
+        )
+        deleted_skill = await client.delete_catalog_skill("writer")
+        admin_log = await client.record_catalog_admin_log(
+            CatalogAdminLogCreatePayload(
+                action="capability_create",
+                admin_id="admin-1",
+                details={"capability_id": "idea_to_manuscript"},
+            )
+        )
+        admin_logs, admin_total = await client.list_catalog_admin_logs(action="capability_create")
+
+    assert capabilities[0].id == "idea_to_manuscript"
+    assert has_capabilities is True
+    assert capability is not None and capability.workspace_type == "thesis"
+    assert upserted_capability.id == "idea_to_manuscript"
+    assert toggled_capability is not None and toggled_capability.enabled is True
+    assert deleted_capability is True
+    assert skills[0].id == "writer"
+    assert has_skills is True
+    assert skill is not None and skill.subagent_type == "writer"
+    assert upserted_skill.id == "writer"
+    assert toggled_skill is not None and toggled_skill.enabled is True
+    assert deleted_skill is True
+    assert admin_log.action == "capability_create"
+    assert admin_logs[0].id == "log-1"
+    assert admin_total == 1
+    assert seen[0][1] == "/internal/v1/catalog/capabilities"
+    assert seen[-1][1] == "/internal/v1/catalog/admin-logs"
 
 
 @pytest.mark.asyncio

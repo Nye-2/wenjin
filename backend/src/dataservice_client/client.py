@@ -25,8 +25,16 @@ from src.dataservice_client.contracts.asset import (
 )
 from src.dataservice_client.contracts.audit import AuditLogCreatePayload, AuditLogPayload
 from src.dataservice_client.contracts.catalog import (
+    AdminLogCreatePayload as CatalogAdminLogCreatePayload,
+)
+from src.dataservice_client.contracts.catalog import (
+    AdminLogPayload as CatalogAdminLogPayload,
+)
+from src.dataservice_client.contracts.catalog import (
     CapabilityDefinitionPayload,
     CapabilitySkillPayload,
+    CatalogEnabledPayload,
+    CatalogUpsertPayload,
 )
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
@@ -1094,6 +1102,11 @@ class AsyncDataServiceClient:
         )
         return [CapabilityDefinitionPayload.model_validate(item) for item in payload["data"]]
 
+    async def has_catalog_capabilities(self) -> bool:
+        payload = await self._request("GET", "/internal/v1/catalog/capabilities/exists")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("exists")) if isinstance(data, dict) else False
+
     async def get_catalog_capability(
         self,
         *,
@@ -1109,6 +1122,48 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return CapabilityDefinitionPayload.model_validate(data) if data is not None else None
 
+    async def upsert_catalog_capability(
+        self,
+        *,
+        workspace_type: str,
+        capability_id: str,
+        command: CatalogUpsertPayload,
+    ) -> CapabilityDefinitionPayload:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}",
+            json=command.model_dump(mode="json"),
+        )
+        return CapabilityDefinitionPayload.model_validate(payload["data"])
+
+    async def delete_catalog_capability(
+        self,
+        *,
+        workspace_type: str,
+        capability_id: str,
+    ) -> bool:
+        payload = await self._request(
+            "DELETE",
+            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}",
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def set_catalog_capability_enabled(
+        self,
+        *,
+        workspace_type: str,
+        capability_id: str,
+        command: CatalogEnabledPayload,
+    ) -> CapabilityDefinitionPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}/enabled",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return CapabilityDefinitionPayload.model_validate(data) if data is not None else None
+
     async def list_catalog_skills(self, *, enabled_only: bool = False) -> list[CapabilitySkillPayload]:
         payload = await self._request(
             "GET",
@@ -1116,6 +1171,11 @@ class AsyncDataServiceClient:
             params={"enabled_only": enabled_only},
         )
         return [CapabilitySkillPayload.model_validate(item) for item in payload["data"]]
+
+    async def has_catalog_skills(self) -> bool:
+        payload = await self._request("GET", "/internal/v1/catalog/skills/exists")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("exists")) if isinstance(data, dict) else False
 
     async def get_catalog_skill(
         self,
@@ -1130,6 +1190,71 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return CapabilitySkillPayload.model_validate(data) if data is not None else None
+
+    async def upsert_catalog_skill(
+        self,
+        skill_id: str,
+        command: CatalogUpsertPayload,
+    ) -> CapabilitySkillPayload:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/catalog/skills/{skill_id}",
+            json=command.model_dump(mode="json"),
+        )
+        return CapabilitySkillPayload.model_validate(payload["data"])
+
+    async def delete_catalog_skill(self, skill_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/catalog/skills/{skill_id}")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def set_catalog_skill_enabled(
+        self,
+        skill_id: str,
+        command: CatalogEnabledPayload,
+    ) -> CapabilitySkillPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/catalog/skills/{skill_id}/enabled",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return CapabilitySkillPayload.model_validate(data) if data is not None else None
+
+    async def record_catalog_admin_log(
+        self,
+        command: CatalogAdminLogCreatePayload,
+    ) -> CatalogAdminLogPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/catalog/admin-logs",
+            json=command.model_dump(mode="json"),
+        )
+        return CatalogAdminLogPayload.model_validate(payload["data"])
+
+    async def list_catalog_admin_logs(
+        self,
+        *,
+        action: str | None = None,
+        target_user_id: str | None = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[CatalogAdminLogPayload], int]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/catalog/admin-logs",
+            params={
+                "action": action,
+                "target_user_id": target_user_id,
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+        data = payload.get("data") or {}
+        return (
+            [CatalogAdminLogPayload.model_validate(item) for item in data.get("items", [])],
+            int(data.get("total", 0)),
+        )
 
     async def create_execution(self, command: ExecutionCreatePayload) -> ExecutionPayload:
         payload = await self._request(

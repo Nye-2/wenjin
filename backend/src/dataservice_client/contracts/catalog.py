@@ -48,3 +48,34 @@ class CapabilitySkillPayload(BaseModel):
     skill_json: dict[str, Any] = Field(default_factory=dict)
     checksum: str | None = None
     source_path: str | None = None
+
+
+class CatalogUpsertPayload(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)
+    checksum: str | None = None
+    source_path: str | None = None
+
+
+class CatalogEnabledPayload(BaseModel):
+    enabled: bool
+
+
+class AdminLogCreatePayload(BaseModel):
+    action: str
+    admin_id: str
+    target_user_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    target_type: str = "user"
+    ip_address: str | None = None
+
+
+class AdminLogPayload(BaseModel):
+    id: str | None = None
+    action: str
+    target_type: str = "user"
+    target_user_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
+    ip_address: str | None = None
+    created_at: datetime | None = None
+    admin: dict[str, Any] = Field(default_factory=dict)
+    target_user: dict[str, Any] | None = None
