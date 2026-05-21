@@ -2332,6 +2332,19 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return WorkspacePayload.model_validate(data) if data is not None else None
 
+    async def workspace_has_active_membership(
+        self,
+        *,
+        workspace_id: str,
+        user_id: str,
+    ) -> bool:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/workspaces/{workspace_id}/members/{user_id}/active",
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("has_active_membership")) if isinstance(data, dict) else False
+
     async def update_workspace(
         self,
         workspace_id: str,

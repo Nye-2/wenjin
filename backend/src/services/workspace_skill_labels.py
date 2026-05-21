@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client.provider import dataservice_client
 
 
 def normalize_workspace_type(workspace_type: Any) -> str | None:
@@ -45,15 +45,15 @@ async def list_workspace_types(
     if not normalized_ids:
         return {}
 
-    service = WorkspaceDataService(db, autocommit=False)
     resolved: dict[str, str] = {}
-    for workspace_id in normalized_ids:
-        workspace = await service.get_workspace(workspace_id)
-        if workspace is None:
-            continue
-        normalized_type = normalize_workspace_type(getattr(workspace, "type", None))
-        if normalized_type is not None:
-            resolved[workspace_id] = normalized_type
+    async with dataservice_client() as client:
+        for workspace_id in normalized_ids:
+            workspace = await client.get_workspace(workspace_id)
+            if workspace is None:
+                continue
+            normalized_type = normalize_workspace_type(getattr(workspace, "type", None))
+            if normalized_type is not None:
+                resolved[workspace_id] = normalized_type
     return resolved
 
 

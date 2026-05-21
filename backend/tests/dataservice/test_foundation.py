@@ -222,6 +222,11 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
             return httpx.Response(200, json={"status": "ok", "data": workspace_payload()})
         if request.method == "GET" and request.url.path == "/internal/v1/workspaces":
             return httpx.Response(200, json={"status": "ok", "data": [workspace_payload()]})
+        if request.method == "GET" and request.url.path.endswith("/members/user-1/active"):
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"has_active_membership": True}},
+            )
         if request.method == "GET":
             return httpx.Response(200, json={"status": "ok", "data": workspace_payload("workspace-2")})
         if request.method == "PUT":
@@ -246,6 +251,10 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
         )
         listed = await client.list_workspaces(member_user_id="user-1")
         fetched = await client.get_workspace("workspace-2")
+        has_membership = await client.workspace_has_active_membership(
+            workspace_id="workspace-2",
+            user_id="user-1",
+        )
         updated = await client.update_workspace(
             "workspace-2",
             WorkspaceUpdatePayload(name="Updated"),
@@ -256,6 +265,7 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
     assert listed[0].id == "workspace-1"
     assert fetched is not None
     assert fetched.id == "workspace-2"
+    assert has_membership is True
     assert updated is not None
     assert updated.name == "Updated"
     assert deleted is True
@@ -274,6 +284,7 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
         ),
         ("GET", "/internal/v1/workspaces", None),
         ("GET", "/internal/v1/workspaces/workspace-2", None),
+        ("GET", "/internal/v1/workspaces/workspace-2/members/user-1/active", None),
         (
             "PUT",
             "/internal/v1/workspaces/workspace-2",

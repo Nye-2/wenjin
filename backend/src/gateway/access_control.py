@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client.provider import dataservice_client
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_workspace_service
 
@@ -66,17 +66,20 @@ async def require_workspace_owner_by_session(
     user_id: str,
 ) -> Workspace:
     """Verify workspace ownership using an existing database session."""
-    service = WorkspaceDataService(session)
-    workspace = await service.get_workspace(workspace_id)
+    async with dataservice_client() as client:
+        workspace = await client.get_workspace(workspace_id)
+        if workspace is not None:
+            has_access = await client.workspace_has_active_membership(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+        else:
+            has_access = False
     if workspace is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workspace not found",
         )
-    has_access = await service.user_has_active_membership(
-        workspace_id=workspace_id,
-        user_id=user_id,
-    )
     if not has_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

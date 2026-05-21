@@ -1,434 +1,237 @@
-"""Tests for workspace service.
-
-This module contains comprehensive tests for the WorkspaceService class,
-covering all CRUD operations and paper association management.
-"""
+"""Tests for WorkspaceService DataService facade."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import Workspace, WorkspaceType
+from src.database import WorkspaceType
+from src.dataservice_client.contracts.workspace import WorkspacePayload
 
 
-def _added_workspace(mock_db_session):
-    """Return the Workspace instance added by the mocked session."""
-    return next(
-        call.args[0]
-        for call in mock_db_session.add.call_args_list
-        if isinstance(call.args[0], Workspace)
+def _workspace_payload(
+    workspace_id: str = "workspace-1",
+    *,
+    workspace_type: str = "thesis",
+    name: str = "Workspace",
+) -> WorkspacePayload:
+    return WorkspacePayload(
+        id=workspace_id,
+        created_by_user_id="user-1",
+        name=name,
+        workspace_type=workspace_type,
+        settings_json={"rollout": {"thread_cockpit_enabled": True}},
+        active_thread_id=None,
     )
 
 
-class TestWorkspaceServiceInit:
-    """Tests for WorkspaceService initialization."""
+@pytest.fixture
+def mock_db_session():
+    return AsyncMock()
 
-    def test_init_with_db_session(self):
-        """Test that WorkspaceService initializes with a database session."""
-        mock_db = AsyncMock()
-        service = WorkspaceService(mock_db)
-        assert service.db == mock_db
+
+@pytest.fixture
+def dataservice():
+    return AsyncMock()
+
+
+@pytest.fixture
+def service(mock_db_session, dataservice):
+    return WorkspaceService(mock_db_session, dataservice=dataservice)
+
+
+class TestWorkspaceServiceInit:
+    def test_init_with_db_session(self, mock_db_session):
+        service = WorkspaceService(mock_db_session)
+        assert service.db == mock_db_session
 
 
 class TestCreateWorkspace:
-    """Tests for create method."""
-
-    @pytest.fixture
-    def mock_db_session(self):
-        """Create a mock database session."""
-        session = AsyncMock()
-        session.commit = AsyncMock()
-        session.refresh = AsyncMock()
-        session.add = MagicMock()
-        return session
-
-    @pytest.fixture
-    def service(self, mock_db_session):
-        """Create WorkspaceService instance."""
-        return WorkspaceService(mock_db_session)
-
     @pytest.fixture
     def sample_user_id(self):
-        """Sample user UUID."""
         return str(uuid.uuid4())
 
     @pytest.mark.asyncio
-    async def test_create_workspace_with_required_fields(
-        self, service, mock_db_session, sample_user_id
-    ):
-        """Test creating a workspace with only required fields."""
-        await service.create(
+    async def test_create_workspace_with_required_fields(self, service, dataservice, sample_user_id):
+        dataservice.create_workspace.return_value = _workspace_payload(workspace_type="sci")
+
+        workspace = await service.create(
             user_id=sample_user_id,
             name="Test Workspace",
             type="sci",
         )
 
-        assert mock_db_session.add.call_count == 3
-        mock_db_session.commit.assert_called_once()
-
-        # Verify the workspace object passed to add
-        added_workspace = _added_workspace(mock_db_session)
-        assert added_workspace.user_id == sample_user_id
-        assert added_workspace.name == "Test Workspace"
-        assert added_workspace.type == WorkspaceType.SCI
+        assert workspace.type == "sci"
+        command = dataservice.create_workspace.await_args.args[0]
+        assert command.created_by_user_id == sample_user_id
+        assert command.name == "Test Workspace"
+        assert command.workspace_type == "sci"
 
     @pytest.mark.asyncio
-    async def test_create_workspace_with_all_fields(
-        self, service, mock_db_session, sample_user_id
-    ):
-        """Test creating a workspace with all fields."""
-        config = {"setting1": "value1"}
+    async def test_create_workspace_with_all_fields(self, service, dataservice, sample_user_id):
+        dataservice.create_workspace.return_value = _workspace_payload(
+            workspace_type="thesis",
+            name="Full Workspace",
+        )
+
         await service.create(
             user_id=sample_user_id,
             name="Full Workspace",
             type="thesis",
             discipline="computer_science",
             description="A test workspace",
-            config=config,
+            config={"setting1": "value1"},
         )
 
-        added_workspace = _added_workspace(mock_db_session)
-        assert added_workspace.user_id == sample_user_id
-        assert added_workspace.name == "Full Workspace"
-        assert added_workspace.type == WorkspaceType.THESIS
-        assert added_workspace.discipline == "computer_science"
-        assert added_workspace.description == "A test workspace"
-        assert added_workspace.config["setting1"] == "value1"
-        assert added_workspace.config["rollout"]["thread_cockpit_enabled"] is True
+        command = dataservice.create_workspace.await_args.args[0]
+        assert command.discipline == "computer_science"
+        assert command.description == "A test workspace"
+        assert command.settings_json == {"setting1": "value1"}
 
     @pytest.mark.asyncio
-    async def test_create_workspace_with_enum_type(
-        self, service, mock_db_session, sample_user_id
-    ):
-        """Test creating a workspace with WorkspaceType enum."""
+    async def test_create_workspace_with_enum_type(self, service, dataservice, sample_user_id):
+        dataservice.create_workspace.return_value = _workspace_payload(workspace_type="patent")
+
         await service.create(
             user_id=sample_user_id,
             name="Enum Workspace",
             type=WorkspaceType.PATENT,
         )
 
-        added_workspace = _added_workspace(mock_db_session)
-        assert added_workspace.type == WorkspaceType.PATENT
+        command = dataservice.create_workspace.await_args.args[0]
+        assert command.workspace_type == "patent"
 
     @pytest.mark.asyncio
-    async def test_create_workspace_with_invalid_type_raises_error(
-        self, service, mock_db_session, sample_user_id
-    ):
-        """Test that creating a workspace with invalid type raises ValueError."""
-        with pytest.raises(ValueError) as exc_info:
+    async def test_create_workspace_with_invalid_type_raises_error(self, service, sample_user_id):
+        with pytest.raises(ValueError, match="Invalid workspace type"):
             await service.create(
                 user_id=sample_user_id,
                 name="Invalid Workspace",
                 type="invalid_type",
             )
 
-        assert "Invalid workspace type" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_create_workspace_default_config(
-        self, service, mock_db_session, sample_user_id
-    ):
-        """Test that config gets rollout defaults when omitted."""
-        await service.create(
-            user_id=sample_user_id,
-            name="Default Config Workspace",
-            type="proposal",
-        )
-
-        added_workspace = _added_workspace(mock_db_session)
-        assert added_workspace.config["rollout"]["thread_cockpit_enabled"] is True
+    def test_with_rollout_defaults(self):
+        config = WorkspaceService._with_rollout_defaults("proposal", None)
+        assert config["rollout"]["thread_cockpit_enabled"] is True
 
 
 class TestGetWorkspace:
-    """Tests for get method."""
+    @pytest.mark.asyncio
+    async def test_get_workspace_found(self, service, dataservice):
+        expected = _workspace_payload("workspace-1")
+        dataservice.get_workspace.return_value = expected
 
-    @pytest.fixture
-    def mock_db_session(self):
-        """Create a mock database session."""
-        session = AsyncMock()
-        return session
+        result = await service.get("workspace-1")
 
-    @pytest.fixture
-    def service(self, mock_db_session):
-        """Create WorkspaceService instance."""
-        return WorkspaceService(mock_db_session)
-
-    @pytest.fixture
-    def sample_workspace_id(self):
-        """Sample workspace UUID."""
-        return str(uuid.uuid4())
+        assert result == expected
+        dataservice.get_workspace.assert_awaited_once_with("workspace-1")
 
     @pytest.mark.asyncio
-    async def test_get_workspace_found(self, service, mock_db_session, sample_workspace_id):
-        """Test getting an existing workspace."""
-        mock_workspace = MagicMock(spec=Workspace)
-        mock_workspace.id = sample_workspace_id
-        mock_workspace.name = "Test Workspace"
-
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_workspace
-        mock_db_session.execute = AsyncMock(return_value=mock_result)
-
-        result = await service.get(sample_workspace_id)
-
-        assert result == mock_workspace
-        assert result.id == sample_workspace_id
-
-    @pytest.mark.asyncio
-    async def test_get_workspace_not_found(self, service, mock_db_session):
-        """Test getting a non-existent workspace."""
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_db_session.execute = AsyncMock(return_value=mock_result)
-
-        result = await service.get("non-existent-id")
-
-        assert result is None
+    async def test_get_workspace_not_found(self, service, dataservice):
+        dataservice.get_workspace.return_value = None
+        assert await service.get("missing") is None
 
 
 class TestListByUser:
-    """Tests for list_by_user method."""
-
-    @pytest.fixture
-    def mock_db_session(self):
-        """Create a mock database session."""
-        session = AsyncMock()
-        return session
-
-    @pytest.fixture
-    def service(self, mock_db_session):
-        """Create WorkspaceService instance."""
-        return WorkspaceService(mock_db_session)
-
-    @pytest.fixture
-    def sample_user_id(self):
-        """Sample user UUID."""
-        return str(uuid.uuid4())
-
     @pytest.mark.asyncio
-    async def test_list_by_user_returns_workspaces(
-        self, service, mock_db_session, sample_user_id
-    ):
-        """Test listing workspaces for a user."""
-        mock_workspace1 = MagicMock(spec=Workspace)
-        mock_workspace2 = MagicMock(spec=Workspace)
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [
-            mock_workspace1,
-            mock_workspace2,
+    async def test_list_by_user_returns_workspaces(self, service, dataservice):
+        dataservice.list_workspaces.return_value = [
+            _workspace_payload("workspace-1"),
+            _workspace_payload("workspace-2"),
         ]
-        mock_db_session.execute = AsyncMock(return_value=mock_result)
 
-        result = await service.list_by_user(sample_user_id)
+        result = await service.list_by_user("user-1")
 
         assert len(result) == 2
-        assert result[0] == mock_workspace1
-        assert result[1] == mock_workspace2
+        dataservice.list_workspaces.assert_awaited_once_with(member_user_id="user-1")
 
     @pytest.mark.asyncio
-    async def test_list_by_user_empty(self, service, mock_db_session, sample_user_id):
-        """Test listing workspaces when user has none."""
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = []
-        mock_db_session.execute = AsyncMock(return_value=mock_result)
+    async def test_has_active_membership(self, service, dataservice):
+        dataservice.workspace_has_active_membership.return_value = True
 
-        result = await service.list_by_user(sample_user_id)
+        result = await service.has_active_membership(workspace_id="workspace-1", user_id="user-1")
 
-        assert result == []
+        assert result is True
+        dataservice.workspace_has_active_membership.assert_awaited_once_with(
+            workspace_id="workspace-1",
+            user_id="user-1",
+        )
 
 
 class TestUpdateWorkspace:
-    """Tests for update method."""
+    @pytest.mark.asyncio
+    async def test_update_workspace_name(self, service, dataservice):
+        dataservice.update_workspace.return_value = _workspace_payload(name="New Name")
 
-    @pytest.fixture
-    def mock_db_session(self):
-        """Create a mock database session."""
-        session = AsyncMock()
-        session.commit = AsyncMock()
-        session.refresh = AsyncMock()
-        return session
+        result = await service.update("workspace-1", name="New Name")
 
-    @pytest.fixture
-    def service(self, mock_db_session):
-        """Create WorkspaceService instance."""
-        return WorkspaceService(mock_db_session)
-
-    @pytest.fixture
-    def sample_workspace_id(self):
-        """Sample workspace UUID."""
-        return str(uuid.uuid4())
+        assert result is not None and result.name == "New Name"
+        command = dataservice.update_workspace.await_args.args[1]
+        assert command.name == "New Name"
+        assert command.model_fields_set == {"name"}
 
     @pytest.mark.asyncio
-    async def test_update_workspace_name(
-        self, service, mock_db_session, sample_workspace_id
-    ):
-        """Test updating workspace name."""
-        mock_workspace = MagicMock(spec=Workspace)
-        mock_workspace.id = sample_workspace_id
-        mock_workspace.name = "Old Name"
+    async def test_update_workspace_multiple_fields(self, service, dataservice):
+        dataservice.update_workspace.return_value = _workspace_payload(name="New Name")
 
-        with patch.object(service, "get", return_value=mock_workspace):
-            await service.update(sample_workspace_id, name="New Name")
+        await service.update(
+            "workspace-1",
+            name="New Name",
+            discipline="new_discipline",
+            description="New description",
+        )
 
-        assert mock_workspace.name == "New Name"
-        mock_db_session.commit.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_update_workspace_multiple_fields(
-        self, service, mock_db_session, sample_workspace_id
-    ):
-        """Test updating multiple workspace fields."""
-        mock_workspace = MagicMock(spec=Workspace)
-        mock_workspace.name = "Old Name"
-        mock_workspace.discipline = "old_discipline"
-        mock_workspace.description = "Old description"
-
-        with patch.object(service, "get", return_value=mock_workspace):
-            await service.update(
-                sample_workspace_id,
-                name="New Name",
-                discipline="new_discipline",
-                description="New description",
-            )
-
-        assert mock_workspace.name == "New Name"
-        assert mock_workspace.discipline == "new_discipline"
-        assert mock_workspace.description == "New description"
+        command = dataservice.update_workspace.await_args.args[1]
+        assert command.name == "New Name"
+        assert command.discipline == "new_discipline"
+        assert command.description == "New description"
 
     @pytest.mark.asyncio
-    async def test_update_workspace_with_type_string(
-        self, service, mock_db_session, sample_workspace_id
-    ):
-        """Test updating workspace type with string value."""
-        mock_workspace = MagicMock(spec=Workspace)
-        mock_workspace.type = WorkspaceType.SCI
+    async def test_update_workspace_with_type_string(self, service, dataservice):
+        dataservice.update_workspace.return_value = _workspace_payload(workspace_type="thesis")
 
-        with patch.object(service, "get", return_value=mock_workspace):
-            await service.update(sample_workspace_id, type="thesis")
+        await service.update("workspace-1", type="thesis")
 
-        assert mock_workspace.type == WorkspaceType.THESIS
+        command = dataservice.update_workspace.await_args.args[1]
+        assert command.workspace_type == "thesis"
 
     @pytest.mark.asyncio
-    async def test_update_workspace_invalid_type_raises_error(
-        self, service, mock_db_session, sample_workspace_id
-    ):
-        """Test that updating with invalid type raises ValueError."""
-        mock_workspace = MagicMock(spec=Workspace)
-
-        with patch.object(service, "get", return_value=mock_workspace):
-            with pytest.raises(ValueError) as exc_info:
-                await service.update(sample_workspace_id, type="invalid_type")
-
-        assert "Invalid workspace type" in str(exc_info.value)
+    async def test_update_workspace_invalid_type_raises_error(self, service):
+        with pytest.raises(ValueError, match="Invalid workspace type"):
+            await service.update("workspace-1", type="invalid_type")
 
     @pytest.mark.asyncio
-    async def test_update_workspace_not_found(self, service, mock_db_session):
-        """Test updating a non-existent workspace."""
-        with patch.object(service, "get", return_value=None):
-            result = await service.update("non-existent-id", name="New Name")
-
-        assert result is None
-        mock_db_session.commit.assert_not_called()
+    async def test_update_workspace_not_found(self, service, dataservice):
+        dataservice.update_workspace.return_value = None
+        assert await service.update("missing", name="New Name") is None
 
     @pytest.mark.asyncio
-    async def test_update_workspace_config(
-        self, service, mock_db_session, sample_workspace_id
-    ):
-        """Test updating workspace config."""
-        mock_workspace = MagicMock(spec=Workspace)
-        mock_workspace.id = sample_workspace_id
-        mock_workspace.type = WorkspaceType.SCI
-        mock_workspace.config = {}
-
+    async def test_update_workspace_config(self, service, dataservice):
+        dataservice.update_workspace.return_value = _workspace_payload()
         new_config = {"setting1": "value1", "setting2": "value2"}
 
-        with patch.object(service, "get", return_value=mock_workspace):
-            await service.update(sample_workspace_id, config=new_config)
+        await service.update("workspace-1", config=new_config)
 
-        assert mock_workspace.config["setting1"] == "value1"
-        assert mock_workspace.config["setting2"] == "value2"
-        assert mock_workspace.config["rollout"]["thread_cockpit_enabled"] is True
+        command = dataservice.update_workspace.await_args.args[1]
+        assert command.settings_json == new_config
 
 
 class TestDeleteWorkspace:
-    """Tests for delete method."""
-
-    @pytest.fixture
-    def mock_db_session(self):
-        """Create a mock database session."""
-        session = AsyncMock()
-        session.commit = AsyncMock()
-        session.execute = AsyncMock()
-        return session
-
-    @pytest.fixture
-    def service(self, mock_db_session):
-        """Create WorkspaceService instance."""
-        return WorkspaceService(mock_db_session)
-
-    @pytest.fixture
-    def sample_workspace_id(self):
-        """Sample workspace UUID."""
-        return str(uuid.uuid4())
+    @pytest.mark.asyncio
+    async def test_delete_workspace_found(self, service, dataservice):
+        dataservice.delete_workspace.return_value = True
+        assert await service.delete("workspace-1") is True
 
     @pytest.mark.asyncio
-    async def test_delete_workspace_found(
-        self, service, mock_db_session, sample_workspace_id
-    ):
-        """Test deleting an existing workspace."""
-        mock_result = MagicMock()
-        mock_result.rowcount = 1
-        mock_db_session.execute.return_value = mock_result
-
-        result = await service.delete(sample_workspace_id)
-
-        assert result is True
-        mock_db_session.execute.assert_called_once()
-        mock_db_session.commit.assert_called_once()
-        mock_db_session.commit.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_delete_workspace_not_found(self, service, mock_db_session):
-        """Test deleting a non-existent workspace."""
-        mock_result = MagicMock()
-        mock_result.rowcount = 0
-        mock_db_session.execute.return_value = mock_result
-
-        result = await service.delete("non-existent-id")
-
-        assert result is False
-        mock_db_session.execute.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+    async def test_delete_workspace_not_found(self, service, dataservice):
+        dataservice.delete_workspace.return_value = False
+        assert await service.delete("missing") is False
 
 
 class TestWorkspaceTypeValidation:
-    """Tests for workspace type validation across methods."""
-
-    @pytest.fixture
-    def mock_db_session(self):
-        """Create a mock database session."""
-        session = AsyncMock()
-        session.commit = AsyncMock()
-        session.refresh = AsyncMock()
-        session.add = MagicMock()
-        return session
-
-    @pytest.fixture
-    def service(self, mock_db_session):
-        """Create WorkspaceService instance."""
-        return WorkspaceService(mock_db_session)
-
-    @pytest.fixture
-    def sample_user_id(self):
-        """Sample user UUID."""
-        return str(uuid.uuid4())
-
     @pytest.mark.asyncio
-    async def test_all_valid_workspace_types(self, service, mock_db_session, sample_user_id):
-        """Test that all valid workspace types are accepted."""
+    async def test_all_valid_workspace_types(self, service, dataservice):
         valid_types = [
             "sci",
             "thesis",
@@ -436,15 +239,18 @@ class TestWorkspaceTypeValidation:
             "software_copyright",
             "patent",
         ]
+        dataservice.create_workspace.side_effect = [
+            _workspace_payload(workspace_type=workspace_type) for workspace_type in valid_types
+        ]
 
         for type_value in valid_types:
-            mock_db_session.add.reset_mock()
-
             await service.create(
-                user_id=sample_user_id,
+                user_id="user-1",
                 name=f"Workspace {type_value}",
                 type=type_value,
             )
 
-            added_workspace = _added_workspace(mock_db_session)
-            assert added_workspace.type.value == type_value
+        observed_types = [
+            call.args[0].workspace_type for call in dataservice.create_workspace.await_args_list
+        ]
+        assert observed_types == valid_types

@@ -51,6 +51,23 @@ async def get_workspace(
     return envelope_ok(workspace_to_record(workspace).model_dump(mode="json") if workspace else None)
 
 
+@router.get("/{workspace_id}/members/{user_id}/active")
+async def has_active_membership(
+    workspace_id: str,
+    user_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
+    return envelope_ok(
+        {
+            "has_active_membership": await service.user_has_active_membership(
+                workspace_id=workspace_id,
+                user_id=user_id,
+            )
+        }
+    )
+
+
 @router.put("/{workspace_id}")
 async def update_workspace(
     workspace_id: str,

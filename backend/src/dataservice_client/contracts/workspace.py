@@ -7,6 +7,33 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+WORKSPACE_TYPES = ("thesis", "sci", "proposal", "software_copyright", "patent")
+THREAD_COCKPIT_DEFAULT_TYPES = set(WORKSPACE_TYPES)
+
+
+def normalize_workspace_type(value: object) -> str:
+    raw_value = getattr(value, "value", value)
+    normalized = str(raw_value)
+    if normalized not in WORKSPACE_TYPES:
+        raise ValueError(f"Invalid workspace type: {value}. Must be one of: {list(WORKSPACE_TYPES)}")
+    return normalized
+
+
+def with_rollout_defaults(
+    workspace_type: object,
+    settings_json: dict[str, Any] | None,
+) -> dict[str, Any]:
+    resolved_type = normalize_workspace_type(workspace_type)
+    base = dict(settings_json or {})
+    rollout = base.get("rollout")
+    rollout_config = dict(rollout) if isinstance(rollout, dict) else {}
+    rollout_config.setdefault(
+        "thread_cockpit_enabled",
+        resolved_type in THREAD_COCKPIT_DEFAULT_TYPES,
+    )
+    base["rollout"] = rollout_config
+    return base
+
 
 class WorkspacePayload(BaseModel):
     """Canonical DataService workspace payload."""
@@ -21,6 +48,18 @@ class WorkspacePayload(BaseModel):
     active_thread_id: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+    @property
+    def type(self) -> str:
+        return self.workspace_type
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return self.settings_json
+
+    @property
+    def thread_id(self) -> str | None:
+        return self.active_thread_id
 
 
 class WorkspaceCreatePayload(BaseModel):
