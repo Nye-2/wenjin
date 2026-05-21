@@ -30,6 +30,16 @@ from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagesRebuildPayload,
 )
+from src.dataservice_client.contracts.credit import (
+    CreditAdminAdjustPayload,
+    CreditConsumptionCreatePayload,
+    CreditGrantRuleCreatePayload,
+    CreditGrantRuleUpdatePayload,
+    CreditRedeemCodeCreatePayload,
+    CreditRedeemPayload,
+    CreditReferralCreatePayload,
+    CreditRefundPayload,
+)
 from src.dataservice_client.contracts.execution import (
     ComputeSessionEnsurePayload,
     ComputeSessionUpdatePayload,
@@ -335,6 +345,194 @@ async def test_dataservice_client_account_contract_methods() -> None:
         ("PATCH", "/internal/v1/account/users/user-2/role", {"role": "admin"}),
         ("GET", "/internal/v1/account/growth", None),
     ]
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_credit_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def rule_payload(rule_id: str = "rule-1") -> dict[str, Any]:
+        return {
+            "id": rule_id,
+            "name": "Registration",
+            "rule_type": "registration_bonus",
+            "enabled": True,
+            "amount": 10,
+            "description": None,
+            "config": {},
+        }
+
+    def tx_payload(tx_id: str = "tx-1") -> dict[str, Any]:
+        return {
+            "id": tx_id,
+            "user_id": "user-1",
+            "transaction_type": "admin_grant",
+            "amount": 10,
+            "balance_after": 20,
+            "metadata": {},
+        }
+
+    def code_payload() -> dict[str, Any]:
+        return {
+            "id": "code-1",
+            "code": "ABC123",
+            "amount": 10,
+            "max_uses": 1,
+            "use_count": 0,
+            "per_user_limit": 1,
+            "enabled": True,
+        }
+
+    def referral_payload() -> dict[str, Any]:
+        return {
+            "id": "ref-1",
+            "referrer_user_id": "user-a",
+            "referee_user_id": "user-b",
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if path == "/internal/v1/credit/grant-rules" and request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "data": [rule_payload()]})
+        if path.startswith("/internal/v1/credit/grant-rules"):
+            if request.method == "DELETE":
+                return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
+            return httpx.Response(200, json={"status": "ok", "data": rule_payload("rule-2")})
+        if path.endswith("/summary"):
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"credits": 20, "total_earned": 30, "total_spent": 10}},
+            )
+        if path.endswith("/history") or path == "/internal/v1/credit/history":
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"transactions": [tx_payload()], "total": 1}},
+            )
+        if path.endswith("/admin-summary"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "data": {
+                        "total_issued": 30,
+                        "total_spent": 10,
+                        "in_circulation": 20,
+                        "manual_deductions": 0,
+                        "overdraft_users": 0,
+                        "overdraft_credits_total": 0,
+                        "total_transactions": 1,
+                    },
+                },
+            )
+        if path.endswith("/thread-token-usage"):
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"total_tokens": 100, "transactions": 1, "users": 1}},
+            )
+        if path.endswith("/consumption-stats"):
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"kpis": {"total_issued": 30}, "credit_series": []}},
+            )
+        if path.startswith("/internal/v1/credit/redeem-codes"):
+            data = [code_payload()] if request.method == "GET" else code_payload()
+            return httpx.Response(200, json={"status": "ok", "data": data})
+        if path.startswith("/internal/v1/credit/referrals"):
+            return httpx.Response(200, json={"status": "ok", "data": referral_payload()})
+        if path.endswith("/consume"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "data": {"transaction": tx_payload(), "balance_before": 20},
+                },
+            )
+        return httpx.Response(200, json={"status": "ok", "data": tx_payload()})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        rules = await client.list_credit_grant_rules()
+        fetched_rule = await client.get_credit_grant_rule("rule-2")
+        created_rule = await client.create_credit_grant_rule(
+            CreditGrantRuleCreatePayload(
+                name="Registration",
+                rule_type="registration_bonus",
+                amount=10,
+                admin_id="admin-1",
+            )
+        )
+        updated_rule = await client.update_credit_grant_rule(
+            "rule-2",
+            CreditGrantRuleUpdatePayload(name="Registration", amount=20),
+        )
+        toggled = await client.toggle_credit_grant_rule("rule-2")
+        deleted = await client.delete_credit_grant_rule("rule-2")
+        summary = await client.get_credit_summary("user-1")
+        history = await client.get_credit_history(user_id="user-1")
+        admin_summary = await client.get_credit_admin_summary()
+        token_usage = await client.get_credit_thread_token_usage()
+        stats = await client.aggregate_credit_consumption_stats(
+            since=datetime.fromisoformat("2026-05-22T00:00:00"),
+        )
+        consumed, balance_before = await client.record_credit_consumption(
+            CreditConsumptionCreatePayload(
+                user_id="user-1",
+                transaction_type="thread_token_consume",
+                amount=1,
+                description="consume",
+            )
+        )
+        refunded = await client.refund_credit_consumption(
+            CreditRefundPayload(user_id="user-1", original_transaction_id="tx-1", reason="refund")
+        )
+        adjusted = await client.admin_adjust_credit(
+            CreditAdminAdjustPayload(
+                target_user_id="user-1",
+                amount=10,
+                transaction_type="admin_grant",
+                description="grant",
+            )
+        )
+        code = await client.create_credit_redeem_code(
+            CreditRedeemCodeCreatePayload(
+                code="ABC123",
+                amount=10,
+                max_uses=1,
+                per_user_limit=1,
+                admin_id="admin-1",
+                batch_id="batch-1",
+            )
+        )
+        codes = await client.list_credit_redeem_codes()
+        disabled = await client.disable_credit_redeem_code("code-1")
+        redeemed = await client.redeem_credit_code(
+            CreditRedeemPayload(code="ABC123", user_id="user-1")
+        )
+        referral = await client.record_credit_referral(
+            CreditReferralCreatePayload(referrer_user_id="user-a", referee_user_id="user-b")
+        )
+        found_referral = await client.get_credit_referral_by_referee("user-b")
+
+    assert rules[0].id == "rule-1"
+    assert fetched_rule is not None and fetched_rule.id == "rule-2"
+    assert created_rule is not None and updated_rule is not None and toggled is not None
+    assert deleted is True
+    assert summary is not None and summary.credits == 20
+    assert history.total == 1
+    assert admin_summary.in_circulation == 20
+    assert token_usage.total_tokens == 100
+    assert stats.kpis["total_issued"] == 30
+    assert consumed is not None and balance_before == 20
+    assert refunded is not None and adjusted is not None and redeemed is not None
+    assert code is not None and codes[0].id == "code-1" and disabled is not None
+    assert referral is not None and found_referral is not None
+    assert len(seen) == 20
 
 
 @pytest.mark.asyncio
