@@ -10,17 +10,15 @@ import logging
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.thread_state import ThreadState
 from src.compute.dispatch_service import ComputeDispatchService
-from src.database import WorkspaceReference
+from src.dataservice.source_api import SourceBibliographyCreateCommand, SourceDataService
 from src.execution.types import (
     ExecutionRequest,
     ExecutionType,
 )
-from src.services.references import ReferenceBibTeXService
 
 from .base import Middleware
 
@@ -125,7 +123,7 @@ class ExecutionMiddleware(Middleware):
             if db is None and self.reference_service is not None:
                 db = getattr(self.reference_service, "db", None)
             if db:
-                bibliography = await self._generate_bibliography(db, citation_ids)
+                bibliography = await self._generate_bibliography(db, citation_ids, workspace_id=workspace_id)
                 if bibliography:
                     tool_args = {**tool_args, "bibliography": bibliography}
                     logger.info(f"Generated bibliography for {len(citation_ids)} citations")
@@ -134,7 +132,11 @@ class ExecutionMiddleware(Middleware):
                     from src.database import get_db_session
 
                     async with get_db_session() as session:
-                        bibliography = await self._generate_bibliography(session, citation_ids)
+                        bibliography = await self._generate_bibliography(
+                            session,
+                            citation_ids,
+                            workspace_id=workspace_id,
+                        )
                     if bibliography:
                         tool_args = {**tool_args, "bibliography": bibliography}
                         logger.info(
@@ -195,6 +197,8 @@ class ExecutionMiddleware(Middleware):
         self,
         db: AsyncSession,
         citation_ids: list[str],
+        *,
+        workspace_id: str | None = None,
     ) -> str | None:
         """Generate BibTeX content from citation IDs.
 
@@ -205,21 +209,21 @@ class ExecutionMiddleware(Middleware):
         Returns:
             BibTeX formatted string or None if no references found.
         """
-        if not citation_ids:
+        normalized_workspace_id = str(workspace_id or "").strip()
+        if not citation_ids or not normalized_workspace_id:
             return None
 
         try:
-            result = await db.execute(
-                select(WorkspaceReference).where(WorkspaceReference.id.in_(citation_ids))
+            bibliography = await SourceDataService(db, autocommit=False).build_bibliography(
+                SourceBibliographyCreateCommand(
+                    workspace_id=normalized_workspace_id,
+                    source_ids=citation_ids,
+                )
             )
-            references = result.scalars().all()
-
-            if not references:
+            if not bibliography.content:
                 logger.warning("No references found for citation_ids: %s", citation_ids)
                 return None
-
-            formatter = ReferenceBibTeXService(db)
-            return "\n\n".join(formatter._format_entry(reference) for reference in references)
+            return bibliography.content
 
         except Exception as e:
             logger.error(f"Failed to generate bibliography: {e}")

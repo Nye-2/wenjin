@@ -15,40 +15,44 @@ async def test_generate_bibliography_from_citations():
     mock_service = MagicMock()
     middleware = ExecutionMiddleware(mock_service)
 
-    # Mock database and Reference Library rows
-    mock_reference_1 = SimpleNamespace(
+    # Mock database and Source rows
+    mock_source_1 = SimpleNamespace(
         id="uuid-1",
         title="Test Paper",
-        authors=["John Smith"],
+        authors_json=["John Smith"],
         year=2024,
         venue="Nature",
         doi="10.1234/test",
         url=None,
         citation_key="Smith2024",
         bibtex_entry_type="article",
-        bibtex_fields={},
+        bibtex_fields_json={},
     )
 
-    mock_reference_2 = SimpleNamespace(
+    mock_source_2 = SimpleNamespace(
         id="uuid-2",
         title="Another Paper",
-        authors=["Jane Doe"],
+        authors_json=["Jane Doe"],
         year=2023,
         venue="Science",
         doi=None,
         url=None,
         citation_key="Doe2023",
         bibtex_entry_type="article",
-        bibtex_fields={},
+        bibtex_fields_json={},
     )
 
     mock_db = AsyncMock()
     mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_reference_1, mock_reference_2]
+    mock_result.scalars.return_value.all.return_value = [mock_source_1, mock_source_2]
     mock_db.execute.return_value = mock_result
 
     # Generate bibliography
-    bibliography = await middleware._generate_bibliography(mock_db, ["uuid-1", "uuid-2"])
+    bibliography = await middleware._generate_bibliography(
+        mock_db,
+        ["uuid-1", "uuid-2"],
+        workspace_id="ws-1",
+    )
 
     assert bibliography is not None
     assert "Smith2024" in bibliography
@@ -64,7 +68,7 @@ async def test_generate_bibliography_empty_ids():
     middleware = ExecutionMiddleware(mock_service)
 
     mock_db = AsyncMock()
-    bibliography = await middleware._generate_bibliography(mock_db, [])
+    bibliography = await middleware._generate_bibliography(mock_db, [], workspace_id="ws-1")
 
     assert bibliography is None
 
@@ -82,7 +86,11 @@ async def test_generate_bibliography_no_papers_found():
     mock_result.scalars.return_value.all.return_value = []
     mock_db.execute.return_value = mock_result
 
-    bibliography = await middleware._generate_bibliography(mock_db, ["nonexistent"])
+    bibliography = await middleware._generate_bibliography(
+        mock_db,
+        ["nonexistent"],
+        workspace_id="ws-1",
+    )
 
     assert bibliography is None
 

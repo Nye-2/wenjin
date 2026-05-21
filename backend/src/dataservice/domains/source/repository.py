@@ -24,6 +24,27 @@ class SourceRepository:
         result = await self.session.execute(select(SourceRecord).where(SourceRecord.id == source_id))
         return result.scalar_one_or_none()
 
+    async def list_sources_by_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_ids: list[str],
+        include_deleted: bool = False,
+        include_excluded: bool = False,
+    ) -> list[SourceRecord]:
+        if not source_ids:
+            return []
+        query = select(SourceRecord).where(
+            SourceRecord.workspace_id == workspace_id,
+            SourceRecord.id.in_(source_ids),
+        )
+        if not include_deleted:
+            query = query.where(SourceRecord.is_deleted.is_(False))
+        if not include_excluded:
+            query = query.where(SourceRecord.library_status != "excluded")
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
     async def list_sources(
         self,
         *,

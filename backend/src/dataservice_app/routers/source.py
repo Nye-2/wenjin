@@ -9,6 +9,7 @@ from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCommand
 from src.dataservice.domains.provenance.service import ProvenanceDataDomainService
 from src.dataservice.domains.source.contracts import (
+    SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
 )
@@ -60,6 +61,16 @@ async def record_source_citation_usage(
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     record = await service.record_citation_usage(command)
     await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.post("/sources/bibliography")
+async def build_source_bibliography(
+    command: SourceBibliographyCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.build_bibliography(command)
     return envelope_ok(record.model_dump(mode="json"))
 
 

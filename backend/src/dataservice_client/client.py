@@ -79,6 +79,8 @@ from src.dataservice_client.contracts.sandbox import (
     SandboxJobUpdatePayload,
 )
 from src.dataservice_client.contracts.source import (
+    SourceBibliographyCreatePayload,
+    SourceBibliographyPayload,
     SourceCitationUsageCreatePayload,
     SourceCitationUsagePayload,
     SourceCreatePayload,
@@ -681,6 +683,17 @@ class AsyncDataServiceClient:
         payload = await self._request("GET", f"/internal/v1/sources/{source_id}")
         data = payload.get("data")
         return SourcePayload.model_validate(data) if data is not None else None
+
+    async def build_source_bibliography(
+        self,
+        command: SourceBibliographyCreatePayload,
+    ) -> SourceBibliographyPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sources/bibliography",
+            json=command.model_dump(mode="json"),
+        )
+        return SourceBibliographyPayload.model_validate(payload["data"])
 
     async def record_source_citation_usage(
         self,

@@ -10,6 +10,8 @@ from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCom
 from src.dataservice.domains.provenance.projection import provenance_link_to_projection
 from src.dataservice.domains.provenance.repository import ProvenanceRepository
 from src.dataservice.domains.source.contracts import (
+    SourceBibliographyCreateCommand,
+    SourceBibliographyProjection,
     SourceCitationUsageCreateCommand,
     SourceCitationUsageProjection,
     SourceCreateCommand,
@@ -19,6 +21,7 @@ from src.dataservice.domains.source.projection import source_to_projection
 from src.dataservice.domains.source.repository import SourceRepository
 
 _SOURCE_USED_IN_DRAFT_STATUSES = {"candidate", "included"}
+_PROCEEDINGS_BIBTEX_TYPES = {"conference", "inproceedings", "proceedings"}
 
 
 class SourceDataDomainService:
@@ -42,6 +45,32 @@ class SourceDataDomainService:
     async def get_source(self, source_id: str) -> SourceProjection | None:
         record = await self.repository.get_source(source_id)
         return source_to_projection(record) if record else None
+
+    async def build_bibliography(
+        self,
+        command: SourceBibliographyCreateCommand,
+    ) -> SourceBibliographyProjection:
+        unique_ids = self._normalize_ids(command.source_ids)
+        if not command.workspace_id or not unique_ids:
+            return SourceBibliographyProjection()
+
+        records = await self.repository.list_sources_by_ids(
+            workspace_id=command.workspace_id,
+            source_ids=unique_ids,
+            include_deleted=command.include_deleted,
+            include_excluded=command.include_excluded,
+        )
+        by_id = {str(record.id): record for record in records}
+        ordered_records = [by_id[source_id] for source_id in unique_ids if source_id in by_id]
+        if not ordered_records:
+            return SourceBibliographyProjection()
+
+        return SourceBibliographyProjection(
+            content="\n\n".join(self._format_bibtex_entry(record) for record in ordered_records),
+            count=len(ordered_records),
+            source_ids=[str(record.id) for record in ordered_records],
+            citation_keys=[str(record.citation_key) for record in ordered_records],
+        )
 
     async def mark_deleted(self, source_id: str) -> SourceProjection | None:
         record = await self.repository.get_source(source_id)
@@ -171,3 +200,54 @@ class SourceDataDomainService:
             for key in dict.fromkeys(str(item).strip() for item in citation_keys)
             if key
         ]
+
+    @staticmethod
+    def _normalize_ids(ids: list[str]) -> list[str]:
+        return [
+            item
+            for item in dict.fromkeys(str(raw).strip() for raw in ids)
+            if item
+        ]
+
+    @staticmethod
+    def _format_bibtex_entry(record: object) -> str:
+        fields = dict(getattr(record, "bibtex_fields_json", None) or {})
+        fields.setdefault("title", getattr(record, "title", None))
+        authors = getattr(record, "authors_json", None) or []
+        if authors:
+            fields.setdefault("author", " and ".join(str(author) for author in authors if author))
+        year = getattr(record, "year", None)
+        if year:
+            fields.setdefault("year", str(year))
+        venue = getattr(record, "venue", None)
+        entry_type = str(getattr(record, "bibtex_entry_type", None) or "article").strip() or "article"
+        if venue:
+            field_name = "booktitle" if entry_type in _PROCEEDINGS_BIBTEX_TYPES else "journal"
+            fields.setdefault(field_name, venue)
+        doi = getattr(record, "doi", None)
+        if doi:
+            fields.setdefault("doi", doi)
+        url = getattr(record, "url", None)
+        if url:
+            fields.setdefault("url", url)
+
+        rendered_fields = []
+        for key in sorted(fields):
+            value = SourceDataDomainService._clean_bibtex_value(fields[key])
+            if value:
+                rendered_fields.append(f"  {key} = {{{value}}}")
+        citation_key = SourceDataDomainService._clean_citation_key(
+            getattr(record, "citation_key", None),
+            fallback=str(getattr(record, "id", "source")),
+        )
+        joined = ",\n".join(rendered_fields)
+        return f"@{entry_type}{{{citation_key},\n{joined}\n}}"
+
+    @staticmethod
+    def _clean_bibtex_value(value: object) -> str:
+        return str(value or "").replace("{", "").replace("}", "").strip()
+
+    @staticmethod
+    def _clean_citation_key(value: object, *, fallback: str) -> str:
+        cleaned = str(value or "").strip().replace("{", "").replace("}", "")
+        return cleaned or fallback

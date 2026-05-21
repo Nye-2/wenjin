@@ -44,6 +44,20 @@ class SourcePayload(SourceCreatePayload):
     updated_at: datetime | None = None
 
 
+class SourceBibliographyCreatePayload(BaseModel):
+    workspace_id: str
+    source_ids: list[str] = Field(default_factory=list)
+    include_deleted: bool = False
+    include_excluded: bool = False
+
+
+class SourceBibliographyPayload(BaseModel):
+    content: str | None = None
+    count: int = 0
+    source_ids: list[str] = Field(default_factory=list)
+    citation_keys: list[str] = Field(default_factory=list)
+
+
 class SourceCitationUsageCreatePayload(BaseModel):
     workspace_id: str
     citation_keys: list[str] = Field(default_factory=list)

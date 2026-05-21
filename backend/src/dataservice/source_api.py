@@ -5,6 +5,8 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.source.contracts import (
+    SourceBibliographyCreateCommand,
+    SourceBibliographyProjection,
     SourceCitationUsageCreateCommand,
     SourceCitationUsageProjection,
     SourceCreateCommand,
@@ -22,6 +24,12 @@ class SourceDataService:
 
     async def get_source(self, source_id: str) -> SourceProjection | None:
         return await self._domain.get_source(source_id)
+
+    async def build_bibliography(
+        self,
+        command: SourceBibliographyCreateCommand,
+    ) -> SourceBibliographyProjection:
+        return await self._domain.build_bibliography(command)
 
     async def mark_deleted(self, source_id: str) -> SourceProjection | None:
         return await self._domain.mark_deleted(source_id)

@@ -67,6 +67,20 @@ class SourceProjection(BaseModel):
     updated_at: datetime | None = None
 
 
+class SourceBibliographyCreateCommand(BaseModel):
+    workspace_id: str = Field(min_length=1, max_length=36)
+    source_ids: list[str] = Field(default_factory=list)
+    include_deleted: bool = False
+    include_excluded: bool = False
+
+
+class SourceBibliographyProjection(BaseModel):
+    content: str | None = None
+    count: int = 0
+    source_ids: list[str] = Field(default_factory=list)
+    citation_keys: list[str] = Field(default_factory=list)
+
+
 class SourceCitationUsageCreateCommand(BaseModel):
     workspace_id: str = Field(min_length=1, max_length=36)
     citation_keys: list[str] = Field(default_factory=list)

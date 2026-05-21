@@ -1088,10 +1088,11 @@ Implementation status as of 2026-05-21:
 - LaTeX file-change preview/apply/discard/revert actions now resolve and transition canonical `review_items`; `defer` is no longer a supported Prism action state and returns `410 Gone`.
 - Prism source links now use canonical `provenance_links` and Prism protected sections now use `prism_protected_scopes`. `WorkspacePrismService` no longer reads legacy `prism_source_links` or `prism_protected_sections`.
 - Source citation usage is now a DataService command. Applying a LaTeX/Prism file change records source usage through canonical `sources` and `provenance_links`, marks eligible sources `used_in_draft`, and exposes the same contract through the internal DataService route and typed client. `PrismReviewDataService` also resolves citations through citation-key Source lookup instead of scanning workspace sources.
+- Agent-side LaTeX compilation bibliography generation now resolves `citation_ids` through Source DataService within the runtime workspace and formats BibTeX from canonical Source metadata. `ExecutionMiddleware` no longer imports `WorkspaceReference` or `ReferenceBibTeXService`.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Prism cleanup and Source citation-usage slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1923 backend tests.
+- Verification through the Prism cleanup and Source citation/bibliography slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1924 backend tests.
 
 ### Phase 4: Review Materialization
 

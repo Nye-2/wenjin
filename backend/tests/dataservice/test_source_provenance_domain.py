@@ -13,6 +13,7 @@ from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCom
 from src.dataservice.domains.provenance.models import ProvenanceLinkRecord, SourceAnchorRecord
 from src.dataservice.domains.provenance.service import ProvenanceDataDomainService
 from src.dataservice.domains.source.contracts import (
+    SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
 )
@@ -58,6 +59,25 @@ class FakeSourceRepository:
 
     async def get_source(self, source_id: str) -> SimpleNamespace | None:
         return self.sources.get(source_id)
+
+    async def list_sources_by_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_ids: list[str],
+        include_deleted: bool = False,
+        include_excluded: bool = False,
+    ) -> list[SimpleNamespace]:
+        records = [
+            record
+            for record in self.sources.values()
+            if record.workspace_id == workspace_id and record.id in source_ids
+        ]
+        if not include_deleted:
+            records = [record for record in records if not record.is_deleted]
+        if not include_excluded:
+            records = [record for record in records if record.library_status != "excluded"]
+        return records
 
     async def list_sources(
         self,
@@ -185,6 +205,55 @@ async def test_source_service_normalizes_title_and_lists_active_sources() -> Non
     assert created.normalized_title == "attention is all you need"
     assert listed[0].citation_key == "vaswani2017"
     assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_source_service_builds_bibliography_from_sources() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    first = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="First Paper",
+            citation_key="first2026",
+            authors_json=["First Author"],
+            year=2026,
+            venue="Test Journal",
+            library_status="included",
+        )
+    )
+    second = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Second Paper",
+            citation_key="second2026",
+            authors_json=["Second Author"],
+            bibtex_entry_type="inproceedings",
+            bibtex_fields_json={"note": "Accepted"},
+            library_status="included",
+        )
+    )
+
+    bibliography = await service.build_bibliography(
+        SourceBibliographyCreateCommand(
+            workspace_id="ws-1",
+            source_ids=[second.id, first.id],
+        )
+    )
+
+    assert bibliography.count == 2
+    assert bibliography.source_ids == [second.id, first.id]
+    assert bibliography.citation_keys == ["second2026", "first2026"]
+    assert bibliography.content is not None
+    assert bibliography.content.index("@inproceedings{second2026") < bibliography.content.index(
+        "@article{first2026"
+    )
+    assert "author = {First Author}" in bibliography.content
+    assert "journal = {Test Journal}" in bibliography.content
+    assert "note = {Accepted}" in bibliography.content
 
 
 @pytest.mark.asyncio

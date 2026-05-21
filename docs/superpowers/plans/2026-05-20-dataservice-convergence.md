@@ -916,13 +916,14 @@ Implementation status:
 - `WorkspaceLatexProjectService` now creates/clears pending Prism file-change review items through `PrismReviewDataService`, and LaTeX preview/apply/discard/revert actions transition canonical `review_items`. `defer` is no longer a supported Prism action state and returns `410 Gone`.
 - Prism source links now use canonical `provenance_links`, and Prism protected sections now use `prism_protected_scopes`; `WorkspacePrismService` no longer reads legacy `prism_source_links` or `prism_protected_sections`.
 - Source citation usage now writes through DataService. LaTeX/Prism file-change apply records citation usage against canonical `sources`, materializes `provenance_links`, marks eligible sources `used_in_draft`, and exposes the same command through the internal DataService route and typed client. `PrismReviewDataService` now resolves citation links by citation-key Source lookup instead of workspace-wide scans.
+- Agent-side LaTeX compilation bibliography generation now resolves `citation_ids` through Source DataService within the runtime workspace and formats BibTeX from canonical Source metadata. `ExecutionMiddleware` no longer imports `WorkspaceReference` or `ReferenceBibTeXService`.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
-- Verification after the Prism cleanup and Source citation-usage slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1923 backend tests.
+- Verification after the Prism cleanup and Source citation/bibliography slices is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1924 backend tests.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/services/test_prism_review_workflow_gate.py tests/services/test_latex_hardening.py tests/architecture/test_dataservice_boundaries.py -q` passes with 55 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1923 tests.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/agents/middlewares/test_execution_citations.py tests/integration/test_citation_latex_workflow.py tests/architecture/test_dataservice_boundaries.py -q` passes with 15 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1924 tests.
 
 ### Task 14: Final Drop/Archive Gate
 
