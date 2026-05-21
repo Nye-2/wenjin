@@ -6,11 +6,10 @@ from typing import Any, Literal
 
 from croniter import croniter
 from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import CreditGrantRule, CreditGrantRuleType
 from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice.credit_api import CreditDataService, CreditGrantRuleType
 
 
 class RegistrationConfig(BaseModel):
@@ -64,6 +63,7 @@ def _validated_config(rule_type: CreditGrantRuleType, raw: dict[str, Any]) -> di
 class CreditGrantRuleService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self._credit = CreditDataService(db, autocommit=False)
 
     async def _record_admin_log(
         self,
@@ -79,28 +79,28 @@ class CreditGrantRuleService:
             details=details,
         )
 
-    async def list_all(self) -> list[CreditGrantRule]:
-        result = await self.db.execute(select(CreditGrantRule).order_by(CreditGrantRule.created_at))
-        return list(result.scalars().all())
+    async def list_all(self) -> list[Any]:
+        return await self._credit.list_grant_rules()
 
-    async def get(self, rule_id: str) -> CreditGrantRule | None:
-        result = await self.db.execute(select(CreditGrantRule).where(CreditGrantRule.id == rule_id))
-        return result.scalars().first()
+    async def get(self, rule_id: str) -> Any | None:
+        return await self._credit.get_grant_rule(rule_id)
 
     async def create(
         self, *, name: str, rule_type: CreditGrantRuleType, amount: int,
         config: dict[str, Any], description: str | None = None, admin_id: str,
-    ) -> CreditGrantRule:
+    ) -> Any:
         if amount <= 0:
             raise ValueError("amount must be > 0")
         config = _validated_config(rule_type, config or {})
 
-        rule = CreditGrantRule(
-            name=name, rule_type=rule_type, amount=amount,
-            description=description, config=config, enabled=True,
-            created_by_admin_id=admin_id,
+        rule = await self._credit.create_grant_rule(
+            name=name,
+            rule_type=rule_type,
+            amount=amount,
+            description=description,
+            config=config,
+            admin_id=admin_id,
         )
-        self.db.add(rule)
 
         await self._record_admin_log(
             action="credit_rule_create",
@@ -113,17 +113,22 @@ class CreditGrantRuleService:
     async def update(
         self, *, rule_id: str, name: str, amount: int, config: dict[str, Any],
         description: str | None, admin_id: str,
-    ) -> CreditGrantRule:
+    ) -> Any:
         rule = await self.get(rule_id)
         if rule is None:
             raise ValueError("not found")
         if amount <= 0:
             raise ValueError("amount must be > 0")
         config = _validated_config(rule.rule_type, config or {})
-        rule.name = name
-        rule.amount = amount
-        rule.description = description
-        rule.config = config
+        rule = await self._credit.update_grant_rule(
+            rule_id=rule_id,
+            name=name,
+            amount=amount,
+            config=config,
+            description=description,
+        )
+        if rule is None:
+            raise ValueError("not found")
 
         await self._record_admin_log(
             action="credit_rule_update",
@@ -133,12 +138,14 @@ class CreditGrantRuleService:
         await self.db.commit()
         return rule
 
-    async def toggle(self, rule_id: str, admin_id: str) -> CreditGrantRule:
+    async def toggle(self, rule_id: str, admin_id: str) -> Any:
         rule = await self.get(rule_id)
         if rule is None:
             raise ValueError("not found")
         previous = rule.enabled
-        rule.enabled = not previous
+        rule = await self._credit.toggle_grant_rule(rule_id)
+        if rule is None:
+            raise ValueError("not found")
 
         await self._record_admin_log(
             action="credit_rule_toggle",
@@ -152,47 +159,28 @@ class CreditGrantRuleService:
         rule = await self.get(rule_id)
         if rule is None:
             raise ValueError("not found")
-        await self.db.delete(rule)
+        rule_type = rule.rule_type.value
+        deleted = await self._credit.delete_grant_rule(rule_id)
+        if deleted is None:
+            raise ValueError("not found")
 
         await self._record_admin_log(
             action="credit_rule_delete",
             admin_id=admin_id,
-            details={"rule_id": rule_id, "rule_type": rule.rule_type.value},
+            details={"rule_id": rule_id, "rule_type": rule_type},
         )
         await self.db.commit()
 
-    async def get_active_rule(self, rule_type: CreditGrantRuleType) -> CreditGrantRule | None:
+    async def get_active_rule(self, rule_type: CreditGrantRuleType) -> Any | None:
         """Returns the first enabled rule of the given type, or None."""
-        result = await self.db.execute(
-            select(CreditGrantRule)
-            .where(CreditGrantRule.rule_type == rule_type)
-            .where(CreditGrantRule.enabled == True)  # noqa: E712
-            .order_by(CreditGrantRule.created_at)
-        )
-        return result.scalars().first()
+        return await self._credit.get_active_grant_rule(rule_type)
 
-    async def apply_registration_bonus(self, user_id: str) -> CreditTransaction | None:
+    async def apply_registration_bonus(self, user_id: str) -> Any | None:
         """Apply the active registration_bonus rule's amount to a freshly-registered user."""
         rule = await self.get_active_rule(CreditGrantRuleType.REGISTRATION_BONUS)
         if rule is None:
             return None
-        from sqlalchemy import select
-
-        from src.database import CreditTransaction, CreditTransactionType, User
-        result = await self.db.execute(select(User).where(User.id == user_id))
-        user = result.scalars().first()
-        if user is None:
-            raise ValueError("user not found")
-        user.credits = (user.credits or 0) + rule.amount
-        user.total_credits_earned = (user.total_credits_earned or 0) + rule.amount
-        txn = CreditTransaction(
-            user_id=user_id, transaction_type=CreditTransactionType.REGISTRATION_BONUS,
-            amount=rule.amount, balance_after=user.credits,
-            description=f"注册奖励 (rule {rule.id[:8]}***)",
+        return await self._credit.apply_registration_bonus_from_rule(
+            user_id=user_id,
+            rule=rule,
         )
-        self.db.add(txn)
-        return txn
-
-
-# Forward reference resolved at runtime
-from src.database import CreditTransaction  # noqa: E402

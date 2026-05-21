@@ -6,7 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
 
-from src.database import CreditGrantRuleType, User, get_db_session
+from src.database import User, get_db_session
+from src.dataservice.credit_api import CreditGrantRuleType
 from src.gateway.auth_dependencies import get_current_admin
 from src.services.credit_grant_rule_service import CreditGrantRuleService
 

@@ -33,6 +33,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.latex_project",
     "src.database.models.latex_template",
     "src.database.models.latex_compile_history",
+    "src.database.models.credit_grant_rule",
     "src.database.models.prism",
     "src.database.models.reference",
 }
@@ -61,6 +62,7 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "LatexProject",
     "LatexTemplate",
     "LatexCompileHistory",
+    "CreditGrantRule",
     "PrismReviewItem",
     "PrismSourceLink",
     "PrismProtectedSection",

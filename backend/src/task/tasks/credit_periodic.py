@@ -12,16 +12,9 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from croniter import croniter
-from sqlalchemy import select
 
-from src.database import (
-    CreditGrantRule,
-    CreditGrantRuleType,
-    CreditTransaction,
-    CreditTransactionType,
-    User,
-    get_db_session,
-)
+from src.database import get_db_session
+from src.dataservice.credit_api import CreditDataService
 from src.task.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -61,12 +54,8 @@ async def _process_periodic_rules_inner() -> dict[str, int]:
     now = datetime.now(UTC)
     summary: dict[str, int] = {"rules_evaluated": 0, "rules_fired": 0, "users_granted": 0}
     async with get_db_session() as db:
-        result = await db.execute(
-            select(CreditGrantRule)
-            .where(CreditGrantRule.rule_type == CreditGrantRuleType.PERIODIC)
-            .where(CreditGrantRule.enabled == True)  # noqa: E712
-        )
-        rules = list(result.scalars().all())
+        credit_data = CreditDataService(db, autocommit=False)
+        rules = await credit_data.list_enabled_periodic_grant_rules()
 
         for rule in rules:
             summary["rules_evaluated"] += 1
@@ -86,34 +75,10 @@ async def _process_periodic_rules_inner() -> dict[str, int]:
             if next_fire > now:
                 continue  # not yet due
 
-            tf = rule.config.get("target_filter", {})
-            user_stmt = select(User)
-            active_within_days = tf.get("active_within_days")
-            if active_within_days is not None:
-                threshold = now - timedelta(days=int(active_within_days))
-                user_stmt = user_stmt.where(User.last_login >= threshold)
-            role = tf.get("role")
-            if role == "user":
-                user_stmt = user_stmt.where(User.is_superuser == False)  # noqa: E712
-            elif role == "admin":
-                user_stmt = user_stmt.where(User.is_superuser == True)  # noqa: E712
-
-            user_result = await db.execute(user_stmt)
-            users = list(user_result.scalars().all())
-
-            for user in users:
-                user.credits = (user.credits or 0) + rule.amount
-                user.total_credits_earned = (user.total_credits_earned or 0) + rule.amount
-                db.add(CreditTransaction(
-                    user_id=user.id,
-                    transaction_type=CreditTransactionType.ADMIN_GRANT,
-                    amount=rule.amount,
-                    balance_after=user.credits,
-                    description=f"周期发放（rule {rule.id[:8]}***）",
-                ))
-                summary["users_granted"] += 1
-
-            rule.last_triggered_at = now
+            summary["users_granted"] += await credit_data.apply_periodic_grant_rule(
+                rule=rule,
+                now=now,
+            )
             summary["rules_fired"] += 1
 
         await db.commit()

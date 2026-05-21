@@ -1,0 +1,1 @@
+"""Credit persistence domain."""
