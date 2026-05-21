@@ -183,7 +183,7 @@ def test_literature_upload_persists_pdf_to_reference_library(client):
             AsyncMock(),
         ) as publish_workspace_event,
         patch(
-            "src.gateway.routers.uploads.ReferenceImportService",
+            "src.gateway.routers.uploads.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):
@@ -248,7 +248,7 @@ def test_literature_upload_preserves_reference_preprocess_metadata(client):
         _patch_storage_roots(client.app),
         patch("src.gateway.routers.uploads.publish_workspace_event", AsyncMock()),
         patch(
-            "src.gateway.routers.uploads.ReferenceImportService",
+            "src.gateway.routers.uploads.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):
@@ -292,7 +292,7 @@ def test_large_literature_upload_returns_reference_preprocess_pending_state(clie
             AsyncMock(),
         ),
         patch(
-            "src.gateway.routers.uploads.ReferenceImportService",
+            "src.gateway.routers.uploads.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):
@@ -330,7 +330,7 @@ def test_literature_upload_reports_reference_preprocess_queue_failure(client):
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads.ReferenceImportService",
+            "src.gateway.routers.uploads.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):

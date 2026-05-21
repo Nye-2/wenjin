@@ -6,16 +6,16 @@ from .boundaries import (
 )
 from .service import (
     REFERENCE_PREPROCESS_THRESHOLD_BYTES,
-    ReferenceBibTeXService,
-    ReferenceImportService,
+    SourceBibliographyService,
+    SourceLibraryImportService,
     SourcePreprocessService,
 )
 
 __all__ = [
     "REFERENCE_PREPROCESS_THRESHOLD_BYTES",
-    "ReferenceImportService",
+    "SourceLibraryImportService",
     "SourcePreprocessService",
-    "ReferenceBibTeXService",
+    "SourceBibliographyService",
     "REFERENCE_LIBRARY_BYPASS_TOOL_NAMES",
     "is_reference_library_bypass_tool",
 ]

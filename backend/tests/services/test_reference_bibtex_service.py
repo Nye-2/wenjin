@@ -1,4 +1,4 @@
-"""Tests for ReferenceBibTeXService."""
+"""Tests for SourceBibliographyService."""
 
 from __future__ import annotations
 

@@ -25,7 +25,7 @@ from src.gateway.deps import (
 from src.gateway.routers.thread_contracts import ThreadAttachment, ThreadUploadKind
 from src.services import ThreadService
 from src.services.knowledge_service import KnowledgeService
-from src.services.references import ReferenceImportService
+from src.services.references import SourceLibraryImportService
 from src.services.upload_preprocessor import UploadPreprocessor, _is_image_upload
 from src.services.workspace_uploads import (
     DEFAULT_WORKSPACE_UPLOAD_ROOT,
@@ -361,7 +361,7 @@ async def upload_thread_files(
         deferred_workspace_context_preprocess = False
 
         if kind == "literature" and resolved_workspace_id:
-            import_result = await ReferenceImportService(db).import_uploaded_pdf(
+            import_result = await SourceLibraryImportService(db).import_uploaded_pdf(
                 workspace_id=resolved_workspace_id,
                 filename=saved_name,
                 content_type=upload.content_type,

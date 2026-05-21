@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.services.references.service import ReferenceImportService
+from src.services.references.service import SourceLibraryImportService
 
 
 def test_artifact_reference_candidates_ignore_unverified_reference_suggestions() -> None:
@@ -21,7 +21,7 @@ def test_artifact_reference_candidates_ignore_unverified_reference_suggestions()
         ],
     }
 
-    candidates = ReferenceImportService._iter_artifact_reference_candidates(content)
+    candidates = SourceLibraryImportService._iter_artifact_reference_candidates(content)
 
     assert [item["title"] for item in candidates] == ["Verified", "Also verified"]
 
@@ -113,7 +113,7 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
         return "task-1"
 
     task_service.submit_task.side_effect = _submit_task
-    service = ReferenceImportService(db)
+    service = SourceLibraryImportService(db)
 
     with (
         patch("src.services.references.service.workspace_upload_dir", return_value=tmp_path),

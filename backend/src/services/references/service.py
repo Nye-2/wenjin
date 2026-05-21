@@ -212,8 +212,8 @@ def _serialize_source_reference(source: Any) -> dict[str, Any]:
     }
 
 
-class ReferenceImportService:
-    """Import references from uploads, Semantic Scholar, artifacts, BibTeX, or manual input."""
+class SourceLibraryImportService:
+    """Import source-library entries from uploads, Semantic Scholar, artifacts, BibTeX, or manual input."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -975,8 +975,8 @@ def _extract_citation_keys(latex_content: str) -> set[str]:
     return keys
 
 
-class ReferenceBibTeXService:
-    """Generate and synchronize BibTeX from workspace references."""
+class SourceBibliographyService:
+    """Generate and synchronize BibTeX from workspace Source metadata."""
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db

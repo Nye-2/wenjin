@@ -21,8 +21,8 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_task_service, get_workspace_service
 from src.gateway.deps.core import get_db
 from src.services.references import (
-    ReferenceBibTeXService,
-    ReferenceImportService,
+    SourceBibliographyService,
+    SourceLibraryImportService,
 )
 from src.task.service import TaskService
 from src.workspace_events import publish_workspace_event
@@ -241,7 +241,7 @@ async def upload_reference_pdf(
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
     try:
-        result = await ReferenceImportService(db).import_uploaded_pdf(
+        result = await SourceLibraryImportService(db).import_uploaded_pdf(
             workspace_id=workspace_id,
             filename=file.filename or "reference.pdf",
             content_type=file.content_type,
@@ -268,7 +268,7 @@ async def import_semantic_scholar(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await ReferenceImportService(db).import_semantic_scholar_query(
+    result = await SourceLibraryImportService(db).import_semantic_scholar_query(
         workspace_id=workspace_id,
         query=request.query,
         discipline=request.discipline,
@@ -291,7 +291,7 @@ async def import_deep_search_artifact(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await ReferenceImportService(db).import_deep_search_artifact(
+    result = await SourceLibraryImportService(db).import_deep_search_artifact(
         workspace_id=workspace_id,
         artifact_ids=request.artifact_ids,
     )
@@ -312,7 +312,7 @@ async def import_bibtex(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await ReferenceImportService(db).import_bibtex(
+    result = await SourceLibraryImportService(db).import_bibtex(
         workspace_id=workspace_id,
         content=request.content,
     )
@@ -334,7 +334,7 @@ async def create_manual_reference(
         workspace_service=workspace_service,
     )
     try:
-        result = await ReferenceImportService(db).import_manual(
+        result = await SourceLibraryImportService(db).import_manual(
             workspace_id,
             request.model_dump(exclude_none=True),
         )
@@ -404,7 +404,7 @@ async def get_bibtex(
         workspace_service=workspace_service,
     )
     try:
-        return await ReferenceBibTeXService(db).build_bibtex(
+        return await SourceBibliographyService(db).build_bibtex(
             workspace_id=workspace_id,
             scope=scope,
         )
@@ -425,7 +425,7 @@ async def validate_bibtex(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    service = ReferenceBibTeXService(db)
+    service = SourceBibliographyService(db)
     if request and request.latex_content:
         return await service.validate_citations(
             workspace_id=workspace_id,
@@ -449,7 +449,7 @@ async def sync_bibtex_to_prism(
     )
     scope = request.scope if request is not None else "included_and_core"
     try:
-        result = await ReferenceBibTeXService(db).sync_prism(
+        result = await SourceBibliographyService(db).sync_prism(
             workspace_id=workspace_id,
             scope=scope,
         )

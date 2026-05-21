@@ -13,7 +13,7 @@ from src.dataservice.source_api import (
     SourceDataService,
     SourceEvidencePackCreateCommand,
 )
-from src.services.references import ReferenceBibTeXService
+from src.services.references import SourceBibliographyService
 
 
 def _execute_result(values: list[object]) -> MagicMock:
@@ -145,7 +145,7 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
     assert usage_link.target_ref_json["latex_project_id"] == "latex-1"
     assert usage_link.target_ref_json["target_section"] == "Introduction"
 
-    validation = await ReferenceBibTeXService(db).validate_citations(
+    validation = await SourceBibliographyService(db).validate_citations(
         workspace_id="ws-1",
         latex_content=r"Grounded claim \cite{lovelace2026}.",
     )
@@ -171,7 +171,7 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
             return_value=project_service,
         ),
     ):
-        sync_result = await ReferenceBibTeXService(db).sync_prism(
+        sync_result = await SourceBibliographyService(db).sync_prism(
             workspace_id="ws-1",
             scope="used_only",
         )
@@ -211,7 +211,7 @@ async def test_reference_citation_validation_blocks_missing_and_metadata_only_ke
     db = MagicMock()
     db.execute = AsyncMock(return_value=_execute_result([verified_reference, metadata_only_reference]))
 
-    validation = await ReferenceBibTeXService(db).validate_citations(
+    validation = await SourceBibliographyService(db).validate_citations(
         workspace_id="ws-1",
         latex_content=r"\cite{verified2026, metadata2026, missing2026}",
     )

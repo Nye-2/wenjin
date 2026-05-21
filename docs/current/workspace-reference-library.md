@@ -37,7 +37,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 4. Semantic Scholar 的 `verified_papers` 是检索导入事实来源；`model_synthesis` 和 `unverified_leads` 只能作为分析或下一轮检索线索。
 5. 上传全文进入 `workspace_assets` / `source_assets`，预处理后写入 canonical `source_outline_nodes` 和 `source_text_units`。
 6. 写作 evidence pack 只从已纳入 Reference Library 的文献和索引内容构建。
-7. `refs.bib` 是 projection，由 `ReferenceBibTeXService` 从 Source DataService metadata 生成。
+7. `refs.bib` 是 projection，由 `SourceBibliographyService` 从 Source DataService metadata 生成。
 8. Prism 写入正文引用时必须同步或校验 `refs.bib`。
 9. compile 前必须校验 `\cite{}` 是否存在于当前 workspace 文献中心。
 10. Prism 稿件变更与文献/文档来源的关联进入 canonical `provenance_links`。
@@ -67,10 +67,10 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 服务层：
 
 - `SourceDataService`：CRUD、去重、citation key 唯一性、详情响应、evidence pack、citation usage。
-- `ReferenceImportService`：reference gateway facade；manual、Semantic Scholar、BibTeX、deep search artifact 和 PDF upload 均委托 Source/Asset DataService。
+- `SourceLibraryImportService`：Source Library import service；manual、Semantic Scholar、BibTeX、deep search artifact 和 PDF upload 均委托 Source/Asset DataService。
 - `SourcePreprocessService`：PDF 预处理、Source outline/text units 写入。
 - Source outline/text-unit APIs：outline-first 检索与 page/content 读取。
-- `ReferenceBibTeXService`：BibTeX 生成、citation validation、Prism sync。
+- `SourceBibliographyService`：BibTeX 生成、citation validation、Prism sync。
 - `PrismReviewDataService`：从 canonical Prism review content 与 Source/Provenance 生成 source links。
 
 API 面：
@@ -115,6 +115,7 @@ API 面：
 - Reference detail 已接入 Source detail、canonical assets、source history、preprocess summary 和 provenance usage。
 - Reference PDF upload 直接创建 canonical `sources`、`workspace_assets`、`source_assets`，queued preprocess payload 使用 `source_id` / `source_asset_id` / `workspace_asset_id`。
 - `sync_prism` 将 BibTeX projection 快照写入 canonical `source_bibtex_snapshots`，不再写 `reference_bibtex_snapshots`。
+- Gateway import/BibTeX 服务已改成 Source 命名：`SourceLibraryImportService` / `SourceBibliographyService`，不再保留 legacy reference service class alias。
 - Legacy `WorkspaceReferenceService`、`ReferencePreprocessService`、`ReferenceIndexService` 和 `ReferenceUsageService` 已从 runtime service surface 删除。
 - Legacy reference ORM table models 已删除；`Reference*` enum 仅作为 API/status 校验类型保留。
 - Prism context rail 已能展示 canonical source links，并 deep-link 回 Library / Documents。
@@ -127,7 +128,7 @@ API 面：
 
 1. Reference Library 生成 outline-first evidence pack。
 2. 写作使用 citation key 通过 `SourceDataService.record_citation_usage` 写入 `provenance_links`，并把候选/已纳入 source 推进到 `used_in_draft`。
-3. `ReferenceBibTeXService` 以当前 workspace 文献和 usage 生成 `refs.bib`。
+3. `SourceBibliographyService` 以当前 workspace 文献和 usage 生成 `refs.bib`。
 4. `sync_prism` 将 `refs.bib` 写入 workspace Prism，并确保 `main.tex` 包含 bibliography 入口。
 5. Prism review content 中可识别的 citation key 进入 `provenance_links`。
 6. compile 前用 citation validation 阻断 missing key 和 metadata-only key。
