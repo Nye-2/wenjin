@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.domains.source.contracts import SourceCreateCommand, SourceProjection
+from src.dataservice.domains.source.contracts import (
+    SourceCitationUsageCreateCommand,
+    SourceCitationUsageProjection,
+    SourceCreateCommand,
+    SourceProjection,
+)
 from src.dataservice.domains.source.service import SourceDataDomainService
 
 
@@ -35,3 +40,24 @@ class SourceDataService:
             include_deleted=include_deleted,
             limit=limit,
         )
+
+    async def list_sources_by_citation_keys(
+        self,
+        *,
+        workspace_id: str,
+        citation_keys: list[str],
+        include_deleted: bool = False,
+        include_excluded: bool = False,
+    ) -> list[SourceProjection]:
+        return await self._domain.list_sources_by_citation_keys(
+            workspace_id=workspace_id,
+            citation_keys=citation_keys,
+            include_deleted=include_deleted,
+            include_excluded=include_excluded,
+        )
+
+    async def record_citation_usage(
+        self,
+        command: SourceCitationUsageCreateCommand,
+    ) -> SourceCitationUsageProjection:
+        return await self._domain.record_citation_usage(command)

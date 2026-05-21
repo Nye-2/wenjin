@@ -12,7 +12,10 @@ from src.database.base import Base
 from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCommand
 from src.dataservice.domains.provenance.models import ProvenanceLinkRecord, SourceAnchorRecord
 from src.dataservice.domains.provenance.service import ProvenanceDataDomainService
-from src.dataservice.domains.source.contracts import SourceCreateCommand
+from src.dataservice.domains.source.contracts import (
+    SourceCitationUsageCreateCommand,
+    SourceCreateCommand,
+)
 from src.dataservice.domains.source.models import SourceAssetRecord, SourceRecord
 from src.dataservice.domains.source.service import SourceDataDomainService
 
@@ -70,6 +73,25 @@ class FakeSourceRepository:
         if not include_deleted:
             records = [record for record in records if not record.is_deleted]
         return records[:limit]
+
+    async def list_sources_by_citation_keys(
+        self,
+        *,
+        workspace_id: str,
+        citation_keys: list[str],
+        include_deleted: bool = False,
+        include_excluded: bool = False,
+    ) -> list[SimpleNamespace]:
+        records = [
+            record
+            for record in self.sources.values()
+            if record.workspace_id == workspace_id and record.citation_key in citation_keys
+        ]
+        if not include_deleted:
+            records = [record for record in records if not record.is_deleted]
+        if not include_excluded:
+            records = [record for record in records if record.library_status != "excluded"]
+        return records
 
 
 class FakeProvenanceRepository:
@@ -200,4 +222,52 @@ async def test_provenance_service_creates_and_filters_links() -> None:
     assert listed[0].source_id == "source-1"
     assert deleted == 1
     assert repository.links == []
+    assert session.commit_count == 2
+
+
+@pytest.mark.asyncio
+async def test_source_service_records_citation_usage_as_provenance() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    source_repository = FakeSourceRepository()
+    provenance_repository = FakeProvenanceRepository()
+    service.repository = source_repository  # type: ignore[assignment]
+    service.provenance_repository = provenance_repository  # type: ignore[assignment]
+
+    created = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Tracing Sources",
+            citation_key="smith2026",
+            library_status="included",
+        )
+    )
+    usage = await service.record_citation_usage(
+        SourceCitationUsageCreateCommand(
+            workspace_id="ws-1",
+            citation_keys=["smith2026", "missing2026", "smith2026"],
+            latex_project_id="latex-1",
+            target_id="latex-1",
+            target_section="sections/intro.tex",
+            target_ref_json={"file_path": "sections/intro.tex"},
+            generated_text=r"Claim \cite{smith2026}.",
+            accepted_status="accepted",
+        )
+    )
+
+    assert usage.recorded == 1
+    assert usage.source_ids == [created.id]
+    assert usage.citation_keys == ["smith2026"]
+    assert usage.provenance_link_ids == ["link-1"]
+    assert source_repository.sources[created.id].library_status == "used_in_draft"
+    assert provenance_repository.links[0].target_domain == "prism"
+    assert provenance_repository.links[0].target_kind == "prism_file"
+    assert provenance_repository.links[0].target_id == "latex-1"
+    assert provenance_repository.links[0].target_ref_json == {
+        "file_path": "sections/intro.tex",
+        "latex_project_id": "latex-1",
+        "target_section": "sections/intro.tex",
+        "citation_key": "smith2026",
+    }
+    assert provenance_repository.links[0].metadata_json["accepted_status"] == "accepted"
     assert session.commit_count == 2

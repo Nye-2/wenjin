@@ -78,7 +78,12 @@ from src.dataservice_client.contracts.sandbox import (
     SandboxJobPayload,
     SandboxJobUpdatePayload,
 )
-from src.dataservice_client.contracts.source import SourceCreatePayload, SourcePayload
+from src.dataservice_client.contracts.source import (
+    SourceCitationUsageCreatePayload,
+    SourceCitationUsagePayload,
+    SourceCreatePayload,
+    SourcePayload,
+)
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
     WorkspacePayload,
@@ -676,6 +681,17 @@ class AsyncDataServiceClient:
         payload = await self._request("GET", f"/internal/v1/sources/{source_id}")
         data = payload.get("data")
         return SourcePayload.model_validate(data) if data is not None else None
+
+    async def record_source_citation_usage(
+        self,
+        command: SourceCitationUsageCreatePayload,
+    ) -> SourceCitationUsagePayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sources/citation-usage",
+            json=command.model_dump(mode="json"),
+        )
+        return SourceCitationUsagePayload.model_validate(payload["data"])
 
     async def create_provenance_link(
         self,

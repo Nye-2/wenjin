@@ -42,3 +42,29 @@ class SourcePayload(SourceCreatePayload):
     is_deleted: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class SourceCitationUsageCreatePayload(BaseModel):
+    workspace_id: str
+    citation_keys: list[str] = Field(default_factory=list)
+    execution_id: str | None = None
+    task_id: str | None = None
+    artifact_id: str | None = None
+    latex_project_id: str | None = None
+    target_domain: str = "prism"
+    target_kind: str = "prism_file"
+    target_id: str | None = None
+    target_section: str | None = None
+    target_ref_json: dict[str, Any] = Field(default_factory=dict)
+    claim_text: str | None = None
+    generated_text: str | None = None
+    usage_type: str = "citation_only"
+    accepted_status: str = "pending"
+    mark_used_in_draft: bool = True
+
+
+class SourceCitationUsagePayload(BaseModel):
+    recorded: int
+    source_ids: list[str] = Field(default_factory=list)
+    citation_keys: list[str] = Field(default_factory=list)
+    provenance_link_ids: list[str] = Field(default_factory=list)

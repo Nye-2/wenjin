@@ -17,10 +17,9 @@ from typing import Any, Literal, cast
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import WorkspaceReference
+from src.dataservice.source_api import SourceCitationUsageCreateCommand, SourceDataService
 from src.gateway.contracts.latex import (
     _MAX_REWRITE_CANDIDATES,
     _REWRITE_CANDIDATE_TIMEOUT_SECONDS,
@@ -49,7 +48,6 @@ from src.services.latex.rewrite_guard import (
     LatexStructureValidationError,
     validate_rewrite_segment,
 )
-from src.services.references import ReferenceUsageService
 from src.services.references.utils import extract_citation_keys_from_text
 
 logger = logging.getLogger(__name__)
@@ -367,24 +365,18 @@ async def _record_latex_reference_usage(
     if not citation_keys:
         return
     try:
-        result = await db.execute(
-            select(WorkspaceReference.citation_key).where(
-                WorkspaceReference.workspace_id == normalized_workspace_id,
-                WorkspaceReference.citation_key.in_(citation_keys),
-                WorkspaceReference.is_deleted.is_(False),
+        await SourceDataService(db).record_citation_usage(
+            SourceCitationUsageCreateCommand(
+                workspace_id=normalized_workspace_id,
+                citation_keys=citation_keys,
+                latex_project_id=latex_project_id,
+                target_id=latex_project_id,
+                target_section=path,
+                target_ref_json={"file_path": path},
+                generated_text=content[:4000],
+                usage_type="citation_only",
+                accepted_status="accepted",
             )
-        )
-        matched_keys = [str(item) for item in result.scalars().all()]
-        if not matched_keys:
-            return
-        await ReferenceUsageService(db).record_usage_by_citation_keys(
-            workspace_id=normalized_workspace_id,
-            citation_keys=matched_keys,
-            latex_project_id=latex_project_id,
-            target_section=path,
-            generated_text=content[:4000],
-            usage_type="citation_only",
-            accepted_status="accepted",
         )
     except Exception:
         logger.warning(

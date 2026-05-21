@@ -65,3 +65,29 @@ class SourceProjection(BaseModel):
     is_deleted: bool = False
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class SourceCitationUsageCreateCommand(BaseModel):
+    workspace_id: str = Field(min_length=1, max_length=36)
+    citation_keys: list[str] = Field(default_factory=list)
+    execution_id: str | None = None
+    task_id: str | None = None
+    artifact_id: str | None = None
+    latex_project_id: str | None = None
+    target_domain: str = Field(default="prism", min_length=1, max_length=64)
+    target_kind: str = Field(default="prism_file", min_length=1, max_length=64)
+    target_id: str | None = None
+    target_section: str | None = None
+    target_ref_json: dict[str, Any] = Field(default_factory=dict)
+    claim_text: str | None = None
+    generated_text: str | None = None
+    usage_type: str = Field(default="citation_only", min_length=1, max_length=64)
+    accepted_status: str = Field(default="pending", min_length=1, max_length=64)
+    mark_used_in_draft: bool = True
+
+
+class SourceCitationUsageProjection(BaseModel):
+    recorded: int
+    source_ids: list[str] = Field(default_factory=list)
+    citation_keys: list[str] = Field(default_factory=list)
+    provenance_link_ids: list[str] = Field(default_factory=list)

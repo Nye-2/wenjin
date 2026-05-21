@@ -240,15 +240,27 @@ class _FakePrismReviewService:
         return SimpleNamespace(id="protected-1", **kwargs)
 
 
-class _FakeReferenceUsageService:
+class _FakeSourceDataService:
     calls: list[dict[str, object]] = []
 
     def __init__(self, db: object) -> None:
         _ = db
 
-    async def record_usage_by_citation_keys(self, **kwargs):
-        self.calls.append(kwargs)
-        return {"recorded": len(kwargs.get("citation_keys", []))}
+    async def record_citation_usage(self, command):
+        self.calls.append(
+            {
+                "workspace_id": command.workspace_id,
+                "citation_keys": command.citation_keys,
+                "latex_project_id": command.latex_project_id,
+                "target_id": command.target_id,
+                "target_section": command.target_section,
+                "target_ref_json": command.target_ref_json,
+                "generated_text": command.generated_text,
+                "usage_type": command.usage_type,
+                "accepted_status": command.accepted_status,
+            }
+        )
+        return {"recorded": len(command.citation_keys)}
 
 
 def _reset_router_state() -> None:
@@ -276,7 +288,7 @@ def _reset_router_state() -> None:
         "sections/introduction.tex": "Current introduction.",
     }
     _FakeLatexRouterService.update_calls = []
-    _FakeReferenceUsageService.calls = []
+    _FakeSourceDataService.calls = []
 
 
 def _compute_session(now: datetime) -> SimpleNamespace:
@@ -537,7 +549,7 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
     assert projection["prism"]["target_files"] == ["main.tex", "sections/introduction.tex"]
 
     user = SimpleNamespace(id="user-1")
-    db = _FakeDb([_Result(scalars=["lovelace2026"])])
+    db = _FakeDb()
     with (
         patch(
             "src.gateway.routers.latex_files.LatexProjectService",
@@ -552,8 +564,8 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
             _FakePrismReviewService,
         ),
         patch(
-            "src.gateway.routers.latex_helpers.ReferenceUsageService",
-            _FakeReferenceUsageService,
+            "src.gateway.routers.latex_helpers.SourceDataService",
+            _FakeSourceDataService,
         ),
     ):
         preview = await preview_project_file_change(
@@ -583,12 +595,14 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
     assert _FakePrismReviewService.review_item.preview_payload["revert_signature"] == (
         applied.undo.revert_signature
     )
-    assert _FakeReferenceUsageService.calls == [
+    assert _FakeSourceDataService.calls == [
         {
             "workspace_id": "ws-1",
             "citation_keys": ["lovelace2026"],
             "latex_project_id": "latex-1",
+            "target_id": "latex-1",
             "target_section": "sections/introduction.tex",
+            "target_ref_json": {"file_path": "sections/introduction.tex"},
             "generated_text": r"Generated claim \cite{lovelace2026}.",
             "usage_type": "citation_only",
             "accepted_status": "accepted",

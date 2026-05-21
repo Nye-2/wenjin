@@ -280,7 +280,12 @@ class PrismReviewDataService:
         sources = await SourceDataService(
             self._session,
             autocommit=False,
-        ).list_sources(workspace_id=workspace_id, include_deleted=False, limit=1000)
+        ).list_sources_by_citation_keys(
+            workspace_id=workspace_id,
+            citation_keys=citation_keys,
+            include_deleted=False,
+            include_excluded=False,
+        )
         source_by_key = {
             source.citation_key: source
             for source in sources

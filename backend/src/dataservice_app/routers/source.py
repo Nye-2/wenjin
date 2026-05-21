@@ -8,7 +8,10 @@ from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCommand
 from src.dataservice.domains.provenance.service import ProvenanceDataDomainService
-from src.dataservice.domains.source.contracts import SourceCreateCommand
+from src.dataservice.domains.source.contracts import (
+    SourceCitationUsageCreateCommand,
+    SourceCreateCommand,
+)
 from src.dataservice.domains.source.service import SourceDataDomainService
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
@@ -47,6 +50,17 @@ async def list_sources(
         limit=limit,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.post("/sources/citation-usage")
+async def record_source_citation_usage(
+    command: SourceCitationUsageCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.record_citation_usage(command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
 
 
 @router.get("/sources/{source_id}")
