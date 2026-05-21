@@ -29,6 +29,7 @@ MIGRATED_LEGACY_MODEL_MODULES = {
     "src.database.models.admin_log",
     "src.database.models.knowledge",
     "src.database.models.workspace_template",
+    "src.database.models.audit_log",
     "src.database.models.prism",
     "src.database.models.reference",
 }
@@ -53,6 +54,7 @@ MIGRATED_LEGACY_MODEL_NAMES = {
     "KnowledgeCategory",
     "UserKnowledge",
     "WorkspaceTemplate",
+    "AuditLog",
     "PrismReviewItem",
     "PrismSourceLink",
     "PrismProtectedSection",

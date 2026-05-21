@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from sqlalchemy import select
+from src.dataservice.audit_api import AuditDataService
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,7 @@ class AuditService:
 
     def __init__(self, session_factory, model=None) -> None:
         self._session_factory = session_factory
-        if model is None:
-            from src.database.models.audit_log import AuditLog
-            self._model = AuditLog
-        else:
-            self._model = model
+        self._model = model
 
     async def log(
         self,
@@ -44,18 +40,16 @@ class AuditService:
         """Record an audit event. Never raises."""
         try:
             async with self._session_factory() as session:
-                entry = self._model(
+                await AuditDataService(session, model=self._model).log(
+                    action=action,
                     user_id=user_id,
                     workspace_id=workspace_id,
-                    action=action,
                     target_type=target_type,
                     target_id=target_id,
                     payload=payload,
-                    ip_address=ip,
-                    user_agent=ua,
+                    ip=ip,
+                    ua=ua,
                 )
-                session.add(entry)
-                await session.commit()
         except Exception:
             logger.warning("Failed to write audit log for action=%s", action, exc_info=True)
 
@@ -69,13 +63,9 @@ class AuditService:
     ) -> list:
         """Query audit logs, ordered by created_at DESC."""
         async with self._session_factory() as session:
-            stmt = select(self._model).order_by(self._model.created_at.desc())
-            if workspace_id is not None:
-                stmt = stmt.where(self._model.workspace_id == workspace_id)
-            if user_id is not None:
-                stmt = stmt.where(self._model.user_id == user_id)
-            if since is not None:
-                stmt = stmt.where(self._model.created_at >= since)
-            stmt = stmt.limit(limit)
-            result = await session.execute(stmt)
-            return list(result.scalars().all())
+            return await AuditDataService(session, model=self._model, autocommit=False).query(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                since=since,
+                limit=limit,
+            )
