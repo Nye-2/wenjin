@@ -10,7 +10,7 @@ import mimetypes
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -30,7 +30,7 @@ from src.application.results import (
 from src.config import get_model_config
 from src.config.config_loader import get_app_config
 from src.config.llm_config import LLMSettings
-from src.database import Thread, get_db_session
+from src.database import get_db_session
 from src.models import model_supports_vision, route_chat_model
 from src.models.router import InvalidRequestedModelError
 from src.services import ThreadAccessError, ThreadService
@@ -48,6 +48,9 @@ from src.tools.builtins.artifacts import (
 )
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.database import Thread
 
 _THREAD_VIRTUAL_ROOT = "/mnt/user-data/"
 _THREAD_UPLOADS_VIRTUAL_ROOT = "/mnt/user-data/uploads/"
