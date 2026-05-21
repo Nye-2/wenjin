@@ -8,12 +8,16 @@ Note: Workspace-scoped references are handled by the Reference Library services.
 """
 
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Workspace, WorkspaceType
 from src.dataservice.workspace_api import WorkspaceDataService
+
+if TYPE_CHECKING:
+    from src.database import Workspace, WorkspaceType
 
 
 class WorkspaceService:

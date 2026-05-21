@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterable, Awaitable, Callable
 from inspect import isawaitable
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User, Workspace
+from src.database import User
 from src.gateway.access_control import require_workspace_owner
+
+if TYPE_CHECKING:
+    from src.database import Workspace
 
 
 async def get_owned_workspace(

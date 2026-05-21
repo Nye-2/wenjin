@@ -1,15 +1,20 @@
 """Centralized access control helpers for owner isolation."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User, Workspace
+from src.database import User
 from src.dataservice.workspace_api import WorkspaceDataService
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_workspace_service
+
+if TYPE_CHECKING:
+    from src.database import Workspace
 
 
 async def require_workspace_owner(
