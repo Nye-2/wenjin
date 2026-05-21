@@ -24,9 +24,9 @@ from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
 
-# Synthetic storage path used for inline (DB-backed) documents.  The real
-# content lives in ``DocumentV2.metadata_json['content']`` so both gateway
-# and worker can serve the document without sharing a filesystem.
+# Synthetic storage path used for inline DataService asset documents. The real
+# content lives in asset metadata so gateway and worker do not need a shared
+# filesystem for generated markdown.
 _INLINE_DOC_PATH_PREFIX = "inline://"
 
 
@@ -152,11 +152,9 @@ class ExecutionCommitService:
                 )
 
             elif kind == "document":
-                # Agent-generated documents carry their content inline; we
-                # persist that content into DocumentV2.metadata_json so it
-                # round-trips through the DB without needing a shared
-                # filesystem between gateway and worker.  File-backed
-                # documents (uploads etc.) keep their existing storage_path.
+                # Agent-generated documents carry their content inline; the
+                # document service stores that content as DataService asset
+                # metadata. File-backed documents keep their storage_path.
                 inline_content = data.get("content")
                 existing_path = data.get("storage_path")
                 if not existing_path and not inline_content:

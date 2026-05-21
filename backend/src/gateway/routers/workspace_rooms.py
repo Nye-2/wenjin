@@ -371,14 +371,9 @@ async def update_document(
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     else:
-        doc = await svc.get(ws_id, doc_id)
+        doc = await svc.update(ws_id, doc_id, data)
         if doc is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
-        for key, value in data.items():
-            if hasattr(doc, key):
-                setattr(doc, key, value)
-        await db.commit()
-        await db.refresh(doc)
 
     return _row_to_dict(doc)
 

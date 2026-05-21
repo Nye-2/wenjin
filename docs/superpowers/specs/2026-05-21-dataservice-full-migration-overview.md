@@ -690,12 +690,12 @@ Long-term invariants:
 | Catalog | `capability_definitions`, `capability_skills`, `capability_seed_revisions` | `capabilities`, `capability_skills.config`, YAML runtime fallback |
 | Execution | `executions`, `execution_nodes`, `execution_events` | `workspace_run`, `run_history`, `subagent_task_records`, product reads from `task_records`, `compute_sessions` |
 | Review | `review_batches`, `review_items`, `review_action_logs` | `prism_review_items`, `TaskReport.outputs`, frontend ResultCard transient state |
-| Asset | `workspace_assets` | `artifacts`, file-like `documents_v2`, file-like `generation_records`, uploads, render outputs |
+| Asset | `workspace_assets` | `artifacts`, file-like `documents_v2`, room documents, file-like `generation_records`, uploads, render outputs |
 | Prism | `prism_projects`, `prism_documents`, `prism_files`, `prism_file_versions`, `prism_renders`, `prism_protected_scopes` | workspace-owned `latex_projects`, Prism-specific review/source/protected-section tables |
 | Source | `sources`, `source_external_ids`, `source_assets`, `source_outline_nodes`, `source_text_units`, `source_bibtex_snapshots` | `workspace_references*`, `library_items`, reference preprocessing/index rows |
 | Sandbox | `sandbox_environments`, `sandbox_job_records`, `sandbox_artifacts` | `sandboxes`, execution payload artifact ids, ad hoc sandbox output records |
 | Provenance | `source_anchors`, `provenance_links` | `prism_source_links`, `reference_usage_events`, source fields in review payloads |
-| Rooms | `decisions`, `memory_facts`, `workspace_tasks`, optional room document model | candidate decisions/memory/tasks in task reports, direct room writes |
+| Rooms | `decisions`, `memory_facts`, `workspace_tasks`, document room projection over `workspace_assets` | candidate decisions/memory/tasks/documents in task reports, direct room writes |
 | Operations | `dataservice_idempotency_keys`, `dataservice_outbox_events`, `dataservice_migration_reports` | Redis-only idempotency cache, migration logs outside DB |
 
 ---
@@ -1068,8 +1068,10 @@ Implementation status as of 2026-05-21:
 - Runtime code outside DataService/database ownership packages is guarded from importing migrated room/sandbox/source legacy models: `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, and `LibraryItem`.
 - Workspace Prism context now reads decision/memory context through `RoomsDataService`; the sandbox room facade delegates environment state to `SandboxDataService`.
 - The library room facade delegates reference-library state to `SourceDataService`, so library room writes no longer create `library_items` rows.
+- The documents room facade delegates document create/read/update/delete/version operations to `AssetDataService`, so document room writes now create canonical `workspace_assets` rows and no longer create `documents_v2` rows.
+- Runtime code outside DataService/database ownership packages is also guarded from importing `DocumentV2`; migrated `documents_v2` rows are represented only as `workspace_assets` with legacy source metadata.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the projection cleanup first slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1915 backend tests.
+- Verification through the projection cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1917 backend tests.
 
 ### Phase 4: Review Materialization
 
