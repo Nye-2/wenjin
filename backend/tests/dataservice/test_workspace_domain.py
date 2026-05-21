@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -128,3 +130,23 @@ async def test_update_workspace_settings_returns_projection() -> None:
     assert record.thinking_enabled is False
     assert record.capability_overrides == {"cap": {"enabled": False}}
     session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_stats_for_member_aggregates_workspace_projection() -> None:
+    session = FakeSession()
+    service = DataServiceWorkspaceService(session)  # type: ignore[arg-type]
+    now = datetime.now(UTC)
+    service.repository.list_workspaces_for_member = AsyncMock(  # type: ignore[method-assign]
+        return_value=[
+            SimpleNamespace(type=WorkspaceType.THESIS, created_at=now),
+            SimpleNamespace(type=WorkspaceType.SCI, created_at=now - timedelta(days=1)),
+            SimpleNamespace(type=WorkspaceType.SCI, created_at=now - timedelta(days=9)),
+        ]
+    )
+
+    stats = await service.get_workspace_stats_for_member("user-1")
+
+    assert stats.total == 3
+    assert stats.by_type == {"thesis": 1, "sci": 2}
+    assert stats.created_last_7d == 2

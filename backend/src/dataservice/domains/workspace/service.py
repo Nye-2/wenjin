@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from src.dataservice.domains.workspace.contracts import (
     WorkspaceRecord,
     WorkspaceSettingsRecord,
     WorkspaceSettingsUpdateCommand,
+    WorkspaceStatsRecord,
     WorkspaceUpdateCommand,
 )
 from src.dataservice.domains.workspace.policies import normalize_workspace_type, with_rollout_defaults
@@ -68,6 +70,24 @@ class DataServiceWorkspaceService:
 
     async def list_workspaces_for_member(self, user_id: str) -> list[Workspace]:
         return await self.repository.list_workspaces_for_member(user_id)
+
+    async def get_workspace_stats_for_member(self, user_id: str) -> WorkspaceStatsRecord:
+        workspaces = await self.repository.list_workspaces_for_member(user_id)
+        cutoff = datetime.now(UTC) - timedelta(days=7)
+        by_type: dict[str, int] = {}
+        created_last_7d = 0
+
+        for workspace in workspaces:
+            workspace_type = workspace.type.value if hasattr(workspace.type, "value") else str(workspace.type)
+            by_type[workspace_type] = by_type.get(workspace_type, 0) + 1
+            if workspace.created_at is not None and workspace.created_at >= cutoff:
+                created_last_7d += 1
+
+        return WorkspaceStatsRecord(
+            total=len(workspaces),
+            by_type=by_type,
+            created_last_7d=created_last_7d,
+        )
 
     async def user_has_active_membership(
         self,

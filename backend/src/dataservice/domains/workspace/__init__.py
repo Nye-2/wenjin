@@ -5,6 +5,7 @@ from .contracts import (
     WorkspaceMembershipRole,
     WorkspaceMembershipStatus,
     WorkspaceRecord,
+    WorkspaceStatsRecord,
     WorkspaceUpdateCommand,
 )
 from .models import WorkspaceMembership
@@ -17,5 +18,6 @@ __all__ = [
     "WorkspaceMembershipRole",
     "WorkspaceMembershipStatus",
     "WorkspaceRecord",
+    "WorkspaceStatsRecord",
     "WorkspaceUpdateCommand",
 ]

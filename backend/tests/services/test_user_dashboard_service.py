@@ -12,6 +12,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionNodeProjection,
     ExecutionRecordProjection,
 )
+from src.dataservice.domains.workspace.contracts import WorkspaceStatsRecord
 from src.services.user_dashboard_service import UserDashboardService
 
 
@@ -193,3 +194,24 @@ async def test_get_token_usage_stats_aggregates_feature_and_subagent_usage() -> 
     assert stats["subagents"]["total_tokens"] == 40
     assert stats["subagents"]["records"] == 2
     assert stats["subagents"]["records_with_usage"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_workspace_stats_uses_dataservice_projection() -> None:
+    db = AsyncMock()
+    service = UserDashboardService(db)
+    service._workspace.get_workspace_stats_for_member = AsyncMock(
+        return_value=WorkspaceStatsRecord(
+            total=2,
+            by_type={"thesis": 1, "sci": 1},
+            created_last_7d=1,
+        )
+    )
+
+    stats = await service._get_workspace_stats("user-1")
+
+    assert stats == {
+        "total": 2,
+        "by_type": {"thesis": 1, "sci": 1},
+        "created_last_7d": 1,
+    }

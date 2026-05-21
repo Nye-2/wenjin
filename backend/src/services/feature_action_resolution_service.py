@@ -4,11 +4,14 @@ Backend-side resolver for workspace feature action states.
 Replaces frontend resolver logic to ensure SSOT consistency.
 """
 
+from __future__ import annotations
+
 import math
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from src.database import Artifact, Workspace
+if TYPE_CHECKING:
+    from src.database import Artifact, Workspace
 
 # ---------------------------------------------------------------------------
 # Feature → acceptable source artifact types

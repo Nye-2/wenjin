@@ -88,3 +88,11 @@ class WorkspaceSettingsRecord(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class WorkspaceStatsRecord(BaseModel):
+    """Workspace aggregate stats for user-facing dashboards."""
+
+    total: int
+    by_type: dict[str, int] = Field(default_factory=dict)
+    created_last_7d: int

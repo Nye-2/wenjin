@@ -1,13 +1,13 @@
 """User dashboard aggregation service."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User, Workspace
+from src.database import User
 from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
+from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.credit_service import CreditService
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
@@ -18,6 +18,7 @@ class UserDashboardService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self._execution = ExecutionDataService(db, autocommit=False)
+        self._workspace = WorkspaceDataService(db, autocommit=False)
 
     async def get_dashboard(self, user_id: str) -> dict[str, Any]:
         """Build user dashboard payload."""
@@ -63,28 +64,11 @@ class UserDashboardService:
         }
 
     async def _get_workspace_stats(self, user_id: str) -> dict[str, Any]:
-        by_type_rows = await self.db.execute(
-            select(Workspace.type, func.count())
-            .where(Workspace.user_id == user_id)
-            .group_by(Workspace.type)
-        )
-        by_type = {
-            (workspace_type.value if hasattr(workspace_type, "value") else str(workspace_type)): int(count)
-            for workspace_type, count in by_type_rows.all()
-        }
-        total = sum(by_type.values())
-
-        created_recent = await self.db.execute(
-            select(func.count())
-            .where(Workspace.user_id == user_id)
-            .where(Workspace.created_at >= datetime.now(UTC) - timedelta(days=7))
-        )
-        created_last_7d = int(created_recent.scalar() or 0)
-
+        stats = await self._workspace.get_workspace_stats_for_member(user_id)
         return {
-            "total": total,
-            "by_type": by_type,
-            "created_last_7d": created_last_7d,
+            "total": stats.total,
+            "by_type": stats.by_type,
+            "created_last_7d": stats.created_last_7d,
         }
 
     async def _get_task_stats(self, user_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:

@@ -16,6 +16,7 @@ from src.dataservice.domains.workspace.contracts import (
     WorkspaceCreateCommand,
     WorkspaceSettingsRecord,
     WorkspaceSettingsUpdateCommand,
+    WorkspaceStatsRecord,
     WorkspaceUpdateCommand,
 )
 from src.dataservice.domains.workspace.policies import normalize_workspace_type, with_rollout_defaults
@@ -65,6 +66,9 @@ class WorkspaceDataService:
 
     async def list_workspaces_for_member(self, user_id: str) -> list[Workspace]:
         return await self._domain.list_workspaces_for_member(user_id)
+
+    async def get_workspace_stats_for_member(self, user_id: str) -> WorkspaceStatsRecord:
+        return await self._domain.get_workspace_stats_for_member(user_id)
 
     async def user_has_active_membership(
         self,

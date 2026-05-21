@@ -5,8 +5,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Artifact, Workspace
+from src.database import Artifact
 from src.dataservice.catalog_api import CatalogDataService
+from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.dashboard import (
     DashboardInnovationStatusMixin,
     DashboardProposalStatusMixin,
@@ -49,13 +50,11 @@ class DashboardService(
         }
 
     async def _get_workspace_type(self, workspace_id: str) -> str:
-        """Resolve workspace type from DB without guessing a fallback type."""
-        result = await self.db.execute(
-            select(Workspace.type).where(Workspace.id == workspace_id)
-        )
-        workspace_type = result.scalar_one_or_none()
-        if workspace_type is None:
+        """Resolve workspace type from DataService without guessing a fallback type."""
+        workspace = await WorkspaceDataService(self.db, autocommit=False).get_workspace(workspace_id)
+        if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
+        workspace_type = workspace.type
         return (
             workspace_type.value
             if hasattr(workspace_type, "value")

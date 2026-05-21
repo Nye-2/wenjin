@@ -1,22 +1,13 @@
-"""Workspace metadata helpers (workspace type lookup).
-
-Historically this module exposed a ``skill name`` resolver layer over the
-legacy :mod:`src.workspace_features.skills` registry.  That registry is gone —
-capabilities and skills now live in the DB (see ``capabilities`` and
-``capability_skills`` tables).  Only the workspace-type lookup helpers
-survive, since they read directly from the ``workspaces`` table.
-"""
+"""Workspace metadata helpers backed by DataService workspace projections."""
 
 from __future__ import annotations
 
-import inspect
 from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import Workspace
+from src.dataservice.workspace_api import WorkspaceDataService
 
 
 def normalize_workspace_type(workspace_type: Any) -> str | None:
@@ -54,21 +45,16 @@ async def list_workspace_types(
     if not normalized_ids:
         return {}
 
-    result = await db.execute(
-        select(Workspace.id, Workspace.type).where(Workspace.id.in_(normalized_ids))
-    )
-    rows = result.all()
-    if inspect.isawaitable(rows):
-        rows = await rows
-    try:
-        normalized_rows = list(rows)
-    except TypeError:
-        return {}
-    return {
-        str(workspace_id): normalized_type
-        for workspace_id, workspace_type in normalized_rows
-        if (normalized_type := normalize_workspace_type(workspace_type)) is not None
-    }
+    service = WorkspaceDataService(db, autocommit=False)
+    resolved: dict[str, str] = {}
+    for workspace_id in normalized_ids:
+        workspace = await service.get_workspace(workspace_id)
+        if workspace is None:
+            continue
+        normalized_type = normalize_workspace_type(getattr(workspace, "type", None))
+        if normalized_type is not None:
+            resolved[workspace_id] = normalized_type
+    return resolved
 
 
 async def get_workspace_type(
