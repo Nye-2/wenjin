@@ -12,6 +12,7 @@ from src.dataservice.domains.source.contracts import (
     SourceBibliographyCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
+    SourceExternalIdCreateCommand,
     SourceUpdateCommand,
 )
 from src.dataservice.domains.source.service import SourceDataDomainService
@@ -212,6 +213,35 @@ async def get_source_detail(
 ) -> dict:
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     return envelope_ok(await service.get_source_detail(workspace_id=workspace_id, source_id=source_id))
+
+
+@router.post("/sources/{source_id}/external-ids")
+async def upsert_source_external_ids(
+    source_id: str,
+    command: list[SourceExternalIdCreateCommand],
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    records = await service.upsert_source_external_ids(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        external_ids=command,
+    )
+    await uow.commit()
+    return envelope_ok(records)
+
+
+@router.get("/sources/{source_id}/external-ids")
+async def list_source_external_ids(
+    source_id: str,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(
+        await service.list_source_external_ids(workspace_id=workspace_id, source_id=source_id)
+    )
 
 
 @router.patch("/sources/{source_id}")

@@ -47,6 +47,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 核心表：
 
 - `sources`：文献主表，包含 title/authors/year/venue/doi/source/status/citation_key/read 状态等。
+- `source_external_ids`：Semantic Scholar、上传 hash 等外部来源 ID。
 - `source_assets` + `workspace_assets`：PDF、Markdown、manifest 和补充资产，包含 preprocess 状态。
 - `source_outline_nodes`：目录/页码索引节点。
 - `source_text_units`：可检索全文单元。

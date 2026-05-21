@@ -925,6 +925,7 @@ Implementation status:
 - Gateway Reference Library list/count/detail/update/delete/status endpoints now use Source DataService projections and mutation commands. Outline/search/outline-node/page read endpoints already use Source read projections instead of `ReferenceIndexService`.
 - Legacy `ReferenceIndexService` has been removed; Source outline/text-unit/page reads are owned by Source DataService.
 - Reference import/upsert flows now synchronize canonical `sources` rows with the same ids as legacy reference rows, so newly imported manual, Semantic Scholar, Deep Search, BibTeX, and PDF-upload metadata remains visible after the Source cutover.
+- Source DataService now owns `source_external_ids` read/upsert APIs, internal routes, and typed client methods; reference adapter synchronization carries Semantic Scholar/upload hashes into Source detail instead of leaving external ids as an empty projection.
 - Reference BibTeX build, citation validation, and Prism sync now read canonical Source metadata through Source DataService; Source curation state is reflected in exported `refs.bib`.
 - Chat/LangGraph citation and literature-context middleware now receives Source DataService projections from FastAPI and Celery run entrypoints, parses LaTeX `\cite{...}` keys, and records usage through Source citation usage/provenance commands. Legacy `search_in_workspace` / `record_reference_usage` fallback has been removed.
 - Reference evidence-pack assembly is now a canonical `SourceDataService.build_evidence_pack` contract over Source library outlines and Source text-unit search results; the gateway no longer exports or calls `ReferenceEvidenceService`.
@@ -933,11 +934,11 @@ Implementation status:
 - Remaining Source convergence debt is limited to deleting the legacy reference adapter tables/services after upload/preprocess routes are fully rewritten against Source/Asset commands.
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
-- Verification after the Source curation/evidence/indexer/asset slice is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1933 backend tests.
+- Verification after the Source curation/evidence/indexer/asset slice is green through `cd /Users/ze/wenjin/backend && .venv/bin/python -m pytest tests/ -q` with 1934 backend tests.
 - Architecture guard now blocks runtime imports of migrated room/sandbox/source/document/settings/workspace-run/compute-session legacy model modules and model names.
 - Migration `070_dataservice_projection_cleanup.py` records the projection cleanup stage in `dataservice_migration_reports`.
 - Legacy service facade files still exist where gateway routes or smoke tests instantiate them; their business logic has been emptied and delegated to DataService. Final deletion remains pending router cleanup.
-- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/services/test_reference_bibtex_service.py tests/services/test_reference_writing_workflow_gate.py tests/services/test_reference_import_service.py tests/agents/middlewares/test_citation_context.py tests/agents/middlewares/test_academic_middlewares.py tests/tools/test_reference_builtins.py tests/architecture/test_dataservice_boundaries.py -q` passes with 53 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1933 tests.
+- Verification: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/services/test_reference_bibtex_service.py tests/services/test_reference_writing_workflow_gate.py tests/services/test_reference_import_service.py tests/agents/middlewares/test_citation_context.py tests/agents/middlewares/test_academic_middlewares.py tests/tools/test_reference_builtins.py tests/architecture/test_dataservice_boundaries.py -q` passes with 53 tests; `cd backend && .venv/bin/python -m pytest tests/ -q` passes with 1934 tests.
 
 ### Task 14: Final Drop/Archive Gate
 

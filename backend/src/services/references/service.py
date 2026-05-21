@@ -39,6 +39,7 @@ from src.dataservice.source_api import (
     SourceBibliographyCreateCommand,
     SourceCreateCommand,
     SourceDataService,
+    SourceExternalIdCreateCommand,
 )
 from src.services.latex.project_service import LatexProjectService
 from src.services.upload_preprocessor import UploadPreprocessResult, get_upload_preprocessor_service
@@ -891,7 +892,8 @@ class WorkspaceReferenceService:
         return existing, created
 
     async def _sync_source_record(self, reference: WorkspaceReference) -> None:
-        await SourceDataService(self.db, autocommit=False).upsert_source(
+        source_service = SourceDataService(self.db, autocommit=False)
+        await source_service.upsert_source(
             SourceCreateCommand(
                 source_id=str(reference.id),
                 workspace_id=str(reference.workspace_id),
@@ -921,6 +923,25 @@ class WorkspaceReferenceService:
                 notes=reference.notes,
                 is_deleted=bool(reference.is_deleted),
             )
+        )
+        external_ids_result = await self.db.execute(
+            select(ReferenceExternalId).where(
+                ReferenceExternalId.workspace_id == reference.workspace_id,
+                ReferenceExternalId.reference_id == reference.id,
+            )
+        )
+        await source_service.upsert_source_external_ids(
+            workspace_id=str(reference.workspace_id),
+            source_id=str(reference.id),
+            external_ids=[
+                SourceExternalIdCreateCommand(
+                    provider=str(external_id.source),
+                    external_id=str(external_id.external_id),
+                    url=external_id.url,
+                    metadata_json={"legacy_id": str(external_id.id)},
+                )
+                for external_id in external_ids_result.scalars().all()
+            ],
         )
 
     async def _ensure_unique_citation_key(

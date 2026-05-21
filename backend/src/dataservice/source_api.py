@@ -12,6 +12,7 @@ from src.dataservice.domains.source.contracts import (
     SourceCreateCommand,
     SourceEvidencePackCreateCommand,
     SourceEvidencePackProjection,
+    SourceExternalIdCreateCommand,
     SourceProjection,
     SourceUpdateCommand,
 )
@@ -52,6 +53,30 @@ class SourceDataService:
         source_id: str,
     ) -> dict[str, object] | None:
         return await self._domain.get_source_detail(
+            workspace_id=workspace_id,
+            source_id=source_id,
+        )
+
+    async def upsert_source_external_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        external_ids: list[SourceExternalIdCreateCommand],
+    ) -> list[dict[str, object]]:
+        return await self._domain.upsert_source_external_ids(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            external_ids=external_ids,
+        )
+
+    async def list_source_external_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> list[dict[str, object]]:
+        return await self._domain.list_source_external_ids(
             workspace_id=workspace_id,
             source_id=source_id,
         )

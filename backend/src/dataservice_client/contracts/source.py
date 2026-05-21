@@ -58,6 +58,13 @@ class SourceUpdatePayload(BaseModel):
     notes: str | None = None
 
 
+class SourceExternalIdCreatePayload(BaseModel):
+    provider: str
+    external_id: str
+    url: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class SourcePayload(SourceCreatePayload):
     id: str
     normalized_title: str

@@ -58,6 +58,13 @@ class SourceUpdateCommand(BaseModel):
     notes: str | None = None
 
 
+class SourceExternalIdCreateCommand(BaseModel):
+    provider: str = Field(min_length=1, max_length=80)
+    external_id: str = Field(min_length=1, max_length=255)
+    url: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class SourceProjection(BaseModel):
     id: str
     workspace_id: str

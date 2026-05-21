@@ -18,6 +18,7 @@ from src.dataservice.domains.source.contracts import (
     SourceCreateCommand,
     SourceEvidencePackCreateCommand,
     SourceEvidencePackProjection,
+    SourceExternalIdCreateCommand,
     SourceProjection,
     SourceUpdateCommand,
 )
@@ -102,13 +103,14 @@ class SourceDataDomainService:
         if source is None:
             return None
         serialized = self._serialize_reference_compat(source)
+        external_ids = await self.list_source_external_ids(workspace_id=workspace_id, source_id=source_id)
         assets = await self.list_source_assets(workspace_id=workspace_id, source_id=source_id)
         outline = await self.get_source_outline(workspace_id, source_id, limit=200)
         return {
             "reference": {**serialized, "assets": assets},
             "source": source.model_dump(mode="json"),
             "assets": assets,
-            "external_ids": [],
+            "external_ids": external_ids,
             "source_history": [
                 {
                     "source_type": source.ingest_kind,
@@ -130,6 +132,67 @@ class SourceDataDomainService:
                 "last_used_at": None,
             },
         }
+
+    async def upsert_source_external_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        external_ids: list[SourceExternalIdCreateCommand],
+    ) -> list[dict[str, object]]:
+        source = await self.repository.get_source_for_workspace(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            include_deleted=True,
+        )
+        if source is None:
+            return []
+        upserted: list[dict[str, object]] = []
+        for item in external_ids:
+            provider = item.provider.strip()
+            external_id = item.external_id.strip()
+            if not provider or not external_id:
+                continue
+            record = await self.repository.get_external_id(
+                workspace_id=workspace_id,
+                provider=provider,
+                external_id=external_id,
+            )
+            if record is None:
+                record = self.repository.create_external_id(
+                    {
+                        "workspace_id": workspace_id,
+                        "source_id": source_id,
+                        "provider": provider,
+                        "external_id": external_id,
+                        "url": item.url,
+                        "metadata_json": dict(item.metadata_json or {}),
+                    }
+                )
+            else:
+                record.source_id = source_id
+                record.url = record.url or item.url
+                record.metadata_json = {
+                    **dict(record.metadata_json or {}),
+                    **dict(item.metadata_json or {}),
+                }
+            upserted.append(self._serialize_external_id(record))
+        await self._finish()
+        return upserted
+
+    async def list_source_external_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> list[dict[str, object]]:
+        return [
+            self._serialize_external_id(record)
+            for record in await self.repository.list_external_ids(
+                workspace_id=workspace_id,
+                source_id=source_id,
+            )
+        ]
 
     async def build_bibliography(
         self,
@@ -849,6 +912,24 @@ class SourceDataDomainService:
             "manifest_path": metadata.get("manifest_path"),
             "markdown_paths": list(metadata.get("markdown_paths") or []),
             "metadata": metadata,
+            "created_at": created_at.isoformat() if created_at else None,
+            "updated_at": updated_at.isoformat() if updated_at else None,
+        }
+
+    @staticmethod
+    def _serialize_external_id(record: object) -> dict[str, object]:
+        created_at = getattr(record, "created_at", None)
+        updated_at = getattr(record, "updated_at", None)
+        provider = getattr(record, "provider", None)
+        return {
+            "id": str(record.id),
+            "workspace_id": str(record.workspace_id),
+            "source_id": str(record.source_id),
+            "provider": provider,
+            "source": provider,
+            "external_id": record.external_id,
+            "url": getattr(record, "url", None),
+            "metadata": dict(getattr(record, "metadata_json", None) or {}),
             "created_at": created_at.isoformat() if created_at else None,
             "updated_at": updated_at.isoformat() if updated_at else None,
         }

@@ -84,6 +84,7 @@ from src.dataservice_client.contracts.source import (
     SourceCitationUsageCreatePayload,
     SourceCitationUsagePayload,
     SourceCreatePayload,
+    SourceExternalIdCreatePayload,
     SourcePayload,
     SourceUpdatePayload,
 )
@@ -812,6 +813,34 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return dict(data) if isinstance(data, dict) else None
+
+    async def upsert_source_external_ids(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        external_ids: list[SourceExternalIdCreatePayload],
+    ) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/sources/{source_id}/external-ids",
+            params={"workspace_id": workspace_id},
+            json=[item.model_dump(mode="json") for item in external_ids],
+        )
+        return list(payload["data"])
+
+    async def list_source_external_ids(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+    ) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/external-ids",
+            params={"workspace_id": workspace_id},
+        )
+        return list(payload["data"])
 
     async def update_source(
         self,

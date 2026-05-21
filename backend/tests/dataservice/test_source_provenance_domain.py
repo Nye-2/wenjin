@@ -17,6 +17,7 @@ from src.dataservice.domains.source.contracts import (
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
     SourceEvidencePackCreateCommand,
+    SourceExternalIdCreateCommand,
     SourceUpdateCommand,
 )
 from src.dataservice.domains.source.models import SourceAssetRecord, SourceRecord
@@ -45,6 +46,7 @@ def _record(values: dict[str, Any]) -> SimpleNamespace:
 class FakeSourceRepository:
     def __init__(self) -> None:
         self.sources: dict[str, SimpleNamespace] = {}
+        self.external_ids: list[SimpleNamespace] = []
         self.outline_nodes: list[SimpleNamespace] = []
         self.text_units: list[SimpleNamespace] = []
         self.source_assets: list[SimpleNamespace] = []
@@ -76,6 +78,41 @@ class FakeSourceRepository:
         record = _record({"id": values.pop("id", f"asset-{len(self.source_assets) + 1}"), **values})
         self.source_assets.append(record)
         return record
+
+    def create_external_id(self, values: dict[str, Any]) -> SimpleNamespace:
+        record = _record({"id": values.pop("id", f"external-{len(self.external_ids) + 1}"), **values})
+        self.external_ids.append(record)
+        return record
+
+    async def get_external_id(
+        self,
+        *,
+        workspace_id: str,
+        provider: str,
+        external_id: str,
+    ) -> SimpleNamespace | None:
+        return next(
+            (
+                record
+                for record in self.external_ids
+                if record.workspace_id == workspace_id
+                and record.provider == provider
+                and record.external_id == external_id
+            ),
+            None,
+        )
+
+    async def list_external_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> list[SimpleNamespace]:
+        return [
+            record
+            for record in self.external_ids
+            if record.workspace_id == workspace_id and record.source_id == source_id
+        ]
 
     async def get_source_asset(self, source_asset_id: str) -> SimpleNamespace | None:
         return next((record for record in self.source_assets if record.id == source_asset_id), None)
@@ -514,6 +551,53 @@ async def test_source_service_updates_and_deletes_reference_state() -> None:
     assert updated.tags_json == ["important"]
     assert deleted is True
     assert await service.get_source_for_workspace(workspace_id="ws-1", source_id=first.id) is None
+
+
+@pytest.mark.asyncio
+async def test_source_service_upserts_external_ids_into_detail() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    source = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="External Paper",
+            citation_key="external2026",
+            library_status="included",
+        )
+    )
+    first = await service.upsert_source_external_ids(
+        workspace_id="ws-1",
+        source_id=source.id,
+        external_ids=[
+            SourceExternalIdCreateCommand(
+                provider="semantic_scholar",
+                external_id="paper-1",
+                url="https://example.test/paper-1",
+            )
+        ],
+    )
+    second = await service.upsert_source_external_ids(
+        workspace_id="ws-1",
+        source_id=source.id,
+        external_ids=[
+            SourceExternalIdCreateCommand(
+                provider="semantic_scholar",
+                external_id="paper-1",
+                metadata_json={"source_label": "verified"},
+            )
+        ],
+    )
+    detail = await service.get_source_detail(workspace_id="ws-1", source_id=source.id)
+
+    assert first[0]["external_id"] == "paper-1"
+    assert second[0]["url"] == "https://example.test/paper-1"
+    assert second[0]["metadata"] == {"source_label": "verified"}
+    assert detail is not None
+    assert detail["external_ids"] == second
+    assert len(repository.external_ids) == 1
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from src.database.base import generate_uuid
 from src.dataservice.domains.asset.models import WorkspaceAssetRecord
 from src.dataservice.domains.source.models import (
     SourceAssetRecord,
+    SourceExternalIdRecord,
     SourceOutlineNodeRecord,
     SourceRecord,
     SourceTextUnitRecord,
@@ -41,6 +42,11 @@ class SourceRepository:
         self.session.add(record)
         return record
 
+    def create_external_id(self, values: dict[str, Any]) -> SourceExternalIdRecord:
+        record = SourceExternalIdRecord(id=str(values.pop("id", None) or generate_uuid()), **values)
+        self.session.add(record)
+        return record
+
     async def get_source_asset(self, source_asset_id: str) -> SourceAssetRecord | None:
         result = await self.session.execute(
             select(SourceAssetRecord).where(SourceAssetRecord.id == source_asset_id)
@@ -50,6 +56,38 @@ class SourceRepository:
     async def get_source(self, source_id: str) -> SourceRecord | None:
         result = await self.session.execute(select(SourceRecord).where(SourceRecord.id == source_id))
         return result.scalar_one_or_none()
+
+    async def get_external_id(
+        self,
+        *,
+        workspace_id: str,
+        provider: str,
+        external_id: str,
+    ) -> SourceExternalIdRecord | None:
+        result = await self.session.execute(
+            select(SourceExternalIdRecord).where(
+                SourceExternalIdRecord.workspace_id == workspace_id,
+                SourceExternalIdRecord.provider == provider,
+                SourceExternalIdRecord.external_id == external_id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_external_ids(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+    ) -> list[SourceExternalIdRecord]:
+        result = await self.session.execute(
+            select(SourceExternalIdRecord)
+            .where(
+                SourceExternalIdRecord.workspace_id == workspace_id,
+                SourceExternalIdRecord.source_id == source_id,
+            )
+            .order_by(SourceExternalIdRecord.provider.asc(), SourceExternalIdRecord.external_id.asc())
+        )
+        return list(result.scalars().all())
 
     async def get_source_for_workspace(
         self,
