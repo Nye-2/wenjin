@@ -23,7 +23,6 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         publish_execution_stream_end,
     )
     from src.services.execution_service import ExecutionService
-    from src.services.rooms.run_history_service import RunHistoryService
 
     if not redis_settings.enabled:
         raise RuntimeError("execute_execution requires REDIS_ENABLED=true")
@@ -52,7 +51,6 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             )
 
         # Build deps
-        run_history_service = RunHistoryService(db)
         event_bus = EventBus(redis_client.client)
         resolver = CapabilityResolver(
             session_factory=get_db_session,
@@ -145,7 +143,6 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         engine = ExecutionEngineV2(
             runtime=runtime,
             execution_service=execution_service,
-            run_history_service=run_history_service,
         )
 
         try:

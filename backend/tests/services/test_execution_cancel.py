@@ -203,13 +203,9 @@ async def test_cancel_flow_eventually_persists_cancelled_status():
     runtime = MagicMock()
     runtime.run_session = AsyncMock(return_value=cancelled_report)
 
-    run_history_service = MagicMock()
-    run_history_service.record = AsyncMock()
-
     engine = ExecutionEngineV2(
         runtime=runtime,
         execution_service=execution_svc,
-        run_history_service=run_history_service,
     )
 
     await engine.run(EXECUTION_ID)

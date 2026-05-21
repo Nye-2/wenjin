@@ -183,12 +183,9 @@ async def test_engine_v2_full_pipeline_with_run_history():
         feature_id="outline_generate",
     )
 
-    run_history = AsyncMock()
-
     engine = ExecutionEngineV2(
         runtime=runtime,
         execution_service=execution_service,
-        run_history_service=run_history,
     )
 
     await engine.run("e-1")
@@ -198,8 +195,22 @@ async def test_engine_v2_full_pipeline_with_run_history():
     # Status transitions: pending → running → completed
     execution_service.start_execution.assert_awaited_once_with("e-1")
     execution_service.complete_execution.assert_awaited_once()
-    # Run history recorded
-    run_history.record.assert_awaited_once()
+    # Run history recorded as execution event
+    execution_service.append_execution_event.assert_any_await(
+        "e-1",
+        "execution.run_history",
+        workspace_id="ws-1",
+        node_id=None,
+        payload_json={
+            "capability_id": "outline_generate",
+            "title": "完成大纲",
+            "summary": "完成大纲",
+            "status": "completed",
+            "duration_seconds": 2,
+            "token_usage": {},
+            "artifact_count": 0,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

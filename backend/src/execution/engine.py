@@ -28,7 +28,7 @@ class ExecutionEngineV2:
     - Mark it running via ExecutionService.start_execution()
     - Invoke LeadAgentRuntime.run_session()
     - Persist result via ExecutionService.complete_execution()
-    - Record run history via RunHistoryService.record()
+    - Record run history as a DataService execution event
     - On any failure: mark execution as failed and re-raise
     """
 
@@ -37,20 +37,15 @@ class ExecutionEngineV2:
         *,
         runtime: LeadAgentRuntime,
         execution_service,
-        run_history_service,
     ) -> None:
         """
         Args:
             runtime: LeadAgentRuntime instance.
             execution_service: ExecutionService (backend/src/services/execution_service.py).
                 Used methods: get_by_id(), start_execution(), complete_execution().
-            run_history_service: RunHistoryService
-                (backend/src/services/rooms/run_history_service.py).
-                Used method: record().
         """
         self.runtime = runtime
         self.execution_service = execution_service
-        self.run_history_service = run_history_service
 
     async def run(self, execution_id: str) -> None:
         """Execute a capability run identified by execution_id.
@@ -98,16 +93,19 @@ class ExecutionEngineV2:
                 workspace_id=execution.workspace_id,
                 payload_json={"status": report.status},
             )
-            await self.run_history_service.record(
-                execution.workspace_id,
+            await self._append_execution_event(
                 execution_id,
-                execution.feature_id or report.capability_id,
-                report.narrative[:200],
-                report.narrative,
-                report.status,
-                report.duration_seconds,
-                token_usage=report.token_usage,
-                artifact_count=len(report.outputs),
+                "execution.run_history",
+                workspace_id=execution.workspace_id,
+                payload_json={
+                    "capability_id": execution.feature_id or report.capability_id,
+                    "title": report.narrative[:200],
+                    "summary": report.narrative,
+                    "status": report.status,
+                    "duration_seconds": report.duration_seconds,
+                    "token_usage": report.token_usage or {},
+                    "artifact_count": len(report.outputs),
+                },
             )
 
         except Exception as exc:

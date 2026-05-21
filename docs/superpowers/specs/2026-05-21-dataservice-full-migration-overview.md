@@ -1065,6 +1065,7 @@ Implementation status as of 2026-05-21:
 - `backend/src/dataservice/domains/rooms/` owns room contracts, repository, projections, service, and review handler factory. Workspace room HTTP routes still expose product-specific endpoint adapters, but canonical decisions/memory/task business logic lives in `RoomsDataService`.
 - Execution commit now stages memory/decision/task outputs into `review_batches` / `review_items` and applies them through room review handlers; direct room table writes from `ExecutionCommitService` are removed for those target kinds.
 - Execution commit also writes library outputs through `SourceDataService`, document outputs through `AssetDataService`, and run-history through `ExecutionDataService.record_event`, so result-card commit materialization no longer instantiates room service facades.
+- `ExecutionEngineV2` records run history as canonical `execution.run_history` events; the Celery execution entrypoint no longer instantiates the run-history room facade.
 - Verification through the Rooms slice is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1914 backend tests.
 - Projection cleanup first slice is implemented.
 - Runtime code outside DataService/database ownership packages is guarded from importing migrated room/sandbox/source legacy models: `Decision`, `MemoryFact`, `WorkspaceTask`, `Sandbox`, and `LibraryItem`.
@@ -1119,7 +1120,7 @@ Implementation status as of 2026-05-21:
 - Legacy `PrismReviewService` has been deleted. Runtime code outside DataService/database ownership packages is guarded from importing `PrismReviewItem`, `PrismSourceLink`, or `PrismProtectedSection`.
 - Legacy Prism review ORM models have been deleted. Migration `071_drop_legacy_prism_review_tables.py` drops `prism_review_items`, `prism_source_links`, and `prism_protected_sections` after the DataService cutover.
 - `070_dataservice_projection_cleanup.py` records the cleanup milestone in `dataservice_migration_reports`.
-- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, workspace-run table drop, Prism action-contract cleanup, conversation JSON-write removal, owner invariant, and review transaction cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1938 backend tests; owner invariant target tests pass with 11 tests; review transaction target tests pass with 14 tests; execution commit DataService target tests pass with 34 tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` also pass.
+- Verification through the Source curation/evidence/indexer/asset/upload-preprocess/BibTeX snapshot cleanup, workspace-run table drop, Prism action-contract cleanup, conversation JSON-write removal, owner invariant, and review transaction cleanup slices is green through `cd backend && .venv/bin/python -m pytest tests/ -q` with 1938 backend tests; owner invariant target tests pass with 11 tests; review transaction target tests pass with 14 tests; execution commit DataService target tests pass with 34 tests; execution engine run-history event tests pass with 16 tests; `cd frontend && npm run typecheck` and `cd frontend && npm run lint` also pass.
 
 ### Phase 4: Review Materialization
 

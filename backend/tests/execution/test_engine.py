@@ -59,12 +59,7 @@ def _make_execution_service(record=None) -> MagicMock:
     svc.get_by_id = AsyncMock(return_value=record)
     svc.start_execution = AsyncMock()
     svc.complete_execution = AsyncMock()
-    return svc
-
-
-def _make_run_history_service() -> MagicMock:
-    svc = MagicMock()
-    svc.record = AsyncMock()
+    svc.append_execution_event = AsyncMock()
     return svc
 
 
@@ -84,18 +79,16 @@ def _make_runtime(report: TaskReport | None = None, *, raise_exc: Exception | No
 
 @pytest.mark.asyncio
 async def test_engine_runs_lead_agent_and_marks_complete():
-    """Happy path: runtime called, execution marked complete, run_history recorded."""
+    """Happy path: runtime called, execution marked complete, run-history event recorded."""
     record = _make_execution_record()
     report = _make_task_report()
 
     execution_svc = _make_execution_service(record=record)
-    history_svc = _make_run_history_service()
     runtime = _make_runtime(report=report)
 
     engine = ExecutionEngineV2(
         runtime=runtime,
         execution_service=execution_svc,
-        run_history_service=history_svc,
     )
 
     await engine.run("exec-001")
@@ -114,16 +107,22 @@ async def test_engine_runs_lead_agent_and_marks_complete():
     assert complete_kwargs["status"] == "completed"
     assert "task_report" in complete_kwargs["result"]
 
-    # Run history was recorded
-    history_svc.record.assert_called_once()
-    record_args = history_svc.record.call_args
-    # Positional args: workspace_id, execution_id, capability_id, title, summary, status, duration_seconds
-    positional = record_args.args
-    assert positional[0] == "ws-001"       # workspace_id
-    assert positional[1] == "exec-001"     # execution_id
-    assert positional[2] == "test_cap"     # capability_id (from feature_id)
-    assert positional[5] == "completed"    # status
-    assert positional[6] == 2              # duration_seconds
+    # Run history was recorded as a canonical execution event.
+    execution_svc.append_execution_event.assert_any_await(
+        "exec-001",
+        "execution.run_history",
+        workspace_id="ws-001",
+        node_id=None,
+        payload_json={
+            "capability_id": "test_cap",
+            "title": "完成 Test Capability，共执行 1 个节点。",
+            "summary": "完成 Test Capability，共执行 1 个节点。",
+            "status": "completed",
+            "duration_seconds": 2,
+            "token_usage": {},
+            "artifact_count": 0,
+        },
+    )
 
 
 @pytest.mark.asyncio
@@ -133,7 +132,6 @@ async def test_engine_injects_lightweight_manuscript_context(monkeypatch: pytest
     report = _make_task_report()
     execution_svc = _make_execution_service(record=record)
     execution_svc.db = object.__new__(AsyncSession)
-    history_svc = _make_run_history_service()
     runtime = _make_runtime(report=report)
     prism_service = MagicMock()
     prism_service.get_launch_context_projection = AsyncMock(
@@ -156,7 +154,6 @@ async def test_engine_injects_lightweight_manuscript_context(monkeypatch: pytest
     engine = ExecutionEngineV2(
         runtime=runtime,
         execution_service=execution_svc,
-        run_history_service=history_svc,
     )
 
     await engine.run("exec-001")
@@ -178,13 +175,11 @@ async def test_engine_marks_failed_on_runtime_exception():
     boom = RuntimeError("something went wrong in subagent")
 
     execution_svc = _make_execution_service(record=record)
-    history_svc = _make_run_history_service()
     runtime = _make_runtime(raise_exc=boom)
 
     engine = ExecutionEngineV2(
         runtime=runtime,
         execution_service=execution_svc,
-        run_history_service=history_svc,
     )
 
     with pytest.raises(RuntimeError, match="something went wrong"):
@@ -199,8 +194,11 @@ async def test_engine_marks_failed_on_runtime_exception():
     assert fail_kwargs["status"] == "failed"
     assert "something went wrong" in fail_kwargs["error"]
 
-    # Run history NOT recorded on failure
-    history_svc.record.assert_not_called()
+    # Run-history event is not recorded on failure.
+    assert not any(
+        call.args[1] == "execution.run_history"
+        for call in execution_svc.append_execution_event.await_args_list
+    )
 
 
 @pytest.mark.asyncio
@@ -210,13 +208,11 @@ async def test_engine_persists_cancelled_status_from_runtime_report():
     report = _make_task_report(status="cancelled")
 
     execution_svc = _make_execution_service(record=record)
-    history_svc = _make_run_history_service()
     runtime = _make_runtime(report=report)
 
     engine = ExecutionEngineV2(
         runtime=runtime,
         execution_service=execution_svc,
-        run_history_service=history_svc,
     )
 
     await engine.run("exec-001")
@@ -226,9 +222,12 @@ async def test_engine_persists_cancelled_status_from_runtime_report():
     assert complete_kwargs["status"] == "cancelled"
     assert "task_report" in complete_kwargs["result"]
 
-    history_svc.record.assert_called_once()
-    record_args = history_svc.record.call_args.args
-    assert record_args[5] == "cancelled"
+    run_history_call = next(
+        call
+        for call in execution_svc.append_execution_event.await_args_list
+        if call.args[1] == "execution.run_history"
+    )
+    assert run_history_call.kwargs["payload_json"]["status"] == "cancelled"
 
 
 # ---------------------------------------------------------------------------
@@ -240,13 +239,11 @@ async def test_engine_persists_cancelled_status_from_runtime_report():
 async def test_engine_raises_for_missing_execution():
     """When ExecutionService.get_by_id returns None, raise ValueError."""
     execution_svc = _make_execution_service(record=None)  # None = not found
-    history_svc = _make_run_history_service()
     runtime = _make_runtime()
 
     engine = ExecutionEngineV2(
         runtime=runtime,
         execution_service=execution_svc,
-        run_history_service=history_svc,
     )
 
     with pytest.raises(ValueError, match="exec-missing not found"):
@@ -255,4 +252,4 @@ async def test_engine_raises_for_missing_execution():
     # Nothing else should have been called
     execution_svc.start_execution.assert_not_called()
     runtime.run_session.assert_not_called()
-    history_svc.record.assert_not_called()
+    execution_svc.append_execution_event.assert_not_called()
