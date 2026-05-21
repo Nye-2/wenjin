@@ -10,10 +10,10 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 
 from src.application.workspace_resolvers import resolve_workspace_type
-from src.database import Artifact, Workspace, get_db_session
+from src.database import get_db_session
+from src.dataservice.asset_api import AssetDataService
 from src.dataservice.catalog_api import CatalogDataService
 from src.dataservice.workspace_api import WorkspaceDataService
 
@@ -90,10 +90,10 @@ async def list_capabilities_tool(
         return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
 
     async with get_db_session() as db:
-        workspace = await db.get(Workspace, runtime.workspace_id)
+        workspace_access = WorkspaceDataService(db)
+        workspace = await workspace_access.get_workspace(runtime.workspace_id)
         if workspace is None:
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
-        workspace_access = WorkspaceDataService(db)
         if not await workspace_access.user_has_active_membership(
             workspace_id=str(runtime.workspace_id),
             user_id=str(runtime.user_id),
@@ -137,23 +137,21 @@ async def list_workspace_artifacts_tool(
         return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
 
     async with get_db_session() as db:
-        workspace = await db.get(Workspace, runtime.workspace_id)
+        workspace_access = WorkspaceDataService(db)
+        workspace = await workspace_access.get_workspace(runtime.workspace_id)
         if workspace is None:
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
-        workspace_access = WorkspaceDataService(db)
         if not await workspace_access.user_has_active_membership(
             workspace_id=str(runtime.workspace_id),
             user_id=str(runtime.user_id),
         ):
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
 
-        result = await db.execute(
-            select(Artifact)
-            .where(Artifact.workspace_id == runtime.workspace_id)
-            .order_by(Artifact.created_at.desc())
-            .limit(limit)
+        artifacts = await AssetDataService(db, autocommit=False).list_assets(
+            workspace_id=runtime.workspace_id,
+            asset_kind="artifact",
+            limit=limit,
         )
-        artifacts = list(result.scalars().all())
 
         return json.dumps(
             {
@@ -162,8 +160,8 @@ async def list_workspace_artifacts_tool(
                 "artifacts": [
                     {
                         "id": str(artifact.id),
-                        "type": artifact.type,
-                        "title": artifact.title,
+                        "type": str(artifact.metadata_json.get("artifact_type") or artifact.asset_kind),
+                        "title": artifact.title or artifact.name,
                         "created_at": (
                             artifact.created_at.isoformat() if artifact.created_at else None
                         ),
