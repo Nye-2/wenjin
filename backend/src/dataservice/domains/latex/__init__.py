@@ -1,0 +1,1 @@
+"""LaTeX adapter persistence domain."""

@@ -6,11 +6,11 @@ import hashlib
 import re
 from typing import Any
 
-from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.latex_project import LatexProject
+from src.dataservice.latex_api import LatexDataService
 from src.dataservice.prism_review_api import PrismReviewDataService
+from src.dataservice.workspace_api import WorkspaceDataService
 from src.services.latex import LatexProjectService
 
 _SCI_SECTION_SPECS: tuple[tuple[str, str, str], ...] = (
@@ -57,10 +57,11 @@ class WorkspaceLatexProjectService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self.data = LatexDataService(db)
         self.project_service = LatexProjectService(db)
 
     @staticmethod
-    def _project_bridge_metadata(project: LatexProject) -> dict[str, Any]:
+    def _project_bridge_metadata(project: Any) -> dict[str, Any]:
         llm_config = project.llm_config if isinstance(project.llm_config, dict) else {}
         metadata = llm_config.get("metadata")
         return dict(metadata) if isinstance(metadata, dict) else {}
@@ -68,7 +69,7 @@ class WorkspaceLatexProjectService:
     @classmethod
     def _merge_bridge_metadata(
         cls,
-        project: LatexProject,
+        project: Any,
         updates: dict[str, Any],
     ) -> dict[str, Any]:
         metadata = cls._project_bridge_metadata(project)
@@ -141,7 +142,7 @@ class WorkspaceLatexProjectService:
 
     async def _safe_bridge_write(
         self,
-        project: LatexProject,
+        project: Any,
         *,
         workspace_id: str,
         relative_path: str,
@@ -156,9 +157,10 @@ class WorkspaceLatexProjectService:
             metadata["managed_files"] = managed_files
         record = managed_files.get(logical_key)
         if not project.workspace_id:
-            project.workspace_id = workspace_id
-            project.surface_role = "primary_manuscript"
-            await self.db.flush()
+            await LatexDataService(self.db, autocommit=False).attach_workspace_project(
+                project,
+                workspace_id=workspace_id,
+            )
 
         try:
             current_content = self.project_service.read_text_file(project, relative_path)
@@ -236,7 +238,7 @@ class WorkspaceLatexProjectService:
         extra_files: list[dict[str, str]] | None = None,
         template: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> LatexProject:
+    ) -> Any:
         workspace = await self._load_workspace_bridge_row(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
@@ -323,7 +325,7 @@ class WorkspaceLatexProjectService:
         workspace_id: str,
         project_name: str | None = None,
         template: str | None = None,
-    ) -> LatexProject:
+    ) -> Any:
         """Ensure a workspace-linked LaTeX project exists and return it."""
         workspace = await self._load_workspace_bridge_row(workspace_id)
         if workspace is None:
@@ -360,19 +362,9 @@ class WorkspaceLatexProjectService:
         )
 
     async def _load_workspace_bridge_row(self, workspace_id: str) -> dict[str, Any] | None:
-        result = await self.db.execute(
-            text(
-                """
-                select id, user_id, name, type
-                from workspaces
-                where id = :workspace_id
-                limit 1
-                """
-            ),
-            {"workspace_id": workspace_id},
+        return await WorkspaceDataService(self.db, autocommit=False).get_workspace_bridge_row(
+            workspace_id
         )
-        row = result.mappings().first()
-        return dict(row) if row is not None else None
 
     async def _find_existing_project(
         self,
@@ -380,48 +372,16 @@ class WorkspaceLatexProjectService:
         *,
         owner_user_id: str,
         template: str | None = None,
-    ) -> LatexProject | None:
-        params: dict[str, Any] = {
-            "workspace_id": workspace_id,
-            "owner_user_id": owner_user_id,
-        }
-        template_clause = ""
-        if template:
-            template_clause = "and llm_config->>'template' = :template"
-            params["template"] = template
-
-        result = await self.db.execute(
-            text(
-                f"""
-                select id
-                from latex_projects
-                where user_id = :owner_user_id
-                  and workspace_id = :workspace_id
-                  and surface_role = 'primary_manuscript'
-                  {template_clause}
-                order by updated_at desc
-                limit 1
-                """
-            ),
-            params,
+    ) -> Any | None:
+        return await self.data.get_workspace_primary_project(
+            workspace_id=workspace_id,
+            owner_user_id=owner_user_id,
+            template=template,
         )
-        row = result.mappings().first()
-        if row is not None:
-            project = await self.db.get(LatexProject, str(row["id"]))
-            if project is not None:
-                return project
 
-        return None
-
-    async def get_project_by_id(self, project_id: str) -> LatexProject | None:
+    async def get_project_by_id(self, project_id: str) -> Any | None:
         """Return a LaTeX adapter project by id."""
-        getter = getattr(self.db, "get", None)
-        if callable(getter):
-            return await getter(LatexProject, project_id)
-        result = await self.db.execute(
-            select(LatexProject).where(LatexProject.id == project_id).limit(1)
-        )
-        return result.scalar_one_or_none()
+        return await self.data.get_project(project_id)
 
     async def sync_sci_outline_project(
         self,
@@ -431,7 +391,7 @@ class WorkspaceLatexProjectService:
         abstract: str,
         keywords: list[str],
         sections: list[dict[str, Any]],
-    ) -> tuple[LatexProject, dict[str, str]]:
+    ) -> tuple[Any, dict[str, str]]:
         workspace = await self._load_workspace_bridge_row(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
@@ -523,7 +483,7 @@ class WorkspaceLatexProjectService:
         section_type: str,
         section_title: str,
         content: str,
-    ) -> tuple[LatexProject, str, dict[str, str]]:
+    ) -> tuple[Any, str, dict[str, str]]:
         linked_project, section_map = await self.sync_sci_outline_project(
             workspace_id=workspace_id,
             paper_title=paper_title,
@@ -672,7 +632,7 @@ class WorkspaceLatexProjectService:
         workspace_id: str,
         project_title: str,
         sections: list[dict[str, Any]],
-    ) -> tuple[LatexProject, dict[str, str]]:
+    ) -> tuple[Any, dict[str, str]]:
         workspace = await self._load_workspace_bridge_row(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
@@ -757,7 +717,7 @@ class WorkspaceLatexProjectService:
         workspace_id: str,
         project_title: str,
         sections: list[dict[str, Any]],
-    ) -> tuple[LatexProject, dict[str, str]]:
+    ) -> tuple[Any, dict[str, str]]:
         linked_project, section_map = await self.sync_proposal_outline_project(
             workspace_id=workspace_id,
             project_title=project_title,
@@ -823,7 +783,7 @@ class WorkspaceLatexProjectService:
         workspace_id: str,
         project_title: str,
         payload: dict[str, Any],
-    ) -> tuple[LatexProject, str, dict[str, str]]:
+    ) -> tuple[Any, str, dict[str, str]]:
         linked_project, section_map = await self.sync_proposal_outline_project(
             workspace_id=workspace_id,
             project_title=project_title,
@@ -960,7 +920,7 @@ class WorkspaceLatexProjectService:
         project_title: str,
         sections: list[dict[str, Any]],
         claims_draft: dict[str, Any],
-    ) -> tuple[LatexProject, dict[str, str]]:
+    ) -> tuple[Any, dict[str, str]]:
         workspace = await self._load_workspace_bridge_row(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
@@ -1119,7 +1079,7 @@ class WorkspaceLatexProjectService:
         workspace_id: str,
         project_title: str,
         sections: dict[str, Any],
-    ) -> tuple[LatexProject, dict[str, str]]:
+    ) -> tuple[Any, dict[str, str]]:
         workspace = await self._load_workspace_bridge_row(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
@@ -1199,7 +1159,7 @@ class WorkspaceLatexProjectService:
         project_title: str,
         required_materials: list[dict[str, Any]],
         review_checklist: list[str],
-    ) -> tuple[LatexProject, str, dict[str, str]]:
+    ) -> tuple[Any, str, dict[str, str]]:
         linked_project, section_map = await self.sync_software_copyright_technical_description(
             workspace_id=workspace_id,
             project_title=project_title,

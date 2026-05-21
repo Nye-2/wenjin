@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, distinct, func, select
+from sqlalchemy import delete, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.thread import Thread
@@ -47,6 +47,21 @@ class WorkspaceRepository:
     async def get_workspace(self, workspace_id: str) -> Workspace | None:
         result = await self.session.execute(select(Workspace).where(Workspace.id == workspace_id))
         return result.scalar_one_or_none()
+
+    async def get_workspace_bridge_row(self, workspace_id: str) -> dict[str, Any] | None:
+        result = await self.session.execute(
+            text(
+                """
+                select id, user_id, name, type
+                from workspaces
+                where id = :workspace_id
+                limit 1
+                """
+            ),
+            {"workspace_id": workspace_id},
+        )
+        row = result.mappings().first()
+        return dict(row) if row is not None else None
 
     async def lock_workspace_for_update(self, workspace_id: str) -> None:
         await self.session.execute(

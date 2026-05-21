@@ -65,6 +65,9 @@ class WorkspaceDataService:
     async def get_workspace(self, workspace_id: str) -> Workspace | None:
         return await self._domain.get_workspace(workspace_id)
 
+    async def get_workspace_bridge_row(self, workspace_id: str) -> dict[str, Any] | None:
+        return await self._domain.get_workspace_bridge_row(workspace_id)
+
     async def lock_workspace_for_update(self, workspace_id: str) -> None:
         await self._domain.lock_workspace_for_update(workspace_id)
 

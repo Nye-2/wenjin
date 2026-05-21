@@ -7,16 +7,12 @@ import logging
 import mimetypes
 import shutil
 from collections.abc import Iterable
-from copy import deepcopy
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.models.latex_project import LatexProject
-from src.database.models.latex_template import LatexTemplate
+from src.dataservice.latex_api import LatexDataService
 
 from .paths import (
     get_latex_template_dir,
@@ -52,27 +48,21 @@ class LatexProjectService:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
+        self.data = LatexDataService(db)
 
     async def list_by_user(
         self,
         user_id: str,
         *,
         include_trashed: bool = False,
-    ) -> list[LatexProject]:
-        stmt = select(LatexProject).where(LatexProject.user_id == user_id)
-        if not include_trashed:
-            stmt = stmt.where(LatexProject.trashed.is_(False))
-        stmt = stmt.order_by(LatexProject.updated_at.desc())
-        result = await self.db.execute(stmt)
-        return list(result.scalars().all())
-
-    async def get_owned(self, project_id: str, user_id: str) -> LatexProject | None:
-        stmt = select(LatexProject).where(
-            LatexProject.id == project_id,
-            LatexProject.user_id == user_id,
+    ) -> list[Any]:
+        return await self.data.list_projects_by_user(
+            user_id,
+            include_trashed=include_trashed,
         )
-        result = await self.db.execute(stmt)
-        return result.scalar_one_or_none()
+
+    async def get_owned(self, project_id: str, user_id: str) -> Any | None:
+        return await self.data.get_owned_project(project_id=project_id, user_id=user_id)
 
     async def create(
         self,
@@ -80,20 +70,12 @@ class LatexProjectService:
         user_id: str,
         name: str,
         template_id: str | None = None,
-    ) -> LatexProject:
-        project = LatexProject(
+    ) -> Any:
+        project = await self.data.create_project(
             user_id=user_id,
             name=name,
             template_id=template_id,
-            main_file="main.tex",
-            tags=[],
-            archived=False,
-            trashed=False,
-            file_order={},
         )
-        self.db.add(project)
-        await self.db.commit()
-        await self.db.refresh(project)
 
         root = project_root(project.id)
         root.mkdir(parents=True, exist_ok=True)
@@ -106,68 +88,30 @@ class LatexProjectService:
             preferred=project.main_file,
         )
         if detected_main is not None and detected_main != project.main_file:
-            project.main_file = detected_main
-            await self.db.commit()
-            await self.db.refresh(project)
+            project = await self.data.update_project(project, main_file=detected_main)
 
         await self.sync_project_meta(project)
         return project
 
-    async def update(self, project: LatexProject, **kwargs: Any) -> LatexProject:
-        if "name" in kwargs and kwargs["name"] is not None:
-            next_name = str(kwargs["name"]).strip()
-            if next_name:
-                project.name = next_name
-        if "template_id" in kwargs:
-            project.template_id = kwargs["template_id"]
-        if "main_file" in kwargs and kwargs["main_file"] is not None:
-            next_main = str(kwargs["main_file"]).strip()
-            if next_main:
-                project.main_file = next_main
-        if "tags" in kwargs and kwargs["tags"] is not None:
-            project.tags = list(kwargs["tags"])
-        if "archived" in kwargs and kwargs["archived"] is not None:
-            project.archived = bool(kwargs["archived"])
-        if "trashed" in kwargs and kwargs["trashed"] is not None:
-            next_trashed = bool(kwargs["trashed"])
-            project.trashed = next_trashed
-            project.trashed_at = datetime.now(tz=UTC) if next_trashed else None
-        if "llm_config" in kwargs:
-            project.llm_config = kwargs["llm_config"]
-            llm_config = kwargs["llm_config"]
-            if (
-                isinstance(llm_config, dict)
-                and llm_config.get("bridge") == "workspace_latex_project"
-                and llm_config.get("workspace_id")
-            ):
-                project.workspace_id = str(llm_config["workspace_id"])
-                project.surface_role = "primary_manuscript"
-        if "file_order" in kwargs and kwargs["file_order"] is not None:
-            project.file_order = dict(kwargs["file_order"])
-
-        await self.db.commit()
-        await self.db.refresh(project)
+    async def update(self, project: Any, **kwargs: Any) -> Any:
+        project = await self.data.update_project(project, **kwargs)
         await self.sync_project_meta(project)
         return project
 
-    async def soft_delete(self, project: LatexProject) -> None:
-        project.trashed = True
-        project.trashed_at = datetime.now(tz=UTC)
-        await self.db.commit()
-        await self.db.refresh(project)
+    async def soft_delete(self, project: Any) -> None:
+        project = await self.data.soft_delete_project(project)
         await self.sync_project_meta(project)
 
-    async def permanent_delete(self, project: LatexProject) -> None:
+    async def permanent_delete(self, project: Any) -> None:
         root = project_root(project.id)
         if root.exists():
             shutil.rmtree(root, ignore_errors=True)
         compile_root = root.parent / "_compile_runs" / str(project.id)
         if compile_root.exists():
             shutil.rmtree(compile_root, ignore_errors=True)
-        await self.db.delete(project)
-        await self.db.commit()
+        await self.data.delete_project(project)
 
-    def build_tree(self, project: LatexProject) -> list[dict[str, str]]:
+    def build_tree(self, project: Any) -> list[dict[str, str]]:
         root = project_root(project.id)
         if not root.exists():
             return []
@@ -196,7 +140,7 @@ class LatexProjectService:
         emit_dir(root, "")
         return items
 
-    def read_text_file(self, project: LatexProject, relative_path: str) -> str:
+    def read_text_file(self, project: Any, relative_path: str) -> str:
         self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         if not target.exists() or not target.is_file():
@@ -205,7 +149,7 @@ class LatexProjectService:
 
     async def write_text_file(
         self,
-        project: LatexProject,
+        project: Any,
         relative_path: str,
         content: str,
     ) -> None:
@@ -215,17 +159,15 @@ class LatexProjectService:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
 
-        if not existed:
-            project.file_order = self._append_child_to_order(
-                dict(project.file_order or {}),
-                relative_path,
-            )
-        project.updated_at = datetime.now(tz=UTC)
-        await self.db.commit()
-        await self.db.refresh(project)
+        next_order = (
+            self._append_child_to_order(dict(project.file_order or {}), relative_path)
+            if not existed
+            else project.file_order
+        )
+        project = await self.data.touch_project(project, file_order=next_order)
         await self.sync_project_meta(project)
 
-    def resolve_blob_file(self, project: LatexProject, relative_path: str) -> tuple[Path, str]:
+    def resolve_blob_file(self, project: Any, relative_path: str) -> tuple[Path, str]:
         self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         if not target.exists() or not target.is_file():
@@ -234,13 +176,13 @@ class LatexProjectService:
         media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         return target, media_type
 
-    def read_blob(self, project: LatexProject, relative_path: str) -> tuple[bytes, str]:
+    def read_blob(self, project: Any, relative_path: str) -> tuple[bytes, str]:
         target, media_type = self.resolve_blob_file(project, relative_path)
         return target.read_bytes(), media_type
 
     async def save_upload(
         self,
-        project: LatexProject,
+        project: Any,
         relative_path: str,
         content: bytes,
     ) -> str:
@@ -250,20 +192,18 @@ class LatexProjectService:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
 
-        if not existed:
-            project.file_order = self._append_child_to_order(
-                dict(project.file_order or {}),
-                relative_path,
-            )
-        project.updated_at = datetime.now(tz=UTC)
-        await self.db.commit()
-        await self.db.refresh(project)
+        next_order = (
+            self._append_child_to_order(dict(project.file_order or {}), relative_path)
+            if not existed
+            else project.file_order
+        )
+        project = await self.data.touch_project(project, file_order=next_order)
         await self.sync_project_meta(project)
         return target.relative_to(project_root(project.id)).as_posix()
 
     async def save_uploads(
         self,
-        project: LatexProject,
+        project: Any,
         *,
         files: list[tuple[str, bytes]],
         folders: list[str] | None = None,
@@ -330,60 +270,53 @@ class LatexProjectService:
                         if detected_main:
                             project.main_file = detected_main
 
-            project.file_order = next_order
-            project.updated_at = datetime.now(tz=UTC)
-            await self.db.commit()
-            await self.db.refresh(project)
+            project = await self.data.touch_project(
+                project,
+                file_order=next_order,
+                main_file=project.main_file,
+            )
             await self.sync_project_meta(project)
 
         return saved_files, created_folders
 
     async def update_file_order(
         self,
-        project: LatexProject,
+        project: Any,
         folder: str,
         order: list[str],
     ) -> None:
         next_map = dict(project.file_order or {})
         next_map[str(folder or "")] = [str(item) for item in order]
-        project.file_order = next_map
-
-        await self.db.commit()
-        await self.db.refresh(project)
+        project = await self.data.touch_project(project, file_order=next_map)
         await self.sync_project_meta(project)
 
     async def update_llm_config(
         self,
-        project: LatexProject,
+        project: Any,
         llm_config: dict[str, Any] | None,
-    ) -> LatexProject:
-        project.llm_config = deepcopy(llm_config) if llm_config is not None else None
-        project.updated_at = datetime.now(tz=UTC)
-        await self.db.commit()
-        await self.db.refresh(project)
+    ) -> Any:
+        project = await self.data.touch_project(project, llm_config=llm_config)
         await self.sync_project_meta(project)
         return project
 
-    async def create_folder(self, project: LatexProject, relative_path: str) -> str:
+    async def create_folder(self, project: Any, relative_path: str) -> str:
         self._ensure_user_path_allowed(relative_path)
         target = resolve_project_relative(project_root(project.id), relative_path)
         existed = target.exists()
         target.mkdir(parents=True, exist_ok=True)
 
-        if not existed:
-            project.file_order = self._append_child_to_order(
-                dict(project.file_order or {}),
-                relative_path,
-            )
-        project.updated_at = datetime.now(tz=UTC)
-        await self.db.commit()
-        await self.db.refresh(project)
+        next_order = (
+            self._append_child_to_order(dict(project.file_order or {}), relative_path)
+            if not existed
+            else project.file_order
+        )
+        project = await self.data.touch_project(project, file_order=next_order)
         await self.sync_project_meta(project)
         return target.relative_to(project_root(project.id)).as_posix()
 
     async def rename_path(
         self,
-        project: LatexProject,
+        project: Any,
         from_path: str,
         to_path: str,
     ) -> str:
@@ -401,24 +334,26 @@ class LatexProjectService:
         was_dir = source.is_dir()
         source.rename(destination)
 
-        project.file_order = self._rename_in_order_map(
+        next_order = self._rename_in_order_map(
             dict(project.file_order or {}),
             old_path=from_path,
             new_path=to_path,
             is_dir=was_dir,
         )
-        project.main_file = self._remap_main_file(
+        next_main_file = self._remap_main_file(
             project.main_file,
             old_path=from_path,
             new_path=to_path,
         )
-        project.updated_at = datetime.now(tz=UTC)
-        await self.db.commit()
-        await self.db.refresh(project)
+        project = await self.data.touch_project(
+            project,
+            file_order=next_order,
+            main_file=next_main_file,
+        )
         await self.sync_project_meta(project)
         return destination.relative_to(root).as_posix()
 
-    async def delete_path(self, project: LatexProject, relative_path: str) -> None:
+    async def delete_path(self, project: Any, relative_path: str) -> None:
         self._ensure_user_path_allowed(relative_path)
         root = project_root(project.id)
         target = resolve_project_relative(root, relative_path)
@@ -431,19 +366,22 @@ class LatexProjectService:
         else:
             target.unlink()
 
-        project.file_order = self._delete_from_order_map(
+        next_order = self._delete_from_order_map(
             dict(project.file_order or {}),
             relative_path=relative_path,
             is_dir=is_dir,
         )
+        next_main_file = project.main_file
         if self._path_affects_main_file(project.main_file, relative_path):
-            project.main_file = self._detect_main_file(root, preferred=None) or "main.tex"
-        project.updated_at = datetime.now(tz=UTC)
-        await self.db.commit()
-        await self.db.refresh(project)
+            next_main_file = self._detect_main_file(root, preferred=None) or "main.tex"
+        project = await self.data.touch_project(
+            project,
+            file_order=next_order,
+            main_file=next_main_file,
+        )
         await self.sync_project_meta(project)
 
-    async def sync_project_meta(self, project: LatexProject) -> None:
+    async def sync_project_meta(self, project: Any) -> None:
         root = project_root(project.id)
         root.mkdir(parents=True, exist_ok=True)
         payload = {
@@ -472,7 +410,7 @@ class LatexProjectService:
         if not template_id:
             return False
 
-        template = await self.db.get(LatexTemplate, template_id)
+        template = await self.data.get_template(template_id)
         if template is None:
             raise LatexTemplateNotFoundError(f"Template not found: {template_id}")
 

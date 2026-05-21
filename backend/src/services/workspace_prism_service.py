@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from src.dataservice.execution_api import (
     ExecutionDataService,
     ExecutionRunHistoryProjection,
 )
+from src.dataservice.latex_api import LatexDataService
 from src.dataservice.prism_api import PrismDataService, build_latex_adapter_metadata
 from src.dataservice.provenance_api import ProvenanceDataService
 from src.dataservice.review_api import ReviewDataService, ReviewItemProjection
@@ -22,15 +23,12 @@ from src.services.workspace_activity_contracts import (
 )
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
 
-if TYPE_CHECKING:
-    from src.database.models.latex_project import LatexProject
-
 PRIMARY_MANUSCRIPT_ROLE = "primary_manuscript"
 PENDING_REVIEW_STATUSES = ("pending", "accepted")
 APPLIED_REVIEW_STATUSES = ("applied",)
 
 
-def _metadata_from_project(project: LatexProject) -> dict[str, Any]:
+def _metadata_from_project(project: Any) -> dict[str, Any]:
     llm_config = project.llm_config if isinstance(project.llm_config, dict) else {}
     metadata = llm_config.get("metadata")
     return dict(metadata) if isinstance(metadata, dict) else {}
@@ -299,7 +297,7 @@ class WorkspacePrismService:
         workspace_id: str,
         *,
         user_id: str,
-    ) -> LatexProject | None:
+    ) -> Any | None:
         project = await PrismDataService(
             self.db,
             autocommit=False,
@@ -317,21 +315,25 @@ class WorkspacePrismService:
         *,
         user_id: str,
         project_name: str,
-    ) -> LatexProject:
+    ) -> Any:
         project = await self.get_primary_project(workspace_id, user_id=user_id)
         if project is None:
             project = await self.bridge.ensure_workspace_project(
                 workspace_id=workspace_id,
                 project_name=project_name,
             )
-        project.workspace_id = workspace_id
-        project.surface_role = PRIMARY_MANUSCRIPT_ROLE
+        project = await LatexDataService(
+            self.db,
+            autocommit=False,
+        ).attach_workspace_project(
+            project,
+            workspace_id=workspace_id,
+        )
         await self._ensure_prism_surface_for_latex_project(
             workspace_id=workspace_id,
             project=project,
         )
         await self.db.commit()
-        await self.db.refresh(project)
         return project
 
     async def get_surface_projection(
@@ -443,7 +445,7 @@ class WorkspacePrismService:
         self,
         *,
         workspace_id: str,
-        project: LatexProject,
+        project: Any,
     ) -> None:
         await PrismDataService(
             self.db,
@@ -462,7 +464,7 @@ class WorkspacePrismService:
             ),
         )
 
-    async def _get_latex_adapter_project(self, project_id: str) -> LatexProject | None:
+    async def _get_latex_adapter_project(self, project_id: str) -> Any | None:
         return await self.bridge.get_project_by_id(project_id)
 
     async def _list_prism_review_items(
