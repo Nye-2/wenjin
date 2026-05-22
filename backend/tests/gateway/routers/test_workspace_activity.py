@@ -26,12 +26,31 @@ def _mock_workspace(user_id: str = "user-1"):
     return workspace
 
 
-def _create_client(user, workspace_service, activity_service, *, patch_db_session=False, db_capabilities=None):
+def _deep_research_capability():
+    return SimpleNamespace(
+        id="deep_research",
+        display_name="深度调研",
+        description="深度调研论文主题",
+        ui_meta={"icon": "search", "order": 0, "follow_up_prompt": "继续调研"},
+        dashboard_meta={"status_kind": "deep_research"},
+    )
+
+
+def _create_dataservice(*, capability=None, executions=None, review_items=None):
+    dataservice = MagicMock()
+    dataservice.get_catalog_capability = AsyncMock(return_value=capability)
+    dataservice.list_executions = AsyncMock(return_value=list(executions or []))
+    dataservice.list_review_items = AsyncMock(return_value=list(review_items or []))
+    return dataservice
+
+
+def _create_client(user, workspace_service, activity_service, *, dataservice=None):
     app = FastAPI()
     workspace = getattr(workspace_service.get, "return_value", None)
     workspace_service.has_active_membership = AsyncMock(
         return_value=workspace is not None and str(workspace.user_id) == str(user.id)
     )
+    fake_dataservice = dataservice or _create_dataservice(capability=_deep_research_capability())
 
     async def override_get_current_user():
         return user
@@ -42,53 +61,18 @@ def _create_client(user, workspace_service, activity_service, *, patch_db_sessio
     async def override_get_workspace_activity_service():
         return activity_service
 
+    async def override_get_dataservice_client():
+        return fake_dataservice
+
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
     app.dependency_overrides[workspaces.get_workspace_activity_service] = (
         override_get_workspace_activity_service
     )
-
-    if patch_db_session:
-        _patcher = patch("src.gateway.routers.workspaces.get_db_session")
-        _mock_session_ctx = _patcher.start()
-
-        class _MockResult:
-            def scalars(self):
-                return self
-            def all(self):
-                return self._items
-            def first(self):
-                return self._items[0] if self._items else None
-
-        _deep_research = SimpleNamespace(
-            id="deep_research",
-            display_name="深度调研",
-            description="深度调研论文主题",
-            ui_meta={"icon": "search", "order": 0, "follow_up_prompt": "继续调研"},
-            dashboard_meta={"status_kind": "deep_research"},
-        )
-
-        _items = db_capabilities if db_capabilities is not None else [_deep_research]
-        _mock_db = AsyncMock()
-        _mock_db.execute = AsyncMock(return_value=_MockResult())
-        _mock_db.execute.return_value._items = _items
-        _mock_db.commit = AsyncMock()
-        _mock_session_ctx.return_value.__aenter__ = AsyncMock(return_value=_mock_db)
-        _mock_session_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
+    app.dependency_overrides[workspaces.get_dataservice_client] = override_get_dataservice_client
 
     app.include_router(workspaces.router)
     return TestClient(app)
-
-
-class _ScalarResult:
-    def __init__(self, items):
-        self._items = items
-
-    def scalars(self):
-        return self
-
-    def all(self):
-        return self._items
 
 
 def test_workspace_activity_returns_items():
@@ -190,8 +174,6 @@ def test_workspace_executions_returns_items():
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
     activity_service = AsyncMock()
-    client = _create_client(_mock_user(), workspace_service, activity_service)
-
     execution = MagicMock()
     execution.id = "exec-1"
     execution.user_id = "user-1"
@@ -224,15 +206,14 @@ def test_workspace_executions_returns_items():
     execution.updated_at = None
     execution.started_at = None
     execution.completed_at = None
+    dataservice = _create_dataservice(
+        capability=_deep_research_capability(),
+        executions=[execution],
+        review_items=[],
+    )
+    client = _create_client(_mock_user(), workspace_service, activity_service, dataservice=dataservice)
 
-    with patch(
-        "src.gateway.routers.workspaces.ExecutionService.list_executions",
-        new=AsyncMock(return_value=[execution]),
-    ), patch(
-        "src.gateway.routers.workspaces.ReviewDataService.list_items",
-        new=AsyncMock(return_value=[]),
-    ):
-        response = client.get("/workspaces/ws-1/executions")
+    response = client.get("/workspaces/ws-1/executions")
 
     assert response.status_code == 200
     payload = response.json()
@@ -250,7 +231,12 @@ def test_workspace_capability_action_resolution_returns_backend_state():
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
     activity_service = AsyncMock()
-    client = _create_client(_mock_user(), workspace_service, activity_service, patch_db_session=True)
+    client = _create_client(
+        _mock_user(),
+        workspace_service,
+        activity_service,
+        dataservice=_create_dataservice(capability=_deep_research_capability()),
+    )
 
     artifact = MagicMock()
     artifact.id = "artifact-2"
@@ -305,7 +291,12 @@ def test_workspace_capability_action_resolution_returns_404_for_unknown_capabili
     workspace_service.get = AsyncMock(return_value=_mock_workspace())
 
     activity_service = AsyncMock()
-    client = _create_client(_mock_user(), workspace_service, activity_service, patch_db_session=True, db_capabilities=[])
+    client = _create_client(
+        _mock_user(),
+        workspace_service,
+        activity_service,
+        dataservice=_create_dataservice(capability=None),
+    )
 
     response = client.post(
         "/workspaces/ws-1/capabilities/unknown_capability/resolve-action",

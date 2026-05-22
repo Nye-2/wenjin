@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User, get_db_session
-from src.dataservice.catalog_api import CatalogDataService
-from src.dataservice.review_api import ReviewDataService
+from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
+    get_dataservice_client,
     get_db,
     get_workspace_activity_service,
     get_workspace_service,
@@ -40,7 +40,7 @@ from src.gateway.routers.workspaces_serializers import (
     workspace_to_response,
 )
 from src.services.dashboard_service import DashboardService
-from src.services.execution_service import ExecutionService
+from src.services.execution_service import serialize_execution_record
 from src.services.feature_action_resolution_service import resolve_feature_action_state
 from src.services.prism_review_projection import prism_review_item_projection
 from src.services.workspace_activity_service import WorkspaceActivityService
@@ -305,6 +305,7 @@ async def resolve_workspace_capability_action(
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     db: Any = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ResolveCapabilityActionResponse:
     """Resolve canonical follow-up / rerun action state for a capability card."""
     workspace = await get_owned_workspace(
@@ -317,11 +318,10 @@ async def resolve_workspace_capability_action(
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    async with get_db_session() as cap_db:
-        capability = await CatalogDataService(cap_db, autocommit=False).get_capability(
-            capability_id=capability_id,
-            workspace_type=workspace_type,
-        )
+    capability = await dataservice.get_catalog_capability(
+        capability_id=capability_id,
+        workspace_type=workspace_type,
+    )
     if capability is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -406,6 +406,7 @@ async def list_workspace_executions(
     limit: int = 20,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspaceExecutionsResponse:
     """List execution records for a workspace."""
     await get_owned_workspace(
@@ -414,31 +415,24 @@ async def list_workspace_executions(
         workspace_service=workspace_service,
     )
 
-    from src.database import get_db_session
-
-    async with get_db_session() as db:
-        from src.services.execution_service import serialize_execution_record
-
-        service = ExecutionService(db)
-        items = await service.list_executions(
+    items = await dataservice.list_executions(
+        workspace_id=workspace_id,
+        user_id=str(current_user.id),
+        limit=limit,
+    )
+    serialized_items = []
+    for item in items:
+        serialized = serialize_execution_record(item)
+        review_items = await dataservice.list_review_items(
             workspace_id=workspace_id,
-            user_id=str(current_user.id),
-            limit=limit,
+            execution_id=str(item.id),
+            target_domain="prism",
         )
-        review_service = ReviewDataService(db, autocommit=False)
-        serialized_items = []
-        for item in items:
-            serialized = serialize_execution_record(item)
-            review_items = await review_service.list_items(
-                workspace_id=workspace_id,
-                execution_id=str(item.id),
-                target_domain="prism",
-            )
-            serialized["review_items"] = [
-                prism_review_item_projection(review_item, execution_id=str(item.id))
-                for review_item in review_items
-            ]
-            serialized_items.append(serialized)
+        serialized["review_items"] = [
+            prism_review_item_projection(review_item, execution_id=str(item.id))
+            for review_item in review_items
+        ]
+        serialized_items.append(serialized)
     return WorkspaceExecutionsResponse(
         items=serialized_items,
         count=len(items),

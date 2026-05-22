@@ -76,6 +76,56 @@ def _reference(
     )
 
 
+class _BibliographyDataService:
+    def __init__(self, references: list[SimpleNamespace], workspace: SimpleNamespace | None = None) -> None:
+        self.references = references
+        self.workspace = workspace
+        self.snapshot: object | None = None
+
+    async def list_sources(
+        self,
+        *,
+        library_status: str | None = None,
+        include_excluded: bool = True,
+        **_kwargs: object,
+    ) -> list[SimpleNamespace]:
+        rows = self.references
+        if library_status is not None:
+            rows = [
+                row
+                for row in rows
+                if str(getattr(row.library_status, "value", row.library_status)) == library_status
+            ]
+        if not include_excluded:
+            rows = [
+                row
+                for row in rows
+                if str(getattr(row.library_status, "value", row.library_status)) != ReferenceLibraryStatus.EXCLUDED.value
+            ]
+        return rows
+
+    async def build_source_bibliography(self, command: object) -> SimpleNamespace:
+        source_ids = set(getattr(command, "source_ids", []))
+        rows = [row for row in self.references if row.id in source_ids]
+        content = "\n".join(
+            f"@article{{{row.citation_key},\n  title={{{row.title}}}\n}}"
+            for row in rows
+        )
+        return SimpleNamespace(
+            content=content,
+            count=len(rows),
+            source_ids=[row.id for row in rows],
+            citation_keys=[row.citation_key for row in rows],
+        )
+
+    async def get_workspace(self, _workspace_id: str) -> SimpleNamespace | None:
+        return self.workspace
+
+    async def create_source_bibliography_snapshot(self, command: object) -> SimpleNamespace:
+        self.snapshot = command
+        return SimpleNamespace(id="snapshot-1")
+
+
 @pytest.mark.asyncio
 async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() -> None:
     """Keep the writing workflow bounded by Reference Library SSOT contracts."""
@@ -145,7 +195,8 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
     assert usage_link.target_ref_json["latex_project_id"] == "latex-1"
     assert usage_link.target_ref_json["target_section"] == "Introduction"
 
-    validation = await SourceBibliographyService(db).validate_citations(
+    bibliography_data = _BibliographyDataService([reference, excluded_reference], workspace)
+    validation = await SourceBibliographyService(bibliography_data).validate_citations(
         workspace_id="ws-1",
         latex_content=r"Grounded claim \cite{lovelace2026}.",
     )
@@ -171,7 +222,7 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
             return_value=project_service,
         ),
     ):
-        sync_result = await SourceBibliographyService(db).sync_prism(
+        sync_result = await SourceBibliographyService(bibliography_data, db=db).sync_prism(
             workspace_id="ws-1",
             scope="used_only",
         )
@@ -188,7 +239,8 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
     )
     assert project_service.write_text_file.await_args_list[-1].args[1] == "main.tex"
     assert "\\bibliography{refs}" in project_service.write_text_file.await_args_list[-1].args[2]
-    snapshot = db.add.call_args.args[0]
+    snapshot = bibliography_data.snapshot
+    assert snapshot is not None
     assert snapshot.workspace_id == "ws-1"
     assert snapshot.prism_project_id == "latex-1"
     assert snapshot.scope == "used_only"
@@ -208,10 +260,9 @@ async def test_reference_citation_validation_blocks_missing_and_metadata_only_ke
         citation_key="metadata2026",
         evidence_level=ReferenceEvidenceLevel.METADATA_ONLY,
     )
-    db = MagicMock()
-    db.execute = AsyncMock(return_value=_execute_result([verified_reference, metadata_only_reference]))
-
-    validation = await SourceBibliographyService(db).validate_citations(
+    validation = await SourceBibliographyService(
+        _BibliographyDataService([verified_reference, metadata_only_reference])
+    ).validate_citations(
         workspace_id="ws-1",
         latex_content=r"\cite{verified2026, metadata2026, missing2026}",
     )

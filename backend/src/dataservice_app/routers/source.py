@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel, Field
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
@@ -14,6 +17,7 @@ from src.dataservice.domains.source.contracts import (
     SourceBibliographySnapshotCreateCommand,
     SourceCitationUsageCreateCommand,
     SourceCreateCommand,
+    SourceEvidencePackCreateCommand,
     SourceExternalIdCreateCommand,
     SourceImportCommand,
     SourceUpdateCommand,
@@ -27,6 +31,29 @@ router = APIRouter(
     tags=["source"],
     dependencies=[Depends(require_internal_token)],
 )
+
+
+class SourceAssetLinkRequest(BaseModel):
+    workspace_id: str
+    source_id: str
+    workspace_asset_id: str
+    asset_type: str
+    source_asset_id: str | None = None
+    preprocess_status: str = "skipped"
+    manifest_asset_id: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class SourceIndexReplaceRequest(BaseModel):
+    workspace_id: str
+    source_id: str
+    outline_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    text_units: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class SourceStatusUpdateRequest(BaseModel):
+    library_status: str | None = None
+    read_status: str | None = None
 
 
 @router.post("/sources")
@@ -125,6 +152,31 @@ async def count_source_reference_summary(
     return envelope_ok(await service.count_reference_summary(workspace_id))
 
 
+@router.get("/sources/page")
+async def list_sources_page(
+    workspace_id: str = Query(),
+    library_status: str | None = Query(default=None),
+    source_kind: str | None = Query(default=None),
+    ingest_kind: str | None = Query(default=None),
+    query: str | None = Query(default=None),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=5000),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(
+        await service.list_sources_page(
+            workspace_id=workspace_id,
+            library_status=library_status,
+            source_kind=source_kind,
+            ingest_kind=ingest_kind,
+            query=query,
+            offset=offset,
+            limit=limit,
+        )
+    )
+
+
 @router.get("/sources/library-outline")
 async def get_source_library_outline(
     workspace_id: str = Query(),
@@ -147,13 +199,29 @@ async def get_source_toc_summary(
 async def search_source_text_units(
     workspace_id: str = Query(),
     query: str = Query(),
+    source_ids: list[str] | None = Query(default=None),
     limit: int = Query(default=8, ge=1, le=50),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = SourceDataDomainService(uow.required_session, autocommit=False)
     return envelope_ok(
-        await service.search_workspace_sections(workspace_id, query, limit=limit)
+        await service.search_text_units(
+            workspace_id=workspace_id,
+            query=query,
+            source_ids=source_ids,
+            limit=limit,
+        )
     )
+
+
+@router.post("/sources/evidence-pack")
+async def build_source_evidence_pack(
+    command: SourceEvidencePackCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.build_evidence_pack(command)
+    return envelope_ok(record.model_dump(mode="json"))
 
 
 @router.post("/sources/citation-usage")
@@ -220,6 +288,79 @@ async def get_source_section_by_title(
     return envelope_ok(section)
 
 
+@router.get("/sources/{source_id}/workspace-record")
+async def get_source_for_workspace(
+    source_id: str,
+    workspace_id: str = Query(),
+    include_deleted: bool = Query(default=False),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.get_source_for_workspace(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        include_deleted=include_deleted,
+    )
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.get("/sources/{source_id}/assets")
+async def list_source_assets(
+    source_id: str,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(await service.list_source_assets(workspace_id=workspace_id, source_id=source_id))
+
+
+@router.get("/sources/{source_id}/outline")
+async def get_source_outline(
+    source_id: str,
+    workspace_id: str = Query(),
+    limit: int = Query(default=200, ge=1, le=5000),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(await service.get_source_outline(workspace_id, source_id, limit=limit))
+
+
+@router.get("/sources/{source_id}/outline/{outline_node_id}/content")
+async def read_source_outline_node(
+    source_id: str,
+    outline_node_id: str,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(
+        await service.read_source_outline_node(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            outline_node_id=outline_node_id,
+        )
+    )
+
+
+@router.get("/sources/{source_id}/pages")
+async def read_source_pages(
+    source_id: str,
+    workspace_id: str = Query(),
+    page_start: int = Query(ge=1),
+    page_end: int = Query(ge=1),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    return envelope_ok(
+        await service.read_source_pages(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            page_start=page_start,
+            page_end=page_end,
+        )
+    )
+
+
 @router.get("/sources/{source_id}")
 async def get_source(
     source_id: str,
@@ -252,6 +393,26 @@ async def get_source_asset(
     )
 
 
+@router.post("/source-assets")
+async def link_source_asset(
+    command: SourceAssetLinkRequest,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.link_source_asset(
+        workspace_id=command.workspace_id,
+        source_id=command.source_id,
+        workspace_asset_id=command.workspace_asset_id,
+        asset_type=command.asset_type,
+        source_asset_id=command.source_asset_id,
+        preprocess_status=command.preprocess_status,
+        manifest_asset_id=command.manifest_asset_id,
+        metadata_json=command.metadata_json,
+    )
+    await uow.commit()
+    return envelope_ok(record)
+
+
 @router.patch("/source-assets/{source_asset_id}")
 async def update_source_asset(
     source_asset_id: str,
@@ -264,6 +425,23 @@ async def update_source_asset(
         workspace_id=workspace_id,
         source_asset_id=source_asset_id,
         command=command,
+    )
+    await uow.commit()
+    return envelope_ok(record)
+
+
+@router.put("/sources/{source_id}/index")
+async def replace_source_index(
+    source_id: str,
+    command: SourceIndexReplaceRequest,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.replace_source_index(
+        workspace_id=command.workspace_id,
+        source_id=source_id,
+        outline_nodes=command.outline_nodes,
+        text_units=command.text_units,
     )
     await uow.commit()
     return envelope_ok(record)
@@ -296,6 +474,24 @@ async def list_source_external_ids(
     return envelope_ok(
         await service.list_source_external_ids(workspace_id=workspace_id, source_id=source_id)
     )
+
+
+@router.patch("/sources/{source_id}/status")
+async def mark_source_status(
+    source_id: str,
+    command: SourceStatusUpdateRequest,
+    workspace_id: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SourceDataDomainService(uow.required_session, autocommit=False)
+    record = await service.mark_status(
+        workspace_id=workspace_id,
+        source_id=source_id,
+        library_status=command.library_status,
+        read_status=command.read_status,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
 @router.patch("/sources/{source_id}")

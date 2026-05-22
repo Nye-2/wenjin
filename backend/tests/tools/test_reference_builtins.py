@@ -14,27 +14,24 @@ from src.tools.builtins.references import (
 )
 
 
+@asynccontextmanager
+async def _client_context(client: MagicMock):
+    yield client
+
+
 @pytest.mark.asyncio
 async def test_list_reference_library_tool_returns_summary() -> None:
-    db = MagicMock()
-    source_service = MagicMock()
-    source_service.get_workspace_toc_summary = AsyncMock(return_value="## 文献库概览")
+    client = MagicMock()
+    client.get_workspace_toc_summary = AsyncMock(return_value="## 文献库概览")
 
-    @asynccontextmanager
-    async def _db_session():
-        yield db
-
-    with (
-        patch("src.tools.builtins.references.get_db_session", _db_session),
-        patch("src.tools.builtins.references.SourceDataService", return_value=source_service),
-    ):
+    with patch("src.tools.builtins.references.dataservice_client", return_value=_client_context(client)):
         result = await list_reference_library_tool.ainvoke(
             {},
             config={"configurable": {"workspace_id": "ws-1"}},
         )
 
     assert "文献库概览" in result
-    source_service.get_workspace_toc_summary.assert_awaited_once_with("ws-1")
+    client.get_workspace_toc_summary.assert_awaited_once_with("ws-1")
 
 
 @pytest.mark.asyncio
@@ -51,9 +48,8 @@ async def test_list_reference_library_rejects_workspace_mismatch() -> None:
 
 @pytest.mark.asyncio
 async def test_search_reference_text_units_tool_serializes_results() -> None:
-    db = MagicMock()
-    source_service = MagicMock()
-    source_service.search_workspace_sections = AsyncMock(
+    client = MagicMock()
+    client.search_source_text_units = AsyncMock(
         return_value=[
             {
                 "reference_id": "reference-1",
@@ -68,14 +64,7 @@ async def test_search_reference_text_units_tool_serializes_results() -> None:
         ]
     )
 
-    @asynccontextmanager
-    async def _db_session():
-        yield db
-
-    with (
-        patch("src.tools.builtins.references.get_db_session", _db_session),
-        patch("src.tools.builtins.references.SourceDataService", return_value=source_service),
-    ):
+    with patch("src.tools.builtins.references.dataservice_client", return_value=_client_context(client)):
         result = await search_reference_text_units_tool.ainvoke(
             {"query": "intro", "limit": 5},
             config={"configurable": {"workspace_id": "ws-1"}},
@@ -83,25 +72,22 @@ async def test_search_reference_text_units_tool_serializes_results() -> None:
 
     assert "\"count\": 1" in result
     assert "important snippet" in result
-    source_service.search_workspace_sections.assert_awaited_once_with("ws-1", "intro", limit=5)
+    client.search_source_text_units.assert_awaited_once_with(
+        workspace_id="ws-1",
+        query="intro",
+        limit=5,
+    )
 
 
 @pytest.mark.asyncio
 async def test_read_reference_outline_node_tool_reads_by_title() -> None:
-    db = MagicMock()
-    source_service = MagicMock()
-    source_service.get_source_section_by_title = AsyncMock(
+    client = MagicMock()
+    client.get_source_section_by_title = AsyncMock(
         return_value={"title": "Method", "content": "Section body"}
     )
+    client.create_provenance_link = AsyncMock()
 
-    @asynccontextmanager
-    async def _db_session():
-        yield db
-
-    with (
-        patch("src.tools.builtins.references.get_db_session", _db_session),
-        patch("src.tools.builtins.references.SourceDataService", return_value=source_service),
-    ):
+    with patch("src.tools.builtins.references.dataservice_client", return_value=_client_context(client)):
         result = await read_reference_outline_node_tool.ainvoke(
             {"reference_id": "reference-1", "section_title": "Method"},
             config={"configurable": {"workspace_id": "ws-1"}},
@@ -109,7 +95,7 @@ async def test_read_reference_outline_node_tool_reads_by_title() -> None:
 
     assert result.startswith("## Method")
     assert "Section body" in result
-    source_service.get_source_section_by_title.assert_awaited_once_with(
+    client.get_source_section_by_title.assert_awaited_once_with(
         source_id="reference-1",
         section_title="Method",
         workspace_id="ws-1",
@@ -118,9 +104,8 @@ async def test_read_reference_outline_node_tool_reads_by_title() -> None:
 
 @pytest.mark.asyncio
 async def test_read_reference_outline_node_records_access_usage() -> None:
-    db = MagicMock()
-    source_service = MagicMock()
-    source_service.get_source_section_by_title = AsyncMock(
+    client = MagicMock()
+    client.get_source_section_by_title = AsyncMock(
         return_value={
             "node_id": "node-1",
             "section_path": "1",
@@ -129,18 +114,9 @@ async def test_read_reference_outline_node_records_access_usage() -> None:
             "units": [{"id": "unit-1"}],
         }
     )
-    provenance_service = MagicMock()
-    provenance_service.create_link = AsyncMock(return_value={"id": "link-1"})
+    client.create_provenance_link = AsyncMock(return_value={"id": "link-1"})
 
-    @asynccontextmanager
-    async def _db_session():
-        yield db
-
-    with (
-        patch("src.tools.builtins.references.get_db_session", _db_session),
-        patch("src.tools.builtins.references.SourceDataService", return_value=source_service),
-        patch("src.tools.builtins.references.ProvenanceDataService", return_value=provenance_service),
-    ):
+    with patch("src.tools.builtins.references.dataservice_client", return_value=_client_context(client)):
         result = await read_reference_outline_node_tool.ainvoke(
             {"reference_id": "reference-1", "section_title": "Method"},
             config={
@@ -153,8 +129,8 @@ async def test_read_reference_outline_node_records_access_usage() -> None:
         )
 
     assert "Section body" in result
-    provenance_service.create_link.assert_awaited_once()
-    command = provenance_service.create_link.await_args.args[0]
+    client.create_provenance_link.assert_awaited_once()
+    command = client.create_provenance_link.await_args.args[0]
     assert command.workspace_id == "ws-1"
     assert command.source_id == "reference-1"
     assert command.target_domain == "agent_tool"

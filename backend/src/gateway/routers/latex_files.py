@@ -10,13 +10,13 @@ from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
-from src.dataservice.prism_api import PrismDataService
-from src.dataservice.prism_review_api import (
-    APPLIED_PRISM_FILE_CHANGE_STATUSES,
-    PENDING_PRISM_FILE_CHANGE_STATUSES,
-    PrismReviewDataService,
+from src.dataservice_client.contracts.prism import PrismProtectedScopeUpsertPayload
+from src.dataservice_client.contracts.prism_review import (
+    PrismFileChangeAppliedPayload,
+    PrismFileChangeRejectedPayload,
 )
-from src.dataservice.review_api import ReviewItemProjection
+from src.dataservice_client.contracts.review import ReviewItemPayload
+from src.dataservice_client.provider import dataservice_client
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import (
     LatexCreateFolderRequest,
@@ -51,6 +51,9 @@ from src.services.latex import LatexProjectService
 from src.services.latex.rewrite_diff import compute_content_hash
 
 router = APIRouter(prefix="/latex", tags=["latex"])
+
+PENDING_PRISM_FILE_CHANGE_STATUSES = ("pending", "accepted")
+APPLIED_PRISM_FILE_CHANGE_STATUSES = ("applied",)
 
 
 def _json_object(value: object) -> dict[str, object]:
@@ -94,13 +97,15 @@ async def _get_prism_file_change_or_404(
     logical_key: str,
     statuses: tuple[str, ...],
     not_found_detail: str = "File change not found",
-) -> ReviewItemProjection:
-    review_item = await PrismReviewDataService(db).find_file_change(
-        workspace_id=_project_workspace_id(project),
-        latex_project_id=str(project.id),
-        logical_key=logical_key,
-        statuses=statuses,
-    )
+) -> ReviewItemPayload:
+    _ = db
+    async with dataservice_client() as client:
+        review_item = await client.find_prism_file_change(
+            workspace_id=_project_workspace_id(project),
+            latex_project_id=str(project.id),
+            logical_key=logical_key,
+            statuses=list(statuses),
+        )
     if review_item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=not_found_detail)
     return review_item
@@ -236,7 +241,6 @@ async def apply_project_file_change(
     if project is None:
         raise _not_found()
 
-    review_service = PrismReviewDataService(db)
     review_item = await _get_prism_file_change_or_404(
         db,
         project,
@@ -296,13 +300,16 @@ async def apply_project_file_change(
     )
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
-    await review_service.mark_applied_file_change(
-        review_item.id,
-        previous_content=current_content,
-        previous_hash=previous_hash,
-        applied_hash=applied_hash,
-        revert_signature=revert_signature,
-    )
+    async with dataservice_client() as client:
+        await client.mark_prism_file_change_applied(
+            review_item.id,
+            PrismFileChangeAppliedPayload(
+                previous_content=current_content,
+                previous_hash=previous_hash,
+                applied_hash=applied_hash,
+                revert_signature=revert_signature,
+            ),
+        )
     await _record_latex_reference_usage(
         db,
         workspace_id=str(llm_config.get("workspace_id") or ""),
@@ -343,7 +350,6 @@ async def discard_project_file_change(
     if project is None:
         raise _not_found()
 
-    review_service = PrismReviewDataService(db)
     review_item = await _get_prism_file_change_or_404(
         db,
         project,
@@ -370,16 +376,22 @@ async def discard_project_file_change(
     }
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
-    await review_service.mark_rejected_file_change(review_item.id, reason="user_protected")
-    protected = await PrismDataService(db).upsert_latex_protected_scope(
-        workspace_id=_project_workspace_id(project),
-        latex_project_id=str(project.id),
-        file_path=path,
-        section_key=request.logical_key,
-        scope="section",
-        reason="user_protected",
-        source="review_reject",
-    )
+    async with dataservice_client() as client:
+        await client.mark_prism_file_change_rejected(
+            review_item.id,
+            PrismFileChangeRejectedPayload(reason="user_protected"),
+        )
+        protected = await client.upsert_latex_prism_protected_scope(
+            PrismProtectedScopeUpsertPayload(
+                workspace_id=_project_workspace_id(project),
+                latex_project_id=str(project.id),
+                file_path=path,
+                section_key=request.logical_key,
+                scope="section",
+                reason="user_protected",
+                source="review_reject",
+            )
+        )
     if protected is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -408,7 +420,6 @@ async def revert_project_file_change(
     if project is None:
         raise _not_found()
 
-    review_service = PrismReviewDataService(db)
     review_item = await _get_prism_file_change_or_404(
         db,
         project,
@@ -471,7 +482,8 @@ async def revert_project_file_change(
     }
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
-    await review_service.mark_reverted_file_change(review_item.id)
+    async with dataservice_client() as client:
+        await client.mark_prism_file_change_reverted(review_item.id)
     return LatexFileChangeRevertResponse(
         ok=True,
         reverted=True,
@@ -512,15 +524,18 @@ async def protect_project_section(
 
     section_key = str(request.section_key or "").strip()
     reason = request.reason or "user_manual_protect"
-    protected = await PrismDataService(db).upsert_latex_protected_scope(
-        workspace_id=workspace_id,
-        latex_project_id=str(project.id),
-        file_path=request.path,
-        section_key=section_key,
-        scope=request.scope,
-        reason=reason,
-        source="manual_edit",
-    )
+    async with dataservice_client() as client:
+        protected = await client.upsert_latex_prism_protected_scope(
+            PrismProtectedScopeUpsertPayload(
+                workspace_id=workspace_id,
+                latex_project_id=str(project.id),
+                file_path=request.path,
+                section_key=section_key,
+                scope=request.scope,
+                reason=reason,
+                source="manual_edit",
+            )
+        )
     if protected is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

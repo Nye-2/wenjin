@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Iterable, Sequence
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -21,17 +22,20 @@ from src.database import (
     ReferenceSourceType,
 )
 from src.database.base import generate_uuid
-from src.dataservice.asset_api import AssetDataService
-from src.dataservice.source_api import (
-    SourceAssetUpdateCommand,
-    SourceBibliographyCreateCommand,
-    SourceBibliographySnapshotCreateCommand,
-    SourceDataService,
-    SourceExternalIdCreateCommand,
-    SourceImportCommand,
-    SourceUpdateCommand,
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
+from src.dataservice_client.contracts.source import (
+    SourceAssetLinkPayload,
+    SourceAssetUpdatePayload,
+    SourceBibliographyCreatePayload,
+    SourceBibliographySnapshotCreatePayload,
+    SourceEvidencePackCreatePayload,
+    SourceExternalIdCreatePayload,
+    SourceImportPayload,
+    SourceIndexReplacePayload,
+    SourceUpdatePayload,
 )
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client.provider import dataservice_client
 from src.services.latex.project_service import LatexProjectService
 from src.services.upload_preprocessor import UploadPreprocessResult, get_upload_preprocessor_service
 from src.services.workspace_latex_projects import WorkspaceLatexProjectService
@@ -80,6 +84,17 @@ def _serialize_datetime(value: Any) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+@asynccontextmanager
+async def _managed_dataservice_client(
+    dataservice: AsyncDataServiceClient | None,
+):
+    if dataservice is not None:
+        yield dataservice
+        return
+    async with dataservice_client() as client:
+        yield client
+
+
 def _paper_candidate_from_bibtex(entry: dict[str, str]) -> dict[str, Any]:
     parser = BibTeXParser()
     payload = parser.to_paper_dict(entry)
@@ -94,8 +109,8 @@ def _paper_candidate_from_bibtex(entry: dict[str, str]) -> dict[str, Any]:
     return result
 
 
-def _source_external_id_commands(external_ids: Sequence[dict[str, Any]] | None) -> list[SourceExternalIdCreateCommand]:
-    commands: list[SourceExternalIdCreateCommand] = []
+def _source_external_id_commands(external_ids: Sequence[dict[str, Any]] | None) -> list[SourceExternalIdCreatePayload]:
+    commands: list[SourceExternalIdCreatePayload] = []
     for item in external_ids or []:
         if not isinstance(item, dict):
             continue
@@ -104,7 +119,7 @@ def _source_external_id_commands(external_ids: Sequence[dict[str, Any]] | None) 
         if not provider or not external_id:
             continue
         commands.append(
-            SourceExternalIdCreateCommand(
+            SourceExternalIdCreatePayload(
                 provider=provider,
                 external_id=external_id,
                 url=item.get("url"),
@@ -139,11 +154,11 @@ def _source_import_command(
     bibtex_entry_type: str | None = None,
     bibtex_fields: dict[str, Any] | None = None,
     dedupe_by_title: bool = True,
-) -> SourceImportCommand:
+) -> SourceImportPayload:
     resolved_title = str(title or "").strip()
     resolved_authors = parse_authors(authors)
     resolved_year = safe_int(year)
-    return SourceImportCommand(
+    return SourceImportPayload(
         workspace_id=workspace_id,
         source_kind="paper",
         title=resolved_title,
@@ -213,21 +228,21 @@ def _serialize_source_reference(source: Any) -> dict[str, Any]:
 class SourceLibraryImportService:
     """Import source-library entries from uploads, Semantic Scholar, artifacts, BibTeX, or manual input."""
 
-    def __init__(self, db: AsyncSession) -> None:
-        self.db = db
+    def __init__(self, dataservice: AsyncDataServiceClient | None = None) -> None:
+        self._dataservice = dataservice
 
     async def import_manual(self, workspace_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         data = dict(payload)
         library_status = data.pop("library_status", None) or ReferenceLibraryStatus.INCLUDED
-        result = await SourceDataService(self.db, autocommit=False).import_source(
-            _source_import_command(
-                workspace_id=workspace_id,
-                source_type=ReferenceSourceType.MANUAL,
-                library_status=library_status,
-                **data,
+        async with _managed_dataservice_client(self._dataservice) as client:
+            result = await client.import_source(
+                _source_import_command(
+                    workspace_id=workspace_id,
+                    source_type=ReferenceSourceType.MANUAL,
+                    library_status=library_status,
+                    **data,
+                )
             )
-        )
-        await self.db.commit()
         return {"reference": _serialize_source_reference(result.source), "created": result.created}
 
     async def import_semantic_scholar_query(
@@ -264,45 +279,45 @@ class SourceLibraryImportService:
     ) -> dict[str, Any]:
         imported: list[dict[str, Any]] = []
         created_count = 0
-        for paper in papers:
-            if not isinstance(paper, dict):
-                continue
-            title = str(paper.get("title") or "").strip()
-            if not title:
-                continue
-            external_id = str(paper.get("external_id") or paper.get("paperId") or "").strip()
-            result = await SourceDataService(self.db, autocommit=False).import_source(
-                _source_import_command(
-                    workspace_id=workspace_id,
-                    title=title,
-                    authors=paper.get("authors"),
-                    year=paper.get("year"),
-                    venue=paper.get("venue"),
-                    doi=paper.get("doi"),
-                    url=paper.get("url"),
-                    abstract=paper.get("abstract"),
-                    citation_count=paper.get("citations_count") or paper.get("citation_count"),
-                    source_type=ReferenceSourceType.SEMANTIC_SCHOLAR,
-                    source_label=source_label or "Semantic Scholar",
-                    source_artifact_id=source_artifact_id,
-                    verified_at=utc_now(),
-                    library_status=ReferenceLibraryStatus.CANDIDATE,
-                    evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED,
-                    external_ids=[
-                        {
-                            "source": "semantic_scholar",
-                            "external_id": external_id,
-                            "url": paper.get("url"),
-                        }
-                    ]
-                    if external_id
-                    else [],
+        async with _managed_dataservice_client(self._dataservice) as client:
+            for paper in papers:
+                if not isinstance(paper, dict):
+                    continue
+                title = str(paper.get("title") or "").strip()
+                if not title:
+                    continue
+                external_id = str(paper.get("external_id") or paper.get("paperId") or "").strip()
+                result = await client.import_source(
+                    _source_import_command(
+                        workspace_id=workspace_id,
+                        title=title,
+                        authors=paper.get("authors"),
+                        year=paper.get("year"),
+                        venue=paper.get("venue"),
+                        doi=paper.get("doi"),
+                        url=paper.get("url"),
+                        abstract=paper.get("abstract"),
+                        citation_count=paper.get("citations_count") or paper.get("citation_count"),
+                        source_type=ReferenceSourceType.SEMANTIC_SCHOLAR,
+                        source_label=source_label or "Semantic Scholar",
+                        source_artifact_id=source_artifact_id,
+                        verified_at=utc_now(),
+                        library_status=ReferenceLibraryStatus.CANDIDATE,
+                        evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED,
+                        external_ids=[
+                            {
+                                "source": "semantic_scholar",
+                                "external_id": external_id,
+                                "url": paper.get("url"),
+                            }
+                        ]
+                        if external_id
+                        else [],
+                    )
                 )
-            )
-            created_count += 1 if result.created else 0
-            imported.append(_serialize_source_reference(result.source))
+                created_count += 1 if result.created else 0
+                imported.append(_serialize_source_reference(result.source))
 
-        await self.db.commit()
         return {"imported": len(imported), "created": created_count, "items": imported}
 
     async def import_deep_search_artifact(
@@ -313,16 +328,16 @@ class SourceLibraryImportService:
     ) -> dict[str, Any]:
         if not artifact_ids:
             return {"imported": 0, "created": 0, "items": []}
-        asset_data = AssetDataService(self.db, autocommit=False)
-        artifacts = [
-            artifact
-            for artifact_id in artifact_ids
-            if (
-                artifact := await asset_data.get_legacy_artifact(str(artifact_id))
-            )
-            is not None
-            and str(artifact.workspace_id) == workspace_id
-        ]
+        async with _managed_dataservice_client(self._dataservice) as client:
+            artifacts = [
+                artifact
+                for artifact_id in artifact_ids
+                if (
+                    artifact := await client.get_legacy_artifact(str(artifact_id))
+                )
+                is not None
+                and str(artifact.workspace_id) == workspace_id
+            ]
         candidates: list[dict[str, Any]] = []
         for artifact in artifacts:
             content = artifact.content if isinstance(artifact.content, dict) else {}
@@ -333,70 +348,70 @@ class SourceLibraryImportService:
 
         imported: list[dict[str, Any]] = []
         created_count = 0
-        for candidate in candidates:
-            title = str(candidate.get("title") or "").strip()
-            if not title:
-                continue
-            result = await SourceDataService(self.db, autocommit=False).import_source(
-                _source_import_command(
-                    workspace_id=workspace_id,
-                    title=title,
-                    authors=candidate.get("authors"),
-                    year=candidate.get("year"),
-                    venue=candidate.get("venue"),
-                    doi=candidate.get("doi"),
-                    url=candidate.get("url"),
-                    abstract=candidate.get("abstract") or candidate.get("summary"),
-                    citation_count=candidate.get("citations_count") or candidate.get("citation_count"),
-                    source_type=ReferenceSourceType.DEEP_SEARCH,
-                    source_label="Deep search",
-                    source_artifact_id=str(candidate.get("source_artifact_id") or ""),
-                    library_status=ReferenceLibraryStatus.CANDIDATE,
-                    evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED
-                    if candidate.get("external_id") or candidate.get("doi")
-                    else ReferenceEvidenceLevel.METADATA_ONLY,
-                    external_ids=[
-                        {
-                            "source": str(candidate.get("source") or "deep_search"),
-                            "external_id": str(candidate.get("external_id") or ""),
-                            "url": candidate.get("url"),
-                        }
-                    ]
-                    if candidate.get("external_id")
-                    else [],
+        async with _managed_dataservice_client(self._dataservice) as client:
+            for candidate in candidates:
+                title = str(candidate.get("title") or "").strip()
+                if not title:
+                    continue
+                result = await client.import_source(
+                    _source_import_command(
+                        workspace_id=workspace_id,
+                        title=title,
+                        authors=candidate.get("authors"),
+                        year=candidate.get("year"),
+                        venue=candidate.get("venue"),
+                        doi=candidate.get("doi"),
+                        url=candidate.get("url"),
+                        abstract=candidate.get("abstract") or candidate.get("summary"),
+                        citation_count=candidate.get("citations_count") or candidate.get("citation_count"),
+                        source_type=ReferenceSourceType.DEEP_SEARCH,
+                        source_label="Deep search",
+                        source_artifact_id=str(candidate.get("source_artifact_id") or ""),
+                        library_status=ReferenceLibraryStatus.CANDIDATE,
+                        evidence_level=ReferenceEvidenceLevel.EXTERNAL_VERIFIED
+                        if candidate.get("external_id") or candidate.get("doi")
+                        else ReferenceEvidenceLevel.METADATA_ONLY,
+                        external_ids=[
+                            {
+                                "source": str(candidate.get("source") or "deep_search"),
+                                "external_id": str(candidate.get("external_id") or ""),
+                                "url": candidate.get("url"),
+                            }
+                        ]
+                        if candidate.get("external_id")
+                        else [],
+                    )
                 )
-            )
-            created_count += 1 if result.created else 0
-            imported.append(_serialize_source_reference(result.source))
-        await self.db.commit()
+                created_count += 1 if result.created else 0
+                imported.append(_serialize_source_reference(result.source))
         return {"imported": len(imported), "created": created_count, "items": imported}
 
     async def import_bibtex(self, *, workspace_id: str, content: str) -> dict[str, Any]:
         entries = BibTeXParser().parse(content)
         imported: list[dict[str, Any]] = []
         created_count = 0
-        for entry in entries:
-            payload = _paper_candidate_from_bibtex(entry)
-            result = await SourceDataService(self.db, autocommit=False).import_source(
-                _source_import_command(
-                    workspace_id=workspace_id,
-                    title=payload.get("title") or "Untitled Reference",
-                    authors=payload.get("authors"),
-                    year=payload.get("year"),
-                    venue=payload.get("venue"),
-                    doi=payload.get("doi"),
-                    source_type=ReferenceSourceType.BIBTEX,
-                    source_label="BibTeX import",
-                    library_status=ReferenceLibraryStatus.INCLUDED,
-                    evidence_level=ReferenceEvidenceLevel.METADATA_ONLY,
-                    citation_key=payload.get("citation_key"),
-                    bibtex_entry_type=payload.get("bibtex_entry_type"),
-                    bibtex_fields=payload.get("bibtex_fields"),
+        async with _managed_dataservice_client(self._dataservice) as client:
+            for entry in entries:
+                payload = _paper_candidate_from_bibtex(entry)
+                result = await client.import_source(
+                    _source_import_command(
+                        workspace_id=workspace_id,
+                        title=payload.get("title") or "Untitled Reference",
+                        authors=payload.get("authors"),
+                        year=payload.get("year"),
+                        venue=payload.get("venue"),
+                        doi=payload.get("doi"),
+                        source_type=ReferenceSourceType.BIBTEX,
+                        source_label="BibTeX import",
+                        library_status=ReferenceLibraryStatus.INCLUDED,
+                        evidence_level=ReferenceEvidenceLevel.METADATA_ONLY,
+                        citation_key=payload.get("citation_key"),
+                        bibtex_entry_type=payload.get("bibtex_entry_type"),
+                        bibtex_fields=payload.get("bibtex_fields"),
+                    )
                 )
-            )
-            created_count += 1 if result.created else 0
-            imported.append(_serialize_source_reference(result.source))
-        await self.db.commit()
+                created_count += 1 if result.created else 0
+                imported.append(_serialize_source_reference(result.source))
         return {"imported": len(imported), "created": created_count, "items": imported}
 
     async def import_uploaded_pdf(
@@ -424,149 +439,150 @@ class SourceLibraryImportService:
         )
         title = str(preview.get("title") or "").strip() or target.stem
         file_hash = sha256_bytes(content)
-        source_service = SourceDataService(self.db, autocommit=False)
-        source_import = await source_service.import_source(
-            _source_import_command(
-                workspace_id=workspace_id,
-                title=title,
-                authors=preview.get("authors"),
-                source_type=ReferenceSourceType.UPLOAD,
-                source_label="PDF upload",
-                library_status=ReferenceLibraryStatus.INCLUDED,
-                evidence_level=ReferenceEvidenceLevel.UPLOADED_FULLTEXT,
-                fulltext_status=ReferenceFulltextStatus.UPLOADED,
-                external_ids=[
-                    {
-                        "source": "upload_sha256",
-                        "external_id": file_hash,
-                        "url": None,
-                    }
-                ],
-                dedupe_by_title=False,
+        async with _managed_dataservice_client(self._dataservice) as client:
+            source_import = await client.import_source(
+                _source_import_command(
+                    workspace_id=workspace_id,
+                    title=title,
+                    authors=preview.get("authors"),
+                    source_type=ReferenceSourceType.UPLOAD,
+                    source_label="PDF upload",
+                    library_status=ReferenceLibraryStatus.INCLUDED,
+                    evidence_level=ReferenceEvidenceLevel.UPLOADED_FULLTEXT,
+                    fulltext_status=ReferenceFulltextStatus.UPLOADED,
+                    external_ids=[
+                        {
+                            "source": "upload_sha256",
+                            "external_id": file_hash,
+                            "url": None,
+                        }
+                    ],
+                    dedupe_by_title=False,
+                )
             )
-        )
-        source = source_import.source
-        public_url = workspace_upload_public_url(workspace_id, target, root=DEFAULT_WORKSPACE_UPLOAD_ROOT)
-        workspace_asset = await AssetDataService(self.db, autocommit=False).register_asset_record(
-            workspace_id=workspace_id,
-            asset_kind="source_file",
-            name=target.name,
-            title=title,
-            mime_type=content_type,
-            storage_path=str(target),
-            size_bytes=len(content),
-            content_hash=file_hash,
-            created_by="reference_import",
-            source_kind="source",
-            source_id=source.id,
-            metadata_json={
-                "virtual_path": f"{REFERENCE_UPLOAD_BUCKET}/{target.name}",
-                "public_url": public_url,
-                "page_count": safe_int(preview.get("page_count")),
-                "upload_bucket": REFERENCE_UPLOAD_BUCKET,
-            },
-        )
-        source_asset = await source_service.link_source_asset(
-            workspace_id=workspace_id,
-            source_id=source.id,
-            workspace_asset_id=workspace_asset.id,
-            asset_type="pdf",
-            preprocess_status=ReferencePreprocessStatus.PENDING.value,
-            metadata_json={
-                "virtual_path": f"{REFERENCE_UPLOAD_BUCKET}/{target.name}",
-                "public_url": public_url,
-                "page_count": safe_int(preview.get("page_count")),
-                "content_type": content_type,
-                "file_size": len(content),
-                "file_hash": file_hash,
-            },
-        )
-
-        if len(content) > REFERENCE_PREPROCESS_THRESHOLD_BYTES and task_service and user_id:
-            await source_service.update_source(
-                workspace_id=workspace_id,
-                source_id=source.id,
-                command=SourceUpdateCommand(fulltext_status=ReferenceFulltextStatus.PREPROCESSING.value),
-            )
-            await self.db.commit()
-            try:
-                task_id = await task_service.submit_task(
-                    user_id=user_id,
-                    task_type="reference_preprocess",
-                    payload={
-                        "workspace_id": workspace_id,
-                        "source_id": source.id,
-                        "source_asset_id": str(source_asset["id"]),
-                        "workspace_asset_id": workspace_asset.id,
-                        "thread_id": thread_id,
-                        "filename": target.name,
-                        "content_type": content_type,
-                        "source_path": str(target),
-                        "output_dir": str(target.parent / "_preprocessed" / target.stem),
-                        "output_virtual_root": f"{REFERENCE_UPLOAD_BUCKET}/_preprocessed/{target.stem}",
+            source = source_import.source
+            public_url = workspace_upload_public_url(workspace_id, target, root=DEFAULT_WORKSPACE_UPLOAD_ROOT)
+            workspace_asset = await client.register_asset(
+                WorkspaceAssetCreatePayload(
+                    workspace_id=workspace_id,
+                    asset_kind="source_file",
+                    name=target.name,
+                    title=title,
+                    mime_type=content_type,
+                    storage_path=str(target),
+                    size_bytes=len(content),
+                    content_hash=file_hash,
+                    created_by="reference_import",
+                    source_kind="source",
+                    source_id=source.id,
+                    metadata_json={
+                        "virtual_path": f"{REFERENCE_UPLOAD_BUCKET}/{target.name}",
+                        "public_url": public_url,
+                        "page_count": safe_int(preview.get("page_count")),
+                        "upload_bucket": REFERENCE_UPLOAD_BUCKET,
                     },
                 )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to schedule reference preprocess for workspace=%s reference=%s asset=%s",
-                    workspace_id,
-                    source.id,
-                    source_asset["id"],
-                    exc_info=True,
-                )
-                await source_service.update_source(
+            )
+            source_asset = await client.link_source_asset(
+                SourceAssetLinkPayload(
                     workspace_id=workspace_id,
                     source_id=source.id,
-                    command=SourceUpdateCommand(fulltext_status=ReferenceFulltextStatus.UPLOADED.value),
+                    workspace_asset_id=workspace_asset.id,
+                    asset_type="pdf",
+                    preprocess_status=ReferencePreprocessStatus.PENDING.value,
+                    metadata_json={
+                        "virtual_path": f"{REFERENCE_UPLOAD_BUCKET}/{target.name}",
+                        "public_url": public_url,
+                        "page_count": safe_int(preview.get("page_count")),
+                        "content_type": content_type,
+                        "file_size": len(content),
+                        "file_hash": file_hash,
+                    },
                 )
-                source_asset = await source_service.update_source_asset(
-                    workspace_id=workspace_id,
-                    source_asset_id=str(source_asset["id"]),
-                    command=SourceAssetUpdateCommand(
-                        preprocess_status=ReferencePreprocessStatus.FAILED.value,
-                        metadata_json={"preprocess_error": str(exc)},
-                    ),
-                ) or source_asset
-                await self.db.commit()
-                preprocess = {
-                    "status": "failed",
-                    "error": str(exc),
-                    "message": "Reference Library 后台解析任务提交失败，PDF 已保存，可稍后重新解析。",
-                }
-            else:
-                source_asset = await source_service.update_source_asset(
-                    workspace_id=workspace_id,
-                    source_asset_id=str(source_asset["id"]),
-                    command=SourceAssetUpdateCommand(
-                        preprocess_status=ReferencePreprocessStatus.PENDING.value,
-                        metadata_json={"preprocess_task_id": str(task_id)},
-                    ),
-                ) or source_asset
-                await self.db.commit()
-                preprocess = {
-                    "status": "pending",
-                    "task_id": str(task_id),
-                    "message": "文件较大，已进入 Reference Library 后台解析队列；解析完成前不要引用全文内容。",
-                }
-        else:
-            preprocess = await SourcePreprocessService(self.db).process_asset(
-                workspace_id=workspace_id,
-                source_id=source.id,
-                source_asset_id=str(source_asset["id"]),
-                workspace_asset_id=workspace_asset.id,
-                filename=target.name,
-                content_type=content_type,
-                source_path=target,
-                output_dir=target.parent / "_preprocessed" / target.stem,
-                output_virtual_root=f"{REFERENCE_UPLOAD_BUCKET}/_preprocessed/{target.stem}",
-                commit=True,
             )
-            source_asset = await source_service.get_source_asset(
-                workspace_id=workspace_id,
-                source_asset_id=str(source_asset["id"]),
-            ) or source_asset
 
-        source = await source_service.get_source_for_workspace(workspace_id=workspace_id, source_id=source.id) or source
+            if len(content) > REFERENCE_PREPROCESS_THRESHOLD_BYTES and task_service and user_id:
+                await client.update_source(
+                    workspace_id=workspace_id,
+                    source_id=source.id,
+                    command=SourceUpdatePayload(fulltext_status=ReferenceFulltextStatus.PREPROCESSING.value),
+                )
+                try:
+                    task_id = await task_service.submit_task(
+                        user_id=user_id,
+                        task_type="reference_preprocess",
+                        payload={
+                            "workspace_id": workspace_id,
+                            "source_id": source.id,
+                            "source_asset_id": str(source_asset["id"]),
+                            "workspace_asset_id": workspace_asset.id,
+                            "thread_id": thread_id,
+                            "filename": target.name,
+                            "content_type": content_type,
+                            "source_path": str(target),
+                            "output_dir": str(target.parent / "_preprocessed" / target.stem),
+                            "output_virtual_root": f"{REFERENCE_UPLOAD_BUCKET}/_preprocessed/{target.stem}",
+                        },
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to schedule reference preprocess for workspace=%s reference=%s asset=%s",
+                        workspace_id,
+                        source.id,
+                        source_asset["id"],
+                        exc_info=True,
+                    )
+                    await client.update_source(
+                        workspace_id=workspace_id,
+                        source_id=source.id,
+                        command=SourceUpdatePayload(fulltext_status=ReferenceFulltextStatus.UPLOADED.value),
+                    )
+                    source_asset = await client.update_source_asset(
+                        workspace_id=workspace_id,
+                        source_asset_id=str(source_asset["id"]),
+                        command=SourceAssetUpdatePayload(
+                            preprocess_status=ReferencePreprocessStatus.FAILED.value,
+                            metadata_json={"preprocess_error": str(exc)},
+                        ),
+                    ) or source_asset
+                    preprocess = {
+                        "status": "failed",
+                        "error": str(exc),
+                        "message": "Reference Library 后台解析任务提交失败，PDF 已保存，可稍后重新解析。",
+                    }
+                else:
+                    source_asset = await client.update_source_asset(
+                        workspace_id=workspace_id,
+                        source_asset_id=str(source_asset["id"]),
+                        command=SourceAssetUpdatePayload(
+                            preprocess_status=ReferencePreprocessStatus.PENDING.value,
+                            metadata_json={"preprocess_task_id": str(task_id)},
+                        ),
+                    ) or source_asset
+                    preprocess = {
+                        "status": "pending",
+                        "task_id": str(task_id),
+                        "message": "文件较大，已进入 Reference Library 后台解析队列；解析完成前不要引用全文内容。",
+                    }
+            else:
+                preprocess = await SourcePreprocessService(client).process_asset(
+                    workspace_id=workspace_id,
+                    source_asset_id=str(source_asset["id"]),
+                    source_id=source.id,
+                    workspace_asset_id=workspace_asset.id,
+                    filename=target.name,
+                    content_type=content_type,
+                    source_path=target,
+                    output_dir=target.parent / "_preprocessed" / target.stem,
+                    output_virtual_root=f"{REFERENCE_UPLOAD_BUCKET}/_preprocessed/{target.stem}",
+                    commit=True,
+                )
+                source_asset = await client.get_source_asset(
+                    workspace_id=workspace_id,
+                    source_asset_id=str(source_asset["id"]),
+                ) or source_asset
+
+            source = await client.get_source_for_workspace(workspace_id=workspace_id, source_id=source.id) or source
 
         return {
             "success": True,
@@ -593,10 +609,8 @@ class SourcePreprocessService:
 
     HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 
-    def __init__(self, db: AsyncSession) -> None:
-        self.db = db
-        self.sources = SourceDataService(db, autocommit=False)
-        self.assets = AssetDataService(db, autocommit=False)
+    def __init__(self, dataservice: AsyncDataServiceClient | None = None) -> None:
+        self._dataservice = dataservice
 
     async def process_asset(
         self,
@@ -613,44 +627,43 @@ class SourcePreprocessService:
         task_id: str | None = None,
         commit: bool = True,
     ) -> dict[str, Any]:
-        source = await self.sources.get_source_for_workspace(workspace_id=workspace_id, source_id=source_id)
-        source_asset = await self.sources.get_source_asset(
-            workspace_id=workspace_id,
-            source_asset_id=source_asset_id,
-        )
-        if source is None or source_asset is None:
-            raise ValueError("Source or source asset not found")
-        await self.sources.update_source(
-            workspace_id=workspace_id,
-            source_id=source_id,
-            command=SourceUpdateCommand(fulltext_status=ReferenceFulltextStatus.PREPROCESSING.value),
-        )
-        await self.sources.update_source_asset(
-            workspace_id=workspace_id,
-            source_asset_id=source_asset_id,
-            command=SourceAssetUpdateCommand(
-                preprocess_status=ReferencePreprocessStatus.RUNNING.value,
-                metadata_json={"preprocess_task_id": task_id} if task_id else {},
-            ),
-        )
-        result = await get_upload_preprocessor_service().preprocess_file(
-            filename=filename,
-            content_type=content_type,
-            source_path=source_path,
-            output_dir=output_dir,
-            output_virtual_root=output_virtual_root,
-        )
-        metadata = await self.apply_preprocess_result(
-            workspace_id=workspace_id,
-            source_id=source_id,
-            source_asset_id=source_asset_id,
-            workspace_asset_id=workspace_asset_id,
-            result=result,
-            task_id=task_id,
-        )
-        if commit:
-            await self.db.commit()
-        return metadata
+        async with _managed_dataservice_client(self._dataservice) as client:
+            source = await client.get_source_for_workspace(workspace_id=workspace_id, source_id=source_id)
+            source_asset = await client.get_source_asset(
+                workspace_id=workspace_id,
+                source_asset_id=source_asset_id,
+            )
+            if source is None or source_asset is None:
+                raise ValueError("Source or source asset not found")
+            await client.update_source(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                command=SourceUpdatePayload(fulltext_status=ReferenceFulltextStatus.PREPROCESSING.value),
+            )
+            await client.update_source_asset(
+                workspace_id=workspace_id,
+                source_asset_id=source_asset_id,
+                command=SourceAssetUpdatePayload(
+                    preprocess_status=ReferencePreprocessStatus.RUNNING.value,
+                    metadata_json={"preprocess_task_id": task_id} if task_id else {},
+                ),
+            )
+            result = await get_upload_preprocessor_service().preprocess_file(
+                filename=filename,
+                content_type=content_type,
+                source_path=source_path,
+                output_dir=output_dir,
+                output_virtual_root=output_virtual_root,
+            )
+            return await self.apply_preprocess_result(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                source_asset_id=source_asset_id,
+                workspace_asset_id=workspace_asset_id,
+                result=result,
+                task_id=task_id,
+                dataservice=client,
+            )
 
     async def apply_preprocess_result(
         self,
@@ -661,6 +674,7 @@ class SourcePreprocessService:
         workspace_asset_id: str,
         result: UploadPreprocessResult,
         task_id: str | None = None,
+        dataservice: AsyncDataServiceClient | None = None,
     ) -> dict[str, Any]:
         metadata = result.to_metadata()
         if task_id:
@@ -671,72 +685,75 @@ class SourcePreprocessService:
             "preprocess_error": result.error,
             **({"preprocess_task_id": task_id} if task_id else {}),
         }
-        if result.status == "succeeded":
-            derivative_assets = await self._register_preprocessed_assets(
-                workspace_id=workspace_id,
-                source_id=source_id,
-                parent_asset_id=workspace_asset_id,
-                source_asset_id=source_asset_id,
-                result=result,
-            )
-            manifest_asset_id = next(
-                (item["id"] for item in derivative_assets if item.get("asset_type") == "manifest"),
-                None,
-            )
-            await self._rebuild_source_index(
-                workspace_id=workspace_id,
-                source_id=source_id,
-                source_asset_id=source_asset_id,
-                markdown_paths=result.markdown_paths,
-            )
-            await self.sources.update_source(
-                workspace_id=workspace_id,
-                source_id=source_id,
-                command=SourceUpdateCommand(
-                    fulltext_status=ReferenceFulltextStatus.INDEXED.value,
-                    evidence_level=ReferenceEvidenceLevel.INDEXED_FULLTEXT.value,
-                ),
-            )
-            await self.sources.update_source_asset(
-                workspace_id=workspace_id,
-                source_asset_id=source_asset_id,
-                command=SourceAssetUpdateCommand(
-                    preprocess_status=ReferencePreprocessStatus.SUCCEEDED.value,
-                    manifest_asset_id=str(manifest_asset_id) if manifest_asset_id else None,
-                    metadata_json=status_metadata,
-                ),
-            )
-        elif result.status in {"disabled", "skipped"}:
-            await self.sources.update_source(
-                workspace_id=workspace_id,
-                source_id=source_id,
-                command=SourceUpdateCommand(
-                    fulltext_status=ReferenceFulltextStatus.UPLOADED.value,
-                    evidence_level=ReferenceEvidenceLevel.UPLOADED_FULLTEXT.value,
-                ),
-            )
-            await self.sources.update_source_asset(
-                workspace_id=workspace_id,
-                source_asset_id=source_asset_id,
-                command=SourceAssetUpdateCommand(
-                    preprocess_status=ReferencePreprocessStatus.SKIPPED.value,
-                    metadata_json=status_metadata,
-                ),
-            )
-        else:
-            await self.sources.update_source(
-                workspace_id=workspace_id,
-                source_id=source_id,
-                command=SourceUpdateCommand(fulltext_status=ReferenceFulltextStatus.FAILED.value),
-            )
-            await self.sources.update_source_asset(
-                workspace_id=workspace_id,
-                source_asset_id=source_asset_id,
-                command=SourceAssetUpdateCommand(
-                    preprocess_status=ReferencePreprocessStatus.FAILED.value,
-                    metadata_json=status_metadata,
-                ),
-            )
+        async with _managed_dataservice_client(dataservice or self._dataservice) as client:
+            if result.status == "succeeded":
+                derivative_assets = await self._register_preprocessed_assets(
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    parent_asset_id=workspace_asset_id,
+                    source_asset_id=source_asset_id,
+                    result=result,
+                    dataservice=client,
+                )
+                manifest_asset_id = next(
+                    (item["id"] for item in derivative_assets if item.get("asset_type") == "manifest"),
+                    None,
+                )
+                await self._rebuild_source_index(
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    source_asset_id=source_asset_id,
+                    markdown_paths=result.markdown_paths,
+                    dataservice=client,
+                )
+                await client.update_source(
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    command=SourceUpdatePayload(
+                        fulltext_status=ReferenceFulltextStatus.INDEXED.value,
+                        evidence_level=ReferenceEvidenceLevel.INDEXED_FULLTEXT.value,
+                    ),
+                )
+                await client.update_source_asset(
+                    workspace_id=workspace_id,
+                    source_asset_id=source_asset_id,
+                    command=SourceAssetUpdatePayload(
+                        preprocess_status=ReferencePreprocessStatus.SUCCEEDED.value,
+                        manifest_asset_id=str(manifest_asset_id) if manifest_asset_id else None,
+                        metadata_json=status_metadata,
+                    ),
+                )
+            elif result.status in {"disabled", "skipped"}:
+                await client.update_source(
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    command=SourceUpdatePayload(
+                        fulltext_status=ReferenceFulltextStatus.UPLOADED.value,
+                        evidence_level=ReferenceEvidenceLevel.UPLOADED_FULLTEXT.value,
+                    ),
+                )
+                await client.update_source_asset(
+                    workspace_id=workspace_id,
+                    source_asset_id=source_asset_id,
+                    command=SourceAssetUpdatePayload(
+                        preprocess_status=ReferencePreprocessStatus.SKIPPED.value,
+                        metadata_json=status_metadata,
+                    ),
+                )
+            else:
+                await client.update_source(
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    command=SourceUpdatePayload(fulltext_status=ReferenceFulltextStatus.FAILED.value),
+                )
+                await client.update_source_asset(
+                    workspace_id=workspace_id,
+                    source_asset_id=source_asset_id,
+                    command=SourceAssetUpdatePayload(
+                        preprocess_status=ReferencePreprocessStatus.FAILED.value,
+                        metadata_json=status_metadata,
+                    ),
+                )
         return metadata
 
     async def _register_preprocessed_assets(
@@ -747,88 +764,98 @@ class SourcePreprocessService:
         parent_asset_id: str,
         source_asset_id: str,
         result: UploadPreprocessResult,
+        dataservice: AsyncDataServiceClient | None = None,
     ) -> list[dict[str, object]]:
         linked_assets: list[dict[str, object]] = []
-        for markdown_path in result.markdown_paths:
-            workspace_asset = await self.assets.register_asset_record(
-                workspace_id=workspace_id,
-                asset_kind="source_derivative",
-                name=Path(markdown_path).name,
-                title=Path(markdown_path).name,
-                mime_type="text/markdown",
-                storage_path=markdown_path,
-                parent_asset_id=parent_asset_id,
-                created_by="source_preprocess",
-                source_kind="source",
-                source_id=source_id,
-                metadata_json={
-                    "virtual_path": markdown_path,
-                    "public_url": workspace_upload_public_url(
-                        workspace_id,
-                        markdown_path,
-                        root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
-                    ),
-                    "source_asset_id": source_asset_id,
-                },
-            )
-            linked_assets.append(
-                await self.sources.link_source_asset(
-                    workspace_id=workspace_id,
-                    source_id=source_id,
-                    workspace_asset_id=workspace_asset.id,
-                    asset_type="markdown",
-                    preprocess_status=ReferencePreprocessStatus.SUCCEEDED.value,
-                    metadata_json={
-                        "virtual_path": markdown_path,
-                        "public_url": workspace_upload_public_url(
-                            workspace_id,
-                            markdown_path,
-                            root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
-                        ),
-                        "source_asset_id": source_asset_id,
-                    },
+        async with _managed_dataservice_client(dataservice or self._dataservice) as client:
+            for markdown_path in result.markdown_paths:
+                workspace_asset = await client.register_asset(
+                    WorkspaceAssetCreatePayload(
+                        workspace_id=workspace_id,
+                        asset_kind="source_derivative",
+                        name=Path(markdown_path).name,
+                        title=Path(markdown_path).name,
+                        mime_type="text/markdown",
+                        storage_path=markdown_path,
+                        parent_asset_id=parent_asset_id,
+                        created_by="source_preprocess",
+                        source_kind="source",
+                        source_id=source_id,
+                        metadata_json={
+                            "virtual_path": markdown_path,
+                            "public_url": workspace_upload_public_url(
+                                workspace_id,
+                                markdown_path,
+                                root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
+                            ),
+                            "source_asset_id": source_asset_id,
+                        },
+                    )
                 )
-            )
-        if result.manifest_path:
-            workspace_asset = await self.assets.register_asset_record(
-                workspace_id=workspace_id,
-                asset_kind="source_derivative",
-                name=Path(result.manifest_path).name,
-                title=Path(result.manifest_path).name,
-                mime_type="application/json",
-                storage_path=result.manifest_path,
-                parent_asset_id=parent_asset_id,
-                created_by="source_preprocess",
-                source_kind="source",
-                source_id=source_id,
-                metadata_json={
-                    "virtual_path": result.manifest_path,
-                    "public_url": workspace_upload_public_url(
-                        workspace_id,
-                        result.manifest_path,
-                        root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
-                    ),
-                    "source_asset_id": source_asset_id,
-                },
-            )
-            linked_assets.append(
-                await self.sources.link_source_asset(
-                    workspace_id=workspace_id,
-                    source_id=source_id,
-                    workspace_asset_id=workspace_asset.id,
-                    asset_type="manifest",
-                    preprocess_status=ReferencePreprocessStatus.SUCCEEDED.value,
-                    metadata_json={
-                        "virtual_path": result.manifest_path,
-                        "public_url": workspace_upload_public_url(
-                            workspace_id,
-                            result.manifest_path,
-                            root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
-                        ),
-                        "source_asset_id": source_asset_id,
-                    },
+                linked_assets.append(
+                    await client.link_source_asset(
+                        SourceAssetLinkPayload(
+                            workspace_id=workspace_id,
+                            source_id=source_id,
+                            workspace_asset_id=workspace_asset.id,
+                            asset_type="markdown",
+                            preprocess_status=ReferencePreprocessStatus.SUCCEEDED.value,
+                            metadata_json={
+                                "virtual_path": markdown_path,
+                                "public_url": workspace_upload_public_url(
+                                    workspace_id,
+                                    markdown_path,
+                                    root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
+                                ),
+                                "source_asset_id": source_asset_id,
+                            },
+                        )
+                    )
                 )
-            )
+            if result.manifest_path:
+                workspace_asset = await client.register_asset(
+                    WorkspaceAssetCreatePayload(
+                        workspace_id=workspace_id,
+                        asset_kind="source_derivative",
+                        name=Path(result.manifest_path).name,
+                        title=Path(result.manifest_path).name,
+                        mime_type="application/json",
+                        storage_path=result.manifest_path,
+                        parent_asset_id=parent_asset_id,
+                        created_by="source_preprocess",
+                        source_kind="source",
+                        source_id=source_id,
+                        metadata_json={
+                            "virtual_path": result.manifest_path,
+                            "public_url": workspace_upload_public_url(
+                                workspace_id,
+                                result.manifest_path,
+                                root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
+                            ),
+                            "source_asset_id": source_asset_id,
+                        },
+                    )
+                )
+                linked_assets.append(
+                    await client.link_source_asset(
+                        SourceAssetLinkPayload(
+                            workspace_id=workspace_id,
+                            source_id=source_id,
+                            workspace_asset_id=workspace_asset.id,
+                            asset_type="manifest",
+                            preprocess_status=ReferencePreprocessStatus.SUCCEEDED.value,
+                            metadata_json={
+                                "virtual_path": result.manifest_path,
+                                "public_url": workspace_upload_public_url(
+                                    workspace_id,
+                                    result.manifest_path,
+                                    root=DEFAULT_WORKSPACE_UPLOAD_ROOT,
+                                ),
+                                "source_asset_id": source_asset_id,
+                            },
+                        )
+                    )
+                )
         return linked_assets
 
     async def _rebuild_source_index(
@@ -838,11 +865,13 @@ class SourcePreprocessService:
         source_id: str,
         source_asset_id: str,
         markdown_paths: Sequence[str],
+        dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         outline_nodes: list[dict[str, object]] = []
         text_units: list[dict[str, object]] = []
         sort_order = 0
-        source = await self.sources.get_source_for_workspace(workspace_id=workspace_id, source_id=source_id)
+        async with _managed_dataservice_client(dataservice or self._dataservice) as client:
+            source = await client.get_source_for_workspace(workspace_id=workspace_id, source_id=source_id)
         source_title = source.title if source is not None else ""
         for doc_index, markdown_path in enumerate(markdown_paths):
             try:
@@ -910,12 +939,15 @@ class SourcePreprocessService:
                     }
                 )
                 sort_order += 1
-        await self.sources.replace_source_index(
-            workspace_id=workspace_id,
-            source_id=source_id,
-            outline_nodes=outline_nodes,
-            text_units=text_units,
-        )
+        async with _managed_dataservice_client(dataservice or self._dataservice) as client:
+            await client.replace_source_index(
+                SourceIndexReplacePayload(
+                    workspace_id=workspace_id,
+                    source_id=source_id,
+                    outline_nodes=outline_nodes,
+                    text_units=text_units,
+                )
+            )
 
     def _split_markdown_sections(self, markdown: str) -> list[dict[str, Any]]:
         lines = markdown.splitlines()
@@ -979,7 +1011,13 @@ def _extract_citation_keys(latex_content: str) -> set[str]:
 class SourceBibliographyService:
     """Generate and synchronize BibTeX from workspace Source metadata."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        dataservice: AsyncDataServiceClient | None = None,
+        *,
+        db: AsyncSession | None = None,
+    ) -> None:
+        self._dataservice = dataservice
         self.db = db
 
     async def build_bibtex(
@@ -990,13 +1028,14 @@ class SourceBibliographyService:
     ) -> dict[str, Any]:
         scope_value = _coerce_enum_value(ReferenceBibtexScope, scope, "scope")
         references = await self._load_scope(workspace_id, scope_value)
-        bibliography = await SourceDataService(self.db, autocommit=False).build_bibliography(
-            SourceBibliographyCreateCommand(
-                workspace_id=workspace_id,
-                source_ids=[str(reference.id) for reference in references],
-                include_excluded=True,
+        async with _managed_dataservice_client(self._dataservice) as client:
+            bibliography = await client.build_source_bibliography(
+                SourceBibliographyCreatePayload(
+                    workspace_id=workspace_id,
+                    source_ids=[str(reference.id) for reference in references],
+                    include_excluded=True,
+                )
             )
-        )
         content = bibliography.content or ""
         return {
             "workspace_id": workspace_id,
@@ -1033,11 +1072,12 @@ class SourceBibliographyService:
             dict with valid, missing_keys, unused_bib_keys, unverified_keys.
         """
         cited_keys = _extract_citation_keys(latex_content)
-        references = await SourceDataService(self.db, autocommit=False).list_sources(
-            workspace_id=workspace_id,
-            include_excluded=True,
-            limit=5000,
-        )
+        async with _managed_dataservice_client(self._dataservice) as client:
+            references = await client.list_sources(
+                workspace_id=workspace_id,
+                include_excluded=True,
+                limit=5000,
+            )
         workspace_keys = {ref.citation_key for ref in references if ref.citation_key}
         verified_keys = {
             ref.citation_key
@@ -1066,9 +1106,12 @@ class SourceBibliographyService:
         scope: ReferenceBibtexScope | str = ReferenceBibtexScope.INCLUDED_AND_CORE,
     ) -> dict[str, Any]:
         bibtex = await self.build_bibtex(workspace_id=workspace_id, scope=scope)
-        workspace = await WorkspaceDataService(self.db, autocommit=False).get_workspace(workspace_id)
+        async with _managed_dataservice_client(self._dataservice) as client:
+            workspace = await client.get_workspace(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
+        if self.db is None:
+            raise ValueError("LaTeX bibliography sync requires a request database session until LaTeX is migrated.")
 
         project = await WorkspaceLatexProjectService(self.db).ensure_workspace_project(
             workspace_id=workspace_id,
@@ -1078,17 +1121,17 @@ class SourceBibliographyService:
         await project_service.write_text_file(project, "refs.bib", bibtex["content"])
         await self._ensure_main_tex_bibliography(project_service, project)
 
-        await SourceDataService(self.db, autocommit=False).create_bibliography_snapshot(
-            SourceBibliographySnapshotCreateCommand(
-                workspace_id=workspace_id,
-                prism_project_id=str(project.id),
-                scope=bibtex["scope"],
-                content=bibtex["content"],
-                reference_count=bibtex["reference_count"],
-                checksum=bibtex["checksum"],
+        async with _managed_dataservice_client(self._dataservice) as client:
+            await client.create_source_bibliography_snapshot(
+                SourceBibliographySnapshotCreatePayload(
+                    workspace_id=workspace_id,
+                    prism_project_id=str(project.id),
+                    scope=bibtex["scope"],
+                    content=bibtex["content"],
+                    reference_count=bibtex["reference_count"],
+                    checksum=bibtex["checksum"],
+                )
             )
-        )
-        await self.db.commit()
         return {
             **bibtex,
             "latex_project_id": str(project.id),
@@ -1101,42 +1144,42 @@ class SourceBibliographyService:
         scope: ReferenceBibtexScope | str,
     ) -> list[Any]:
         scope_value = _coerce_enum_value(ReferenceBibtexScope, scope, "scope")
-        source_service = SourceDataService(self.db, autocommit=False)
-        if scope_value == ReferenceBibtexScope.CORE.value:
-            return await source_service.list_sources(
-                workspace_id=workspace_id,
-                library_status=ReferenceLibraryStatus.CORE.value,
-                include_excluded=True,
-                limit=5000,
-            )
-        elif scope_value == ReferenceBibtexScope.INCLUDED_AND_CORE.value:
-            sources = []
-            for library_status in (
-                ReferenceLibraryStatus.CORE.value,
-                ReferenceLibraryStatus.INCLUDED.value,
-                ReferenceLibraryStatus.USED_IN_DRAFT.value,
-            ):
-                sources.extend(
-                    await source_service.list_sources(
-                        workspace_id=workspace_id,
-                        library_status=library_status,
-                        include_excluded=True,
-                        limit=5000,
-                    )
+        async with _managed_dataservice_client(self._dataservice) as client:
+            if scope_value == ReferenceBibtexScope.CORE.value:
+                return await client.list_sources(
+                    workspace_id=workspace_id,
+                    library_status=ReferenceLibraryStatus.CORE.value,
+                    include_excluded=True,
+                    limit=5000,
                 )
-            return sorted(sources, key=lambda source: source.citation_key)
-        elif scope_value == ReferenceBibtexScope.USED_ONLY.value:
-            return await source_service.list_sources(
+            elif scope_value == ReferenceBibtexScope.INCLUDED_AND_CORE.value:
+                sources = []
+                for library_status in (
+                    ReferenceLibraryStatus.CORE.value,
+                    ReferenceLibraryStatus.INCLUDED.value,
+                    ReferenceLibraryStatus.USED_IN_DRAFT.value,
+                ):
+                    sources.extend(
+                        await client.list_sources(
+                            workspace_id=workspace_id,
+                            library_status=library_status,
+                            include_excluded=True,
+                            limit=5000,
+                        )
+                    )
+                return sorted(sources, key=lambda source: source.citation_key)
+            elif scope_value == ReferenceBibtexScope.USED_ONLY.value:
+                return await client.list_sources(
+                    workspace_id=workspace_id,
+                    library_status=ReferenceLibraryStatus.USED_IN_DRAFT.value,
+                    include_excluded=True,
+                    limit=5000,
+                )
+            sources = await client.list_sources(
                 workspace_id=workspace_id,
-                library_status=ReferenceLibraryStatus.USED_IN_DRAFT.value,
-                include_excluded=True,
+                include_excluded=False,
                 limit=5000,
             )
-        sources = await source_service.list_sources(
-            workspace_id=workspace_id,
-            include_excluded=False,
-            limit=5000,
-        )
         return sorted(sources, key=lambda source: source.citation_key)
 
     @staticmethod

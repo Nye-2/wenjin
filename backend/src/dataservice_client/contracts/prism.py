@@ -27,6 +27,17 @@ class PrismFileVersionCreatePayload(BaseModel):
     created_by: str = "system"
 
 
+class PrismProtectedScopeUpsertPayload(BaseModel):
+    workspace_id: str
+    latex_project_id: str
+    file_path: str
+    section_key: str = ""
+    scope: str
+    reason: str | None = None
+    source: str
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class PrismProjectPayload(BaseModel):
     id: str
     workspace_id: str
@@ -82,6 +93,22 @@ class PrismFileVersionPayload(BaseModel):
     content_asset_id: str | None = None
     content_hash: str
     created_by: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PrismProtectedScopePayload(BaseModel):
+    id: str
+    workspace_id: str
+    project_id: str
+    document_id: str | None = None
+    file_id: str | None = None
+    file_path: str
+    section_key: str = ""
+    scope: str
+    reason: str | None = None
+    source: str
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

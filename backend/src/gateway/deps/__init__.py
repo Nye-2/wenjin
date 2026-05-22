@@ -12,6 +12,7 @@ _EXPORT_MODULES = {
     "get_thread_turn_handler": "src.gateway.deps.application",
     "get_credit_service": "src.gateway.deps.dashboard",
     "get_dashboard_service": "src.gateway.deps.dashboard",
+    "get_dataservice_client": "src.gateway.deps.core",
     "get_db": "src.gateway.deps.core",
     "get_reference_index_service": "src.gateway.deps.academic",
     "get_reference_service": "src.gateway.deps.academic",

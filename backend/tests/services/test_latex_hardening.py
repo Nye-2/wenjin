@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -309,6 +310,47 @@ class _FakePrismReviewService:
         )
         return SimpleNamespace(id="protected-1", **kwargs)
 
+    async def find_prism_file_change(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        logical_key: str,
+        statuses: list[str] | None = None,
+    ) -> SimpleNamespace | None:
+        return await self.find_file_change(
+            workspace_id=workspace_id,
+            latex_project_id=latex_project_id,
+            logical_key=logical_key,
+            statuses=tuple(statuses or ()),
+        )
+
+    async def mark_prism_file_change_applied(
+        self,
+        item_id: str,
+        payload: object,
+    ) -> SimpleNamespace | None:
+        return await self.mark_applied_file_change(
+            item_id,
+            **payload.model_dump(mode="json"),
+        )
+
+    async def mark_prism_file_change_rejected(
+        self,
+        item_id: str,
+        payload: object,
+    ) -> SimpleNamespace | None:
+        return await self.mark_rejected_file_change(
+            item_id,
+            reason=payload.reason,
+        )
+
+    async def mark_prism_file_change_reverted(self, item_id: str) -> SimpleNamespace | None:
+        return await self.mark_reverted_file_change(item_id)
+
+    async def upsert_latex_prism_protected_scope(self, payload: object) -> SimpleNamespace:
+        return await self.upsert_latex_protected_scope(**payload.model_dump(mode="json"))
+
 
 def _reset_fake_router_service() -> None:
     _FakePrismReviewService.reset()
@@ -324,6 +366,17 @@ def _reset_fake_router_service() -> None:
         },
     )
     _FakeLatexRouterService.files = {"main.tex": "\\section{Current}\n"}
+
+
+def _patch_latex_files_dataservice(monkeypatch: pytest.MonkeyPatch) -> None:
+    @asynccontextmanager
+    async def _fake_dataservice_client():
+        yield _FakePrismReviewService(object())
+
+    monkeypatch.setattr(
+        "src.gateway.routers.latex_files.dataservice_client",
+        _fake_dataservice_client,
+    )
 
 
 def test_get_default_latex_engine_uses_env_value(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -744,14 +797,7 @@ async def test_file_change_preview_and_apply_use_signature_guard(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
-    )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewDataService",
-        _FakePrismReviewService,
-    )
+    _patch_latex_files_dataservice(monkeypatch)
     user = SimpleNamespace(id="user-1")
 
     preview = await preview_project_file_change(
@@ -794,14 +840,7 @@ async def test_file_change_apply_rejects_stale_preview_signature(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
-    )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewDataService",
-        _FakePrismReviewService,
-    )
+    _patch_latex_files_dataservice(monkeypatch)
     user = SimpleNamespace(id="user-1")
 
     preview = await preview_project_file_change(
@@ -836,14 +875,7 @@ async def test_file_change_discard_protects_current_content(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
-    )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewDataService",
-        _FakePrismReviewService,
-    )
+    _patch_latex_files_dataservice(monkeypatch)
 
     response = await discard_project_file_change(
         "project-1",
@@ -874,14 +906,7 @@ async def test_file_change_revert_restores_previous_content(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
-    )
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.PrismReviewDataService",
-        _FakePrismReviewService,
-    )
+    _patch_latex_files_dataservice(monkeypatch)
     user = SimpleNamespace(id="user-1")
     preview = await preview_project_file_change(
         "project-1",

@@ -84,6 +84,33 @@ class WorkspaceUpdatePayload(BaseModel):
     active_thread_id: str | None = None
 
 
+class WorkspaceSettingsPayload(BaseModel):
+    """Workspace settings projection."""
+
+    workspace_id: str
+    default_model: str | None = None
+    thinking_enabled: bool = True
+    sandbox_provider: str = "local"
+    auto_compact_threshold: float = 0.8
+    capability_overrides: dict[str, Any] = Field(default_factory=dict)
+    settings_json: dict[str, Any] = Field(default_factory=dict)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorkspaceSettingsUpdatePayload(BaseModel):
+    """Mutable workspace settings update payload."""
+
+    default_model: str | None = Field(default=None, max_length=100)
+    thinking_enabled: bool | None = None
+    sandbox_provider: str | None = Field(default=None, max_length=50)
+    auto_compact_threshold: float | None = None
+    capability_overrides: dict[str, Any] | None = None
+    settings_json: dict[str, Any] | None = None
+    metadata_json: dict[str, Any] | None = None
+
+
 class WorkspaceStatsPayload(BaseModel):
     """Workspace aggregate stats for user-facing dashboards."""
 

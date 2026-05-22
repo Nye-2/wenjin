@@ -29,13 +29,6 @@ def test_artifact_reference_candidates_ignore_unverified_reference_suggestions()
 @pytest.mark.asyncio
 async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp_path) -> None:
     events: list[str] = []
-    db = AsyncMock()
-
-    async def _commit() -> None:
-        events.append("commit")
-
-    db.commit.side_effect = _commit
-    db.refresh = AsyncMock()
     source = SimpleNamespace(
         id="source-1",
         workspace_id="ws-1",
@@ -68,14 +61,17 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
     )
     workspace_asset = SimpleNamespace(id="workspace-asset-1")
 
-    class _SourceService:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
+    class _DataService:
         async def import_source(self, _command):
+            events.append("source")
             return SimpleNamespace(source=source, created=True)
 
-        async def link_source_asset(self, **_kwargs):
+        async def register_asset(self, _command):
+            events.append("asset")
+            return workspace_asset
+
+        async def link_source_asset(self, _command):
+            events.append("link")
             return {
                 "id": "source-asset-1",
                 "source_id": "source-1",
@@ -85,9 +81,11 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
             }
 
         async def update_source(self, **_kwargs):
+            events.append("update-source")
             return source
 
         async def update_source_asset(self, **_kwargs):
+            events.append("update-asset")
             return {
                 "id": "source-asset-1",
                 "source_id": "source-1",
@@ -99,13 +97,6 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
         async def get_source_for_workspace(self, **_kwargs):
             return source
 
-    class _AssetService:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        async def register_asset_record(self, **_kwargs):
-            return workspace_asset
-
     task_service = AsyncMock()
 
     async def _submit_task(**kwargs):
@@ -113,13 +104,11 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
         return "task-1"
 
     task_service.submit_task.side_effect = _submit_task
-    service = SourceLibraryImportService(db)
+    service = SourceLibraryImportService(_DataService())
 
     with (
         patch("src.services.references.service.workspace_upload_dir", return_value=tmp_path),
         patch("src.services.references.service.workspace_upload_public_url", return_value="/file.pdf"),
-        patch("src.services.references.service.SourceDataService", _SourceService),
-        patch("src.services.references.service.AssetDataService", _AssetService),
         patch("src.services.references.service.REFERENCE_PREPROCESS_THRESHOLD_BYTES", 1),
     ):
         result = await service.import_uploaded_pdf(
@@ -132,7 +121,8 @@ async def test_large_uploaded_pdf_commits_asset_before_scheduling_preprocess(tmp
             thread_id="thread-1",
         )
 
-    assert events[:2] == ["commit", "submit"]
+    assert events[:4] == ["source", "asset", "link", "update-source"]
+    assert events[4] == "submit"
     assert result["preprocess"]["task_id"] == "task-1"
     payload = task_service.submit_task.await_args.kwargs["payload"]
     assert payload["source_id"] == "source-1"

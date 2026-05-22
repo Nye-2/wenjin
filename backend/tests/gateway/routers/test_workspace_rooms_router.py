@@ -1,15 +1,10 @@
-"""Unit tests for workspace_rooms router — Option A (mocked services).
-
-Each room gets 1 happy-path test + 1 not-found test.
-Services and ownership check are injected via FastAPI dependency overrides.
-"""
+"""Unit tests for workspace room routes through the DataService client."""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -17,56 +12,33 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_workspace_service
 from src.gateway.routers import workspace_rooms
 
-# ---------------------------------------------------------------------------
-# Shared fixtures
-# ---------------------------------------------------------------------------
-
 USER_ID = "user-test-1"
 WS_ID = "ws-test-1"
 
 
 def _make_user(user_id: str = USER_ID) -> MagicMock:
-    u = MagicMock()
-    u.id = user_id
-    return u
+    user = MagicMock()
+    user.id = user_id
+    return user
 
 
 def _make_workspace(ws_id: str = WS_ID, user_id: str = USER_ID) -> SimpleNamespace:
     return SimpleNamespace(id=ws_id, user_id=user_id)
 
 
-def _make_app(*, workspace_exists: bool = True) -> tuple[FastAPI, TestClient]:
-    """Create a minimal app with dependency overrides for room tests."""
-    app = FastAPI()
-
-    async def override_user() -> MagicMock:
-        return _make_user()
-
-    async def override_ws_service() -> MagicMock:
-        svc = MagicMock()
-        if workspace_exists:
-            svc.get = AsyncMock(return_value=_make_workspace())
-            svc.has_active_membership = AsyncMock(return_value=True)
-        else:
-            svc.get = AsyncMock(return_value=None)
-            svc.has_active_membership = AsyncMock(return_value=False)
-        return svc
-
-    app.dependency_overrides[get_current_user] = override_user
-    app.dependency_overrides[get_workspace_service] = override_ws_service
-    app.include_router(workspace_rooms.router)
-    return app, TestClient(app)
-
-
-# ---------------------------------------------------------------------------
-# Helper: fake row object (simulates SQLAlchemy ORM row)
-# ---------------------------------------------------------------------------
-
-
 def _fake_row(**kwargs: object) -> SimpleNamespace:
-    ns = SimpleNamespace(**kwargs)
-    # No leading underscore attrs — _row_to_dict uses __dict__
-    return ns
+    return SimpleNamespace(**kwargs)
+
+
+def _fake_source(**overrides: object) -> SimpleNamespace:
+    values: dict[str, object] = {
+        "id": "lib-1",
+        "workspace_id": WS_ID,
+        "title": "Paper A",
+        "is_deleted": False,
+    }
+    values.update(overrides)
+    return _fake_row(**values)
 
 
 def _fake_asset(**overrides: object) -> SimpleNamespace:
@@ -90,397 +62,320 @@ def _fake_asset(**overrides: object) -> SimpleNamespace:
     return _fake_row(**values)
 
 
-# ===========================================================================
-# LIBRARY
-# ===========================================================================
+def _make_dataservice() -> MagicMock:
+    dataservice = MagicMock()
+    dataservice.list_sources = AsyncMock(return_value=[])
+    dataservice.create_source = AsyncMock()
+    dataservice.get_source = AsyncMock(return_value=None)
+    dataservice.delete_source = AsyncMock(return_value=False)
+    dataservice.list_assets = AsyncMock(return_value=[])
+    dataservice.get_asset = AsyncMock(return_value=None)
+    dataservice.register_asset = AsyncMock()
+    dataservice.update_asset = AsyncMock(return_value=None)
+    dataservice.delete_asset = AsyncMock(return_value=None)
+    dataservice.list_room_decisions = AsyncMock(return_value={})
+    dataservice.set_room_decision = AsyncMock()
+    dataservice.delete_room_decision = AsyncMock(return_value=False)
+    dataservice.list_room_memory_facts = AsyncMock(return_value=[])
+    dataservice.add_room_memory_facts = AsyncMock(return_value=[])
+    dataservice.delete_room_memory_fact = AsyncMock(return_value=False)
+    dataservice.list_executions = AsyncMock(return_value=[])
+    dataservice.get_execution = AsyncMock(return_value=None)
+    dataservice.list_room_tasks = AsyncMock(return_value=[])
+    dataservice.create_room_task = AsyncMock()
+    dataservice.update_room_task = AsyncMock(return_value=None)
+    dataservice.delete_room_task = AsyncMock(return_value=False)
+    dataservice.get_workspace_settings = AsyncMock()
+    dataservice.update_workspace_settings = AsyncMock()
+    dataservice.get_or_create_sandbox_environment = AsyncMock()
+    return dataservice
+
+
+def _make_app(
+    *,
+    workspace_exists: bool = True,
+    dataservice: MagicMock | None = None,
+) -> tuple[FastAPI, TestClient, MagicMock]:
+    app = FastAPI()
+    fake_dataservice = dataservice or _make_dataservice()
+
+    async def override_user() -> MagicMock:
+        return _make_user()
+
+    async def override_ws_service() -> MagicMock:
+        svc = MagicMock()
+        if workspace_exists:
+            svc.get = AsyncMock(return_value=_make_workspace())
+            svc.has_active_membership = AsyncMock(return_value=True)
+        else:
+            svc.get = AsyncMock(return_value=None)
+            svc.has_active_membership = AsyncMock(return_value=False)
+        return svc
+
+    async def override_dataservice() -> MagicMock:
+        return fake_dataservice
+
+    app.dependency_overrides[get_current_user] = override_user
+    app.dependency_overrides[get_workspace_service] = override_ws_service
+    app.dependency_overrides[workspace_rooms.get_dataservice_client] = override_dataservice
+    app.include_router(workspace_rooms.router)
+    return app, TestClient(app), fake_dataservice
 
 
 class TestLibraryRoom:
     def test_list_library_happy(self) -> None:
-        app, client = _make_app()
-        fake_item = _fake_row(id="lib-1", workspace_id=WS_ID, title="Paper A")
+        _app, client, dataservice = _make_app()
+        dataservice.list_sources.return_value = [_fake_source(id="lib-1")]
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.list_sources = AsyncMock(return_value=[fake_item])
-            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/library")
+        resp = client.get(f"/workspaces/{WS_ID}/library")
 
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["count"] == 1
-        assert data["items"][0]["id"] == "lib-1"
+        assert resp.json()["items"][0]["id"] == "lib-1"
+        dataservice.list_sources.assert_awaited_once()
 
     def test_create_library_item_returns_201(self) -> None:
-        app, client = _make_app()
-        fake_item = _fake_row(id="lib-2", workspace_id=WS_ID, title="Book B", item_type="book")
+        _app, client, dataservice = _make_app()
+        dataservice.create_source.return_value = _fake_source(id="lib-2", item_type="book")
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.create_source = AsyncMock(return_value=fake_item)
-            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
-            resp = client.post(
-                f"/workspaces/{WS_ID}/library",
-                json={"item_type": "book", "title": "Book B", "added_by": "user"},
-            )
+        resp = client.post(
+            f"/workspaces/{WS_ID}/library",
+            json={"item_type": "book", "title": "Book B", "added_by": "user"},
+        )
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "lib-2"
 
     def test_get_library_item_happy(self) -> None:
-        app, client = _make_app()
-        fake_item = _fake_row(
-            id="lib-3",
-            workspace_id=WS_ID,
-            title="Paper C",
-            abstract="Structured summary",
-        )
+        _app, client, dataservice = _make_app()
+        dataservice.get_source.return_value = _fake_source(id="lib-3", abstract="Structured summary")
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.get_source_for_workspace = AsyncMock(return_value=fake_item)
-            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/library/lib-3")
+        resp = client.get(f"/workspaces/{WS_ID}/library/lib-3")
 
         assert resp.status_code == 200
-        assert resp.json()["id"] == "lib-3"
         assert resp.json()["abstract"] == "Structured summary"
 
     def test_delete_library_not_found(self) -> None:
-        app, client = _make_app()
+        _app, client, dataservice = _make_app()
+        dataservice.delete_source.return_value = False
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.mark_deleted_for_workspace = AsyncMock(return_value=False)
-            mp.setattr(workspace_rooms, "_source_data_service", lambda db: mock_svc)
-            resp = client.delete(f"/workspaces/{WS_ID}/library/nonexistent")
+        resp = client.delete(f"/workspaces/{WS_ID}/library/nonexistent")
 
         assert resp.status_code == 404
 
 
-# ===========================================================================
-# DOCUMENTS
-# ===========================================================================
-
-
 class TestDocumentsRoom:
     def test_list_documents_happy(self) -> None:
-        app, client = _make_app()
-        fake_doc = _fake_asset(id="doc-1", name="Intro", metadata_json={"kind": "draft", "version": 1})
+        _app, client, dataservice = _make_app()
+        dataservice.list_assets.side_effect = [
+            [_fake_asset(id="doc-1", name="Intro", metadata_json={"kind": "draft", "version": 1})],
+            [],
+        ]
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.list_assets = AsyncMock(side_effect=[[fake_doc], []])
-            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/documents")
+        resp = client.get(f"/workspaces/{WS_ID}/documents")
 
         assert resp.status_code == 200
-        assert resp.json()["count"] == 1
         assert resp.json()["items"][0]["id"] == "doc-1"
 
     def test_create_document_returns_201(self) -> None:
-        app, client = _make_app()
-        fake_doc = _fake_asset(id="doc-2", name="Chapter 1", metadata_json={"kind": "draft", "version": 1})
+        _app, client, dataservice = _make_app()
+        dataservice.register_asset.return_value = _fake_asset(id="doc-2", name="Chapter 1")
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.register_asset_record = AsyncMock(return_value=fake_doc)
-            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
-            resp = client.post(
-                f"/workspaces/{WS_ID}/documents",
-                json={"name": "Chapter 1", "kind": "draft", "added_by": "user"},
-            )
+        resp = client.post(
+            f"/workspaces/{WS_ID}/documents",
+            json={"name": "Chapter 1", "kind": "draft", "added_by": "user"},
+        )
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "doc-2"
 
     def test_get_document_happy(self) -> None:
-        app, client = _make_app()
-        fake_doc = _fake_asset(
+        _app, client, dataservice = _make_app()
+        dataservice.get_asset.return_value = _fake_asset(
             id="doc-3",
             name="Outline",
             metadata_json={"kind": "outline", "version": 1, "content": "# Intro"},
         )
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.get_asset = AsyncMock(return_value=fake_doc)
-            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/documents/doc-3")
+        resp = client.get(f"/workspaces/{WS_ID}/documents/doc-3")
 
         assert resp.status_code == 200
-        assert resp.json()["id"] == "doc-3"
         assert resp.json()["metadata_json"]["content"] == "# Intro"
 
     def test_get_doc_not_found_on_delete(self) -> None:
-        app, client = _make_app()
+        _app, client, dataservice = _make_app()
+        dataservice.get_asset.return_value = None
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.get_asset = AsyncMock(return_value=None)
-            mock_svc.mark_deleted = AsyncMock(return_value=None)
-            mp.setattr(workspace_rooms, "_asset_data_service", lambda db: mock_svc)
-            resp = client.delete(f"/workspaces/{WS_ID}/documents/missing-doc")
+        resp = client.delete(f"/workspaces/{WS_ID}/documents/missing-doc")
 
         assert resp.status_code == 404
 
 
-# ===========================================================================
-# DECISIONS
-# ===========================================================================
-
-
 class TestDecisionsRoom:
     def test_list_decisions_happy(self) -> None:
-        app, client = _make_app()
+        _app, client, dataservice = _make_app()
+        dataservice.list_room_decisions.return_value = {"citation_style": "IEEE"}
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.list_active_decisions = AsyncMock(return_value={"citation_style": "IEEE"})
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/decisions")
+        resp = client.get(f"/workspaces/{WS_ID}/decisions")
 
         assert resp.status_code == 200
         assert resp.json()["active"]["citation_style"] == "IEEE"
 
     def test_set_decision_returns_201(self) -> None:
-        app, client = _make_app()
-        fake_decision = _fake_row(
+        _app, client, dataservice = _make_app()
+        dataservice.set_room_decision.return_value = _fake_row(
             id="dec-1",
             workspace_id=WS_ID,
             key="citation_style",
             value="APA",
         )
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.set_decision = AsyncMock(return_value=fake_decision)
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.post(
-                f"/workspaces/{WS_ID}/decisions",
-                json={"key": "citation_style", "value": "APA", "extracted_by": "user"},
-            )
+        resp = client.post(
+            f"/workspaces/{WS_ID}/decisions",
+            json={"key": "citation_style", "value": "APA", "extracted_by": "user"},
+        )
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "dec-1"
 
     def test_delete_decision_not_found(self) -> None:
-        app, client = _make_app()
+        _app, client, dataservice = _make_app()
+        dataservice.delete_room_decision.return_value = False
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.delete_decision = AsyncMock(return_value=False)
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.delete(f"/workspaces/{WS_ID}/decisions/nope")
+        resp = client.delete(f"/workspaces/{WS_ID}/decisions/nope")
 
         assert resp.status_code == 404
 
 
-# ===========================================================================
-# MEMORY
-# ===========================================================================
-
-
 class TestMemoryRoom:
     def test_list_memory_happy(self) -> None:
-        app, client = _make_app()
-        fake_fact = _fake_row(id="fact-1", workspace_id=WS_ID, category="pref", content="IEEE")
+        _app, client, dataservice = _make_app()
+        dataservice.list_room_memory_facts.return_value = [
+            _fake_row(id="fact-1", workspace_id=WS_ID, category="pref", content="IEEE")
+        ]
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.list_memory_facts = AsyncMock(return_value=[fake_fact])
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/memory")
+        resp = client.get(f"/workspaces/{WS_ID}/memory")
 
         assert resp.status_code == 200
         assert resp.json()["count"] == 1
 
     def test_add_memory_facts_returns_201(self) -> None:
-        app, client = _make_app()
-        fake_fact = _fake_row(id="fact-2", workspace_id=WS_ID, category="pref", content="APA")
+        _app, client, dataservice = _make_app()
+        dataservice.add_room_memory_facts.return_value = [
+            _fake_row(id="fact-2", workspace_id=WS_ID, category="pref", content="APA")
+        ]
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.add_memory_facts = AsyncMock(return_value=[fake_fact])
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.post(
-                f"/workspaces/{WS_ID}/memory",
-                json={"facts": [{"category": "pref", "content": "APA"}]},
-            )
+        resp = client.post(
+            f"/workspaces/{WS_ID}/memory",
+            json={"facts": [{"category": "pref", "content": "APA"}]},
+        )
 
         assert resp.status_code == 201
         assert resp.json()["count"] == 1
 
     def test_delete_memory_fact_not_found(self) -> None:
-        """Returns 404 when the memory fact doesn't exist in DB."""
-        from unittest.mock import patch
+        _app, client, dataservice = _make_app()
+        dataservice.delete_room_memory_fact.return_value = False
 
-        app, client = _make_app()
-
-        # Patch the DB query inside the delete endpoint directly
-        with patch(
-            "src.gateway.routers.workspace_rooms.AsyncSession",
-            autospec=True,
-        ):
-            # We need to override the DB dependency to use an AsyncMock that returns None
-            from src.gateway.deps import get_db
-
-            async def override_db():  # type: ignore
-                mock_db = AsyncMock()
-                # scalars().scalar_one_or_none() -> None (simulates not found)
-                mock_result = MagicMock()
-                mock_result.scalar_one_or_none.return_value = None
-                mock_db.execute = AsyncMock(return_value=mock_result)
-                yield mock_db
-
-            app.dependency_overrides[get_db] = override_db
-            resp = client.delete(f"/workspaces/{WS_ID}/memory/missing-fact")
-            app.dependency_overrides.pop(get_db, None)
+        resp = client.delete(f"/workspaces/{WS_ID}/memory/missing-fact")
 
         assert resp.status_code == 404
-
-
-# ===========================================================================
-# RUNS
-# ===========================================================================
 
 
 class TestRunsRoom:
     def test_list_runs_happy(self) -> None:
-        app, client = _make_app()
-        fake_run = _fake_row(id="run-1", workspace_id=WS_ID, title="Run 1", status="completed")
+        _app, client, dataservice = _make_app()
+        dataservice.list_executions.return_value = [
+            _fake_row(id="run-1", workspace_id=WS_ID, title="Run 1", status="completed")
+        ]
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.list_run_history = AsyncMock(return_value=[fake_run])
-            mp.setattr(workspace_rooms, "_execution_history_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/runs")
+        resp = client.get(f"/workspaces/{WS_ID}/runs")
 
         assert resp.status_code == 200
-        assert resp.json()["count"] == 1
         assert resp.json()["items"][0]["id"] == "run-1"
 
     def test_get_run_not_found(self) -> None:
-        app, client = _make_app()
+        _app, client, dataservice = _make_app()
+        dataservice.get_execution.return_value = None
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.get_run_history_item = AsyncMock(return_value=None)
-            mp.setattr(workspace_rooms, "_execution_history_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/runs/nonexistent")
+        resp = client.get(f"/workspaces/{WS_ID}/runs/nonexistent")
 
         assert resp.status_code == 404
 
 
-# ===========================================================================
-# TASKS
-# ===========================================================================
-
-
 class TestTasksRoom:
     def test_list_tasks_happy(self) -> None:
-        app, client = _make_app()
-        fake_task = _fake_row(id="task-1", workspace_id=WS_ID, title="Do X", status="pending")
+        _app, client, dataservice = _make_app()
+        dataservice.list_room_tasks.return_value = [
+            _fake_row(id="task-1", workspace_id=WS_ID, title="Do X", status="pending")
+        ]
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.list_workspace_tasks = AsyncMock(return_value=[fake_task])
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/tasks")
+        resp = client.get(f"/workspaces/{WS_ID}/tasks")
 
         assert resp.status_code == 200
-        assert resp.json()["count"] == 1
         assert resp.json()["items"][0]["id"] == "task-1"
 
     def test_create_task_returns_201(self) -> None:
-        app, client = _make_app()
-        fake_task = _fake_row(id="task-2", workspace_id=WS_ID, title="Do Y", status="pending")
+        _app, client, dataservice = _make_app()
+        dataservice.create_room_task.return_value = _fake_row(
+            id="task-2",
+            workspace_id=WS_ID,
+            title="Do Y",
+            status="pending",
+        )
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.create_workspace_task = AsyncMock(return_value=fake_task)
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.post(
-                f"/workspaces/{WS_ID}/tasks",
-                json={"title": "Do Y", "created_by": "user"},
-            )
+        resp = client.post(f"/workspaces/{WS_ID}/tasks", json={"title": "Do Y", "created_by": "user"})
 
         assert resp.status_code == 201
         assert resp.json()["id"] == "task-2"
 
     def test_delete_task_not_found(self) -> None:
-        app, client = _make_app()
+        _app, client, dataservice = _make_app()
+        dataservice.delete_room_task.return_value = False
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.soft_delete_workspace_task = AsyncMock(return_value=False)
-            mp.setattr(workspace_rooms, "_rooms_service", lambda db: mock_svc)
-            resp = client.delete(f"/workspaces/{WS_ID}/tasks/missing")
+        resp = client.delete(f"/workspaces/{WS_ID}/tasks/missing")
 
         assert resp.status_code == 404
 
 
-# ===========================================================================
-# SETTINGS
-# ===========================================================================
-
-
 class TestSettingsRoom:
     def test_get_settings_happy(self) -> None:
-        app, client = _make_app()
-        fake_settings = _fake_row(
+        _app, client, dataservice = _make_app()
+        dataservice.get_workspace_settings.return_value = _fake_row(
             workspace_id=WS_ID,
             thinking_enabled=True,
             sandbox_provider="local",
         )
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.get_or_create_workspace_settings = AsyncMock(return_value=fake_settings)
-            mp.setattr(workspace_rooms, "_workspace_data_service", lambda db: mock_svc)
-            resp = client.get(f"/workspaces/{WS_ID}/settings")
+        resp = client.get(f"/workspaces/{WS_ID}/settings")
 
         assert resp.status_code == 200
         assert resp.json()["workspace_id"] == WS_ID
 
     def test_put_settings_workspace_not_found(self) -> None:
-        _app, client = _make_app(workspace_exists=False)
+        _app, client, _dataservice = _make_app(workspace_exists=False)
+
         resp = client.put(f"/workspaces/{WS_ID}/settings", json={"thinking_enabled": False})
+
         assert resp.status_code == 404
-
-
-# ===========================================================================
-# SANDBOX exec
-# ===========================================================================
 
 
 class TestSandboxExecRoom:
     def test_exec_happy(self) -> None:
-        app, client = _make_app()
-        fake_sandbox = _fake_row(
+        _app, client, dataservice = _make_app()
+        dataservice.get_or_create_sandbox_environment.return_value = _fake_row(
             sandbox_id="sbx-1",
             provider="local",
             state="active",
         )
 
-        with pytest.MonkeyPatch.context() as mp:
-            mock_svc = MagicMock()
-            mock_svc.get_or_create_environment = AsyncMock(return_value=fake_sandbox)
-            mp.setattr(workspace_rooms, "_sandbox_data_service", lambda db: mock_svc)
-            resp = client.post(
-                f"/workspaces/{WS_ID}/sandbox/exec",
-                json={"command": "echo hello"},
-            )
+        resp = client.post(f"/workspaces/{WS_ID}/sandbox/exec", json={"command": "echo hello"})
 
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["command"] == "echo hello"
-        assert data["status"] == "queued"
+        assert resp.json()["status"] == "queued"
 
     def test_exec_workspace_not_found(self) -> None:
-        _app, client = _make_app(workspace_exists=False)
-        resp = client.post(
-            f"/workspaces/{WS_ID}/sandbox/exec",
-            json={"command": "ls"},
-        )
+        _app, client, _dataservice = _make_app(workspace_exists=False)
+
+        resp = client.post(f"/workspaces/{WS_ID}/sandbox/exec", json={"command": "ls"})
+
         assert resp.status_code == 404

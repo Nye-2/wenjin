@@ -13,9 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.artifacts import ArtifactType
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
+    get_dataservice_client,
     get_db,
     get_task_service,
     get_thread_service,
@@ -282,6 +284,7 @@ async def upload_thread_files(
     artifact_service: Any = Depends(get_artifact_service),
     task_service: Any = Depends(get_task_service),
     upload_preprocessor: UploadPreprocessor = Depends(get_upload_preprocessor),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
     db: AsyncSession = Depends(get_db),
 ) -> ThreadUploadResponse:
     """Upload one or more files into a thread-scoped sandbox uploads directory."""
@@ -361,7 +364,7 @@ async def upload_thread_files(
         deferred_workspace_context_preprocess = False
 
         if kind == "literature" and resolved_workspace_id:
-            import_result = await SourceLibraryImportService(db).import_uploaded_pdf(
+            import_result = await SourceLibraryImportService(dataservice).import_uploaded_pdf(
                 workspace_id=resolved_workspace_id,
                 filename=saved_name,
                 content_type=upload.content_type,

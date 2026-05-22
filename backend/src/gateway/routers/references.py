@@ -15,11 +15,15 @@ from src.database import (
     ReferenceSourceType,
     User,
 )
-from src.dataservice.source_api import SourceDataService, SourceEvidencePackCreateCommand, SourceUpdateCommand
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.source import (
+    SourceEvidencePackCreatePayload,
+    SourceUpdatePayload,
+)
 from src.gateway.access_control import require_workspace_owner
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_task_service, get_workspace_service
-from src.gateway.deps.core import get_db
+from src.gateway.deps.core import get_dataservice_client, get_db
 from src.services.references import (
     SourceBibliographyService,
     SourceLibraryImportService,
@@ -132,7 +136,7 @@ def _enum_value(value: Any) -> Any:
     return getattr(value, "value", value)
 
 
-def _source_update_command(request: ReferenceUpdateRequest) -> SourceUpdateCommand:
+def _source_update_command(request: ReferenceUpdateRequest) -> SourceUpdatePayload:
     payload = request.model_dump(exclude_none=True)
     if "authors" in payload:
         payload["authors_json"] = payload.pop("authors")
@@ -145,18 +149,18 @@ def _source_update_command(request: ReferenceUpdateRequest) -> SourceUpdateComma
     if "read_status" in payload:
         payload["read_status"] = _enum_value(payload["read_status"])
     try:
-        return SourceUpdateCommand(**payload)
+        return SourceUpdatePayload(**payload)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
 async def _source_reference_payload(
-    service: SourceDataService,
+    dataservice: AsyncDataServiceClient,
     *,
     workspace_id: str,
     source_id: str,
 ) -> dict[str, Any]:
-    detail = await service.get_source_detail(workspace_id=workspace_id, source_id=source_id)
+    detail = await dataservice.get_source_detail(workspace_id=workspace_id, source_id=source_id)
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     reference = detail.get("reference")
@@ -175,14 +179,14 @@ async def list_references(
     limit: int = Query(default=50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    return await SourceDataService(db, autocommit=False).list_sources_page(
+    return await dataservice.list_sources_page(
         workspace_id=workspace_id,
         library_status=_enum_value(library_status) if library_status else None,
         ingest_kind=_enum_value(source_type) if source_type else None,
@@ -197,14 +201,14 @@ async def count_references(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, int]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    return await SourceDataService(db, autocommit=False).count_reference_summary(workspace_id)
+    return await dataservice.count_source_reference_summary(workspace_id=workspace_id)
 
 
 @router.get("/outline")
@@ -212,14 +216,14 @@ async def get_library_outline(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    outline = await SourceDataService(db, autocommit=False).get_library_outline(workspace_id)
+    outline = await dataservice.get_source_library_outline(workspace_id=workspace_id)
     return {"items": outline, "count": len(outline)}
 
 
@@ -230,7 +234,7 @@ async def upload_reference_pdf(
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     task_service: TaskService = Depends(get_task_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
@@ -241,7 +245,7 @@ async def upload_reference_pdf(
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Uploaded file is empty")
     try:
-        result = await SourceLibraryImportService(db).import_uploaded_pdf(
+        result = await SourceLibraryImportService(dataservice).import_uploaded_pdf(
             workspace_id=workspace_id,
             filename=file.filename or "reference.pdf",
             content_type=file.content_type,
@@ -261,14 +265,14 @@ async def import_semantic_scholar(
     request: SemanticScholarImportRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await SourceLibraryImportService(db).import_semantic_scholar_query(
+    result = await SourceLibraryImportService(dataservice).import_semantic_scholar_query(
         workspace_id=workspace_id,
         query=request.query,
         discipline=request.discipline,
@@ -284,14 +288,14 @@ async def import_deep_search_artifact(
     request: DeepSearchArtifactImportRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await SourceLibraryImportService(db).import_deep_search_artifact(
+    result = await SourceLibraryImportService(dataservice).import_deep_search_artifact(
         workspace_id=workspace_id,
         artifact_ids=request.artifact_ids,
     )
@@ -305,14 +309,14 @@ async def import_bibtex(
     request: BibtexImportRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await SourceLibraryImportService(db).import_bibtex(
+    result = await SourceLibraryImportService(dataservice).import_bibtex(
         workspace_id=workspace_id,
         content=request.content,
     )
@@ -326,7 +330,7 @@ async def create_manual_reference(
     request: ManualReferenceRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
@@ -334,7 +338,7 @@ async def create_manual_reference(
         workspace_service=workspace_service,
     )
     try:
-        result = await SourceLibraryImportService(db).import_manual(
+        result = await SourceLibraryImportService(dataservice).import_manual(
             workspace_id,
             request.model_dump(exclude_none=True),
         )
@@ -350,14 +354,14 @@ async def search_text_units(
     request: SearchTextUnitsRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    items = await SourceDataService(db, autocommit=False).search_text_units(
+    items = await dataservice.search_source_text_units(
         workspace_id=workspace_id,
         query=request.query,
         source_ids=request.reference_ids,
@@ -372,15 +376,15 @@ async def build_evidence_pack(
     request: EvidencePackRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await SourceDataService(db, autocommit=False).build_evidence_pack(
-        SourceEvidencePackCreateCommand(
+    result = await dataservice.build_source_evidence_pack(
+        SourceEvidencePackCreatePayload(
             workspace_id=workspace_id,
             query=request.query,
             source_ids=request.reference_ids,
@@ -396,7 +400,7 @@ async def get_bibtex(
     scope: ReferenceBibtexScope = ReferenceBibtexScope.INCLUDED_AND_CORE,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
@@ -404,7 +408,7 @@ async def get_bibtex(
         workspace_service=workspace_service,
     )
     try:
-        return await SourceBibliographyService(db).build_bibtex(
+        return await SourceBibliographyService(dataservice).build_bibtex(
             workspace_id=workspace_id,
             scope=scope,
         )
@@ -418,14 +422,14 @@ async def validate_bibtex(
     request: BibtexValidateRequest | None = None,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    service = SourceBibliographyService(db)
+    service = SourceBibliographyService(dataservice)
     if request and request.latex_content:
         return await service.validate_citations(
             workspace_id=workspace_id,
@@ -440,6 +444,7 @@ async def sync_bibtex_to_prism(
     request: BibtexScopeRequest | None = None,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _require_owner(
@@ -449,7 +454,7 @@ async def sync_bibtex_to_prism(
     )
     scope = request.scope if request is not None else "included_and_core"
     try:
-        result = await SourceBibliographyService(db).sync_prism(
+        result = await SourceBibliographyService(dataservice, db=db).sync_prism(
             workspace_id=workspace_id,
             scope=scope,
         )
@@ -465,14 +470,14 @@ async def get_reference(
     reference_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    detail = await SourceDataService(db, autocommit=False).get_source_detail(
+    detail = await dataservice.get_source_detail(
         workspace_id=workspace_id,
         source_id=reference_id,
     )
@@ -488,15 +493,14 @@ async def update_reference(
     request: ReferenceUpdateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    source_service = SourceDataService(db)
-    source = await source_service.update_source(
+    source = await dataservice.update_source(
         workspace_id=workspace_id,
         source_id=reference_id,
         command=_source_update_command(request),
@@ -504,7 +508,7 @@ async def update_reference(
     if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     await _publish_references_refresh(workspace_id)
-    return await _source_reference_payload(source_service, workspace_id=workspace_id, source_id=reference_id)
+    return await _source_reference_payload(dataservice, workspace_id=workspace_id, source_id=reference_id)
 
 
 @router.delete("/{reference_id}")
@@ -513,14 +517,14 @@ async def delete_reference(
     reference_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    deleted = await SourceDataService(db).mark_deleted_for_workspace(
+    deleted = await dataservice.delete_source(
         workspace_id=workspace_id,
         source_id=reference_id,
     )
@@ -536,7 +540,7 @@ async def mark_included(
     reference_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     return await _mark_reference_status(
         workspace_id,
@@ -544,7 +548,7 @@ async def mark_included(
         "included",
         current_user,
         workspace_service,
-        db,
+        dataservice,
     )
 
 
@@ -554,7 +558,7 @@ async def mark_core(
     reference_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     return await _mark_reference_status(
         workspace_id,
@@ -562,7 +566,7 @@ async def mark_core(
         "core",
         current_user,
         workspace_service,
-        db,
+        dataservice,
     )
 
 
@@ -572,7 +576,7 @@ async def exclude_reference(
     reference_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     return await _mark_reference_status(
         workspace_id,
@@ -580,7 +584,7 @@ async def exclude_reference(
         "excluded",
         current_user,
         workspace_service,
-        db,
+        dataservice,
     )
 
 
@@ -590,15 +594,14 @@ async def mark_read(
     reference_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    source_service = SourceDataService(db)
-    source = await source_service.mark_status(
+    source = await dataservice.mark_source_status(
         workspace_id=workspace_id,
         source_id=reference_id,
         read_status="read",
@@ -606,7 +609,7 @@ async def mark_read(
     if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     await _publish_references_refresh(workspace_id)
-    return await _source_reference_payload(source_service, workspace_id=workspace_id, source_id=reference_id)
+    return await _source_reference_payload(dataservice, workspace_id=workspace_id, source_id=reference_id)
 
 
 async def _mark_reference_status(
@@ -615,15 +618,14 @@ async def _mark_reference_status(
     library_status: str,
     current_user: User,
     workspace_service: Any,
-    db: AsyncSession,
+    dataservice: AsyncDataServiceClient,
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    source_service = SourceDataService(db)
-    source = await source_service.mark_status(
+    source = await dataservice.mark_source_status(
         workspace_id=workspace_id,
         source_id=reference_id,
         library_status=library_status,
@@ -631,7 +633,7 @@ async def _mark_reference_status(
     if source is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reference not found")
     await _publish_references_refresh(workspace_id)
-    return await _source_reference_payload(source_service, workspace_id=workspace_id, source_id=reference_id)
+    return await _source_reference_payload(dataservice, workspace_id=workspace_id, source_id=reference_id)
 
 
 @router.get("/{reference_id}/outline")
@@ -640,14 +642,14 @@ async def get_reference_outline(
     reference_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    items = await SourceDataService(db, autocommit=False).get_source_outline(workspace_id, reference_id)
+    items = await dataservice.get_source_outline(workspace_id=workspace_id, source_id=reference_id)
     return {"items": items, "count": len(items)}
 
 
@@ -658,14 +660,14 @@ async def read_outline_node(
     node_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    result = await SourceDataService(db, autocommit=False).read_source_outline_node(
+    result = await dataservice.read_source_outline_node(
         workspace_id=workspace_id,
         source_id=reference_id,
         outline_node_id=node_id,
@@ -683,7 +685,7 @@ async def read_reference_pages(
     page_end: int = Query(ge=1),
     current_user: User = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
@@ -692,7 +694,7 @@ async def read_reference_pages(
     )
     if page_end < page_start:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="page_end must be >= page_start")
-    items = await SourceDataService(db, autocommit=False).read_source_pages(
+    items = await dataservice.read_source_pages(
         workspace_id=workspace_id,
         source_id=reference_id,
         page_start=page_start,

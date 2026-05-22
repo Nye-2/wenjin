@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.dataservice.asset_api import WorkspaceAssetProjection
+from src.dataservice_client.contracts.asset import WorkspaceAssetPayload
 from src.gateway.routers.workspace_rooms import _asset_to_document, _create_document_asset
 
 
-def _asset(**overrides: object) -> WorkspaceAssetProjection:
+def _asset(**overrides: object) -> WorkspaceAssetPayload:
     values = {
         "id": "asset-1",
         "workspace_id": "ws-1",
@@ -32,7 +32,7 @@ def _asset(**overrides: object) -> WorkspaceAssetProjection:
         "updated_at": None,
     }
     values.update(overrides)
-    return WorkspaceAssetProjection(**values)
+    return WorkspaceAssetPayload(**values)
 
 
 @pytest.mark.asyncio
@@ -44,7 +44,7 @@ async def test_add_with_parent_creates_document_asset_version() -> None:
             metadata_json={"kind": "draft", "version": 2},
         )
     )
-    assets.register_asset_record = AsyncMock(
+    assets.register_asset = AsyncMock(
         return_value=_asset(
             id="child-doc",
             parent_asset_id="parent-doc",
@@ -65,10 +65,10 @@ async def test_add_with_parent_creates_document_asset_version() -> None:
         },
     )
 
-    kwargs = assets.register_asset_record.await_args.kwargs
-    assert kwargs["parent_asset_id"] == "parent-doc"
-    assert kwargs["source_kind"] == "documents_room"
-    assert kwargs["source_id"] == "parent-doc"
+    command = assets.register_asset.await_args.args[0]
+    assert command.parent_asset_id == "parent-doc"
+    assert command.source_kind == "documents_room"
+    assert command.source_id == "parent-doc"
     assert document["id"] == "child-doc"
     assert document["version"] == 3
 

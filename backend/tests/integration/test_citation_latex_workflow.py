@@ -6,38 +6,35 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 
+def _reference_service(content: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        build_source_bibliography=AsyncMock(
+            return_value=SimpleNamespace(content=content)
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_citation_to_latex_workflow():
     """Test complete workflow: citation_ids -> BibTeX -> LaTeX compilation."""
     from src.agents.middlewares.execution import ExecutionMiddleware
 
-    # Setup mock Source row in database
-    mock_source = SimpleNamespace(
-        id="test-uuid",
-        title="Deep Learning Advances",
-        authors_json=["John Smith"],
-        year=2024,
-        venue="Nature",
-        doi="10.1234/test",
-        url=None,
-        citation_key="Smith2024",
-        bibtex_entry_type="article",
-        bibtex_fields_json={},
-    )
-
-    mock_db = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_source]
-    mock_db.execute.return_value = mock_result
-
     # Setup middleware
     mock_service = MagicMock()
     mock_service.execute = AsyncMock()
-    middleware = ExecutionMiddleware(mock_service)
+    bibliography_content = (
+        "@article{Smith2024,\n"
+        "  title={Deep Learning Advances},\n"
+        "  author={John Smith}\n"
+        "}"
+    )
+    middleware = ExecutionMiddleware(
+        mock_service,
+        reference_service=_reference_service(bibliography_content),
+    )
 
     # Generate bibliography
     bibliography = await middleware._generate_bibliography(
-        mock_db,
         ["test-uuid"],
         workspace_id="ws-1",
     )
@@ -80,26 +77,6 @@ async def test_end_to_end_citation_workflow():
     from src.agents.middlewares.execution import ExecutionMiddleware
     from src.execution.types import ExecutionResult, ExecutionStatus, ExecutionType
 
-    # Mock Source row
-    mock_source = SimpleNamespace(
-        id="paper-1",
-        title="Research Paper",
-        authors_json=["Alice Researcher"],
-        year=2024,
-        venue="Conference on Testing",
-        doi="10.5678/paper",
-        url=None,
-        citation_key="Researcher2024",
-        bibtex_entry_type="inproceedings",
-        bibtex_fields_json={},
-    )
-
-    # Mock database
-    mock_db = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_source]
-    mock_db.execute.return_value = mock_result
-
     # Mock execution service
     mock_service = AsyncMock()
     mock_service.execute.return_value = ExecutionResult(
@@ -110,11 +87,19 @@ async def test_end_to_end_citation_workflow():
     )
 
     # Create middleware
-    middleware = ExecutionMiddleware(mock_service)
+    bibliography_content = (
+        "@inproceedings{Researcher2024,\n"
+        "  title={Research Paper},\n"
+        "  author={Alice Researcher}\n"
+        "}"
+    )
+    middleware = ExecutionMiddleware(
+        mock_service,
+        reference_service=_reference_service(bibliography_content),
+    )
 
     # Step 1: Generate bibliography from citation IDs
     bibliography = await middleware._generate_bibliography(
-        mock_db,
         ["paper-1"],
         workspace_id="ws-1",
     )

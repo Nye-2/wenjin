@@ -107,6 +107,8 @@ from src.dataservice_client.contracts.prism import (
     PrismFileVersionPayload,
     PrismPrimaryProjectPayload,
     PrismProjectPayload,
+    PrismProtectedScopePayload,
+    PrismProtectedScopeUpsertPayload,
     PrismSurfacePayload,
 )
 from src.dataservice_client.contracts.prism_review import (
@@ -151,6 +153,7 @@ from src.dataservice_client.contracts.sandbox import (
     SandboxJobUpdatePayload,
 )
 from src.dataservice_client.contracts.source import (
+    SourceAssetLinkPayload,
     SourceAssetUpdatePayload,
     SourceBibliographyCreatePayload,
     SourceBibliographyPayload,
@@ -160,8 +163,11 @@ from src.dataservice_client.contracts.source import (
     SourceCitationUsagePayload,
     SourceCreatePayload,
     SourceExternalIdCreatePayload,
+    SourceEvidencePackCreatePayload,
+    SourceEvidencePackPayload,
     SourceImportPayload,
     SourceImportResultPayload,
+    SourceIndexReplacePayload,
     SourcePayload,
     SourceUpdatePayload,
 )
@@ -183,6 +189,8 @@ from src.dataservice_client.contracts.workspace import (
     WorkspaceAdminStatsPayload,
     WorkspaceCreatePayload,
     WorkspacePayload,
+    WorkspaceSettingsPayload,
+    WorkspaceSettingsUpdatePayload,
     WorkspaceStatsPayload,
     WorkspaceUpdatePayload,
 )
@@ -2195,6 +2203,18 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return PrismSurfacePayload.model_validate(data) if data is not None else None
 
+    async def upsert_latex_prism_protected_scope(
+        self,
+        command: PrismProtectedScopeUpsertPayload,
+    ) -> PrismProtectedScopePayload | None:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/prism/workspaces/{command.workspace_id}/latex-protected-scope",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return PrismProtectedScopePayload.model_validate(data) if data is not None else None
+
     async def append_prism_file_version(
         self,
         file_id: str,
@@ -2298,6 +2318,32 @@ class AsyncDataServiceClient:
         )
         return dict(payload["data"])
 
+    async def list_sources_page(
+        self,
+        *,
+        workspace_id: str,
+        library_status: str | None = None,
+        source_kind: str | None = None,
+        ingest_kind: str | None = None,
+        query: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/sources/page",
+            params={
+                "workspace_id": workspace_id,
+                "library_status": library_status,
+                "source_kind": source_kind,
+                "ingest_kind": ingest_kind,
+                "query": query,
+                "offset": offset,
+                "limit": limit,
+            },
+        )
+        return dict(payload["data"])
+
     async def get_source_library_outline(self, *, workspace_id: str) -> list[dict[str, Any]]:
         payload = await self._request(
             "GET",
@@ -2322,12 +2368,18 @@ class AsyncDataServiceClient:
         *,
         workspace_id: str,
         query: str,
+        source_ids: list[str] | None = None,
         limit: int = 8,
     ) -> list[dict[str, Any]]:
         payload = await self._request(
             "GET",
             "/internal/v1/sources/text-units/search",
-            params={"workspace_id": workspace_id, "query": query, "limit": limit},
+            params={
+                "workspace_id": workspace_id,
+                "query": query,
+                "source_ids": source_ids,
+                "limit": limit,
+            },
         )
         return list(payload["data"])
 
@@ -2366,6 +2418,21 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return SourcePayload.model_validate(data) if data is not None else None
 
+    async def get_source_for_workspace(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        include_deleted: bool = False,
+    ) -> SourcePayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/workspace-record",
+            params={"workspace_id": workspace_id, "include_deleted": include_deleted},
+        )
+        data = payload.get("data")
+        return SourcePayload.model_validate(data) if data is not None else None
+
     async def get_source_detail(
         self,
         *,
@@ -2379,6 +2446,19 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return dict(data) if isinstance(data, dict) else None
+
+    async def list_source_assets(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+    ) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/assets",
+            params={"workspace_id": workspace_id},
+        )
+        return list(payload["data"])
 
     async def upsert_source_external_ids(
         self,
@@ -2407,6 +2487,17 @@ class AsyncDataServiceClient:
             params={"workspace_id": workspace_id},
         )
         return list(payload["data"])
+
+    async def link_source_asset(
+        self,
+        command: SourceAssetLinkPayload,
+    ) -> dict[str, Any]:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/source-assets",
+            json=command.model_dump(mode="json"),
+        )
+        return dict(payload["data"])
 
     async def get_source_asset(
         self,
@@ -2437,6 +2528,26 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return dict(data) if isinstance(data, dict) else None
+
+    async def mark_source_status(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        library_status: str | None = None,
+        read_status: str | None = None,
+    ) -> SourcePayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/sources/{source_id}/status",
+            params={"workspace_id": workspace_id},
+            json={
+                "library_status": library_status,
+                "read_status": read_status,
+            },
+        )
+        data = payload.get("data")
+        return SourcePayload.model_validate(data) if data is not None else None
 
     async def update_source(
         self,
@@ -2494,6 +2605,76 @@ class AsyncDataServiceClient:
             json=command.model_dump(mode="json"),
         )
         return SourceBibliographySnapshotPayload.model_validate(payload["data"])
+
+    async def build_source_evidence_pack(
+        self,
+        command: SourceEvidencePackCreatePayload,
+    ) -> SourceEvidencePackPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sources/evidence-pack",
+            json=command.model_dump(mode="json"),
+        )
+        return SourceEvidencePackPayload.model_validate(payload["data"])
+
+    async def replace_source_index(
+        self,
+        command: SourceIndexReplacePayload,
+    ) -> dict[str, int]:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/sources/{command.source_id}/index",
+            json=command.model_dump(mode="json"),
+        )
+        return {str(key): int(value) for key, value in dict(payload["data"]).items()}
+
+    async def get_source_outline(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/outline",
+            params={"workspace_id": workspace_id, "limit": limit},
+        )
+        return list(payload["data"])
+
+    async def read_source_outline_node(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        outline_node_id: str,
+    ) -> dict[str, Any] | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/outline/{outline_node_id}/content",
+            params={"workspace_id": workspace_id},
+        )
+        data = payload.get("data")
+        return dict(data) if isinstance(data, dict) else None
+
+    async def read_source_pages(
+        self,
+        *,
+        source_id: str,
+        workspace_id: str,
+        page_start: int,
+        page_end: int,
+    ) -> list[dict[str, Any]]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/sources/{source_id}/pages",
+            params={
+                "workspace_id": workspace_id,
+                "page_start": page_start,
+                "page_end": page_end,
+            },
+        )
+        return list(payload["data"])
 
     async def record_source_citation_usage(
         self,
@@ -2859,6 +3040,24 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("has_active_membership")) if isinstance(data, dict) else False
+
+    async def get_workspace_settings(self, workspace_id: str) -> WorkspaceSettingsPayload | None:
+        payload = await self._request("GET", f"/internal/v1/workspaces/{workspace_id}/settings")
+        data = payload.get("data")
+        return WorkspaceSettingsPayload.model_validate(data) if data is not None else None
+
+    async def update_workspace_settings(
+        self,
+        workspace_id: str,
+        command: WorkspaceSettingsUpdatePayload,
+    ) -> WorkspaceSettingsPayload | None:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/workspaces/{workspace_id}/settings",
+            json=command.model_dump(mode="json", exclude_none=True),
+        )
+        data = payload.get("data")
+        return WorkspaceSettingsPayload.model_validate(data) if data is not None else None
 
     async def update_workspace(
         self,

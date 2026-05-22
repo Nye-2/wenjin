@@ -49,6 +49,8 @@ class SourceUpdatePayload(BaseModel):
     url: str | None = None
     abstract: str | None = None
     citation_count: int | None = None
+    evidence_level: str | None = None
+    fulltext_status: str | None = None
     library_status: str | None = None
     citation_key: str | None = None
     bibtex_entry_type: str | None = None
@@ -69,6 +71,17 @@ class SourceAssetUpdatePayload(BaseModel):
     preprocess_status: str | None = None
     manifest_asset_id: str | None = None
     metadata_json: dict[str, Any] | None = None
+
+
+class SourceAssetLinkPayload(BaseModel):
+    workspace_id: str
+    source_id: str
+    workspace_asset_id: str
+    asset_type: str
+    source_asset_id: str | None = None
+    preprocess_status: str = "skipped"
+    manifest_asset_id: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceImportPayload(SourceCreatePayload):
@@ -122,6 +135,28 @@ class SourceBibliographySnapshotPayload(BaseModel):
     checksum: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class SourceEvidencePackCreatePayload(BaseModel):
+    workspace_id: str
+    query: str | None = None
+    source_ids: list[str] | None = None
+    max_units: int = 8
+
+
+class SourceEvidencePackPayload(BaseModel):
+    workspace_id: str
+    query: str | None = None
+    library_outline: list[dict[str, Any]] = Field(default_factory=list)
+    selected_units: list[dict[str, Any]] = Field(default_factory=list)
+    policy: str = "outline_first_no_vector_rag"
+
+
+class SourceIndexReplacePayload(BaseModel):
+    workspace_id: str
+    source_id: str
+    outline_nodes: list[dict[str, Any]] = Field(default_factory=list)
+    text_units: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SourceCitationUsageCreatePayload(BaseModel):

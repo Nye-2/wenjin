@@ -11,9 +11,9 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.database import get_db_session
-from src.dataservice.provenance_api import ProvenanceDataService, ProvenanceLinkCreateCommand
-from src.dataservice.source_api import SourceDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.provenance import ProvenanceLinkCreatePayload
+from src.dataservice_client.provider import dataservice_client
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def _resolve_workspace_scope(
 
 async def _record_reference_access(
     *,
-    db: Any,
+    client: AsyncDataServiceClient,
     workspace_id: str,
     reference_id: str,
     section: dict[str, Any],
@@ -107,8 +107,8 @@ async def _record_reference_access(
         raw_units = section.get("units")
         units = raw_units if isinstance(raw_units, list) else []
         first_unit = next((item for item in units if isinstance(item, dict)), {})
-        await ProvenanceDataService(db).create_link(
-            ProvenanceLinkCreateCommand(
+        await client.create_provenance_link(
+            ProvenanceLinkCreatePayload(
                 workspace_id=workspace_id,
                 source_id=reference_id,
                 target_domain="agent_tool",
@@ -150,10 +150,8 @@ async def list_reference_library_tool(
     if error is not None:
         return json.dumps(error, ensure_ascii=False)
     assert resolved_workspace_id is not None
-    async with get_db_session() as db:
-        summary = await SourceDataService(db, autocommit=False).get_workspace_toc_summary(
-            resolved_workspace_id
-        )
+    async with dataservice_client() as client:
+        summary = await client.get_workspace_toc_summary(resolved_workspace_id)
     return summary or "该工作区暂无可用参考文献目录。"
 
 
@@ -169,10 +167,10 @@ async def search_reference_text_units_tool(
     if error is not None:
         return json.dumps(error, ensure_ascii=False)
     assert resolved_workspace_id is not None
-    async with get_db_session() as db:
-        records = await SourceDataService(db, autocommit=False).search_workspace_sections(
-            resolved_workspace_id,
-            query,
+    async with dataservice_client() as client:
+        records = await client.search_source_text_units(
+            workspace_id=resolved_workspace_id,
+            query=query,
             limit=limit,
         )
     return json.dumps(
@@ -208,23 +206,22 @@ async def read_reference_outline_node_tool(
     if not normalized_path and not normalized_title:
         return "请至少提供 section_path 或 section_title。"
 
-    async with get_db_session() as db:
-        source_service = SourceDataService(db, autocommit=False)
+    async with dataservice_client() as client:
         if normalized_path:
-            section = await source_service.get_source_section(
+            section = await client.get_source_section_by_path(
                 source_id=reference_id,
                 section_path=normalized_path,
                 workspace_id=resolved_workspace_id,
             )
         else:
-            section = await source_service.get_source_section_by_title(
+            section = await client.get_source_section_by_title(
                 source_id=reference_id,
                 section_title=normalized_title,
                 workspace_id=resolved_workspace_id,
             )
         if section:
             await _record_reference_access(
-                db=db,
+                client=client,
                 workspace_id=cast(str, resolved_workspace_id),
                 reference_id=reference_id,
                 section=section,

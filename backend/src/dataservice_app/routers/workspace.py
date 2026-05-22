@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, Query
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
-from src.dataservice.domains.workspace.contracts import WorkspaceCreateCommand, WorkspaceUpdateCommand
+from src.dataservice.domains.workspace.contracts import (
+    WorkspaceCreateCommand,
+    WorkspaceSettingsUpdateCommand,
+    WorkspaceUpdateCommand,
+)
 from src.dataservice.domains.workspace.projection import workspace_to_record
 from src.dataservice.domains.workspace.service import DataServiceWorkspaceService
 from src.dataservice_app.auth import require_internal_token
@@ -95,6 +99,32 @@ async def has_active_membership(
             )
         }
     )
+
+
+@router.get("/{workspace_id}/settings")
+async def get_workspace_settings(
+    workspace_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
+    settings = await service.get_or_create_workspace_settings(workspace_id)
+    await uow.commit()
+    return envelope_ok(settings.model_dump(mode="json"))
+
+
+@router.put("/{workspace_id}/settings")
+async def update_workspace_settings(
+    workspace_id: str,
+    command: WorkspaceSettingsUpdateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
+    settings = await service.update_workspace_settings(workspace_id, command)
+    if settings is None:
+        await service.get_or_create_workspace_settings(workspace_id)
+        settings = await service.update_workspace_settings(workspace_id, command)
+    await uow.commit()
+    return envelope_ok(settings.model_dump(mode="json") if settings else None)
 
 
 @router.put("/{workspace_id}")

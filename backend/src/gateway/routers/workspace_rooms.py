@@ -9,34 +9,31 @@ Rooms covered (spec §5.3):
 
 from __future__ import annotations
 
-import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.database import User
-from src.dataservice.asset_api import AssetDataService, WorkspaceAssetProjection, WorkspaceAssetUpdateCommand
-from src.dataservice.rooms_api import (
-    DecisionSetCommand,
-    MemoryFactCreateCommand,
-    RoomsDataService,
-    WorkspaceTaskCreateCommand,
-    WorkspaceTaskUpdateCommand,
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.asset import (
+    WorkspaceAssetCreatePayload,
+    WorkspaceAssetPayload,
+    WorkspaceAssetUpdatePayload,
 )
-from src.dataservice.sandbox_api import SandboxDataService, SandboxEnvironmentCreateCommand
-from src.dataservice.source_api import SourceCreateCommand, SourceDataService
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client.contracts.rooms import (
+    DecisionSetPayload,
+    MemoryFactCreatePayload,
+    WorkspaceTaskCreatePayload,
+    WorkspaceTaskUpdatePayload,
+)
+from src.dataservice_client.contracts.sandbox import SandboxEnvironmentCreatePayload
+from src.dataservice_client.contracts.source import SourceCreatePayload
+from src.dataservice_client.contracts.workspace import WorkspaceSettingsUpdatePayload
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps import get_db, get_workspace_service
-
-if TYPE_CHECKING:
-    from src.dataservice.execution_api import ExecutionDataService
-
-logger = logging.getLogger(__name__)
+from src.gateway.deps import get_dataservice_client, get_workspace_service
 
 router = APIRouter(prefix="/workspaces", tags=["workspace_rooms"])
 
@@ -70,37 +67,6 @@ async def _assert_workspace_owner(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workspace not found",
         )
-
-
-# ---------------------------------------------------------------------------
-# Service factories (thin wrappers to keep endpoint signatures clean)
-# ---------------------------------------------------------------------------
-
-
-def _asset_data_service(db: AsyncSession) -> AssetDataService:
-    return AssetDataService(db)
-
-
-def _rooms_service(db: AsyncSession) -> RoomsDataService:
-    return RoomsDataService(db)
-
-
-def _source_data_service(db: AsyncSession) -> SourceDataService:
-    return SourceDataService(db)
-
-
-def _execution_history_service(db: AsyncSession) -> ExecutionDataService:
-    from src.dataservice.execution_api import ExecutionDataService
-
-    return ExecutionDataService(db)
-
-
-def _workspace_data_service(db: AsyncSession) -> WorkspaceDataService:
-    return WorkspaceDataService(db)
-
-
-def _sandbox_data_service(db: AsyncSession) -> SandboxDataService:
-    return SandboxDataService(db)
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +197,8 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
     return dict(row)
 
 
-def _library_source_command(workspace_id: str, data: dict[str, Any]) -> SourceCreateCommand:
-    return SourceCreateCommand(
+def _library_source_command(workspace_id: str, data: dict[str, Any]) -> SourceCreatePayload:
+    return SourceCreatePayload(
         workspace_id=workspace_id,
         source_kind=str(data.get("item_type") or data.get("source_kind") or "paper"),
         title=str(data["title"]),
@@ -262,7 +228,7 @@ def _source_citation_key(data: dict[str, Any]) -> str:
     return (key or "source")[:240]
 
 
-def _asset_to_document(asset: WorkspaceAssetProjection) -> dict[str, Any]:
+def _asset_to_document(asset: WorkspaceAssetPayload) -> dict[str, Any]:
     metadata = dict(asset.metadata_json or {})
     return {
         "id": asset.id,
@@ -299,18 +265,18 @@ def _inline_size(metadata: dict[str, Any]) -> int | None:
 
 
 async def _list_document_assets(
-    assets: AssetDataService,
+    dataservice: AsyncDataServiceClient,
     *,
     workspace_id: str,
     limit: int,
 ) -> list[dict[str, Any]]:
-    room_assets = await assets.list_assets(
+    room_assets = await dataservice.list_assets(
         workspace_id=workspace_id,
         source_kind=_DOCUMENT_SOURCE_KIND,
         include_deleted=False,
         limit=limit,
     )
-    migrated_assets = await assets.list_assets(
+    migrated_assets = await dataservice.list_assets(
         workspace_id=workspace_id,
         source_kind=_MIGRATED_DOCUMENT_SOURCE_KIND,
         include_deleted=False,
@@ -321,12 +287,12 @@ async def _list_document_assets(
 
 
 async def _get_document_asset(
-    assets: AssetDataService,
+    dataservice: AsyncDataServiceClient,
     *,
     workspace_id: str,
     doc_id: str,
 ) -> dict[str, Any] | None:
-    asset = await assets.get_asset(doc_id)
+    asset = await dataservice.get_asset(doc_id)
     if asset is None or asset.workspace_id != workspace_id or asset.deleted_at is not None:
         return None
     if asset.source_kind not in _DOCUMENT_SOURCE_KINDS:
@@ -335,7 +301,7 @@ async def _get_document_asset(
 
 
 async def _create_document_asset(
-    assets: AssetDataService,
+    dataservice: AsyncDataServiceClient,
     *,
     workspace_id: str,
     data: dict[str, Any],
@@ -344,7 +310,7 @@ async def _create_document_asset(
         version_data = dict(data)
         version_data.pop("parent_id", None)
         return await _commit_document_asset_version(
-            assets,
+            dataservice,
             workspace_id=workspace_id,
             parent_id=str(parent_id),
             data=version_data,
@@ -354,31 +320,33 @@ async def _create_document_asset(
     kind = str(data.get("kind") or "document")
     metadata.setdefault("kind", kind)
     metadata.setdefault("version", 1)
-    asset = await assets.register_asset_record(
-        workspace_id=workspace_id,
-        asset_kind=kind,
-        name=str(data["name"]),
-        title=str(data.get("name") or ""),
-        mime_type=data.get("mime_type") or "text/markdown",
-        storage_backend="local",
-        storage_path=data.get("storage_path") or _inline_storage_path(data),
-        size_bytes=data.get("size_bytes") or _inline_size(metadata),
-        created_by=str(data.get("added_by") or "user"),
-        source_kind=_DOCUMENT_SOURCE_KIND,
-        source_id=None,
-        metadata_json=metadata,
+    asset = await dataservice.register_asset(
+        WorkspaceAssetCreatePayload(
+            workspace_id=workspace_id,
+            asset_kind=kind,
+            name=str(data["name"]),
+            title=str(data.get("name") or ""),
+            mime_type=data.get("mime_type") or "text/markdown",
+            storage_backend="local",
+            storage_path=data.get("storage_path") or _inline_storage_path(data),
+            size_bytes=data.get("size_bytes") or _inline_size(metadata),
+            created_by=str(data.get("added_by") or "user"),
+            source_kind=_DOCUMENT_SOURCE_KIND,
+            source_id=None,
+            metadata_json=metadata,
+        )
     )
     return _asset_to_document(asset)
 
 
 async def _commit_document_asset_version(
-    assets: AssetDataService,
+    dataservice: AsyncDataServiceClient,
     *,
     workspace_id: str,
     parent_id: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    parent = await _get_document_asset(assets, workspace_id=workspace_id, doc_id=parent_id)
+    parent = await _get_document_asset(dataservice, workspace_id=workspace_id, doc_id=parent_id)
     if parent is None:
         raise ValueError(f"Parent document {parent_id} not found")
     metadata = dict(data.get("metadata_json") or {})
@@ -386,32 +354,34 @@ async def _commit_document_asset_version(
     metadata.setdefault("kind", data.get("kind") or parent.get("kind"))
     metadata["version"] = version
     metadata["parent_id"] = parent_id
-    asset = await assets.register_asset_record(
-        workspace_id=workspace_id,
-        asset_kind=str(metadata["kind"]),
-        name=str(data.get("name") or parent["name"]),
-        title=str(data.get("name") or parent["name"]),
-        mime_type=data.get("mime_type") or parent.get("mime_type"),
-        storage_backend="local",
-        storage_path=data.get("storage_path") or _inline_storage_path(data),
-        size_bytes=data.get("size_bytes") or _inline_size(metadata),
-        parent_asset_id=parent_id,
-        created_by=str(data.get("added_by") or parent.get("added_by") or "user"),
-        source_kind=_DOCUMENT_SOURCE_KIND,
-        source_id=parent_id,
-        metadata_json=metadata,
+    asset = await dataservice.register_asset(
+        WorkspaceAssetCreatePayload(
+            workspace_id=workspace_id,
+            asset_kind=str(metadata["kind"]),
+            name=str(data.get("name") or parent["name"]),
+            title=str(data.get("name") or parent["name"]),
+            mime_type=data.get("mime_type") or parent.get("mime_type"),
+            storage_backend="local",
+            storage_path=data.get("storage_path") or _inline_storage_path(data),
+            size_bytes=data.get("size_bytes") or _inline_size(metadata),
+            parent_asset_id=parent_id,
+            created_by=str(data.get("added_by") or parent.get("added_by") or "user"),
+            source_kind=_DOCUMENT_SOURCE_KIND,
+            source_id=parent_id,
+            metadata_json=metadata,
+        )
     )
     return _asset_to_document(asset)
 
 
 async def _update_document_asset(
-    assets: AssetDataService,
+    dataservice: AsyncDataServiceClient,
     *,
     workspace_id: str,
     doc_id: str,
     data: dict[str, Any],
 ) -> dict[str, Any] | None:
-    current = await _get_document_asset(assets, workspace_id=workspace_id, doc_id=doc_id)
+    current = await _get_document_asset(dataservice, workspace_id=workspace_id, doc_id=doc_id)
     if current is None:
         return None
     metadata = dict(current.get("metadata_json") or {})
@@ -419,9 +389,9 @@ async def _update_document_asset(
         metadata["kind"] = data["kind"]
     if data.get("metadata_json") is not None:
         metadata.update(dict(data["metadata_json"] or {}))
-    asset = await assets.update_asset(
+    asset = await dataservice.update_asset(
         doc_id,
-        WorkspaceAssetUpdateCommand(
+        WorkspaceAssetUpdatePayload(
             name=data.get("name"),
             title=data.get("name"),
             mime_type=data.get("mime_type"),
@@ -442,10 +412,10 @@ async def list_library_items(
     limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    items = await _source_data_service(db).list_sources(
+    items = await dataservice.list_sources(
         workspace_id=ws_id,
         library_status="included",
         include_deleted=False,
@@ -460,10 +430,10 @@ async def create_library_item(
     body: LibraryItemCreateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    item = await _source_data_service(db).create_source(_library_source_command(ws_id, body.model_dump()))
+    item = await dataservice.create_source(_library_source_command(ws_id, body.model_dump()))
     return _row_to_dict(item)
 
 
@@ -473,14 +443,11 @@ async def get_library_item(
     item_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    item = await _source_data_service(db).get_source_for_workspace(
-        workspace_id=ws_id,
-        source_id=item_id,
-    )
-    if item is None:
+    item = await dataservice.get_source(item_id)
+    if item is None or item.workspace_id != ws_id or item.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Library item not found",
@@ -494,10 +461,10 @@ async def delete_library_item(
     item_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _source_data_service(db).mark_deleted_for_workspace(
+    found = await dataservice.delete_source(
         workspace_id=ws_id,
         source_id=item_id,
     )
@@ -516,10 +483,10 @@ async def list_documents(
     limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    docs = await _list_document_assets(_asset_data_service(db), workspace_id=ws_id, limit=limit)
+    docs = await _list_document_assets(dataservice, workspace_id=ws_id, limit=limit)
     return {"items": [_row_to_dict(d) for d in docs], "count": len(docs)}
 
 
@@ -529,11 +496,11 @@ async def create_document(
     body: DocumentCreateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     doc = await _create_document_asset(
-        _asset_data_service(db),
+        dataservice,
         workspace_id=ws_id,
         data=body.model_dump(),
     )
@@ -546,10 +513,10 @@ async def get_document(
     doc_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    doc = await _get_document_asset(_asset_data_service(db), workspace_id=ws_id, doc_id=doc_id)
+    doc = await _get_document_asset(dataservice, workspace_id=ws_id, doc_id=doc_id)
     if doc is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -565,19 +532,18 @@ async def update_document(
     body: DocumentUpdateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     """Update a document.  When ``parent_id`` is provided a new version is
     committed (commit_version) instead of an in-place update."""
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    assets = _asset_data_service(db)
     data = body.model_dump(exclude_none=True)
 
     if "parent_id" in data:
         parent_id = data.pop("parent_id")
         try:
             doc = await _commit_document_asset_version(
-                assets,
+                dataservice,
                 workspace_id=ws_id,
                 parent_id=parent_id,
                 data=data,
@@ -586,7 +552,7 @@ async def update_document(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     else:
         doc = await _update_document_asset(
-            assets,
+            dataservice,
             workspace_id=ws_id,
             doc_id=doc_id,
             data=data,
@@ -603,12 +569,11 @@ async def delete_document(
     doc_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    assets = _asset_data_service(db)
-    current = await _get_document_asset(assets, workspace_id=ws_id, doc_id=doc_id)
-    found = current is not None and await assets.mark_deleted(doc_id) is not None
+    current = await _get_document_asset(dataservice, workspace_id=ws_id, doc_id=doc_id)
+    found = current is not None and await dataservice.delete_asset(doc_id) is not None
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
@@ -623,10 +588,10 @@ async def list_decisions(
     ws_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    active = await _rooms_service(db).list_active_decisions(ws_id)
+    active = await dataservice.list_room_decisions(ws_id)
     return {"active": active}
 
 
@@ -636,11 +601,11 @@ async def set_decision(
     body: DecisionCreateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    decision = await _rooms_service(db).set_decision(
-        DecisionSetCommand(
+    decision = await dataservice.set_room_decision(
+        DecisionSetPayload(
             workspace_id=ws_id,
             key=body.key,
             value=body.value,
@@ -657,10 +622,10 @@ async def delete_decision(
     decision_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _rooms_service(db).delete_decision(decision_id)
+    found = await dataservice.delete_room_decision(decision_id)
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Decision not found")
 
@@ -677,10 +642,10 @@ async def list_memory(
     category: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    facts = await _rooms_service(db).list_memory_facts(
+    facts = await dataservice.list_room_memory_facts(
         workspace_id=ws_id,
         limit=k,
         category=category,
@@ -694,11 +659,11 @@ async def add_memory_facts(
     body: MemoryBulkAddRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     commands = [
-        MemoryFactCreateCommand(
+        MemoryFactCreatePayload(
             workspace_id=ws_id,
             category=f.category,
             content=f.content,
@@ -706,7 +671,7 @@ async def add_memory_facts(
         )
         for f in body.facts
     ]
-    rows = await _rooms_service(db).add_memory_facts(commands)
+    rows = await dataservice.add_room_memory_facts(commands)
     return {"items": [_row_to_dict(r) for r in rows], "count": len(rows)}
 
 
@@ -716,10 +681,10 @@ async def delete_memory_fact(
     fact_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _rooms_service(db).soft_delete_memory_fact(workspace_id=ws_id, fact_id=fact_id)
+    found = await dataservice.delete_room_memory_fact(workspace_id=ws_id, fact_id=fact_id)
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory fact not found")
 
@@ -735,10 +700,10 @@ async def list_runs(
     limit: int = Query(50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    runs = await _execution_history_service(db).list_run_history(workspace_id=ws_id, limit=limit)
+    runs = await dataservice.list_executions(workspace_id=ws_id, limit=limit)
     return {"items": [_row_to_dict(r) for r in runs], "count": len(runs)}
 
 
@@ -748,11 +713,11 @@ async def get_run(
     run_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    run = await _execution_history_service(db).get_run_history_item(workspace_id=ws_id, run_id=run_id)
-    if run is None:
+    run = await dataservice.get_execution(run_id)
+    if run is None or run.workspace_id != ws_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
     return _row_to_dict(run)
 
@@ -768,10 +733,10 @@ async def list_workspace_tasks(
     task_status: str | None = Query(None, alias="status"),
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    tasks = await _rooms_service(db).list_workspace_tasks(workspace_id=ws_id, status=task_status)
+    tasks = await dataservice.list_room_tasks(workspace_id=ws_id, status=task_status)
     return {"items": [_row_to_dict(t) for t in tasks], "count": len(tasks)}
 
 
@@ -781,11 +746,11 @@ async def create_workspace_task(
     body: WorkspaceTaskCreateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    task = await _rooms_service(db).create_workspace_task(
-        WorkspaceTaskCreateCommand(workspace_id=ws_id, **body.model_dump())
+    task = await dataservice.create_room_task(
+        WorkspaceTaskCreatePayload(workspace_id=ws_id, **body.model_dump())
     )
     return _row_to_dict(task)
 
@@ -797,14 +762,14 @@ async def update_workspace_task(
     body: WorkspaceTaskUpdateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     data = body.model_dump(exclude_none=True)
-    task = await _rooms_service(db).update_workspace_task(
+    task = await dataservice.update_room_task(
         workspace_id=ws_id,
         task_id=task_id,
-        command=WorkspaceTaskUpdateCommand(**data),
+        command=WorkspaceTaskUpdatePayload(**data),
     )
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
@@ -817,10 +782,10 @@ async def delete_workspace_task(
     task_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    found = await _rooms_service(db).soft_delete_workspace_task(workspace_id=ws_id, task_id=task_id)
+    found = await dataservice.delete_room_task(workspace_id=ws_id, task_id=task_id)
     if not found:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
@@ -835,10 +800,10 @@ async def get_workspace_settings(
     ws_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    settings = await _workspace_data_service(db).get_or_create_workspace_settings(ws_id)
+    settings = await dataservice.get_workspace_settings(ws_id)
     return _row_to_dict(settings)
 
 
@@ -848,16 +813,14 @@ async def update_workspace_settings(
     body: WorkspaceSettingsUpdateRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     data = body.model_dump(exclude_none=True)
-    workspace_data = _workspace_data_service(db)
-    updated = await workspace_data.update_workspace_settings(ws_id, **data)
-    if updated is None:
-        # Settings row didn't exist yet — create with defaults then apply
-        await workspace_data.get_or_create_workspace_settings(ws_id)
-        updated = await workspace_data.update_workspace_settings(ws_id, **data)
+    updated = await dataservice.update_workspace_settings(
+        ws_id,
+        WorkspaceSettingsUpdatePayload(**data),
+    )
     return _row_to_dict(updated)
 
 
@@ -872,22 +835,17 @@ async def sandbox_exec(
     body: SandboxExecRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     """Execute a command in the workspace sandbox.
 
     V1: sandbox_dev_mode is always allowed (logs a warning per spec).
     """
-    logger.warning(
-        "sandbox/exec invoked for workspace=%s user=%s — "
-        "dev-mode sandbox is enabled; gate on Settings.sandbox_dev_mode in Phase 2",
-        ws_id,
-        str(current_user.id),
-    )
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
 
-    sandbox = await _sandbox_data_service(db).get_or_create_environment(
-        SandboxEnvironmentCreateCommand(workspace_id=ws_id, provider="local")
+    sandbox = await dataservice.get_or_create_sandbox_environment(
+        ws_id,
+        SandboxEnvironmentCreatePayload(workspace_id=ws_id, provider="local"),
     )
     return {
         "sandbox_id": sandbox.sandbox_id,

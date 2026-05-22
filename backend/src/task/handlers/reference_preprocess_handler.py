@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from src.database import get_db_session
+from src.dataservice_client.provider import dataservice_client
 from src.services.references import SourcePreprocessService
 
 
@@ -46,8 +46,8 @@ async def execute_reference_preprocess(payload: dict[str, Any], progress: Any) -
         },
     )
 
-    async with get_db_session() as db:
-        service = SourcePreprocessService(db)
+    async with dataservice_client() as client:
+        service = SourcePreprocessService(client)
         await progress.update(35, "Parsing reference full text", current_step="preprocess")
         preprocess = await service.process_asset(
             workspace_id=workspace_id,

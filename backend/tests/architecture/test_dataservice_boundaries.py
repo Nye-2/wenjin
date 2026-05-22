@@ -95,14 +95,8 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
     "dataservice_client",
 }
 RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
-    "gateway/routers/latex_files.py",
-    "gateway/routers/references.py",
-    "gateway/routers/workspace_rooms.py",
-    "gateway/routers/workspaces.py",
-    "services/references/service.py",
     "services/workspace_latex_projects.py",
     "services/workspace_prism_service.py",
-    "tools/builtins/references.py",
 }
 RUNTIME_DIRECT_SQL_ALLOWED_FILES = {
     "gateway/routers/dev_test_hooks.py",
