@@ -45,6 +45,9 @@ from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagePayload,
     ConversationMessagesRebuildPayload,
+    ConversationThreadCreatePayload,
+    ConversationThreadPayload,
+    ConversationThreadUpdatePayload,
 )
 from src.dataservice_client.contracts.credit import (
     CreditAdminAdjustPayload,
@@ -1093,6 +1096,91 @@ class AsyncDataServiceClient:
     async def list_conversation_messages(self, thread_id: str) -> list[ConversationMessagePayload]:
         payload = await self._request("GET", f"/internal/v1/conversations/{thread_id}/messages")
         return [ConversationMessagePayload.model_validate(item) for item in payload["data"]]
+
+    async def create_conversation_thread(
+        self,
+        command: ConversationThreadCreatePayload,
+    ) -> ConversationThreadPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/conversations/threads",
+            json=command.model_dump(mode="json"),
+        )
+        return ConversationThreadPayload.model_validate(payload["data"])
+
+    async def get_conversation_thread(self, thread_id: str) -> ConversationThreadPayload | None:
+        payload = await self._request("GET", f"/internal/v1/conversations/threads/{thread_id}")
+        data = payload.get("data")
+        return ConversationThreadPayload.model_validate(data) if data is not None else None
+
+    async def get_owned_conversation_thread(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+    ) -> ConversationThreadPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/conversations/threads/{thread_id}/owned",
+            params={"user_id": user_id},
+        )
+        data = payload.get("data")
+        return ConversationThreadPayload.model_validate(data) if data is not None else None
+
+    async def get_latest_workspace_conversation_thread(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str,
+    ) -> ConversationThreadPayload | None:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/conversations/workspace-threads/latest",
+            params={"user_id": user_id, "workspace_id": workspace_id},
+        )
+        data = payload.get("data")
+        return ConversationThreadPayload.model_validate(data) if data is not None else None
+
+    async def list_conversation_threads(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None = None,
+        limit: int = 20,
+    ) -> list[ConversationThreadPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/conversations/threads",
+            params={"user_id": user_id, "workspace_id": workspace_id, "limit": limit},
+        )
+        return [ConversationThreadPayload.model_validate(item) for item in payload["data"]]
+
+    async def update_conversation_thread(
+        self,
+        thread_id: str,
+        command: ConversationThreadUpdatePayload,
+    ) -> ConversationThreadPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/conversations/threads/{thread_id}",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return ConversationThreadPayload.model_validate(data) if data is not None else None
+
+    async def delete_conversation_thread(self, *, thread_id: str, user_id: str) -> bool:
+        payload = await self._request(
+            "DELETE",
+            f"/internal/v1/conversations/threads/{thread_id}",
+            params={"user_id": user_id},
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def lock_conversation_thread(self, thread_id: str) -> bool:
+        payload = await self._request("POST", f"/internal/v1/conversations/threads/{thread_id}/lock")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("locked")) if isinstance(data, dict) else False
 
     async def list_catalog_capabilities(
         self,

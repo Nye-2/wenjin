@@ -9,12 +9,16 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.middlewares.thread_data import delete_thread_directory
-from src.dataservice.conversation_api import (
-    ConversationDataService,
-    ConversationThreadCreateCommand,
-    ConversationThreadProjection,
-    ConversationThreadUpdateCommand,
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.conversation import (
+    ConversationMessageCreatePayload,
+    ConversationMessagePayload,
+    ConversationMessagesRebuildPayload,
+    ConversationThreadCreatePayload,
+    ConversationThreadPayload,
+    ConversationThreadUpdatePayload,
 )
+from src.dataservice_client.provider import dataservice_client
 from src.models.router import route_model, validate_requested_model
 from src.services.workspace_skill_labels import (
     list_workspace_types,
@@ -45,21 +49,44 @@ class ThreadService:
         self,
         db: AsyncSession,
         model: type[Any] | None = None,
+        dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.db = db
         self._model = model
-        self._conversation = ConversationDataService(db, autocommit=False)
+        self._dataservice = dataservice
+
+    async def _with_client(self) -> AsyncDataServiceClient:
+        if self._dataservice is None:
+            raise RuntimeError("DataService client is only available inside helper contexts")
+        return self._dataservice
+
+    @staticmethod
+    def _message_payload_to_bridge(message: ConversationMessagePayload) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "role": message.role,
+            "content": message.content,
+            "timestamp": message.timestamp.isoformat() if message.timestamp else None,
+        }
+        if message.metadata_json:
+            result["metadata"] = dict(message.metadata_json)
+        if message.blocks:
+            result["blocks"] = [dict(block.payload_json) for block in message.blocks]
+        return result
 
     async def _lock_thread_row(self, thread_id: str) -> None:
         """Lock and refresh a thread row to prevent lost summary updates."""
-        await self._conversation.lock_thread(thread_id)
+        if self._dataservice is not None:
+            await self._dataservice.lock_conversation_thread(thread_id)
+            return
+        async with dataservice_client() as client:
+            await client.lock_conversation_thread(thread_id)
 
     @staticmethod
     def _hydrate_thread_skill_metadata(
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         *,
         workspace_type: str | None,
-    ) -> ConversationThreadProjection:
+    ) -> ConversationThreadPayload:
         """Attach resolved workspace skill metadata to a thread object."""
         cast_thread: Any = thread
         cast_thread.workspace_type = workspace_type
@@ -68,10 +95,10 @@ class ThreadService:
 
     async def _attach_workspace_skill_metadata(
         self,
-        thread: ConversationThreadProjection | None,
+        thread: ConversationThreadPayload | None,
         *,
         workspace_types: dict[str, str] | None = None,
-    ) -> ConversationThreadProjection | None:
+    ) -> ConversationThreadPayload | None:
         """Attach resolved workspace skill metadata to a thread object."""
         if thread is None:
             return None
@@ -117,11 +144,10 @@ class ThreadService:
         title: str | None = None,
         model: str | None = None,
         skill: str | None = None,
-    ) -> ConversationThreadProjection:
+    ) -> ConversationThreadPayload:
         """Create and persist a new thread."""
         now = datetime.now(UTC)
-        thread = await self._conversation.create_thread(
-            ConversationThreadCreateCommand(
+        command = ConversationThreadCreatePayload(
                 user_id=user_id,
                 workspace_id=workspace_id,
                 title=title,
@@ -130,22 +156,30 @@ class ThreadService:
                 created_at=now,
                 updated_at=now,
             )
-        )
-        await self.db.commit()
+        if self._dataservice is not None:
+            thread = await self._dataservice.create_conversation_thread(command)
+        else:
+            async with dataservice_client() as client:
+                thread = await client.create_conversation_thread(command)
         hydrated_thread = await self._attach_workspace_skill_metadata(thread)
         return hydrated_thread or thread
 
-    async def get_by_id(self, thread_id: str) -> ConversationThreadProjection | None:
+    async def get_by_id(self, thread_id: str) -> ConversationThreadPayload | None:
         """Fetch a thread regardless of owner."""
+        if self._dataservice is not None:
+            thread = await self._dataservice.get_conversation_thread(thread_id)
+        else:
+            async with dataservice_client() as client:
+                thread = await client.get_conversation_thread(thread_id)
         return await self._attach_workspace_skill_metadata(
-            await self._conversation.get_thread(thread_id)
+            thread,
         )
 
     async def get_thread(
         self,
         thread_id: str,
         user_id: str,
-    ) -> ConversationThreadProjection | None:
+    ) -> ConversationThreadPayload | None:
         """Fetch a thread owned by the active user."""
         thread = await self.get_by_id(thread_id)
         if not thread or thread.user_id != user_id:
@@ -157,28 +191,54 @@ class ThreadService:
         *,
         user_id: str,
         workspace_id: str,
-    ) -> ConversationThreadProjection | None:
+    ) -> ConversationThreadPayload | None:
         """Fetch the most recently updated thread for a workspace owned by the user."""
-        return await self._attach_workspace_skill_metadata(
-            await self._conversation.get_latest_workspace_thread(
+        if self._dataservice is not None:
+            thread = await self._dataservice.get_latest_workspace_conversation_thread(
                 user_id=user_id,
                 workspace_id=workspace_id,
             )
+        else:
+            async with dataservice_client() as client:
+                thread = await client.get_latest_workspace_conversation_thread(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                )
+        return await self._attach_workspace_skill_metadata(
+            thread,
         )
 
     async def _persist_thread_fields(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         **fields: Any,
-    ) -> ConversationThreadProjection:
-        updated = await self._conversation.update_thread(
-            str(thread.id),
-            ConversationThreadUpdateCommand(**fields),
-        )
+    ) -> ConversationThreadPayload:
+        command = ConversationThreadUpdatePayload(**fields)
+        if self._dataservice is not None:
+            updated = await self._dataservice.update_conversation_thread(str(thread.id), command)
+        else:
+            async with dataservice_client() as client:
+                updated = await client.update_conversation_thread(str(thread.id), command)
         if updated is None:
             return thread
-        await self.db.commit()
         return await self._attach_workspace_skill_metadata(updated) or updated
+
+    async def _replace_thread_messages(
+        self,
+        thread: ConversationThreadPayload,
+        messages: list[dict[str, Any]],
+    ) -> None:
+        command = ConversationMessagesRebuildPayload(
+            thread_id=str(thread.id),
+            user_id=str(thread.user_id),
+            workspace_id=thread.workspace_id,
+            messages=messages,
+        )
+        if self._dataservice is not None:
+            await self._dataservice.rebuild_conversation_messages(str(thread.id), command)
+            return
+        async with dataservice_client() as client:
+            await client.rebuild_conversation_messages(str(thread.id), command)
 
     async def get_or_create_thread(
         self,
@@ -189,7 +249,7 @@ class ThreadService:
         model: str | None = None,
         skill: str | None = None,
         skill_explicit: bool = False,
-    ) -> ConversationThreadProjection:
+    ) -> ConversationThreadPayload:
         """Reuse an owned thread or create a new one."""
         resolved_model = self._resolve_model(model) if model and model.strip() else None
         resolved_skill = (skill or "").strip() or None if skill_explicit else None
@@ -251,7 +311,7 @@ class ThreadService:
 
     async def add_message(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         *,
         role: str,
         content: str,
@@ -277,26 +337,34 @@ class ThreadService:
         thread.last_message_role = normalized_role or None
         thread.last_message_preview = _truncate_message_preview(content)
         thread.updated_at = resolved_timestamp
-        await self._conversation.update_thread(
-            str(thread.id),
-            ConversationThreadUpdateCommand(
+        await self._persist_thread_fields(
+            thread,
                 message_count=thread.message_count,
                 last_message_role=thread.last_message_role,
                 last_message_preview=thread.last_message_preview,
                 updated_at=thread.updated_at,
-            ),
         )
-        await self._conversation.append_thread_message(
-            thread,
-            message,
+        command = ConversationMessageCreatePayload(
+            thread_id=str(thread.id),
+            user_id=str(thread.user_id),
+            workspace_id=thread.workspace_id,
+            role=role,
+            content=content,
             sequence_index=sequence_index,
+            timestamp=resolved_timestamp,
+            blocks=list(message.get("blocks") or []),
+            metadata=dict(message.get("metadata") or {}),
         )
-        await self.db.commit()
+        if self._dataservice is not None:
+            await self._dataservice.append_conversation_message(str(thread.id), command)
+        else:
+            async with dataservice_client() as client:
+                await client.append_conversation_message(str(thread.id), command)
         return message
 
     async def update_attachment_extraction_state(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         *,
         task_id: str,
         status: str,
@@ -358,20 +426,17 @@ class ThreadService:
 
         thread.updated_at = datetime.now(UTC)
         thread.message_count = len(messages)
-        await self._conversation.update_thread(
-            str(thread.id),
-            ConversationThreadUpdateCommand(
-                message_count=thread.message_count,
-                updated_at=thread.updated_at,
-            ),
+        await self._persist_thread_fields(
+            thread,
+            message_count=thread.message_count,
+            updated_at=thread.updated_at,
         )
-        await self._conversation.replace_thread_messages(thread, messages)
-        await self.db.commit()
+        await self._replace_thread_messages(thread, messages)
         return True
 
     async def update_attachment_preprocess_state(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         *,
         task_id: str,
         status: str,
@@ -447,20 +512,17 @@ class ThreadService:
 
         thread.updated_at = datetime.now(UTC)
         thread.message_count = len(messages)
-        await self._conversation.update_thread(
-            str(thread.id),
-            ConversationThreadUpdateCommand(
-                message_count=thread.message_count,
-                updated_at=thread.updated_at,
-            ),
+        await self._persist_thread_fields(
+            thread,
+            message_count=thread.message_count,
+            updated_at=thread.updated_at,
         )
-        await self._conversation.replace_thread_messages(thread, messages)
-        await self.db.commit()
+        await self._replace_thread_messages(thread, messages)
         return True
 
     async def compact_messages(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         *,
         summary: str,
         keep_messages: int,
@@ -504,22 +566,19 @@ class ThreadService:
             thread.last_message_role = None
             thread.last_message_preview = None
         thread.updated_at = resolved_timestamp
-        await self._conversation.update_thread(
-            str(thread.id),
-            ConversationThreadUpdateCommand(
-                message_count=thread.message_count,
-                last_message_role=thread.last_message_role,
-                last_message_preview=thread.last_message_preview,
-                updated_at=thread.updated_at,
-            ),
+        await self._persist_thread_fields(
+            thread,
+            message_count=thread.message_count,
+            last_message_role=thread.last_message_role,
+            last_message_preview=thread.last_message_preview,
+            updated_at=thread.updated_at,
         )
-        await self._conversation.replace_thread_messages(thread, next_messages)
-        await self.db.commit()
+        await self._replace_thread_messages(thread, next_messages)
         return True
 
     async def set_title_if_empty(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         first_message: str,
     ) -> None:
         """Derive the thread title from the opening user message."""
@@ -538,7 +597,7 @@ class ThreadService:
 
     async def rollback_last_user_message(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
         *,
         expected_content: str | None = None,
         source_messages: list[dict[str, Any]] | None = None,
@@ -571,25 +630,27 @@ class ThreadService:
             thread.last_message_role = None
             thread.last_message_preview = None
         thread.updated_at = datetime.now(UTC)
-        await self._conversation.update_thread(
-            str(thread.id),
-            ConversationThreadUpdateCommand(
-                message_count=thread.message_count,
-                last_message_role=thread.last_message_role,
-                last_message_preview=thread.last_message_preview,
-                updated_at=thread.updated_at,
-            ),
+        await self._persist_thread_fields(
+            thread,
+            message_count=thread.message_count,
+            last_message_role=thread.last_message_role,
+            last_message_preview=thread.last_message_preview,
+            updated_at=thread.updated_at,
         )
-        await self._conversation.replace_thread_messages(thread, messages)
-        await self.db.commit()
+        await self._replace_thread_messages(thread, messages)
         return True
 
     async def list_thread_messages(
         self,
-        thread: ConversationThreadProjection,
+        thread: ConversationThreadPayload,
     ) -> list[dict[str, Any]]:
         """Read thread messages from the DataService conversation projection."""
-        return await self._conversation.list_thread_messages(str(thread.id))
+        if self._dataservice is not None:
+            messages = await self._dataservice.list_conversation_messages(str(thread.id))
+        else:
+            async with dataservice_client() as client:
+                messages = await client.list_conversation_messages(str(thread.id))
+        return [self._message_payload_to_bridge(message) for message in messages]
 
     async def list_threads(
         self,
@@ -597,13 +658,21 @@ class ThreadService:
         user_id: str,
         workspace_id: str | None = None,
         limit: int = 20,
-    ) -> list[ConversationThreadProjection]:
+    ) -> list[ConversationThreadPayload]:
         """List threads for a user ordered by most recently updated."""
-        threads = await self._conversation.list_threads(
-            user_id=user_id,
-            workspace_id=workspace_id,
-            limit=limit,
-        )
+        if self._dataservice is not None:
+            threads = await self._dataservice.list_conversation_threads(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                limit=limit,
+            )
+        else:
+            async with dataservice_client() as client:
+                threads = await client.list_conversation_threads(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    limit=limit,
+                )
         workspace_types = await list_workspace_types(
             self.db,
             [thread.workspace_id for thread in threads],
@@ -622,13 +691,19 @@ class ThreadService:
         if not thread:
             return False
 
-        deleted = await self._conversation.delete_thread(
-            thread_id=thread_id,
-            user_id=user_id,
-        )
+        if self._dataservice is not None:
+            deleted = await self._dataservice.delete_conversation_thread(
+                thread_id=thread_id,
+                user_id=user_id,
+            )
+        else:
+            async with dataservice_client() as client:
+                deleted = await client.delete_conversation_thread(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                )
         if not deleted:
             return False
-        await self.db.commit()
         try:
             delete_thread_directory(thread_id)
         except Exception:

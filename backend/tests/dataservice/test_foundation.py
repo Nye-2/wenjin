@@ -39,6 +39,8 @@ from src.dataservice_client.contracts.catalog import (
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagesRebuildPayload,
+    ConversationThreadCreatePayload,
+    ConversationThreadUpdatePayload,
 )
 from src.dataservice_client.contracts.credit import (
     CreditAdminAdjustPayload,
@@ -1004,9 +1006,42 @@ async def test_dataservice_client_conversation_contract_methods() -> None:
             ],
         }
 
+    def thread_payload(thread_id: str = "thread-1") -> dict[str, Any]:
+        return {
+            "id": thread_id,
+            "user_id": "user-1",
+            "workspace_id": "ws-1",
+            "title": "Thread",
+            "model": "gpt-test",
+            "skill": None,
+            "skill_name": None,
+            "workspace_type": None,
+            "message_count": 0,
+            "last_message_preview": None,
+            "last_message_role": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+
     async def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode()) if request.content else None
         seen.append((request.method, request.url.path, body))
+        if request.url.path.endswith("/lock"):
+            return httpx.Response(200, json={"status": "ok", "data": {"locked": True}})
+        if request.url.path.endswith("/owned") or request.url.path.endswith("/latest"):
+            return httpx.Response(200, json={"status": "ok", "data": thread_payload()})
+        if request.url.path.endswith("/threads") and request.method == "POST":
+            return httpx.Response(200, json={"status": "ok", "data": thread_payload()})
+        if request.url.path.endswith("/threads") and request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "data": [thread_payload()]})
+        if "/threads/" in request.url.path and request.method == "GET":
+            return httpx.Response(200, json={"status": "ok", "data": thread_payload()})
+        if "/threads/" in request.url.path and request.method == "PATCH":
+            payload = thread_payload()
+            payload["title"] = body["title"] if body else "Updated"
+            return httpx.Response(200, json={"status": "ok", "data": payload})
+        if "/threads/" in request.url.path and request.method == "DELETE":
+            return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
         if request.method == "POST":
             return httpx.Response(200, json={"status": "ok", "data": message_payload("message-1")})
         return httpx.Response(200, json={"status": "ok", "data": [message_payload("message-2")]})
@@ -1039,11 +1074,40 @@ async def test_dataservice_client_conversation_contract_methods() -> None:
             ),
         )
         listed = await client.list_conversation_messages("thread-1")
+        created_thread = await client.create_conversation_thread(
+            ConversationThreadCreatePayload(
+                user_id="user-1",
+                workspace_id="ws-1",
+                title="Thread",
+                model="gpt-test",
+            )
+        )
+        fetched_thread = await client.get_conversation_thread("thread-1")
+        owned_thread = await client.get_owned_conversation_thread(thread_id="thread-1", user_id="user-1")
+        latest_thread = await client.get_latest_workspace_conversation_thread(
+            user_id="user-1",
+            workspace_id="ws-1",
+        )
+        threads = await client.list_conversation_threads(user_id="user-1", workspace_id="ws-1")
+        updated_thread = await client.update_conversation_thread(
+            "thread-1",
+            ConversationThreadUpdatePayload(title="Updated"),
+        )
+        locked = await client.lock_conversation_thread("thread-1")
+        deleted_thread = await client.delete_conversation_thread(thread_id="thread-1", user_id="user-1")
 
     assert appended is not None
     assert appended.blocks[0].block_type == "text"
     assert rebuilt[0].id == "message-2"
     assert listed[0].thread_id == "thread-1"
+    assert created_thread.id == "thread-1"
+    assert fetched_thread is not None and fetched_thread.id == "thread-1"
+    assert owned_thread is not None and owned_thread.id == "thread-1"
+    assert latest_thread is not None and latest_thread.id == "thread-1"
+    assert threads[0].id == "thread-1"
+    assert updated_thread is not None and updated_thread.title == "Updated"
+    assert locked is True
+    assert deleted_thread is True
     assert seen[0][0] == "POST"
     assert seen[1][0] == "PUT"
     assert seen[2] == ("GET", "/internal/v1/conversations/thread-1/messages", None)

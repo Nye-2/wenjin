@@ -126,7 +126,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/references/service.py",
     "services/referral_service.py",
     "services/template_service.py",
-    "services/thread_service.py",
     "services/user_dashboard_service.py",
     "services/user_service.py",
     "services/workspace_activity_service.py",
