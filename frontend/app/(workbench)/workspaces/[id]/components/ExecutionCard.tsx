@@ -2,6 +2,7 @@
 
 import type { ExecutionRecord } from "@/lib/api/types";
 import type { PhaseGroup } from "@/lib/execution-phases";
+import { runViewFromExecution } from "@/lib/execution-run-view";
 import { InProgressView } from "./InProgressView";
 import { CompletedView } from "./CompletedView";
 
@@ -15,23 +16,6 @@ export interface ExecutionCardProps {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${seconds}s`;
-}
-
-function computeDuration(record: ExecutionRecord): string {
-  const start = record.started_at ? new Date(record.started_at).getTime() : null;
-  if (!start) return "...";
-  const end = record.completed_at
-    ? new Date(record.completed_at).getTime()
-    : Date.now();
-  return formatDuration(end - start);
-}
 
 function isTerminalStatus(status: string): boolean {
   return ["completed", "failed_partial", "failed", "cancelled"].includes(status);
@@ -152,15 +136,14 @@ export function ExecutionCard({
   onToggle,
 }: ExecutionCardProps) {
   const cardStatus = deriveCardStatus(record);
-  const duration = computeDuration(record);
+  const runView = runViewFromExecution(record);
   const nodeCount = phases.reduce((acc, p) => acc + p.nodes.length, 0);
 
-  const title =
-    record.display_name || record.feature_id || "Execution";
+  const title = runView.title;
   const subtitle = [
     record.workspace_type,
-    nodeCount > 0 ? `${nodeCount} nodes` : null,
-    duration,
+    (runView.nodeCount ?? nodeCount) > 0 ? `${runView.nodeCount ?? nodeCount} nodes` : null,
+    runView.durationLabel,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -264,6 +247,7 @@ export function ExecutionCard({
             <InProgressView
               phases={phases}
               nodeStates={record.node_states}
+              summary={runView.summary}
             />
           )}
         </div>

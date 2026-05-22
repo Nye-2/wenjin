@@ -2,7 +2,11 @@
 
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import type { WorkspaceCapability } from "@/lib/api/types";
+import { runViewFromExecution } from "@/lib/execution-run-view";
+import { useExecutionStore } from "@/stores/execution-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import { ExecutionCardList } from "./ExecutionCardList";
+import { WorkspaceActionLink } from "./WorkspaceActionLink";
 
 interface LiveWorkflowPanelProps {
   workspaceId: string;
@@ -19,6 +23,14 @@ export function LiveWorkflowPanel({
   className,
   "data-testid": testId,
 }: LiveWorkflowPanelProps) {
+  const focusedRunId = useRunUiStore((state) => state.focusedRunId);
+  const activeRunId = useRunUiStore((state) => state.activeRunId);
+  const focusedRecord = useExecutionStore((state) =>
+    focusedRunId ? state.executions.get(focusedRunId) ?? null : null,
+  );
+  const runView = focusedRecord ? runViewFromExecution(focusedRecord) : null;
+  const hasCurrentRun = Boolean(focusedRunId || activeRunId);
+
   return (
     <div
       className={className}
@@ -70,6 +82,93 @@ export function LiveWorkflowPanel({
           padding: "20px 24px",
         }}
       >
+        {hasCurrentRun ? (
+          <div
+            data-testid="workflow-current-run"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              marginBottom: 12,
+              padding: "10px 12px",
+              borderRadius: "var(--v2-radius-lg)",
+              border: "1px solid var(--v2-glass-border)",
+              background: "rgba(255, 255, 255, 0.7)",
+              boxShadow: "var(--v2-glass-shadow)",
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--v2-text-tertiary)",
+                  fontWeight: 600,
+                  marginBottom: 2,
+                }}
+              >
+                Current run
+              </div>
+              <div
+                style={{
+                  fontSize: 15,
+                  color: "var(--v2-text-primary)",
+                  fontWeight: 700,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                }}
+              >
+                {runView?.title ?? "Lead Agent 执行中"}
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexShrink: 0,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 650,
+                  color: "var(--v2-accent-purple-700)",
+                  background: "var(--v2-accent-purple-100)",
+                  borderRadius: "var(--v2-radius-pill)",
+                  padding: "2px 8px",
+                }}
+              >
+                {runView?.status ?? "launching"}
+              </span>
+              {runView?.hasPrismChanges ? (
+                <WorkspaceActionLink
+                  href={`/workspaces/${workspaceId}/prism`}
+                  style={{
+                    color: "var(--v2-accent-blue-700)",
+                    fontSize: 12,
+                    fontWeight: 650,
+                    textDecoration: "none",
+                  }}
+                >
+                  Prism 待审
+                </WorkspaceActionLink>
+              ) : null}
+              <WorkspaceActionLink
+                href={`/workspaces/${workspaceId}?room=runs`}
+                style={{
+                  color: "var(--v2-accent-blue-700)",
+                  fontSize: 12,
+                  fontWeight: 650,
+                  textDecoration: "none",
+                }}
+              >
+                Runs
+              </WorkspaceActionLink>
+            </div>
+          </div>
+        ) : null}
         <ExecutionCardList workspaceId={workspaceId} />
         {typeConfig && <ProductIntro typeConfig={typeConfig} features={features} />}
       </div>

@@ -7,6 +7,7 @@ import { useFeaturesStore } from "@/stores/features";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
 import { AppShellSidebar } from "@/components/workspace/AppShellSidebar";
 
@@ -35,6 +36,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const fetchFeatures = useFeaturesStore((state) => state.fetchFeatures);
   const clearFeatures = useFeaturesStore((state) => state.clearFeatures);
   const resetChat = useChatStoreV2((state) => state.reset);
+  const resetRunUi = useRunUiStore((state) => state.reset);
   const hydrateCompute = useComputeStore((state) => state.hydrateWorkspace);
   const clearCompute = useComputeStore((state) => state.clearWorkspace);
 
@@ -61,6 +63,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
       clearFeatures();
       clearCompute(workspaceId);
       resetChat();
+      resetRunUi();
     };
   }, [
     workspaceId,
@@ -76,6 +79,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
     clearFeatures,
     clearCompute,
     resetChat,
+    resetRunUi,
   ]);
 
   return (

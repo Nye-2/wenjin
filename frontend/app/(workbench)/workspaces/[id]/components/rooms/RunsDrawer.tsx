@@ -1,7 +1,18 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { listRuns, type RunRecord } from "@/lib/api/v2/runs";
+import {
+  mergeRunViews,
+  runViewFromExecution,
+  runViewFromRunRecord,
+  type RunView,
+  type RunViewStatus,
+} from "@/lib/execution-run-view";
+import { useExecutionStore } from "@/stores/execution-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
+import { WorkspaceActionLink } from "../WorkspaceActionLink";
 
 interface RunsDrawerProps {
   workspaceId: string;
@@ -9,7 +20,9 @@ interface RunsDrawerProps {
   onClose: () => void;
 }
 
-const STATUS_COLORS: Record<RunRecord["status"], string> = {
+const STATUS_COLORS: Record<RunViewStatus, string> = {
+  launching: "var(--v2-accent-purple-700)",
+  queued: "var(--v2-text-tertiary)",
   completed: "var(--v2-status-success-deep)",
   failed_partial: "var(--semantic-warning)",
   failed: "var(--v2-status-error)",
@@ -17,7 +30,9 @@ const STATUS_COLORS: Record<RunRecord["status"], string> = {
   running: "var(--v2-status-running-deep)",
 };
 
-const STATUS_BG: Record<RunRecord["status"], string> = {
+const STATUS_BG: Record<RunViewStatus, string> = {
+  launching: "rgba(139, 92, 246, 0.1)",
+  queued: "rgba(100, 100, 120, 0.08)",
   completed: "rgba(34, 197, 94, 0.1)",
   failed_partial: "rgba(198, 138, 26, 0.12)",
   failed: "rgba(239, 68, 68, 0.1)",
@@ -25,7 +40,9 @@ const STATUS_BG: Record<RunRecord["status"], string> = {
   running: "rgba(139, 92, 246, 0.1)",
 };
 
-const STATUS_LABELS: Record<RunRecord["status"], string> = {
+const STATUS_LABELS: Record<RunViewStatus, string> = {
+  launching: "launching",
+  queued: "queued",
   completed: "completed",
   failed_partial: "partial",
   failed: "failed",
@@ -64,6 +81,11 @@ export function RunsDrawer({
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [visible, setVisible] = useState(false);
+  const highlightedRunId = useRunUiStore((state) => state.highlightedRunId);
+  const focusRun = useRunUiStore((state) => state.focusRun);
+  const executionRecords = useExecutionStore(
+    useShallow((state) => Array.from(state.executions.values())),
+  );
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -91,11 +113,33 @@ export function RunsDrawer({
     setTimeout(onClose, 200);
   }
 
+  const runViews = useMemo(() => {
+    const historical = new Map<string, RunView>();
+    for (const item of items) {
+      historical.set(item.id, runViewFromRunRecord(item, workspaceId));
+    }
+
+    for (const record of executionRecords) {
+      if (record.workspace_id && record.workspace_id !== workspaceId) {
+        continue;
+      }
+      const live = runViewFromExecution(record);
+      const existing = historical.get(live.id) ?? null;
+      historical.set(live.id, mergeRunViews(live, existing));
+    }
+
+    return Array.from(historical.values()).sort((left, right) => {
+      if (left.id === highlightedRunId) return -1;
+      if (right.id === highlightedRunId) return 1;
+      return (right.startedAt || "").localeCompare(left.startedAt || "");
+    });
+  }, [executionRecords, highlightedRunId, items, workspaceId]);
+
   const filtered = search
-    ? items.filter((item) =>
-        item.capability_name.toLowerCase().includes(search.toLowerCase()),
+    ? runViews.filter((item) =>
+        item.title.toLowerCase().includes(search.toLowerCase()),
       )
-    : items;
+    : runViews;
 
   if (!open) return null;
 
@@ -235,12 +279,20 @@ export function RunsDrawer({
             <div
               key={item.id}
               data-testid="run-item"
+              onMouseEnter={() => focusRun(item.id)}
               style={{
                 background: "var(--v2-glass-bg)",
                 borderRadius: "var(--v2-radius-md)",
-                border: "1px solid rgba(20, 20, 30, 0.06)",
+                border:
+                  item.id === highlightedRunId
+                    ? "1px solid var(--v2-accent-purple-300)"
+                    : "1px solid rgba(20, 20, 30, 0.06)",
                 padding: 12,
                 marginBottom: 8,
+                boxShadow:
+                  item.id === highlightedRunId
+                    ? "0 0 0 3px rgba(124, 58, 237, 0.08)"
+                    : "none",
               }}
             >
               <div
@@ -257,7 +309,7 @@ export function RunsDrawer({
                     color: "var(--v2-text-primary)",
                   }}
                 >
-                  {item.capability_name}
+                  {item.title}
                 </span>
                 <span
                   data-testid="run-status"
@@ -283,6 +335,18 @@ export function RunsDrawer({
               >
                 {item.summary}
               </div>
+              {item.hasPrismChanges ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--v2-accent-purple-700)",
+                    marginBottom: 6,
+                    fontWeight: 600,
+                  }}
+                >
+                  Prism 有 {item.prismReviewCount ?? 1} 项待确认修改
+                </div>
+              ) : null}
               <div
                 style={{
                   display: "flex",
@@ -291,17 +355,46 @@ export function RunsDrawer({
                   color: "var(--v2-text-tertiary)",
                 }}
               >
-                <span>{formatTime(item.started_at)}</span>
-                {item.completed_at && (
+                {item.startedAt ? <span>{formatTime(item.startedAt)}</span> : null}
+                {item.completedAt && (
                   <span>
-                    {formatDuration(item.started_at, item.completed_at)}
+                    {formatDuration(item.startedAt || "", item.completedAt)}
                   </span>
                 )}
-                {item.token_usage && (
+                {item.tokenUsage && (
                   <span>
-                    {item.token_usage.input + item.token_usage.output} tokens
+                    {item.tokenUsage.input + item.tokenUsage.output} tokens
                   </span>
                 )}
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 10,
+                  marginTop: 8,
+                }}
+              >
+                <WorkspaceActionLink
+                  href={`/workspaces/${workspaceId}`}
+                  style={actionLinkStyle}
+                >
+                  查看执行
+                </WorkspaceActionLink>
+                {item.hasPrismChanges ? (
+                  <WorkspaceActionLink
+                    href={`/workspaces/${workspaceId}/prism`}
+                    style={actionLinkStyle}
+                  >
+                    打开 Prism
+                  </WorkspaceActionLink>
+                ) : null}
+                <WorkspaceActionLink
+                  href={`/workspaces/${workspaceId}?feature=${encodeURIComponent(item.capabilityId ?? "")}&entry=resume&execution_id=${encodeURIComponent(item.id)}`}
+                  style={actionLinkStyle}
+                >
+                  继续提问
+                </WorkspaceActionLink>
               </div>
             </div>
           ))}
@@ -309,3 +402,10 @@ export function RunsDrawer({
     </div>
   );
 }
+
+const actionLinkStyle = {
+  color: "var(--v2-accent-blue-700)",
+  fontSize: 12,
+  fontWeight: 600,
+  textDecoration: "none",
+};

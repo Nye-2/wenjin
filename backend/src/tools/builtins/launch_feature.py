@@ -307,5 +307,6 @@ async def launch_feature_tool(
         "status": "launched",
         "execution_id": str(execution.id),
         "feature_id": feature_id,
-        "message": f"已启动「{feature_id}」",
+        "capability_name": getattr(cap, "display_name", None),
+        "message": f"已启动「{getattr(cap, 'display_name', None) or feature_id}」",
     }

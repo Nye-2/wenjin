@@ -7,6 +7,7 @@ import { PhaseRow } from "./PhaseRow";
 export interface InProgressViewProps {
   phases: PhaseGroup[];
   nodeStates: Record<string, ExecutionNodeState>;
+  summary?: string;
 }
 
 /** Collect all nodes across all phases for the progress bar. */
@@ -48,7 +49,7 @@ function getSegmentStyle(status: string): {
   }
 }
 
-export function InProgressView({ phases, nodeStates }: InProgressViewProps) {
+export function InProgressView({ phases, nodeStates, summary }: InProgressViewProps) {
   const allNodes = collectAllNodes(phases);
 
   // Count statuses
@@ -110,18 +111,46 @@ export function InProgressView({ phases, nodeStates }: InProgressViewProps) {
         {isRunning ? " · processing…" : completed === total && total > 0 ? " · complete" : ""}
       </div>
 
+      {summary ? (
+        <div
+          style={{
+            marginBottom: 14,
+            padding: "9px 10px",
+            borderRadius: "var(--v2-radius-md)",
+            background: "rgba(124, 58, 237, 0.06)",
+            color: "var(--v2-text-secondary)",
+            fontSize: 12.5,
+            lineHeight: 1.5,
+          }}
+        >
+          {summary}
+        </div>
+      ) : null}
+
       {/* Phase rows */}
       <div style={{ display: "flex", flexDirection: "column" }}>
-        {phases.map((phase, i) => (
-          <PhaseRow
-            key={phase.name}
-            phaseName={phase.name}
-            phaseIndex={phase.index}
-            nodes={phase.nodes}
-            nodeStates={nodeStates}
-            isLast={i === phases.length - 1}
-          />
-        ))}
+        {phases.length > 0 ? (
+          phases.map((phase, i) => (
+            <PhaseRow
+              key={phase.name}
+              phaseName={phase.name}
+              phaseIndex={phase.index}
+              nodes={phase.nodes}
+              nodeStates={nodeStates}
+              isLast={i === phases.length - 1}
+            />
+          ))
+        ) : (
+          <div
+            style={{
+              color: "var(--v2-text-tertiary)",
+              fontSize: 12,
+              padding: "4px 0",
+            }}
+          >
+            等待执行图谱...
+          </div>
+        )}
       </div>
     </div>
   );

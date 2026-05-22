@@ -288,16 +288,30 @@ class TestRunsRoom:
             _fake_row(
                 id="exec-1",
                 display_name="文献定位与创新点",
+                workspace_id=WS_ID,
+                thread_id="thread-1",
                 feature_id="sci_literature_positioning",
                 execution_type="feature",
                 status="completed",
+                progress=100,
                 started_at=None,
                 created_at=datetime.fromisoformat("2026-05-22T09:08:55+00:00"),
                 completed_at=datetime.fromisoformat("2026-05-22T09:09:39+00:00"),
                 result_summary="完成 文献定位与创新点，共执行 3 个节点。",
                 message=None,
                 error=None,
-                result={"task_report": {"token_usage": {"input_tokens": 10, "output_tokens": 5}}},
+                result={
+                    "task_report": {
+                        "token_usage": {"input_tokens": 10, "output_tokens": 5},
+                        "review_items": [
+                            {
+                                "id": "review-1",
+                                "kind": "prism_file_change",
+                                "target": {"kind": "prism_file_change"},
+                            }
+                        ],
+                    }
+                },
             )
         ]
 
@@ -307,12 +321,21 @@ class TestRunsRoom:
         assert resp.json()["items"] == [
             {
                 "id": "exec-1",
+                "workspace_id": WS_ID,
+                "thread_id": "thread-1",
+                "capability_id": "sci_literature_positioning",
                 "capability_name": "文献定位与创新点",
                 "status": "completed",
                 "started_at": "2026-05-22T09:08:55+00:00",
                 "completed_at": "2026-05-22T09:09:39+00:00",
                 "summary": "完成 文献定位与创新点，共执行 3 个节点。",
                 "token_usage": {"input": 10, "output": 5},
+                "progress": 100,
+                "primary_surface": "prism",
+                "review_items_count": 1,
+                "has_prism_changes": True,
+                "failure_category": None,
+                "failure_message": None,
             }
         ]
 

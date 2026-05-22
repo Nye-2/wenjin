@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { RunsDrawer } from "@/app/(workbench)/workspaces/[id]/components/rooms/RunsDrawer";
+import { useExecutionStore } from "@/stores/execution-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
 
 const MOCK_ITEMS = [
   {
@@ -35,6 +37,8 @@ const MOCK_ITEMS = [
 describe("RunsDrawer", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    useExecutionStore.getState().clear();
+    useRunUiStore.getState().reset();
   });
 
   it("renders nothing when closed", () => {
@@ -84,9 +88,9 @@ describe("RunsDrawer", () => {
 
     await screen.findByText("Literature Search");
     const statuses = screen.getAllByTestId("run-status");
-    expect(statuses[0]).toHaveTextContent("completed");
+    expect(statuses[0]).toHaveTextContent("running");
     expect(statuses[1]).toHaveTextContent("partial");
-    expect(statuses[2]).toHaveTextContent("running");
+    expect(statuses[2]).toHaveTextContent("completed");
   });
 
   it("shows empty state when no items", async () => {

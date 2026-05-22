@@ -5,12 +5,28 @@ const BASE = "/api/workspaces";
 
 export type RunRecord = {
   id: string;
+  workspace_id?: string;
+  thread_id?: string | null;
+  capability_id?: string | null;
   capability_name: string;
   status: "completed" | "failed_partial" | "failed" | "cancelled" | "running";
   started_at: string;
   completed_at?: string;
   summary: string;
   token_usage?: { input: number; output: number };
+  progress?: number | null;
+  primary_surface?: "prism" | "rooms" | "sandbox" | "none";
+  review_items_count?: number;
+  has_prism_changes?: boolean;
+  failure_category?:
+    | "launch_failed"
+    | "queue_failed"
+    | "node_failed"
+    | "writeback_failed"
+    | "commit_failed"
+    | "unknown"
+    | null;
+  failure_message?: string | null;
 };
 
 export async function listRuns(

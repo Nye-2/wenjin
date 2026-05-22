@@ -12,13 +12,15 @@ import type {
   TextBlock,
 } from "@/lib/api/blocks";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
+import { useRunUiStore } from "@/stores/run-ui-store";
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
 export type ResultCardData = {
   execution_id: string;
   capability_name?: string;
-  status: "completed" | "failed_partial" | "cancelled";
+  status: "completed" | "failed_partial" | "failed" | "cancelled";
+  token_usage?: { input: number; output: number } | null;
   outputs: Array<{
     id: string;
     kind: string;
@@ -40,6 +42,9 @@ type ToolInvocationData = {
 type ToolResultData = {
   execution_id?: string;
   status: string;
+  feature_id?: string;
+  capability_name?: string;
+  detail?: string;
   [key: string]: unknown;
 };
 
@@ -150,6 +155,36 @@ function findExecutionMessageIndex(
     }
   }
   return -1;
+}
+
+function isSameToolBlock(a: Block, b: Block): boolean {
+  if (a.kind !== b.kind) {
+    return false;
+  }
+  if (a.kind === "tool_result" && b.kind === "tool_result") {
+    const aExecutionId =
+      typeof a.data.execution_id === "string" ? a.data.execution_id.trim() : "";
+    const bExecutionId =
+      typeof b.data.execution_id === "string" ? b.data.execution_id.trim() : "";
+    if (aExecutionId || bExecutionId) {
+      return aExecutionId === bExecutionId;
+    }
+    return a.data.feature_id === b.data.feature_id && a.data.status === b.data.status;
+  }
+  if (a.kind === "tool_invocation" && b.kind === "tool_invocation") {
+    return a.data.tool === b.data.tool;
+  }
+  return false;
+}
+
+function appendBlockWithoutDuplicate(blocks: Block[], block: Block): Block[] {
+  if (
+    (block.kind === "tool_invocation" || block.kind === "tool_result") &&
+    blocks.some((existing) => isSameToolBlock(existing, block))
+  ) {
+    return blocks;
+  }
+  return [...blocks, block];
 }
 
 // ── Store implementation ────────────────────────────────────────────────────
@@ -293,9 +328,12 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
           // First finalize_block for this message: replace streamed blocks
           if (!finalizedMessageIds.has(currentAssistantId)) {
+            const preservedToolBlocks = msg.blocks.filter(
+              (block) => block.kind === "tool_invocation" || block.kind === "tool_result",
+            );
             updatedMessages[idx] = {
               ...msg,
-              blocks: [event.block],
+              blocks: appendBlockWithoutDuplicate(preservedToolBlocks, event.block),
             };
             const newFinalized = new Set(finalizedMessageIds);
             newFinalized.add(currentAssistantId);
@@ -308,7 +346,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           // Subsequent finalize_blocks: append
           updatedMessages[idx] = {
             ...msg,
-            blocks: [...msg.blocks, event.block],
+            blocks: appendBlockWithoutDuplicate(msg.blocks, event.block),
           };
           return { messages: updatedMessages };
         });
@@ -342,6 +380,13 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       // ── Tool result ───────────────────────────────────────────────────
       case "chat.assistant.tool_result": {
         const { currentAssistantId } = get();
+        if (
+          event.data.status === "launched" &&
+          typeof event.data.execution_id === "string" &&
+          event.data.execution_id.trim()
+        ) {
+          useRunUiStore.getState().markRunLaunching(event.data.execution_id.trim());
+        }
         set((state) => {
           const idx = findAssistantMessageIndex(
             state.messages,
@@ -350,9 +395,25 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           if (idx === -1) return state;
 
           const msg = state.messages[idx];
+          const executionId =
+            typeof event.data.execution_id === "string"
+              ? event.data.execution_id.trim()
+              : "";
+          const metadata =
+            executionId
+              ? {
+                  ...(msg.metadata ?? {}),
+                  orchestration: {
+                    ...((msg.metadata?.orchestration as Record<string, unknown> | undefined) ?? {}),
+                    execution_id: executionId,
+                    feature_id: event.data.feature_id,
+                  },
+                }
+              : msg.metadata;
           const updatedMessages = [...state.messages];
           updatedMessages[idx] = {
             ...msg,
+            metadata,
             blocks: [...msg.blocks, { kind: "tool_result", data: event.data }],
           };
           return { messages: updatedMessages };
@@ -369,6 +430,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       // ── Execution completed (async result card) ───────────────────────
       case "execution.completed": {
         const { currentAssistantId } = get();
+        useRunUiStore.getState().markRunCompleted(event.data.execution_id);
         set((state) => {
           const idxByExecution = findExecutionMessageIndex(
             state.messages,
@@ -579,6 +641,20 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
                   block: data.block as Block,
                 });
               }
+              break;
+            }
+            case "tool_invocation": {
+              store.handleEvent({
+                type: "chat.assistant.tool_invocation",
+                data: (data.data ?? {}) as ToolInvocationData,
+              });
+              break;
+            }
+            case "tool_result": {
+              store.handleEvent({
+                type: "chat.assistant.tool_result",
+                data: (data.data ?? {}) as ToolResultData,
+              });
               break;
             }
             case "error": {

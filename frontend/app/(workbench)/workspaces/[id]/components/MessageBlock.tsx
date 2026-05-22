@@ -342,6 +342,157 @@ function AgentResultCard({
   );
 }
 
+function ToolResultBlock({
+  data,
+  workspaceId,
+}: {
+  data: Extract<Block, { kind: "tool_result" }>["data"];
+  workspaceId?: string;
+}) {
+  const status = String(data.status || "");
+  const executionId =
+    typeof data.execution_id === "string" ? data.execution_id.trim() : "";
+  const featureId =
+    typeof data.feature_id === "string" ? data.feature_id.trim() : "";
+  const capabilityName =
+    typeof data.capability_name === "string" && data.capability_name.trim()
+      ? data.capability_name.trim()
+      : featureId || "Execution";
+
+  if (status === "launched" && executionId) {
+    return (
+      <div
+        data-testid="run-receipt"
+        style={{
+          padding: "12px 14px",
+          background: "rgba(124, 58, 237, 0.07)",
+          borderRadius: "var(--v2-radius-lg)",
+          border: "1px solid rgba(124, 58, 237, 0.16)",
+          margin: "8px 0",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            marginBottom: 6,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 650,
+              color: "var(--v2-text-primary)",
+            }}
+          >
+            已启动：{capabilityName}
+          </div>
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--v2-accent-purple-700)",
+              background: "var(--v2-accent-purple-100)",
+              borderRadius: "var(--v2-radius-pill)",
+              padding: "2px 8px",
+            }}
+          >
+            running
+          </span>
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: "var(--v2-text-secondary)",
+            lineHeight: 1.5,
+          }}
+        >
+          Lead Agent 已接手执行。右侧面板会显示节点进度，完成后结果会回到这里。
+        </div>
+        {workspaceId ? (
+          <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
+            <WorkspaceActionLink
+              href={`/workspaces/${workspaceId}`}
+              style={{
+                color: "var(--v2-accent-blue-700)",
+                fontSize: 12.5,
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              查看执行
+            </WorkspaceActionLink>
+            <WorkspaceActionLink
+              href={`/workspaces/${workspaceId}?room=runs`}
+              style={{
+                color: "var(--v2-accent-blue-700)",
+                fontSize: 12.5,
+                fontWeight: 600,
+                textDecoration: "none",
+              }}
+            >
+              打开 Runs
+            </WorkspaceActionLink>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  if (status === "lead_busy") {
+    return (
+      <div
+        style={{
+          padding: "8px 10px",
+          background: "rgba(198, 138, 26, 0.1)",
+          borderRadius: "var(--v2-radius-sm)",
+          fontSize: 12.5,
+          color: "var(--semantic-warning)",
+          margin: "6px 0",
+        }}
+      >
+        当前 Lead Agent 仍在执行，请先查看右侧进度或 Runs。
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div
+        style={{
+          padding: "8px 10px",
+          background: "rgba(220, 38, 38, 0.08)",
+          borderRadius: "var(--v2-radius-sm)",
+          fontSize: 12.5,
+          color: "var(--v2-status-error)",
+          margin: "6px 0",
+        }}
+      >
+        {typeof data.detail === "string" && data.detail.trim()
+          ? data.detail
+          : "执行启动失败。"}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        padding: "6px 10px",
+        background: "var(--v2-surface-soft)",
+        borderRadius: "var(--v2-radius-sm)",
+        fontSize: 12,
+        color: "var(--v2-text-secondary)",
+        margin: "4px 0",
+      }}
+    >
+      ✓ {status}
+    </div>
+  );
+}
+
 export const MessageBlock = memo(function MessageBlock({
   block,
   workspaceId,
@@ -386,20 +537,7 @@ export const MessageBlock = memo(function MessageBlock({
         </div>
       );
     case "tool_result":
-      return (
-        <div
-          style={{
-            padding: "6px 10px",
-            background: "var(--v2-surface-soft)",
-            borderRadius: "var(--v2-radius-sm)",
-            fontSize: 12,
-            color: "var(--v2-text-secondary)",
-            margin: "4px 0",
-          }}
-        >
-          ✓ {block.data.status}
-        </div>
-      );
+      return <ToolResultBlock data={block.data} workspaceId={workspaceId} />;
     case "result_card":
       if (isAsyncResultCard(block)) {
         return <ResultCard data={block.data} workspaceId={workspaceId} />;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { useOptionalI18n } from "@/components/i18n-provider";
+import { useExecutionStore } from "@/stores/execution-store";
 
 type SurfaceSwitchProps = {
   workspaceId: string;
@@ -17,6 +18,14 @@ export function SurfaceSwitch({ workspaceId, active }: SurfaceSwitchProps) {
   const prismLabel = t?.("workspaceSurfaces.prism") ?? "Prism";
   const ariaLabel =
     t?.("workspaceSurfaces.ariaLabel") ?? "Workspace surfaces";
+  const prismPendingCount = useExecutionStore((state) =>
+    Array.from(state.executions.values()).reduce((count, record) => {
+      if (record.workspace_id && record.workspace_id !== workspaceId) {
+        return count;
+      }
+      return count + (record.review_items?.length ?? 0);
+    }, 0),
+  );
 
   return (
     <div
@@ -33,6 +42,7 @@ export function SurfaceSwitch({ workspaceId, active }: SurfaceSwitchProps) {
       <SurfaceTab
         href={`/workspaces/${workspaceId}/prism`}
         active={active === "prism"}
+        badge={prismPendingCount}
       >
         {prismLabel}
       </SurfaceTab>
@@ -44,10 +54,12 @@ function SurfaceTab({
   href,
   active,
   children,
+  badge,
 }: {
   href: string;
   active: boolean;
   children: ReactNode;
+  badge?: number;
 }) {
   return (
     <Link
@@ -62,6 +74,24 @@ function SurfaceTab({
       ].join(" ")}
     >
       {children}
+      {badge ? (
+        <span
+          style={{
+            marginLeft: 6,
+            minWidth: 16,
+            height: 16,
+            borderRadius: 8,
+            padding: "0 5px",
+            background: "var(--v2-accent-purple-700)",
+            color: "#fff",
+            fontSize: 10,
+            lineHeight: "16px",
+            fontWeight: 700,
+          }}
+        >
+          {Math.min(badge, 99)}
+        </span>
+      ) : null}
     </Link>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import { useRunUiStore } from "@/stores/run-ui-store";
+
 interface RoomsTopbarProps {
   workspaceId: string;
   className?: string;
@@ -27,6 +29,8 @@ export function RoomsTopbar({
   activeRoom,
   onRoomSelect,
 }: RoomsTopbarProps) {
+  const activeRunId = useRunUiStore((state) => state.activeRunId);
+  const completedCount = useRunUiStore((state) => state.completedRunIds.size);
   return (
     <div
       data-testid={testId}
@@ -62,6 +66,7 @@ export function RoomsTopbar({
             onRoomSelect?.(activeRoom === room.key ? null : room.key)
           }
           style={{
+            position: "relative",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -92,6 +97,42 @@ export function RoomsTopbar({
           }}
         >
           {room.icon}
+          {room.key === "runs" && activeRunId ? (
+            <span
+              data-testid="runs-active-dot"
+              style={{
+                position: "absolute",
+                top: 5,
+                right: 5,
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: "var(--v2-accent-purple-700)",
+                boxShadow: "0 0 0 2px rgba(255,255,255,0.9)",
+              }}
+            />
+          ) : null}
+          {room.key === "runs" && !activeRunId && completedCount > 0 ? (
+            <span
+              data-testid="runs-completed-badge"
+              style={{
+                position: "absolute",
+                top: 2,
+                right: 2,
+                minWidth: 14,
+                height: 14,
+                borderRadius: 7,
+                padding: "0 3px",
+                background: "var(--v2-status-success-deep)",
+                color: "#fff",
+                fontSize: 9,
+                lineHeight: "14px",
+                fontWeight: 700,
+              }}
+            >
+              {Math.min(completedCount, 9)}
+            </span>
+          ) : null}
         </button>
       ))}
     </div>

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import ast
 import base64
 import inspect
+import json
 import logging
 import mimetypes
 from collections.abc import AsyncIterator, Mapping
@@ -12,7 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphRecursionError
 
@@ -652,6 +654,9 @@ def _reply_from_agent_result(
         for block in (result.get("response_blocks") or [])
         if isinstance(block, dict)
     ]
+    launch_blocks = _extract_launch_feature_blocks(messages)
+    if launch_blocks:
+        blocks = [*launch_blocks, *blocks]
     raw_response_metadata = result.get("response_metadata")
     metadata = (
         dict(raw_response_metadata)
@@ -694,10 +699,101 @@ def _reply_from_agent_result(
     )
 
 
+def _coerce_tool_result_payload(content: Any) -> dict[str, Any] | None:
+    if isinstance(content, Mapping):
+        return {str(key): value for key, value in content.items()}
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, Mapping) and item.get("type") == "text":
+                payload = _coerce_tool_result_payload(item.get("text"))
+                if payload is not None:
+                    return payload
+        return None
+    if not isinstance(content, str) or not content.strip():
+        return None
+
+    raw = content.strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        try:
+            parsed = ast.literal_eval(raw)
+        except (SyntaxError, ValueError):
+            return None
+    if not isinstance(parsed, Mapping):
+        return None
+    return {str(key): value for key, value in parsed.items()}
+
+
+def _extract_launch_feature_invocations(message: Any) -> list[dict[str, Any]]:
+    raw_tool_calls = getattr(message, "tool_calls", None)
+    if not isinstance(raw_tool_calls, list):
+        return []
+
+    invocations: list[dict[str, Any]] = []
+    for call in raw_tool_calls:
+        if not isinstance(call, Mapping):
+            continue
+        name = str(call.get("name") or "").strip()
+        if name != "launch_feature":
+            continue
+        args = call.get("args")
+        invocations.append(
+            {
+                "tool": name,
+                "args": dict(args) if isinstance(args, Mapping) else {},
+            }
+        )
+    return invocations
+
+
+def _extract_launch_feature_result(message: Any) -> dict[str, Any] | None:
+    if not isinstance(message, ToolMessage):
+        return None
+    payload = _coerce_tool_result_payload(message.content)
+    if not payload:
+        return None
+    if not payload.get("status") or not payload.get("feature_id"):
+        return None
+    return payload
+
+
+def _extract_launch_feature_blocks(messages: list[Any]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    seen_results: set[tuple[str, str]] = set()
+
+    for message in messages:
+        for invocation in _extract_launch_feature_invocations(message):
+            blocks.append({"kind": "tool_invocation", "data": invocation})
+
+        result = _extract_launch_feature_result(message)
+        if result is None:
+            continue
+        result_key = (
+            str(result.get("execution_id") or ""),
+            str(result.get("feature_id") or ""),
+        )
+        if result_key in seen_results:
+            continue
+        seen_results.add(result_key)
+        blocks.append({"kind": "tool_result", "data": result})
+
+    return blocks
+
+
 def _stream_deltas_from_chunk(
     chunk: Any,
     metadata: Mapping[str, Any] | None = None,
 ) -> list[ThreadStreamDelta]:
+    tool_deltas: list[ThreadStreamDelta] = []
+    for invocation in _extract_launch_feature_invocations(chunk):
+        tool_deltas.append(ThreadStreamDelta(kind="tool_invocation", data=invocation))
+    result = _extract_launch_feature_result(chunk)
+    if result is not None:
+        tool_deltas.append(ThreadStreamDelta(kind="tool_result", data=result))
+    if tool_deltas:
+        return tool_deltas
+
     if isinstance(metadata, Mapping):
         langgraph_node = metadata.get("langgraph_node")
         if langgraph_node and langgraph_node != "agent":
@@ -728,8 +824,9 @@ class _ThreadAgentRuntime:
 
 @dataclass(frozen=True, slots=True)
 class ThreadStreamDelta:
-    kind: Literal["reasoning", "content"]
-    text: str
+    kind: Literal["reasoning", "content", "tool_invocation", "tool_result"]
+    text: str = ""
+    data: dict[str, Any] | None = None
 
 
 class _ReplyStreamRun:
@@ -1519,6 +1616,9 @@ def stream_thread_response(
                         continue
                     chunk, metadata = payload
                     for delta in _stream_deltas_from_chunk(chunk, metadata):
+                        if delta.kind in {"tool_invocation", "tool_result"}:
+                            yield delta
+                            continue
                         if delta.kind == "reasoning":
                             if delta.text.startswith(accumulated_reasoning):
                                 normalized_text = delta.text[len(accumulated_reasoning) :]

@@ -9,6 +9,7 @@ import { useChatStoreV2 } from "@/stores/chat-store";
 import type { ResultCardData } from "@/stores/chat-store";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useExecutionStore } from "@/stores/execution-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import { useExecutionStream } from "@/hooks/useExecutionStream";
 
 function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
@@ -210,7 +211,12 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
           if (isExecutionNotification(event)) {
             if (event.execution_id) {
               const execStore = useExecutionStore.getState();
+              const runUiStore = useRunUiStore.getState();
               execStore.setCurrentExecution(event.execution_id);
+              runUiStore.markRunHydrated(
+                event.execution_id,
+                isTerminalExecutionStatus(event.status),
+              );
 
               void getExecution(event.execution_id)
                 .then((record) => {
@@ -233,6 +239,9 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
                     });
                     deliveredResultCardsRef.current.add(record.id);
                   }
+                  if (isTerminalExecutionStatus(record.status)) {
+                    useRunUiStore.getState().markRunCompleted(record.id);
+                  }
                 })
                 .catch((err) => {
                   console.error("[useWorkspaceEventStream] Failed to fetch execution record:", err);
@@ -241,6 +250,7 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
               if (!isTerminalExecutionStatus(event.status)) {
                 setActiveExecutionId(event.execution_id);
               } else {
+                useRunUiStore.getState().markRunCompleted(event.execution_id);
                 window.setTimeout(() => setActiveExecutionId(null), 3000);
               }
             }

@@ -2,10 +2,12 @@
 
 import asyncio
 import base64
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 
 from src.application.errors import ApplicationError, BadRequestError, PaymentRequiredError
@@ -512,6 +514,162 @@ class TestThreadTurnHandlerCancellation:
             assert reply.content == "hello world"
             assert reply.blocks[0]["type"] == "reasoning"
             assert reply.blocks[0]["data"]["text"] == "reasoning summary"
+
+    @pytest.mark.asyncio
+    async def test_stream_thread_response_surfaces_launch_feature_tool_result(self):
+        tool_result = {
+            "status": "launched",
+            "execution_id": "exec-1",
+            "feature_id": "sci_literature_positioning",
+            "message": "已启动",
+        }
+        stream_result = {
+            "messages": [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "launch_feature",
+                            "args": {
+                                "feature_id": "sci_literature_positioning",
+                                "params": {"topic": "test"},
+                            },
+                            "id": "call-1",
+                        }
+                    ],
+                ),
+                ToolMessage(content=json.dumps(tool_result), tool_call_id="call-1"),
+                AIMessage(content="已启动。"),
+            ],
+            "response_blocks": [],
+            "response_metadata": {},
+        }
+
+        class _FakeAgentStreamRun:
+            async def _iterate(self):
+                yield (
+                    "messages",
+                    (
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "name": "launch_feature",
+                                    "args": {
+                                        "feature_id": "sci_literature_positioning",
+                                        "params": {"topic": "test"},
+                                    },
+                                    "id": "call-1",
+                                }
+                            ],
+                        ),
+                        {"langgraph_node": "agent"},
+                    ),
+                )
+                yield (
+                    "messages",
+                    (
+                        ToolMessage(content=json.dumps(tool_result), tool_call_id="call-1"),
+                        {"langgraph_node": "tools"},
+                    ),
+                )
+                yield (
+                    "messages",
+                    (
+                        AIMessage(content="已启动。"),
+                        {"langgraph_node": "agent"},
+                    ),
+                )
+                yield ("values", stream_result)
+
+            def __aiter__(self):
+                return self._iterate()
+
+            async def result(self):
+                return stream_result
+
+        class _FakeStreamingAgent:
+            def astream_with_result(self, *args, **kwargs):
+                return _FakeAgentStreamRun()
+
+        with (
+            patch(
+                "src.agents.chat_agent.agent.make_chat_agent",
+                return_value=_FakeStreamingAgent(),
+            ),
+            patch(
+                "src.agents.chat_agent.agent.build_pipeline",
+                return_value=[],
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.ensure_thread_turn_budget",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.route_chat_model",
+                return_value="test-model",
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.build_thread_runtime_config",
+                return_value={"configurable": {}},
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.build_thread_initial_state",
+                return_value={},
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler._resolve_workspace_id",
+                return_value="ws-1",
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.get_model_config",
+                return_value=SimpleNamespace(model="test-model", supports_streaming=True),
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.extract_usage_from_agent_result",
+                return_value=None,
+            ),
+        ):
+            from src.application.handlers.thread_turn_handler import stream_thread_response
+
+            mock_request = MagicMock()
+            mock_request.model = "test-model"
+            mock_request.message = "hello"
+            mock_request.attachments = ()
+            mock_request.metadata = None
+
+            mock_thread = MagicMock()
+            mock_thread.id = "thread-1"
+            mock_thread.skill = None
+            mock_thread.model = None
+            mock_thread.workspace_id = "ws-1"
+            mock_thread.messages = []
+
+            stream = stream_thread_response(
+                mock_request,
+                mock_thread,
+                actor_id="user-1",
+            )
+            chunks = [chunk async for chunk in stream]
+            reply = await stream.wait_reply()
+
+            assert chunks == [
+                ThreadStreamDelta(
+                    kind="tool_invocation",
+                    data={
+                        "tool": "launch_feature",
+                        "args": {
+                            "feature_id": "sci_literature_positioning",
+                            "params": {"topic": "test"},
+                        },
+                    },
+                ),
+                ThreadStreamDelta(kind="tool_result", data=tool_result),
+                ThreadStreamDelta(kind="content", text="已启动。"),
+            ]
+            assert reply.blocks[0]["kind"] == "tool_invocation"
+            assert reply.blocks[1]["kind"] == "tool_result"
+            assert reply.blocks[1]["data"]["execution_id"] == "exec-1"
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_extracts_reasoning_into_blocks(self):

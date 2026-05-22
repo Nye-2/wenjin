@@ -212,18 +212,58 @@ def _execution_to_run_dict(row: Any) -> dict[str, Any]:
             "output": int(raw_usage.get("output") or raw_usage.get("output_tokens") or 0),
         }
 
+    raw_review_items = task_report.get("review_items")
+    review_items = raw_review_items if isinstance(raw_review_items, list) else []
+    review_items_count = sum(
+        1
+        for item in review_items
+        if isinstance(item, dict)
+        and (
+            item.get("kind") == "prism_file_change"
+            or item.get("target_domain") == "prism"
+            or (
+                isinstance(item.get("target"), dict)
+                and item["target"].get("kind") == "prism_file_change"
+            )
+        )
+    )
+    raw_errors = task_report.get("errors")
+    errors = raw_errors if isinstance(raw_errors, list) else []
+    first_error = next((item for item in errors if isinstance(item, dict)), None)
+    failure_message = (
+        getattr(row, "last_error", None)
+        or getattr(row, "error", None)
+        or (first_error.get("error") if first_error else None)
+    )
+    status_value = getattr(row, "status", "running")
+    failure_category = None
+    if status_value in {"failed", "failed_partial"}:
+        lower_error = str(failure_message or "").lower()
+        if "queue" in lower_error or "celery" in lower_error or "dispatch" in lower_error:
+            failure_category = "queue_failed"
+        elif "writeback" in lower_error or "write back" in lower_error:
+            failure_category = "writeback_failed"
+        elif status_value == "failed_partial":
+            failure_category = "node_failed"
+        else:
+            failure_category = "unknown"
+
     started_at = getattr(row, "started_at", None) or getattr(row, "created_at", None)
     completed_at = getattr(row, "completed_at", None)
+    feature_id = getattr(row, "feature_id", None)
 
     return {
         "id": str(getattr(row, "id", "")),
+        "workspace_id": getattr(row, "workspace_id", None),
+        "thread_id": getattr(row, "thread_id", None),
+        "capability_id": feature_id,
         "capability_name": (
             getattr(row, "display_name", None)
-            or getattr(row, "feature_id", None)
+            or feature_id
             or getattr(row, "execution_type", None)
             or "Execution"
         ),
-        "status": getattr(row, "status", "running"),
+        "status": status_value,
         "started_at": started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at or ""),
         "completed_at": (
             completed_at.isoformat()
@@ -238,6 +278,12 @@ def _execution_to_run_dict(row: Any) -> dict[str, Any]:
             or ""
         ),
         "token_usage": token_usage,
+        "progress": getattr(row, "progress", None),
+        "primary_surface": "prism" if review_items_count > 0 else "rooms",
+        "review_items_count": review_items_count,
+        "has_prism_changes": review_items_count > 0,
+        "failure_category": failure_category,
+        "failure_message": failure_message,
     }
 
 

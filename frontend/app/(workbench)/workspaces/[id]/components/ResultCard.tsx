@@ -145,6 +145,9 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
 
       {data.review_items?.length ? (
         <div style={styles.reviewItems}>
+          <div style={styles.prismNotice}>
+            Prism 有 {data.review_items.length} 项待确认修改
+          </div>
           <PrismReviewList items={data.review_items} />
           {workspaceId ? (
             <WorkspaceActionLink
@@ -304,6 +307,11 @@ const styles: Record<string, React.CSSProperties> = {
     display: "grid",
     gap: 8,
     marginBottom: "var(--v2-space-3)",
+  },
+  prismNotice: {
+    fontSize: 12.5,
+    fontWeight: 650,
+    color: "var(--v2-accent-purple-700)",
   },
   receiptRow: {
     display: "flex",

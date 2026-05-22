@@ -100,6 +100,43 @@ describe("chat store", () => {
     expect(msg.blocks[1].kind).toBe("tool_result");
   });
 
+  it("keeps launch tool result when final blocks replace streamed text", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_result",
+      data: {
+        execution_id: "exec-1",
+        feature_id: "sci_literature_positioning",
+        status: "launched",
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.block",
+      block: { kind: "text", content: "streamed text" },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: { kind: "text", content: "final text" },
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      {
+        kind: "tool_result",
+        data: {
+          execution_id: "exec-1",
+          feature_id: "sci_literature_positioning",
+          status: "launched",
+        },
+      },
+      { kind: "text", content: "final text" },
+    ]);
+  });
+
   it("appends result_card on execution.completed", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({

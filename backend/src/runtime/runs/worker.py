@@ -170,11 +170,29 @@ async def run_thread_turn(
                     "reasoning",
                     {"type": "reasoning", "content": delta.text},
                 )
-            else:
+            elif delta.kind == "content":
                 await bridge.publish(
                     run_id,
                     "content",
                     {"type": "content", "content": delta.text},
+                )
+            elif delta.kind == "tool_invocation":
+                await bridge.publish(
+                    run_id,
+                    "tool_invocation",
+                    {
+                        "type": "tool_invocation",
+                        "data": delta.data or {},
+                    },
+                )
+            elif delta.kind == "tool_result":
+                await bridge.publish(
+                    run_id,
+                    "tool_result",
+                    {
+                        "type": "tool_result",
+                        "data": delta.data or {},
+                    },
                 )
 
         if await run_manager.is_abort_requested(run_id):
