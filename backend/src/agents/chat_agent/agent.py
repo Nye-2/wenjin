@@ -165,12 +165,19 @@ def _render_workspace_available_skills(
     if not caps:
         return ""
 
-    cap_items = [
-        f'  <capability id="{c["id"]}" name="{c["display_name"]}" '
-        f'triggers="{", ".join(c.get("trigger_phrases") or [])}" '
-        f'desc="{c.get("description") or c.get("intent_description") or ""}"/>'
-        for c in caps
-    ]
+    cap_items = []
+    for c in caps:
+        definition = c.get("definition_json") if isinstance(c.get("definition_json"), dict) else {}
+        mission = definition.get("mission") if isinstance(definition.get("mission"), dict) else {}
+        display = definition.get("display") if isinstance(definition.get("display"), dict) else {}
+        promise = mission.get("user_promise") or c.get("description") or c.get("intent_description") or ""
+        tier = display.get("entry_tier") or c.get("tier") or "primary"
+        cap_items.append(
+            f'  <capability id="{c["id"]}" name="{c["display_name"]}" '
+            f'tier="{tier}" surface="{mission.get("primary_surface") or ""}" '
+            f'triggers="{", ".join(c.get("trigger_phrases") or [])}" '
+            f'promise="{promise}"/>'
+        )
     cap_block = (
         "<available_capabilities>\n"
         + "\n".join(cap_items)
@@ -201,10 +208,11 @@ def _build_capability_skill_prompt(cap_block: str, skill_block: str) -> str:
 {skill_block}
 
 <feature_launch_system>
-**WORKFLOW PRIORITY: 识别意图 → 检查参数 → 立刻调用 launch_feature**
+**MISSION PRIORITY: 识别用户目标 → 检查必要参数 → 立刻调用 launch_feature**
 
-You have access to workspace **capabilities** above. Each is a complete workflow
-(graph of subagents). Skills are reference capability packs the subagents can load.
+You have access to workspace **mission capabilities** above. Each capability is a
+user-facing deliverable mission. Internal stages are handled by the Lead Agent;
+do not expose old workflow-step choices such as outline/section buttons.
 
 **STRICT RULE: When the user's request matches a capability, you MUST call
 `launch_feature(feature_id=<capability_id>, params={{...}})` — do NOT just describe
@@ -225,8 +233,8 @@ what would happen. Without an actual tool call, NOTHING runs.**
 
 **Example (correct):**
 User: "帮我调研 X 主题的文献"
-You: call launch_feature(feature_id="deep_research", params={{"topic": "X"}})
-You: "好的，我已经启动深度调研，进度会在右侧面板更新。"
+You: call launch_feature(feature_id="thesis_research_pack", params={{"goal": "X"}})
+You: "好的，我已经启动论文研究包，进度会在右侧面板更新。"
 
 **Example (WRONG):**
 User: "帮我调研 X"

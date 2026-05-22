@@ -8,21 +8,50 @@ import pytest
 from src.services.admin_capability_service import AdminCapabilityService
 
 SAMPLE_YAML = """
+schema_version: capability.v2
 id: test_cap
 workspace_type: thesis
-display_name: Test Capability
-intent_description: for testing
-brief_schema:
-  type: object
+enabled: true
+display:
+  name: Test Capability
+  description: for testing
+  icon: search
+  color: purple
+  order: 10
+  entry_tier: primary
+intent:
+  description: for testing
+  trigger_phrases: [test capability]
+mission:
+  goal: test_goal
+  primary_surface: prism
+  document_role: primary_manuscript
+  user_promise: for testing
+  allowed_deliverables: [full_document_update]
+inputs:
+  required_decisions: []
+  brief_schema:
+    type: object
+context_policy:
+  room_reads: {}
+  prism_context: {}
+  full_text_access: explicit_tool_only
+sandbox_policy:
+  mode: none
+  profiles: []
+  allowed_operations: []
+review_policy:
+  default_targets: [prism_file_change]
+  require_user_acceptance: true
+  allow_bulk_accept: true
+quality_gates: [no_direct_primary_document_write]
 graph_template:
   phases:
     - name: phase1
       tasks:
         - name: t1
           subagent_type: react
-ui_meta:
-  icon: search
-  color: purple
+          skill_id: manuscript-writer
 """
 
 
@@ -48,7 +77,9 @@ class _CatalogFake:
         capability_id: str,
         command,
     ):
-        record = SimpleNamespace(**command.data)
+        data = dict(command.data)
+        data.setdefault("definition_json", dict(command.data))
+        record = SimpleNamespace(**data)
         self.records[(workspace_type, capability_id)] = record
         return record
 
@@ -91,6 +122,7 @@ async def test_create_persists_capability(service):
     assert cap.id == "test_cap"
     assert cap.workspace_type == "thesis"
     assert cap.ui_meta["icon"] == "search"
+    assert cap.definition_json["schema_version"] == "capability.v2"
     service.event_bus.publish.assert_awaited_once_with(
         "capability.invalidated",
         {"id": "test_cap", "workspace_type": "thesis"},

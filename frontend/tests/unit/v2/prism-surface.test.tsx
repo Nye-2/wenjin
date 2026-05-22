@@ -5,6 +5,7 @@ import { act, render, screen } from "@testing-library/react";
 import PrismPage from "@/app/(workbench)/workspaces/[id]/prism/page";
 
 const mockGetWorkspacePrismSurface = vi.hoisted(() => vi.fn());
+const mockEnsureWorkspacePrismProject = vi.hoisted(() => vi.fn());
 
 vi.mock("@/components/latex/LatexEditorShell", () => ({
   LatexEditorShell: ({
@@ -21,6 +22,8 @@ vi.mock("@/components/latex/LatexEditorShell", () => ({
 }));
 
 vi.mock("@/lib/api/workspace", () => ({
+  ensureWorkspacePrismProject: (...args: unknown[]) =>
+    mockEnsureWorkspacePrismProject(...args),
   getWorkspacePrismSurface: (...args: unknown[]) =>
     mockGetWorkspacePrismSurface(...args),
 }));
@@ -57,6 +60,8 @@ const prismSurface = {
 
 describe("workspace prism surface", () => {
   beforeEach(() => {
+    mockEnsureWorkspacePrismProject.mockReset();
+    mockEnsureWorkspacePrismProject.mockResolvedValue({ latex_project_id: "latex-1" });
     mockGetWorkspacePrismSurface.mockReset();
     mockGetWorkspacePrismSurface.mockResolvedValue(prismSurface);
   });
@@ -83,7 +88,7 @@ describe("workspace prism surface", () => {
     );
   });
 
-  it("does not create a workspace Prism binding from the surface route", async () => {
+  it("ensures a workspace Prism binding before loading the surface", async () => {
     const notFound = Object.assign(new Error("Workspace Prism surface not found"), {
       response: { status: 404 },
     });
@@ -97,6 +102,7 @@ describe("workspace prism surface", () => {
       );
     });
 
+    expect(mockEnsureWorkspacePrismProject).toHaveBeenCalledWith("ws-1");
     expect(mockGetWorkspacePrismSurface).toHaveBeenCalledTimes(1);
     expect(
       await screen.findByText("Unable to open Prism manuscript surface"),
@@ -234,7 +240,7 @@ describe("workspace prism surface", () => {
           id: "run-1",
           workspace_id: "ws-1",
           execution_id: "exec-1",
-          capability_id: "writing",
+          capability_id: "idea_to_thesis_manuscript",
           title: "Intro drafting",
           summary: "Generated manuscript update",
           status: "completed",

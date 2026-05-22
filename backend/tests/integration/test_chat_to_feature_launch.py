@@ -30,23 +30,25 @@ class _FakeLaunchDataServiceClient:
         enabled_only: bool = True,
     ):
         capabilities = {
-            "framework_outline": SimpleNamespace(
-                id="framework_outline",
+            "research_question_to_paper": SimpleNamespace(
+                id="research_question_to_paper",
                 workspace_type=workspace_type,
-                display_name="框架大纲",
+                schema_version="capability.v2",
+                display_name="问题到 SCI 初稿",
             ),
-            "literature_search": SimpleNamespace(
-                id="literature_search",
+            "sci_literature_positioning": SimpleNamespace(
+                id="sci_literature_positioning",
                 workspace_type=workspace_type,
-                display_name="文献检索",
+                schema_version="capability.v2",
+                display_name="文献定位与创新点",
             ),
         }
         return capabilities.get(capability_id)
 
     async def list_catalog_capabilities(self, *, workspace_type: str, enabled_only: bool = True):
         return [
-            SimpleNamespace(id="framework_outline", workspace_type=workspace_type, display_name="框架大纲"),
-            SimpleNamespace(id="literature_search", workspace_type=workspace_type, display_name="文献检索"),
+            SimpleNamespace(id="research_question_to_paper", workspace_type=workspace_type, schema_version="capability.v2", display_name="问题到 SCI 初稿"),
+            SimpleNamespace(id="sci_literature_positioning", workspace_type=workspace_type, schema_version="capability.v2", display_name="文献定位与创新点"),
         ]
 
 
@@ -94,7 +96,7 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
     """The preload middleware writes caps/skills into state, and
     apply_prompt_template reads them out into ``<available_capabilities>``.
 
-    This is the regression that originally surfaced as "framework_outline
+    This is the regression that originally surfaced as stale capability ids
     暂时不可用": before the fix, only ``ainvoke`` preloaded, so the streaming
     path saw an empty catalog and the model invented invalid feature ids.
     """
@@ -107,18 +109,36 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
     preloaded = (
         [
             {
-                "id": "framework_outline",
-                "display_name": "框架大纲",
-                "description": "scientific paper framework",
+                "id": "research_question_to_paper",
+                "display_name": "问题到 SCI 初稿",
+                "description": "scientific paper draft",
                 "intent_description": "",
-                "trigger_phrases": ["设计框架", "写大纲"],
+                "trigger_phrases": ["写 SCI", "生成 SCI 初稿"],
+                "schema_version": "capability.v2",
+                "tier": "primary",
+                "definition_json": {
+                    "display": {"entry_tier": "primary"},
+                    "mission": {
+                        "primary_surface": "prism",
+                        "user_promise": "生成可审阅的 SCI manuscript 变更",
+                    },
+                },
             },
             {
-                "id": "literature_search",
-                "display_name": "文献检索",
-                "description": "search relevant papers",
+                "id": "sci_literature_positioning",
+                "display_name": "文献定位与创新点",
+                "description": "position literature and contribution",
                 "intent_description": "",
                 "trigger_phrases": ["检索文献", "找文献"],
+                "schema_version": "capability.v2",
+                "tier": "primary",
+                "definition_json": {
+                    "display": {"entry_tier": "primary"},
+                    "mission": {
+                        "primary_surface": "prism",
+                        "user_promise": "建立文献定位和创新点",
+                    },
+                },
             },
         ],
         [
@@ -140,7 +160,7 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
         state = create_thread_state({"messages": [], "workspace_type": "sci"})
         update = await mw.before_model(state, {"configurable": {}})
 
-    assert update["available_capabilities"][0]["id"] == "framework_outline"
+    assert update["available_capabilities"][0]["id"] == "research_question_to_paper"
 
     state["available_capabilities"] = update["available_capabilities"]
     state["available_skills"] = update["available_skills"]
@@ -148,8 +168,8 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
 
     # The model MUST see DB-backed ids — not the deleted legacy fallback ids.
     assert "<available_capabilities>" in prompt
-    assert 'id="framework_outline"' in prompt
-    assert 'id="literature_search"' in prompt
+    assert 'id="research_question_to_paper"' in prompt
+    assert 'id="sci_literature_positioning"' in prompt
     assert "<available_features>" not in prompt  # legacy block must be gone
 
 
@@ -163,9 +183,10 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
     from src.tools.builtins.launch_feature import launch_feature_tool
 
     fake_capability = SimpleNamespace(
-        id="framework_outline",
+        id="research_question_to_paper",
         workspace_type="sci",
-        display_name="框架大纲",
+        schema_version="capability.v2",
+        display_name="问题到 SCI 初稿",
     )
 
     @dataclass
@@ -208,7 +229,7 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
     ):
         result = await launch_feature_tool.ainvoke(
             {
-                "feature_id": "framework_outline",
+                "feature_id": "research_question_to_paper",
                 "params": {"topic": "联邦学习+大模型"},
             },
             config={
@@ -222,11 +243,11 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
 
     assert result["status"] == "launched"
     assert result["execution_id"] == "exec-42"
-    assert result["feature_id"] == "framework_outline"
+    assert result["feature_id"] == "research_question_to_paper"
     fake_execution_service.create_execution.assert_awaited_once()
     create_kwargs = fake_execution_service.create_execution.await_args.kwargs
     assert create_kwargs["thread_id"] == "t-1"
-    assert create_kwargs["display_name"] == "框架大纲"
+    assert create_kwargs["display_name"] == "问题到 SCI 初稿"
     assert create_kwargs["commit"] is False
     fake_task.apply_async.assert_called_once_with(
         args=["exec-42"], queue="long_running"
@@ -244,14 +265,14 @@ async def test_launch_feature_returns_unknown_for_invalid_capability_id():
     avail_result = MagicMock()
     avail_result.scalars.return_value.all.return_value = [
         SimpleNamespace(
-            id="framework_outline",
+            id="research_question_to_paper",
             workspace_type="sci",
-            display_name="框架大纲",
+            display_name="问题到 SCI 初稿",
         ),
         SimpleNamespace(
-            id="literature_search",
+            id="sci_literature_positioning",
             workspace_type="sci",
-            display_name="文献检索",
+            display_name="文献定位与创新点",
         ),
     ]
 
@@ -269,7 +290,7 @@ async def test_launch_feature_returns_unknown_for_invalid_capability_id():
     ):
         result = await launch_feature_tool.ainvoke(
             {
-                "feature_id": "thesis_writing",  # legacy id, no longer exists
+                "feature_id": "thesis_writing",  # old workflow id, no longer exists
                 "params": {},
             },
             config={
@@ -283,5 +304,5 @@ async def test_launch_feature_returns_unknown_for_invalid_capability_id():
 
     assert result["status"] == "error"
     assert result["code"] == "unknown_feature"
-    assert "framework_outline" in result["detail"]
-    assert "literature_search" in result["detail"]
+    assert "research_question_to_paper" in result["detail"]
+    assert "sci_literature_positioning" in result["detail"]

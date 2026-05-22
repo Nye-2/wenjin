@@ -19,179 +19,46 @@ __all__ = [
     "emit_bound_runtime",
 ]
 
+_MISSION_TITLES: dict[str, str] = {
+    "idea_to_thesis_manuscript": "Idea 到论文全文",
+    "thesis_research_pack": "论文研究包",
+    "thesis_empirical_analysis": "论文实证分析",
+    "thesis_revision_pass": "论文修订",
+    "thesis_defense_pack": "答辩材料包",
+    "thesis_reference_curation": "参考文献整理",
+    "research_question_to_paper": "SCI 论文主稿",
+    "sci_literature_positioning": "SCI 文献定位",
+    "sci_empirical_package": "SCI 实证包",
+    "sci_revision_for_journal": "SCI 期刊修订",
+    "journal_submission_strategy": "投稿策略",
+    "response_to_reviewers": "审稿回复",
+    "reproducibility_audit": "可复现性审计",
+    "idea_to_proposal_package": "申报书整包",
+    "proposal_background_pack": "申报背景包",
+    "technical_route_package": "技术路线包",
+    "feasibility_and_risk_review": "可行性与风险评审",
+    "proposal_polish_for_review": "申报书送审润色",
+    "software_copyright_application_pack": "软著申请包",
+    "software_technical_manual": "软件技术说明书",
+    "software_evidence_pack": "软著证据包",
+    "software_architecture_diagrams": "软件架构图",
+    "invention_to_patent_draft": "专利初稿",
+    "prior_art_and_novelty_pack": "现有技术与新颖性包",
+    "claims_strategy": "权利要求策略",
+    "embodiment_and_drawings": "实施例与附图",
+    "office_action_response": "审查意见答复",
+}
+
+_MISSION_PHASES: list[dict[str, str]] = [
+    {"id": "plan", "label": "规划任务", "description": "确认目标、约束、上下文和交付边界"},
+    {"id": "execute", "label": "执行任务", "description": "调度技能与工具完成 mission 产出"},
+    {"id": "review", "label": "整理审核", "description": "生成可审核结果并提交 Prism 或房间候选项"},
+    {"id": "finalize", "label": "完成收口", "description": "沉淀执行记录、产物摘要和后续动作"},
+]
+
 _FEATURE_RUNTIME_CONFIG: dict[str, dict[str, Any]] = {
-    "deep_research": {
-        "title": "深度调研",
-        "phases": [
-            {"id": "discovery", "label": "发现文献", "description": "并行检索经典文献、近期工作与研究趋势"},
-            {"id": "gap_mining", "label": "挖掘空白", "description": "识别研究空白与可切入的问题空间"},
-            {"id": "synthesis", "label": "综合创意", "description": "生成候选方向、研究创意和后续建议"},
-            {"id": "cross_validation", "label": "交叉验证", "description": "检查发现与创意的一致性和可信度"},
-            {"id": "finalize", "label": "整理产物", "description": "封装深度调研报告并写入 artifact"},
-        ],
-    },
-    "literature_search": {
-        "title": "文献检索",
-        "phases": [
-            {"id": "prepare", "label": "准备检索", "description": "整理检索主题与上下文"},
-            {"id": "retrieve", "label": "检索核验", "description": "调用 Semantic Scholar 获取已验证论文"},
-            {"id": "finalize", "label": "整理产物", "description": "归档结果并生成 artifact"},
-        ],
-    },
-    "paper_analysis": {
-        "title": "论文分析",
-        "phases": [
-            {"id": "prepare", "label": "准备论文", "description": "加载论文标题、摘要与上下文"},
-            {"id": "analyze", "label": "结构化分析", "description": "提炼方法、实验、结论和创新点"},
-            {"id": "finalize", "label": "整理产物", "description": "封装分析结果并沉淀 artifact"},
-        ],
-    },
-    "writing": {
-        "title": "论文写作",
-        "phases": [
-            {"id": "prepare", "label": "准备上下文", "description": "加载章节要求与上下文产物"},
-            {"id": "draft", "label": "生成草稿", "description": "调用模型撰写章节草稿"},
-            {"id": "finalize", "label": "整理产物", "description": "整理大纲、参考和 draft artifact"},
-        ],
-    },
-    "literature_review": {
-        "title": "文献综述",
-        "phases": [
-            {"id": "prepare", "label": "整理主题", "description": "确认主题、学科与上下文 artifact"},
-            {"id": "synthesize", "label": "综合综述", "description": "归纳 key papers、研究空白与章节结构"},
-            {"id": "finalize", "label": "整理产物", "description": "封装文献综述 artifact"},
-        ],
-    },
-    "framework_outline": {
-        "title": "框架与摘要",
-        "phases": [
-            {"id": "prepare", "label": "整理输入", "description": "确认题目、主题与上下文 artifact"},
-            {"id": "outline", "label": "生成框架", "description": "生成摘要、关键词和章节结构"},
-            {"id": "finalize", "label": "整理产物", "description": "封装框架 artifact"},
-        ],
-    },
-    "peer_review": {
-        "title": "同行评审",
-        "phases": [
-            {"id": "prepare", "label": "读取稿件", "description": "加载论文标题与待审内容"},
-            {"id": "review", "label": "评审分析", "description": "识别 strengths、weaknesses 与 revision actions"},
-            {"id": "finalize", "label": "整理产物", "description": "封装评审 artifact"},
-        ],
-    },
-    "journal_recommend": {
-        "title": "期刊推荐",
-        "phases": [
-            {"id": "prepare", "label": "提炼画像", "description": "确认论文标题、摘要和学科领域"},
-            {"id": "match", "label": "匹配期刊", "description": "生成候选期刊、fit 和投稿建议"},
-            {"id": "finalize", "label": "整理产物", "description": "封装推荐摘要 artifact"},
-        ],
-    },
-    "opening_research": {
-        "title": "开题调研",
-        "phases": [
-            {"id": "research_status", "label": "研究现状", "description": "分析现有研究与文献背景"},
-            {"id": "methodology", "label": "方法规划", "description": "规划可行的方法路线"},
-            {"id": "report", "label": "生成报告", "description": "整合章节内容并输出报告"},
-        ],
-    },
-    "background_research": {
-        "title": "背景调研",
-        "phases": [
-            {"id": "scope", "label": "调研范围", "description": "确认主题、范围和时间窗口"},
-            {"id": "research", "label": "背景分析", "description": "生成行业背景与研究现状"},
-            {"id": "report", "label": "整理报告", "description": "封装章节与参考文献"},
-        ],
-    },
-    "proposal_outline": {
-        "title": "申报书大纲",
-        "phases": [
-            {"id": "scope", "label": "项目范围", "description": "确认主题、类型与周期"},
-            {"id": "outline", "label": "生成大纲", "description": "生成章节结构、里程碑与风险"},
-            {"id": "finalize", "label": "整理产物", "description": "封装大纲 artifact"},
-        ],
-    },
-    "experiment_design": {
-        "title": "实验设计",
-        "phases": [
-            {"id": "hypothesis", "label": "明确假设", "description": "确认研究目标与核心假设"},
-            {"id": "variables", "label": "设计变量", "description": "生成变量、流程与实验方案"},
-            {"id": "evaluation", "label": "规划评估", "description": "整理评估指标、风险与验证路径"},
-            {"id": "finalize", "label": "整理产物", "description": "封装实验设计 artifact"},
-        ],
-    },
-    "patent_outline": {
-        "title": "专利框架",
-        "phases": [
-            {"id": "scope", "label": "创新输入", "description": "确认创新点、场景与实施方式"},
-            {"id": "draft", "label": "生成框架", "description": "生成说明书结构和权利要求草案"},
-            {"id": "finalize", "label": "整理产物", "description": "封装专利框架 artifact"},
-        ],
-    },
-    "prior_art_search": {
-        "title": "现有技术检索",
-        "phases": [
-            {"id": "scope", "label": "检索范围", "description": "确认关键词、IPC 和时间范围"},
-            {"id": "analysis", "label": "风险分析", "description": "比较现有技术并识别新颖性风险"},
-            {"id": "finalize", "label": "整理产物", "description": "输出检索报告 artifact"},
-        ],
-    },
-    "copyright_materials": {
-        "title": "软著材料",
-        "phases": [
-            {"id": "profile", "label": "软件画像", "description": "确认软件信息和亮点"},
-            {"id": "materials", "label": "生成清单", "description": "生成申请材料和校验清单"},
-            {"id": "finalize", "label": "整理产物", "description": "封装材料 artifact"},
-        ],
-    },
-    "technical_description": {
-        "title": "技术说明书",
-        "phases": [
-            {"id": "profile", "label": "技术画像", "description": "确认软件架构和模块信息"},
-            {"id": "write", "label": "生成说明书", "description": "生成说明书章节内容"},
-            {"id": "finalize", "label": "整理产物", "description": "封装说明书 artifact"},
-        ],
-    },
-    "figure_generation": {
-        "title": "图表生成",
-        "phases": [
-            {"id": "plan", "label": "规划图表", "description": "确认图表类型与章节上下文"},
-            {"id": "render", "label": "生成图表", "description": "生成源码、提示词或渲染结果"},
-            {"id": "finalize", "label": "整理产物", "description": "封装图表 artifact"},
-        ],
-    },
-    "literature_management": {
-        "title": "文献管理",
-        "phases": [
-            {"id": "collect", "label": "加载文献", "description": "统计工作区已有文献"},
-            {"id": "analyze", "label": "智能盘点", "description": "聚类主题并评估文献质量"},
-            {"id": "finalize", "label": "整理产物", "description": "封装文献盘点 artifact"},
-        ],
-    },
-    "thesis_writing_outline": {
-        "title": "论文大纲",
-        "phases": [
-            {"id": "prepare", "label": "准备参数", "description": "确认标题、字数与上下文"},
-            {"id": "outline", "label": "生成大纲", "description": "生成章节结构与写作顺序"},
-            {"id": "finalize", "label": "整理产物", "description": "封装大纲 artifact"},
-        ],
-    },
-    "thesis_writing_chapter": {
-        "title": "章节写作",
-        "phases": [
-            {"id": "prepare", "label": "准备章节", "description": "确认章节标题与目标字数"},
-            {"id": "draft", "label": "生成章节", "description": "撰写章节正文内容"},
-            {"id": "finalize", "label": "整理产物", "description": "封装章节 artifact"},
-        ],
-    },
-    "thesis_writing_full": {
-        "title": "全文写作",
-        "phases": [
-            {"id": "prepare", "label": "准备参数", "description": "确认标题、字数与上下文"},
-            {"id": "outline", "label": "生成大纲", "description": "规划章节结构与写作顺序"},
-            {"id": "draft", "label": "批量写作", "description": "按章节生成全文草稿"},
-            {"id": "finalize", "label": "整理产物", "description": "落库大纲与章节 artifact"},
-        ],
-    },
+    mission_id: {"title": title, "phases": _MISSION_PHASES}
+    for mission_id, title in _MISSION_TITLES.items()
 }
 
 

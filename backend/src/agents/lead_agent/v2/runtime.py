@@ -29,6 +29,7 @@ class ExecutionState(TypedDict, total=False):
     inputs_for_tasks: dict
     workspace_data: dict
     node_results: dict
+    capability_policy: dict[str, Any]
 
 
 class LeadAgentRuntime:
@@ -129,6 +130,7 @@ class LeadAgentRuntime:
             "inputs_for_tasks": self._distribute_brief(brief, cap),
             "workspace_data": {},
             "node_results": {},
+            "capability_policy": self._capability_policy(cap),
         }
 
         # Compile + Execute — both are wrapped so unknown subagent_type is also caught
@@ -204,6 +206,19 @@ class LeadAgentRuntime:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _capability_policy(cap: Any) -> dict[str, Any]:
+        definition = getattr(cap, "definition_json", None)
+        if not isinstance(definition, dict):
+            definition = {}
+        return {
+            "mission": dict(definition.get("mission") or {}),
+            "context_policy": dict(definition.get("context_policy") or {}),
+            "sandbox_policy": dict(definition.get("sandbox_policy") or {}),
+            "review_policy": dict(definition.get("review_policy") or {}),
+            "quality_gates": list(definition.get("quality_gates") or []),
+        }
 
     async def _load_skills_for_template(self, template: dict) -> dict[str, Any]:
         """Pre-load all skills referenced by tasks in the template."""

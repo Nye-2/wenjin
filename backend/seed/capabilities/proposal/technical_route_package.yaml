@@ -1,0 +1,116 @@
+schema_version: capability.v2
+id: technical_route_package
+workspace_type: proposal
+enabled: true
+display:
+  name: 技术路线与实验方案
+  description: 设计技术路线、实验验证、评价指标和里程碑
+  icon: file-pen
+  color: blue
+  order: 30
+  entry_tier: primary
+intent:
+  description: 设计技术路线、实验验证、评价指标和里程碑
+  trigger_phrases:
+  - 技术路线与实验方案
+  disambiguation: {}
+mission:
+  goal: produce_workspace_review_package
+  primary_surface: prism
+  document_role: primary_manuscript
+  user_promise: 设计技术路线、实验验证、评价指标和里程碑
+  allowed_deliverables:
+  - full_document_update
+  - evidence_pack
+  - review_report
+inputs:
+  required_decisions: []
+  brief_schema:
+    type: object
+    properties:
+      goal:
+        type: string
+      deliverable:
+        type: string
+context_policy:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: full
+    memory: relevant
+    tasks: related
+  prism_context:
+    include_outline: true
+    include_target_files: true
+    include_protected_sections: true
+    include_pending_review_summary: true
+  full_text_access: explicit_tool_only
+sandbox_policy:
+  mode: conditional
+  profiles:
+  - analysis
+  - visualization
+  allowed_operations:
+  - run_python
+  - install_python_packages
+  - render_figures
+  - compile_latex
+  isolation:
+    provider: docker
+    network: default_deny_allowlist
+    allow_host_docker_socket: false
+    allow_docker_socket: false
+    allow_privileged: false
+    allow_host_network: false
+    allow_host_paths: false
+    allow_sibling_containers: false
+    allow_sibling_container_access: false
+    allow_server_control: false
+  resource_limits:
+    cpu: 2
+    memory_mb: 4096
+    timeout_seconds: 900
+    max_output_mb: 512
+  artifact_policy:
+    review_required: true
+    capture_stdout: true
+    capture_scripts: true
+    capture_input_hashes: true
+review_policy:
+  default_targets:
+  - prism_file_change
+  - sandbox_artifact
+  - room_decision_candidate
+  - room_memory_candidate
+  - room_task
+  require_user_acceptance: true
+  allow_bulk_accept: true
+quality_gates:
+- no_direct_primary_document_write
+- provenance_required_for_claims
+- protected_sections_readonly
+graph_template:
+  phases:
+  - name: mission_execution
+    tasks:
+    - name: grant_planner
+      subagent_type: react
+      skill_id: grant-planner
+      inputs: {}
+      outputs: []
+    - name: evidence_analyst
+      subagent_type: react
+      skill_id: evidence-analyst
+      inputs: {}
+      outputs: []
+    - name: figure_engineer
+      subagent_type: react
+      skill_id: figure-engineer
+      inputs: {}
+      outputs: []
+    - name: proposal_writer
+      subagent_type: react
+      skill_id: proposal-writer
+      inputs: {}
+      outputs: []
+extensions: {}

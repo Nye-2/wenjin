@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-05-21
+更新时间：2026-05-22
 状态：Current
 适用项目：`wenjin`
 
@@ -10,7 +10,7 @@
 
 1. canonical workspace route：`/workspaces/{workspace_id}`
 2. canonical workspace Prism route：`/workspaces/{workspace_id}/prism`
-3. capability 入口：通过 chat 面板对话触发，lead-agent 识别意图后调用 `launch_feature`
+3. capability 入口：通过 chat 面板对话触发，Chat Agent 根据 mission catalog 识别意图后调用 `launch_feature`
 4. 旧 `/chat` 语义已收敛到当前 workspace chat / execution 体系，不再作为独立 feature 流程事实源
 5. 旧 workspace-owned `/latex/{project_id}` 页面入口已移除；主稿只通过 workspace Prism surface 进入
 
@@ -22,11 +22,13 @@
 
 ## 3. Capability 数据驱动
 
-1. Capability 定义在 YAML seed 文件（`backend/seed/capabilities/{workspace_type}/`），DB-backed
-2. `CapabilityResolver` 加载并校验 capability，包括 `outputs` 声明
-3. 每个 capability 的 `graph_template` 定义执行阶段和任务
-4. `LeadAgentRuntime` 解析 graph → `compile_graph` → 执行 subagent nodes → `_collect_outputs`
-5. `OutputMappingResolver` 将 subagent 输出转换为 5 种 typed `ResultOutput`（library_item, document, memory_fact, decision, task）
+1. Capability 定义在 YAML seed 文件（`backend/seed/capabilities/{workspace_type}/`），并由 DataService Catalog 持久化为 SSOT。
+2. 当前 capability schema 为 `capability.v2`；旧 workflow-step id 已删除，不提供 alias、fallback 或双读兼容层。
+3. Capability Skill 定义在 `backend/seed/skills/`，当前 schema 为 `capability_skill.v2`；skill 是 worker instruction pack，不是用户入口。
+4. 每个 capability 的 `mission` 定义产品目标、主 surface、document role 和允许交付物。
+5. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
+6. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
+7. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`，Prism 写作变更进入 DB-backed review item。
 
 ## 4. 8 Workspace Rooms
 

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import CatalogSeedItemPayload, CatalogSeedLoadPayload
 from src.dataservice_client.provider import dataservice_client
+from src.services.capability_schema import CapabilityV2YamlModel
 
 logger = logging.getLogger(__name__)
 
@@ -20,27 +21,6 @@ logger = logging.getLogger(__name__)
 #   backend/src/services/capability_loader.py
 # Three parents up → backend/, then seed/capabilities.
 DEFAULT_SEED_DIR = Path(__file__).resolve().parent.parent.parent / "seed" / "capabilities"
-
-REQUIRED_FIELDS = {
-    "id",
-    "workspace_type",
-    "display_name",
-    "intent_description",
-    "brief_schema",
-    "graph_template",
-    "ui_meta",
-}
-
-OPTIONAL_DEFAULTS = {
-    "enabled": True,
-    "description": "",
-    "trigger_phrases": [],
-    "required_decisions": [],
-    "runtime": {},
-    "dashboard_meta": {},
-    "notes": None,
-}
-
 
 class CapabilityLoader:
     """Loads capability definitions from YAML seed files into the database.
@@ -143,15 +123,7 @@ class CapabilityLoader:
         if not isinstance(raw, dict):
             raise ValueError(f"Expected dict in {path}, got {type(raw).__name__}")
 
-        missing = REQUIRED_FIELDS - set(raw.keys())
-        if missing:
-            raise ValueError(
-                f"Missing required fields in {path}: {', '.join(sorted(missing))}"
-            )
-
-        # Apply optional defaults for fields not present in YAML
-        for field, default in OPTIONAL_DEFAULTS.items():
-            if field not in raw:
-                raw[field] = default
-
-        return raw
+        try:
+            return CapabilityV2YamlModel(**raw).to_catalog_data()
+        except Exception as exc:
+            raise ValueError(f"Invalid capability.v2 seed in {path}: {exc}") from exc

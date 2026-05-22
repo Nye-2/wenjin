@@ -16,41 +16,22 @@ from src.dataservice_client.contracts.catalog import (
     CatalogUpsertPayload,
 )
 from src.dataservice_client.provider import dataservice_client
-from src.services.capability_schema import CapabilitySkillYamlModel, CrossRefValidator
+from src.services.capability_schema import CapabilitySkillV2YamlModel, CrossRefValidator
 
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _yaml_to_catalog_data(model: CapabilitySkillYamlModel) -> dict[str, Any]:
-    return {
-        "id": model.id,
-        "schema_version": "capability_skill.v2",
-        "enabled": model.enabled,
-        "display_name": model.display_name,
-        "description": model.description,
-        "worker_type": model.subagent_type,
-        "subagent_type": model.subagent_type,
-        "prompt": model.prompt,
-        "allowed_tools": list(model.allowed_tools),
-        "resources": list(model.resources),
-        "config": dict(model.config),
-    }
+def _yaml_to_catalog_data(model: CapabilitySkillV2YamlModel) -> dict[str, Any]:
+    return model.to_catalog_data()
 
 
 def _record_to_yaml_dict(skill: Any) -> dict[str, Any]:
-    return {
-        "id": skill.id,
-        "enabled": skill.enabled,
-        "display_name": skill.display_name,
-        "description": skill.description,
-        "subagent_type": skill.subagent_type,
-        "prompt": skill.prompt,
-        "allowed_tools": list(skill.allowed_tools or []),
-        "resources": list(skill.resources or []),
-        "config": dict(skill.config or {}),
-    }
+    skill_json = getattr(skill, "skill_json", None)
+    if isinstance(skill_json, dict) and skill_json:
+        return dict(skill_json)
+    return {}
 
 
 class AdminSkillService:
@@ -140,7 +121,7 @@ class AdminSkillService:
         except yaml.YAMLError as e:
             return [f"yaml parse error: {e}"]
         try:
-            model = CapabilitySkillYamlModel(**data)
+            model = CapabilitySkillV2YamlModel(**data)
         except ValidationError as e:
             return [f"schema: {err['loc']}: {err['msg']}" for err in e.errors()]
         return await self.validator.validate_skill(model)
@@ -234,9 +215,9 @@ class AdminSkillService:
     def to_yaml_text(self, skill: Any) -> str:
         return yaml.safe_dump(_record_to_yaml_dict(skill), sort_keys=False, allow_unicode=True)
 
-    async def _parse_and_validate_for_write(self, yaml_text: str) -> CapabilitySkillYamlModel:
+    async def _parse_and_validate_for_write(self, yaml_text: str) -> CapabilitySkillV2YamlModel:
         errors = await self.validate(yaml_text)
         if errors:
             raise ValueError(f"validation failed: {errors}")
         data = yaml.safe_load(yaml_text)
-        return CapabilitySkillYamlModel(**data)
+        return CapabilitySkillV2YamlModel(**data)

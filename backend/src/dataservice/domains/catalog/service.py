@@ -253,25 +253,38 @@ class DataServiceCatalogService:
         checksum: str | None = None,
         source_path: str | None = None,
     ) -> dict[str, Any]:
+        schema_version = str(data.get("schema_version") or "")
+        if schema_version != "capability.v2":
+            raise ValueError("Capability catalog records must use schema_version capability.v2")
+        display = data.get("display")
+        intent = data.get("intent")
+        inputs = data.get("inputs")
+        if not isinstance(display, dict) or not isinstance(intent, dict) or not isinstance(inputs, dict):
+            raise ValueError("Capability v2 records require display, intent, and inputs")
         definition_json = {
-            "schema_version": data.get("schema_version") or "capability.v2",
             **data,
         }
         ui_meta = dict(data.get("ui_meta") or {})
         runtime = dict(data.get("runtime") or {})
+        display_name = str(data.get("display_name") or display["name"])
+        description = str(data.get("description") or display.get("description") or "")
+        intent_description = str(data.get("intent_description") or intent["description"])
+        trigger_phrases = list(data.get("trigger_phrases") or intent.get("trigger_phrases") or [])
+        required_decisions = list(data.get("required_decisions") or inputs.get("required_decisions") or [])
+        brief_schema = dict(data.get("brief_schema") or inputs.get("brief_schema") or {})
         return {
             "id": str(data["id"]),
             "workspace_type": str(data["workspace_type"]),
-            "schema_version": str(data.get("schema_version") or "capability.v2"),
+            "schema_version": schema_version,
             "enabled": bool(data.get("enabled", True)),
-            "tier": str(data.get("tier") or ui_meta.get("tier") or "primary"),
+            "tier": str(data.get("tier") or ui_meta.get("entry_tier") or display.get("entry_tier") or "primary"),
             "entry_surface": str(data.get("entry_surface") or runtime.get("entry_surface") or "workbench"),
-            "display_name": str(data["display_name"]),
-            "description": str(data.get("description") or ""),
-            "intent_description": str(data.get("intent_description") or ""),
-            "trigger_phrases": list(data.get("trigger_phrases") or []),
-            "required_decisions": list(data.get("required_decisions") or []),
-            "brief_schema": dict(data.get("brief_schema") or {}),
+            "display_name": display_name,
+            "description": description,
+            "intent_description": intent_description,
+            "trigger_phrases": trigger_phrases,
+            "required_decisions": required_decisions,
+            "brief_schema": brief_schema,
             "graph_template": dict(data.get("graph_template") or {}),
             "ui_meta": ui_meta,
             "runtime": runtime,
@@ -289,22 +302,30 @@ class DataServiceCatalogService:
         checksum: str | None = None,
         source_path: str | None = None,
     ) -> dict[str, Any]:
-        worker_type = str(data.get("worker_type") or data.get("subagent_type") or "")
+        schema_version = str(data.get("schema_version") or "")
+        if schema_version != "capability_skill.v2":
+            raise ValueError("Skill catalog records must use schema_version capability_skill.v2")
+        worker = data.get("worker")
+        if not isinstance(worker, dict):
+            raise ValueError("Capability skill v2 records require worker")
+        tool_policy = data.get("tool_policy") if isinstance(data.get("tool_policy"), dict) else {}
+        worker_type = str(data.get("worker_type") or worker.get("category") or "")
+        subagent_type = str(data.get("subagent_type") or worker.get("subagent_type") or worker_type)
         skill_json = {
-            "schema_version": data.get("schema_version") or "capability_skill.v2",
             **data,
             "worker_type": worker_type,
+            "subagent_type": subagent_type,
         }
         return {
             "id": str(data["id"]),
-            "schema_version": str(data.get("schema_version") or "capability_skill.v2"),
+            "schema_version": schema_version,
             "enabled": bool(data.get("enabled", True)),
             "display_name": str(data["display_name"]),
             "description": str(data.get("description") or ""),
             "worker_type": worker_type,
-            "subagent_type": str(data.get("subagent_type") or worker_type),
-            "prompt": str(data.get("prompt") or ""),
-            "allowed_tools": list(data.get("allowed_tools") or []),
+            "subagent_type": subagent_type,
+            "prompt": str(data.get("prompt") or worker.get("role_prompt") or ""),
+            "allowed_tools": list(data.get("allowed_tools") or tool_policy.get("allowed_tools") or []),
             "resources": list(data.get("resources") or []),
             "config": dict(data.get("config") or {}),
             "skill_json": skill_json,

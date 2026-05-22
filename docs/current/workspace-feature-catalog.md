@@ -1,20 +1,22 @@
-# Workspace Capability Entry Catalog
+# Workspace Mission Capability Catalog
 
-更新时间: 2026-05-20
+更新时间: 2026-05-22
 状态: Current
-Capability 数据源: `backend/seed/capabilities/` + `capabilities` table
-Capability skill 数据源: `backend/seed/skills/` + `capability_skills` table
-当前 UI 兼容目录来源: `/api/workspaces/{workspace_id}/features`
+Capability 数据源: `backend/seed/capabilities/` + DataService Catalog `capabilities`
+Capability Skill 数据源: `backend/seed/skills/` + DataService Catalog `capability_skills`
 
-本文件记录当前工作台入口目录与 capability/skill 映射的当前事实源。
+本文件记录当前工作台 capability 目录事实源。Wenjin 已切到 Super Agent Harness mission catalog：旧 workflow-step id 已移除，不提供 alias、fallback 或双读兼容层。
 
-- capability / capability skill 才是执行定义事实源
-- 当前 `feature_id` 仍作为工作台入口与路由 seed 的兼容标识保留
-- 执行主对象是 `ExecutionRecord`
-- 启动入口统一通过 workspace ChatPanel / `launch_feature`
-- 不再存在旧 handler/task 桥作为主执行路径
+## 1. Canonical Rules
 
-## 1. Canonical Workspace Types
+1. capability seed 必须声明 `schema_version: capability.v2`。
+2. skill seed 必须声明 `schema_version: capability_skill.v2`。
+3. DataService Catalog 是 capability / skill SSOT；loader、admin save、runtime launch 都使用同一套 v2 schema。
+4. `feature_id` 仅保留为传输字段名，字段值必须是 canonical mission capability id。
+5. Prism 是文档编辑/预览主 surface；写作变更进入 Prism review item，不直接覆盖主稿。
+6. sandbox 开放边界由 `sandbox_policy` 明确表达；禁止 docker socket、privileged、host network、host paths、sibling container、server control。
+
+## 2. Workspace Types
 
 - `thesis`
 - `sci`
@@ -22,115 +24,95 @@ Capability skill 数据源: `backend/seed/skills/` + `capability_skills` table
 - `software_copyright`
 - `patent`
 
-总计: 5 个 workspace 类型，23 个 capability 入口。
-附加说明: 当前共有 24 个 chat skills。
-补充: `compile_export` 已移除，编译/导出统一走 workspace Prism（`/workspaces/{workspace_id}/prism`）。
+总计: 5 个 workspace 类型，27 个 mission capability，15 个 worker skill。
 
-## 2. Capability Entry Matrix
+## 3. Mission Capability Matrix
 
-### 2.1 Thesis (5)
+### 3.1 Thesis
 
-| feature_id | capability 入口名 | agent | panel | stages |
-| --- | --- | --- | --- | --- |
-| `deep_research` | 深度调研 | `scout` | `deep_research_panel` | `search/analyze/synthesize` |
-| `literature_management` | 文献管理 | `librarian` | - | - |
-| `opening_research` | 开题调研 | `scout` | `opening_research_panel` | `research/outline/refine` |
-| `thesis_writing` | 论文写作 | `thesis_writer` | `thesis_editor` | `outline/write/revise` |
-| `figure_generation` | 图表生成 | `figure_planner` | `figure_panel` | `analyze/design/generate` |
+| capability id | entry | primary surface | stage |
+| --- | --- | --- | --- |
+| `idea_to_thesis_manuscript` | Idea 到论文全文 | Prism | structure |
+| `thesis_research_pack` | 论文研究包 | Prism | research |
+| `thesis_empirical_analysis` | 论文实证分析 | Prism | collection |
+| `thesis_revision_pass` | 论文修订 | Prism | writing |
+| `thesis_defense_pack` | 答辩材料包 | Prism | review |
+| `thesis_reference_curation` | 参考文献整理 | Prism | review |
 
-### 2.2 SCI (8)
+### 3.2 SCI
 
-| feature_id | capability 入口名 | agent | panel | stages |
-| --- | --- | --- | --- | --- |
-| `literature_search` | 文献检索 | `scout` | `literature_panel` | `search/filter` |
-| `paper_analysis` | 论文分析 | `analyst` | `analysis_panel` | `parse/analyze/summarize` |
-| `writing` | 论文写作 | `writer` | `editor_panel` | `plan/write/revise` |
-| `literature_review` | 文献综述 | `reviewer` | `analysis_panel` | `collect/synthesize/draft` |
-| `framework_outline` | 框架与摘要 | `planner` | `editor_panel` | `position/outline/abstract` |
-| `figure_generation` | 图表生成 | `figure_planner` | `figure_panel` | `analyze/design/generate` |
-| `peer_review` | 同行评审 | `reviewer` | `analysis_panel` | `inspect/score/advise` |
-| `journal_recommend` | 期刊推荐 | `reviewer` | `analysis_panel` | `profile/match/rank` |
+| capability id | entry | primary surface | stage |
+| --- | --- | --- | --- |
+| `research_question_to_paper` | SCI 论文主稿 | Prism | structure |
+| `sci_literature_positioning` | SCI 文献定位 | Prism | research |
+| `sci_empirical_package` | SCI 实证包 | Prism | collection |
+| `sci_revision_for_journal` | SCI 期刊修订 | Prism | review |
+| `journal_submission_strategy` | 投稿策略 | Prism | review |
+| `response_to_reviewers` | 审稿回复 | Prism | writing |
+| `reproducibility_audit` | 可复现性审计 | Prism | collection |
 
-### 2.3 Proposal (4)
+### 3.3 Proposal
 
-| feature_id | capability 入口名 | agent | panel | stages |
-| --- | --- | --- | --- | --- |
-| `proposal_outline` | 申报书大纲 | `planner` | `outline_editor` | `analyze/generate` |
-| `background_research` | 背景调研 | `scout` | `literature_panel` | `search/summarize` |
-| `experiment_design` | 实验设计 | `planner` | `outline_editor` | `hypothesis/variables/evaluation` |
-| `figure_generation` | 图表生成 | `figure_planner` | `figure_panel` | `analyze/design/generate` |
+| capability id | entry | primary surface | stage |
+| --- | --- | --- | --- |
+| `idea_to_proposal_package` | 申报书整包 | Prism | structure |
+| `proposal_background_pack` | 申报背景包 | Prism | research |
+| `technical_route_package` | 技术路线包 | Prism | structure |
+| `feasibility_and_risk_review` | 可行性与风险评审 | Prism | review |
+| `proposal_polish_for_review` | 申报书送审润色 | Prism | writing |
 
-### 2.4 Software Copyright (3)
+### 3.4 Software Copyright
 
-| feature_id | capability 入口名 | agent | panel | stages |
-| --- | --- | --- | --- | --- |
-| `copyright_materials` | 材料准备 | `planner` | `outline_editor` | `collect/organize/review` |
-| `technical_description` | 技术说明 | `writer` | `editor_panel` | `analyze/draft/revise` |
-| `figure_generation` | 图表生成 | `figure_planner` | `figure_panel` | `analyze/design/generate` |
+| capability id | entry | primary surface | stage |
+| --- | --- | --- | --- |
+| `software_copyright_application_pack` | 软著申请包 | Prism | structure |
+| `software_technical_manual` | 软件技术说明书 | Prism | writing |
+| `software_evidence_pack` | 软著证据包 | Prism | collection |
+| `software_architecture_diagrams` | 软件架构图 | Prism | writing |
 
-### 2.5 Patent (3)
+### 3.5 Patent
 
-| feature_id | capability 入口名 | agent | panel | stages |
-| --- | --- | --- | --- | --- |
-| `patent_outline` | 专利框架 | `planner` | `outline_editor` | `analyze/structure/refine` |
-| `prior_art_search` | 现有技术检索 | `scout` | `literature_panel` | `search/compare` |
-| `figure_generation` | 图表生成 | `figure_planner` | `figure_panel` | `analyze/design/generate` |
+| capability id | entry | primary surface | stage |
+| --- | --- | --- | --- |
+| `invention_to_patent_draft` | 专利初稿 | Prism | structure |
+| `prior_art_and_novelty_pack` | 现有技术与新颖性包 | Prism | research |
+| `claims_strategy` | 权利要求策略 | Prism | structure |
+| `embodiment_and_drawings` | 实施例与附图 | Prism | writing |
+| `office_action_response` | 审查意见答复 | Prism | writing |
 
-## 3. Launch And Runtime Truth
+## 4. Worker Skill Catalog
 
-1. capability 的真正执行定义来自 capability YAML / DB 与 capability skills。
-2. 当前 `feature_id` 是工作台入口兼容标识，必须与对应 capability id 对齐。
-3. 启动与恢复统一走 workspace ChatPanel -> chat agent -> `launch_feature`。
-4. `launch_feature` 创建或复用 `ExecutionRecord`，并最终分发到 `execute_execution(execution_id)`。
-5. 缺参、busy、resume、commit、refresh 都围绕 `execution_id` 收敛。
-6. `TaskRecord` 仍保留为通用异步基础设施，但不再承担 capability 主执行桥语义。
+skills 是 worker instruction packs，不再作为用户入口 capability。
 
-## 4. Change Rules
+- `research-scout`
+- `literature-synthesizer`
+- `source-quality-auditor`
+- `manuscript-architect`
+- `evidence-analyst`
+- `figure-engineer`
+- `manuscript-writer`
+- `citation-auditor`
+- `review-critic`
+- `grant-planner`
+- `proposal-writer`
+- `patent-strategist`
+- `patent-drafter`
+- `software-structure-planner`
+- `software-doc-drafter`
 
-1. 新 capability 优先改 capability YAML / DB schema / capability resolver，再改前端兼容目录。
-2. `feature_id` 作为兼容入口标识，必须与 capability id 对齐，不得单独漂移。
-3. `agent`、`panel`、`stages` 属于 UI 兼容目录元数据，变更时必须同步回归 execution / compute UI 和 workspace skill labels。
-4. 不得重新引入旧 handler/task 桥、feature leader graph registry 或平行 launch orchestrator。
+## 5. Launch And Runtime Truth
 
-## 5. Entry Skills
+1. Chat Agent 根据 DataService preload 的 v2 mission catalog 识别用户意图。
+2. `launch_feature` 只接受 `schema_version == "capability.v2"` 的 capability。
+3. Lead Agent v2 初始 state 注入 `capability_policy`：`mission`、`context_policy`、`sandbox_policy`、`review_policy`、`quality_gates`。
+4. Compute projection 从 `sandbox_policy.mode` 判断 sandbox requirement。
+5. Dashboard 和 workspace summary 由 Catalog + Execution history 生成 mission progress，不再维护 per-workflow status builder。
+6. ResultCard、CompletedView、chat block、Prism Changes 共享 ReviewItem/ReviewBatch 事实源。
 
-skills 是 chat 层的 capability 入口语义。一个 skill 绑定一个 canonical capability，可附带默认参数与 follow-up skill。
+## 6. Change Rules
 
-### 5.1 Thesis
-
-- `deep-research` -> `deep_research`
-- `literature-manager` -> `literature_management`
-- `literature-reviewer` -> `opening_research`
-- `framework-designer` -> `thesis_writing` (`action=generate_outline`)
-- `fullpaper-writer` -> `thesis_writing` (`action=write_all`)
-- `figure-designer` -> `figure_generation`
-
-### 5.2 SCI
-
-- `deep-research` -> `literature_search`
-- `paper-analyst` -> `paper_analysis`
-- `section-writer` -> `writing`
-- `literature-reviewer` -> `literature_review`
-- `framework-designer` -> `framework_outline`
-- `figure-designer` -> `figure_generation`
-- `peer-reviewer` -> `peer_review`
-- `journal-recommender` -> `journal_recommend`
-
-### 5.3 Proposal
-
-- `proposal-writer` -> `proposal_outline`
-- `background-scout` -> `background_research`
-- `experiment-designer` -> `experiment_design`
-- `figure-designer` -> `figure_generation`
-
-### 5.4 Software Copyright
-
-- `copyright-writer` -> `copyright_materials`
-- `tech-doc-writer` -> `technical_description`
-- `figure-designer` -> `figure_generation`
-
-### 5.5 Patent
-
-- `patent-drafter` -> `patent_outline`
-- `prior-art-scout` -> `prior_art_search`
-- `figure-designer` -> `figure_generation`
+1. 新 capability 先改 v2 seed/schema，再改 runtime/frontend/docs。
+2. 新 skill 先改 v2 skill seed/schema，再接入 mission `graph_template`。
+3. 不得新增旧 workflow id、alias map、fallback resolver 或双读兼容层。
+4. 任何 sandbox 权限扩大必须写入 `sandbox_policy` 并通过 schema validator。
+5. 文档改动必须同步本文件、`workspace-current-state.md`、`architecture.md`。

@@ -19,7 +19,7 @@ from src.application.services.feature_launch_context import (
 class LaunchFeatureInput(BaseModel):
     feature_id: str = Field(
         ...,
-        description="Capability id, e.g. 'paper_analysis', 'deep_research', 'writing'.",
+        description="Mission capability id, e.g. 'idea_to_thesis_manuscript' or 'research_question_to_paper'.",
     )
     params: dict[str, Any] = Field(
         default_factory=dict,
@@ -113,6 +113,16 @@ async def launch_feature_tool(
                     f"Feature '{feature_id}' is not available for workspace_type "
                     f"'{workspace_type}'. Available feature_ids: {available_ids}. "
                     f"Pick one of these and call launch_feature again."
+                ),
+            }
+        if getattr(cap, "schema_version", None) != "capability.v2":
+            return {
+                "status": "error",
+                "code": "unsupported_capability_schema",
+                "feature_id": feature_id,
+                "detail": (
+                    f"Capability '{feature_id}' uses unsupported schema "
+                    f"'{getattr(cap, 'schema_version', None)}'. Runtime requires capability.v2."
                 ),
             }
 

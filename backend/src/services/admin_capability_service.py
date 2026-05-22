@@ -17,7 +17,7 @@ from src.dataservice_client.contracts.catalog import (
     CatalogUpsertPayload,
 )
 from src.dataservice_client.provider import dataservice_client
-from src.services.capability_schema import CapabilityYamlModel, CrossRefValidator
+from src.services.capability_schema import CapabilityV2YamlModel, CrossRefValidator
 from src.services.event_bus import EventBus
 
 logger = logging.getLogger(__name__)
@@ -37,43 +37,15 @@ def _diff_fields(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     return sorted(changed)
 
 
-def _yaml_to_catalog_data(model: CapabilityYamlModel) -> dict[str, Any]:
-    return {
-        "id": model.id,
-        "workspace_type": model.workspace_type,
-        "schema_version": "capability.v2",
-        "enabled": model.enabled,
-        "display_name": model.display_name,
-        "description": model.description,
-        "intent_description": model.intent_description,
-        "trigger_phrases": list(model.trigger_phrases),
-        "required_decisions": [d.model_dump(mode="json") for d in model.required_decisions],
-        "brief_schema": model.brief_schema,
-        "graph_template": model.graph_template.model_dump(mode="json"),
-        "ui_meta": model.ui_meta.model_dump(mode="json"),
-        "runtime": model.runtime.model_dump(mode="json"),
-        "dashboard_meta": model.dashboard_meta.model_dump(mode="json"),
-        "notes": model.notes,
-    }
+def _yaml_to_catalog_data(model: CapabilityV2YamlModel) -> dict[str, Any]:
+    return model.to_catalog_data()
 
 
 def _record_to_yaml_dict(cap: Any) -> dict[str, Any]:
-    return {
-        "id": cap.id,
-        "workspace_type": cap.workspace_type,
-        "enabled": cap.enabled,
-        "display_name": cap.display_name,
-        "description": cap.description,
-        "intent_description": cap.intent_description,
-        "trigger_phrases": list(cap.trigger_phrases or []),
-        "required_decisions": list(cap.required_decisions or []),
-        "brief_schema": dict(cap.brief_schema or {}),
-        "graph_template": dict(cap.graph_template or {}),
-        "ui_meta": dict(cap.ui_meta or {}),
-        "runtime": dict(cap.runtime or {}),
-        "dashboard_meta": dict(cap.dashboard_meta or {}),
-        "notes": cap.notes,
-    }
+    definition_json = getattr(cap, "definition_json", None)
+    if isinstance(definition_json, dict) and definition_json:
+        return dict(definition_json)
+    return {}
 
 
 class AdminCapabilityService:
@@ -192,7 +164,7 @@ class AdminCapabilityService:
         except yaml.YAMLError as e:
             return [f"yaml parse error: {e}"]
         try:
-            model = CapabilityYamlModel(**data)
+            model = CapabilityV2YamlModel(**data)
         except ValidationError as e:
             return [f"schema: {err['loc']}: {err['msg']}" for err in e.errors()]
         return await self.validator.validate_capability(model)
@@ -317,13 +289,13 @@ class AdminCapabilityService:
     def to_yaml_text(self, cap: Any) -> str:
         return yaml.safe_dump(_record_to_yaml_dict(cap), sort_keys=False, allow_unicode=True)
 
-    async def _parse_and_validate_for_write(self, yaml_text: str) -> CapabilityYamlModel:
+    async def _parse_and_validate_for_write(self, yaml_text: str) -> CapabilityV2YamlModel:
         try:
             data = yaml.safe_load(yaml_text)
         except yaml.YAMLError as e:
             raise ValueError(f"yaml parse error: {e}") from e
         try:
-            model = CapabilityYamlModel(**data)
+            model = CapabilityV2YamlModel(**data)
         except ValidationError as e:
             raise ValueError(f"schema validation failed: {e.errors()}") from e
         errors = await self.validator.validate_capability(model)

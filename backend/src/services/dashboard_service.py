@@ -8,20 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
-from src.services.dashboard import (
-    DashboardInnovationStatusMixin,
-    DashboardProposalStatusMixin,
-    DashboardSciStatusMixin,
-    DashboardThesisStatusMixin,
-)
+from src.services.dashboard import DashboardStatusSharedMixin
 
 
-class DashboardService(
-    DashboardThesisStatusMixin,
-    DashboardSciStatusMixin,
-    DashboardProposalStatusMixin,
-    DashboardInnovationStatusMixin,
-):
+class DashboardService(DashboardStatusSharedMixin):
     """Service for workspace dashboard overview."""
 
     def __init__(
@@ -95,8 +85,8 @@ class DashboardService(
         """Build workspace dashboard modules from the capabilities DB table.
 
         Capabilities are ordered by ``ui_meta.order`` (ascending), with capability
-        ``id`` as a stable tie-breaker. Dispatch uses ``dashboard_meta.status_kind``
-        when present, falling back to ``capability.id``.
+        ``id`` as a stable tie-breaker. Dashboard status is derived generically
+        from mission execution history so capability ids remain catalog-owned.
         """
         raw_capabilities = await self._list_catalog_capabilities(
             workspace_type=workspace_type,
@@ -106,18 +96,49 @@ class DashboardService(
 
         modules: list[dict[str, Any]] = []
         for cap in capabilities:
-            status_kind = (cap.dashboard_meta or {}).get("status_kind", cap.id)
-            # Skip capabilities marked hidden or with no status_kind
-            if not status_kind or (cap.dashboard_meta or {}).get("hidden") is True:
+            if (cap.dashboard_meta or {}).get("hidden") is True:
                 continue
-            method_name = f"_get_{status_kind}_status"
-            if not hasattr(self, method_name):
-                raise RuntimeError(
-                    f"No dashboard status builder for status_kind '{status_kind}' "
-                    f"(capability {cap.id})"
-                )
-            modules.append(await getattr(self, method_name)(workspace_id))
+            modules.append(await self._get_catalog_capability_status(workspace_id, cap))
         return modules
+
+    async def _get_catalog_capability_status(
+        self,
+        workspace_id: str,
+        capability: Any,
+    ) -> dict[str, Any]:
+        running_count = await self._count_running_feature_executions(
+            workspace_id,
+            capability.id,
+        )
+        latest_task_status = await self._get_latest_feature_execution_status(
+            workspace_id,
+            capability.id,
+        )
+
+        if running_count > 0:
+            status = "in_progress"
+        elif latest_task_status in {"completed", "succeeded", "success"}:
+            status = "completed"
+        elif latest_task_status == "failed":
+            status = "failed"
+        else:
+            status = "not_started"
+
+        raw_definition = getattr(capability, "definition_json", None)
+        definition = raw_definition if isinstance(raw_definition, dict) else {}
+        mission = definition.get("mission") if isinstance(definition.get("mission"), dict) else {}
+        return {
+            "id": capability.id,
+            "status": status,
+            "summary": {
+                "display_name": capability.display_name,
+                "entry_tier": (capability.ui_meta or {}).get("entry_tier"),
+                "primary_surface": mission.get("primary_surface"),
+                "document_role": mission.get("document_role"),
+                "running_count": running_count,
+                "last_task_status": latest_task_status,
+            },
+        }
 
     async def _get_recent_artifacts(
         self,

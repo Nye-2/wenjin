@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-05-20
+更新时间：2026-05-22
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
@@ -65,8 +65,8 @@
 | Execution | `backend/src/services/execution_service.py` `backend/src/execution/` | execution lifecycle、统一执行引擎、runtime provider |
 | Task | `backend/src/task/` | Celery dispatch、runtime state、durable task history |
 | Compute | `backend/src/compute/` | workbench projection、files/logs/review gate |
-| Capability Domain | `backend/seed/capabilities/` `backend/src/database/models/capability.py` `backend/src/services/capability_resolver.py` | capability schema、graph_template、brief_schema、trigger_phrases、缓存失效 |
-| Capability Skill Domain | `backend/seed/skills/` `backend/src/database/models/capability_skill.py` `backend/src/agents/middlewares/capability_skill_preload.py` | reusable subagent instruction packs、skill preload、subagent prompt/runtime config |
+| Capability Domain | `backend/seed/capabilities/` `backend/src/dataservice/domains/catalog/` `backend/src/services/capability_loader.py` | `capability.v2` mission schema、DataService Catalog SSOT、graph_template、policy preload |
+| Capability Skill Domain | `backend/seed/skills/` `backend/src/dataservice/domains/catalog/` `backend/src/agents/middlewares/capability_skill_preload.py` | `capability_skill.v2` worker instruction packs、skill preload、subagent prompt/runtime config |
 | Agent Runtime | `backend/src/agents/lead_agent/` | graph compile、subagent orchestration、TaskReport |
 | Prism Manuscript Domain | `backend/src/database/models/prism.py` `backend/src/services/prism_review_service.py` `backend/src/services/workspace_prism_service.py` | workspace-owned manuscript review、source links、protected sections、surface projection |
 
@@ -86,7 +86,7 @@
 1. Router 不编排业务流程
 2. Compute 不拥有业务执行状态
 3. Task 不替代产品 execution 事实源
-4. capability / capability skill 才是执行定义事实源；feature 只允许作为工作台入口与兼容 UI 目录
+4. capability / capability skill 才是执行定义事实源；`feature_id` 只允许作为传输字段名，其值必须是 canonical mission capability id
 5. execution payload 优先复用 canonical serializer
 6. 前端 execution 状态不能再维护第二套并行运行态
 7. workspace event hook 必须继续是 execution 发现与订阅单入口
@@ -113,7 +113,7 @@ User action
 
 ### 3.1 Launch
 
-- `launch_feature` 是 capability 执行统一入口
+- `launch_feature` 是 capability 执行统一入口，只接受 `schema_version == "capability.v2"` 的记录
 - launch / resume 主语义基于 `execution_id`
 - lead-busy 通过 active execution 判定
 
@@ -269,12 +269,16 @@ User action
 
 ### 6.1 Capability Domain
 
-- capability seed + DB-backed
-- `CapabilityResolver` 校验能力定义
+- capability seed + DataService Catalog DB-backed
+- capability seed 必须是 `schema_version: capability.v2`
+- capability skill seed 必须是 `schema_version: capability_skill.v2`
+- `CapabilityLoader` / admin save / DataService Catalog 写入路径使用同一套 v2 schema
 - capability skills 由 `CapabilitySkillPreloadMiddleware` 注入 task spec / prompt 上下文
+- `LeadAgentRuntime` 将 `mission`、`context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 注入 `capability_policy`
+- Compute 从 `sandbox_policy.mode` 推导 sandbox requirement
 - `OutputMappingResolver` 是结构化输出映射事实源
 
-当前工作台里仍保留 `feature_id` / feature catalog 等兼容 UI 语义，但执行事实源应视为：
+当前工作台里 `feature_id` 仅为传输字段名，不再代表旧 workflow catalog。执行事实源为：
 
 1. `Capability`
 2. `CapabilitySkill`
@@ -291,9 +295,9 @@ User action
 3. `backend/src/services/capability_resolver.py`
 4. 如涉及 skill pack，同步更新 `backend/seed/skills/*.yaml`
 5. `capability_skill_preload` / subagent runtime / output mapping
-6. 前端 capability entry / catalog / UI 兼容层
+6. 前端 mission entry / stage mapping
 
-不要从前端按钮、兼容 feature catalog 或临时 tool 参数反推 capability 定义。
+不要从前端按钮、旧 feature catalog 或临时 tool 参数反推 capability 定义。
 
 ### 6.2 Rooms
 

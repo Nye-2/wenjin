@@ -4,7 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from src.services.capability_schema import (
+    CapabilitySkillV2YamlModel,
     CapabilitySkillYamlModel,
+    CapabilityV2YamlModel,
     CapabilityYamlModel,
     UIMetaModel,
 )
@@ -53,6 +55,114 @@ class TestCapabilityYaml:
                 # ui_meta missing
             )
 
+
+class TestCapabilityV2Yaml:
+    def _valid_payload(self) -> dict:
+        return {
+            "schema_version": "capability.v2",
+            "id": "idea_to_thesis_manuscript",
+            "workspace_type": "thesis",
+            "enabled": True,
+            "display": {
+                "name": "Idea 到论文全文",
+                "description": "根据已确认 idea 生成或更新完整论文主稿",
+                "icon": "file-pen",
+                "color": "blue",
+                "order": 10,
+                "entry_tier": "primary",
+            },
+            "intent": {
+                "description": "用户有明确研究 idea，希望生成或更新完整论文主稿",
+                "trigger_phrases": ["写全文", "根据 idea 写论文"],
+            },
+            "mission": {
+                "goal": "produce_or_update_primary_document",
+                "primary_surface": "prism",
+                "document_role": "primary_manuscript",
+                "user_promise": "生成可审阅、可回滚、带来源追踪的主文档变更",
+                "allowed_deliverables": ["full_document_update"],
+            },
+            "inputs": {
+                "required_decisions": [
+                    {
+                        "key": "research_idea",
+                        "ask": "你的核心研究 idea 是什么？",
+                        "type": "string",
+                        "persist_as": "decision",
+                    }
+                ],
+                "brief_schema": {
+                    "type": "object",
+                    "required": ["research_idea"],
+                    "properties": {"research_idea": {"type": "string"}},
+                },
+            },
+            "context_policy": {
+                "room_reads": {"library": "summary", "documents": "excerpts"},
+                "prism_context": {"include_outline": True},
+                "full_text_access": "explicit_tool_only",
+            },
+            "sandbox_policy": {
+                "mode": "conditional",
+                "profiles": ["analysis", "visualization"],
+                "allowed_operations": ["run_python", "render_figures"],
+                "isolation": {
+                    "provider": "docker",
+                    "network": "default_deny_allowlist",
+                },
+                "resource_limits": {"cpu": 2, "memory_mb": 4096},
+                "artifact_policy": {"review_required": True},
+            },
+            "review_policy": {
+                "default_targets": ["prism_file_change", "sandbox_artifact"],
+                "require_user_acceptance": True,
+                "allow_bulk_accept": True,
+            },
+            "quality_gates": [
+                "no_direct_primary_document_write",
+                "provenance_required_for_claims",
+            ],
+            "graph_template": {"phases": []},
+        }
+
+    def test_minimal_valid_v2(self):
+        model = CapabilityV2YamlModel(**self._valid_payload())
+
+        assert model.schema_version == "capability.v2"
+        assert model.display.entry_tier == "primary"
+        assert model.sandbox_policy.mode == "conditional"
+
+    def test_missing_schema_version_fails(self):
+        payload = self._valid_payload()
+        payload.pop("schema_version")
+
+        with pytest.raises(ValidationError):
+            CapabilityV2YamlModel(**payload)
+
+    def test_rejects_extra_fields(self):
+        payload = self._valid_payload()
+        payload["runtime"] = {"requires_sandbox": True}
+
+        with pytest.raises(ValidationError):
+            CapabilityV2YamlModel(**payload)
+
+    def test_rejects_forbidden_sandbox_isolation_controls(self):
+        payload = self._valid_payload()
+        payload["sandbox_policy"]["isolation"]["allow_docker_socket"] = True
+
+        with pytest.raises(ValidationError, match="forbidden host/container controls"):
+            CapabilityV2YamlModel(**payload)
+
+    def test_to_catalog_data_derives_read_model_fields(self):
+        model = CapabilityV2YamlModel(**self._valid_payload())
+        data = model.to_catalog_data()
+
+        assert data["display_name"] == "Idea 到论文全文"
+        assert data["trigger_phrases"] == ["写全文", "根据 idea 写论文"]
+        assert data["brief_schema"]["required"] == ["research_idea"]
+        assert data["ui_meta"]["entry_tier"] == "primary"
+        assert data["runtime"]["sandbox_policy"]["mode"] == "conditional"
+
     def test_required_decision_type_validated(self):
         with pytest.raises(ValidationError):
             CapabilityYamlModel(
@@ -79,3 +189,71 @@ class TestCapabilitySkillYaml:
         assert m.enabled is True
         assert m.prompt == ""
         assert m.allowed_tools == []
+
+
+class TestCapabilitySkillV2Yaml:
+    def _valid_payload(self) -> dict:
+        return {
+            "schema_version": "capability_skill.v2",
+            "id": "evidence-analyst",
+            "enabled": True,
+            "display_name": "Evidence Analyst",
+            "description": "在 sandbox 中完成数据分析、统计检验、图表和结果说明",
+            "worker": {
+                "category": "evidence",
+                "subagent_type": "react",
+                "role_prompt": "Run reproducible analysis and return artifacts.",
+            },
+            "io_contract": {
+                "input_schema": {
+                    "type": "object",
+                    "required": ["analysis_goal"],
+                },
+                "output_schema": {
+                    "type": "object",
+                    "required": ["artifacts"],
+                },
+            },
+            "context_access": {
+                "room_reads": {"documents": "excerpts", "decisions": "relevant"},
+                "prism_context": "summary",
+            },
+            "tool_policy": {
+                "allowed_tools": ["sandbox.run_python", "sandbox.write_file"],
+            },
+            "sandbox_access": {
+                "mode": "required",
+                "profiles": ["analysis", "visualization"],
+            },
+            "quality_gates": ["all_artifacts_have_input_hashes"],
+        }
+
+    def test_minimal_valid_v2(self):
+        model = CapabilitySkillV2YamlModel(**self._valid_payload())
+
+        assert model.schema_version == "capability_skill.v2"
+        assert model.subagent_type == "react"
+        assert model.sandbox_access.mode == "required"
+
+    def test_missing_schema_version_fails(self):
+        payload = self._valid_payload()
+        payload.pop("schema_version")
+
+        with pytest.raises(ValidationError):
+            CapabilitySkillV2YamlModel(**payload)
+
+    def test_rejects_extra_fields(self):
+        payload = self._valid_payload()
+        payload["config"] = {"output_kind": "document"}
+
+        with pytest.raises(ValidationError):
+            CapabilitySkillV2YamlModel(**payload)
+
+    def test_to_catalog_data_derives_read_model_fields(self):
+        model = CapabilitySkillV2YamlModel(**self._valid_payload())
+        data = model.to_catalog_data()
+
+        assert data["worker_type"] == "evidence"
+        assert data["subagent_type"] == "react"
+        assert data["prompt"] == "Run reproducible analysis and return artifacts."
+        assert data["allowed_tools"] == ["sandbox.run_python", "sandbox.write_file"]

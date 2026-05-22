@@ -114,106 +114,106 @@ def _format_conversation_markdown(payload: dict[str, object]) -> str:
     ("feature_id", "workspace_type", "params", "expected_keys"),
     [
         (
-            "deep_research",
+            "thesis_research_pack",
             "thesis",
             {"topic": "LLM planning"},
-            {"topic", "query"},
+            {"topic", "goal"},
         ),
         (
-            "literature_search",
+            "sci_literature_positioning",
             "sci",
             {"query": "LLM planning", "discipline": "cs"},
-            {"query", "discipline"},
+            {"query", "discipline", "goal"},
         ),
         (
-            "paper_analysis",
+            "sci_empirical_package",
             "sci",
             {"reference_id": "ref-1", "paper_title": "Agent Paper"},
-            {"reference_id", "paper_title"},
+            {"reference_id", "paper_title", "goal"},
         ),
         (
-            "writing",
+            "research_question_to_paper",
             "sci",
             {"paper_title": "Agent Paper", "section_type": "introduction"},
-            {"paper_title", "section_type"},
+            {"paper_title", "section_type", "goal"},
         ),
         (
-            "literature_review",
+            "sci_revision_for_journal",
             "sci",
             {"topic": "LLM planning"},
-            {"topic", "discipline"},
+            {"topic", "goal"},
         ),
         (
-            "framework_outline",
+            "research_question_to_paper",
             "sci",
             {"paper_title": "Agent Paper", "topic": "LLM planning"},
-            {"paper_title", "topic"},
+            {"paper_title", "topic", "goal"},
         ),
         (
-            "peer_review",
+            "reproducibility_audit",
             "sci",
             {"paper_title": "Agent Paper", "manuscript_excerpt": "Draft body"},
-            {"paper_title", "manuscript_excerpt"},
+            {"paper_title", "manuscript_excerpt", "goal"},
         ),
         (
-            "journal_recommend",
+            "journal_submission_strategy",
             "sci",
             {"paper_title": "Agent Paper", "abstract": "Study of agent systems"},
-            {"paper_title", "abstract", "discipline"},
+            {"paper_title", "abstract", "goal"},
         ),
         (
-            "opening_research",
+            "idea_to_thesis_manuscript",
             "thesis",
             {"topic": "LLM planning", "report_type": "opening_report"},
-            {"topic", "report_type"},
+            {"topic", "report_type", "goal"},
         ),
         (
-            "thesis_writing",
+            "idea_to_thesis_manuscript",
             "thesis",
             {"action": "generate_outline", "paper_title": "Agent Thesis"},
-            {"action", "paper_title"},
+            {"action", "paper_title", "goal"},
         ),
         (
-            "figure_generation",
+            "software_architecture_diagrams",
             "thesis",
             {"description": "A flowchart", "type": "flowchart"},
-            {"description", "type"},
+            {"description", "type", "goal"},
         ),
         (
-            "experiment_design",
+            "technical_route_package",
             "proposal",
             {"topic": "Agent evaluation", "objective": "Design a benchmark"},
-            {"topic", "objective"},
+            {"topic", "objective", "goal"},
         ),
         (
-            "proposal_outline",
+            "idea_to_proposal_package",
             "proposal",
             {"topic": "Agent evaluation", "proposal_type": "NSF", "period_months": 36},
-            {"topic", "proposal_type", "period_months"},
+            {"topic", "proposal_type", "period_months", "goal"},
         ),
         (
-            "background_research",
+            "proposal_background_pack",
             "proposal",
             {"keywords": "Agent evaluation", "industry_scope": "AI", "time_range": "近5年"},
-            {"keywords", "industry_scope", "time_range"},
+            {"keywords", "industry_scope", "time_range", "goal"},
         ),
         (
-            "patent_outline",
+            "invention_to_patent_draft",
             "patent",
             {"innovation_description": "Novel battery", "technical_field": "Energy"},
-            {"innovation_description", "technical_field"},
+            {"innovation_description", "technical_field", "goal"},
         ),
         (
-            "copyright_materials",
+            "software_copyright_application_pack",
             "software_copyright",
             {"software_name": "Wenjin", "version": "V1.0"},
-            {"software_name", "version"},
+            {"software_name", "version", "goal"},
         ),
         (
-            "technical_description",
+            "software_technical_manual",
             "software_copyright",
             {"software_name": "Wenjin", "version": "V1.0", "deployment_architecture": "B/S架构"},
-            {"software_name", "version", "deployment_architecture"},
+            {"software_name", "version", "deployment_architecture", "goal"},
         ),
     ],
 )
@@ -251,7 +251,7 @@ def test_unknown_feature_id_returns_fallback() -> None:
 
 def test_null_workspace_returns_fallback() -> None:
     state = _resolve_action_state(
-        feature_id="deep_research",
+        feature_id="thesis_research_pack",
         workspace=None,
         artifacts=[],
         orchestration_params=None,
@@ -259,12 +259,12 @@ def test_null_workspace_returns_fallback() -> None:
     # When workspace is None and no orchestration params, fallback task name is used
     rerun_params = state["rerunParams"]
     assert isinstance(rerun_params, dict)
-    assert rerun_params.get("topic") == "未命名任务"
+    assert rerun_params.get("goal") == "未命名任务"
 
 
 def test_null_orchestration_params_falls_back_to_workspace() -> None:
     state = _resolve_action_state(
-        feature_id="deep_research",
+        feature_id="thesis_research_pack",
         workspace=_workspace(workspace_type="thesis"),
         artifacts=[],
         orchestration_params=None,
@@ -272,7 +272,7 @@ def test_null_orchestration_params_falls_back_to_workspace() -> None:
     rerun_params = state["rerunParams"]
     assert isinstance(rerun_params, dict)
     # _workspace_fallback prefers description over name
-    assert rerun_params.get("topic") == "Research on agent planning and execution"
+    assert rerun_params.get("goal") == "Research on agent planning and execution"
 
 
 def test_explicit_source_artifact_id_takes_precedence() -> None:
@@ -281,7 +281,7 @@ def test_explicit_source_artifact_id_takes_precedence() -> None:
         _artifact(artifact_type="paper_analysis", title="Explicit", content={"topic": "explicit"}),
     ]
     state = _resolve_action_state(
-        feature_id="paper_analysis",
+        feature_id="sci_empirical_package",
         workspace=_workspace(workspace_type="sci"),
         artifacts=artifacts,
         orchestration_params=None,
@@ -300,7 +300,7 @@ def test_implicit_source_artifact_picks_latest_by_created_at() -> None:
     newer.created_at = datetime(2024, 6, 1, tzinfo=UTC)
 
     state = _resolve_action_state(
-        feature_id="paper_analysis",
+        feature_id="sci_empirical_package",
         workspace=_workspace(workspace_type="sci"),
         artifacts=[older, newer],
         orchestration_params=None,
@@ -311,7 +311,7 @@ def test_implicit_source_artifact_picks_latest_by_created_at() -> None:
 
 def test_source_artifact_id_not_leaked_into_rerun_params() -> None:
     state = _resolve_action_state(
-        feature_id="writing",
+        feature_id="research_question_to_paper",
         workspace=_workspace(workspace_type="sci"),
         artifacts=[_artifact(artifact_type="paper_draft", title="Draft")],
         orchestration_params={"paper_title": "Test"},

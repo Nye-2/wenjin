@@ -16,33 +16,41 @@ export const workspaceStages: WorkspaceStage[] = [
 
 export const featureStageMap: Record<string, string> = {
   // Stage: research
-  deep_research: "research",
-  background_research: "research",
-  opening_research: "research",
-  prior_art_search: "research",
-  literature_search: "research",
+  thesis_research_pack: "research",
+  sci_literature_positioning: "research",
+  proposal_background_pack: "research",
+  prior_art_and_novelty_pack: "research",
 
   // Stage: collection
-  literature_management: "collection",
-  literature_review: "collection",
-  paper_analysis: "collection",
+  thesis_empirical_analysis: "collection",
+  sci_empirical_package: "collection",
+  software_evidence_pack: "collection",
+  reproducibility_audit: "collection",
 
   // Stage: structure
-  framework_outline: "structure",
-  proposal_outline: "structure",
-  patent_outline: "structure",
-  experiment_design: "structure",
+  idea_to_thesis_manuscript: "structure",
+  research_question_to_paper: "structure",
+  idea_to_proposal_package: "structure",
+  technical_route_package: "structure",
+  software_copyright_application_pack: "structure",
+  invention_to_patent_draft: "structure",
+  claims_strategy: "structure",
 
   // Stage: writing
-  thesis_writing: "writing",
-  writing: "writing",
-  figure_generation: "writing",
-  copyright_materials: "writing",
-  technical_description: "writing",
+  thesis_revision_pass: "writing",
+  response_to_reviewers: "writing",
+  proposal_polish_for_review: "writing",
+  software_technical_manual: "writing",
+  software_architecture_diagrams: "writing",
+  embodiment_and_drawings: "writing",
+  office_action_response: "writing",
 
   // Stage: review
-  peer_review: "review",
-  journal_recommend: "review",
+  thesis_defense_pack: "review",
+  thesis_reference_curation: "review",
+  sci_revision_for_journal: "review",
+  journal_submission_strategy: "review",
+  feasibility_and_risk_review: "review",
 };
 
 export function getFeatureStageId(featureId: string): string {

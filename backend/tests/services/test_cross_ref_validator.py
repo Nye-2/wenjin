@@ -5,19 +5,41 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.services.capability_schema import CapabilityYamlModel, CrossRefValidator
+from src.services.capability_schema import CapabilityV2YamlModel, CrossRefValidator
 
 
 def _make_capability_yaml(
     skill_ids: list[str], subagent_types: list[str]
-) -> CapabilityYamlModel:
-    return CapabilityYamlModel(
-        id="x",
+) -> CapabilityV2YamlModel:
+    return CapabilityV2YamlModel(
+        schema_version="capability.v2",
+        id="idea_to_thesis_manuscript",
         workspace_type="thesis",
-        display_name="X",
-        intent_description="x",
-        brief_schema={},
-        ui_meta={"icon": "x", "color": "x"},
+        display={
+            "name": "Idea 到论文全文",
+            "description": "x",
+            "icon": "file-pen",
+            "color": "blue",
+            "order": 10,
+            "entry_tier": "primary",
+        },
+        intent={"description": "x", "trigger_phrases": ["写全文"]},
+        mission={
+            "goal": "produce_or_update_primary_document",
+            "primary_surface": "prism",
+            "document_role": "primary_manuscript",
+            "user_promise": "x",
+            "allowed_deliverables": ["full_document_update"],
+        },
+        inputs={"required_decisions": [], "brief_schema": {"type": "object"}},
+        context_policy={"room_reads": {}, "prism_context": {}, "full_text_access": "explicit_tool_only"},
+        sandbox_policy={"mode": "none", "profiles": [], "allowed_operations": []},
+        review_policy={
+            "default_targets": ["prism_file_change"],
+            "require_user_acceptance": True,
+            "allow_bulk_accept": True,
+        },
+        quality_gates=["no_direct_primary_document_write"],
         graph_template={
             "phases": [
                 {
@@ -86,7 +108,7 @@ async def test_subagent_type_unknown_fails(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_skill_subagent_type_validated(monkeypatch):
-    from src.services.capability_schema import CapabilitySkillYamlModel
+    from src.services.capability_schema import CapabilitySkillV2YamlModel
 
     db = AsyncMock(spec=AsyncSession)
     monkeypatch.setattr(
@@ -95,10 +117,50 @@ async def test_skill_subagent_type_validated(monkeypatch):
         staticmethod(lambda: {"react"}),
     )
 
-    skill = CapabilitySkillYamlModel(
+    skill = CapabilitySkillV2YamlModel(
+        schema_version="capability_skill.v2",
         id="x",
         display_name="X",
-        subagent_type="bogus",
+        worker={
+            "category": "writing",
+            "subagent_type": "bogus",
+            "role_prompt": "Write.",
+        },
+        io_contract={"input_schema": {}, "output_schema": {}},
+        context_access={"room_reads": {}, "prism_context": "summary"},
+        tool_policy={"allowed_tools": []},
+        sandbox_access={"mode": "none", "profiles": []},
+        quality_gates=[],
+    )
+    errors = await CrossRefValidator(db).validate_skill(skill)
+    assert any("bogus" in e for e in errors)
+
+
+@pytest.mark.asyncio
+async def test_skill_v2_subagent_type_validated(monkeypatch):
+    from src.services.capability_schema import CapabilitySkillV2YamlModel
+
+    db = AsyncMock(spec=AsyncSession)
+    monkeypatch.setattr(
+        CrossRefValidator,
+        "_registry_subagent_types",
+        staticmethod(lambda: {"react"}),
+    )
+
+    skill = CapabilitySkillV2YamlModel(
+        schema_version="capability_skill.v2",
+        id="evidence-analyst",
+        display_name="Evidence Analyst",
+        worker={
+            "category": "evidence",
+            "subagent_type": "bogus",
+            "role_prompt": "Run reproducible analysis.",
+        },
+        io_contract={"input_schema": {}, "output_schema": {}},
+        context_access={"room_reads": {}, "prism_context": "summary"},
+        tool_policy={"allowed_tools": []},
+        sandbox_access={"mode": "required", "profiles": ["analysis"]},
+        quality_gates=[],
     )
     errors = await CrossRefValidator(db).validate_skill(skill)
     assert any("bogus" in e for e in errors)

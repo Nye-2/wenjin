@@ -8,15 +8,30 @@ import pytest
 from src.services.admin_skill_service import AdminSkillService
 
 SAMPLE_SKILL_YAML = """
+schema_version: capability_skill.v2
 id: test-skill
+enabled: true
 display_name: Test Skill
 description: Test
-subagent_type: react
-prompt: |
-  You are a test agent.
-allowed_tools: []
-resources: []
-config: {}
+worker:
+  category: writing
+  subagent_type: react
+  role_prompt: |
+    You are a test agent.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+context_access:
+  room_reads: {}
+  prism_context: summary
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates: []
 """
 
 
@@ -36,6 +51,7 @@ class _SkillCatalogFake:
         data = dict(command.data)
         if "subagent_type" not in data and "worker_type" in data:
             data["subagent_type"] = data["worker_type"]
+        data.setdefault("skill_json", dict(command.data))
         record = SimpleNamespace(**data)
         self.records[skill_id] = record
         return record

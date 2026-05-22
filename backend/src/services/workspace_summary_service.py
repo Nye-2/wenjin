@@ -28,10 +28,6 @@ _STATUS_LABELS = {
     "failed": "失败",
 }
 
-_MIN_LITERATURE_TOTAL = 5
-_MIN_LITERATURE_CORE = 3
-
-
 class WorkspaceSummaryService:
     """Build a concise task summary for workspace cockpit surfaces."""
 
@@ -485,13 +481,11 @@ class WorkspaceSummaryService:
         executions: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         risks: list[dict[str, Any]] = []
-        module_by_id = {module["id"]: module for module in modules if module.get("id")}
-
         for execution in executions:
             if str(execution.get("status") or "") != "awaiting_user_input":
                 continue
             feature_id = str(execution.get("feature_id") or "").strip()
-            module = module_by_id.get(feature_id)
+            module = next((item for item in modules if item["id"] == feature_id), None)
             risks.append(
                 {
                     "id": f"advisory:{feature_id or execution.get('id')}",
@@ -513,106 +507,6 @@ class WorkspaceSummaryService:
                     "tone": "danger",
                 }
             )
-
-        literature_module = None
-        if workspace_type == "thesis":
-            literature_module = next(
-                (module for module in modules if module["id"] == "literature_management"),
-                None,
-            )
-        elif workspace_type == "sci":
-            literature_module = next(
-                (module for module in modules if module["id"] == "literature_search"),
-                None,
-            )
-
-        if literature_module:
-            summary = literature_module.get("summary") or {}
-            total = self._safe_int(summary.get("total") or summary.get("results_count"))
-            core = self._safe_int(summary.get("core"))
-            if total < _MIN_LITERATURE_TOTAL:
-                risks.append(
-                    {
-                        "id": f"literature-total:{literature_module['id']}",
-                        "title": f"当前文献储备偏少（{total}），建议先补充检索与筛选。",
-                        "tone": "warning",
-                    }
-                )
-            elif workspace_type == "thesis" and core < _MIN_LITERATURE_CORE:
-                risks.append(
-                    {
-                        "id": "literature-core:thesis",
-                        "title": f"核心文献仅 {core} 篇，后续写作支撑可能不足。",
-                        "tone": "warning",
-                    }
-                )
-
-        if workspace_type == "proposal":
-            background_research = module_by_id.get("background_research")
-            experiment_design = module_by_id.get("experiment_design")
-            proposal_outline = module_by_id.get("proposal_outline")
-            if (
-                background_research
-                and background_research["status"] == "not_started"
-                and proposal_outline
-                and proposal_outline["status"] in {"in_progress", "completed"}
-            ):
-                risks.append(
-                    {
-                        "id": "proposal:background_research",
-                        "title": "背景调研尚未形成，立项依据与问题定义可能偏弱。",
-                        "tone": "warning",
-                    }
-                )
-            if (
-                experiment_design
-                and experiment_design["status"] == "not_started"
-                and (
-                    (background_research and background_research["status"] == "completed")
-                    or (proposal_outline and proposal_outline["status"] == "completed")
-                )
-            ):
-                risks.append(
-                    {
-                        "id": "proposal:experiment_design",
-                        "title": "实验设计尚未产出，研究方案与评审说服力可能不足。",
-                        "tone": "warning",
-                    }
-                )
-
-        if workspace_type == "patent":
-            patent_outline = module_by_id.get("patent_outline")
-            prior_art_search = module_by_id.get("prior_art_search")
-            if (
-                patent_outline
-                and patent_outline["status"] == "completed"
-                and prior_art_search
-                and prior_art_search["status"] == "not_started"
-            ):
-                risks.append(
-                    {
-                        "id": "patent:prior_art_search",
-                        "title": "现有技术检索尚未完成，新颖性与授权风险仍未显式收敛。",
-                        "tone": "warning",
-                    }
-                )
-
-        if workspace_type == "software_copyright":
-            copyright_materials = module_by_id.get("copyright_materials")
-            technical_description = module_by_id.get("technical_description")
-            if (
-                copyright_materials
-                and copyright_materials["status"] == "completed"
-                and technical_description
-                and technical_description["status"] == "not_started"
-            ):
-                risks.append(
-                    {
-                        "id": "software_copyright:technical_description",
-                        "title": "技术说明书尚未产出，当前软著材料包仍不完整。",
-                        "tone": "warning",
-                    }
-                )
 
         return risks[:3]
 
@@ -688,16 +582,3 @@ class WorkspaceSummaryService:
             if module["status"] == status:
                 return module
         return None
-
-    @staticmethod
-    def _safe_int(value: Any) -> int:
-        if isinstance(value, int):
-            return value
-        if isinstance(value, float):
-            return int(value)
-        if isinstance(value, str):
-            try:
-                return int(float(value))
-            except ValueError:
-                return 0
-        return 0

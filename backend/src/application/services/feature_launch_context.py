@@ -14,17 +14,21 @@ from src.application.results import FeatureExecutionAdvisory
 THREAD_ENTRY_SOURCES = {"thread", "tool", "automation"}
 
 FEATURE_CONTEXT_REQUIREMENTS: dict[str, tuple[tuple[str, ...], ...]] = {
-    "deep_research": (("topic", "query"),),
-    "literature_search": (("query", "topic", "keywords"),),
-    "background_research": (("keywords", "topic", "query"),),
-    "prior_art_search": (("keywords", "query", "topic"),),
-    "opening_research": (("topic", "query"),),
+    "thesis_research_pack": (("goal", "topic", "query"),),
+    "thesis_empirical_analysis": (("goal", "dataset_id", "source_artifact_id"),),
+    "sci_literature_positioning": (("goal", "query", "topic", "keywords"),),
+    "sci_empirical_package": (("goal", "dataset_id", "source_artifact_id"),),
+    "proposal_background_pack": (("goal", "keywords", "topic", "query"),),
+    "prior_art_and_novelty_pack": (("goal", "keywords", "query", "topic"),),
 }
 
 FEATURE_CONTEXT_FIELD_LABELS: dict[str, str] = {
+    "goal": "任务目标",
     "topic": "研究主题",
     "query": "检索问题",
     "keywords": "关键词",
+    "dataset_id": "数据集",
+    "source_artifact_id": "来源材料",
 }
 
 

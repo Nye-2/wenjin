@@ -697,6 +697,12 @@ async def _build_runtime_profile_projection(
     raw = capability.runtime if capability is not None else None
     if not isinstance(raw, dict):
         return {}
+    definition_json = getattr(capability, "definition_json", None) if capability is not None else None
+    if not isinstance(definition_json, dict):
+        definition_json = {}
+    sandbox_policy = definition_json.get("sandbox_policy")
+    if not isinstance(sandbox_policy, dict):
+        sandbox_policy = raw.get("sandbox_policy") if isinstance(raw.get("sandbox_policy"), dict) else {}
 
     review_gate_value = raw.get("review_gate")
     if isinstance(review_gate_value, dict) and review_gate_value:
@@ -717,7 +723,8 @@ async def _build_runtime_profile_projection(
         "workspace_type": workspace_type,
         "feature_id": feature_id,
         "runtime_mode": str(raw.get("mode") or ""),
-        "requires_sandbox": bool(raw.get("requires_sandbox")),
+        "requires_sandbox": sandbox_policy.get("mode") == "required",
+        "sandbox_policy": sandbox_policy,
         "review_gate": review_gate,
         "allowed_paths": allowed_paths,
     }

@@ -13,34 +13,75 @@ class _SeedCatalogFake:
         self.list_catalog_capabilities = AsyncMock(return_value=[])
 
 
+def _capability_v2_yaml(*, cap_id: str = "idea_to_thesis_manuscript") -> str:
+    return textwrap.dedent(f"""\
+        schema_version: capability.v2
+        id: {cap_id}
+        workspace_type: thesis
+        enabled: true
+        display:
+          name: Idea 到论文全文
+          description: 根据已确认 idea 生成或更新完整论文主稿
+          icon: file-pen
+          color: blue
+          order: 10
+          entry_tier: primary
+        intent:
+          description: 用户有明确研究 idea，希望生成或更新完整论文主稿
+          trigger_phrases: [写全文]
+        mission:
+          goal: produce_or_update_primary_document
+          primary_surface: prism
+          document_role: primary_manuscript
+          user_promise: 生成可审阅的主文档变更
+          allowed_deliverables: [full_document_update]
+        inputs:
+          required_decisions: []
+          brief_schema:
+            type: object
+            required: [research_idea]
+            properties:
+              research_idea: {{type: string}}
+        context_policy:
+          room_reads:
+            library: summary
+          prism_context:
+            include_outline: true
+          full_text_access: explicit_tool_only
+        sandbox_policy:
+          mode: conditional
+          profiles: [analysis]
+          allowed_operations: [run_python]
+          isolation:
+            provider: docker
+            network: default_deny_allowlist
+          resource_limits:
+            cpu: 2
+            memory_mb: 4096
+          artifact_policy:
+            review_required: true
+        review_policy:
+          default_targets: [prism_file_change]
+          require_user_acceptance: true
+          allow_bulk_accept: true
+        quality_gates: [no_direct_primary_document_write]
+        graph_template:
+          phases:
+            - name: drafting
+              tasks:
+                - name: write
+                  subagent_type: react
+                  skill_id: manuscript-writer
+    """)
+
+
 @pytest.mark.asyncio
 async def test_load_seeds_when_empty(test_session, tmp_path):
     """Catalog empty → loads YAML through DataService."""
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
     yaml_file = seed_dir / "deep_research.yaml"
-    yaml_file.write_text(textwrap.dedent("""\
-        id: deep_research
-        workspace_type: thesis
-        display_name: 深度文献调研
-        description: 围绕主题做系统化文献检索
-        intent_description: 用户希望对某个主题做学术性的深度文献调研
-        brief_schema:
-          type: object
-          required: [topic]
-          properties:
-            topic: {type: string}
-        graph_template:
-          phases:
-            - name: discover
-              tasks:
-                - name: search
-                  subagent_type: searcher
-        ui_meta:
-          icon: search
-          color: purple
-          order: 0
-    """))
+    yaml_file.write_text(_capability_v2_yaml(cap_id="deep_research"))
 
     from src.services.capability_loader import CapabilityLoader
 
@@ -55,11 +96,13 @@ async def test_load_seeds_when_empty(test_session, tmp_path):
 
     assert count == 1
     command = dataservice.load_catalog_capability_seed_items.await_args.args[0]
-    assert command.items[0].data["display_name"] == "深度文献调研"
-    assert command.items[0].data["intent_description"] == "用户希望对某个主题做学术性的深度文献调研"
+    assert command.items[0].data["schema_version"] == "capability.v2"
+    assert command.items[0].data["display_name"] == "Idea 到论文全文"
+    assert command.items[0].data["intent_description"] == "用户有明确研究 idea，希望生成或更新完整论文主稿"
     assert command.items[0].data["enabled"] is True
-    assert command.items[0].data["trigger_phrases"] == []
+    assert command.items[0].data["trigger_phrases"] == ["写全文"]
     assert command.items[0].data["required_decisions"] == []
+    assert command.items[0].data["runtime"]["sandbox_policy"]["mode"] == "conditional"
 
 
 @pytest.mark.asyncio
@@ -86,7 +129,7 @@ async def test_load_validates_required_fields(test_session, tmp_path):
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
     yaml_file = seed_dir / "incomplete.yaml"
-    # Missing 'brief_schema', 'graph_template', and 'ui_meta'
+    # Old workflow-era shape is no longer a valid runtime seed.
     yaml_file.write_text(textwrap.dedent("""\
         id: incomplete
         workspace_type: thesis
@@ -102,7 +145,7 @@ async def test_load_validates_required_fields(test_session, tmp_path):
         dataservice=_SeedCatalogFake(has_capabilities=False),
     )
 
-    with pytest.raises(ValueError, match="Missing required fields"):
+    with pytest.raises(ValueError, match="Invalid capability.v2 seed"):
         await loader.load_seeds_if_empty()
 
 
@@ -112,21 +155,7 @@ async def test_loads_ui_meta_from_yaml(test_session, tmp_path):
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
     yaml_file = seed_dir / "test_cap.yaml"
-    yaml_file.write_text(textwrap.dedent("""\
-        id: test_cap
-        workspace_type: thesis
-        display_name: 测试
-        intent_description: test intent
-        brief_schema: {type: object}
-        graph_template: {phases: []}
-        ui_meta:
-          icon: search
-          color: purple
-          order: 0
-          stages:
-            - {id: s1, label: 第一步}
-          follow_up_prompt: 继续吧
-    """))
+    yaml_file.write_text(_capability_v2_yaml(cap_id="test_cap"))
 
     from src.services.capability_loader import CapabilityLoader
 
@@ -142,11 +171,11 @@ async def test_loads_ui_meta_from_yaml(test_session, tmp_path):
     assert count == 1
     command = dataservice.load_catalog_capability_seed_items.await_args.args[0]
     assert command.items[0].data["ui_meta"] == {
-        "icon": "search",
-        "color": "purple",
-        "order": 0,
-        "stages": [{"id": "s1", "label": "第一步"}],
-        "follow_up_prompt": "继续吧",
+        "icon": "file-pen",
+        "color": "blue",
+        "order": 10,
+        "entry_tier": "primary",
+        "stages": [],
     }
 
 
@@ -155,15 +184,7 @@ async def test_dataservice_branch_loads_seed_items(test_session, tmp_path):
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
     yaml_file = seed_dir / "test_cap.yaml"
-    yaml_file.write_text(textwrap.dedent("""\
-        id: test_cap
-        workspace_type: thesis
-        display_name: Test
-        intent_description: test intent
-        brief_schema: {type: object}
-        graph_template: {phases: []}
-        ui_meta: {}
-    """))
+    yaml_file.write_text(_capability_v2_yaml(cap_id="test_cap"))
 
     from src.services.capability_loader import CapabilityLoader
 

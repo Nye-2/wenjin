@@ -182,7 +182,7 @@ def _execution_namespace(**overrides):
         workspace_id=overrides.get("workspace_id", "ws-1"),
         thread_id=overrides.get("thread_id", "thread-1"),
         execution_type=overrides.get("execution_type", "feature"),
-        feature_id=overrides.get("feature_id", "framework_outline"),
+        feature_id=overrides.get("feature_id", "research_question_to_paper"),
         entry_skill_id=overrides.get("entry_skill_id"),
         workspace_type=overrides.get("workspace_type", "sci"),
         display_name=overrides.get("display_name"),
@@ -235,11 +235,22 @@ def _node_namespace(**overrides):
 
 
 def _capability_record(runtime: dict) -> SimpleNamespace:
+    sandbox_policy = dict(runtime.get("sandbox_policy") or {})
+    if not sandbox_policy:
+        sandbox_policy = {"mode": "none", "profiles": [], "allowed_operations": []}
+    normalized_runtime = {
+        "mode": runtime.get("mode", "compute_agentic"),
+        "sandbox_policy": sandbox_policy,
+        "review_gate": runtime.get("review_gate", {}),
+        "allowed_paths": runtime.get("allowed_paths", []),
+    }
     return SimpleNamespace(
         id="test_capability",
         workspace_type="sci",
+        schema_version="capability.v2",
         display_name="Test Capability",
-        runtime=runtime,
+        runtime=normalized_runtime,
+        definition_json={"sandbox_policy": sandbox_policy},
         ui_meta={},
         dashboard_meta={},
     )
@@ -353,8 +364,8 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         workspace_id="ws-1",
         thread_id="thread-1",
         workspace_type="sci",
-        feature_id="framework_outline",
-        entry_skill_id="framework-designer",
+        feature_id="research_question_to_paper",
+        entry_skill_id="manuscript-architect",
         status="pending",
         params={"topic": "agents"},
         message="生成中",
@@ -444,7 +455,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         nodes=[subagent_node],
         capability=_capability_record({
             "mode": "compute_workflow",
-            "requires_sandbox": False,
+            "sandbox_policy": {"mode": "none", "profiles": [], "allowed_operations": []},
             "review_gate": {},
             "allowed_paths": [],
         }),
@@ -536,8 +547,8 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
         workspace_id="ws-1",
         thread_id="thread-1",
         workspace_type="thesis",
-        feature_id="thesis_writing",
-        entry_skill_id="thesis-writer",
+        feature_id="idea_to_thesis_manuscript",
+        entry_skill_id="manuscript-writer",
         status="completed",
         params={},
         message=None,
@@ -567,7 +578,7 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
         execution=execution,
         capability=_capability_record({
             "mode": "compute_workflow",
-            "requires_sandbox": False,
+            "sandbox_policy": {"mode": "none", "profiles": [], "allowed_operations": []},
             "review_gate": {},
             "allowed_paths": [],
         }),
@@ -606,8 +617,8 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
         workspace_id="ws-1",
         thread_id="thread-1",
         workspace_type="proposal",
-        feature_id="figure_generation",
-        entry_skill_id="figure-designer",
+        feature_id="technical_route_package",
+        entry_skill_id="evidence-analyst",
         status="running",
         params={},
         message=None,
@@ -632,7 +643,7 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
         execution=execution,
         capability=_capability_record({
             "mode": "compute_agentic",
-            "requires_sandbox": True,
+            "sandbox_policy": {"mode": "required", "profiles": ["analysis"], "allowed_operations": ["run_python"]},
             "review_gate": {"kind": "artifact_preview"},
             "allowed_paths": [],
         }),
@@ -674,8 +685,8 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
         workspace_id="ws-1",
         thread_id="thread-1",
         workspace_type="sci",
-        feature_id="writing",
-        entry_skill_id="sci-writer",
+        feature_id="research_question_to_paper",
+        entry_skill_id="manuscript-writer",
         status="completed",
         params={},
         message=None,
@@ -694,7 +705,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
         execution_id="exec-3",
         task_type="workspace_feature",
         workspace_id="ws-1",
-        feature_id="writing",
+        feature_id="research_question_to_paper",
         thread_id="thread-1",
         action=None,
         status="success",
@@ -764,7 +775,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
         execution=execution,
         capability=_capability_record({
             "mode": "compute_workflow",
-            "requires_sandbox": False,
+            "sandbox_policy": {"mode": "none", "profiles": [], "allowed_operations": []},
             "review_gate": {},
             "allowed_paths": [],
         }),
@@ -805,7 +816,7 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
         workspace_id="ws-1",
         thread_id="thread-1",
         workspace_type="sci",
-        feature_id="writing",
+        feature_id="research_question_to_paper",
         runtime_state={
             "latex_project_id": "latex-stale",
             "file_changes": [{"path": "sections/stale.tex"}],
@@ -855,7 +866,7 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
         execution=execution,
         capability=_capability_record({
             "mode": "compute_workflow",
-            "requires_sandbox": False,
+            "sandbox_policy": {"mode": "none", "profiles": [], "allowed_operations": []},
             "review_gate": {},
             "allowed_paths": [],
         }),

@@ -16,13 +16,13 @@ class _StubExecution:
     id: str
 
 
-def _capability(capability_id: str = "paper_analysis") -> SimpleNamespace:
+def _capability(capability_id: str = "idea_to_thesis_manuscript") -> SimpleNamespace:
     return SimpleNamespace(
         id=capability_id,
         workspace_type="thesis",
         schema_version="capability.v2",
         enabled=True,
-        display_name="Paper Analysis",
+        display_name="Idea To Thesis Manuscript",
         description="",
         intent_description="",
         trigger_phrases=[],
@@ -65,7 +65,7 @@ class _FakeDataServiceClient:
         return capability
 
     async def list_catalog_capabilities(self, *, workspace_type: str, enabled_only: bool = True):
-        return [_capability("paper_analysis"), _capability("deep_research")]
+        return [_capability("idea_to_thesis_manuscript"), _capability("thesis_research_pack")]
 
 
 @pytest.fixture(autouse=True)
@@ -106,9 +106,9 @@ async def test_launch_feature_creates_execution_and_dispatches():
          patch("src.task.tasks.execution.execute_execution", fake_task):
         result = await launch_feature_tool.ainvoke(
             {
-                "feature_id": "paper_analysis",
+                "feature_id": "idea_to_thesis_manuscript",
                 "params": {"paper_title": "联邦学习结合大模型微调"},
-                "skill_id": "paper-analyst",
+                "skill_id": "manuscript-writer",
             },
             config={
                 "configurable": {
@@ -121,12 +121,12 @@ async def test_launch_feature_creates_execution_and_dispatches():
 
     assert result["status"] == "launched"
     assert result["execution_id"] == "exec-1"
-    assert result["feature_id"] == "paper_analysis"
+    assert result["feature_id"] == "idea_to_thesis_manuscript"
     fake_service.create_execution.assert_awaited_once()
     create_kwargs = fake_service.create_execution.await_args.kwargs
     assert create_kwargs["execution_type"] == "feature"
     assert create_kwargs["thread_id"] == "th-1"
-    assert create_kwargs["display_name"] == "Paper Analysis"
+    assert create_kwargs["display_name"] == "Idea To Thesis Manuscript"
     assert create_kwargs["commit"] is False
     fake_task.apply_async.assert_called_once_with(
         args=["exec-1"],
@@ -151,7 +151,7 @@ async def test_launch_feature_uses_selected_skill_from_runtime_config_when_tool_
          patch("src.task.tasks.execution.execute_execution", fake_task):
         result = await launch_feature_tool.ainvoke(
             {
-                "feature_id": "paper_analysis",
+                "feature_id": "idea_to_thesis_manuscript",
                 "params": {"paper_title": "联邦学习结合大模型微调"},
             },
             config={
@@ -159,7 +159,7 @@ async def test_launch_feature_uses_selected_skill_from_runtime_config_when_tool_
                     "workspace_id": "ws-1",
                     "thread_id": "th-1",
                     "user_id": "user-1",
-                    "selected_skill": "paper-analyst",
+                    "selected_skill": "manuscript-writer",
                 }
             },
         )
@@ -167,7 +167,7 @@ async def test_launch_feature_uses_selected_skill_from_runtime_config_when_tool_
     assert result["status"] == "launched"
     fake_service.create_execution.assert_awaited_once()
     create_kwargs = fake_service.create_execution.await_args.kwargs
-    assert create_kwargs["entry_skill_id"] == "paper-analyst"
+    assert create_kwargs["entry_skill_id"] == "manuscript-writer"
 
 
 @pytest.mark.asyncio
@@ -187,7 +187,7 @@ async def test_launch_feature_merges_runtime_launch_params_when_tool_args_are_pa
          patch("src.task.tasks.execution.execute_execution", fake_task):
         result = await launch_feature_tool.ainvoke(
             {
-                "feature_id": "paper_analysis",
+                "feature_id": "idea_to_thesis_manuscript",
                 "params": {"paper_title": "联邦学习结合大模型微调"},
             },
             config={
@@ -195,7 +195,7 @@ async def test_launch_feature_merges_runtime_launch_params_when_tool_args_are_pa
                     "workspace_id": "ws-1",
                     "thread_id": "th-1",
                     "user_id": "user-1",
-                    "selected_skill": "paper-analyst",
+                    "selected_skill": "manuscript-writer",
                     "launch_feature_params": {
                         "source_artifact_id": "artifact-2",
                         "context_artifact_ids": ["artifact-2", "artifact-3"],
@@ -221,7 +221,7 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
     fake_execution = _StubExecution(id="exec-9")
     fake_execution.workspace_id = "ws-1"  # type: ignore[attr-defined]
     fake_execution.user_id = "user-1"  # type: ignore[attr-defined]
-    fake_execution.feature_id = "paper_analysis"  # type: ignore[attr-defined]
+    fake_execution.feature_id = "idea_to_thesis_manuscript"  # type: ignore[attr-defined]
     fake_service = MagicMock()
     fake_service.list_executions = AsyncMock(return_value=[])
     fake_service.get_by_id = AsyncMock(return_value=fake_execution)
@@ -237,7 +237,7 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
          patch("src.task.tasks.execution.execute_execution", fake_task):
         result = await launch_feature_tool.ainvoke(
             {
-                "feature_id": "paper_analysis",
+                "feature_id": "idea_to_thesis_manuscript",
                 "params": {"paper_title": "联邦学习结合大模型微调"},
             },
             config={
@@ -245,7 +245,7 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
                     "workspace_id": "ws-1",
                     "thread_id": "th-1",
                     "user_id": "user-1",
-                    "selected_skill": "paper-analyst",
+                    "selected_skill": "manuscript-writer",
                     "execution_id": "exec-9",
                 }
             },
@@ -258,8 +258,8 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
     update_kwargs = fake_service.update_execution.await_args.kwargs
     assert update_kwargs["status"] == "pending"
     assert update_kwargs["thread_id"] == "th-1"
-    assert update_kwargs["entry_skill_id"] == "paper-analyst"
-    assert update_kwargs["params"]["brief"]["capability_id"] == "paper_analysis"
+    assert update_kwargs["entry_skill_id"] == "manuscript-writer"
+    assert update_kwargs["params"]["brief"]["capability_id"] == "idea_to_thesis_manuscript"
 
 
 @pytest.mark.asyncio
@@ -269,7 +269,7 @@ async def test_launch_feature_rejects_resume_execution_id_from_another_workspace
     foreign_execution.id = "exec-foreign"
     foreign_execution.workspace_id = "ws-2"
     foreign_execution.user_id = "user-2"
-    foreign_execution.feature_id = "paper_analysis"
+    foreign_execution.feature_id = "idea_to_thesis_manuscript"
 
     fake_service = MagicMock()
     fake_service.list_executions = AsyncMock(return_value=[])
@@ -286,7 +286,7 @@ async def test_launch_feature_rejects_resume_execution_id_from_another_workspace
          patch("src.task.tasks.execution.execute_execution", fake_task):
         result = await launch_feature_tool.ainvoke(
             {
-                "feature_id": "paper_analysis",
+                "feature_id": "idea_to_thesis_manuscript",
                 "params": {"paper_title": "联邦学习结合大模型微调"},
             },
             config={
@@ -294,7 +294,7 @@ async def test_launch_feature_rejects_resume_execution_id_from_another_workspace
                     "workspace_id": "ws-1",
                     "thread_id": "th-1",
                     "user_id": "user-1",
-                    "selected_skill": "paper-analyst",
+                    "selected_skill": "manuscript-writer",
                     "execution_id": "exec-foreign",
                 }
             },
@@ -319,13 +319,13 @@ async def test_launch_feature_returns_lead_busy_when_active():
 
     fake_service = MagicMock()
     fake_service.list_executions = AsyncMock(
-        return_value=[_ActiveExecution(id="exec-0", feature_id="writing", progress=50)]
+        return_value=[_ActiveExecution(id="exec-0", feature_id="research_question_to_paper", progress=50)]
     )
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service):
         result = await launch_feature_tool.ainvoke(
-            {"feature_id": "deep_research", "params": {}},
+            {"feature_id": "thesis_research_pack", "params": {}},
             config={
                 "configurable": {
                     "workspace_id": "ws-1",
@@ -352,7 +352,7 @@ async def test_launch_feature_returns_error_when_celery_disabled():
          patch("src.config.app_config.celery_settings", fake_celery), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service):
         result = await launch_feature_tool.ainvoke(
-            {"feature_id": "paper_analysis", "params": {}},
+            {"feature_id": "idea_to_thesis_manuscript", "params": {}},
             config={
                 "configurable": {
                     "workspace_id": "ws-1",
@@ -379,7 +379,7 @@ async def test_launch_feature_returns_missing_params_advisory_before_execution_c
          patch("src.config.app_config.celery_settings", fake_celery), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service):
         result = await launch_feature_tool.ainvoke(
-            {"feature_id": "deep_research", "params": {}},
+            {"feature_id": "thesis_research_pack", "params": {}},
             config={
                 "configurable": {
                     "workspace_id": "ws-1",
@@ -411,7 +411,7 @@ async def test_launch_feature_returns_error_when_queue_dispatch_fails():
          patch("src.config.app_config.celery_settings", fake_celery), \
          patch("src.task.tasks.execution.execute_execution", fake_task):
         result = await launch_feature_tool.ainvoke(
-            {"feature_id": "paper_analysis", "params": {}},
+            {"feature_id": "idea_to_thesis_manuscript", "params": {}},
             config={
                 "configurable": {
                     "workspace_id": "ws-1",
@@ -430,6 +430,6 @@ async def test_launch_feature_requires_workspace_in_config():
     """Tool fails fast if config lacks workspace_id (caller bug)."""
     with pytest.raises(ValueError, match="workspace_id"):
         await launch_feature_tool.ainvoke(
-            {"feature_id": "paper_analysis", "params": {}},
+            {"feature_id": "idea_to_thesis_manuscript", "params": {}},
             config={"configurable": {"thread_id": "th-1", "user_id": "u-1"}},
         )

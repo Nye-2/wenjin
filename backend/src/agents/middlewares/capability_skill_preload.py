@@ -98,8 +98,12 @@ class CapabilitySkillPreloadMiddleware(Middleware):
                 "description": c.description or "",
                 "intent_description": c.intent_description or "",
                 "trigger_phrases": list(c.trigger_phrases or []),
+                "schema_version": getattr(c, "schema_version", None),
+                "tier": getattr(c, "tier", None),
+                "definition_json": dict(getattr(c, "definition_json", None) or {}),
             }
             for c in cap_rows
+            if getattr(c, "schema_version", None) == "capability.v2"
         ]
         skills = [
             {
@@ -107,7 +111,11 @@ class CapabilitySkillPreloadMiddleware(Middleware):
                 "display_name": s.display_name,
                 "description": s.description or "",
                 "subagent_type": s.subagent_type,
+                "schema_version": getattr(s, "schema_version", None),
+                "worker_type": getattr(s, "worker_type", None),
+                "skill_json": dict(getattr(s, "skill_json", None) or {}),
             }
             for s in skill_rows
+            if getattr(s, "schema_version", None) == "capability_skill.v2"
         ]
         return caps, skills

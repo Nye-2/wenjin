@@ -21,7 +21,12 @@ class _SeedCatalogFake:
         return bool(self.records)
 
     async def _load_items(self, command):
-        self.records = [SimpleNamespace(**item.data) for item in command.items]
+        records = []
+        for item in command.items:
+            data = dict(item.data)
+            data.setdefault("definition_json", dict(item.data))
+            records.append(SimpleNamespace(**data))
+        self.records = records
         return SimpleNamespace(loaded=len(self.records))
 
     async def _list_capabilities(self):
@@ -32,7 +37,7 @@ async def _load_seed_records(test_session) -> list[SimpleNamespace]:
     dataservice = _SeedCatalogFake()
     loader = CapabilityLoader(session=test_session, dataservice=dataservice)
     n = await loader.load_seeds_if_empty()
-    assert n >= 5, f"expected at least 5 thesis capabilities, loaded {n}"
+    assert n >= 6, f"expected mission capabilities, loaded {n}"
     return dataservice.records
 
 
@@ -43,18 +48,21 @@ async def test_thesis_seeds_load(test_session):
 
     by_key = {(record.workspace_type, record.id): record for record in records}
     expected_ids = [
-        "deep_research",
-        "outline_generate",
-        "section_write",
-        "section_revise",
-        "opening_research",
+        "idea_to_thesis_manuscript",
+        "thesis_research_pack",
+        "thesis_empirical_analysis",
+        "thesis_revision_pass",
+        "thesis_defense_pack",
+        "thesis_reference_curation",
     ]
     for cap_id in expected_ids:
         cap = by_key.get(("thesis", cap_id))
         assert cap is not None, f"capability '{cap_id}' not loaded"
+        assert cap.schema_version == "capability.v2"
         assert cap.brief_schema, f"capability '{cap_id}' has empty brief_schema"
         assert cap.graph_template, f"capability '{cap_id}' has empty graph_template"
         assert cap.display_name, f"capability '{cap_id}' has empty display_name"
+        assert cap.definition_json["mission"]["primary_surface"] == "prism"
 
 
 @pytest.mark.asyncio
@@ -65,7 +73,7 @@ async def test_seeds_use_only_registered_subagents(test_session):
 
     records = await _load_seed_records(test_session)
     thesis_caps = [record for record in records if record.workspace_type == "thesis"]
-    assert len(thesis_caps) >= 5, "Expected at least 5 thesis capabilities"
+    assert len(thesis_caps) >= 6, "Expected at least 6 thesis mission capabilities"
 
     registered = set(REGISTRY.all_names())
     expected_v1_subagents = {"searcher", "react"}
@@ -90,7 +98,7 @@ async def test_seeds_idempotent(test_session):
     loader = CapabilityLoader(session=test_session, dataservice=dataservice)
 
     n1 = await loader.load_seeds_if_empty()
-    assert n1 >= 5
+    assert n1 >= 6
 
     n2 = await loader.load_seeds_if_empty()
     assert n2 == 0, "Second call should be a no-op (catalog already populated)"
@@ -108,3 +116,24 @@ async def test_seeds_have_trigger_phrases(test_session):
         assert len(cap.trigger_phrases) >= 1, (
             f"'{cap.id}' has no trigger phrases — at least 1 required"
         )
+
+
+@pytest.mark.asyncio
+async def test_old_workflow_ids_not_loaded(test_session):
+    records = await _load_seed_records(test_session)
+    old_ids = {
+        "deep_research",
+        "outline_generate",
+        "section_write",
+        "section_revise",
+        "opening_research",
+        "framework_outline",
+        "section_writing",
+        "proposal_outline",
+        "patent_outline",
+        "figure_generation",
+        "writing",
+        "thesis_writing",
+    }
+    current_ids = {record.id for record in records}
+    assert old_ids.isdisjoint(current_ids)

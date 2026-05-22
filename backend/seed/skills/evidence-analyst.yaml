@@ -1,0 +1,31 @@
+schema_version: capability_skill.v2
+id: evidence-analyst
+enabled: true
+display_name: Evidence Analyst
+description: Plan and interpret reproducible Python analysis.
+worker:
+  category: evidence
+  subagent_type: react
+  role_prompt: Plan and interpret reproducible Python analysis. Never write workspace
+    canonical state directly; return reviewable outputs only.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: required
+  profiles:
+  - analysis
+  - visualization
+quality_gates:
+- no_direct_primary_document_write

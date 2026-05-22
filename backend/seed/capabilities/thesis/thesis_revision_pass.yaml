@@ -1,0 +1,111 @@
+schema_version: capability.v2
+id: thesis_revision_pass
+workspace_type: thesis
+enabled: true
+display:
+  name: 论文整体修订
+  description: 按导师意见、查重风险、逻辑一致性或格式要求修订全文
+  icon: file-pen
+  color: blue
+  order: 40
+  entry_tier: primary
+intent:
+  description: 按导师意见、查重风险、逻辑一致性或格式要求修订全文
+  trigger_phrases:
+  - 论文整体修订
+  disambiguation: {}
+mission:
+  goal: produce_workspace_review_package
+  primary_surface: prism
+  document_role: primary_manuscript
+  user_promise: 按导师意见、查重风险、逻辑一致性或格式要求修订全文
+  allowed_deliverables:
+  - full_document_update
+  - evidence_pack
+  - review_report
+inputs:
+  required_decisions: []
+  brief_schema:
+    type: object
+    properties:
+      goal:
+        type: string
+      deliverable:
+        type: string
+context_policy:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: full
+    memory: relevant
+    tasks: related
+  prism_context:
+    include_outline: true
+    include_target_files: true
+    include_protected_sections: true
+    include_pending_review_summary: true
+  full_text_access: explicit_tool_only
+sandbox_policy:
+  mode: conditional
+  profiles:
+  - analysis
+  - visualization
+  allowed_operations:
+  - run_python
+  - install_python_packages
+  - render_figures
+  - compile_latex
+  isolation:
+    provider: docker
+    network: default_deny_allowlist
+    allow_host_docker_socket: false
+    allow_docker_socket: false
+    allow_privileged: false
+    allow_host_network: false
+    allow_host_paths: false
+    allow_sibling_containers: false
+    allow_sibling_container_access: false
+    allow_server_control: false
+  resource_limits:
+    cpu: 2
+    memory_mb: 4096
+    timeout_seconds: 900
+    max_output_mb: 512
+  artifact_policy:
+    review_required: true
+    capture_stdout: true
+    capture_scripts: true
+    capture_input_hashes: true
+review_policy:
+  default_targets:
+  - prism_file_change
+  - sandbox_artifact
+  - room_decision_candidate
+  - room_memory_candidate
+  - room_task
+  require_user_acceptance: true
+  allow_bulk_accept: true
+quality_gates:
+- no_direct_primary_document_write
+- provenance_required_for_claims
+- protected_sections_readonly
+graph_template:
+  phases:
+  - name: mission_execution
+    tasks:
+    - name: review_critic
+      subagent_type: react
+      skill_id: review-critic
+      inputs: {}
+      outputs: []
+    - name: manuscript_writer
+      subagent_type: react
+      skill_id: manuscript-writer
+      inputs: {}
+      outputs: []
+    - name: citation_auditor
+      subagent_type: react
+      skill_id: citation-auditor
+      inputs: {}
+      outputs: []
+extensions: {}

@@ -1,18 +1,17 @@
 """Tests for thesis workspace capability data in the capabilities table."""
 
 THESIS_CAPABILITY_IDS = [
-    "deep_research",
-    "figure_generation",
-    "literature_management",
-    "opening_research",
-    "outline_generate",
-    "section_revise",
-    "section_write",
+    "idea_to_thesis_manuscript",
+    "thesis_research_pack",
+    "thesis_empirical_analysis",
+    "thesis_revision_pass",
+    "thesis_defense_pack",
+    "thesis_reference_curation",
 ]
 
 
 def test_thesis_capability_ids_are_defined():
-    """Thesis workspace should have 7 capabilities covering the core workflow."""
-    assert len(THESIS_CAPABILITY_IDS) == 7
-    assert THESIS_CAPABILITY_IDS[0] == "deep_research"
-    assert THESIS_CAPABILITY_IDS[-1] == "section_write"
+    """Thesis workspace should expose mission-level Super Agent capabilities."""
+    assert len(THESIS_CAPABILITY_IDS) == 6
+    assert THESIS_CAPABILITY_IDS[0] == "idea_to_thesis_manuscript"
+    assert THESIS_CAPABILITY_IDS[-1] == "thesis_reference_curation"
