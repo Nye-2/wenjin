@@ -2,12 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.execution_api import ExecutionDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.execution import (
+    ExecutionCreatePayload,
+    ExecutionEventCreatePayload,
+    ExecutionNodePatchPayload,
+    ExecutionNodeUpsertPayload,
+    ExecutionUpdatePayload,
+)
+from src.dataservice_client.provider import dataservice_client
 
 _UNSET = object()
 
@@ -76,12 +86,22 @@ class ExecutionService:
         self,
         db: AsyncSession,
         *,
+        dataservice: AsyncDataServiceClient | None = None,
         redis: Any | None = None,
         publish_event: Any | None = None,
     ) -> None:
         self.db = db
+        self._dataservice = dataservice
         self.redis = redis
         self.publish_event = publish_event
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     # ------------------------------------------------------------------
     # Create
@@ -101,24 +121,29 @@ class ExecutionService:
         parent_execution_id: str | None = None,
         commit: bool = True,
     ):
-        return await ExecutionDataService(self.db, autocommit=commit).create_record(
-            execution_type=execution_type,
-            user_id=user_id,
-            workspace_id=workspace_id,
-            thread_id=thread_id,
-            capability_id=feature_id,
-            entry_skill_id=entry_skill_id,
-            workspace_type=workspace_type,
-            display_name=display_name,
-            task_brief_json=dict(params or {}),
-            parent_execution_id=parent_execution_id,
+        _ = commit
+        async with self._client() as client:
+            return await client.create_execution(
+                ExecutionCreatePayload(
+                    execution_type=execution_type,
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    thread_id=thread_id,
+                    capability_id=feature_id,
+                    entry_skill_id=entry_skill_id,
+                    workspace_type=workspace_type,
+                    display_name=display_name,
+                    task_brief_json=dict(params or {}),
+                    parent_execution_id=parent_execution_id,
+                )
         )
 
     # ------------------------------------------------------------------
     # Read
     # ------------------------------------------------------------------
     async def get_by_id(self, execution_id: str):
-        return await ExecutionDataService(self.db, autocommit=False).get_execution(execution_id)
+        async with self._client() as client:
+            return await client.get_execution(execution_id)
 
     async def list_executions(
         self,
@@ -130,14 +155,15 @@ class ExecutionService:
         status: list[str] | None = None,
         limit: int = 50,
     ) -> list:
-        return await ExecutionDataService(self.db, autocommit=False).list_executions(
-            user_id=user_id,
-            workspace_id=workspace_id,
-            thread_id=thread_id,
-            execution_type=execution_type,
-            status=status,
-            limit=limit,
-        )
+        async with self._client() as client:
+            return await client.list_executions(
+                user_id=user_id,
+                workspace_id=workspace_id,
+                thread_id=thread_id,
+                execution_type=execution_type,
+                status=status,
+                limit=limit,
+            )
 
     async def reconcile_interrupted_executions(self) -> int:
         """Mark stale in-flight executions terminal after process restart.
@@ -146,10 +172,8 @@ class ExecutionService:
         execution left in a non-terminal state after restart is treated as
         interrupted and closed out conservatively.
         """
-        return await ExecutionDataService(
-            self.db,
-            autocommit=True,
-        ).reconcile_interrupted_executions()
+        async with self._client() as client:
+            return await client.reconcile_interrupted_executions()
 
     async def get_execution_graph(self, execution_id: str) -> dict[str, Any]:
         record = await self.get_by_id(execution_id)
@@ -247,10 +271,12 @@ class ExecutionService:
             fields["completed_at"] = completed_at
         if not fields:
             return await self.get_by_id(execution_id)
-        return await ExecutionDataService(self.db, autocommit=commit).update_record(
-            execution_id,
-            **fields,
-        )
+        _ = commit
+        async with self._client() as client:
+            return await client.update_execution(
+                execution_id,
+                ExecutionUpdatePayload(**fields),
+            )
 
     async def apply_task_transition(
         self,
@@ -314,13 +340,17 @@ class ExecutionService:
         commit: bool = True,
     ):
         """Append an ordered canonical execution event."""
-        return await ExecutionDataService(self.db, autocommit=commit).record_event(
-            execution_id=execution_id,
-            event_type=event_type,
-            workspace_id=workspace_id,
-            node_id=node_id,
-            payload_json=dict(payload_json or {}),
-        )
+        _ = commit
+        async with self._client() as client:
+            return await client.append_execution_event(
+                execution_id,
+                ExecutionEventCreatePayload(
+                    event_type=event_type,
+                    workspace_id=workspace_id,
+                    node_id=node_id,
+                    payload_json=dict(payload_json or {}),
+                ),
+            )
 
     async def update_node_state(
         self,
@@ -367,10 +397,12 @@ class ExecutionService:
             node_state["completed_at"] = completed_at.isoformat()
 
         node_states[node_id] = node_state
-        return await ExecutionDataService(self.db, autocommit=commit).update_record(
-            execution_id,
-            node_states_json=node_states,
-        )
+        _ = commit
+        async with self._client() as client:
+            return await client.update_execution(
+                execution_id,
+                ExecutionUpdatePayload(node_states_json=node_states),
+            )
 
     async def complete_execution(
         self,
@@ -470,15 +502,19 @@ class ExecutionService:
         parent_node_id: str | None = None,
         commit: bool = True,
     ) -> Any:
-        return await ExecutionDataService(self.db, autocommit=commit).upsert_node_record(
-            execution_id,
-            node_id=node_id,
-            node_type=node_type,
-            label=label,
-            input_data=input_data,
-            parent_node_id=parent_node_id,
-            status="pending",
-        )
+        _ = commit
+        async with self._client() as client:
+            return await client.upsert_execution_node(
+                execution_id,
+                ExecutionNodeUpsertPayload(
+                    node_id=node_id,
+                    node_type=node_type,
+                    label=label,
+                    input_data=input_data,
+                    parent_node_id=parent_node_id,
+                    status="pending",
+                ),
+            )
 
     async def update_execution_node(
         self,
@@ -508,15 +544,14 @@ class ExecutionService:
             fields["started_at"] = started_at
         if completed_at is not None:
             fields["completed_at"] = completed_at
-        if not fields:
-            return await ExecutionDataService(
-                self.db,
-                autocommit=False,
-            ).get_node_by_record_id(node_db_id)
-        return await ExecutionDataService(self.db, autocommit=commit).update_node(
-            node_db_id,
-            **fields,
-        )
+        _ = commit
+        async with self._client() as client:
+            if not fields:
+                return await client.get_execution_node(node_db_id)
+            return await client.update_execution_node(
+                node_db_id,
+                ExecutionNodePatchPayload(**fields),
+            )
 
     async def find_node_by_node_id(
         self,
@@ -524,13 +559,11 @@ class ExecutionService:
         node_id: str,
     ) -> Any | None:
         """Look up an execution node by (execution_id, node_id) tuple."""
-        return await ExecutionDataService(
-            self.db,
-            autocommit=False,
-        ).find_node_by_node_id(
-            execution_id=execution_id,
-            node_id=node_id,
-        )
+        async with self._client() as client:
+            return await client.find_execution_node(
+                execution_id=execution_id,
+                node_id=node_id,
+            )
 
     async def upsert_node_event(
         self,
@@ -553,17 +586,20 @@ class ExecutionService:
         Used by ``LeadAgentRuntime``'s runner to record running/completed/failed
         transitions so the FE node-detail endpoint returns real state.
         """
-        return await ExecutionDataService(self.db, autocommit=True).upsert_node_record(
-            execution_id,
-            node_id=node_id,
-            node_type=node_type,
-            label=label,
-            status=status,
-            input_data=input_data,
-            output_data=output_data,
-            thinking=thinking,
-            tool_calls=tool_calls,
-            token_usage=token_usage,
-            started_at=started_at,
-            completed_at=completed_at,
-        )
+        async with self._client() as client:
+            return await client.upsert_execution_node(
+                execution_id,
+                ExecutionNodeUpsertPayload(
+                    node_id=node_id,
+                    node_type=node_type,
+                    label=label,
+                    status=status,
+                    input_data=input_data,
+                    output_data=output_data,
+                    thinking=thinking,
+                    tool_calls=tool_calls,
+                    token_usage=token_usage,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                ),
+            )

@@ -1,4 +1,5 @@
 """Test that execution records store and return display_name."""
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -6,13 +7,25 @@ import pytest
 from src.services.execution_service import ExecutionService
 
 
+class _FakeDataServiceClient:
+    def __init__(self) -> None:
+        self.command = None
+
+    async def create_execution(self, command):
+        self.command = command
+        return SimpleNamespace(
+            id="exec-1",
+            display_name=command.display_name,
+            workspace_type=command.workspace_type,
+        )
+
+
 @pytest.mark.asyncio
 async def test_create_execution_stores_display_name():
     """create_execution persists display_name onto the record."""
     db = AsyncMock()
-    db.flush = AsyncMock()
-    db.add = AsyncMock()
-    service = ExecutionService(db)
+    dataservice = _FakeDataServiceClient()
+    service = ExecutionService(db, dataservice=dataservice)
 
     record = await service.create_execution(
         execution_type="capability",
@@ -25,3 +38,4 @@ async def test_create_execution_stores_display_name():
     )
     assert record.display_name == "文献检索"
     assert record.workspace_type == "sci"
+    assert dataservice.command.capability_id == "lit_review"

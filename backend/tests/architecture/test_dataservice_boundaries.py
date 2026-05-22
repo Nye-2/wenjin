@@ -117,7 +117,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/dashboard/thesis.py",
     "services/dashboard_service.py",
     "services/execution_commit_service.py",
-    "services/execution_service.py",
     "services/latex/compile_service.py",
     "services/latex/project_service.py",
     "services/latex/template_service.py",
