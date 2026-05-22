@@ -232,18 +232,16 @@ class LeadAgentRuntime:
         execution_id: str,
     ) -> list[dict[str, Any]]:
         """Load canonical Prism review items produced by this execution."""
-        from src.database.session import get_db_session
-        from src.dataservice.review_api import ReviewDataService
+        from src.dataservice_client.provider import dataservice_client
+        from src.services.prism_review_projection import prism_review_item_projection
 
         try:
-            async with get_db_session() as db:
-                items = await ReviewDataService(db, autocommit=False).list_items(
+            async with dataservice_client() as client:
+                items = await client.list_review_items(
                     workspace_id=workspace_id,
                     execution_id=execution_id,
                     target_domain="prism",
                 )
-                from src.services.prism_review_projection import prism_review_item_projection
-
                 return [
                     prism_review_item_projection(item, execution_id=execution_id)
                     for item in items

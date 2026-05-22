@@ -95,7 +95,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
     "dataservice_client",
 }
 RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
-    "agents/lead_agent/v2/runtime.py",
     "gateway/routers/admin_credit_rules.py",
     "gateway/routers/latex_files.py",
     "gateway/routers/latex_helpers.py",
