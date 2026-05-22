@@ -105,7 +105,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/dashboard/thesis.py",
     "services/dashboard_service.py",
     "services/references/service.py",
-    "services/workspace_activity_service.py",
     "services/workspace_latex_projects.py",
     "services/workspace_prism_service.py",
     "tools/builtins/references.py",

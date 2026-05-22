@@ -85,6 +85,20 @@ async def get_latest_workspace_thread(
     return envelope_ok(thread.model_dump(mode="json") if thread else None)
 
 
+@router.get("/workspace-threads/summaries")
+async def list_workspace_thread_summaries(
+    workspace_id: str,
+    limit: int = 20,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceConversationService(uow.required_session, autocommit=False)
+    threads = await service.list_workspace_thread_summaries(
+        workspace_id=workspace_id,
+        limit=limit,
+    )
+    return envelope_ok([thread.model_dump(mode="json") for thread in threads])
+
+
 @router.patch("/threads/{thread_id}")
 async def update_thread(
     thread_id: str,

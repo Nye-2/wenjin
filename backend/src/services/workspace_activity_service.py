@@ -1,18 +1,20 @@
 """Workspace activity aggregation service."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.asset_api import AssetDataService, WorkspaceAssetProjection
-from src.dataservice.conversation_api import ConversationDataService, ConversationThreadProjection
-from src.dataservice.execution_api import (
-    ExecutionDataService,
-    ExecutionNodeProjection,
-    ExecutionRecordProjection,
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.asset import WorkspaceAssetPayload
+from src.dataservice_client.contracts.conversation import (
+    ConversationMessagePayload,
+    ConversationThreadPayload,
 )
-from src.dataservice.review_api import ReviewDataService, ReviewItemProjection
+from src.dataservice_client.contracts.execution import ExecutionNodePayload, ExecutionPayload
+from src.dataservice_client.contracts.review import ReviewItemPayload
+from src.dataservice_client.provider import dataservice_client
 from src.services.thread_billing import (
     combine_token_usage,
     extract_persisted_message_usage,
@@ -34,20 +36,41 @@ from src.services.workspace_skill_labels import (
 )
 
 
-def _artifact_metadata(artifact: WorkspaceAssetProjection | Any) -> dict[str, Any]:
+def _artifact_metadata(artifact: WorkspaceAssetPayload | Any) -> dict[str, Any]:
     metadata = getattr(artifact, "metadata_json", None)
     return dict(metadata) if isinstance(metadata, dict) else {}
+
+
+def _message_to_activity_dict(message: ConversationMessagePayload | dict[str, Any]) -> dict[str, Any]:
+    if isinstance(message, dict):
+        return message
+    return {
+        "role": message.role,
+        "content": message.content,
+        "metadata": dict(message.metadata_json or {}),
+        "timestamp": message.timestamp,
+    }
 
 
 class WorkspaceActivityService:
     """Aggregate workspace activity across tasks, threads, subagents, and artifacts."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
-        self._conversation = ConversationDataService(db, autocommit=False)
-        self._execution = ExecutionDataService(db, autocommit=False)
-        self._assets = AssetDataService(db, autocommit=False)
-        self._review = ReviewDataService(db, autocommit=False)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     async def get_activity(
         self,
@@ -87,11 +110,12 @@ class WorkspaceActivityService:
         workspace_id: str,
         *,
         limit: int,
-    ) -> list[ConversationThreadProjection]:
-        return await self._conversation.list_workspace_thread_summaries(
-            workspace_id=workspace_id,
-            limit=limit,
-        )
+    ) -> list[ConversationThreadPayload]:
+        async with self._client() as client:
+            return await client.list_workspace_conversation_thread_summaries(
+                workspace_id=workspace_id,
+                limit=limit,
+            )
 
     async def _get_task_activity(
         self,
@@ -99,10 +123,8 @@ class WorkspaceActivityService:
         *,
         limit: int,
     ) -> list[dict[str, Any]]:
-        records = await self._execution.list_executions(
-            workspace_id=workspace_id,
-            limit=limit,
-        )
+        async with self._client() as client:
+            records = await client.list_executions(workspace_id=workspace_id, limit=limit)
         execution_ids = {
             str(record.id).strip()
             for record in records
@@ -131,11 +153,12 @@ class WorkspaceActivityService:
         *,
         limit: int,
     ) -> list[dict[str, Any]]:
-        items = await self._review.list_items(
-            workspace_id=workspace_id,
-            target_domain="prism",
-            limit=limit,
-        )
+        async with self._client() as client:
+            items = await client.list_review_items(
+                workspace_id=workspace_id,
+                target_domain="prism",
+                limit=limit,
+            )
         return [
             self._prism_review_record_to_activity(record)
             for record in items
@@ -143,7 +166,7 @@ class WorkspaceActivityService:
 
     def _prism_review_record_to_activity(
         self,
-        record: ReviewItemProjection,
+        record: ReviewItemPayload,
     ) -> dict[str, Any]:
         occurred_at = record.applied_at or record.updated_at or record.created_at
         target_ref = dict(record.target_ref_json or {})
@@ -198,9 +221,10 @@ class WorkspaceActivityService:
         if not execution_ids:
             return {}, {}
 
-        records = await self._execution.list_nodes_by_execution_ids(
-            sorted(execution_ids)
-        )
+        async with self._client() as client:
+            records = await client.list_execution_nodes_by_execution_ids(
+                sorted(execution_ids)
+            )
         usage_buckets: dict[str, list[Any]] = {}
         subagent_count_by_execution: dict[str, int] = {}
         for record in records:
@@ -224,7 +248,7 @@ class WorkspaceActivityService:
 
     def _task_record_to_activity(
         self,
-        record: ExecutionRecordProjection,
+        record: ExecutionPayload,
         workspace_id: str,
         *,
         token_usage: dict[str, int] | None = None,
@@ -260,13 +284,15 @@ class WorkspaceActivityService:
 
     async def _build_thread_activity(
         self,
-        threads: Sequence[ConversationThreadProjection],
+        threads: Sequence[ConversationThreadPayload],
         *,
         workspace_type: str | None,
     ) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for thread in threads:
-            messages = await self._conversation.list_thread_messages(str(thread.id))
+            async with self._client() as client:
+                raw_messages = await client.list_conversation_messages(str(thread.id))
+            messages = [_message_to_activity_dict(message) for message in raw_messages]
             last_message = messages[-1] if messages else {}
             last_message_content = (
                 last_message.get("content") if isinstance(last_message, dict) else None
@@ -308,11 +334,12 @@ class WorkspaceActivityService:
         workspace_type: str | None,
         limit: int,
     ) -> list[dict[str, Any]]:
-        artifacts = await self._assets.list_assets(
-            workspace_id=workspace_id,
-            include_deleted=False,
-            limit=limit,
-        )
+        async with self._client() as client:
+            artifacts = await client.list_assets(
+                workspace_id=workspace_id,
+                include_deleted=False,
+                limit=limit,
+            )
         return [
             self._artifact_to_activity(artifact, workspace_type=workspace_type)
             for artifact in artifacts
@@ -376,14 +403,16 @@ class WorkspaceActivityService:
         *,
         limit: int,
     ) -> list[dict[str, Any]]:
-        executions = await self._execution.list_executions(
-            workspace_id=workspace_id,
-            limit=max(limit, 20),
-        )
+        async with self._client() as client:
+            executions = await client.list_executions(
+                workspace_id=workspace_id,
+                limit=max(limit, 20),
+            )
         execution_by_id = {record.id: record for record in executions}
-        records = await self._execution.list_nodes_by_execution_ids(
-            list(execution_by_id)
-        )
+        async with self._client() as client:
+            records = await client.list_execution_nodes_by_execution_ids(
+                list(execution_by_id)
+            )
         records.sort(
             key=lambda record: record.completed_at or record.updated_at or record.created_at,
             reverse=True,
@@ -395,8 +424,8 @@ class WorkspaceActivityService:
 
     def _subagent_record_to_activity(
         self,
-        record: ExecutionNodeProjection,
-        execution: ExecutionRecordProjection | None = None,
+        record: ExecutionNodePayload,
+        execution: ExecutionPayload | None = None,
     ) -> dict[str, Any]:
         occurred_at = record.completed_at or record.updated_at or record.created_at
         raw_metadata = getattr(record, "node_metadata", None)
@@ -433,7 +462,7 @@ class WorkspaceActivityService:
         )
 
     @staticmethod
-    def _node_token_usage(record: ExecutionNodeProjection) -> Any | None:
+    def _node_token_usage(record: ExecutionNodePayload) -> Any | None:
         usage = normalize_token_usage(record.token_usage)
         if usage is not None:
             return usage

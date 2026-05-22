@@ -106,6 +106,16 @@ def _asset_projection(**overrides) -> WorkspaceAssetProjection:
     )
 
 
+class FakeActivityDataServiceClient:
+    def __init__(self) -> None:
+        self.list_workspace_conversation_thread_summaries = AsyncMock(return_value=[])
+        self.list_conversation_messages = AsyncMock(return_value=[])
+        self.list_review_items = AsyncMock(return_value=[])
+        self.list_assets = AsyncMock(return_value=[])
+        self.list_executions = AsyncMock(return_value=[])
+        self.list_execution_nodes_by_execution_ids = AsyncMock(return_value=[])
+
+
 @pytest.mark.asyncio
 async def test_get_activity_merges_sources_and_sorts_descending(
     monkeypatch: pytest.MonkeyPatch,
@@ -224,7 +234,8 @@ def test_build_prism_review_activity_item_uses_canonical_shape() -> None:
 @pytest.mark.asyncio
 async def test_get_prism_review_activity_reads_persisted_items() -> None:
     db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    fake_client = FakeActivityDataServiceClient()
+    service = WorkspaceActivityService(db, dataservice=fake_client)
     now = datetime.now(UTC)
     record = ReviewItemProjection(
         id="review-1",
@@ -250,11 +261,11 @@ async def test_get_prism_review_activity_reads_persisted_items() -> None:
         updated_at=now,
         applied_at=None,
     )
-    service._review.list_items = AsyncMock(return_value=[record])
+    fake_client.list_review_items = AsyncMock(return_value=[record])
 
     items = await service._get_prism_review_activity("ws-1", limit=10)
 
-    service._review.list_items.assert_awaited_once_with(
+    fake_client.list_review_items.assert_awaited_once_with(
         workspace_id="ws-1",
         target_domain="prism",
         limit=10,
@@ -270,7 +281,8 @@ async def test_get_prism_review_activity_reads_persisted_items() -> None:
 @pytest.mark.asyncio
 async def test_get_recent_threads_uses_conversation_dataservice() -> None:
     db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    fake_client = FakeActivityDataServiceClient()
+    service = WorkspaceActivityService(db, dataservice=fake_client)
     thread = SimpleNamespace(
         id="thread-1",
         workspace_id="ws-1",
@@ -278,12 +290,12 @@ async def test_get_recent_threads_uses_conversation_dataservice() -> None:
         skill="deep-research",
         updated_at=datetime.now(UTC),
     )
-    service._conversation.list_workspace_thread_summaries = AsyncMock(return_value=[thread])
+    fake_client.list_workspace_conversation_thread_summaries = AsyncMock(return_value=[thread])
 
     threads = await service._get_recent_threads("ws-1", limit=5)
 
     assert threads == [thread]
-    service._conversation.list_workspace_thread_summaries.assert_awaited_once_with(
+    fake_client.list_workspace_conversation_thread_summaries.assert_awaited_once_with(
         workspace_id="ws-1",
         limit=5,
     )
@@ -292,7 +304,8 @@ async def test_get_recent_threads_uses_conversation_dataservice() -> None:
 @pytest.mark.asyncio
 async def test_build_thread_activity_uses_latest_message_preview_and_skill():
     db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    fake_client = FakeActivityDataServiceClient()
+    service = WorkspaceActivityService(db, dataservice=fake_client)
     thread = SimpleNamespace(
         id="thread-1",
         workspace_id="ws-1",
@@ -301,7 +314,7 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
         updated_at=datetime.now(UTC),
         messages=[{"role": "user", "content": "raw bridge"}],
     )
-    service._conversation.list_thread_messages = AsyncMock(
+    fake_client.list_conversation_messages = AsyncMock(
         return_value=[
             {"role": "user", "content": "Please review these papers."},
             {"role": "assistant", "content": "I found three themes across the literature."},
@@ -317,13 +330,14 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
     assert items[0]["skill_name"] is None
     assert items[0]["metadata"]["skill"] == "deep-research"
     assert items[0]["metadata"]["skill_name"] is None
-    service._conversation.list_thread_messages.assert_awaited_once_with("thread-1")
+    fake_client.list_conversation_messages.assert_awaited_once_with("thread-1")
 
 
 @pytest.mark.asyncio
 async def test_build_thread_activity_includes_token_usage_metadata():
     db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    fake_client = FakeActivityDataServiceClient()
+    service = WorkspaceActivityService(db, dataservice=fake_client)
     thread = SimpleNamespace(
         id="thread-usage",
         workspace_id="ws-1",
@@ -332,7 +346,7 @@ async def test_build_thread_activity_includes_token_usage_metadata():
         updated_at=datetime.now(UTC),
         messages=[],
     )
-    service._conversation.list_thread_messages = AsyncMock(
+    fake_client.list_conversation_messages = AsyncMock(
         return_value=[
             {"role": "user", "content": "hello"},
             {
@@ -653,13 +667,14 @@ def test_artifact_activity_uses_canonical_creator_skill_name() -> None:
 @pytest.mark.asyncio
 async def test_get_artifact_activity_reads_workspace_assets() -> None:
     db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    fake_client = FakeActivityDataServiceClient()
+    service = WorkspaceActivityService(db, dataservice=fake_client)
     asset = _asset_projection(id="asset-1")
-    service._assets.list_assets = AsyncMock(return_value=[asset])
+    fake_client.list_assets = AsyncMock(return_value=[asset])
 
     items = await service._get_artifact_activity("ws-1", workspace_type="thesis", limit=10)
 
-    service._assets.list_assets.assert_awaited_once_with(
+    fake_client.list_assets.assert_awaited_once_with(
         workspace_id="ws-1",
         include_deleted=False,
         limit=10,
@@ -674,7 +689,8 @@ async def test_get_artifact_activity_reads_workspace_assets() -> None:
 @pytest.mark.asyncio
 async def test_get_subagent_activity_reads_persisted_records() -> None:
     db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    fake_client = FakeActivityDataServiceClient()
+    service = WorkspaceActivityService(db, dataservice=fake_client)
     now = datetime.now(UTC)
     created_at = now - timedelta(minutes=5)
     execution = _execution_projection(id="exec-1", thread_id="thread-1")
@@ -689,8 +705,8 @@ async def test_get_subagent_activity_reads_persisted_records() -> None:
         updated_at=now - timedelta(minutes=1),
         completed_at=now,
     )
-    service._execution.list_executions = AsyncMock(return_value=[execution])
-    service._execution.list_nodes_by_execution_ids = AsyncMock(return_value=[record])
+    fake_client.list_executions = AsyncMock(return_value=[execution])
+    fake_client.list_execution_nodes_by_execution_ids = AsyncMock(return_value=[record])
 
     items = await service._get_subagent_activity("ws-1", limit=10)
 

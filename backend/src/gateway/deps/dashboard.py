@@ -50,9 +50,10 @@ async def get_release_gate_service() -> ReleaseGateService:
 
 async def get_workspace_activity_service(
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspaceActivityService:
     """Get workspace activity service instance."""
-    return WorkspaceActivityService(db)
+    return WorkspaceActivityService(db, dataservice=dataservice)
 
 
 async def get_workspace_summary_service(

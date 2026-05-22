@@ -1279,6 +1279,19 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return ConversationThreadPayload.model_validate(data) if data is not None else None
 
+    async def list_workspace_conversation_thread_summaries(
+        self,
+        *,
+        workspace_id: str,
+        limit: int = 20,
+    ) -> list[ConversationThreadPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/conversations/workspace-threads/summaries",
+            params={"workspace_id": workspace_id, "limit": limit},
+        )
+        return [ConversationThreadPayload.model_validate(item) for item in payload["data"]]
+
     async def list_conversation_threads(
         self,
         *,

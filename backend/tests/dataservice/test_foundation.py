@@ -1064,6 +1064,8 @@ async def test_dataservice_client_conversation_contract_methods() -> None:
         seen.append((request.method, request.url.path, body))
         if request.url.path.endswith("/lock"):
             return httpx.Response(200, json={"status": "ok", "data": {"locked": True}})
+        if request.url.path.endswith("/summaries"):
+            return httpx.Response(200, json={"status": "ok", "data": [thread_payload()]})
         if request.url.path.endswith("/owned") or request.url.path.endswith("/latest"):
             return httpx.Response(200, json={"status": "ok", "data": thread_payload()})
         if request.url.path.endswith("/threads") and request.method == "POST":
@@ -1124,6 +1126,9 @@ async def test_dataservice_client_conversation_contract_methods() -> None:
             user_id="user-1",
             workspace_id="ws-1",
         )
+        thread_summaries = await client.list_workspace_conversation_thread_summaries(
+            workspace_id="ws-1",
+        )
         threads = await client.list_conversation_threads(user_id="user-1", workspace_id="ws-1")
         updated_thread = await client.update_conversation_thread(
             "thread-1",
@@ -1140,6 +1145,7 @@ async def test_dataservice_client_conversation_contract_methods() -> None:
     assert fetched_thread is not None and fetched_thread.id == "thread-1"
     assert owned_thread is not None and owned_thread.id == "thread-1"
     assert latest_thread is not None and latest_thread.id == "thread-1"
+    assert thread_summaries[0].id == "thread-1"
     assert threads[0].id == "thread-1"
     assert updated_thread is not None and updated_thread.title == "Updated"
     assert locked is True
