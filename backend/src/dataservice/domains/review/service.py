@@ -80,6 +80,7 @@ class DataServiceReviewService:
             for item in command.items
         ]
         self._recompute_batch(batch, items)
+        await self.session.flush()
         self.repository.append_action_log(
             {
                 "batch_id": batch.id,

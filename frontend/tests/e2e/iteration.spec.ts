@@ -149,6 +149,30 @@ test("Prism review links open the workspace surface before committing room outpu
               capability_name: "章节写作",
               status: "completed",
               narrative: "已生成可保存到工作区的章节摘要。",
+              review_items: [
+                {
+                  id: "section:introduction",
+                  kind: "prism_file_change",
+                  logical_key: "section:introduction",
+                  status: "pending",
+                  title: "main.tex",
+                  summary: "feature_proposal",
+                  target: {
+                    kind: "prism_file_change",
+                    file_path: "main.tex",
+                  },
+                  preview: {
+                    mode: "diff",
+                    pending_hash: "pending-hash",
+                    current_hash: "current-hash",
+                  },
+                  actions: [
+                    { action: "preview_prism_change", label: "预览 diff" },
+                    { action: "apply_prism_change", label: "应用到 Prism" },
+                    { action: "reject_prism_change", label: "忽略并保护" },
+                  ],
+                },
+              ],
               outputs: [
                 {
                   id: "doc-1",
@@ -173,8 +197,10 @@ test("Prism review links open the workspace surface before committing room outpu
 
   await page.goto(workbenchUrl);
 
-  await expect(page.getByRole("link", { name: "预览待确认修改" })).toBeVisible();
-  await page.getByRole("link", { name: "预览待确认修改" }).click();
+  await expect(page.getByText("Prism 有 1 项待确认修改")).toBeVisible();
+  const prismReviewLinks = page.getByRole("link", { name: "预览待确认修改" });
+  await expect(prismReviewLinks.first()).toBeVisible();
+  await prismReviewLinks.first().click();
 
   await expect(page).toHaveURL(
     /\/workspaces\/ws-1\/prism\?focus=file_changes&review_item_id=section%3Aintroduction&logical_key=section%3Aintroduction/,

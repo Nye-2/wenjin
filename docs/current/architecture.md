@@ -165,6 +165,7 @@ User action
 - `TaskReport` 是结构化执行结果
 - `ResultOutput` 经用户确认后 commit 到 rooms
 - Prism 文件改动必须走 DB-backed review item → preview/apply/reject/revert
+- `kind: prism_file_change` 是 review item declaration，不是普通 `ResultOutput`
 - Prism apply/reject/revert 和 protected-section 操作写入 workspace activity / Prism projection
 
 #### Commit 代码入口
@@ -337,6 +338,7 @@ User action
 - Canonical `prism_protected_scopes` 是用户保护稿件范围的事实源
 - `WorkspacePrismService` 聚合 editor state、review items、source links、protected sections、activity 和 compile status
 - `TaskBrief.manuscript_context` 只接收 lightweight manuscript projection，不接收完整正文或 PDF
+- Lead runtime 负责把 writer output stage 到 DataService review batch；DataService review action log 写入必须发生在 batch/items flush 之后
 
 ### 6.4 Task Runtime
 

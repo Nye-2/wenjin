@@ -1,7 +1,7 @@
 """Tests for LeadAgentRuntime (Task 2.5)."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -187,6 +187,91 @@ def test_distribute_brief_includes_manuscript_context():
     assert distributed["make_outline"]["manuscript_context"]["main_file"] == (
         "main.tex"
     )
+
+
+@pytest.mark.asyncio
+async def test_stage_prism_review_items_from_writer_output():
+    graph_template = {
+        "phases": [
+            {
+                "name": "write",
+                "tasks": [
+                    {
+                        "name": "manuscript_writer",
+                        "subagent_type": "react",
+                        "outputs": [
+                            {
+                                "kind": "prism_file_change",
+                                "mapping": {
+                                    "logical_key": "project:main",
+                                    "path": "main.tex",
+                                    "reason": "feature_proposal",
+                                    "pending_content": "{{output.text}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+    brief = TaskBrief(
+        capability_id="test_cap",
+        raw_message="write a manuscript",
+        workspace_id="ws-001",
+        brief={},
+        manuscript_context={
+            "latex_project_id": "latex-1",
+            "main_file": "main.tex",
+        },
+    )
+    staged: list[object] = []
+
+    class _FakeClient:
+        async def upsert_pending_prism_file_change(self, command):
+            staged.append(command)
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        return_value=_FakeClientContext(),
+    ):
+        await runtime._stage_prism_review_items(
+            {
+                "node_results": {
+                    "manuscript_writer": {
+                        "output": {
+                            "text": "\\documentclass{article}\\begin{document}Draft\\end{document}",
+                        },
+                    },
+                },
+            },
+            cap,
+            brief=brief,
+            execution_id="exec-1",
+        )
+
+    assert len(staged) == 1
+    command = staged[0]
+    assert command.workspace_id == "ws-001"
+    assert command.latex_project_id == "latex-1"
+    assert command.logical_key == "project:main"
+    assert command.path == "main.tex"
+    assert command.source_execution_id == "exec-1"
+    assert command.source_task_id == "manuscript_writer"
+    assert "Draft" in command.pending_content
+    assert command.pending_hash
 
 
 # ---------------------------------------------------------------------------

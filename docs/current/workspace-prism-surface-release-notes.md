@@ -1,6 +1,6 @@
 # Workspace Prism Surface Release Notes
 
-Date: 2026-05-21
+Date: 2026-05-22
 
 ## Summary
 
@@ -17,6 +17,7 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 - Source links can deep-link back to Library / Documents detail views.
 - Pending file changes must be reviewed and applied in Prism before they change the manuscript.
 - Prism review actions support apply, reject, revert, and manual section protection from the same contract.
+- SCI `research_question_to_paper` and thesis `idea_to_thesis_manuscript` now stage writer output as Prism review items instead of silent runtime text.
 - The legacy standalone `/latex/:projectId` page route is removed instead of redirected.
 - Prism loading, empty, and error states now use the v2 surface-state pattern and localized copy.
 
@@ -30,12 +31,17 @@ Workspace-owned Prism is now the canonical manuscript surface for Wenjin workspa
 - Legacy `llm_config.metadata.file_changes` and `applied_file_changes` are migrated into canonical review/provenance/protection tables and stripped from project metadata.
 - `review_items`, `provenance_links`, and `prism_protected_scopes` are the canonical persistence layer for review state, provenance, and manual protection.
 - `TaskBrief.manuscript_context` carries lightweight manuscript state into execution without embedding full manuscript content.
+- Lead runtime stages `kind: prism_file_change` output declarations into DataService-backed `review_items`; `OutputMappingResolver` excludes those declarations from ordinary room outputs.
+- DataService review batch creation flushes batch/items before action logs so Postgres FK constraints remain valid in the standalone DataService deployment.
 - The database now enforces one `primary_manuscript` Prism project per workspace through a partial unique index.
 - Workspace Prism integrity reporting is available through `python -m scripts.workspace_prism_integrity_report`.
 
 ## Verification
 
-- Backend: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1938 passed.
+- Backend targeted Prism writing review: `cd backend && .venv/bin/python -m pytest tests/dataservice/test_review_batch_service.py tests/dataservice/test_foundation.py::test_dataservice_client_prism_review_contract_methods tests/agents/lead_agent/v2/test_output_mapping.py tests/agents/lead_agent/v2/test_runtime.py tests/services/test_prism_review_workflow_gate.py tests/services/test_workspace_prism_service.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy -v` -> 53 passed.
+- Frontend Playwright targeted Prism review: `cd frontend && npm run test:e2e -- iteration.spec.ts prism-surface.spec.ts --project=chromium` -> 5 passed.
+- Docker + Browser smoke: local-build gateway / worker / dataservice / bootstrap-admin healthy; runtime-staged Prism review item opened in `/workspaces/{workspace_id}/prism`, previewed, applied, and API returned `pending_count=0`, `applied_count=1`.
+- Backend full rollout baseline: `cd backend && .venv/bin/python -m pytest tests/ -q` -> 1938 passed.
 - Frontend unit: last full rollout baseline `cd frontend && npx vitest run` -> 200 passed.
 - Frontend typecheck: `cd frontend && npm run typecheck` -> passed.
 - Frontend lint: `cd frontend && npm run lint` -> passed.

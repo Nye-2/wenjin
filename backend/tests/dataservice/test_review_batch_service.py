@@ -173,6 +173,7 @@ async def test_create_batch_creates_pending_batch_items_and_action_log() -> None
     assert [item.sort_order for item in detail.items] == [0, 1]
     assert [log.action for log in repository.action_logs] == ["batch.created"]
     assert repository.action_logs[0].status_to == "pending"
+    assert session.flush_count == 1
     assert session.commit_count == 1
 
 

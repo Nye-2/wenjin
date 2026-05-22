@@ -109,7 +109,14 @@ graph_template:
       subagent_type: react
       skill_id: manuscript-writer
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: prism_file_change
+        default_checked: true
+        mapping:
+          logical_key: project:main
+          path: main.tex
+          reason: feature_proposal
+          pending_content: '{{output.text}}'
     - name: citation_auditor
       subagent_type: react
       skill_id: citation-auditor

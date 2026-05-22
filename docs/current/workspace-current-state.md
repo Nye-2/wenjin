@@ -30,7 +30,7 @@
 4. 每个 capability 的 `mission` 定义产品目标、主 surface、document role 和允许交付物。
 5. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
 6. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
-7. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`，Prism 写作变更进入 DB-backed review item。
+7. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由 Lead runtime stage 到 DB-backed review item。
 
 ## 4. 8 Workspace Rooms
 
@@ -65,6 +65,7 @@
 5. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`
 6. Prism tab / result card / Runs drawer 在存在 review items 时显示 pending handoff；Prism review state 仍以 canonical `review_items` 为准
 7. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
+8. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
 
 ## 6. Prism 主稿协作面
 
@@ -75,6 +76,8 @@
 5. Canonical `prism_protected_scopes` 记录用户手动保护的稿件范围，并进入后续 agent launch context
 6. `WorkspacePrismService` 对外提供 surface projection：main file、target files、pending/applied review items、source links、protected sections、activity、compile status
 7. `TaskBrief.manuscript_context` 只注入 lightweight manuscript projection，不传完整正文、完整 diff 或 PDF
+8. `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
+9. DataService review batch/action log 是 Prism review 的事务边界；batch/items 先 flush，action log 后写入，保证独立 DataService + Postgres 部署下 FK 顺序稳定。
 
 ## 7. 前端信息架构
 

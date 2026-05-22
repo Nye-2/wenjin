@@ -6,12 +6,16 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Annotated, Any, TypedDict
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import ResultError, ResultOutput, TaskReport
 from src.agents.lead_agent.v2.compiler import compile_graph
-from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
+from src.agents.lead_agent.v2.output_mapping import (
+    OutputMappingResolver,
+    resolve_output_mapping_value,
+)
 from src.services.capability_resolver import CapabilityResolver
 
 logger = logging.getLogger(__name__)
@@ -185,6 +189,13 @@ class LeadAgentRuntime:
         outputs = self._collect_outputs(final_state, cap)
         narrative = self._build_narrative(cap, final_state)
         token_usage = self._aggregate_token_usage(final_state)
+        if status == "completed":
+            await self._stage_prism_review_items(
+                final_state,
+                cap,
+                brief=brief,
+                execution_id=execution_id,
+            )
         review_items = await self._load_review_items_for_execution(
             workspace_id=brief.workspace_id,
             execution_id=execution_id,
@@ -524,6 +535,136 @@ class LeadAgentRuntime:
         if not graph_template or not node_results:
             return []
         return OutputMappingResolver().resolve(graph_template, node_results)
+
+    async def _stage_prism_review_items(
+        self,
+        state: dict,
+        cap: Any,
+        *,
+        brief: TaskBrief,
+        execution_id: str,
+    ) -> None:
+        graph_template = cap.graph_template if hasattr(cap, "graph_template") else {}
+        node_results = state.get("node_results", {})
+        if not graph_template or not isinstance(node_results, dict):
+            return
+
+        manuscript_context = brief.manuscript_context
+        if not isinstance(manuscript_context, dict):
+            return
+        latex_project_id = str(manuscript_context.get("latex_project_id") or "").strip()
+        if not latex_project_id:
+            return
+
+        from src.dataservice_client.contracts.prism_review import (
+            PrismFileChangeUpsertPayload,
+        )
+        from src.dataservice_client.provider import dataservice_client
+
+        commands: list[PrismFileChangeUpsertPayload] = []
+        default_path = str(manuscript_context.get("main_file") or "main.tex").strip() or "main.tex"
+
+        for phase in graph_template.get("phases", []):
+            for task in phase.get("tasks", []):
+                task_name = str(task.get("name") or "").strip()
+                if not task_name:
+                    continue
+                node_result = node_results.get(task_name)
+                if not isinstance(node_result, dict):
+                    continue
+                output = node_result.get("output")
+                if not isinstance(output, dict):
+                    continue
+                for decl in task.get("outputs", []):
+                    if not isinstance(decl, dict) or decl.get("kind") != "prism_file_change":
+                        continue
+                    command = self._build_prism_file_change_command(
+                        decl,
+                        output,
+                        workspace_id=brief.workspace_id,
+                        latex_project_id=latex_project_id,
+                        task_name=task_name,
+                        execution_id=execution_id,
+                        default_path=default_path,
+                    )
+                    if command is not None:
+                        commands.append(command)
+
+        if not commands:
+            return
+
+        try:
+            async with dataservice_client() as client:
+                for command in commands:
+                    await client.upsert_pending_prism_file_change(command)
+        except Exception:
+            logger.warning("Failed to stage Prism review items", exc_info=True)
+
+    @staticmethod
+    def _build_prism_file_change_command(
+        decl: dict[str, Any],
+        output: dict[str, Any],
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        task_name: str,
+        execution_id: str,
+        default_path: str,
+    ) -> Any | None:
+        from src.dataservice_client.contracts.prism_review import (
+            PrismFileChangeUpsertPayload,
+        )
+
+        mapping = decl.get("mapping") if isinstance(decl.get("mapping"), dict) else {}
+        pending_content = resolve_output_mapping_value(
+            str(
+                mapping.get("pending_content")
+                or mapping.get("content")
+                or "{{output.text}}"
+            ),
+            output,
+        )
+        if not isinstance(pending_content, str) or not pending_content.strip():
+            return None
+
+        path_value = resolve_output_mapping_value(
+            str(mapping.get("path") or default_path),
+            output,
+        )
+        path = str(path_value or default_path).strip() or default_path
+        logical_key_value = resolve_output_mapping_value(
+            str(mapping.get("logical_key") or f"project:{path}"),
+            output,
+        )
+        logical_key = str(logical_key_value or f"project:{path}").strip()
+        reason_value = resolve_output_mapping_value(
+            str(mapping.get("reason") or "feature_proposal"),
+            output,
+        )
+        reason = str(reason_value or "feature_proposal").strip() or "feature_proposal"
+        current_hash_value = (
+            resolve_output_mapping_value(str(mapping["current_hash"]), output)
+            if "current_hash" in mapping
+            else None
+        )
+        current_hash = (
+            str(current_hash_value).strip()
+            if current_hash_value is not None and str(current_hash_value).strip()
+            else None
+        )
+
+        return PrismFileChangeUpsertPayload(
+            workspace_id=workspace_id,
+            latex_project_id=latex_project_id,
+            logical_key=logical_key,
+            path=path,
+            reason=reason,
+            pending_content=pending_content,
+            pending_hash=sha256(pending_content.encode("utf-8")).hexdigest(),
+            current_hash=current_hash,
+            source_execution_id=execution_id,
+            source_task_id=task_name,
+        )
 
     def _build_narrative(self, cap: Any, state: dict) -> str:
         n_nodes = len(state.get("node_results", {}))

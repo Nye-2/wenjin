@@ -71,6 +71,15 @@ def _resolve_value(expr: str, output: dict, item: dict | None = None) -> Any:
     return expr
 
 
+def resolve_output_mapping_value(
+    expr: str,
+    output: dict,
+    item: dict | None = None,
+) -> Any:
+    """Resolve an output mapping expression for runtime consumers."""
+    return _resolve_value(expr, output, item)
+
+
 _KIND_TO_DATA_MODEL = {
     "library_item": ("library_item", LibraryItemData, LibraryItemOutput),
     "document": ("document", DocumentData, DocumentOutput),
@@ -104,6 +113,8 @@ class OutputMappingResolver:
         self, task_name: str, decl: dict, node_results: dict,
     ) -> list[ResultOutput]:
         kind = decl["kind"]
+        if kind == "prism_file_change":
+            return []
         if kind not in _KIND_TO_DATA_MODEL:
             logger.warning("Unknown output kind '%s' in task '%s'", kind, task_name)
             return []

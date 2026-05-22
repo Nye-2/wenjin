@@ -132,6 +132,27 @@ class TestOutputMappingResolverLibraryItem:
         result = OutputMappingResolver().resolve(graph, node_results)
         assert result == []
 
+    def test_prism_file_change_declarations_are_review_items_not_result_outputs(self):
+        graph = _make_graph([
+            {"name": "write", "tasks": [
+                {
+                    "name": "writer",
+                    "subagent_type": "react",
+                    "outputs": [{
+                        "kind": "prism_file_change",
+                        "mapping": {
+                            "logical_key": "project:main",
+                            "path": "main.tex",
+                            "pending_content": "{{output.text}}",
+                        },
+                    }],
+                },
+            ]},
+        ])
+        node_results = {"writer": {"output": {"text": "draft"}}}
+        result = OutputMappingResolver().resolve(graph, node_results)
+        assert result == []
+
     def test_missing_node_result_skipped(self):
         graph = _make_graph([
             {"name": "search", "tasks": [
