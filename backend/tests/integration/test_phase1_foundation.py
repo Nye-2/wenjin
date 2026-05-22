@@ -13,6 +13,7 @@ from __future__ import annotations
 import textwrap
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -80,6 +81,42 @@ async def _wrap_session(session):
 
 def _session_factory(session):
     return lambda: _wrap_session(session)
+
+
+class _FakeAuditDataServiceClient:
+    def __init__(self) -> None:
+        self.records: list[SimpleNamespace] = []
+
+    async def create_audit_log(self, command):
+        record = SimpleNamespace(
+            id=f"audit-{len(self.records) + 1}",
+            action=command.action,
+            user_id=command.user_id,
+            workspace_id=command.workspace_id,
+            target_type=command.target_type,
+            target_id=command.target_id,
+            payload=command.payload,
+            ip=command.ip,
+            ua=command.ua,
+        )
+        self.records.insert(0, record)
+        return record
+
+    async def query_audit_logs(
+        self,
+        *,
+        workspace_id=None,
+        user_id=None,
+        since=None,
+        limit=100,
+    ):
+        _ = since
+        return [
+            record
+            for record in self.records
+            if (workspace_id is None or record.workspace_id == workspace_id)
+            and (user_id is None or record.user_id == user_id)
+        ][:limit]
 
 
 _SEED_YAML = textwrap.dedent("""\
@@ -193,6 +230,7 @@ async def test_audit_log_and_query(db_session):
     svc = AuditService(
         session_factory=_session_factory(db_session),
         model=DbAuditLog,
+        dataservice=_FakeAuditDataServiceClient(),
     )
 
     ws_id = "ws-test-123"

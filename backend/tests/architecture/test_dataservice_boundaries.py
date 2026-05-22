@@ -103,7 +103,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "gateway/routers/workspaces.py",
     "services/admin_analytics_service.py",
     "services/admin_dashboard_service.py",
-    "services/audit_service.py",
     "services/auth.py",
     "services/credit_grant_rule_service.py",
     "services/credit_redeem_service.py",

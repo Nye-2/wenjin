@@ -1,6 +1,7 @@
 """Round-trip tests for audit_logs table and AuditService."""
 
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,43 @@ async def _session_factory(session):
     yield session
 
 
+class _FakeAuditDataServiceClient:
+    def __init__(self) -> None:
+        self.records: list[SimpleNamespace] = []
+
+    async def create_audit_log(self, command):
+        record = SimpleNamespace(
+            id=f"audit-{len(self.records) + 1}",
+            action=command.action,
+            user_id=command.user_id,
+            workspace_id=command.workspace_id,
+            target_type=command.target_type,
+            target_id=command.target_id,
+            payload=command.payload,
+            ip=command.ip,
+            ua=command.ua,
+        )
+        self.records.insert(0, record)
+        return record
+
+    async def query_audit_logs(
+        self,
+        *,
+        workspace_id=None,
+        user_id=None,
+        since=None,
+        limit=100,
+    ):
+        _ = since
+        results = [
+            record
+            for record in self.records
+            if (workspace_id is None or record.workspace_id == workspace_id)
+            and (user_id is None or record.user_id == user_id)
+        ]
+        return results[:limit]
+
+
 @pytest.mark.asyncio
 async def test_log_and_query(test_session):
     """Log an event, query by workspace_id, verify returned."""
@@ -21,6 +59,7 @@ async def test_log_and_query(test_session):
     svc = AuditService(
         session_factory=lambda: _session_factory(test_session),
         model=DbAuditLog,
+        dataservice=_FakeAuditDataServiceClient(),
     )
 
     await svc.log(
@@ -49,6 +88,7 @@ async def test_query_by_user(test_session):
     svc = AuditService(
         session_factory=lambda: _session_factory(test_session),
         model=DbAuditLog,
+        dataservice=_FakeAuditDataServiceClient(),
     )
 
     await svc.log("action.a", user_id="u-alpha", workspace_id="ws-1")
