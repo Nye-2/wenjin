@@ -5,7 +5,83 @@ from unittest.mock import AsyncMock
 import pytest
 import pytest_asyncio
 
+from src.dataservice.task_api import TaskDataService
 from src.task.store import TaskStore
+
+
+class _TestTaskDataServiceClient:
+    def __init__(self, session, record_model) -> None:
+        self._service = TaskDataService(
+            session,
+            autocommit=True,
+            record_model=record_model,
+        )
+        self.execution_updates: list[tuple[str, object]] = []
+
+    async def create_task_record(self, command):
+        return await self._service.create_task_record(**command.model_dump())
+
+    async def create_task_record_guarded(self, command):
+        values = command.model_dump()
+        return await self._service.create_task_record_guarded(**values)
+
+    async def get_task_record(self, task_id: str):
+        return await self._service.get_task_record(task_id)
+
+    async def update_task_record(self, task_id: str, command):
+        return await self._service.update_task_record(
+            task_id,
+            **command.model_dump(exclude_unset=True),
+        )
+
+    async def list_user_task_records(
+        self,
+        *,
+        user_id: str,
+        status=None,
+        task_type: str | None = None,
+        limit: int = 20,
+        workspace_id: str | None = None,
+        feature_id: str | None = None,
+        action: str | None = None,
+    ):
+        return await self._service.list_user_tasks(
+            user_id=user_id,
+            status=status,
+            task_type=task_type,
+            limit=limit,
+            workspace_id=workspace_id,
+            feature_id=feature_id,
+            action=action,
+        )
+
+    async def count_active_task_records(self, *, user_id: str, active_statuses: list[str]):
+        return await self._service.count_active_tasks(
+            user_id=user_id,
+            active_statuses=active_statuses,
+        )
+
+    async def mark_task_record_started(self, task_id: str, command):
+        return await self._service.mark_task_started(
+            task_id=task_id,
+            started_at=command.started_at,
+        )
+
+    async def persist_task_record_runtime_state(self, task_id: str, command):
+        return await self._service.persist_runtime_state(
+            task_id=task_id,
+            runtime_state=command.runtime_state,
+        )
+
+    async def mark_task_record_completed(self, task_id: str, command):
+        return await self._service.mark_task_completed(
+            task_id=task_id,
+            **command.model_dump(),
+        )
+
+    async def update_execution(self, execution_id: str, command):
+        self.execution_updates.append((execution_id, command))
+        return None
 
 
 @pytest_asyncio.fixture
@@ -14,9 +90,11 @@ async def task_store(test_session, mock_redis):
     # Import here to avoid circular imports
     from tests.task.conftest import FixtureTaskRecord
 
-    store = TaskStore(mock_redis, test_session)
-    # Store reference to test model for queries
-    store._test_model = FixtureTaskRecord
+    store = TaskStore(
+        mock_redis,
+        test_session,
+        dataservice=_TestTaskDataServiceClient(test_session, FixtureTaskRecord),
+    )
     yield store
 
 
@@ -299,8 +377,9 @@ class TestTaskStorePostgres:
         compute_touch = AsyncMock()
 
         class _FakeExecutionService:
-            def __init__(self, db) -> None:
+            def __init__(self, db, **kwargs) -> None:
                 self.db = db
+                self.kwargs = kwargs
 
             async def apply_task_transition(self, execution_id: str, **kwargs):
                 transition_kwargs["execution_id"] = execution_id

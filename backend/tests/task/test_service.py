@@ -7,8 +7,56 @@ import pytest
 import pytest_asyncio
 from pydantic import BaseModel
 
+from src.dataservice.task_api import TaskDataService
 from src.task.service import ConcurrencyLimitError, TaskService
 from src.task.store import TaskStore
+
+
+class _TestTaskDataServiceClient:
+    def __init__(self, session, record_model) -> None:
+        self._service = TaskDataService(
+            session,
+            autocommit=True,
+            record_model=record_model,
+        )
+        self.execution_updates: list[tuple[str, object]] = []
+
+    async def create_task_record_guarded(self, command):
+        return await self._service.create_task_record_guarded(**command.model_dump())
+
+    async def get_task_record(self, task_id: str):
+        return await self._service.get_task_record(task_id)
+
+    async def update_task_record(self, task_id: str, command):
+        return await self._service.update_task_record(
+            task_id,
+            **command.model_dump(exclude_unset=True),
+        )
+
+    async def list_user_task_records(
+        self,
+        *,
+        user_id: str,
+        status=None,
+        task_type: str | None = None,
+        limit: int = 20,
+        workspace_id: str | None = None,
+        feature_id: str | None = None,
+        action: str | None = None,
+    ):
+        return await self._service.list_user_tasks(
+            user_id=user_id,
+            status=status,
+            task_type=task_type,
+            limit=limit,
+            workspace_id=workspace_id,
+            feature_id=feature_id,
+            action=action,
+        )
+
+    async def update_execution(self, execution_id: str, command):
+        self.execution_updates.append((execution_id, command))
+        return None
 
 
 @pytest_asyncio.fixture
@@ -16,8 +64,11 @@ async def task_service(test_session, mock_redis):
     """Create TaskService instance with test fixtures."""
     from tests.task.conftest import FixtureTaskRecord
 
-    store = TaskStore(mock_redis, test_session)
-    store._test_model = FixtureTaskRecord
+    store = TaskStore(
+        mock_redis,
+        test_session,
+        dataservice=_TestTaskDataServiceClient(test_session, FixtureTaskRecord),
+    )
     yield TaskService(store)
 
 

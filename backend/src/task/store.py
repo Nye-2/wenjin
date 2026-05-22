@@ -2,13 +2,25 @@
 
 import json
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.task_config import task_settings
-from src.dataservice.task_api import TaskDataService, TaskRecordProjection
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.task import (
+    TaskRecordCompletedPayload,
+    TaskRecordCreateGuardedPayload,
+    TaskRecordCreatePayload,
+    TaskRecordPatchPayload,
+    TaskRecordPayload,
+    TaskRecordRuntimeStatePayload,
+    TaskRecordStartedPayload,
+)
+from src.dataservice_client.provider import dataservice_client
 from src.runtime.serialization import dumps_json
 from src.services.execution_service import ExecutionService
 from src.services.workspace_activity_contracts import (
@@ -25,25 +37,29 @@ logger = logging.getLogger(__name__)
 class TaskStore:
     """Manages task state in Redis and PostgreSQL."""
 
-    def __init__(self, redis_client: Any, db_session: AsyncSession) -> None:
+    def __init__(
+        self,
+        redis_client: Any,
+        db_session: AsyncSession,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self._redis = redis_client
         self._db = db_session
+        self._dataservice = dataservice
 
     @property
     def db(self) -> AsyncSession:
         """Expose the backing DB session for higher-level orchestration hooks."""
         return self._db
 
-    def _record_model(self) -> Any | None:
-        """Return an optional test model override for task persistence."""
-        return getattr(self, "_model", getattr(self, "_test_model", None))
-
-    def _task_data_service(self, *, autocommit: bool = True) -> TaskDataService:
-        return TaskDataService(
-            self._db,
-            autocommit=autocommit,
-            record_model=self._record_model(),
-        )
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     # === Redis Operations (Runtime State) ===
 
@@ -113,15 +129,18 @@ class TaskStore:
         task_type: str,
         priority: int,
         payload: dict[str, Any],
-    ) -> TaskRecordProjection:
+    ) -> TaskRecordPayload:
         """Create a new task record in PostgreSQL."""
-        return await self._task_data_service().create_task_record(
-            task_id=task_id,
-            user_id=user_id,
-            task_type=task_type,
-            priority=priority,
-            payload=payload,
-        )
+        async with self._client() as client:
+            return await client.create_task_record(
+                TaskRecordCreatePayload(
+                    task_id=task_id,
+                    user_id=user_id,
+                    task_type=task_type,
+                    priority=priority,
+                    payload=payload,
+                )
+            )
 
     async def create_task_record_guarded(
         self,
@@ -132,25 +151,29 @@ class TaskStore:
         priority: int,
         payload: dict[str, Any],
         concurrency_limit: int,
-    ) -> tuple[TaskRecordProjection | None, int]:
+    ) -> tuple[TaskRecordPayload | None, int]:
         """Atomically enforce per-user active-task limit and create the task record."""
         active_statuses = [
             TaskStatus.PENDING.value,
             TaskStatus.RUNNING.value,
         ]
-        return await self._task_data_service().create_task_record_guarded(
-            task_id=task_id,
-            user_id=user_id,
-            task_type=task_type,
-            priority=priority,
-            payload=payload,
-            concurrency_limit=concurrency_limit,
-            active_statuses=active_statuses,
-        )
+        async with self._client() as client:
+            return await client.create_task_record_guarded(
+                TaskRecordCreateGuardedPayload(
+                    task_id=task_id,
+                    user_id=user_id,
+                    task_type=task_type,
+                    priority=priority,
+                    payload=payload,
+                    concurrency_limit=concurrency_limit,
+                    active_statuses=active_statuses,
+                )
+            )
 
-    async def get_task_record(self, task_id: str) -> TaskRecordProjection | None:
+    async def get_task_record(self, task_id: str) -> TaskRecordPayload | None:
         """Get task record from PostgreSQL."""
-        return await self._task_data_service().get_task_record(task_id)
+        async with self._client() as client:
+            return await client.get_task_record(task_id)
 
     async def update_task_record(
         self,
@@ -158,12 +181,14 @@ class TaskStore:
         *,
         commit: bool = True,
         **updates: Any,
-    ) -> TaskRecordProjection | None:
+    ) -> TaskRecordPayload | None:
         """Update task record in PostgreSQL."""
-        return await self._task_data_service(autocommit=commit).update_task_record(
-            task_id,
-            **updates,
-        )
+        _ = commit
+        async with self._client() as client:
+            return await client.update_task_record(
+                task_id,
+                TaskRecordPatchPayload(**updates),
+            )
 
     async def list_user_tasks(
         self,
@@ -174,56 +199,55 @@ class TaskStore:
         workspace_id: str | None = None,
         feature_id: str | None = None,
         action: str | None = None,
-    ) -> list[TaskRecordProjection]:
+    ) -> list[TaskRecordPayload]:
         """List tasks for a user."""
-        return await self._task_data_service().list_user_tasks(
-            user_id=user_id,
-            status=status,
-            task_type=task_type,
-            limit=limit,
-            workspace_id=workspace_id,
-            feature_id=feature_id,
-            action=action,
-        )
+        async with self._client() as client:
+            return await client.list_user_task_records(
+                user_id=user_id,
+                status=list(status) if isinstance(status, tuple) else status,
+                task_type=task_type,
+                limit=limit,
+                workspace_id=workspace_id,
+                feature_id=feature_id,
+                action=action,
+            )
 
     async def count_active_tasks(self, user_id: str) -> int:
         """Count active (pending/running) tasks for a user."""
         active_statuses = [TaskStatus.PENDING.value, TaskStatus.RUNNING.value]
-        return await self._task_data_service().count_active_tasks(
-            user_id=user_id,
-            active_statuses=active_statuses,
-        )
+        async with self._client() as client:
+            return await client.count_active_task_records(
+                user_id=user_id,
+                active_statuses=active_statuses,
+            )
 
     async def mark_task_started(self, task_id: str, worker_id: str | None = None) -> None:
         """Mark task as started.
 
-        Updates both TaskRecord and ExecutionRecord in a single DB transaction
-        so that the two sources cannot diverge if one commit fails.
-
-        Unified path: execution lifecycle is managed by ``ExecutionService``.
+        DataService owns the task record; execution lifecycle is mirrored through
+        ``ExecutionService`` using the same DataService client when available.
         """
         started_at = datetime.now(UTC)
-        record = await self._task_data_service(autocommit=False).mark_task_started(
-            task_id=task_id,
-            started_at=started_at,
-        )
+        async with self._client() as client:
+            record = await client.mark_task_record_started(
+                task_id,
+                TaskRecordStartedPayload(started_at=started_at),
+            )
+            if record and record.execution_id:
+                await ExecutionService(
+                    self._db,
+                    dataservice=client,
+                ).apply_task_transition(
+                    record.execution_id,
+                    commit=False,
+                    status=TaskStatus.RUNNING.value,
+                    started_at=started_at,
+                    next_actions=[],
+                    advisory_code=None,
+                    last_error=None,
+                )
         if not record:
             return
-
-        # Modify the canonical ExecutionRecord in the same transaction
-        if record.execution_id:
-            await ExecutionService(self._db).apply_task_transition(
-                record.execution_id,
-                commit=False,
-                status=TaskStatus.RUNNING.value,
-                started_at=started_at,
-                next_actions=[],
-                advisory_code=None,
-                last_error=None,
-            )
-
-        # Single atomic commit for both TaskRecord and ExecutionRecord
-        await self._db.commit()
 
         # Redis runtime cache (always derived from committed DB state)
         await self.set_task_state(task_id, TaskStatus.RUNNING.value, worker_id=worker_id)
@@ -275,8 +299,6 @@ class TaskStore:
     async def persist_runtime_state(self, task_id: str, metadata: dict[str, Any] | None) -> None:
         """Persist task runtime metadata to PostgreSQL for refresh/reconnect recovery.
 
-        Updates both TaskRecord and ExecutionRecord in a single DB transaction.
-
         Runtime state is carried by the execution stream for canonical executions.
         """
         runtime_state: dict[str, Any] | None = None
@@ -285,25 +307,24 @@ class TaskStore:
             if isinstance(runtime_candidate, dict):
                 runtime_state = runtime_candidate
 
-        record = await self._task_data_service(autocommit=False).persist_runtime_state(
-            task_id=task_id,
-            runtime_state=runtime_state,
-        )
+        async with self._client() as client:
+            record = await client.persist_task_record_runtime_state(
+                task_id,
+                TaskRecordRuntimeStatePayload(runtime_state=runtime_state),
+            )
+            if record and record.execution_id and runtime_state is not None:
+                await ExecutionService(
+                    self._db,
+                    dataservice=client,
+                ).apply_task_transition(
+                    record.execution_id,
+                    commit=False,
+                    status=record.status,
+                    runtime_state=runtime_state,
+                    started_at=record.started_at,
+                )
         if not record:
             return
-
-        # Modify the canonical ExecutionRecord in the same transaction
-        if record.execution_id and runtime_state is not None:
-            await ExecutionService(self._db).apply_task_transition(
-                record.execution_id,
-                commit=False,
-                status=record.status,
-                runtime_state=runtime_state,
-                started_at=record.started_at,
-            )
-
-        # Single atomic commit for both TaskRecord and ExecutionRecord
-        await self._db.commit()
 
         # Post-commit: touch compute projection and broadcast task.updated.
         if record.execution_id and runtime_state is not None:
@@ -343,9 +364,6 @@ class TaskStore:
     ) -> None:
         """Mark task as completed (success or failed).
 
-        Updates both TaskRecord and ExecutionRecord in a single DB transaction
-        so that the two sources cannot diverge if one commit fails.
-
         Completion is mirrored into the canonical execution record.
         """
         record = await self.get_task_record(task_id)
@@ -381,41 +399,42 @@ class TaskStore:
             else None
         )
 
-        record = await self._task_data_service(autocommit=False).mark_task_completed(
-            task_id=task_id,
-            status=status,
-            result=result,
-            error=error,
-            completed_at=completed_at,
-            progress=final_progress,
-            message=final_message,
-            runtime_state=runtime_snapshot,
-        )
+        async with self._client() as client:
+            record = await client.mark_task_record_completed(
+                task_id,
+                TaskRecordCompletedPayload(
+                    status=status,
+                    result=result,
+                    error=error,
+                    completed_at=completed_at,
+                    progress=final_progress,
+                    message=final_message,
+                    runtime_state=runtime_snapshot,
+                ),
+            )
+            if record and record.execution_id:
+                await ExecutionService(
+                    self._db,
+                    dataservice=client,
+                ).apply_task_transition(
+                    record.execution_id,
+                    commit=False,
+                    status=(TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value),
+                    result=result if isinstance(result, dict) else None,
+                    error=error,
+                    runtime_state=runtime_snapshot,
+                    result_summary=result_summary,
+                    artifact_ids=artifact_ids,
+                    next_actions=next_actions,
+                    advisory_code=None,
+                    last_error=error,
+                    started_at=record.started_at,
+                    completed_at=completed_at,
+                    message=final_message,
+                    progress=final_progress,
+                )
         if not record:
             return
-
-        # Modify the canonical ExecutionRecord in the same transaction
-        if record.execution_id:
-            await ExecutionService(self._db).apply_task_transition(
-                record.execution_id,
-                commit=False,
-                status=(TaskStatus.SUCCESS.value if success else TaskStatus.FAILED.value),
-                result=result if isinstance(result, dict) else None,
-                error=error,
-                runtime_state=runtime_snapshot,
-                result_summary=result_summary,
-                artifact_ids=artifact_ids,
-                next_actions=next_actions,
-                advisory_code=None,
-                last_error=error,
-                started_at=record.started_at,
-                completed_at=completed_at,
-                message=final_message,
-                progress=final_progress,
-            )
-
-        # Single atomic commit for both TaskRecord and ExecutionRecord
-        await self._db.commit()
 
         # Redis runtime cache (always derived from committed DB state)
         await self.set_task_state(
