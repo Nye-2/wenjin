@@ -11,6 +11,7 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 - **Capability data-driven**: YAML seed + DB-backed capabilities. Admin can edit at runtime. No draft/review cycle — lead agent has runtime discretion.
 - **Curated result_card flow**: Execution outputs staged → user reviews via checkboxes → commit writes to rooms. Default all-checked + one-click "全部接受".
 - **Block protocol**: 7 block types — `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, `tool_result`. Blocks stored in arrival order (thinking never prepended).
+- **Execution UX projection**: Chat launch receipt, LiveWorkflowPanel Current run, and Runs drawer share `frontend/lib/execution-run-view.ts`; `run-ui-store` only tracks UI focus/badges.
 - **Frontend workspace UI**: Glass/visionOS design language. Left minimal white chat (ChatGPT-style) + right glassmorphism panel with purple/blue light orbs. `--v2-*` CSS tokens.
 
 ## Key Files
@@ -31,6 +32,8 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 | Workspace page | `frontend/app/(workbench)/workspaces/[id]/page.tsx` |
 | Chat store | `frontend/stores/chat-store.ts` |
 | Execution store | `frontend/stores/execution-store.ts` |
+| Run view projection | `frontend/lib/execution-run-view.ts` |
+| Run UI focus store | `frontend/stores/run-ui-store.ts` |
 | Chat panel | `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx` |
 | Workflow panel | `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx` |
 | CSS variables (v2) | `frontend/app/globals.css` (`--v2-*` tokens) |
@@ -56,12 +59,11 @@ docker compose up --build         # full stack
 
 ## Docs
 
-- `docs/superpowers/specs/2026-05-09-wenjin-workspace-rebuild-design.md` — v2 rebuild spec (source of truth)
+- `docs/current/architecture.md` — current architecture source of truth
+- `docs/current/workspace-current-state.md` — workspace / thread / execution current behavior
+- `docs/current/frontend-feature-plugin-contract.md` — frontend/backend capability and execution contract
 - `docs/superpowers/specs/2026-05-09-v2-design-language.md` — Glass/visionOS design language
-- `docs/superpowers/specs/2026-05-11-capability-output-mapping-design.md` — output mapping design
-- `docs/superpowers/plans/2026-05-09-wenjin-workspace-rebuild.md` — 12-week implementation plan
-- `docs/architecture/` — legacy architecture docs
-- `docs/product/` — workspace behavior, feature catalog
+- `docs/superpowers/plans/2026-05-22-workspace-execution-experience-convergence.md` — execution UX convergence implementation record
 
 ## Conventions
 

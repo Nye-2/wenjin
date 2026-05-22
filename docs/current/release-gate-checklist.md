@@ -4,7 +4,7 @@
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
 
-最新验证：2026-05-22 Super Agent capability cutover target suite：backend 122 passed（capability v2 schema/loader/admin/DataService Catalog、skill v2 schema/loader/admin、mission seeds、launch_feature、chat-to-launch、compute projection、feature action resolver、dashboard、workspace summary、architecture guard）；frontend `npm run typecheck` passed；frontend `npx vitest run` 198 passed。DataService / Prism / Conversation cleanup 基线：backend full pytest 1952 passed；frontend typecheck / lint passed；Alembic single head 为 `075_enforce_workspace_owner_membership`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
+最新验证：2026-05-22 workspace execution UX convergence：frontend `npx vitest run` 205 passed；frontend `npm run typecheck` passed；backend target suite 32 passed（thread stream tool events、workspace Runs projection、chat-to-launch、launch_feature）；`git diff --check` passed；Docker local-build 重建 gateway / worker / frontend 后服务 healthy；Browser smoke 通过：workspace query seed 启动 `sci_literature_positioning` -> chat launch receipt -> LiveWorkflowPanel Current run running -> completed -> Runs drawer 历史记录。Super Agent capability cutover target suite：backend 122 passed；frontend `npm run typecheck` passed；frontend `npx vitest run` 198 passed。DataService / Prism / Conversation cleanup 基线：backend full pytest 1952 passed；frontend typecheck / lint passed；Alembic single head 为 `075_enforce_workspace_owner_membership`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
 
 ## 1. Core Gate (必须全绿)
 
@@ -24,9 +24,15 @@
   - seed/admin/loader/runtime 只接受 `capability.v2` / `capability_skill.v2`
   - 旧 workflow-step id 不允许作为 seed id 或 runtime launch id
   - Dashboard / workspace summary 由 DataService Catalog + execution history 生成 mission progress
-14. 统一门禁命令（发布前需要运行）：
+14. Execution UX convergence gate：
+  - Chat stream 必须显示 `launch_feature` 的 `tool_invocation` 与 `tool_result`
+  - `tool_result.status == "launched"` 必须驱动 chat run receipt、Current run 焦点、Runs toolbar 提示
+  - LiveWorkflowPanel 与 Runs drawer 必须消费同一 `RunView` 投影，不得各自推导状态
+  - `/api/workspaces/{workspace_id}/runs` 必须返回 Prism handoff、failure category、progress 等 RunView 所需字段
+  - Browser smoke 必须覆盖 launch -> running -> completed -> Runs drawer，无需手动刷新
+15. 统一门禁命令（发布前需要运行）：
   - `cd backend && uv run python -m src.quality.release_gate_cli`
-15. 当前 Core Gate 覆盖:
+16. 当前 Core Gate 覆盖:
   - `tests/workspace_features/test_workspace_e2e_matrix.py`
   - `tests/gateway/routers/test_features.py`
   - `tests/application/services/test_feature_submission_service.py`
@@ -47,10 +53,13 @@
   - `tests/services/test_prism_review_workflow_gate.py tests/compute/test_projection_service.py`
   - `tests/workspace_features/services/test_sci_feature_service.py`
   - `tests/services/test_auth_email_workflow_gate.py tests/gateway/routers/test_auth.py tests/services/test_email_service.py`
-16. 前端静态检查通过:
+17. 前端静态检查通过:
   - `npm run typecheck`
   - `npm run lint`
   - `npm run build`
+18. Execution UX 建议回归:
+  - `cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/stores/chat-store.test.ts tests/unit/hooks/useWorkspaceEventStream.test.tsx tests/unit/v2/rooms/RunsDrawer.test.tsx tests/unit/v2/ExecutionCard.test.tsx`
+  - `cd backend && .venv/bin/python -m pytest tests/application/handlers/test_thread_turn_handler.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy tests/integration/test_chat_to_feature_launch.py tests/tools/test_launch_feature_tool.py -v`
 
 ## 2. Workspace Functional Gate (本轮新增)
 
@@ -113,3 +122,4 @@ npm test
 - [x] 大 PDF 上传后 pending -> preprocess -> ready/failed 状态可见
 - [x] 写作结果进入 Prism pending review，apply/reject/revert 后状态可观察
 - [x] SMTP 验证码链路（如启用）可稳定工作
+- [x] workspace execution UX smoke：启动回执、Current run、完成态、Runs drawer 历史记录可见

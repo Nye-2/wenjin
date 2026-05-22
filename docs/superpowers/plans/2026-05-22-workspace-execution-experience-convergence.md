@@ -500,3 +500,30 @@ Add tests for:
 - Backend and frontend tests pass.
 - Browser smoke confirms the full chain without manual refresh.
 
+## Implementation Status
+
+Status: completed and merged to `master` on 2026-05-22.
+
+Commit:
+
+- `1bd705d0 Converge workspace execution experience`
+
+Implemented:
+
+- Shared `RunView` projection in `frontend/lib/execution-run-view.ts`
+- UI focus/badge state in `frontend/stores/run-ui-store.ts`
+- Chat launch receipt for `launch_feature` `tool_result.status == "launched"`
+- Backend thread run stream propagation for `tool_invocation` and `tool_result`
+- LiveWorkflowPanel Current run focus and active-run placeholder
+- Runs drawer live/history merge with RunView-derived actions and failure/Prism metadata
+- Backend `/api/workspaces/{workspace_id}/runs` extended projection for RunView
+- Prism pending badges in SurfaceSwitch / ResultCard / Runs drawer when review items exist
+
+Validated:
+
+- `cd frontend && npx vitest run`: 41 files, 205 tests passed
+- `cd frontend && npm run typecheck`: passed
+- Backend target suite: 32 passed
+- `git diff --check`: passed
+- Docker local-build rebuild for frontend/gateway/worker: healthy
+- Browser smoke: workspace query seed launched `sci_literature_positioning`; chat receipt, Current run running/completed, result summary, Runs badge, and Runs drawer history were visible without manual refresh

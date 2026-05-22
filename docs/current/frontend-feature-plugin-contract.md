@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-05-20
+更新时间: 2026-05-22
 
 本文档定义 workspace capability 入口兼容层的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
 
@@ -70,7 +70,8 @@
 - `frontend/stores/compute.ts`
 - `frontend/stores/execution-store.ts`
 - `frontend/stores/latex.ts`
-- `frontend/lib/execution-presenters.ts`
+- `frontend/stores/run-ui-store.ts`
+- `frontend/lib/execution-run-view.ts`
 - `frontend/hooks/useWorkspaceEventStream.ts`
 - `frontend/app/(workbench)/workspaces/[id]/page.tsx`
 - `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
@@ -90,28 +91,53 @@
 - 前端职责:
   - 解析 query seed
   - 生成首条可编辑 prompt
-  - 在第一次 chat turn 中把 `metadata.orchestration.intent=launch + feature_id + params` 一并发给后端
+  - 在第一次 chat turn 中把 `metadata.orchestration.feature_id + entry + params` 一并发给后端
 - 后端职责:
   - 所有 chat turns 统一进入 lead-agent（`create_react_agent`）
   - lead-agent 根据 workspace skills 上下文判断是否调用 `launch_feature` tool
   - `launch_feature` tool 创建或复用 `ExecutionRecord`，并分发 `execute_execution(execution_id)`
+  - thread run stream 必须把 `launch_feature` 的 `tool_invocation` / `tool_result` 发回前端
+  - `tool_result.status == "launched"` 时必须携带 `execution_id`、`feature_id`，并尽量携带 `capability_name`
   - 在 `metadata.orchestration.execution_id` 存在时，走 ingress resume 继续同一 execution
   - assistant thread message 会持久化 `metadata.orchestration.execution_id`，供前端在刷新/恢复后将 result card 锚定回对应消息
 
-### 1.3 Launch / Resume Fact
+### 3.1 Launch / Resume Fact
 
 - 当前没有独立的 `POST /workspaces/{workspace_id}/features/{feature_id}/execute` 公共入口作为主链事实源。
 - capability 启动与恢复以 workspace thread orchestration + `launch_feature` 为准。
 - 返回给前端用于订阅、恢复、提交的 canonical 标识始终是 `execution_id`。
+- 用户可见启动确认来自标准 `tool_result` block，而不是模型自然语言承诺。
+
+### 3.2 RunView Projection Contract
+
+前端所有 execution UX 展示必须先投影为 `RunView`：
+
+- live execution：`runViewFromExecution(record)`
+- Runs history：`runViewFromRunRecord(record, workspaceId)`
+- chat result card：`runViewFromResultCard(data, workspaceId)`
+- live/history 合并：`mergeRunViews(live, historical)`
+
+`RunView` 负责统一 title、status、duration、node counts、token usage、Prism review handoff、failure category 和 primary actions。
+
+`run-ui-store` 只允许保存：
+
+- `activeRunId`
+- `focusedRunId`
+- `highlightedRunId`
+- `completedRunIds`
+
+不得把 execution lifecycle、node state 或 backend result 复制进 `run-ui-store`。
 
 ## 4. 交互约束
 
 1. capability entry 目录按后端下发动态渲染，不做 workspace 类型硬编码按钮列表。
 2. capability 执行后统一汇聚到 `ExecutionRecord`，并由 `ComputeSession` 提供工作台 shell。
-3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 LiveWorkflowPanel / compute projection UI。
+3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 LiveWorkflowPanel / compute projection UI，并通过 `RunView` 呈现。
 4. workspace SSE 以 `execution.* / task.updated / subagent.updated / compute.updated` 驱动 execution/compute store 增量更新。
 5. capability 入口卡片、artifact follow-up、activity retry 必须统一落到 `/workspaces/{workspace_id}?feature=...` query seed，并保留 `source_artifact_id/context_artifact_ids` 等 seed；不得重新引入中间 feature slug 页面。
 6. Prism writing result action 必须统一落到 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`，不得落到 standalone `/latex/{project_id}` 页面。
+7. Runs drawer 必须合并 live execution store 与 `/api/workspaces/{workspace_id}/runs`，不得成为第二套执行状态系统。
+8. LiveWorkflowPanel 必须 pin 当前 active/focused run；从 running 到 completed 的状态切换必须来自 execution store / Runs projection，不来自本地计时假设。
 
 ## 5. Refresh Targets Contract
 

@@ -19,6 +19,8 @@
 1. **Chat Agent**（左面板）：处理对话、意图识别、调度 capability
 2. **Lead Agent v2**（右面板）：执行 capability graph，运行 subagent，产出结构化结果
 3. 1:1 映射：lead-busy 时阻塞新的 dispatch
+4. Chat turn 本身通过 `/api/threads/{thread_id}/runs/stream` 运行；当 Chat Agent 调用 `launch_feature` 时，stream 会显式输出 `tool_invocation` 与 `tool_result`
+5. `launch_feature` 的 `tool_result.status == "launched"` 必须包含 canonical `execution_id`，前端据此建立 run receipt 与右侧 Current run 焦点
 
 ## 3. Capability 数据驱动
 
@@ -43,14 +45,26 @@
 
 ## 5. Result Card 闭环流程
 
-1. capability 执行完成 → `TaskReport` 含 `outputs[]`
-2. SSE `execution.completed` 事件 → 前端 execution-store
-3. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
-4. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item
-5. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
-6. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
-7. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
-8. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
+1. Chat Agent 调用 `launch_feature` → chat stream 输出 `tool_invocation` / `tool_result`
+2. `tool_result.status == "launched"` → ChatPanel 渲染启动回执，`run-ui-store` 标记 active run
+3. capability 执行完成 → `TaskReport` 含 `outputs[]`
+4. SSE `execution.completed` 事件 → 前端 execution-store
+5. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
+6. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item
+7. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
+8. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
+9. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
+10. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
+
+## 5.1 Execution UX 当前收敛
+
+1. `frontend/lib/execution-run-view.ts` 是前端执行展示投影事实源，负责从 `ExecutionRecord`、Runs `RunRecord`、chat `result_card` 派生统一 `RunView`
+2. `frontend/stores/run-ui-store.ts` 只保存 UI 焦点：active / focused / highlighted / completed run ids；不拥有执行状态事实
+3. LiveWorkflowPanel 会 pin 当前 run：running 时自动展开执行卡，completed 后保持 Current run 摘要
+4. Runs toolbar 按钮显示运行中/已完成提示；Runs drawer 合并 live execution store 与 `/api/workspaces/{workspace_id}/runs` 历史记录
+5. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`
+6. Prism tab / result card / Runs drawer 在存在 review items 时显示 pending handoff；Prism review state 仍以 canonical `review_items` 为准
+7. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
 
 ## 6. Prism 主稿协作面
 
@@ -66,9 +80,9 @@
 
 1. **Workspace shell**：提供 Workbench / Prism 两个主 surface switch
 2. **Workbench 左面板**（Chat）：对话与结果卡片入口
-3. **Workbench 右面板**（Execution / Compute）：execution graph、node 详情、room drawers、Compute Stage
+3. **Workbench 右面板**（Execution / Compute）：Current run、execution graph、node 详情、room drawers、Compute Stage
 4. **Prism surface**：LaTeX editor、compile/PDF、Changes review、workspace context rail
-5. Room drawers（顶部 toolbar）：Library / Documents / Tasks / Runs 等
+5. Room drawers（顶部 toolbar）：Library / Documents / Tasks / Runs 等；Runs drawer 是执行历史与审计面，不是第二套运行状态源
 6. Settings page：Memory / Decisions / Sandbox / Settings 管理
 
 ## 8. 线程模型

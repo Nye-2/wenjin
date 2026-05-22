@@ -1,10 +1,10 @@
 # 问津 Wenjin
 
-更新时间：2026-04-29
+更新时间：2026-05-22
 
 问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前收口到 execution-first 主链路：
 
-`workspace chat intent -> launch_feature tool -> ExecutionRecord + ComputeSession -> Celery execute_execution -> ExecutionEngineV2 -> LeadAgentRuntime -> TaskReport / artifact / WenjinPrism writeback -> Compute projection`
+`workspace chat intent -> thread run stream -> launch_feature tool_result receipt -> ExecutionRecord + ComputeSession -> Celery execute_execution -> ExecutionEngineV2 -> LeadAgentRuntime -> TaskReport / artifact / WenjinPrism writeback -> RunView / Compute projection`
 
 ## 当前产品形态
 
@@ -12,6 +12,7 @@
 - 单 workspace 主对话：chat 是统一入口，skills 作为 capability 的会话级入口语义
 - Compute 工作面：长任务过程、runtime blocks、sandbox 文件、日志、Review Gate 和 WenjinPrism 写入状态统一展示
 - 确定性 capability 执行：显式 launch/resume 由 workspace ChatPanel 的 thread orchestration 进入 `launch_feature`
+- 执行体验闭环：Chat 启动回执、右侧 Current run、Runs drawer 历史记录共享同一 `RunView` 投影
 - 任务与结果闭环：`task`、`artifact`、`activity`、runtime blocks、SSE 事件统一回写
 - LaTeX 主稿台：项目文件树、编译、PDF 预览、点评改写、SyncTeX 联动、file-change preview/apply/revert
 - Subagents：作为 Compute 内部 worker 能力存在，由 feature runtime / AgentHarness 调用
@@ -81,6 +82,7 @@
 - `backend/src/subagents/`：subagent manager、context snapshot、academic subagent registry
 - `frontend/app/(workbench)/workspaces/[id]/`：workbench 主界面与各面板
 - `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx`：右侧 execution / compute 工作面
+- `frontend/lib/execution-run-view.ts`：执行 UX 统一投影，供 Live panel / Runs drawer / chat result 使用
 - `frontend/stores/`：chat/compute/latex/workspace 等前端状态管理
 
 ## Prompt Strategy

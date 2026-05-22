@@ -78,7 +78,7 @@
 | API client | `frontend/lib/api*` | HTTP / SSE 协议适配、类型定义 |
 | Store | `frontend/stores/` | execution / compute / workspace / chat 状态管理 |
 | Integration hook | `frontend/hooks/useWorkspaceEventStream.ts` | workspace 事件、execution 发现、execution stream 单入口 |
-| Presenter | `frontend/lib/execution-presenters.ts` | `ExecutionRecord` 到 UI view model 的映射 |
+| Presenter | `frontend/lib/execution-run-view.ts` | `ExecutionRecord` / Runs `RunRecord` / chat `result_card` 到 `RunView` 的映射 |
 | View components | `frontend/app/(workbench)/workspaces/[id]/components/` | execution card、compute 面板、chat 面板展示 |
 
 ### 2.4 非协商边界
@@ -99,8 +99,10 @@
 ```text
 User action
   -> workspace ChatPanel / tool intent
+  -> thread run stream
   -> chat agent launch intent
   -> launch_feature tool
+  -> chat tool_result launch receipt
   -> ExecutionRecord create
   -> ComputeSession ensure
   -> Celery execute_execution
@@ -116,11 +118,15 @@ User action
 - `launch_feature` 是 capability 执行统一入口，只接受 `schema_version == "capability.v2"` 的记录
 - launch / resume 主语义基于 `execution_id`
 - lead-busy 通过 active execution 判定
+- Chat Agent 通过 thread run stream 调用 `launch_feature`；`tool_invocation` / `tool_result` 是 canonical chat block，不是模型文本约定
+- `launch_feature` 成功返回 `status=launched`、`execution_id`、`feature_id`、`capability_name`，前端据此建立 run receipt 和 Current run 焦点
 
 #### Launch 代码入口
 
 - tool：`backend/src/tools/builtins/launch_feature.py`
 - launch context：`backend/src/application/services/feature_launch_context.py`
+- chat stream extraction：`backend/src/application/handlers/thread_turn_handler.py`
+- run stream publisher：`backend/src/runtime/runs/worker.py`
 - execution dispatch：`backend/src/task/tasks/execution.py`
 
 #### Launch 改动规则
@@ -177,13 +183,22 @@ User action
 - execution store
 - workspace execution list
 - compute projection execution payload
-- execution presenters / panels
+- `RunView` presenters / panels
 
 开发规则：
 
 1. 任何 execution UI 新需求，先看是否能直接基于 `ExecutionRecord`
 2. 不要再引入新的“execution summary”或“session view model”作为后端事实源
 3. 需要 UI 映射时，只允许在 presenter 层做衍生视图
+
+`frontend/lib/execution-run-view.ts` 是当前执行体验的唯一前端 presenter：
+
+- `runViewFromExecution(record)`：live execution card / Current run
+- `runViewFromRunRecord(record, workspaceId)`：Runs drawer 历史记录
+- `runViewFromResultCard(data, workspaceId)`：chat completion summary
+- `mergeRunViews(live, historical)`：同一 run 在 live/history 中合并展示
+
+`frontend/stores/run-ui-store.ts` 只保存 UI 焦点和提示徽标，不保存 execution lifecycle。
 
 线程历史里的 assistant message 允许持久化 `metadata.orchestration.execution_id`
 作为 result card 与 execution 的归属锚点；但它不是实时执行状态源。
@@ -223,6 +238,7 @@ User action
 
 - `/api/threads/{thread_id}/runs/*`
 - `/api/runs/*`
+- Chat run SSE 事件包含 `reasoning`、`content`、`block`、`tool_invocation`、`tool_result`、`done`、`error`
 
 ### 5.2 Executions
 
@@ -234,6 +250,7 @@ User action
 ### 5.3 Workspace / compute
 
 - `/api/workspaces/{workspace_id}/executions`
+- `/api/workspaces/{workspace_id}/runs`
 - `/api/workspaces/{workspace_id}/compute/sessions`
 - `/api/compute/sessions/{compute_session_id}`
 - `/api/compute/sessions/{compute_session_id}/projection`
@@ -378,13 +395,15 @@ User action
 
 1. `frontend/stores/execution-store.ts`
 2. `frontend/hooks/useWorkspaceEventStream.ts`
-3. `frontend/lib/execution-presenters.ts`
-4. 面板组件
+3. `frontend/lib/execution-run-view.ts`
+4. `frontend/stores/run-ui-store.ts`（仅限 UI 焦点 / 徽标）
+5. 面板组件
 
 不要做：
 
 - 在组件本地维护第二份 execution 生命周期
 - 重新引入平行 SSE 订阅
+- 让 Runs drawer 和 LiveWorkflowPanel 各自推导不同的状态/时长/动作
 
 ### 7.4 我要改 result card / commit
 
@@ -418,6 +437,7 @@ User action
 3. public execution payload contract 变化
 4. canonical route 或 canonical store 变化
 5. workspace-owned Prism projection、review contract、source/protected-section contract 变化
+6. Chat run SSE block contract、RunView 投影、Runs drawer / LiveWorkflowPanel 执行体验变化
 
 ## 9. Summary
 
