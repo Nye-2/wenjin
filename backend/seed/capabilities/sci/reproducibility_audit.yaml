@@ -102,5 +102,11 @@ graph_template:
       subagent_type: react
       skill_id: review-critic
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 可复现性检查.md
+          doc_kind: review_report
+          content: '{{output.text}}'
 extensions: {}

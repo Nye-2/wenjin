@@ -112,5 +112,11 @@ graph_template:
       subagent_type: react
       skill_id: proposal-writer
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 技术路线方案包.md
+          doc_kind: proposal_pack
+          content: '{{output.text}}'
 extensions: {}

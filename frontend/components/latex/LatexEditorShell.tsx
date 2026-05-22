@@ -50,6 +50,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { useAuthStore } from "@/stores/auth";
 import { useLatexStore } from "@/stores/latex";
 
@@ -631,6 +636,7 @@ export function LatexEditorShell({
   const [protectionError, setProtectionError] = useState("");
   const [pdfDraftSelection, setPdfDraftSelection] = useState<PdfDraftSelection | null>(null);
   const [transientPdfAnchor, setTransientPdfAnchor] = useState<LatexPdfAnchor | null>(null);
+  const [isWideSurface, setIsWideSurface] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const feedbackSaveTimerRef = useRef<number | null>(null);
   const texMapRequestSeqRef = useRef(0);
@@ -662,7 +668,20 @@ export function LatexEditorShell({
     setFileChangeError("");
   }, [projectId]);
 
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)");
+    const update = () => setIsWideSurface(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
   const dirty = activeFileContent !== activeFileSavedContent;
+  const containsCjkContent = /[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]/.test(activeFileContent);
+  const engineHint =
+    engine === "pdflatex" && containsCjkContent
+      ? "当前稿件包含中文或 CJK 标点，请切回 XeLaTeX。PDFLaTeX 在当前运行时不适合作为中文稿件编译器。"
+      : "中文或中英混排稿件默认使用 XeLaTeX。PDFLaTeX 主要用于英文模板兼容。";
   const effectiveSelectedPath = selectedPath || activeFilePath;
   const effectiveSelectedType = selectedPathType || (activeFilePath ? "file" : null);
   const currentFolder =
@@ -1671,8 +1690,16 @@ export function LatexEditorShell({
           </div>
         ) : null}
 
-        <div className="grid gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_460px]">
-          <section className="space-y-3 xl:flex xl:min-h-0 xl:flex-col xl:gap-3 xl:space-y-0 xl:overflow-hidden">
+        <ResizablePanelGroup
+          orientation={isWideSurface ? "horizontal" : "vertical"}
+          className="min-h-0 flex-1 gap-3 overflow-visible xl:overflow-hidden"
+        >
+          <ResizablePanel
+            id="prism-editor-workspace"
+            defaultSize={isWideSurface ? "72%" : "60%"}
+            minSize={isWideSurface ? "48%" : "35%"}
+          >
+          <section className="h-full space-y-3 xl:flex xl:min-h-0 xl:flex-col xl:gap-3 xl:space-y-0 xl:overflow-auto">
             <LatexToolbar
               engine={engine}
               onEngineChange={setEngine}
@@ -1687,10 +1714,11 @@ export function LatexEditorShell({
               isCompiling={isCompiling}
               disableActions={isProjectLoading}
               currentFolderLabel={currentFolder || "项目根目录"}
+              engineHint={engineHint}
             />
 
             {fileChanges.length > 0 ? (
-              <div ref={fileChangesRef} className="order-1 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+              <div ref={fileChangesRef} className="order-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-700" />
@@ -1770,7 +1798,7 @@ export function LatexEditorShell({
             ) : null}
 
             {appliedFileChanges.length > 0 ? (
-              <div className="order-1 rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-3">
+              <div className="order-2 max-h-[180px] overflow-auto rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-3">
                 <div className="flex items-center gap-2">
                   <RotateCcw className="h-4 w-4 text-emerald-700" />
                   <p className="text-sm font-medium text-emerald-900">
@@ -2219,12 +2247,21 @@ export function LatexEditorShell({
               ) : null}
             </div>
 
-            <div className="order-2 grid gap-3 overflow-visible lg:grid-cols-[200px_minmax(0,1fr)] xl:min-h-0 xl:flex-1 xl:overflow-hidden">
-              <aside className="min-h-0 overflow-hidden rounded-lg border border-white/50 bg-white/70 p-3 shadow-sm">
+            <ResizablePanelGroup
+              orientation={isWideSurface ? "horizontal" : "vertical"}
+              className="order-1 min-h-[760px] gap-3 overflow-visible xl:flex-none"
+            >
+              <ResizablePanel
+                id="prism-file-tree"
+                defaultSize={isWideSurface ? "15%" : "18%"}
+                minSize={isWideSurface ? "10%" : "12%"}
+                maxSize={isWideSurface ? "28%" : "35%"}
+              >
+              <aside className="h-full min-h-0 overflow-hidden rounded-lg border border-white/50 bg-white/70 p-2.5 shadow-sm">
                 <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
                   文件
                 </p>
-                <div className="mt-3 max-h-[calc(100vh-250px)] overflow-auto">
+                <div className="mt-2 max-h-[calc(100vh-250px)] overflow-auto">
                   <LatexFileTree
                     items={tree}
                     selectedPath={effectiveSelectedPath}
@@ -2243,8 +2280,19 @@ export function LatexEditorShell({
                   />
                 </div>
               </aside>
+              </ResizablePanel>
 
-              <div className="flex min-h-0 flex-col rounded-lg border border-white/50 bg-white/80 p-3 shadow-sm">
+              <ResizableHandle
+                withHandle
+                className="bg-white/50"
+              />
+
+              <ResizablePanel
+                id="prism-tex-editor"
+                defaultSize={isWideSurface ? "85%" : "82%"}
+                minSize={isWideSurface ? "45%" : "50%"}
+              >
+              <div className="flex h-full min-h-0 flex-col rounded-lg border border-white/50 bg-white/80 p-3 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">
@@ -2291,14 +2339,27 @@ export function LatexEditorShell({
                       setSelectionRange([start, end]);
                     }}
                     readOnly={!activeFilePath || !isTextFile(activeFilePath)}
-                    className="min-h-[520px] flex-1 resize-none rounded-md border border-[var(--border-default)] bg-[rgba(244,240,232,0.55)] p-4 font-mono text-[13px] leading-6 outline-none focus:border-[var(--v2-accent-purple-300)]"
+                    className="min-h-[680px] flex-1 resize-none rounded-md border border-[var(--border-default)] bg-[rgba(244,240,232,0.55)] p-4 font-mono text-[14px] leading-6 outline-none focus:border-[var(--v2-accent-purple-300)]"
                   />
                 )}
               </div>
-            </div>
+              </ResizablePanel>
+            </ResizablePanelGroup>
           </section>
+          </ResizablePanel>
 
-          <section className="space-y-3 xl:min-h-0 xl:overflow-auto">
+          <ResizableHandle
+            withHandle
+            className="bg-white/50"
+          />
+
+          <ResizablePanel
+            id="prism-pdf-preview"
+            defaultSize={isWideSurface ? "28%" : "40%"}
+            minSize={isWideSurface ? "22%" : "30%"}
+            maxSize={isWideSurface ? "52%" : "65%"}
+          >
+          <section className="h-full space-y-3 xl:min-h-0 xl:overflow-auto">
             <div className="rounded-lg border border-white/50 bg-white/80 p-3 shadow-sm">
               <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
                 PDF 预览
@@ -2314,6 +2375,25 @@ export function LatexEditorShell({
                     onSelection={handlePdfSelection}
                     className="h-[calc(100vh-240px)] min-h-[520px] w-full"
                   />
+                ) : isCompiling ? (
+                  <div className="flex h-[calc(100vh-240px)] min-h-[520px] flex-col items-center justify-center gap-3 px-6 text-center text-sm text-[var(--text-muted)]">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    正在使用 {engine} 编译当前项目...
+                  </div>
+                ) : compileResult && !compileResult.ok ? (
+                  <div className="flex h-[calc(100vh-240px)] min-h-[520px] flex-col items-center justify-center px-6 text-center">
+                    <p className="text-sm font-medium text-red-600">编译失败</p>
+                    <p className="mt-2 max-w-sm text-xs leading-6 text-[var(--text-muted)]">
+                      {compileResult.error || "没有生成 PDF。打开编译日志查看 LaTeX 输出。"}
+                    </p>
+                    <Button
+                      variant="outline"
+                      className="mt-4"
+                      onClick={() => setIsCompileLogOpen(true)}
+                    >
+                      查看编译日志
+                    </Button>
+                  </div>
                 ) : (
                   <div className="flex h-[calc(100vh-240px)] min-h-[520px] items-center justify-center px-6 text-center text-sm text-[var(--text-muted)]">
                     还没有可预览的 PDF。先保存并编译当前项目。
@@ -2342,13 +2422,16 @@ export function LatexEditorShell({
                 </Button>
               </div>
               <p className="mt-3 text-sm text-[var(--text-muted)]">
-                {compileResult
+                {isCompiling
+                  ? `正在编译：${engine} · ${project?.main_file || "main.tex"}`
+                  : compileResult
                   ? `最近一次编译：${compileResult.ok ? "成功" : "失败"} · ${compileResult.engine} · ${compileResult.main_file}`
                   : "当前还没有编译记录。"}
               </p>
             </div>
           </section>
-        </div>
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </section>
 
       <Dialog open={isCompileLogOpen} onOpenChange={setIsCompileLogOpen}>

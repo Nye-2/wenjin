@@ -14,6 +14,7 @@ from src.application.errors import ApplicationError, BadRequestError, PaymentReq
 from src.application.handlers.thread_turn_handler import (
     ThreadStreamDelta,
     ThreadTurnHandler,
+    _reply_from_agent_result,
     build_thread_initial_state,
 )
 from src.application.results import (
@@ -670,6 +671,28 @@ class TestThreadTurnHandlerCancellation:
             assert reply.blocks[0]["kind"] == "tool_invocation"
             assert reply.blocks[1]["kind"] == "tool_result"
             assert reply.blocks[1]["data"]["execution_id"] == "exec-1"
+
+    def test_reply_from_agent_result_blocks_unbacked_launch_receipt(self):
+        reply = _reply_from_agent_result(
+            {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "✅ 「可复现性检查」已启动，执行 ID："
+                            "f89cd34a-a5e9-46eb-8189-3e6597c7335c"
+                        )
+                    )
+                ],
+                "response_blocks": [],
+                "response_metadata": {},
+            },
+            thread_id="thread-1",
+        )
+
+        assert reply.metadata["guard"] == "unbacked_launch_receipt"
+        assert "没有成功启动" in reply.content
+        assert reply.blocks[0]["type"] == "warning"
+        assert "f89cd34a" not in reply.content
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_extracts_reasoning_into_blocks(self):

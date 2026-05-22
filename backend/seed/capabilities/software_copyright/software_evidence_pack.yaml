@@ -107,5 +107,11 @@ graph_template:
       subagent_type: react
       skill_id: software-doc-drafter
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 软件证明材料包.md
+          doc_kind: evidence_pack
+          content: '{{output.text}}'
 extensions: {}

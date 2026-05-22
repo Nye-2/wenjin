@@ -21,6 +21,7 @@ interface LatexToolbarProps {
   isCompiling: boolean;
   disableActions: boolean;
   currentFolderLabel: string;
+  engineHint?: string;
 }
 
 export function LatexToolbar({
@@ -37,6 +38,7 @@ export function LatexToolbar({
   isCompiling,
   disableActions,
   currentFolderLabel,
+  engineHint,
 }: LatexToolbarProps) {
   const [newFilePath, setNewFilePath] = useState("");
   const [newFolderPath, setNewFolderPath] = useState("");
@@ -60,8 +62,8 @@ export function LatexToolbar({
           onChange={(event) => onEngineChange(event.target.value as LatexCompileEngine)}
           className="h-9 rounded-md border border-[var(--border-default)] bg-white/90 px-2 text-sm"
         >
-          <option value="xelatex">XeLaTeX</option>
-          <option value="pdflatex">PDFLaTeX</option>
+          <option value="xelatex">XeLaTeX（中文推荐）</option>
+          <option value="pdflatex">PDFLaTeX（英文兼容）</option>
         </select>
 
         <Button size="sm" variant="outline" onClick={onSave} disabled={disableActions || isSaving}>
@@ -74,6 +76,9 @@ export function LatexToolbar({
           {isCompiling ? "编译中..." : "编译"}
         </Button>
       </div>
+      <p className="mt-2 text-[11px] leading-5 text-[var(--text-muted)]">
+        {engineHint || "中文或中英混排稿件默认使用 XeLaTeX。PDFLaTeX 主要用于英文模板兼容。"}
+      </p>
 
       <details className="mt-2">
         <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1 text-xs text-[var(--text-muted)] hover:bg-white/70">

@@ -198,6 +198,46 @@ describe("CompletedView", () => {
     expect(screen.getByText("sections/introduction.tex")).toBeInTheDocument();
   });
 
+  it("surfaces Prism review items from nested task_report when record-level review_items are absent", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: {
+            execution_id: "exec-1",
+            capability_id: "research_question_to_paper",
+            status: "completed",
+            narrative: "Manuscript draft completed.",
+            outputs: [],
+            review_items: [
+              {
+                id: "review-1",
+                kind: "prism_file_change",
+                logical_key: "project:main",
+                status: "pending",
+                title: "main.tex",
+                summary: "feature_proposal",
+                target: {
+                  kind: "prism_file_change",
+                  file_path: "main.tex",
+                },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("待确认修改")).toBeInTheDocument();
+    expect(screen.getByText("main.tex")).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: "预览待确认修改" });
+    expect(link).toHaveAttribute(
+      "href",
+      "/workspaces/ws-1/prism?focus=file_changes&review_item_id=review-1&logical_key=project%3Amain",
+    );
+  });
+
   it("commits staged previews from the execution panel and exposes saved room links", async () => {
     render(
       <CompletedView

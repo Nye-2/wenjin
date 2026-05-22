@@ -616,6 +616,20 @@ def test_compile_build_command_normalizes_leading_slash_in_main_file() -> None:
     assert "xelatex -interaction=nonstopmode -halt-on-error -file-line-error -synctex=1 main.tex" in script
 
 
+def test_compile_error_message_guides_pdflatex_ctex_failures() -> None:
+    log = (
+        "/usr/share/texlive/texmf-dist/tex/latex/ctex/engine/ctex-engine-pdftex.def:119:\n"
+        " Emergency stop.\n"
+        "l.119   \\RequirePackage { CJKpunct , CJKspace }\n"
+        "Fatal error occurred, no output PDF file produced!"
+    )
+
+    message = LatexCompileService._build_compile_error_message(log, "pdflatex")
+
+    assert "PDFLaTeX cannot compile" in message
+    assert "XeLaTeX" in message
+
+
 @pytest.mark.asyncio
 async def test_compile_project_can_skip_history_record(
     monkeypatch: pytest.MonkeyPatch,

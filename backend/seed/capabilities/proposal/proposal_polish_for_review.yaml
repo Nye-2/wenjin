@@ -102,5 +102,11 @@ graph_template:
       subagent_type: react
       skill_id: proposal-writer
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 申报书润色稿.md
+          doc_kind: proposal_draft
+          content: '{{output.text}}'
 extensions: {}

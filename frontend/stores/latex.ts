@@ -90,6 +90,32 @@ function isTextFilePath(path: string): boolean {
     .some((suffix) => path.toLowerCase().endsWith(suffix));
 }
 
+function normalizeCompileResult(result: LatexCompileResult): LatexCompileResult {
+  if (result.ok) {
+    return result;
+  }
+
+  const combined = `${result.error || ""}\n${result.log || ""}`.toLowerCase();
+  if (
+    result.engine === "pdflatex"
+    && (
+      combined.includes("ctex-engine-pdftex.def")
+      || combined.includes("cjkutf8.sty")
+      || combined.includes("cjkpunct")
+      || combined.includes("cjkspace")
+      || combined.includes("ctexart.cls")
+    )
+  ) {
+    return {
+      ...result,
+      error:
+        "PDFLaTeX cannot compile this ctex/CJK Chinese manuscript in the current runtime. Use XeLaTeX for Chinese or mixed-language documents.",
+    };
+  }
+
+  return result;
+}
+
 function pickDefaultFile(
   tree: LatexFileItem[],
   project: LatexProject | null,
@@ -682,14 +708,32 @@ export const useLatexStore = create<LatexState>((set, get) => ({
         main_file: project.main_file,
         engine,
       });
+      const normalizedResult = normalizeCompileResult(result);
+      set({
+        compileResult: normalizedResult,
+        compileLog: normalizedResult.log || "",
+      });
+
       let compiledPdfUrl: string | null = null;
-      if (result.ok) {
-        const blob = await fetchLatexCompiledPdfBlob(project.id, result.history_id);
-        compiledPdfUrl = URL.createObjectURL(blob);
+      if (normalizedResult.ok && normalizedResult.history_id) {
+        try {
+          const blob = await fetchLatexCompiledPdfBlob(project.id, normalizedResult.history_id);
+          compiledPdfUrl = URL.createObjectURL(blob);
+        } catch (error) {
+          set({
+            error: `PDF 已编译成功，但预览文件加载失败：${(error as Error).message}`,
+            isCompiling: false,
+          });
+          return;
+        }
+      } else if (normalizedResult.ok && !normalizedResult.history_id) {
+        set({
+          error: "PDF 已编译成功，但没有生成可读取的编译历史记录。",
+          isCompiling: false,
+        });
+        return;
       }
       set({
-        compileResult: result,
-        compileLog: result.log || "",
         compiledPdfUrl,
         isCompiling: false,
       });

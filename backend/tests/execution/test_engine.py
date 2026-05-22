@@ -35,12 +35,14 @@ def _make_execution_record(
     workspace_id: str = "ws-001",
     feature_id: str | None = "test_cap",
     user_id: str = "user-001",
+    workspace_type: str | None = None,
 ) -> SimpleNamespace:
     """Minimal stand-in for an ExecutionRecord ORM object."""
     return SimpleNamespace(
         id=execution_id,
         user_id=user_id,
         workspace_id=workspace_id,
+        workspace_type=workspace_type,
         feature_id=feature_id,
         params={
             "brief": {
@@ -161,6 +163,82 @@ async def test_engine_injects_lightweight_manuscript_context(monkeypatch: pytest
     brief = runtime.run_session.call_args.kwargs["brief"]
     assert brief.manuscript_context["main_file"] == "main.tex"
     assert brief.manuscript_context["pending_review_items"][0]["id"] == "review-1"
+
+
+@pytest.mark.asyncio
+async def test_engine_ensures_prism_surface_for_prism_capability(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Prism-primary capabilities should not silently run without Prism context."""
+
+    class _ClientContext:
+        def __init__(self, client: object) -> None:
+            self.client = client
+
+        async def __aenter__(self) -> object:
+            return self.client
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    fake_client = SimpleNamespace(
+        get_catalog_capability=AsyncMock(
+            return_value=SimpleNamespace(
+                definition_json={"mission": {"primary_surface": "prism"}},
+                graph_template={},
+            )
+        ),
+        get_workspace=AsyncMock(return_value=SimpleNamespace(name="SCI Workspace")),
+    )
+    monkeypatch.setattr(
+        "src.execution.engine.dataservice_client",
+        lambda: _ClientContext(fake_client),
+    )
+
+    record = _make_execution_record(
+        user_id="user-1",
+        workspace_id="ws-1",
+        feature_id="research_question_to_paper",
+        workspace_type="sci",
+    )
+    record.params["brief"]["capability_id"] = "research_question_to_paper"
+    report = _make_task_report(capability_id="research_question_to_paper")
+    execution_svc = _make_execution_service(record=record)
+    execution_svc.db = object.__new__(AsyncSession)
+    runtime = _make_runtime(report=report)
+
+    prism_service = MagicMock()
+    prism_service.get_launch_context_projection = AsyncMock(
+        side_effect=[
+            ValueError("Workspace Prism not found"),
+            {
+                "latex_project_id": "latex-1",
+                "main_file": "main.tex",
+                "target_files": ["main.tex"],
+            },
+        ]
+    )
+    prism_service.ensure_primary_project = AsyncMock()
+    monkeypatch.setattr(
+        "src.execution.engine.WorkspacePrismService",
+        MagicMock(return_value=prism_service),
+    )
+
+    engine = ExecutionEngineV2(
+        runtime=runtime,
+        execution_service=execution_svc,
+    )
+
+    await engine.run("exec-001")
+
+    prism_service.ensure_primary_project.assert_awaited_once_with(
+        "ws-1",
+        user_id="user-1",
+        project_name="SCI Workspace",
+    )
+    brief = runtime.run_session.call_args.kwargs["brief"]
+    assert brief.manuscript_context["latex_project_id"] == "latex-1"
+    assert brief.manuscript_context["main_file"] == "main.tex"
 
 
 # ---------------------------------------------------------------------------

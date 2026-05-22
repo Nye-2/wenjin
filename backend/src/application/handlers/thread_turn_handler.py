@@ -9,6 +9,7 @@ import inspect
 import json
 import logging
 import mimetypes
+import re
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -58,6 +59,15 @@ _THREAD_VIRTUAL_ROOT = "/mnt/user-data/"
 _THREAD_UPLOADS_VIRTUAL_ROOT = "/mnt/user-data/uploads/"
 _MEMORY_CAPTURE_MAX_MESSAGE_CHARS = 2200
 _MAX_VIEWED_IMAGE_BYTES = 5 * 1024 * 1024
+_EXECUTION_ID_RECEIPT_RE = re.compile(
+    r"(?:执行\s*ID|execution[\s_-]*id)\s*[:：]?\s*"
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+_LAUNCH_RECEIPT_RE = re.compile(
+    r"(?:已(?:经)?(?:为你)?启动|已发起|开始执行|正在执行|launched|started)",
+    re.IGNORECASE,
+)
 
 
 def _model_supports_streaming(model_name: str) -> bool:
@@ -637,6 +647,39 @@ def _build_recursion_guard_reply(
     return GeneratedThreadReply(content=base_content, metadata=reply_metadata)
 
 
+def _looks_like_unbacked_launch_receipt(content: str) -> bool:
+    normalized = content.strip()
+    if not normalized:
+        return False
+    return bool(
+        _EXECUTION_ID_RECEIPT_RE.search(normalized)
+        or (
+            _LAUNCH_RECEIPT_RE.search(normalized)
+            and ("launch_feature" in normalized or "执行" in normalized or "任务" in normalized)
+        )
+    )
+
+
+def _build_unbacked_launch_receipt_guard_reply() -> GeneratedThreadReply:
+    return GeneratedThreadReply(
+        content=(
+            "本轮没有成功启动该能力：系统没有收到真实的 launch_feature 工具结果。"
+            " 请重新发起该能力。"
+        ),
+        blocks=[
+            {
+                "type": "warning",
+                "title": "能力未启动",
+                "data": {
+                    "code": "unbacked_launch_receipt",
+                    "detail": "Agent 文本声称已启动能力，但消息链中没有 launch_feature 工具调用结果。",
+                },
+            }
+        ],
+        metadata={"guard": "unbacked_launch_receipt"},
+    )
+
+
 def _reply_from_agent_result(
     result: dict[str, Any],
     *,
@@ -657,6 +700,8 @@ def _reply_from_agent_result(
     launch_blocks = _extract_launch_feature_blocks(messages)
     if launch_blocks:
         blocks = [*launch_blocks, *blocks]
+    elif _looks_like_unbacked_launch_receipt(content):
+        return _build_unbacked_launch_receipt_guard_reply()
     raw_response_metadata = result.get("response_metadata")
     metadata = (
         dict(raw_response_metadata)
@@ -1546,6 +1591,7 @@ def stream_thread_response(
 
     async def _iterator() -> AsyncIterator[ThreadStreamDelta]:
         accumulated_reasoning = ""
+        emitted_any_delta = False
         try:
             if not budget_checked:
                 await ensure_thread_turn_budget(actor_id)
@@ -1617,6 +1663,7 @@ def stream_thread_response(
                     chunk, metadata = payload
                     for delta in _stream_deltas_from_chunk(chunk, metadata):
                         if delta.kind in {"tool_invocation", "tool_result"}:
+                            emitted_any_delta = True
                             yield delta
                             continue
                         if delta.kind == "reasoning":
@@ -1629,12 +1676,14 @@ def stream_thread_response(
                                 accumulated_reasoning += delta.text
                                 normalized_text = delta.text
                             if normalized_text:
+                                emitted_any_delta = True
                                 yield ThreadStreamDelta(
                                     kind="reasoning",
                                     text=normalized_text,
                                 )
                             continue
                         if delta.text:
+                            emitted_any_delta = True
                             yield delta
                 try:
                     result = await stream_run.result()
@@ -1661,6 +1710,20 @@ def stream_thread_response(
                 request_metadata=request.metadata,
                 execution_id=execution_id,
             )
+            if not emitted_any_delta:
+                for block in reply.blocks:
+                    if not isinstance(block, Mapping):
+                        continue
+                    kind = block.get("kind")
+                    if kind in {"tool_invocation", "tool_result"}:
+                        data = block.get("data")
+                        if isinstance(data, Mapping):
+                            yield ThreadStreamDelta(kind=kind, data=dict(data))
+                reasoning_text = _reply_reasoning_text(reply)
+                if reasoning_text:
+                    yield ThreadStreamDelta(kind="reasoning", text=reasoning_text)
+                if reply.content:
+                    yield ThreadStreamDelta(kind="content", text=reply.content)
             if not reply_future.done():
                 reply_future.set_result(reply)
         except TimeoutError:

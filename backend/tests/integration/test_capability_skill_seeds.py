@@ -73,6 +73,34 @@ def test_every_capability_required_fields_present():
         assert "runtime" not in data
 
 
+def test_every_capability_declares_result_exit():
+    valid_kinds = {
+        "document",
+        "library_item",
+        "memory_fact",
+        "decision",
+        "task",
+        "prism_file_change",
+    }
+    for cap_path in _collect_capability_files():
+        data = yaml.safe_load(cap_path.read_text())
+        outputs: list[dict] = []
+        for phase in data["graph_template"]["phases"]:
+            for task in phase["tasks"]:
+                outputs.extend(task.get("outputs") or [])
+
+        assert outputs, f"{cap_path}: capability has no declared result exit"
+        for output in outputs:
+            kind = output.get("kind")
+            assert kind in valid_kinds, (
+                f"{cap_path}: output kind '{kind}' is not supported by TaskReport "
+                "or Prism review staging"
+            )
+            assert isinstance(output.get("mapping"), dict), (
+                f"{cap_path}: output '{kind}' must declare an explicit mapping"
+            )
+
+
 def test_every_skill_required_fields_present():
     required = {
         "schema_version",

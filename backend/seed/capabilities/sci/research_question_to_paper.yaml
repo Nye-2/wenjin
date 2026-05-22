@@ -115,6 +115,7 @@ graph_template:
         mapping:
           logical_key: project:main
           path: main.tex
+          content_format: latex_document
           reason: feature_proposal
           pending_content: '{{output.text}}'
     - name: citation_auditor

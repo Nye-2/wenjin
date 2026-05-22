@@ -167,7 +167,7 @@ class DataServiceConversationService:
                 "blocks": command.blocks,
             }
         )
-        await self.session.flush([message])
+        await self.session.flush()
         for index, block in enumerate(raw_blocks):
             payload = normalize_block_payload(block) if isinstance(block, Mapping) else {}
             self.repository.create_block(

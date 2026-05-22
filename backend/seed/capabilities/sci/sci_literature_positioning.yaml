@@ -108,5 +108,11 @@ graph_template:
       subagent_type: react
       skill_id: source-quality-auditor
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 文献定位与创新点.md
+          doc_kind: review_report
+          content: '{{output.text}}'
 extensions: {}

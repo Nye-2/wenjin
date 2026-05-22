@@ -96,5 +96,11 @@ graph_template:
       subagent_type: react
       skill_id: citation-auditor
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 投稿策略.md
+          doc_kind: review_report
+          content: '{{output.text}}'
 extensions: {}

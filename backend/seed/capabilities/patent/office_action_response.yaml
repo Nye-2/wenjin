@@ -107,5 +107,11 @@ graph_template:
       subagent_type: react
       skill_id: patent-drafter
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 审查意见答复.md
+          doc_kind: office_action_response
+          content: '{{output.text}}'
 extensions: {}

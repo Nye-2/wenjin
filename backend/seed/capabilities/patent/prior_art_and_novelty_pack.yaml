@@ -108,5 +108,11 @@ graph_template:
       subagent_type: react
       skill_id: source-quality-auditor
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 现有技术与新颖性分析.md
+          doc_kind: prior_art_report
+          content: '{{output.text}}'
 extensions: {}

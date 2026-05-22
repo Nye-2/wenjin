@@ -107,5 +107,11 @@ graph_template:
       subagent_type: react
       skill_id: figure-engineer
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 软件技术手册.md
+          doc_kind: technical_manual
+          content: '{{output.text}}'
 extensions: {}

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
+from src.dataservice_client.provider import dataservice_client
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.services.workspace_prism_service import WorkspacePrismService
 
@@ -139,17 +140,88 @@ class ExecutionEngineV2:
         if not isinstance(db, AsyncSession) or not workspace_id or not user_id:
             return brief
 
+        prism_required = await self._requires_prism_surface(brief, execution)
+        prism_service = WorkspacePrismService(db)
         try:
-            manuscript_context = await WorkspacePrismService(
-                db
-            ).get_launch_context_projection(
+            manuscript_context = await prism_service.get_launch_context_projection(
                 workspace_id,
                 user_id=user_id,
             )
         except ValueError:
-            return brief
+            if not prism_required:
+                return brief
+            await prism_service.ensure_primary_project(
+                workspace_id,
+                user_id=user_id,
+                project_name=await self._workspace_project_name(workspace_id),
+            )
+            manuscript_context = await prism_service.get_launch_context_projection(
+                workspace_id,
+                user_id=user_id,
+            )
 
         return brief.model_copy(update={"manuscript_context": manuscript_context})
+
+    async def _requires_prism_surface(self, brief: TaskBrief, execution) -> bool:
+        """Return whether this capability needs a workspace-owned Prism surface."""
+        workspace_type = str(getattr(execution, "workspace_type", "") or "").strip()
+        capability_id = str(brief.capability_id or getattr(execution, "feature_id", "") or "").strip()
+        if not workspace_type or not capability_id:
+            return False
+
+        try:
+            async with dataservice_client() as client:
+                capability = await client.get_catalog_capability(
+                    workspace_type=workspace_type,
+                    capability_id=capability_id,
+                    enabled_only=True,
+                )
+        except Exception:
+            logger.warning(
+                "failed to resolve capability prism requirement",
+                extra={
+                    "workspace_type": workspace_type,
+                    "capability_id": capability_id,
+                },
+                exc_info=True,
+            )
+            return False
+        if capability is None:
+            return False
+
+        definition = capability.definition_json if isinstance(capability.definition_json, dict) else {}
+        mission = definition.get("mission") if isinstance(definition.get("mission"), dict) else {}
+        if mission.get("primary_surface") == "prism":
+            return True
+        if mission.get("document_role") == "primary_manuscript":
+            return True
+
+        graph_template = capability.graph_template if isinstance(capability.graph_template, dict) else {}
+        for phase in graph_template.get("phases", []):
+            if not isinstance(phase, dict):
+                continue
+            for task in phase.get("tasks", []):
+                if not isinstance(task, dict):
+                    continue
+                for output in task.get("outputs", []):
+                    if isinstance(output, dict) and output.get("kind") == "prism_file_change":
+                        return True
+        return False
+
+    async def _workspace_project_name(self, workspace_id: str) -> str:
+        try:
+            async with dataservice_client() as client:
+                workspace = await client.get_workspace(workspace_id)
+        except Exception:
+            logger.warning(
+                "failed to resolve workspace name for Prism project",
+                extra={"workspace_id": workspace_id},
+                exc_info=True,
+            )
+            return "Workspace Manuscript"
+        if workspace is None:
+            return "Workspace Manuscript"
+        return str(workspace.name or "Workspace Manuscript")
 
     async def _mark_complete(self, execution_id: str, report: TaskReport) -> None:
         # complete_execution signature: (execution_id, *, status, result, error, result_summary, commit)

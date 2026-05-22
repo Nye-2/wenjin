@@ -13,6 +13,94 @@ from src.config.app_config import redis_settings
 logger = logging.getLogger(__name__)
 
 
+def _result_card_data_from_task_report(execution_id: str, task_report: dict[str, Any]) -> dict[str, Any]:
+    """Build the async ResultCard payload consumed by the workspace frontend."""
+    raw_outputs = task_report.get("outputs")
+    outputs: list[dict[str, Any]] = []
+    if isinstance(raw_outputs, list):
+        for output in raw_outputs:
+            if not isinstance(output, dict):
+                continue
+            outputs.append(
+                {
+                    "id": str(output.get("id") or ""),
+                    "kind": str(output.get("kind") or ""),
+                    "preview": str(output.get("preview") or ""),
+                    "default_checked": output.get("default_checked") is not False,
+                    "data": output.get("data") if isinstance(output.get("data"), dict) else {},
+                }
+            )
+
+    raw_review_items = task_report.get("review_items")
+    review_items = raw_review_items if isinstance(raw_review_items, list) else None
+
+    raw_errors = task_report.get("errors")
+    errors: list[dict[str, Any]] = []
+    if isinstance(raw_errors, list):
+        for error in raw_errors:
+            if not isinstance(error, dict):
+                continue
+            errors.append(
+                {
+                    "message": str(error.get("error") or error.get("message") or ""),
+                    "phase": error.get("phase"),
+                    "task": error.get("task"),
+                }
+            )
+
+    return {
+        "execution_id": str(task_report.get("execution_id") or execution_id),
+        "capability_name": task_report.get("capability_id"),
+        "status": task_report.get("status") or "completed",
+        "outputs": outputs,
+        "review_items": review_items,
+        "narrative": task_report.get("narrative"),
+        "duration_seconds": task_report.get("duration_seconds"),
+        "errors": errors,
+    }
+
+
+async def _persist_result_card_for_execution(db: Any, execution: Any) -> None:
+    """Persist a result_card block so completed executions survive reloads."""
+    result = getattr(execution, "result", None)
+    task_report = result.get("task_report") if isinstance(result, dict) else None
+    if not isinstance(task_report, dict):
+        return
+
+    thread_id = str(getattr(execution, "thread_id", "") or "")
+    if not thread_id:
+        return
+
+    from src.services import ThreadService
+
+    thread_service = ThreadService(db)
+    thread = await thread_service.get_by_id(thread_id)
+    if thread is None:
+        return
+
+    execution_id = str(getattr(execution, "id", "") or task_report.get("execution_id") or "")
+    if not execution_id:
+        return
+
+    messages = await thread_service.list_thread_messages(thread)
+    for message in messages:
+        for block in message.get("blocks") or []:
+            if not isinstance(block, dict) or block.get("kind") != "result_card":
+                continue
+            data = block.get("data")
+            if isinstance(data, dict) and str(data.get("execution_id") or "") == execution_id:
+                return
+
+    result_card_data = _result_card_data_from_task_report(execution_id, task_report)
+    await thread_service.add_message(
+        thread,
+        role="assistant",
+        content=str(task_report.get("narrative") or "执行已完成。"),
+        blocks=[{"kind": "result_card", "data": result_card_data}],
+        metadata={"source": "execution_completion", "execution_id": execution_id},
+    )
+
+
 async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
     from src.academic.cache.redis_client import redis_client
     from src.database import get_db_session, reset_db_engine
@@ -147,6 +235,12 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
 
         try:
             await engine.run(execution_id)
+            final = await execution_service.get_by_id(execution_id)
+            if final is not None and final.status in {"completed", "failed_partial", "cancelled"}:
+                try:
+                    await _persist_result_card_for_execution(db, final)
+                except Exception:
+                    logger.warning("persist result_card failed", exc_info=True)
         finally:
             await publish_execution_stream_end(execution_id)
 

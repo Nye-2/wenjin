@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { GlobalWorkerOptions, getDocument, TextLayer, version as pdfjsVersion } from "pdfjs-dist";
+import { GlobalWorkerOptions, getDocument, TextLayer } from "pdfjs-dist";
 
 import type { LatexPdfAnchor } from "@/lib/api";
 
@@ -33,7 +33,10 @@ interface LatexPdfPreviewProps {
 }
 
 if (typeof window !== "undefined" && !GlobalWorkerOptions.workerSrc) {
-  GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsVersion}/build/pdf.worker.min.mjs`;
+  GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
 }
 
 function normalizeText(value: string): string {
@@ -241,7 +244,12 @@ export function LatexPdfPreview({
 
     const render = async () => {
       try {
-        loadingTask = getDocument(pdfUrl);
+        loadingTask = getDocument({
+          url: pdfUrl,
+          cMapUrl: "/pdfjs/cmaps/",
+          cMapPacked: true,
+          standardFontDataUrl: "/pdfjs/standard_fonts/",
+        });
         const pdf = await loadingTask.promise;
 
         const firstPage = await pdf.getPage(1);
@@ -497,8 +505,9 @@ export function LatexPdfPreview({
       <div ref={containerRef} className="latex-pdf-container" />
       <style jsx global>{`
         .latex-pdf-container {
-          height: 78vh;
-          min-height: 760px;
+          height: 100%;
+          min-height: 100%;
+          width: 100%;
           overflow: auto;
           padding: 12px;
           background: #f7f7f7;

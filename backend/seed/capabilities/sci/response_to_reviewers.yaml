@@ -102,5 +102,11 @@ graph_template:
       subagent_type: react
       skill_id: manuscript-writer
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 审稿意见回复.md
+          doc_kind: review_response
+          content: '{{output.text}}'
 extensions: {}

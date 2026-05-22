@@ -108,5 +108,11 @@ graph_template:
       subagent_type: react
       skill_id: review-critic
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 专利申请草案.md
+          doc_kind: patent_draft
+          content: '{{output.text}}'
 extensions: {}

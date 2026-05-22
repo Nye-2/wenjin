@@ -8,7 +8,10 @@ import {
   type CommittedRoomLink,
 } from "@/lib/execution-commit";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
-import { PrismReviewList } from "@/components/prism/PrismReviewList";
+import {
+  PrismReviewList,
+  prismReviewItemHref,
+} from "@/components/prism/PrismReviewList";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import { CommitActionBar } from "./result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
@@ -21,6 +24,7 @@ type TaskReportLike = {
   outputs?: unknown;
   errors?: unknown;
   data?: unknown;
+  review_items?: unknown;
 };
 
 export interface CompletedViewProps {
@@ -46,6 +50,8 @@ export function CompletedView({
   const [idempotencyKey] = useState(() => generateUUID());
 
   const taskReport = getTaskReport(result);
+  const effectiveReviewItems =
+    reviewItems.length > 0 ? reviewItems : readReviewItems(taskReport?.review_items);
   const summary =
     resultSummary ||
     readString(taskReport?.result_summary) ||
@@ -96,9 +102,19 @@ export function CompletedView({
     workspaceId,
     featureId,
     executionId,
-    reviewItems,
+    reviewItems: effectiveReviewItems,
     nextActions,
   });
+  const defaultReviewActionHref =
+    workspaceId && actionContext.reviewItems.length > 0
+      ? prismReviewItemHref(workspaceId, actionContext.reviewItems[0])
+      : null;
+  const shouldShowDefaultReviewAction =
+    defaultReviewActionHref !== null &&
+    !actionContext.actions.some(
+      (action) =>
+        action.href === defaultReviewActionHref || action.label === "预览待确认修改",
+    );
 
   async function commit(body: Record<string, unknown>) {
     if (!executionId || committed || committing) {
@@ -186,12 +202,7 @@ export function CompletedView({
               executionId ||
               actionContext.actions.length > 0 ||
               actionContext.reviewItems.length > 0 ? (
-                <div
-                  style={{
-                    paddingTop: 12,
-                    borderTop: "1px solid rgba(20, 20, 30, 0.08)",
-                  }}
-                >
+                <div style={styles.actionFooter}>
                   {executionId ? (
                     <div style={{ marginBottom: 12 }}>
                       <div
@@ -260,10 +271,22 @@ export function CompletedView({
                   )}
 
                   {actionContext.reviewItems.length > 0 && (
-                    <PrismReviewList
-                      className={actionContext.actions.length > 0 ? "mb-3" : undefined}
-                      items={actionContext.reviewItems}
-                    />
+                    <>
+                      <PrismReviewList
+                        className={actionContext.actions.length > 0 ? "mb-3" : undefined}
+                        items={actionContext.reviewItems}
+                      />
+                      {shouldShowDefaultReviewAction ? (
+                        <div style={styles.reviewDefaultActions}>
+                          <WorkspaceActionLink
+                            href={defaultReviewActionHref}
+                            style={styles.reviewActionLink}
+                          >
+                            预览待确认修改
+                          </WorkspaceActionLink>
+                        </div>
+                      ) : null}
+                    </>
                   )}
 
                   {actionContext.actions.length > 0 && (
@@ -359,10 +382,22 @@ export function CompletedView({
           </div>
 
           {actionContext.reviewItems.length > 0 && (
-            <PrismReviewList
-              className={actionContext.actions.length > 0 ? "mb-3" : undefined}
-              items={actionContext.reviewItems}
-            />
+            <>
+              <PrismReviewList
+                className={actionContext.actions.length > 0 ? "mb-3" : undefined}
+                items={actionContext.reviewItems}
+              />
+              {shouldShowDefaultReviewAction ? (
+                <div style={styles.reviewDefaultActions}>
+                  <WorkspaceActionLink
+                    href={defaultReviewActionHref}
+                    style={styles.reviewActionLink}
+                  >
+                    预览待确认修改
+                  </WorkspaceActionLink>
+                </div>
+              ) : null}
+            </>
           )}
 
           {actionContext.actions.length > 0 && (
@@ -469,6 +504,14 @@ function getTaskReport(result?: Record<string, unknown> | null): TaskReportLike 
   return result as TaskReportLike;
 }
 
+function readReviewItems(value: unknown): WorkspacePrismReviewItem[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => readObject(item))
+    .filter((item): item is Record<string, unknown> => item !== null)
+    .map((item) => item as unknown as WorkspacePrismReviewItem);
+}
+
 type PrismReviewAction = {
   key: string;
   label: string;
@@ -527,6 +570,17 @@ function readObject(value: unknown): Record<string, unknown> | null {
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  actionFooter: {
+    paddingTop: 12,
+    borderTop: "1px solid rgba(20, 20, 30, 0.08)",
+  },
+  reviewDefaultActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+    marginBottom: 10,
+  },
   commitError: {
     marginTop: 10,
     padding: "8px 10px",

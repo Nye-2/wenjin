@@ -274,6 +274,13 @@ class LatexCompileService:
         text = (log or "").lower()
         if "command not found" in text or "not available" in text:
             return f"{compiler} is not available in the LaTeX runtime."
+        if compiler == "pdflatex" and (
+            "ctex-engine-pdftex.def" in text
+            or "cjkpunct" in text
+            or "cjkspace" in text
+            or "ctexart.cls" in text
+        ):
+            return "PDFLaTeX cannot compile this ctex/CJK Chinese manuscript in the current runtime. Use XeLaTeX for Chinese or mixed-language documents."
         if "timed out" in text or "timeout" in text:
             return "Compilation timed out."
         return "No PDF generated."
@@ -283,10 +290,21 @@ class LatexCompileService:
         try:
             from pypdf import PdfReader
         except Exception:
-            return None
+            PdfReader = None
+        if PdfReader is not None:
+            try:
+                reader = PdfReader(str(pdf_path))
+                return len(reader.pages)
+            except Exception:
+                pass
         try:
-            reader = PdfReader(str(pdf_path))
-            return len(reader.pages)
+            import fitz
+
+            doc = fitz.open(str(pdf_path))
+            try:
+                return int(doc.page_count)
+            finally:
+                doc.close()
         except Exception:
             return None
 

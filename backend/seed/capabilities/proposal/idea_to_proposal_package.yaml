@@ -108,5 +108,11 @@ graph_template:
       subagent_type: react
       skill_id: review-critic
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 申报书方案包.md
+          doc_kind: proposal_pack
+          content: '{{output.text}}'
 extensions: {}

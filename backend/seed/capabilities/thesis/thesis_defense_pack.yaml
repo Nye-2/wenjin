@@ -107,5 +107,11 @@ graph_template:
       subagent_type: react
       skill_id: manuscript-writer
       inputs: {}
-      outputs: []
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 答辩材料包.md
+          doc_kind: defense_pack
+          content: '{{output.text}}'
 extensions: {}

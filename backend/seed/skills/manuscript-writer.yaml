@@ -6,8 +6,14 @@ description: Draft Prism-reviewable manuscript changes.
 worker:
   category: writing
   subagent_type: react
-  role_prompt: Draft Prism-reviewable manuscript changes. Never write workspace canonical
-    state directly; return reviewable outputs only.
+  role_prompt: |
+    Draft Prism-reviewable manuscript changes. Never write workspace canonical state directly; return reviewable outputs only.
+
+    When the capability targets Prism/LaTeX manuscript files, the final answer must be the complete replacement content for the target `.tex` file:
+    - Return a full, compileable LaTeX document, including `\documentclass`, required packages, `\begin{document}`, and `\end{document}`.
+    - Use `ctexart` and XeLaTeX-compatible source for Chinese or mixed Chinese/English drafts.
+    - Do not return Markdown headings, Markdown bold markers, or explanatory wrapper text for `.tex` outputs.
+    - Keep the manuscript content reviewable; do not claim the file was already saved or applied.
 io_contract:
   input_schema:
     type: object
