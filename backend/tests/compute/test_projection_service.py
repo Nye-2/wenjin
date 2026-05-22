@@ -49,11 +49,13 @@ class _FakeDataServiceClient:
         execution: SimpleNamespace,
         nodes: list[SimpleNamespace] | None = None,
         capability: SimpleNamespace | None = None,
+        db: _FakeDb | None = None,
     ) -> None:
         self.compute_session = compute_session
         self.execution = execution
         self.nodes = list(nodes or [])
         self.capability = capability
+        self._db = db
 
     async def get_compute_session(self, compute_session_id: str) -> SimpleNamespace | None:
         if self.compute_session.id != compute_session_id:
@@ -79,6 +81,53 @@ class _FakeDataServiceClient:
         if self.capability is None:
             return None
         return self.capability
+
+    async def get_prism_surface(self, workspace_id: str) -> SimpleNamespace | None:
+        _ = workspace_id
+        project_result = await self._db.execute(None) if hasattr(self, "_db") else None
+        project = project_result.scalar_one_or_none() if project_result else None
+        if project is None:
+            return None
+        documents = (await self._db.execute(None)).scalars().all()
+        files = (await self._db.execute(None)).scalars().all()
+        return SimpleNamespace(project=project, documents=documents, files=files)
+
+    async def get_latex_project(self, project_id: str) -> SimpleNamespace | None:
+        _ = project_id
+        result = await self._db.execute(None)
+        return result.scalar_one_or_none()
+
+    async def list_review_items(self, **_kwargs: object) -> list[SimpleNamespace]:
+        result = await self._db.execute(None)
+        return result.scalars().all()
+
+    async def list_provenance_links(self, **_kwargs: object) -> list[SimpleNamespace]:
+        result = await self._db.execute(None)
+        return result.scalars().all()
+
+    async def list_prism_protected_scopes(self, project_id: str, *, limit: int = 200) -> list[SimpleNamespace]:
+        _ = project_id
+        _ = limit
+        result = await self._db.execute(None)
+        return result.scalars().all()
+
+    async def list_room_decisions(self, workspace_id: str) -> dict[str, str]:
+        _ = workspace_id
+        await self._db.execute(None)
+        return {}
+
+    async def list_room_memory_facts(self, *, workspace_id: str, limit: int = 15, category: str | None = None):
+        _ = workspace_id
+        _ = limit
+        _ = category
+        result = await self._db.execute(None)
+        return result.scalars().all()
+
+    async def list_executions(self, *, workspace_id: str, limit: int = 5, **_kwargs: object):
+        _ = workspace_id
+        _ = limit
+        result = await self._db.execute(None)
+        return result.scalars().all()
 
 
 def _review_item(
@@ -399,6 +448,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             "review_gate": {},
             "allowed_paths": [],
         }),
+        db=db,
     )
 
     projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
@@ -521,6 +571,7 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
             "review_gate": {},
             "allowed_paths": [],
         }),
+        db=db,
     )
 
     projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
@@ -585,6 +636,7 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
             "review_gate": {"kind": "artifact_preview"},
             "allowed_paths": [],
         }),
+        db=db,
     )
 
     projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
@@ -716,6 +768,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
             "review_gate": {},
             "allowed_paths": [],
         }),
+        db=db,
     )
 
     projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
@@ -806,6 +859,7 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
             "review_gate": {},
             "allowed_paths": [],
         }),
+        db=db,
     )
 
     projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(

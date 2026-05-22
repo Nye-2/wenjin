@@ -259,20 +259,15 @@ async def test_commit_after_e2e_writes_rooms():
         status="completed",
     )
 
-    sources = MagicMock()
-    sources.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
-
-    assets = MagicMock()
-    assets.register_asset_record = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
-
-    execution_data = MagicMock()
-    execution_data.record_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
+    dataservice = MagicMock()
+    dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
+    dataservice.register_asset = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
+    dataservice.append_execution_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
+    dataservice.stage_and_apply_room_candidates = AsyncMock()
 
     commit_service = ExecutionCommitService(
         execution_service=execution_service,
-        source_data_service=sources,
-        asset_data_service=assets,
-        execution_data_service=execution_data,
+        dataservice=dataservice,
         referral_first_task_callback=AsyncMock(),
     )
 
@@ -281,10 +276,10 @@ async def test_commit_after_e2e_writes_rooms():
 
     # 1 library item committed
     assert result["committed"]["library"] == 1
-    sources.create_source.assert_awaited_once()
+    dataservice.create_source.assert_awaited_once()
 
     # run-history event always written regardless of outputs
-    execution_data.record_event.assert_awaited_once()
+    dataservice.append_execution_event.assert_awaited_once()
 
     # workspace.refresh event published
     publish_refresh.assert_awaited_once_with(

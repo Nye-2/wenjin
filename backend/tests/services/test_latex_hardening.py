@@ -351,6 +351,12 @@ class _FakePrismReviewService:
     async def upsert_latex_prism_protected_scope(self, payload: object) -> SimpleNamespace:
         return await self.upsert_latex_protected_scope(**payload.model_dump(mode="json"))
 
+    async def upsert_pending_prism_file_change(self, payload: object) -> SimpleNamespace:
+        return await self.upsert_pending_file_change(**payload.model_dump(mode="json"))
+
+    async def clear_pending_prism_file_change(self, payload: object) -> bool:
+        return await self.clear_pending_file_change(**payload.model_dump(mode="json"))
+
 
 def _reset_fake_router_service() -> None:
     _FakePrismReviewService.reset()
@@ -681,12 +687,18 @@ def test_offset_line_column_roundtrip() -> None:
 
 @pytest.mark.asyncio
 async def test_find_existing_project_scopes_by_workspace_and_owner() -> None:
-    db = AsyncMock()
-    db.execute = AsyncMock(return_value=_FakeExecuteResult({"id": "proj-1"}))
     matched_project = SimpleNamespace(id="proj-1")
-    db.get = AsyncMock(return_value=matched_project)
 
-    service = WorkspaceLatexProjectService(db)
+    class _FakeLatexClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        async def get_workspace_primary_latex_project(self, **kwargs: object) -> object:
+            self.calls.append(dict(kwargs))
+            return matched_project
+
+    client = _FakeLatexClient()
+    service = WorkspaceLatexProjectService(AsyncMock(), dataservice=client)  # type: ignore[arg-type]
     found = await service._find_existing_project(
         "workspace-1",
         owner_user_id="user-1",
@@ -694,11 +706,13 @@ async def test_find_existing_project_scopes_by_workspace_and_owner() -> None:
     )
 
     assert found is matched_project
-    statement, params = db.execute.await_args.args
-    assert params["workspace_id"] == "workspace-1"
-    assert params["owner_user_id"] == "user-1"
-    assert params["template"] == "sci_default"
-    assert "user_id = :owner_user_id" in str(statement)
+    assert client.calls == [
+        {
+            "workspace_id": "workspace-1",
+            "owner_user_id": "user-1",
+            "template": "sci_default",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -706,11 +720,10 @@ async def test_bridge_write_records_managed_change_as_feature_proposal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _FakePrismReviewService.reset()
-    monkeypatch.setattr(
-        "src.services.workspace_latex_projects.PrismReviewDataService",
-        _FakePrismReviewService,
+    service = WorkspaceLatexProjectService(
+        AsyncMock(),
+        dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
     )
-    service = WorkspaceLatexProjectService(AsyncMock())
     service.db.flush = AsyncMock()
     fake_files = _FakeLatexProjectFiles({"main.tex": "old"})
     service.project_service = fake_files  # type: ignore[assignment]
@@ -757,11 +770,10 @@ async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _FakePrismReviewService.reset()
-    monkeypatch.setattr(
-        "src.services.workspace_latex_projects.PrismReviewDataService",
-        _FakePrismReviewService,
+    service = WorkspaceLatexProjectService(
+        AsyncMock(),
+        dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
     )
-    service = WorkspaceLatexProjectService(AsyncMock())
     service.db.flush = AsyncMock()
     fake_files = _FakeLatexProjectFiles({})
     service.project_service = fake_files  # type: ignore[assignment]

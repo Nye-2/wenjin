@@ -41,6 +41,42 @@ def _capability(capability_id: str = "paper_analysis") -> SimpleNamespace:
     )
 
 
+class _FakeDataServiceClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get_workspace(self, workspace_id: str):
+        return SimpleNamespace(id=workspace_id, type="thesis")
+
+    async def get_catalog_capability(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+        enabled_only: bool = True,
+    ):
+        if capability_id == "legacy_missing":
+            return None
+        capability = _capability(capability_id)
+        capability.workspace_type = workspace_type
+        return capability
+
+    async def list_catalog_capabilities(self, *, workspace_type: str, enabled_only: bool = True):
+        return [_capability("paper_analysis"), _capability("deep_research")]
+
+
+@pytest.fixture(autouse=True)
+def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
+    def _factory():
+        return _FakeDataServiceClient()
+
+    monkeypatch.setattr("src.dataservice_client.provider.dataservice_client", _factory)
+    monkeypatch.setattr("src.services.workspace_skill_labels.dataservice_client", _factory)
+
+
 @asynccontextmanager
 async def _fake_db_session():
     db = MagicMock()

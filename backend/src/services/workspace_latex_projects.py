@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.latex_api import LatexDataService
-from src.dataservice.prism_review_api import PrismReviewDataService
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.latex import LatexProjectAttachWorkspacePayload
+from src.dataservice_client.contracts.prism_review import (
+    PrismFileChangeClearPayload,
+    PrismFileChangeUpsertPayload,
+)
+from src.dataservice_client.provider import dataservice_client
 from src.services.latex import LatexProjectService
 
 _SCI_SECTION_SPECS: tuple[tuple[str, str, str], ...] = (
@@ -55,10 +61,23 @@ _SOFTWARE_COPYRIGHT_SECTION_SPECS: tuple[tuple[str, str, str], ...] = (
 class WorkspaceLatexProjectService:
     """Create or update the canonical LaTeX project linked to a workspace."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
-        self.data = LatexDataService(db)
-        self.project_service = LatexProjectService(db)
+        self._dataservice = dataservice
+        self.project_service = LatexProjectService(db, dataservice=dataservice)
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     @staticmethod
     def _project_bridge_metadata(project: Any) -> dict[str, Any]:
@@ -157,10 +176,11 @@ class WorkspaceLatexProjectService:
             metadata["managed_files"] = managed_files
         record = managed_files.get(logical_key)
         if not project.workspace_id:
-            await LatexDataService(self.db, autocommit=False).attach_workspace_project(
-                project,
-                workspace_id=workspace_id,
-            )
+            async with self._client() as client:
+                project = await client.attach_workspace_latex_project(
+                    str(project.id),
+                    LatexProjectAttachWorkspacePayload(workspace_id=workspace_id),
+                ) or project
 
         try:
             current_content = self.project_service.read_text_file(project, relative_path)
@@ -168,11 +188,14 @@ class WorkspaceLatexProjectService:
             current_content = None
 
         if current_content == content:
-            await PrismReviewDataService(self.db, autocommit=False).clear_pending_file_change(
-                workspace_id=workspace_id,
-                latex_project_id=str(project.id),
-                logical_key=logical_key,
-            )
+            async with self._client() as client:
+                await client.clear_pending_prism_file_change(
+                    PrismFileChangeClearPayload(
+                        workspace_id=workspace_id,
+                        latex_project_id=str(project.id),
+                        logical_key=logical_key,
+                    )
+                )
             managed_files[logical_key] = {
                 "path": relative_path,
                 "content_hash": self._content_hash(content),
@@ -186,11 +209,14 @@ class WorkspaceLatexProjectService:
 
         if current_content is None or allow_existing_write:
             await self.project_service.write_text_file(project, relative_path, content)
-            await PrismReviewDataService(self.db, autocommit=False).clear_pending_file_change(
-                workspace_id=workspace_id,
-                latex_project_id=str(project.id),
-                logical_key=logical_key,
-            )
+            async with self._client() as client:
+                await client.clear_pending_prism_file_change(
+                    PrismFileChangeClearPayload(
+                        workspace_id=workspace_id,
+                        latex_project_id=str(project.id),
+                        logical_key=logical_key,
+                    )
+                )
             managed_files[logical_key] = {
                 "path": relative_path,
                 "content_hash": self._content_hash(content),
@@ -211,21 +237,24 @@ class WorkspaceLatexProjectService:
             pending_content=content,
             current_content=current_content,
         )
-        await PrismReviewDataService(self.db, autocommit=False).upsert_pending_file_change(
-            workspace_id=workspace_id,
-            latex_project_id=str(project.id),
-            logical_key=logical_key,
-            path=relative_path,
-            reason=self._proposal_reason(
-                record,
-                current_matches_record=current_matches_record,
-            ),
-            pending_content=content,
-            pending_hash=str(hashes["pending_hash"]),
-            current_hash=(
-                str(hashes["current_hash"]) if hashes.get("current_hash") else None
-            ),
-        )
+        async with self._client() as client:
+            await client.upsert_pending_prism_file_change(
+                PrismFileChangeUpsertPayload(
+                    workspace_id=workspace_id,
+                    latex_project_id=str(project.id),
+                    logical_key=logical_key,
+                    path=relative_path,
+                    reason=self._proposal_reason(
+                        record,
+                        current_matches_record=current_matches_record,
+                    ),
+                    pending_content=content,
+                    pending_hash=str(hashes["pending_hash"]),
+                    current_hash=(
+                        str(hashes["current_hash"]) if hashes.get("current_hash") else None
+                    ),
+                )
+            )
 
     async def sync_project(
         self,
@@ -362,9 +391,16 @@ class WorkspaceLatexProjectService:
         )
 
     async def _load_workspace_bridge_row(self, workspace_id: str) -> dict[str, Any] | None:
-        return await WorkspaceDataService(self.db, autocommit=False).get_workspace_bridge_row(
-            workspace_id
-        )
+        async with self._client() as client:
+            workspace = await client.get_workspace(workspace_id)
+        if workspace is None:
+            return None
+        return {
+            "id": workspace.id,
+            "user_id": workspace.created_by_user_id,
+            "name": workspace.name,
+            "type": workspace.workspace_type,
+        }
 
     async def _find_existing_project(
         self,
@@ -373,15 +409,17 @@ class WorkspaceLatexProjectService:
         owner_user_id: str,
         template: str | None = None,
     ) -> Any | None:
-        return await self.data.get_workspace_primary_project(
-            workspace_id=workspace_id,
-            owner_user_id=owner_user_id,
-            template=template,
-        )
+        async with self._client() as client:
+            return await client.get_workspace_primary_latex_project(
+                workspace_id=workspace_id,
+                owner_user_id=owner_user_id,
+                template=template,
+            )
 
     async def get_project_by_id(self, project_id: str) -> Any | None:
         """Return a LaTeX adapter project by id."""
-        return await self.data.get_project(project_id)
+        async with self._client() as client:
+            return await client.get_latex_project(project_id)
 
     async def sync_sci_outline_project(
         self,

@@ -94,10 +94,7 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
     "dataservice_app",
     "dataservice_client",
 }
-RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
-    "services/workspace_latex_projects.py",
-    "services/workspace_prism_service.py",
-}
+RUNTIME_DATASERVICE_API_ALLOWED_FILES: set[str] = set()
 RUNTIME_DIRECT_SQL_ALLOWED_FILES = {
     "gateway/routers/dev_test_hooks.py",
     "services/admin_capability_service.py",
@@ -107,7 +104,6 @@ RUNTIME_DIRECT_SQL_ALLOWED_FILES = {
     "services/dashboard_service.py",
     "services/skill_loader.py",
     "services/skill_resolver.py",
-    "services/workspace_prism_service.py",
     "services/workspace_summary_service.py",
 }
 

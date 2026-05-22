@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import text
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
@@ -220,6 +221,58 @@ async def get_workspace_primary_project(
         template=template,
     )
     return envelope_ok(_project_payload(project))
+
+
+@router.get("/binding-integrity")
+async def get_latex_binding_integrity_report(
+    user_id: str | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    params: dict[str, Any] = {"surface_role": "primary_manuscript"}
+    user_filter = ""
+    if user_id is not None:
+        params["user_id"] = user_id
+        user_filter = "where w.user_id = :user_id"
+
+    result = await uow.required_session.execute(
+        text(
+            f"""
+            select
+                w.id as workspace_id,
+                w.user_id as user_id,
+                w.name as workspace_name,
+                count(lp.id) as primary_count
+            from workspaces w
+            left join latex_projects lp
+              on lp.workspace_id = w.id
+             and lp.surface_role = :surface_role
+            {user_filter}
+            group by w.id, w.user_id, w.name
+            having count(lp.id) = 0 or count(lp.id) > 1
+            order by w.id
+            """
+        ),
+        params,
+    )
+    missing_primary: list[dict[str, Any]] = []
+    duplicate_primary: list[dict[str, Any]] = []
+    for row in result.mappings():
+        item = {
+            "workspace_id": str(row["workspace_id"]),
+            "user_id": str(row["user_id"]),
+            "workspace_name": str(row["workspace_name"] or ""),
+            "primary_count": int(row["primary_count"] or 0),
+        }
+        if item["primary_count"] == 0:
+            missing_primary.append(item)
+        else:
+            duplicate_primary.append(item)
+    return envelope_ok(
+        {
+            "missing_primary": missing_primary,
+            "duplicate_primary": duplicate_primary,
+        }
+    )
 
 
 @router.get("/templates")

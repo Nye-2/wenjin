@@ -56,6 +56,42 @@ class _FakeRedis:
             self.expirations.pop(key, None)
 
 
+class _FakeAccountDataService:
+    def __init__(self) -> None:
+        self.users_by_email: dict[str, SimpleNamespace] = {}
+        self.update_account_refresh_token = AsyncMock(side_effect=self._update_refresh_token)
+
+    async def get_account_auth_user_by_email(self, email: str):
+        return self.users_by_email.get(email.lower().strip())
+
+    async def get_account_auth_user(self, user_id: str):
+        for user in self.users_by_email.values():
+            if str(user.id) == str(user_id):
+                return user
+        return None
+
+    async def create_account_user(self, payload):
+        user = SimpleNamespace(
+            id=f"user-{len(self.users_by_email) + 1}",
+            email=payload.email,
+            name=payload.name,
+            hashed_password=payload.hashed_password,
+            is_active=True,
+            is_superuser=False,
+            refresh_token_hash=None,
+            refresh_token_expires_at=None,
+        )
+        self.users_by_email[user.email] = user
+        return user
+
+    async def _update_refresh_token(self, user_id: str, payload):
+        user = await self.get_account_auth_user(user_id)
+        if user is not None:
+            user.refresh_token_hash = payload.refresh_token_hash
+            user.refresh_token_expires_at = payload.refresh_token_expires_at
+        return user
+
+
 @pytest_asyncio.fixture
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
@@ -82,11 +118,16 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
 @pytest.fixture
 def client(db_session: AsyncSession) -> TestClient:
     app = FastAPI()
+    dataservice = _FakeAccountDataService()
 
     async def get_db_override() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
+    async def get_dataservice_override() -> AsyncGenerator[_FakeAccountDataService, None]:
+        yield dataservice
+
     app.dependency_overrides[auth_router.get_db] = get_db_override
+    app.dependency_overrides[auth_router.get_dataservice_client] = get_dataservice_override
     app.include_router(auth_router.router)
     return TestClient(app)
 

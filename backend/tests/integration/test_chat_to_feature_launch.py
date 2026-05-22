@@ -14,6 +14,49 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+
+class _FakeLaunchDataServiceClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def get_catalog_capability(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+        enabled_only: bool = True,
+    ):
+        capabilities = {
+            "framework_outline": SimpleNamespace(
+                id="framework_outline",
+                workspace_type=workspace_type,
+                display_name="框架大纲",
+            ),
+            "literature_search": SimpleNamespace(
+                id="literature_search",
+                workspace_type=workspace_type,
+                display_name="文献检索",
+            ),
+        }
+        return capabilities.get(capability_id)
+
+    async def list_catalog_capabilities(self, *, workspace_type: str, enabled_only: bool = True):
+        return [
+            SimpleNamespace(id="framework_outline", workspace_type=workspace_type, display_name="框架大纲"),
+            SimpleNamespace(id="literature_search", workspace_type=workspace_type, display_name="文献检索"),
+        ]
+
+
+@pytest.fixture(autouse=True)
+def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "src.dataservice_client.provider.dataservice_client",
+        lambda: _FakeLaunchDataServiceClient(),
+    )
+
 # ---------------------------------------------------------------------------
 # Static contract (existence) checks — fast smoke
 # ---------------------------------------------------------------------------

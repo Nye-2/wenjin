@@ -79,6 +79,12 @@ class _FakeDataServiceClient:
             return None
         return self.execution
 
+    async def get_latex_project(self, project_id: str) -> SimpleNamespace | None:
+        project = _FakeLatexRouterService.project
+        if project.id != project_id:
+            return None
+        return project
+
     async def list_execution_nodes(self, execution_id: str) -> list[SimpleNamespace]:
         _ = execution_id
         return []
@@ -92,6 +98,108 @@ class _FakeDataServiceClient:
         _ = capability_id
         _ = workspace_type
         return self.capability
+
+    async def get_prism_surface(self, workspace_id: str) -> SimpleNamespace | None:
+        project = _FakeLatexRouterService.project
+        if getattr(project, "workspace_id", None) != workspace_id:
+            return None
+        return SimpleNamespace(
+            project=_prism_project_from_latex(project),
+            documents=[_prism_document_from_latex(project)],
+            files=[
+                _prism_file_from_latex(project),
+                _prism_file_from_latex(project, "sections/introduction.tex"),
+            ],
+        )
+
+    async def list_prism_protected_scopes(self, project_id: str, *, limit: int = 200):
+        _ = project_id
+        _ = limit
+        return [
+            SimpleNamespace(
+                id=f"protected-{index}",
+                workspace_id=scope.get("workspace_id", "ws-1"),
+                project_id=f"prism-{_FakeLatexRouterService.project.id}",
+                document_id=None,
+                file_id=None,
+                file_path=scope.get("file_path", "main.tex"),
+                section_key=scope.get("section_key", ""),
+                scope=scope.get("scope", ""),
+                reason=scope.get("reason"),
+                source=scope.get("source", "manual"),
+                metadata_json=dict(scope.get("metadata_json") or {}),
+            )
+            for index, scope in enumerate(_FakePrismReviewService.protected)
+        ]
+
+    async def list_review_items(
+        self,
+        *,
+        workspace_id: str | None = None,
+        project_id: str | None = None,
+        target_domain: str | None = None,
+        target_kind: str | None = None,
+        status: list[str] | None = None,
+        review_type: str | None = None,
+        limit: int = 100,
+    ):
+        _ = workspace_id
+        _ = project_id
+        _ = target_domain
+        _ = target_kind
+        _ = review_type
+        _ = limit
+        item = _FakePrismReviewService.review_item
+        if item is None:
+            return []
+        if status is not None and item.status not in set(status):
+            return []
+        return [
+            _canonical_review_item(
+                item,
+                project=_FakeLatexRouterService.project,
+                now=datetime.now(UTC),
+            )
+        ]
+
+    async def find_prism_file_change(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        logical_key: str,
+        statuses: list[str] | tuple[str, ...] | None = None,
+    ):
+        _ = workspace_id
+        _ = latex_project_id
+        item = _FakePrismReviewService.review_item
+        if item is None or item.logical_key != logical_key:
+            return None
+        if statuses is not None and item.status not in set(statuses):
+            return None
+        return _canonical_review_item(
+            item,
+            project=_FakeLatexRouterService.project,
+            now=datetime.now(UTC),
+        )
+
+    async def list_provenance_links(self, **kwargs):
+        _ = kwargs
+        return []
+
+    async def list_room_decisions(self, workspace_id: str):
+        _ = workspace_id
+        return {}
+
+    async def list_room_memory_facts(self, *, workspace_id: str, limit: int = 5):
+        _ = workspace_id
+        _ = limit
+        return []
+
+    async def list_executions(self, *, workspace_id: str, limit: int = 5):
+        _ = workspace_id
+        _ = limit
+        return []
 
 
 class _FakeCommitDb:
@@ -137,6 +245,12 @@ class _FakePrismReviewService:
 
     def __init__(self, db: object) -> None:
         _ = db
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
 
     @classmethod
     def reset(cls) -> None:
@@ -187,6 +301,27 @@ class _FakePrismReviewService:
             return None
         return item
 
+    async def find_prism_file_change(
+        self,
+        *,
+        workspace_id: str,
+        latex_project_id: str,
+        logical_key: str,
+        statuses: list[str] | tuple[str, ...] | None = None,
+    ):
+        _ = workspace_id
+        _ = latex_project_id
+        item = self.review_item
+        if item is None or item.logical_key != logical_key:
+            return None
+        if statuses is not None and item.status not in set(statuses):
+            return None
+        return _canonical_review_item(
+            item,
+            project=_FakeLatexRouterService.project,
+            now=datetime.now(UTC),
+        )
+
     async def mark_applied(self, item: SimpleNamespace, **kwargs: object) -> SimpleNamespace:
         item.status = "applied"
         item.preview_payload = {**item.preview_payload, **kwargs}
@@ -204,6 +339,15 @@ class _FakePrismReviewService:
         item.preview_payload = {**item.preview_payload, **kwargs}
         item.result_json = dict(kwargs)
         return item
+
+    async def mark_prism_file_change_applied(self, item_id: str, payload) -> SimpleNamespace | None:
+        return await self.mark_applied_file_change(
+            item_id,
+            previous_content=payload.previous_content,
+            previous_hash=payload.previous_hash,
+            applied_hash=payload.applied_hash,
+            revert_signature=payload.revert_signature,
+        )
 
     async def mark_rejected(
         self,
@@ -237,6 +381,9 @@ class _FakePrismReviewService:
         item.summary = reason or item.summary
         return item
 
+    async def mark_prism_file_change_rejected(self, item_id: str, payload) -> SimpleNamespace | None:
+        return await self.mark_rejected_file_change(item_id, reason=payload.reason)
+
     async def mark_reverted(self, item: SimpleNamespace) -> SimpleNamespace:
         item.status = "reverted"
         return item
@@ -250,6 +397,9 @@ class _FakePrismReviewService:
             return None
         item.status = "reverted"
         return item
+
+    async def mark_prism_file_change_reverted(self, item_id: str) -> SimpleNamespace | None:
+        return await self.mark_reverted_file_change(item_id)
 
     async def upsert_protected_section(self, **kwargs: object) -> None:
         if kwargs.get("source") == "review_reject":
@@ -275,6 +425,25 @@ class _FakePrismReviewService:
         else:
             self.protected.append(dict(kwargs))
         return SimpleNamespace(id="protected-1", **kwargs)
+
+    async def upsert_latex_prism_protected_scope(self, payload) -> SimpleNamespace:
+        return await self.upsert_latex_protected_scope(**payload.model_dump())
+
+    async def record_source_citation_usage(self, command):
+        _FakeSourceDataService.calls.append(
+            {
+                "workspace_id": command.workspace_id,
+                "citation_keys": command.citation_keys,
+                "latex_project_id": command.latex_project_id,
+                "target_id": command.target_id,
+                "target_section": command.target_section,
+                "target_ref_json": command.target_ref_json,
+                "generated_text": command.generated_text,
+                "usage_type": command.usage_type,
+                "accepted_status": command.accepted_status,
+            }
+        )
+        return {"recorded": len(command.citation_keys)}
 
 
 class _FakeSourceDataService:
@@ -591,19 +760,15 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
             "src.gateway.routers.latex_files.LatexProjectService",
             _FakeLatexRouterService,
         ),
-        patch(
-            "src.gateway.routers.latex_files.PrismDataService",
-            _FakePrismReviewService,
-        ),
-        patch(
-            "src.gateway.routers.latex_files.PrismReviewDataService",
-            _FakePrismReviewService,
-        ),
-        patch(
-            "src.gateway.routers.latex_helpers.SourceDataService",
-            _FakeSourceDataService,
-        ),
-    ):
+            patch(
+                "src.gateway.routers.latex_files.dataservice_client",
+                lambda: _FakePrismReviewService(db),
+            ),
+            patch(
+                "src.gateway.routers.latex_helpers.dataservice_client",
+                lambda: _FakePrismReviewService(db),
+            ),
+        ):
         preview = await preview_project_file_change(
             "latex-1",
             LatexFileChangeActionRequest(logical_key="section:introduction"),
@@ -656,11 +821,8 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     ), patch(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
-    ), patch(
-        "src.gateway.routers.latex_files.PrismReviewDataService",
-        _FakePrismReviewService,
+        "src.gateway.routers.latex_files.dataservice_client",
+        lambda: _FakePrismReviewService(object()),
     ):
         reverted = await revert_project_file_change(
             "latex-1",
@@ -689,11 +851,8 @@ async def test_prism_review_discard_protects_user_content_and_clears_pending_pro
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     ), patch(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
-    ), patch(
-        "src.gateway.routers.latex_files.PrismReviewDataService",
-        _FakePrismReviewService,
+        "src.gateway.routers.latex_files.dataservice_client",
+        lambda: _FakePrismReviewService(_FakeCommitDb()),
     ):
         discarded = await discard_project_file_change(
                 "latex-1",
@@ -729,8 +888,8 @@ async def test_manual_prism_protection_uses_canonical_protected_section() -> Non
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     ), patch(
-        "src.gateway.routers.latex_files.PrismDataService",
-        _FakePrismReviewService,
+        "src.gateway.routers.latex_files.dataservice_client",
+        lambda: _FakePrismReviewService(db),
     ):
         response = await protect_project_section(
             "latex-1",
@@ -753,5 +912,6 @@ async def test_manual_prism_protection_uses_canonical_protected_section() -> Non
             "scope": "file",
             "reason": "user_manual_protect",
             "source": "manual_edit",
+            "metadata_json": {},
         }
     ]

@@ -508,6 +508,22 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return LatexProjectPayload.model_validate(data) if data is not None else None
 
+    async def get_latex_binding_integrity_report(
+        self,
+        *,
+        user_id: str | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/latex/binding-integrity",
+            params={"user_id": user_id},
+        )
+        data = payload.get("data") or {}
+        return {
+            "missing_primary": list(data.get("missing_primary") or []),
+            "duplicate_primary": list(data.get("duplicate_primary") or []),
+        }
+
     async def create_latex_project(
         self,
         command: LatexProjectCreatePayload,
@@ -2214,6 +2230,19 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return PrismProtectedScopePayload.model_validate(data) if data is not None else None
+
+    async def list_prism_protected_scopes(
+        self,
+        project_id: str,
+        *,
+        limit: int = 200,
+    ) -> list[PrismProtectedScopePayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/prism/projects/{project_id}/protected-scopes",
+            params={"limit": limit},
+        )
+        return [PrismProtectedScopePayload.model_validate(item) for item in payload["data"]]
 
     async def append_prism_file_version(
         self,

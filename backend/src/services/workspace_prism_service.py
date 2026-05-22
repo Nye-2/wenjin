@@ -2,20 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.execution_api import (
-    ExecutionDataService,
-    ExecutionRunHistoryProjection,
-)
-from src.dataservice.latex_api import LatexDataService
-from src.dataservice.prism_api import PrismDataService, build_latex_adapter_metadata
-from src.dataservice.provenance_api import ProvenanceDataService
-from src.dataservice.review_api import ReviewDataService, ReviewItemProjection
-from src.dataservice.rooms_api import MemoryFactProjection, RoomsDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.latex import LatexProjectAttachWorkspacePayload
+from src.dataservice_client.contracts.prism import PrismPrimaryProjectPayload
+from src.dataservice_client.provider import dataservice_client
 from src.services.prism_review_projection import prism_review_item_projection
 from src.services.workspace_activity_contracts import (
     build_prism_review_activity_item,
@@ -42,7 +38,29 @@ def _isoformat(value: Any) -> str | None:
     return str(value)
 
 
-def _memory_payload(item: MemoryFactProjection) -> dict[str, Any]:
+def _build_latex_adapter_metadata(
+    *,
+    latex_project_id: str,
+    main_file: str = "main.tex",
+    file_order: dict[str, Any] | None = None,
+    llm_config: dict[str, Any] | None = None,
+    template_id: str | None = None,
+) -> dict[str, Any]:
+    metadata = {}
+    if isinstance(llm_config, dict):
+        raw_metadata = llm_config.get("metadata")
+        if isinstance(raw_metadata, dict):
+            metadata.update(raw_metadata)
+    return {
+        "latex_project_id": latex_project_id,
+        "main_file": main_file,
+        "template_id": template_id,
+        "file_order": dict(file_order or {}),
+        "legacy_metadata": metadata,
+    }
+
+
+def _memory_payload(item: Any) -> dict[str, Any]:
     return {
         "id": str(item.id),
         "workspace_id": str(item.workspace_id),
@@ -55,17 +73,17 @@ def _memory_payload(item: MemoryFactProjection) -> dict[str, Any]:
     }
 
 
-def _run_history_payload(item: ExecutionRunHistoryProjection) -> dict[str, Any]:
+def _run_history_payload(item: Any) -> dict[str, Any]:
     return {
         "id": str(item.id),
         "workspace_id": str(item.workspace_id or ""),
-        "execution_id": str(item.execution_id),
+        "execution_id": str(getattr(item, "execution_id", None) or item.id),
         "capability_id": str(item.capability_id or ""),
-        "title": str(item.title),
-        "summary": str(item.summary or ""),
+        "title": str(getattr(item, "title", None) or getattr(item, "display_name", None) or item.execution_type),
+        "summary": str(getattr(item, "summary", None) or getattr(item, "result_summary", None) or ""),
         "status": str(item.status),
-        "artifact_count": int(item.artifact_count or 0),
-        "duration_seconds": int(item.duration_seconds or 0),
+        "artifact_count": int(getattr(item, "artifact_count", None) or len(getattr(item, "artifact_ids", []) or [])),
+        "duration_seconds": int(getattr(item, "duration_seconds", None) or 0),
         "created_at": _isoformat(item.created_at),
     }
 
@@ -74,11 +92,24 @@ def _json_object(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
-def _review_target_ref(item: ReviewItemProjection) -> dict[str, Any]:
+def _model_payload(item: Any) -> dict[str, Any]:
+    dump = getattr(item, "model_dump", None)
+    if callable(dump):
+        return dump(mode="json")
+    if isinstance(item, dict):
+        return dict(item)
+    return {
+        key: value
+        for key, value in vars(item).items()
+        if not key.startswith("_")
+    }
+
+
+def _review_target_ref(item: Any) -> dict[str, Any]:
     return _json_object(item.target_ref_json)
 
 
-def _review_payload(item: ReviewItemProjection) -> dict[str, Any]:
+def _review_payload(item: Any) -> dict[str, Any]:
     payload = _json_object(item.payload_json)
     preview = _json_object(item.preview_json)
     result = _json_object(item.result_json)
@@ -99,7 +130,7 @@ def _review_payload(item: ReviewItemProjection) -> dict[str, Any]:
     return merged
 
 
-def _review_file_change_payload(item: ReviewItemProjection) -> dict[str, Any]:
+def _review_file_change_payload(item: Any) -> dict[str, Any]:
     target_ref = _review_target_ref(item)
     payload = _review_payload(item)
     path = str(
@@ -135,7 +166,7 @@ def _review_file_change_payload(item: ReviewItemProjection) -> dict[str, Any]:
     return result
 
 
-def _prism_review_activity_payload(item: ReviewItemProjection) -> dict[str, Any]:
+def _prism_review_activity_payload(item: Any) -> dict[str, Any]:
     occurred_at = item.applied_at or item.updated_at or item.created_at
     target_ref = _review_target_ref(item)
     payload = _review_payload(item)
@@ -286,11 +317,23 @@ def _build_launch_context(surface: dict[str, Any]) -> dict[str, Any]:
 class WorkspacePrismService:
     """Resolve the canonical Prism manuscript bound to a workspace."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
-        self.bridge = WorkspaceLatexProjectService(db)
-        self._rooms = RoomsDataService(db, autocommit=False)
-        self._review = ReviewDataService(db, autocommit=False)
+        self._dataservice = dataservice
+        self.bridge = WorkspaceLatexProjectService(db, dataservice=dataservice)
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     async def get_primary_project(
         self,
@@ -298,10 +341,8 @@ class WorkspacePrismService:
         *,
         user_id: str,
     ) -> Any | None:
-        project = await PrismDataService(
-            self.db,
-            autocommit=False,
-        ).get_primary_project(workspace_id)
+        async with self._client() as client:
+            project = await client.get_prism_primary_project(workspace_id)
         if project is None or project.adapter_kind != "latex" or not project.adapter_ref_id:
             return None
         latex_project = await self._get_latex_adapter_project(project.adapter_ref_id)
@@ -322,18 +363,15 @@ class WorkspacePrismService:
                 workspace_id=workspace_id,
                 project_name=project_name,
             )
-        project = await LatexDataService(
-            self.db,
-            autocommit=False,
-        ).attach_workspace_project(
-            project,
-            workspace_id=workspace_id,
-        )
+        async with self._client() as client:
+            project = await client.attach_workspace_latex_project(
+                str(project.id),
+                command=LatexProjectAttachWorkspacePayload(workspace_id=workspace_id),
+            ) or project
         await self._ensure_prism_surface_for_latex_project(
             workspace_id=workspace_id,
             project=project,
         )
-        await self.db.commit()
         return project
 
     async def get_surface_projection(
@@ -342,10 +380,8 @@ class WorkspacePrismService:
         *,
         user_id: str,
     ) -> dict[str, Any]:
-        surface = await PrismDataService(
-            self.db,
-            autocommit=False,
-        ).get_surface(workspace_id)
+        async with self._client() as client:
+            surface = await client.get_prism_surface(workspace_id)
         if surface is None:
             raise ValueError(f"Workspace Prism not found: {workspace_id}")
         if surface.project.adapter_kind != "latex" or not surface.project.adapter_ref_id:
@@ -375,10 +411,8 @@ class WorkspacePrismService:
             workspace_id=workspace_id,
             latex_project_id=str(project.id),
         )
-        protected_scopes = await PrismDataService(
-            self.db,
-            autocommit=False,
-        ).list_protected_scopes(str(surface.project.id))
+        async with self._client() as client:
+            protected_scopes = await client.list_prism_protected_scopes(str(surface.project.id))
         protected_sections = [
             _protected_scope_payload(item, latex_project_id=str(project.id))
             for item in protected_scopes
@@ -411,7 +445,7 @@ class WorkspacePrismService:
             "workspace_id": workspace_id,
             "prism_project_id": surface.project.id,
             "prism_document_id": surface.documents[0].id if surface.documents else None,
-            "prism_files": [file.model_dump(mode="json") for file in surface.files],
+            "prism_files": [_model_payload(file) for file in surface.files],
             "latex_project_id": str(project.id),
             "surface_role": getattr(project, "surface_role", None)
             or PRIMARY_MANUSCRIPT_ROLE,
@@ -447,22 +481,24 @@ class WorkspacePrismService:
         workspace_id: str,
         project: Any,
     ) -> None:
-        await PrismDataService(
-            self.db,
-            autocommit=False,
-        ).ensure_latex_primary_project(
-            workspace_id=workspace_id,
-            title=str(project.name or "Workspace Manuscript"),
-            latex_project_id=str(project.id),
-            main_file=str(project.main_file or "main.tex"),
-            adapter_metadata_json=build_latex_adapter_metadata(
-                latex_project_id=str(project.id),
-                main_file=str(project.main_file or "main.tex"),
-                file_order=project.file_order if isinstance(project.file_order, dict) else {},
-                llm_config=project.llm_config if isinstance(project.llm_config, dict) else {},
-                template_id=project.template_id,
-            ),
-        )
+        async with self._client() as client:
+            await client.ensure_prism_primary_project(
+                workspace_id,
+                PrismPrimaryProjectPayload(
+                    workspace_id=workspace_id,
+                    title=str(project.name or "Workspace Manuscript"),
+                    adapter_kind="latex",
+                    adapter_ref_id=str(project.id),
+                    main_file=str(project.main_file or "main.tex"),
+                    adapter_metadata_json=_build_latex_adapter_metadata(
+                        latex_project_id=str(project.id),
+                        main_file=str(project.main_file or "main.tex"),
+                        file_order=project.file_order if isinstance(project.file_order, dict) else {},
+                        llm_config=project.llm_config if isinstance(project.llm_config, dict) else {},
+                        template_id=project.template_id,
+                    ),
+                ),
+            )
 
     async def _get_latex_adapter_project(self, project_id: str) -> Any | None:
         return await self.bridge.get_project_by_id(project_id)
@@ -475,13 +511,14 @@ class WorkspacePrismService:
         statuses: tuple[str, ...],
         limit: int = 200,
     ) -> list[ReviewItemProjection]:
-        items = await self._review.list_items(
-            workspace_id=workspace_id,
-            target_domain="prism",
-            target_kind="prism_file_change",
-            status=list(statuses),
-            limit=limit,
-        )
+        async with self._client() as client:
+            items = await client.list_review_items(
+                workspace_id=workspace_id,
+                target_domain="prism",
+                target_kind="prism_file_change",
+                status=list(statuses),
+                limit=limit,
+            )
         return [
             item
             for item in items
@@ -495,16 +532,14 @@ class WorkspacePrismService:
         latex_project_id: str,
         limit: int = 200,
     ) -> list[dict[str, Any]]:
-        links = await ProvenanceDataService(
-            self.db,
-            autocommit=False,
-        ).list_links(
-            workspace_id=workspace_id,
-            target_domain="prism",
-            target_kind="prism_file_change",
-            relation_kind="cited",
-            limit=limit,
-        )
+        async with self._client() as client:
+            links = await client.list_provenance_links(
+                workspace_id=workspace_id,
+                target_domain="prism",
+                target_kind="prism_file_change",
+                relation_kind="cited",
+                limit=limit,
+            )
         return [
             _provenance_source_link_payload(item, latex_project_id=latex_project_id)
             for item in links
@@ -522,7 +557,8 @@ class WorkspacePrismService:
         return _build_launch_context(surface)
 
     async def _list_decisions(self, workspace_id: str) -> list[dict[str, Any]]:
-        active = await self._rooms.list_active_decisions(workspace_id)
+        async with self._client() as client:
+            active = await client.list_room_decisions(workspace_id)
         return [
             {
                 "id": "",
@@ -537,22 +573,18 @@ class WorkspacePrismService:
         ]
 
     async def _list_memory_preferences(self, workspace_id: str) -> list[dict[str, Any]]:
-        facts = await self._rooms.list_memory_facts(workspace_id=workspace_id, limit=5)
+        async with self._client() as client:
+            facts = await client.list_room_memory_facts(workspace_id=workspace_id, limit=5)
         return [_memory_payload(item) for item in facts]
 
     async def _list_recent_activity(self, workspace_id: str) -> list[dict[str, Any]]:
-        run_history = await ExecutionDataService(
-            self.db,
-            autocommit=False,
-        ).list_run_history(
-            workspace_id=workspace_id,
-            limit=5,
-        )
-        review_records = await self._review.list_items(
-            workspace_id=workspace_id,
-            target_domain="prism",
-            limit=5,
-        )
+        async with self._client() as client:
+            run_history = await client.list_executions(workspace_id=workspace_id, limit=5)
+            review_records = await client.list_review_items(
+                workspace_id=workspace_id,
+                target_domain="prism",
+                limit=5,
+            )
         run_history_items = [_run_history_payload(item) for item in run_history]
         review_items = [
             _prism_review_activity_payload(item)
@@ -569,47 +601,5 @@ class WorkspacePrismService:
     ) -> dict[str, list[dict[str, Any]]]:
         """Report workspaces with missing or duplicate primary Prism projects."""
 
-        params: dict[str, Any] = {"surface_role": PRIMARY_MANUSCRIPT_ROLE}
-        user_filter = ""
-        if user_id is not None:
-            params["user_id"] = user_id
-            user_filter = "where w.user_id = :user_id"
-
-        result = await self.db.execute(
-            text(
-                f"""
-                select
-                    w.id as workspace_id,
-                    w.user_id as user_id,
-                    w.name as workspace_name,
-                    count(lp.id) as primary_count
-                from workspaces w
-                left join latex_projects lp
-                  on lp.workspace_id = w.id
-                 and lp.surface_role = :surface_role
-                {user_filter}
-                group by w.id, w.user_id, w.name
-                having count(lp.id) = 0 or count(lp.id) > 1
-                order by w.id
-                """
-            ),
-            params,
-        )
-        missing_primary: list[dict[str, Any]] = []
-        duplicate_primary: list[dict[str, Any]] = []
-        for row in result.mappings():
-            item = {
-                "workspace_id": str(row["workspace_id"]),
-                "user_id": str(row["user_id"]),
-                "workspace_name": str(row["workspace_name"] or ""),
-                "primary_count": int(row["primary_count"] or 0),
-            }
-            if item["primary_count"] == 0:
-                missing_primary.append(item)
-            else:
-                duplicate_primary.append(item)
-
-        return {
-            "missing_primary": missing_primary,
-            "duplicate_primary": duplicate_primary,
-        }
+        async with self._client() as client:
+            return await client.get_latex_binding_integrity_report(user_id=user_id)

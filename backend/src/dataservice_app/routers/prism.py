@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
@@ -80,6 +80,17 @@ async def upsert_latex_protected_scope(
     )
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.get("/projects/{project_id}/protected-scopes")
+async def list_protected_scopes(
+    project_id: str,
+    limit: int = Query(default=200, ge=1, le=1000),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = PrismDataDomainService(uow.required_session, autocommit=False)
+    records = await service.list_protected_scopes(project_id, limit=limit)
+    return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
 @router.post("/files/{file_id}/versions")
