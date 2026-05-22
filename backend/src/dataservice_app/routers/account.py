@@ -12,6 +12,7 @@ from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice_app.auth import require_internal_token
 from src.dataservice_app.deps import get_uow
 from src.dataservice_client.contracts.account import (
+    AccountRefreshTokenPayload,
     AccountUserCreatePayload,
     AccountUserRolePayload,
     AccountUserStatusPayload,
@@ -41,6 +42,30 @@ async def create_user(
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
+@router.get("/users/by-email")
+async def get_auth_user_by_email(
+    email: str = Query(),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    record = await AccountDataService(
+        uow.required_session,
+        autocommit=False,
+    ).get_auth_user_by_email(email)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.get("/users/{user_id}/auth")
+async def get_auth_user_by_id(
+    user_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    record = await AccountDataService(
+        uow.required_session,
+        autocommit=False,
+    ).get_auth_user_by_id(user_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
 @router.get("/users/{user_id}")
 async def get_user_record(
     user_id: str,
@@ -51,6 +76,43 @@ async def get_user_record(
         autocommit=False,
     ).get_user_record(user_id)
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.patch("/users/{user_id}/refresh-token")
+async def update_refresh_token(
+    user_id: str,
+    payload: AccountRefreshTokenPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    record = await AccountDataService(
+        uow.required_session,
+        autocommit=False,
+    ).update_refresh_token(
+        user_id=user_id,
+        refresh_token_hash=payload.refresh_token_hash,
+        refresh_token_expires_at=payload.refresh_token_expires_at,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/users/{user_id}/last-login")
+async def update_last_login(
+    user_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    record = await AccountDataService(
+        uow.required_session,
+        autocommit=False,
+    ).update_last_login(user_id)
+    await uow.commit()
+    if record is None:
+        return envelope_ok(None)
+    auth_record = await AccountDataService(
+        uow.required_session,
+        autocommit=False,
+    ).get_auth_user_by_id(user_id)
+    return envelope_ok(auth_record.model_dump(mode="json") if auth_record else None)
 
 
 @router.get("/admin-stats")

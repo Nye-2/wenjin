@@ -19,6 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from src.database.models.credit import CreditTransaction
 from src.database.models.user import User
+from src.dataservice_client.contracts.account import (
+    AccountRefreshTokenPayload,
+    AccountUserCreatePayload,
+    AccountUserPayload,
+)
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.auth import get_db, router
 from src.services import credit_grant_rule_service as _cgr_module
 from src.services.auth import create_tokens
@@ -26,6 +32,69 @@ from src.services.user_service import UserService
 
 # Use in-memory SQLite for testing
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+
+class FakeAccountClient:
+    def __init__(self) -> None:
+        self.users: dict[str, AccountUserPayload] = {}
+        self.by_email: dict[str, str] = {}
+        self._counter = 0
+
+    async def create_account_user(self, command: AccountUserCreatePayload) -> AccountUserPayload:
+        email = command.email.lower().strip()
+        if email in self.by_email:
+            raise ValueError("Email already registered")
+        self._counter += 1
+        user = AccountUserPayload(
+            id=f"user-{self._counter}",
+            email=email,
+            name=command.name,
+            role="user",
+            is_active=True,
+            is_superuser=False,
+            credits=0,
+            total_credits_earned=0,
+            total_credits_spent=0,
+            hashed_password=command.hashed_password,
+            last_login=None,
+        )
+        self.users[user.id] = user
+        self.by_email[email] = user.id
+        return user
+
+    async def get_account_auth_user_by_email(self, email: str) -> AccountUserPayload | None:
+        user_id = self.by_email.get(email.lower().strip())
+        return self.users.get(user_id or "")
+
+    async def get_account_auth_user(self, user_id: str) -> AccountUserPayload | None:
+        return self.users.get(user_id)
+
+    async def update_account_last_login(self, user_id: str) -> AccountUserPayload | None:
+        user = self.users.get(user_id)
+        if user is None:
+            return None
+        updated = user.model_copy(update={"last_login": datetime.now()})
+        self.users[user_id] = updated
+        self.by_email[updated.email] = updated.id
+        return updated
+
+    async def update_account_refresh_token(
+        self,
+        user_id: str,
+        command: AccountRefreshTokenPayload,
+    ) -> AccountUserPayload | None:
+        user = self.users.get(user_id)
+        if user is None:
+            return None
+        updated = user.model_copy(
+            update={
+                "refresh_token_hash": command.refresh_token_hash,
+                "refresh_token_expires_at": command.refresh_token_expires_at,
+            }
+        )
+        self.users[user_id] = updated
+        self.by_email[updated.email] = updated.id
+        return updated
 
 
 @pytest_asyncio.fixture
@@ -61,7 +130,12 @@ async def db_session(async_engine):
 
 
 @pytest.fixture
-def app(db_session, monkeypatch):
+def fake_account_client() -> FakeAccountClient:
+    return FakeAccountClient()
+
+
+@pytest.fixture
+def app(db_session, monkeypatch, fake_account_client):
     """Create FastAPI app with auth router."""
     monkeypatch.setattr(
         _cgr_module.CreditGrantRuleService,
@@ -75,7 +149,11 @@ def app(db_session, monkeypatch):
     async def get_db_override() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
+    async def get_dataservice_client_override():
+        yield fake_account_client
+
     app.dependency_overrides[get_db] = get_db_override
+    app.dependency_overrides[get_dataservice_client] = get_dataservice_client_override
     app.include_router(router)
 
     return app
@@ -367,10 +445,10 @@ class TestAuthIntegration:
     """Integration tests for auth endpoints."""
 
     @pytest.mark.asyncio
-    async def test_full_auth_flow(self, async_engine, db_session):
+    async def test_full_auth_flow(self, async_engine, db_session, fake_account_client):
         """Test complete authentication flow: register -> login -> refresh -> me."""
         # This test demonstrates the full flow but uses the services directly
-        user_service = UserService(db_session)
+        user_service = UserService(dataservice=fake_account_client)
 
         # Register
         user = await user_service.create_user(
@@ -401,9 +479,9 @@ class TestAuthIntegration:
         assert user_id == str(user.id)
 
     @pytest.mark.asyncio
-    async def test_login_updates_last_login(self, db_session):
+    async def test_login_updates_last_login(self, db_session, fake_account_client):
         """Test that login updates last_login timestamp."""
-        user_service = UserService(db_session)
+        user_service = UserService(dataservice=fake_account_client)
 
         # Create user
         user = await user_service.create_user(
@@ -418,9 +496,9 @@ class TestAuthIntegration:
         assert isinstance(updated.last_login, datetime)
 
     @pytest.mark.asyncio
-    async def test_inactive_user_cannot_authenticate(self, db_session):
+    async def test_inactive_user_cannot_authenticate(self, db_session, fake_account_client):
         """Test that inactive users cannot authenticate."""
-        user_service = UserService(db_session)
+        user_service = UserService(dataservice=fake_account_client)
 
         # Create user
         user = await user_service.create_user(
@@ -429,17 +507,16 @@ class TestAuthIntegration:
         )
 
         # Deactivate user
-        user.is_active = False
-        await db_session.commit()
+        fake_account_client.users[user.id] = user.model_copy(update={"is_active": False})
 
         # Try to authenticate
         result = await user_service.authenticate("inactive@example.com", "securepassword123")
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_case_insensitive_email_login(self, db_session):
+    async def test_case_insensitive_email_login(self, db_session, fake_account_client):
         """Test that email login is case-insensitive."""
-        user_service = UserService(db_session)
+        user_service = UserService(dataservice=fake_account_client)
 
         # Create user with lowercase email
         await user_service.create_user(

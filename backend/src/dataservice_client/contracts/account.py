@@ -20,6 +20,9 @@ class AccountUserPayload(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
     last_login: datetime | None = None
+    hashed_password: str | None = None
+    refresh_token_hash: str | None = None
+    refresh_token_expires_at: datetime | None = None
 
 
 class AccountAdminStatsPayload(BaseModel):
@@ -52,3 +55,8 @@ class AccountUserStatusPayload(BaseModel):
 
 class AccountUserRolePayload(BaseModel):
     role: str
+
+
+class AccountRefreshTokenPayload(BaseModel):
+    refresh_token_hash: str | None = None
+    refresh_token_expires_at: datetime | None = None

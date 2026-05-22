@@ -5,7 +5,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
-from src.gateway.deps.core import get_db
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps.core import get_dataservice_client, get_db
 from src.services.auth import verify_access_token
 from src.services.user_service import UserService
 
@@ -15,6 +16,7 @@ security = HTTPBearer(auto_error=False)
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> User:
     """Get current authenticated user from JWT token."""
     if credentials is None:
@@ -32,7 +34,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user_service = UserService(db)
+    user_service = UserService(dataservice=dataservice)
     user = await user_service.get_by_id(token_data.user_id)
 
     if user is None:
@@ -55,6 +57,7 @@ async def get_current_user(
 async def get_current_user_optional(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> User | None:
     """Get current user if authenticated, otherwise return None."""
     if credentials is None:
@@ -64,7 +67,7 @@ async def get_current_user_optional(
     if token_data is None:
         return None
 
-    user_service = UserService(db)
+    user_service = UserService(dataservice=dataservice)
     user = await user_service.get_by_id(token_data.user_id)
     if user is None or not user.is_active:
         return None

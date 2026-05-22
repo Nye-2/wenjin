@@ -7,11 +7,15 @@ This service provides user management functionality including:
 - Last login timestamp updates
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.account_api import AccountDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.account import AccountUserCreatePayload
+from src.dataservice_client.provider import dataservice_client
 from src.services.auth import hash_password, verify_password
 
 
@@ -25,14 +29,27 @@ class UserService:
         db: AsyncSession for database operations
     """
 
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ):
         """Initialize UserService with database session.
 
         Args:
             db: AsyncSession for database operations
         """
         self.db = db
-        self._account = AccountDataService(db)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     async def create_user(
         self,
@@ -63,12 +80,18 @@ class UserService:
         if name is None:
             name = email.split("@")[0]
 
-        return await self._account.create_user(
-            email=email.lower().strip(),
-            name=name,
-            hashed_password=hashed_password,
-            auto_commit=auto_commit,
-        )
+        async with self._client() as client:
+            user = await client.create_account_user(
+                AccountUserCreatePayload(
+                    email=email.lower().strip(),
+                    name=name,
+                    hashed_password=hashed_password,
+                    auto_commit=auto_commit,
+                )
+            )
+        if user is not None and user.hashed_password is None:
+            user.hashed_password = hashed_password
+        return user
 
     async def get_by_email(self, email: str) -> Any | None:
         """Get user by email address.
@@ -79,7 +102,8 @@ class UserService:
         Returns:
             User if found, None otherwise
         """
-        return await self._account.get_by_email(email)
+        async with self._client() as client:
+            return await client.get_account_auth_user_by_email(email)
 
     async def get_by_id(self, user_id: str) -> Any | None:
         """Get user by UUID.
@@ -90,7 +114,8 @@ class UserService:
         Returns:
             User if found, None otherwise
         """
-        return await self._account.get_by_id(user_id)
+        async with self._client() as client:
+            return await client.get_account_auth_user(user_id)
 
     async def authenticate(self, email: str, password: str) -> Any | None:
         """Authenticate user with email and password.
@@ -130,4 +155,5 @@ class UserService:
         Returns:
             Updated user if found, None otherwise
         """
-        return await self._account.update_last_login(user_id)
+        async with self._client() as client:
+            return await client.update_account_last_login(user_id)

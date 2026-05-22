@@ -66,6 +66,29 @@ class DataServiceAccountService:
         user = await self.repository.get_user(user_id)
         return self.to_record(user) if user is not None else None
 
+    async def get_auth_user_by_id(self, user_id: str) -> AccountUserRecord | None:
+        user = await self.repository.get_by_id(user_id)
+        return self.to_auth_record(user) if user is not None else None
+
+    async def get_auth_user_by_email(self, email: str) -> AccountUserRecord | None:
+        user = await self.repository.get_by_email(email)
+        return self.to_auth_record(user) if user is not None else None
+
+    async def update_refresh_token(
+        self,
+        *,
+        user_id: str,
+        refresh_token_hash: str | None,
+        refresh_token_expires_at: datetime | None,
+    ) -> AccountUserRecord | None:
+        user = await self.repository.get_by_id(user_id)
+        if user is None:
+            return None
+        user.refresh_token_hash = refresh_token_hash
+        user.refresh_token_expires_at = refresh_token_expires_at
+        await self._finish(user)
+        return self.to_auth_record(user)
+
     async def get_admin_stats(self) -> AccountAdminStatsRecord:
         return AccountAdminStatsRecord(**await self.repository.get_admin_stats())
 
@@ -169,6 +192,14 @@ class DataServiceAccountService:
             updated_at=getattr(user, "updated_at", None),
             last_login=getattr(user, "last_login", None),
         )
+
+    @staticmethod
+    def to_auth_record(user: User) -> AccountUserRecord:
+        record = DataServiceAccountService.to_record(user)
+        record.hashed_password = user.hashed_password
+        record.refresh_token_hash = getattr(user, "refresh_token_hash", None)
+        record.refresh_token_expires_at = getattr(user, "refresh_token_expires_at", None)
+        return record
 
     async def _finish(self, record: Any | None = None) -> None:
         if self.autocommit:

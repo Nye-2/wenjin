@@ -30,6 +30,25 @@ class AccountDataService:
     async def get_by_id(self, user_id: str) -> Any | None:
         return await self._domain.get_by_id(user_id)
 
+    async def get_auth_user_by_email(self, email: str) -> Any | None:
+        return await self._domain.get_auth_user_by_email(email)
+
+    async def get_auth_user_by_id(self, user_id: str) -> Any | None:
+        return await self._domain.get_auth_user_by_id(user_id)
+
+    async def update_refresh_token(
+        self,
+        *,
+        user_id: str,
+        refresh_token_hash: str | None,
+        refresh_token_expires_at: Any | None,
+    ) -> Any | None:
+        return await self._domain.update_refresh_token(
+            user_id=user_id,
+            refresh_token_hash=refresh_token_hash,
+            refresh_token_expires_at=refresh_token_expires_at,
+        )
+
     async def update_last_login(self, user_id: str) -> Any | None:
         return await self._domain.update_last_login(user_id)
 

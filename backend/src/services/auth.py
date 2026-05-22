@@ -1,6 +1,8 @@
 """用户认证服务 - JWT 令牌管理"""
 
 import hashlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import uuid4
@@ -11,6 +13,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.app_config import jwt_settings
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.account import AccountRefreshTokenPayload
+from src.dataservice_client.provider import dataservice_client
 
 if TYPE_CHECKING:
     from src.database import User
@@ -21,8 +26,20 @@ type JwtPayload = dict[str, object]
 class RefreshTokenUser(Protocol):
     """User fields required for refresh-token persistence and verification."""
 
+    id: str
     refresh_token_hash: str | None
     refresh_token_expires_at: datetime | None
+
+
+@asynccontextmanager
+async def _account_client(
+    dataservice: AsyncDataServiceClient | None,
+) -> AsyncIterator[AsyncDataServiceClient]:
+    if dataservice is not None:
+        yield dataservice
+        return
+    async with dataservice_client() as client:
+        yield client
 
 # 密码哈希上下文
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -214,11 +231,13 @@ def _coerce_expiry(value: object) -> datetime | None:
 async def _get_user_record(
     db: AsyncSession,
     user_id: str,
+    *,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> "User | None":
     """Load the concrete user record through the Account DataService boundary."""
-    from src.dataservice.account_api import AccountDataService
-
-    return cast("User | None", await AccountDataService(db).get_by_id(user_id))
+    _ = db
+    async with _account_client(dataservice) as client:
+        return cast("User | None", await client.get_account_auth_user(user_id))
 
 
 async def persist_refresh_token(
@@ -226,28 +245,44 @@ async def persist_refresh_token(
     *,
     user: RefreshTokenUser,
     refresh_token: str,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> None:
     """Persist the currently active refresh token hash for a user."""
     payload = decode_token(refresh_token)
     if not payload or payload.get("type") != "refresh":
         raise ValueError("Invalid refresh token payload")
 
-    user.refresh_token_hash = hash_token(refresh_token)
-    user.refresh_token_expires_at = _coerce_expiry(payload.get("exp"))
-    await db.commit()
-    await db.refresh(user)
+    hashed = hash_token(refresh_token)
+    expires_at = _coerce_expiry(payload.get("exp"))
+    async with _account_client(dataservice) as client:
+        await client.update_account_refresh_token(
+            str(user.id),
+            AccountRefreshTokenPayload(
+                refresh_token_hash=hashed,
+                refresh_token_expires_at=expires_at,
+            ),
+        )
+    user.refresh_token_hash = hashed
+    user.refresh_token_expires_at = expires_at
 
 
 async def revoke_refresh_token(
     db: AsyncSession,
     *,
     user: RefreshTokenUser,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> None:
     """Revoke the currently active refresh token for a user."""
+    async with _account_client(dataservice) as client:
+        await client.update_account_refresh_token(
+            str(user.id),
+            AccountRefreshTokenPayload(
+                refresh_token_hash=None,
+                refresh_token_expires_at=None,
+            ),
+        )
     user.refresh_token_hash = None
     user.refresh_token_expires_at = None
-    await db.commit()
-    await db.refresh(user)
 
 
 async def create_and_persist_tokens(
@@ -257,28 +292,36 @@ async def create_and_persist_tokens(
     email: str,
     role: str = "user",
     user: RefreshTokenUser | None = None,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> Token:
     """Create JWTs and persist the active refresh token hash."""
     tokens = create_tokens(user_id=user_id, email=email, role=role)
     if user is None:
-        user = await _get_user_record(db, user_id)
+        user = await _get_user_record(db, user_id, dataservice=dataservice)
         if user is None:
             raise ValueError("User not found")
 
-    await persist_refresh_token(db, user=user, refresh_token=tokens.refresh_token)
+    await persist_refresh_token(
+        db,
+        user=user,
+        refresh_token=tokens.refresh_token,
+        dataservice=dataservice,
+    )
     return tokens
 
 
 async def verify_refresh_token_recorded(
     db: AsyncSession,
     token: str,
+    *,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> "User | None":
     """Verify refresh token against its persisted hash and expiry."""
     user_id = verify_refresh_token(token)
     if not user_id:
         return None
 
-    user = await _get_user_record(db, user_id)
+    user = await _get_user_record(db, user_id, dataservice=dataservice)
     if user is None:
         return None
 

@@ -10,6 +10,7 @@ import httpx
 from src.config import dataservice_settings
 from src.dataservice_client.contracts.account import (
     AccountAdminStatsPayload,
+    AccountRefreshTokenPayload,
     AccountUserCreatePayload,
     AccountUserGrowthPayload,
     AccountUserListPayload,
@@ -824,6 +825,38 @@ class AsyncDataServiceClient:
 
     async def get_account_user(self, user_id: str) -> AccountUserPayload | None:
         payload = await self._request("GET", f"/internal/v1/account/users/{user_id}")
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def get_account_auth_user(self, user_id: str) -> AccountUserPayload | None:
+        payload = await self._request("GET", f"/internal/v1/account/users/{user_id}/auth")
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def get_account_auth_user_by_email(self, email: str) -> AccountUserPayload | None:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/account/users/by-email",
+            params={"email": email},
+        )
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def update_account_refresh_token(
+        self,
+        user_id: str,
+        command: AccountRefreshTokenPayload,
+    ) -> AccountUserPayload | None:
+        payload = await self._request(
+            "PATCH",
+            f"/internal/v1/account/users/{user_id}/refresh-token",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return AccountUserPayload.model_validate(data) if data is not None else None
+
+    async def update_account_last_login(self, user_id: str) -> AccountUserPayload | None:
+        payload = await self._request("POST", f"/internal/v1/account/users/{user_id}/last-login")
         data = payload.get("data")
         return AccountUserPayload.model_validate(data) if data is not None else None
 

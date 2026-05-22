@@ -14,20 +14,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
-
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import (
     get_current_user,
     get_current_user_optional,
     security,
 )
-from src.gateway.deps.core import get_db
+from src.gateway.deps.core import get_dataservice_client, get_db
 from src.services.auth import (
     create_and_persist_tokens,
     verify_refresh_token_recorded,
 )
 from src.services.user_service import UserService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 __all__ = [
@@ -144,6 +145,7 @@ async def send_verification_code(
 async def register(
     request: RegisterRequest,
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TokenResponse:
     """Register a new user.
 
@@ -163,7 +165,7 @@ async def register(
     from src.config.app_config import smtp_settings
     from src.services.email_service import email_service
 
-    user_service = UserService(db)
+    user_service = UserService(dataservice=dataservice)
 
     # Check if user already exists
     existing_user = await user_service.get_by_email(request.email)
@@ -197,7 +199,6 @@ async def register(
             email=request.email,
             password=request.password,
             name=request.name,
-            auto_commit=False,
         )
 
         # Grant registration bonus with ledger record (rule-based)
@@ -223,9 +224,6 @@ async def register(
                 except ValueError:
                     pass  # referee already has referrer or other expected error
 
-        await db.commit()
-        await db.refresh(user)
-
         # Generate tokens
         tokens = await create_and_persist_tokens(
             db,
@@ -233,6 +231,7 @@ async def register(
             email=user.email,
             role="admin" if user.is_superuser else "user",
             user=user,
+            dataservice=dataservice,
         )
 
         return TokenResponse(
@@ -253,6 +252,7 @@ async def register(
 async def login(
     request: LoginRequest,
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TokenResponse:
     """Login with email and password.
 
@@ -268,7 +268,7 @@ async def login(
     Raises:
         HTTPException: If authentication fails
     """
-    user_service = UserService(db)
+    user_service = UserService(dataservice=dataservice)
 
     # Authenticate user
     user = await user_service.authenticate(request.email, request.password)
@@ -290,6 +290,7 @@ async def login(
         email=user.email,
         role="admin" if user.is_superuser else "user",
         user=user,
+        dataservice=dataservice,
     )
 
     return TokenResponse(
@@ -304,6 +305,7 @@ async def login(
 async def refresh_token(
     request: RefreshRequest,
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TokenResponse:
     """Refresh access token using refresh token.
 
@@ -320,7 +322,11 @@ async def refresh_token(
         HTTPException: If refresh token is invalid
     """
     # Verify refresh token
-    user = await verify_refresh_token_recorded(db, request.refresh_token)
+    user = await verify_refresh_token_recorded(
+        db,
+        request.refresh_token,
+        dataservice=dataservice,
+    )
 
     if user is None:
         raise HTTPException(
@@ -343,6 +349,7 @@ async def refresh_token(
         email=user.email,
         role="admin" if user.is_superuser else "user",
         user=user,
+        dataservice=dataservice,
     )
 
     return TokenResponse(
