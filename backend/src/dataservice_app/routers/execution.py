@@ -16,6 +16,7 @@ from src.dataservice.domains.execution.contracts import (
     ExecutionNodePatchCommand,
     ExecutionNodeUpsertCommand,
     ExecutionUpdateCommand,
+    GenerationRecordCreateCommand,
 )
 from src.dataservice.domains.execution.service import DataServiceExecutionService
 from src.dataservice_app.auth import require_internal_token
@@ -121,6 +122,85 @@ async def reconcile_interrupted_executions(
     reconciled = await service.reconcile_interrupted_executions()
     await uow.commit()
     return envelope_ok({"reconciled": reconciled})
+
+
+@router.post("/generation-records")
+async def create_generation_record(
+    command: GenerationRecordCreateCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.create_generation_record(command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.get("/generation-records")
+async def list_generation_records(
+    workspace_id: str = Query(...),
+    skill_name: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    since: datetime | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    records = await service.list_generation_records(
+        workspace_id=workspace_id,
+        skill_name=skill_name,
+        status=status,
+        since=since,
+        limit=limit,
+    )
+    return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/generation-records/by-thread/{thread_id}")
+async def list_generation_records_by_thread(
+    thread_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    records = await service.list_generation_records_by_thread(thread_id)
+    return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/generation-records/stats")
+async def get_generation_usage_stats(
+    workspace_id: str = Query(...),
+    since: datetime | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    stats = await service.get_generation_usage_stats(
+        workspace_id=workspace_id,
+        since=since,
+    )
+    return envelope_ok(stats)
+
+
+@router.post("/generation-records/cleanup")
+async def cleanup_old_generation_records(
+    payload: dict,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    deleted = await service.cleanup_old_generation_records(
+        days_old=int(payload.get("days_old", 90)),
+        workspace_id=payload.get("workspace_id"),
+    )
+    await uow.commit()
+    return envelope_ok({"deleted": deleted})
+
+
+@router.get("/generation-records/{record_id}")
+async def get_generation_record(
+    record_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.get_generation_record(record_id)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
 @router.get("/{execution_id}")

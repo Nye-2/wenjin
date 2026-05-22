@@ -80,6 +80,8 @@ from src.dataservice_client.contracts.execution import (
     ExecutionNodeUpsertPayload,
     ExecutionPayload,
     ExecutionUpdatePayload,
+    GenerationRecordCreatePayload,
+    GenerationRecordPayload,
 )
 from src.dataservice_client.contracts.knowledge import (
     KnowledgeArchiveLowConfidencePayload,
@@ -1596,6 +1598,86 @@ class AsyncDataServiceClient:
     async def list_execution_events(self, execution_id: str) -> list[ExecutionEventPayload]:
         payload = await self._request("GET", f"/internal/v1/executions/{execution_id}/events")
         return [ExecutionEventPayload.model_validate(item) for item in payload["data"]]
+
+    async def create_generation_record(
+        self,
+        command: GenerationRecordCreatePayload,
+    ) -> GenerationRecordPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/executions/generation-records",
+            json=command.model_dump(mode="json"),
+        )
+        return GenerationRecordPayload.model_validate(payload["data"])
+
+    async def get_generation_record(self, record_id: str) -> GenerationRecordPayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/executions/generation-records/{record_id}",
+        )
+        data = payload.get("data")
+        return GenerationRecordPayload.model_validate(data) if data is not None else None
+
+    async def list_generation_records(
+        self,
+        *,
+        workspace_id: str,
+        skill_name: str | None = None,
+        status: str | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[GenerationRecordPayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/generation-records",
+            params={
+                "workspace_id": workspace_id,
+                "skill_name": skill_name,
+                "status": status,
+                "since": since.isoformat() if since else None,
+                "limit": limit,
+            },
+        )
+        return [GenerationRecordPayload.model_validate(item) for item in payload["data"]]
+
+    async def list_generation_records_by_thread(
+        self,
+        thread_id: str,
+    ) -> list[GenerationRecordPayload]:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/executions/generation-records/by-thread/{thread_id}",
+        )
+        return [GenerationRecordPayload.model_validate(item) for item in payload["data"]]
+
+    async def get_generation_usage_stats(
+        self,
+        *,
+        workspace_id: str,
+        since: datetime | None = None,
+    ) -> dict[str, Any]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/generation-records/stats",
+            params={
+                "workspace_id": workspace_id,
+                "since": since.isoformat() if since else None,
+            },
+        )
+        return dict(payload["data"])
+
+    async def cleanup_old_generation_records(
+        self,
+        *,
+        days_old: int = 90,
+        workspace_id: str | None = None,
+    ) -> int:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/executions/generation-records/cleanup",
+            json={"days_old": days_old, "workspace_id": workspace_id},
+        )
+        return int(payload["data"]["deleted"])
 
     async def create_review_batch(self, command: ReviewBatchCreatePayload) -> ReviewBatchDetailPayload:
         payload = await self._request(

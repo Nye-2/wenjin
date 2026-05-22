@@ -7,17 +7,15 @@ from typing import Any
 
 import pytest
 
-from src.academic.services import generation_service as generation_module
 from src.academic.services.generation_service import GenerationService
-from src.dataservice.execution_api import GenerationRecordProjection
+from src.dataservice_client.contracts.execution import GenerationRecordPayload
 
 
-class FakeExecutionDataService:
-    def __init__(self, db: object) -> None:
-        self.db = db
-        self.created_args: dict[str, Any] | None = None
+class FakeDataServiceClient:
+    def __init__(self) -> None:
+        self.created_command = None
         self.records = [
-            GenerationRecordProjection(
+            GenerationRecordPayload(
                 id="generation-1",
                 workspace_id="ws-1",
                 thread_id="thread-1",
@@ -31,24 +29,24 @@ class FakeExecutionDataService:
             )
         ]
 
-    async def create_generation_usage(self, **kwargs: Any) -> GenerationRecordProjection:
-        self.created_args = kwargs
+    async def create_generation_record(self, command) -> GenerationRecordPayload:
+        self.created_command = command
         return self.records[0]
 
     async def get_generation_record(
         self,
         record_id: str,
-    ) -> GenerationRecordProjection | None:
+    ) -> GenerationRecordPayload | None:
         return self.records[0] if record_id == self.records[0].id else None
 
-    async def list_generation_records(self, **kwargs: Any) -> list[GenerationRecordProjection]:
+    async def list_generation_records(self, **kwargs: Any) -> list[GenerationRecordPayload]:
         _ = kwargs
         return self.records
 
     async def list_generation_records_by_thread(
         self,
         thread_id: str,
-    ) -> list[GenerationRecordProjection]:
+    ) -> list[GenerationRecordPayload]:
         return [record for record in self.records if record.thread_id == thread_id]
 
     async def get_generation_usage_stats(self, **kwargs: Any) -> dict[str, Any]:
@@ -61,11 +59,9 @@ class FakeExecutionDataService:
 
 
 @pytest.mark.asyncio
-async def test_generation_service_delegates_to_execution_dataservice(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake = FakeExecutionDataService(object())
-    monkeypatch.setattr(generation_module, "ExecutionDataService", lambda db: fake)
-
-    service = GenerationService(object())  # type: ignore[arg-type]
+async def test_generation_service_delegates_to_dataservice_client() -> None:
+    fake = FakeDataServiceClient()
+    service = GenerationService(object(), dataservice=fake)  # type: ignore[arg-type]
     created = await service.create(
         workspace_id="ws-1",
         skill_name="idea_to_manuscript",
@@ -82,16 +78,7 @@ async def test_generation_service_delegates_to_execution_dataservice(monkeypatch
     assert listed == [created]
     assert stats == {"total_executions": 1, "total_tokens": 10}
     assert deleted == 1
-    assert fake.created_args == {
-        "workspace_id": "ws-1",
-        "skill_name": "idea_to_manuscript",
-        "thread_id": "thread-1",
-        "model_name": None,
-        "input_summary": None,
-        "output_summary": None,
-        "duration_ms": None,
-        "token_usage": None,
-        "status": "success",
-        "error_message": None,
-        "metadata": {"source": "test"},
-    }
+    assert fake.created_command.workspace_id == "ws-1"
+    assert fake.created_command.skill_name == "idea_to_manuscript"
+    assert fake.created_command.thread_id == "thread-1"
+    assert fake.created_command.metadata == {"source": "test"}

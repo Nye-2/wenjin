@@ -142,6 +142,20 @@ class ExecutionEventCreatePayload(BaseModel):
     occurred_at: datetime | None = None
 
 
+class GenerationRecordCreatePayload(BaseModel):
+    workspace_id: str
+    skill_name: str
+    thread_id: str | None = None
+    model_name: str | None = None
+    input_summary: str | None = None
+    output_summary: str | None = None
+    duration_ms: int | None = None
+    token_usage: dict[str, Any] | None = None
+    status: str = "success"
+    error_message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class ExecutionNodeUpsertPayload(BaseModel):
     node_id: str
     node_type: str
@@ -179,6 +193,41 @@ class ExecutionEventPayload(BaseModel):
     occurred_at: datetime
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class GenerationRecordPayload(BaseModel):
+    id: str
+    workspace_id: str
+    thread_id: str | None = None
+    skill_name: str
+    model_name: str | None = None
+    input_summary: str | None = None
+    output_summary: str | None = None
+    duration_ms: int | None = None
+    token_usage: dict[str, Any] | None = None
+    status: str
+    error_message: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+    @property
+    def total_tokens(self) -> int:
+        if self.token_usage:
+            return int(self.token_usage.get("total", 0))
+        return 0
+
+    @property
+    def input_tokens(self) -> int:
+        if self.token_usage:
+            return int(self.token_usage.get("input", 0))
+        return 0
+
+    @property
+    def output_tokens(self) -> int:
+        if self.token_usage:
+            return int(self.token_usage.get("output", 0))
+        return 0
 
 
 class ExecutionNodePayload(BaseModel):
