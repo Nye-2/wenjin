@@ -101,7 +101,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "agents/middlewares/execution.py",
     "compute/projection_service.py",
     "compute/session_service.py",
-    "gateway/deps/academic.py",
     "gateway/routers/admin_credit_rules.py",
     "gateway/routers/execution_commit.py",
     "gateway/routers/latex_files.py",
