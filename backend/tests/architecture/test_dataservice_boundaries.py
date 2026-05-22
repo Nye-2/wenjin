@@ -97,8 +97,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
 RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "academic/services/generation_service.py",
     "agents/lead_agent/v2/runtime.py",
-    "agents/middlewares/citation_context.py",
-    "agents/middlewares/execution.py",
     "gateway/routers/admin_credit_rules.py",
     "gateway/routers/execution_commit.py",
     "gateway/routers/latex_files.py",
@@ -129,7 +127,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/workspace_latex_projects.py",
     "services/workspace_prism_service.py",
     "task/tasks/credit_periodic.py",
-    "task/tasks/run.py",
     "tools/builtins/references.py",
     "tools/builtins/workspace.py",
 }

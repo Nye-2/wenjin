@@ -2010,6 +2010,9 @@ class AsyncDataServiceClient:
         )
         return str(payload["data"].get("summary") or "")
 
+    async def get_workspace_toc_summary(self, workspace_id: str) -> str:
+        return await self.get_source_toc_summary(workspace_id=workspace_id)
+
     async def search_source_text_units(
         self,
         *,
@@ -2171,6 +2174,12 @@ class AsyncDataServiceClient:
         )
         return SourceBibliographyPayload.model_validate(payload["data"])
 
+    async def build_bibliography(
+        self,
+        command: SourceBibliographyCreatePayload,
+    ) -> SourceBibliographyPayload:
+        return await self.build_source_bibliography(command)
+
     async def create_source_bibliography_snapshot(
         self,
         command: SourceBibliographySnapshotCreatePayload,
@@ -2192,6 +2201,12 @@ class AsyncDataServiceClient:
             json=command.model_dump(mode="json"),
         )
         return SourceCitationUsagePayload.model_validate(payload["data"])
+
+    async def record_citation_usage(
+        self,
+        command: SourceCitationUsageCreatePayload,
+    ) -> SourceCitationUsagePayload:
+        return await self.record_source_citation_usage(command)
 
     async def create_provenance_link(
         self,

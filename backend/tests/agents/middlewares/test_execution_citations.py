@@ -13,43 +13,15 @@ async def test_generate_bibliography_from_citations():
 
     # Mock execution service
     mock_service = MagicMock()
-    middleware = ExecutionMiddleware(mock_service)
-
-    # Mock database and Source rows
-    mock_source_1 = SimpleNamespace(
-        id="uuid-1",
-        title="Test Paper",
-        authors_json=["John Smith"],
-        year=2024,
-        venue="Nature",
-        doi="10.1234/test",
-        url=None,
-        citation_key="Smith2024",
-        bibtex_entry_type="article",
-        bibtex_fields_json={},
+    reference_service = SimpleNamespace(
+        build_source_bibliography=AsyncMock(
+            return_value=SimpleNamespace(content="@article{Smith2024}\n@article{Doe2023}")
+        )
     )
-
-    mock_source_2 = SimpleNamespace(
-        id="uuid-2",
-        title="Another Paper",
-        authors_json=["Jane Doe"],
-        year=2023,
-        venue="Science",
-        doi=None,
-        url=None,
-        citation_key="Doe2023",
-        bibtex_entry_type="article",
-        bibtex_fields_json={},
-    )
-
-    mock_db = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = [mock_source_1, mock_source_2]
-    mock_db.execute.return_value = mock_result
+    middleware = ExecutionMiddleware(mock_service, reference_service=reference_service)
 
     # Generate bibliography
     bibliography = await middleware._generate_bibliography(
-        mock_db,
         ["uuid-1", "uuid-2"],
         workspace_id="ws-1",
     )
@@ -67,8 +39,7 @@ async def test_generate_bibliography_empty_ids():
     mock_service = MagicMock()
     middleware = ExecutionMiddleware(mock_service)
 
-    mock_db = AsyncMock()
-    bibliography = await middleware._generate_bibliography(mock_db, [], workspace_id="ws-1")
+    bibliography = await middleware._generate_bibliography([], workspace_id="ws-1")
 
     assert bibliography is None
 
@@ -79,15 +50,12 @@ async def test_generate_bibliography_no_papers_found():
     from src.agents.middlewares.execution import ExecutionMiddleware
 
     mock_service = MagicMock()
-    middleware = ExecutionMiddleware(mock_service)
-
-    mock_db = AsyncMock()
-    mock_result = MagicMock()
-    mock_result.scalars.return_value.all.return_value = []
-    mock_db.execute.return_value = mock_result
+    reference_service = SimpleNamespace(
+        build_source_bibliography=AsyncMock(return_value=SimpleNamespace(content=None))
+    )
+    middleware = ExecutionMiddleware(mock_service, reference_service=reference_service)
 
     bibliography = await middleware._generate_bibliography(
-        mock_db,
         ["nonexistent"],
         workspace_id="ws-1",
     )

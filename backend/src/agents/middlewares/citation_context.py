@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
-from src.dataservice.source_api import SourceCitationUsageCreateCommand
+from src.dataservice_client.contracts.source import SourceCitationUsageCreatePayload
 
 
 class CitationContextMiddleware(Middleware):
@@ -117,7 +117,7 @@ class CitationContextMiddleware(Middleware):
             configurable = {}
         try:
             await source_recorder(
-                SourceCitationUsageCreateCommand(
+                SourceCitationUsageCreatePayload(
                     workspace_id=workspace_id,
                     citation_keys=citation_keys,
                     execution_id=(

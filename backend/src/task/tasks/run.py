@@ -67,7 +67,7 @@ async def _execute_run_async(
     from src.academic.services.artifact_service import ArtifactService
     from src.academic.services.workspace_service import WorkspaceService
     from src.database import get_db_session, reset_db_engine
-    from src.dataservice.source_api import SourceDataService
+    from src.dataservice_client.provider import dataservice_client
     from src.services import ThreadService
 
     if not redis_settings.enabled:
@@ -98,13 +98,13 @@ async def _execute_run_async(
         stream_ttl_seconds=settings.runtime_run_ttl_seconds,
     )
 
-    async with get_db_session() as db:
+    async with get_db_session() as db, dataservice_client() as dataservice:
         handler = ThreadTurnHandler(
             thread_service=ThreadService(db),
             workspace_service=WorkspaceService(db),
-            index_service=SourceDataService(db, autocommit=False),
+            index_service=dataservice,
             artifact_service=ArtifactService(db),
-            reference_service=SourceDataService(db, autocommit=False),
+            reference_service=dataservice,
         )
         await run_thread_turn(
             bridge,

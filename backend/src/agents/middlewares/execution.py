@@ -10,11 +10,11 @@ import logging
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.thread_state import ThreadState
 from src.compute.dispatch_service import ComputeDispatchService
-from src.dataservice.source_api import SourceBibliographyCreateCommand, SourceDataService
+from src.dataservice_client.contracts.source import SourceBibliographyCreatePayload
+from src.dataservice_client.provider import dataservice_client
 from src.execution.types import (
     ExecutionRequest,
     ExecutionType,
@@ -119,33 +119,30 @@ class ExecutionMiddleware(Middleware):
         explicit_bib = tool_args.get("bibliography")
 
         if citation_ids and not explicit_bib:
-            db: AsyncSession | None = configurable.get("db")
-            if db is None and self.reference_service is not None:
-                db = getattr(self.reference_service, "db", None)
-            if db:
-                bibliography = await self._generate_bibliography(db, citation_ids, workspace_id=workspace_id)
-                if bibliography:
-                    tool_args = {**tool_args, "bibliography": bibliography}
-                    logger.info(f"Generated bibliography for {len(citation_ids)} citations")
+            bibliography = await self._generate_bibliography(
+                citation_ids,
+                workspace_id=workspace_id,
+            )
+            if bibliography:
+                tool_args = {**tool_args, "bibliography": bibliography}
+                logger.info(f"Generated bibliography for {len(citation_ids)} citations")
             else:
                 try:
-                    from src.database import get_db_session
-
-                    async with get_db_session() as session:
+                    async with dataservice_client() as client:
                         bibliography = await self._generate_bibliography(
-                            session,
                             citation_ids,
                             workspace_id=workspace_id,
+                            reference_service=client,
                         )
                     if bibliography:
                         tool_args = {**tool_args, "bibliography": bibliography}
                         logger.info(
-                            "Generated bibliography for %s citations via ad-hoc session",
+                            "Generated bibliography for %s citations via DataService",
                             len(citation_ids),
                         )
                 except Exception:
                     logger.debug(
-                        "Failed to resolve ad-hoc DB session for bibliography generation",
+                        "Failed to resolve bibliography via DataService",
                         exc_info=True,
                     )
 
@@ -195,15 +192,14 @@ class ExecutionMiddleware(Middleware):
 
     async def _generate_bibliography(
         self,
-        db: AsyncSession,
         citation_ids: list[str],
         *,
         workspace_id: str | None = None,
+        reference_service: Any | None = None,
     ) -> str | None:
         """Generate BibTeX content from citation IDs.
 
         Args:
-            db: Database session.
             citation_ids: List of Reference Library IDs.
 
         Returns:
@@ -212,10 +208,18 @@ class ExecutionMiddleware(Middleware):
         normalized_workspace_id = str(workspace_id or "").strip()
         if not citation_ids or not normalized_workspace_id:
             return None
+        service = reference_service or self.reference_service
+        if service is None:
+            return None
+        build_bibliography = getattr(service, "build_source_bibliography", None)
+        if not callable(build_bibliography):
+            build_bibliography = getattr(service, "build_bibliography", None)
+        if not callable(build_bibliography):
+            return None
 
         try:
-            bibliography = await SourceDataService(db, autocommit=False).build_bibliography(
-                SourceBibliographyCreateCommand(
+            bibliography = await build_bibliography(
+                SourceBibliographyCreatePayload(
                     workspace_id=normalized_workspace_id,
                     source_ids=citation_ids,
                 )
