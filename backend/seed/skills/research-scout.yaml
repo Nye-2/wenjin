@@ -31,4 +31,5 @@ extensions:
   search:
     sources:
     - semantic_scholar
+    - curated_academic
     max_results: 10

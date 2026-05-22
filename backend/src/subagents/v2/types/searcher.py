@@ -20,6 +20,36 @@ def _normalize_title(title: str) -> str:
     return re.sub(r"[^a-z0-9]", "", title.lower())
 
 
+def _normalize_search_query(query: str) -> str:
+    """Extract an academic search query from a natural-language task request."""
+    text = query.strip()
+    if not text:
+        return ""
+
+    marker_match = re.search(r"(?:主题|topic|query)\s*[:：]\s*(.+)", text, flags=re.IGNORECASE)
+    if marker_match:
+        text = marker_match.group(1)
+
+    stop_match = re.search(
+        r"(?:。|；|;)?\s*(?:请输出|输出[:：]|请把|请将|并给|后续|保存进|保存到)",
+        text,
+    )
+    if stop_match:
+        text = text[: stop_match.start()]
+
+    # Semantic Scholar performs best with compact English academic terms.  When
+    # the user request is bilingual, keep the English spans and discard UI/task
+    # instructions around them.
+    ascii_spans = re.findall(r"[A-Za-z0-9][A-Za-z0-9\s+/#&.,:;()'’_-]*", text)
+    english = " ".join(span.strip(" ,.;:()'’_-") for span in ascii_spans if span.strip())
+    if english:
+        text = english
+
+    text = re.sub(r"[/,_:;()'’\"“”]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:240]
+
+
 def _deduplicate(results: list[SearchResult]) -> list[SearchResult]:
     """Deduplicate by DOI (if present) then by normalised title."""
     seen_doi: set[str] = set()
@@ -85,7 +115,8 @@ class SearcherSubagent(SubagentBase):
             search_config = config
 
         source_names: list[str] = list(search_config.get("sources") or [])
-        query: str = (ctx.inputs.get("query") or "").strip()
+        raw_query: str = (ctx.inputs.get("query") or "").strip()
+        query = _normalize_search_query(raw_query)
         limit: int = int(search_config.get("max_results", 30))
 
         if not source_names:

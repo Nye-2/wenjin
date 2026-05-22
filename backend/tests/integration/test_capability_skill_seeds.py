@@ -48,6 +48,20 @@ def test_every_capability_subagent_type_is_searcher_or_react():
                 )
 
 
+def test_searcher_capabilities_query_uses_runtime_request_fields():
+    for cap_path in _collect_capability_files():
+        data = yaml.safe_load(cap_path.read_text())
+        for phase in data["graph_template"]["phases"]:
+            for task in phase["tasks"]:
+                if task.get("subagent_type") != "searcher":
+                    continue
+                query_template = (task.get("inputs") or {}).get("query")
+                assert query_template == "{{topic}} {{query}} {{goal}} {{raw_message}}", (
+                    f"{cap_path}: searcher task {task['name']} must query the "
+                    "runtime request fields, not a single brittle launch shape"
+                )
+
+
 def test_every_capability_required_fields_present():
     required = {
         "schema_version",

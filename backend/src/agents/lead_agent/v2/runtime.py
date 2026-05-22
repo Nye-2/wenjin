@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Annotated, Any, TypedDict
@@ -570,6 +570,12 @@ class LeadAgentRuntime:
         for phase in cap.graph_template["phases"]:
             for task in phase["tasks"]:
                 task_inputs = dict(brief.brief)
+                nested_brief = task_inputs.get("brief")
+                if isinstance(nested_brief, Mapping):
+                    task_inputs = {
+                        **dict(nested_brief),
+                        **{key: value for key, value in task_inputs.items() if key != "brief"},
+                    }
                 task_inputs.setdefault("raw_message", brief.raw_message)
                 task_inputs.setdefault("workspace_id", brief.workspace_id)
                 task_inputs.setdefault("capability_id", brief.capability_id)

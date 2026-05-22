@@ -151,9 +151,33 @@ def build_execution_launch_params(
 ) -> dict[str, Any]:
     """Build canonical ExecutionRecord.params for feature execution."""
     normalized_params = dict(params or {})
+    explicit_raw_message = normalized_params.get("raw_message")
+
+    # Some launch paths pass a TaskBrief-shaped object as params. Keep
+    # TaskBrief.brief as the capability params themselves so runtime templates
+    # can resolve {{topic}}, {{query}}, and {{goal}} consistently.
+    nested_brief = normalized_params.get("brief")
+    if isinstance(nested_brief, Mapping):
+        wrapper_keys = {
+            "brief",
+            "capability_id",
+            "decisions",
+            "raw_message",
+            "workspace_id",
+            "manuscript_context",
+        }
+        if wrapper_keys.intersection(normalized_params):
+            normalized_params = dict(nested_brief)
+
     raw_message = (
         str(launch_message or "").strip()
-        or str(normalized_params.get("query") or normalized_params.get("topic") or feature_id)
+        or str(explicit_raw_message or "").strip()
+        or str(
+            normalized_params.get("query")
+            or normalized_params.get("topic")
+            or normalized_params.get("goal")
+            or feature_id
+        )
     )
     return {
         "brief": {

@@ -8,6 +8,7 @@ _LATEX_DOCUMENT_RE = re.compile(
     r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}.*\\begin\{document\}.*\\end\{document\}",
     re.DOTALL,
 )
+_FENCED_CODE_RE = re.compile(r"^```(?:latex|tex)?\s*\n(?P<body>.*)\n```\s*$", re.DOTALL | re.IGNORECASE)
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _ORDERED_ITEM_RE = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$")
 _UNORDERED_ITEM_RE = re.compile(r"^\s*[-*+]\s+(.+?)\s*$")
@@ -38,6 +39,9 @@ def ensure_latex_document(content: str) -> str:
     """Return a complete LaTeX document for manuscript content."""
 
     text = content.strip()
+    fenced = _FENCED_CODE_RE.match(text)
+    if fenced:
+        text = fenced.group("body").strip()
     if _LATEX_DOCUMENT_RE.search(text):
         return text
     return markdownish_to_latex_document(text)

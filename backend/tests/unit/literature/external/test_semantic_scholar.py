@@ -67,6 +67,37 @@ class TestSemanticScholarClient:
         assert results[0].citations_count == 100
 
     @pytest.mark.asyncio
+    async def test_search_normalizes_null_optional_fields(self, client):
+        """Semantic Scholar can return null for optional text fields."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {
+                    "paperId": "abc123",
+                    "title": "Paper With Null Abstract",
+                    "authors": [{"name": "Author One"}],
+                    "year": 2024,
+                    "externalIds": {},
+                    "url": None,
+                    "abstract": None,
+                    "citationCount": 12,
+                    "venue": None,
+                }
+            ]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("src.academic.literature.external.semantic_scholar._http") as mock_http:
+            mock_http.get = AsyncMock(return_value=mock_response)
+
+            results = await client.search("federated learning", limit=5)
+
+        assert len(results) == 1
+        assert results[0].abstract == ""
+        assert results[0].url is None
+        assert results[0].venue is None
+
+    @pytest.mark.asyncio
     async def test_search_sends_api_key_header_when_configured(self, client):
         """Test search includes the Semantic Scholar API key header."""
         mock_response = MagicMock()

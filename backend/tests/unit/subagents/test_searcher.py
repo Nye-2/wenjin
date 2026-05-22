@@ -12,6 +12,7 @@ from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.searcher import (
     SearcherSubagent,
     _deduplicate,
+    _normalize_search_query,
     _normalize_title,
 )
 
@@ -60,6 +61,23 @@ class TestNormalizeTitle:
 
     def test_already_clean(self):
         assert _normalize_title("abc123") == "abc123"
+
+
+class TestNormalizeSearchQuery:
+    def test_extracts_topic_from_bilingual_task_request(self):
+        query = _normalize_search_query(
+            "再次执行文献定位与创新点。主题：federated fine-tuning of large "
+            "language models with LoRA/adapter, communication-efficient federated "
+            "instruction tuning。请输出 gap matrix。"
+        )
+
+        assert query == (
+            "federated fine-tuning of large language models with LoRA adapter "
+            "communication-efficient federated instruction tuning"
+        )
+
+    def test_keeps_plain_english_query(self):
+        assert _normalize_search_query("federated learning LoRA") == "federated learning LoRA"
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +134,7 @@ class TestSingleSource:
         ):
             sub = SearcherSubagent()
             skill = _make_skill(sources=["mock_src"])
-            ctx = _make_ctx(inputs={"query": "test query"}, skill=skill)
+            ctx = _make_ctx(inputs={"query": "主题：test query。请输出报告"}, skill=skill)
             result = await sub.run(ctx)
 
         mock_source.search.assert_awaited_once_with(
@@ -125,6 +143,27 @@ class TestSingleSource:
         assert len(result.output["papers"]) == 2
         assert result.output["papers"][0]["title"] == "Paper A"
         assert result.output["papers"][1]["title"] == "Paper B"
+
+    @pytest.mark.asyncio
+    async def test_keeps_results_when_one_source_fails(self):
+        failing_source = AsyncMock()
+        failing_source.search.side_effect = RuntimeError("rate limited")
+        working_source = AsyncMock()
+        working_source.search.return_value = [_paper("Curated Paper")]
+
+        def get_source(name: str):
+            return failing_source if name == "semantic_scholar" else working_source
+
+        with patch(
+            "src.subagents.v2.types.searcher.get_search_source",
+            side_effect=get_source,
+        ):
+            sub = SearcherSubagent()
+            skill = _make_skill(sources=["semantic_scholar", "curated_academic"])
+            ctx = _make_ctx(inputs={"query": "federated LoRA"}, skill=skill)
+            result = await sub.run(ctx)
+
+        assert result.output["papers"][0]["title"] == "Curated Paper"
 
     @pytest.mark.asyncio
     async def test_reads_search_config_from_skill_extensions(self):

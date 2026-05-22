@@ -53,6 +53,19 @@ def _extract_doi(item: dict[str, object]) -> str | None:
     return str(doi).strip() or None if doi is not None else None
 
 
+def _string_value(value: object, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value)
+
+
+def _optional_string_value(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
 class SemanticScholarClient(ExternalDBBase):
     """Client for Semantic Scholar API."""
 
@@ -91,16 +104,16 @@ class SemanticScholarClient(ExternalDBBase):
         for item in data.get("data", []):
             results.append(
                 PaperSearchResult(
-                    title=item.get("title", ""),
+                    title=_string_value(item.get("title")),
                     authors=self._normalize_authors(item.get("authors", [])),
                     year=item.get("year"),
                     doi=_extract_doi(item),
-                    url=item.get("url"),
-                    abstract=item.get("abstract", ""),
-                    external_id=item.get("paperId"),
+                    url=_optional_string_value(item.get("url")),
+                    abstract=_string_value(item.get("abstract")),
+                    external_id=_optional_string_value(item.get("paperId")),
                     source="semantic_scholar",
                     citations_count=item.get("citationCount"),
-                    venue=item.get("venue"),
+                    venue=_optional_string_value(item.get("venue")),
                 )
             )
 
@@ -129,16 +142,16 @@ class SemanticScholarClient(ExternalDBBase):
         item = response.json()
 
         return PaperSearchResult(
-            title=item.get("title", ""),
+            title=_string_value(item.get("title")),
             authors=self._normalize_authors(item.get("authors", [])),
             year=item.get("year"),
             doi=_extract_doi(item),
-            url=item.get("url"),
-            abstract=item.get("abstract", ""),
-            external_id=item.get("paperId"),
+            url=_optional_string_value(item.get("url")),
+            abstract=_string_value(item.get("abstract")),
+            external_id=_optional_string_value(item.get("paperId")),
             source="semantic_scholar",
             citations_count=item.get("citationCount"),
-            venue=item.get("venue"),
+            venue=_optional_string_value(item.get("venue")),
         )
 
     async def get_citations(self, paper_id: str, limit: int = 10) -> list[PaperSearchResult]:
@@ -168,13 +181,13 @@ class SemanticScholarClient(ExternalDBBase):
             citing_paper = item.get("citingPaper", {})
             results.append(
                 PaperSearchResult(  # type: ignore[call-arg]
-                    title=citing_paper.get("title", ""),
+                    title=_string_value(citing_paper.get("title")),
                     authors=self._normalize_authors(citing_paper.get("authors", [])),
                     year=citing_paper.get("year"),
                     doi=_extract_doi(citing_paper),
-                    url=citing_paper.get("url"),
-                    abstract=citing_paper.get("abstract", ""),
-                    external_id=citing_paper.get("paperId"),
+                    url=_optional_string_value(citing_paper.get("url")),
+                    abstract=_string_value(citing_paper.get("abstract")),
+                    external_id=_optional_string_value(citing_paper.get("paperId")),
                     source="semantic_scholar",
                 )
             )

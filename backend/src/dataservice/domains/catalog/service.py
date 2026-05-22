@@ -89,6 +89,7 @@ class DataServiceCatalogService:
         values = self.capability_values(data, checksum=checksum, source_path=source_path)
         record = await self.repository.upsert_capability(values)
         await self._finish()
+        await self._refresh_if_supported(record)
         return capability_to_record(record)
 
     async def upsert_skill(
@@ -101,6 +102,7 @@ class DataServiceCatalogService:
         values = self.skill_values(data, checksum=checksum, source_path=source_path)
         record = await self.repository.upsert_skill(values)
         await self._finish()
+        await self._refresh_if_supported(record)
         return skill_to_record(record)
 
     async def replace_capabilities(self, items: list[dict[str, Any]]) -> list[CapabilityDefinitionRecord]:
@@ -342,3 +344,8 @@ class DataServiceCatalogService:
             await self.session.commit()
         else:
             await self.session.flush()
+
+    async def _refresh_if_supported(self, record: Any) -> None:
+        refresh = getattr(self.session, "refresh", None)
+        if callable(refresh):
+            await refresh(record)

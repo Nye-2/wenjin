@@ -39,6 +39,12 @@ def test_existing_complete_latex_document_is_preserved():
     assert ensure_latex_document(source) == source
 
 
+def test_fenced_complete_latex_document_is_unwrapped():
+    source = "```latex\n\\documentclass{article}\\begin{document}Draft\\end{document}\n```"
+
+    assert ensure_latex_document(source) == "\\documentclass{article}\\begin{document}Draft\\end{document}"
+
+
 def test_non_tex_file_change_keeps_plain_content():
     source = "# Markdown report"
 
