@@ -96,6 +96,27 @@ async def count_executions_by_status(
     return envelope_ok(counts)
 
 
+@router.get("/analytics/count")
+async def count_executions(
+    status: list[str] | None = Query(default=None),
+    created_since: datetime | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    count = await service.count_executions(status=status, created_since=created_since)
+    return envelope_ok({"count": count})
+
+
+@router.get("/analytics/count-by-user")
+async def count_executions_by_user_ids(
+    user_id: list[str] = Query(default_factory=list),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    counts = await service.count_executions_by_user_ids(user_id)
+    return envelope_ok(counts)
+
+
 @router.get("/features/running-count")
 async def count_running_feature_executions(
     workspace_id: str = Query(...),

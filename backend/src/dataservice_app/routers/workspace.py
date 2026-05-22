@@ -60,6 +60,16 @@ async def get_admin_workspace_stats(
     return envelope_ok(stats.model_dump(mode="json"))
 
 
+@router.get("/stats/member-counts")
+async def count_workspaces_by_member_ids(
+    user_id: list[str] = Query(default_factory=list),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
+    counts = await service.count_workspaces_by_member_ids(user_id)
+    return envelope_ok(counts)
+
+
 @router.get("/{workspace_id}")
 async def get_workspace(
     workspace_id: str,

@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from src.artifacts.types import ArtifactType
-from src.dataservice.source_api import SourceDataService
 from src.services.dashboard.shared import DashboardStatusSharedMixin
 
 
@@ -61,18 +60,17 @@ class DashboardThesisStatusMixin(DashboardStatusSharedMixin):
         }
 
     async def _get_literature_management_status(self, workspace_id: str) -> dict[str, Any]:
-        source_service = SourceDataService(self.db, autocommit=False)
-        total = await source_service.count_sources(
-            workspace_id=workspace_id,
-            include_deleted=False,
-            include_excluded=False,
-        )
-
-        core = await source_service.count_sources(
-            workspace_id=workspace_id,
-            library_status="core",
-            include_deleted=False,
-        )
+        async with self._client() as client:
+            total = await client.count_sources(
+                workspace_id=workspace_id,
+                include_deleted=False,
+                include_excluded=False,
+            )
+            core = await client.count_sources(
+                workspace_id=workspace_id,
+                library_status="core",
+                include_deleted=False,
+            )
 
         running_count = await self._count_running_feature_executions(
             workspace_id,

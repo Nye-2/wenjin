@@ -71,7 +71,10 @@ async def create_legacy_artifact(
 async def list_legacy_artifacts(
     workspace_id: str = Query(),
     artifact_type: str | None = Query(default=None),
+    artifact_types: list[str] | None = Query(default=None),
     status: str | None = Query(default=None),
+    created_by_skill: str | None = Query(default=None),
+    created_by_skills: list[str] | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     uow: DataServiceUnitOfWork = Depends(get_uow),
@@ -80,11 +83,32 @@ async def list_legacy_artifacts(
     records = await service.list_legacy_artifacts(
         workspace_id=workspace_id,
         artifact_type=artifact_type,
+        artifact_types=artifact_types,
         status=status,
+        created_by_skill=created_by_skill,
+        created_by_skills=created_by_skills,
         limit=limit,
         offset=offset,
     )
     return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/legacy-artifacts/count")
+async def count_legacy_artifacts(
+    workspace_id: str | None = Query(default=None),
+    artifact_type: str | None = Query(default=None),
+    created_by_skill: str | None = Query(default=None),
+    created_by_skills: list[str] | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = WorkspaceAssetService(uow.required_session, autocommit=False)
+    count = await service.count_legacy_artifacts(
+        workspace_id=workspace_id,
+        artifact_type=artifact_type,
+        created_by_skill=created_by_skill,
+        created_by_skills=created_by_skills,
+    )
+    return envelope_ok({"count": count})
 
 
 @router.get("/legacy-artifacts/latest")

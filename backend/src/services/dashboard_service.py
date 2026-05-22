@@ -1,12 +1,12 @@
 """Dashboard service for workspace overview."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.asset_api import AssetDataService
-from src.dataservice.workspace_api import WorkspaceDataService
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
 from src.services.dashboard import (
@@ -36,18 +36,21 @@ class DashboardService(
         self._capability_model = capability_model
         self._dataservice = dataservice
 
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
+
     async def _list_catalog_capabilities(
         self,
         *,
         workspace_type: str,
         enabled_only: bool,
     ) -> list[Any]:
-        if self._dataservice is not None:
-            return await self._dataservice.list_catalog_capabilities(
-                workspace_type=workspace_type,
-                enabled_only=enabled_only,
-            )
-        async with dataservice_client() as client:
+        async with self._client() as client:
             return await client.list_catalog_capabilities(
                 workspace_type=workspace_type,
                 enabled_only=enabled_only,
@@ -76,7 +79,8 @@ class DashboardService(
 
     async def _get_workspace_type(self, workspace_id: str) -> str:
         """Resolve workspace type from DataService without guessing a fallback type."""
-        workspace = await WorkspaceDataService(self.db, autocommit=False).get_workspace(workspace_id)
+        async with self._client() as client:
+            workspace = await client.get_workspace(workspace_id)
         if workspace is None:
             raise ValueError(f"Workspace not found: {workspace_id}")
         workspace_type = workspace.type
@@ -132,10 +136,11 @@ class DashboardService(
         workspace_id: str,
         limit: int = 5,
     ) -> list[dict[str, Any]]:
-        artifacts = await AssetDataService(self.db, autocommit=False).list_legacy_artifacts(
-            workspace_id=workspace_id,
-            limit=limit,
-        )
+        async with self._client() as client:
+            artifacts = await client.list_legacy_artifacts(
+                workspace_id=workspace_id,
+                limit=limit,
+            )
 
         return [
             {

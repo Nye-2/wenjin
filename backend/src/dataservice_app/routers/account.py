@@ -148,6 +148,17 @@ async def list_users(
     return envelope_ok(result.model_dump(mode="json"))
 
 
+@router.get("/admins/active-count")
+async def count_active_admins(
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    count = await AccountDataService(
+        uow.required_session,
+        autocommit=False,
+    ).count_active_admins()
+    return envelope_ok({"count": count})
+
+
 @router.patch("/users/{user_id}/status")
 async def update_user_status(
     user_id: str,

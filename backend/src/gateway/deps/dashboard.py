@@ -38,9 +38,10 @@ async def get_user_dashboard_service(
 
 async def get_admin_dashboard_service(
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> AdminDashboardService:
     """Get admin dashboard service instance."""
-    return AdminDashboardService(db)
+    return AdminDashboardService(db, dataservice=dataservice)
 
 
 async def get_release_gate_service() -> ReleaseGateService:

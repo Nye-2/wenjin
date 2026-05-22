@@ -1,53 +1,69 @@
 """Admin dashboard and management service."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import AdminActionType
-from src.dataservice.account_api import AccountDataService, AccountUserRecord
-from src.dataservice.asset_api import AssetDataService
-from src.dataservice.catalog_api import CatalogDataService
-from src.dataservice.credit_api import CreditDataService
-from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.account import (
+    AccountUserPayload,
+    AccountUserRolePayload,
+    AccountUserStatusPayload,
+)
+from src.dataservice_client.contracts.catalog import AdminLogCreatePayload
+from src.dataservice_client.contracts.execution import ExecutionNodePayload
+from src.dataservice_client.provider import dataservice_client
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
 
 class AdminDashboardService:
     """Service for admin dashboard metrics and lightweight user management."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ):
         self.db = db
-        self._account = AccountDataService(db, autocommit=False)
-        self._assets = AssetDataService(db, autocommit=False)
-        self._catalog = CatalogDataService(db, autocommit=False)
-        self._credit = CreditDataService(db, autocommit=False)
-        self._execution = ExecutionDataService(db, autocommit=False)
-        self._workspace = WorkspaceDataService(db, autocommit=False)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     async def get_dashboard(self) -> dict[str, Any]:
         """Aggregate admin dashboard payload."""
         now = datetime.now(UTC)
         since_24h = now - timedelta(hours=24)
 
-        account_stats = await self._account.get_admin_stats()
+        async with self._client() as client:
+            account_stats = await client.get_account_admin_stats()
 
-        workspace_stats = await self._workspace.get_admin_workspace_stats()
+        async with self._client() as client:
+            workspace_stats = await client.get_admin_workspace_stats()
 
-        task_total = await self._execution.count_executions()
-        task_running = await self._execution.count_executions(
-            status=["running"],
-        )
-        task_failed_24h = await self._execution.count_executions(
-            status=["failed"],
-            created_since=since_24h,
-        )
+        async with self._client() as client:
+            task_total = await client.count_executions()
+            task_running = await client.count_executions(status=["running"])
+            task_failed_24h = await client.count_executions(
+                status=["failed"],
+                created_since=since_24h,
+            )
 
-        artifact_total = await self._assets.count_legacy_artifacts()
+        async with self._client() as client:
+            artifact_total = await client.count_legacy_artifacts()
 
-        credit_summary = await self._credit.get_admin_credit_summary()
+        async with self._client() as client:
+            credit_summary = (await client.get_credit_admin_summary()).model_dump(mode="json")
         token_usage_summary = await self._get_token_usage_summary()
 
         return {
@@ -85,9 +101,11 @@ class AdminDashboardService:
 
     async def _get_token_usage_summary(self) -> dict[str, Any]:
         """Aggregate non-deduplicated token usage snapshots for admin overview."""
-        thread_summary = await self._credit.get_thread_token_usage_summary()
+        async with self._client() as client:
+            thread_summary = (await client.get_credit_thread_token_usage()).model_dump(mode="json")
 
-        executions = await self._execution.list_executions(limit=100000)
+        async with self._client() as client:
+            executions = await client.list_executions(limit=100000)
         feature_usages = []
         for execution in executions:
             result = execution.result_json
@@ -98,9 +116,10 @@ class AdminDashboardService:
                 feature_usages.append(usage)
         feature_total = combine_token_usage(feature_usages)
 
-        subagent_nodes = await self._execution.list_nodes_by_execution_ids(
-            [execution.id for execution in executions]
-        )
+        async with self._client() as client:
+            subagent_nodes = await client.list_execution_nodes_by_execution_ids(
+                [execution.id for execution in executions]
+            )
         subagent_usages = []
         for node in subagent_nodes:
             usage = self._node_token_usage(node)
@@ -140,21 +159,24 @@ class AdminDashboardService:
         is_superuser: bool | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """List users for admin table."""
-        result = await self._account.list_users(
-            page=page,
-            page_size=page_size,
-            keyword=keyword,
-            is_active=is_active,
-            is_superuser=is_superuser,
-        )
+        async with self._client() as client:
+            result = await client.list_account_users(
+                page=page,
+                page_size=page_size,
+                keyword=keyword,
+                is_active=is_active,
+                is_superuser=is_superuser,
+            )
         users = result.users
         user_ids = [str(user.id) for user in users]
         workspace_counts: dict[str, int] = {}
         task_counts: dict[str, int] = {}
         if user_ids:
-            workspace_counts = await self._workspace.count_workspaces_by_member_ids(user_ids)
+            async with self._client() as client:
+                workspace_counts = await client.count_workspaces_by_member_ids(user_ids)
 
-            task_counts = await self._execution.count_executions_by_user_ids(user_ids)
+            async with self._client() as client:
+                task_counts = await client.count_executions_by_user_ids(user_ids)
 
         return [
             self._user_to_dict(
@@ -167,10 +189,11 @@ class AdminDashboardService:
 
     async def _count_active_admins(self) -> int:
         """Count currently active admin users."""
-        return await self._account.count_active_admins()
+        async with self._client() as client:
+            return await client.count_active_admins()
 
     @staticmethod
-    def _node_token_usage(record: ExecutionNodeProjection) -> Any | None:
+    def _node_token_usage(record: ExecutionNodePayload) -> Any | None:
         usage = normalize_token_usage(record.token_usage)
         if usage is not None:
             return usage
@@ -183,10 +206,11 @@ class AdminDashboardService:
 
     async def update_user_status(self, *, user_id: str, is_active: bool) -> dict[str, Any]:
         """Enable or disable user account."""
-        user = await self._account.update_user_status(
-            user_id=user_id,
-            is_active=is_active,
-        )
+        async with self._client() as client:
+            user = await client.update_account_user_status(
+                user_id,
+                AccountUserStatusPayload(is_active=is_active),
+            )
         if user is None:
             raise ValueError("User not found")
         return self._user_to_dict(user)
@@ -197,7 +221,11 @@ class AdminDashboardService:
         if role not in {"user", "admin"}:
             raise ValueError("Unsupported role")
 
-        user = await self._account.update_user_role(user_id=user_id, role=role)
+        async with self._client() as client:
+            user = await client.update_account_user_role(
+                user_id,
+                AccountUserRolePayload(role=role),
+            )
         if user is None:
             raise ValueError("User not found")
         return self._user_to_dict(user)
@@ -212,14 +240,17 @@ class AdminDashboardService:
         ip_address: str | None = None,
     ) -> Any:
         """Persist admin audit log entry."""
-        return await CatalogDataService(self.db).record_admin_log(
-            admin_id=admin_id,
-            action=action.value,
-            target_user_id=target_user_id,
-            target_type="user",
-            details=details or {},
-            ip_address=ip_address,
-        )
+        async with self._client() as client:
+            return await client.record_catalog_admin_log(
+                AdminLogCreatePayload(
+                    action=action.value,
+                    admin_id=admin_id,
+                    target_user_id=target_user_id,
+                    target_type="user",
+                    details=details or {},
+                    ip_address=ip_address,
+                )
+            )
 
     async def list_admin_logs(
         self,
@@ -241,12 +272,13 @@ class AdminDashboardService:
             except ValueError as exc:
                 raise ValueError(f"Unsupported action: {action}") from exc
 
-        records, total = await self._catalog.list_admin_logs(
-            action=action_enum.value if action_enum else None,
-            target_user_id=target_user_id,
-            offset=offset,
-            limit=page_size,
-        )
+        async with self._client() as client:
+            records, total = await client.list_catalog_admin_logs(
+                action=action_enum.value if action_enum else None,
+                target_user_id=target_user_id,
+                offset=offset,
+                limit=page_size,
+            )
 
         return [
             {
@@ -258,7 +290,7 @@ class AdminDashboardService:
 
     def _user_to_dict(
         self,
-        user: AccountUserRecord,
+        user: AccountUserPayload,
         *,
         workspace_count: int = 0,
         task_count: int = 0,

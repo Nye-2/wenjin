@@ -888,6 +888,10 @@ class AsyncDataServiceClient:
         )
         return AccountUserListPayload.model_validate(payload["data"])
 
+    async def count_active_admins(self) -> int:
+        payload = await self._request("GET", "/internal/v1/account/admins/active-count")
+        return int(payload["data"]["count"])
+
     async def update_account_user_status(
         self,
         user_id: str,
@@ -1601,6 +1605,30 @@ class AsyncDataServiceClient:
         )
         return {str(key): int(value) for key, value in dict(payload["data"]).items()}
 
+    async def count_executions(
+        self,
+        *,
+        status: list[str] | None = None,
+        created_since: datetime | None = None,
+    ) -> int:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/analytics/count",
+            params={
+                "status": status,
+                "created_since": created_since.isoformat() if created_since else None,
+            },
+        )
+        return int(payload["data"]["count"])
+
+    async def count_executions_by_user_ids(self, user_ids: list[str]) -> dict[str, int]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/analytics/count-by-user",
+            params={"user_id": user_ids},
+        )
+        return {str(key): int(value) for key, value in dict(payload["data"]).items()}
+
     async def count_running_feature_executions(
         self,
         *,
@@ -2066,7 +2094,10 @@ class AsyncDataServiceClient:
         *,
         workspace_id: str,
         artifact_type: str | None = None,
+        artifact_types: list[str] | None = None,
         status: str | None = None,
+        created_by_skill: str | None = None,
+        created_by_skills: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[LegacyArtifactPayload]:
@@ -2076,12 +2107,35 @@ class AsyncDataServiceClient:
             params={
                 "workspace_id": workspace_id,
                 "artifact_type": artifact_type,
+                "artifact_types": artifact_types,
                 "status": status,
+                "created_by_skill": created_by_skill,
+                "created_by_skills": created_by_skills,
                 "limit": limit,
                 "offset": offset,
             },
         )
         return [LegacyArtifactPayload.model_validate(item) for item in payload["data"]]
+
+    async def count_legacy_artifacts(
+        self,
+        *,
+        workspace_id: str | None = None,
+        artifact_type: str | None = None,
+        created_by_skill: str | None = None,
+        created_by_skills: list[str] | None = None,
+    ) -> int:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/assets/legacy-artifacts/count",
+            params={
+                "workspace_id": workspace_id,
+                "artifact_type": artifact_type,
+                "created_by_skill": created_by_skill,
+                "created_by_skills": created_by_skills,
+            },
+        )
+        return int(payload["data"]["count"])
 
     async def list_legacy_artifact_versions(
         self,
@@ -2779,6 +2833,14 @@ class AsyncDataServiceClient:
     async def get_admin_workspace_stats(self) -> WorkspaceAdminStatsPayload:
         payload = await self._request("GET", "/internal/v1/workspaces/stats/admin")
         return WorkspaceAdminStatsPayload.model_validate(payload["data"])
+
+    async def count_workspaces_by_member_ids(self, user_ids: list[str]) -> dict[str, int]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/workspaces/stats/member-counts",
+            params={"user_id": user_ids},
+        )
+        return {str(key): int(value) for key, value in dict(payload["data"]).items()}
 
     async def get_workspace(self, workspace_id: str) -> WorkspacePayload | None:
         payload = await self._request("GET", f"/internal/v1/workspaces/{workspace_id}")

@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.dataservice_client.contracts.workspace import WorkspacePayload
 from src.services.dashboard_service import DashboardService
 from tests.database.conftest import _Capability as DbCapability
 
@@ -57,6 +58,23 @@ class _ScalarOneOrNoneResult:
 
     def scalar_one_or_none(self):
         return self._item
+
+
+class FakeDashboardClient:
+    def __init__(self) -> None:
+        self.workspace = WorkspacePayload(
+            id="ws-1",
+            created_by_user_id="user-1",
+            name="Workspace",
+            workspace_type="thesis",
+        )
+        self.list_legacy_artifacts = AsyncMock(return_value=[])
+        self.count_legacy_artifacts = AsyncMock(return_value=0)
+        self.count_running_feature_executions = AsyncMock(return_value=0)
+        self.get_latest_feature_execution_status = AsyncMock(return_value=None)
+
+    async def get_workspace(self, workspace_id: str):
+        return self.workspace if workspace_id == self.workspace.id else None
 
 
 @pytest.mark.asyncio
@@ -323,8 +341,7 @@ async def test_get_dashboard_patent_uses_workspace_specific_modules(test_session
 @pytest.mark.asyncio
 async def test_get_dashboard_raises_when_workspace_type_missing():
     db = AsyncMock()
-    db.execute.return_value = _ScalarOneOrNoneResult(None)
-    service = DashboardService(db)
+    service = DashboardService(db, dataservice=FakeDashboardClient())
 
     with pytest.raises(ValueError, match="Workspace not found: missing-ws"):
         await service.get_dashboard("missing-ws")
@@ -338,24 +355,14 @@ async def test_opening_research_status_runs_without_legacy_skill_filter():
     deferred until artifacts carry a capability_id reference.
     """
     db = AsyncMock()
-    db.execute = AsyncMock(
-        side_effect=[
-            _ScalarsResult([]),
-            _ScalarOneOrNoneResult(None),
-        ]
-    )
-    service = DashboardService(db)
+    fake_client = FakeDashboardClient()
+    service = DashboardService(db, dataservice=fake_client)
     service._count_running_feature_executions = AsyncMock(return_value=0)
 
     await service._get_opening_research_status("ws-1")
 
-    statement = db.execute.call_args_list[0].args[0]
-    params = statement.compile().params
-    assert not any(
-        value == "literature-reviewer"
-        or (isinstance(value, list) and "literature-reviewer" in value)
-        for value in params.values()
-    )
+    _, kwargs = fake_client.list_legacy_artifacts.call_args
+    assert kwargs["created_by_skills"] is None
 
 @pytest.mark.asyncio
 async def test_deep_research_status_uses_feature_execution_history():
