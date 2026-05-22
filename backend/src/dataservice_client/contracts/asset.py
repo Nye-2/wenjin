@@ -59,3 +59,35 @@ class WorkspaceAssetDownloadPayload(BaseModel):
     storage_path: str
     mime_type: str | None = None
     filename: str
+
+
+class LegacyArtifactCreatePayload(BaseModel):
+    workspace_id: str
+    artifact_type: str
+    content: dict[str, Any] = Field(default_factory=dict)
+    title: str | None = None
+    created_by_skill: str | None = None
+    parent_artifact_id: str | None = None
+
+
+class LegacyArtifactUpdatePayload(BaseModel):
+    title: str | None = None
+    content: dict[str, Any] | None = None
+    status: str | None = None
+    artifact_type: str | None = None
+    version: int | None = None
+    parent_artifact_id: str | None = None
+
+
+class LegacyArtifactPayload(BaseModel):
+    id: str
+    workspace_id: str
+    type: str
+    title: str | None = None
+    content: dict[str, Any] = Field(default_factory=dict)
+    created_by_skill: str | None = None
+    parent_artifact_id: str | None = None
+    version: int = 1
+    status: str
+    created_at: datetime | None = None
+    updated_at: datetime | None = None

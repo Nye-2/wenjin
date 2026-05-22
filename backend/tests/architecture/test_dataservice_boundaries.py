@@ -95,7 +95,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
     "dataservice_client",
 }
 RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
-    "academic/services/artifact_service.py",
     "academic/services/generation_service.py",
     "agents/lead_agent/v2/runtime.py",
     "agents/middlewares/citation_context.py",
