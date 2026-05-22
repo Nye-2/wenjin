@@ -5,7 +5,10 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useOptionalI18n } from "@/components/i18n-provider";
 import { LatexEditorShell } from "@/components/latex/LatexEditorShell";
 import { WorkspaceSurfaceState } from "@/components/workspace/WorkspaceSurfaceState";
-import { getWorkspacePrismSurface } from "@/lib/api/workspace";
+import {
+  ensureWorkspacePrismProject,
+  getWorkspacePrismSurface,
+} from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
 import { PrismContextRail } from "./PrismContextRail";
 import { SurfaceSwitch } from "../components/SurfaceSwitch";
@@ -41,7 +44,12 @@ export default function WorkspacePrismPage({
   useEffect(() => {
     let cancelled = false;
 
-    getWorkspacePrismSurface(id)
+    async function loadSurface() {
+      await ensureWorkspacePrismProject(id);
+      return getWorkspacePrismSurface(id);
+    }
+
+    loadSurface()
       .then((nextSurface) => {
         if (!cancelled) {
           setLoadState({

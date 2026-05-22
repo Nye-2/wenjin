@@ -349,11 +349,12 @@ def upgrade() -> None:
             unit_index, content, search_text, token_count, page_start, page_end,
             char_start, char_end, metadata_json, created_at, updated_at
         )
-        SELECT id, workspace_id, reference_id, outline_node_id, asset_id, unit_type,
-               unit_index, content, search_text, token_count, page_start, page_end,
-               char_start, char_end, metadata_json, created_at, updated_at
-        FROM reference_text_units
-        WHERE EXISTS (SELECT 1 FROM sources s WHERE s.id = reference_id)
+        SELECT
+            rtu.id, rtu.workspace_id, rtu.reference_id, rtu.outline_node_id, rtu.asset_id, rtu.unit_type,
+            rtu.unit_index, rtu.content, rtu.search_text, rtu.token_count, rtu.page_start, rtu.page_end,
+            rtu.char_start, rtu.char_end, rtu.metadata, rtu.created_at, rtu.updated_at
+        FROM reference_text_units rtu
+        WHERE EXISTS (SELECT 1 FROM sources s WHERE s.id = rtu.reference_id)
         ON CONFLICT (id) DO NOTHING
     """))
 

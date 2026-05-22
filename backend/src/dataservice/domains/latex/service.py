@@ -252,3 +252,5 @@ class DataServiceLatexService:
                 await self.session.refresh(record)
             return
         await self.session.flush()
+        if record is not None:
+            await self.session.refresh(record)

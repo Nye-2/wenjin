@@ -278,7 +278,7 @@ def upgrade() -> None:
             metadata_json, created_at, updated_at
         )
         SELECT
-            md5(lp.id || ':file:' || managed.value ->> 'path'),
+            md5(lp.id || ':file:' || (managed.value ->> 'path')),
             lp.workspace_id,
             md5(lp.id || ':document:manuscript'),
             managed.value ->> 'path',

@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 
-function filterThinkingContent(content: string): string {
+function filterThinkingContent(content: string | undefined): string {
+  if (typeof content !== "string") {
+    return "";
+  }
   const lines = content.split("\n");
   const filtered = lines.filter(
     (line) =>
@@ -15,7 +18,7 @@ function filterThinkingContent(content: string): string {
 }
 
 interface ThinkingBlockProps {
-  content: string;
+  content?: string;
 }
 
 export function ThinkingBlock({ content }: ThinkingBlockProps) {

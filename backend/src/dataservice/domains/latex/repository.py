@@ -64,19 +64,14 @@ class LatexRepository:
             "workspace_id": workspace_id,
             "owner_user_id": owner_user_id,
         }
-        template_clause = ""
-        if template:
-            template_clause = "and llm_config->>'template' = :template"
-            params["template"] = template
         result = await self.session.execute(
             text(
-                f"""
+                """
                 select id
                 from latex_projects
                 where user_id = :owner_user_id
                   and workspace_id = :workspace_id
                   and surface_role = 'primary_manuscript'
-                  {template_clause}
                 order by updated_at desc
                 limit 1
                 """

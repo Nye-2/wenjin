@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from src.database.models.workspace import Workspace
 from src.database.models.workspace_settings import WorkspaceSettings
@@ -55,10 +56,11 @@ class DataServiceWorkspaceService:
             workspace_id=str(workspace.id),
             user_id=command.created_by_user_id,
         )
-        self.repository.create_workspace_settings(
+        settings = self.repository.create_workspace_settings(
             workspace_id=str(workspace.id),
             settings_json=settings_json,
         )
+        set_committed_value(workspace, "settings", settings)
         if self.autocommit:
             await self.session.commit()
             await self.session.refresh(workspace)
@@ -139,14 +141,15 @@ class DataServiceWorkspaceService:
         if command.settings_json is not None:
             next_settings = with_rollout_defaults(command.workspace_type or workspace.type, command.settings_json)
             workspace.config = next_settings
-            settings = getattr(workspace, "settings", None)
+            settings = workspace.__dict__.get("settings")
             if settings is not None and hasattr(settings, "settings_json"):
                 settings.settings_json = next_settings
             else:
-                await self.repository.ensure_workspace_settings(
+                settings = await self.repository.ensure_workspace_settings(
                     workspace_id=str(workspace.id),
                     settings_json=next_settings,
                 )
+                set_committed_value(workspace, "settings", settings)
 
         if "active_thread_id" in command.model_fields_set:
             await self.set_active_thread(workspace, command.active_thread_id)
@@ -233,7 +236,7 @@ class DataServiceWorkspaceService:
     @staticmethod
     def to_record(workspace: Workspace) -> WorkspaceRecord:
         settings_json: dict[str, Any] = dict(workspace.config or {})
-        settings = getattr(workspace, "settings", None)
+        settings = workspace.__dict__.get("settings")
         if settings is not None and isinstance(getattr(settings, "settings_json", None), dict):
             settings_json = dict(settings.settings_json)
         return WorkspaceRecord(

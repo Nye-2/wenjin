@@ -30,9 +30,9 @@ async def create_workspace(
 ) -> dict:
     service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
     workspace = await service.create_workspace(command)
+    record = workspace_to_record(workspace)
     await uow.commit()
-    await uow.required_session.refresh(workspace)
-    return envelope_ok(workspace_to_record(workspace).model_dump(mode="json"))
+    return envelope_ok(record.model_dump(mode="json"))
 
 
 @router.get("")
@@ -135,10 +135,10 @@ async def update_workspace(
 ) -> dict:
     service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
     workspace = await service.update_workspace(workspace_id, command)
+    record = workspace_to_record(workspace) if workspace else None
     if workspace is not None:
         await uow.commit()
-        await uow.required_session.refresh(workspace)
-    return envelope_ok(workspace_to_record(workspace).model_dump(mode="json") if workspace else None)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
 @router.delete("/{workspace_id}")

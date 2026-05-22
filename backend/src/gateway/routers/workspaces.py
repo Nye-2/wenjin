@@ -346,6 +346,49 @@ async def resolve_workspace_capability_action(
     return ResolveCapabilityActionResponse(**payload)
 
 
+@router.get("/{workspace_id}/capabilities")
+async def list_workspace_capabilities(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> dict[str, Any]:
+    """List enabled capability cards for a workspace."""
+    workspace = await get_owned_workspace(
+        workspace_id=workspace_id,
+        current_user=current_user,
+        workspace_service=workspace_service,
+    )
+    try:
+        workspace_type = workspace_type_value(workspace)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    capabilities = await dataservice.list_catalog_capabilities(
+        workspace_type=workspace_type,
+        enabled_only=True,
+    )
+    features = []
+    for capability in sorted(
+        capabilities,
+        key=lambda item: int(item.ui_meta.get("order", 0) or 0),
+    ):
+        ui_meta = dict(capability.ui_meta or {})
+        stages = ui_meta.get("stages")
+        features.append(
+            {
+                "id": capability.id,
+                "name": capability.display_name or capability.id,
+                "description": capability.description or capability.intent_description,
+                "icon": str(ui_meta.get("icon") or ""),
+                "color": ui_meta.get("color"),
+                "stages": stages if isinstance(stages, list) else [],
+                "followUpPrompt": ui_meta.get("follow_up_prompt"),
+                "defaultSkillId": capability.runtime.get("default_skill_id"),
+            }
+        )
+    return {"features": features}
+
+
 @router.get("/{workspace_id}/summary", response_model=WorkspaceSummaryResponse)
 async def get_workspace_summary(
     workspace_id: str,

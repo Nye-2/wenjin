@@ -84,8 +84,13 @@ def upgrade() -> None:
                         USING ERRCODE = '23514';
                 END IF;
             END;
-            $$ LANGUAGE plpgsql;
-
+            $$ LANGUAGE plpgsql
+            """
+        )
+    )
+    conn.execute(
+        sa.text(
+            """
             CREATE OR REPLACE FUNCTION dataservice_workspace_owner_invariant_trigger()
             RETURNS trigger AS $$
             BEGIN
@@ -105,7 +110,7 @@ def upgrade() -> None:
 
                 RETURN COALESCE(NEW, OLD);
             END;
-            $$ LANGUAGE plpgsql;
+            $$ LANGUAGE plpgsql
             """
         )
     )
@@ -116,13 +121,18 @@ def upgrade() -> None:
             AFTER INSERT OR UPDATE ON workspaces
             DEFERRABLE INITIALLY DEFERRED
             FOR EACH ROW
-            EXECUTE FUNCTION dataservice_workspace_owner_invariant_trigger();
-
+            EXECUTE FUNCTION dataservice_workspace_owner_invariant_trigger()
+            """
+        )
+    )
+    conn.execute(
+        sa.text(
+            """
             CREATE CONSTRAINT TRIGGER ck_workspace_memberships_active_owner
             AFTER INSERT OR UPDATE OR DELETE ON workspace_memberships
             DEFERRABLE INITIALLY DEFERRED
             FOR EACH ROW
-            EXECUTE FUNCTION dataservice_workspace_owner_invariant_trigger();
+            EXECUTE FUNCTION dataservice_workspace_owner_invariant_trigger()
             """
         )
     )

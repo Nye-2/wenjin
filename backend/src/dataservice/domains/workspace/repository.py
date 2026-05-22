@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy import delete, distinct, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.database.models.thread import Thread
 from src.database.models.workspace import Workspace, WorkspaceType
@@ -45,7 +46,11 @@ class WorkspaceRepository:
         return workspace
 
     async def get_workspace(self, workspace_id: str) -> Workspace | None:
-        result = await self.session.execute(select(Workspace).where(Workspace.id == workspace_id))
+        result = await self.session.execute(
+            select(Workspace)
+            .options(selectinload(Workspace.settings))
+            .where(Workspace.id == workspace_id)
+        )
         return result.scalar_one_or_none()
 
     async def get_workspace_bridge_row(self, workspace_id: str) -> dict[str, Any] | None:
@@ -73,6 +78,7 @@ class WorkspaceRepository:
     async def list_workspaces_for_member(self, user_id: str) -> list[Workspace]:
         statement = (
             select(Workspace)
+            .options(selectinload(Workspace.settings))
             .join(WorkspaceMembership, WorkspaceMembership.workspace_id == Workspace.id)
             .where(
                 WorkspaceMembership.user_id == user_id,

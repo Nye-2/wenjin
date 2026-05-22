@@ -53,6 +53,7 @@ class PrismDataDomainService:
                     },
                 }
             )
+            await self.session.flush()
             document = self.repository.create_document(
                 {
                     "workspace_id": command.workspace_id,
@@ -64,6 +65,7 @@ class PrismDataDomainService:
                     "metadata_json": {"main_file": command.main_file},
                 }
             )
+            await self.session.flush()
             root_file = self.repository.create_file(
                 {
                     "workspace_id": command.workspace_id,
@@ -100,6 +102,7 @@ class PrismDataDomainService:
                         "metadata_json": {"main_file": command.main_file},
                     }
                 )
+                await self.session.flush()
             file_record = await self.repository.get_file_by_path(document.id, command.main_file)
             if file_record is None:
                 file_record = self.repository.create_file(
