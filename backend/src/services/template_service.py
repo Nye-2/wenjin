@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.template_api import TemplateDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.template import (
+    WorkspaceTemplateCreatePayload,
+)
+from src.dataservice_client.provider import dataservice_client
 from src.services.workspace_uploads import (
     resolve_workspace_upload_stored_path,
     workspace_upload_root,
@@ -50,19 +56,34 @@ TEMPLATE_PARSE_PROMPT = '''从以下模板文件中提取论文写作规范。�
 
 
 class TemplateService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
-        self._templates = TemplateDataService(db)
-        self._templates_no_commit = TemplateDataService(db, autocommit=False)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     async def get(self, template_id: str) -> Any | None:
-        return await self._templates_no_commit.get(template_id)
+        async with self._client() as client:
+            return await client.get_workspace_template(template_id)
 
     async def get_active(self, workspace_id: str) -> Any | None:
-        return await self._templates_no_commit.get_active(workspace_id)
+        async with self._client() as client:
+            return await client.get_active_workspace_template(workspace_id)
 
     async def list_by_workspace(self, workspace_id: str) -> list[Any]:
-        return await self._templates_no_commit.list_by_workspace(workspace_id)
+        async with self._client() as client:
+            return await client.list_workspace_templates(workspace_id)
 
     async def create(
         self,
@@ -76,31 +97,27 @@ class TemplateService:
         content_guidelines: dict[str, Any] | None = None,
         latex_preamble: str | None = None,
     ) -> Any:
-        return await self._templates.create(
-            workspace_id=workspace_id,
-            name=name,
-            category=category,
-            source_type=source_type,
-            source_file_path=source_file_path,
-            structure=structure,
-            format_spec=format_spec,
-            content_guidelines=content_guidelines,
-            latex_preamble=latex_preamble,
-        )
+        async with self._client() as client:
+            return await client.create_workspace_template(
+                WorkspaceTemplateCreatePayload(
+                    workspace_id=workspace_id,
+                    name=name,
+                    category=category,
+                    source_type=source_type,
+                    source_file_path=source_file_path,
+                    structure=structure or {},
+                    format_spec=format_spec or {},
+                    content_guidelines=content_guidelines or {},
+                    latex_preamble=latex_preamble,
+                )
+            )
 
     async def activate(self, template_id: str, workspace_id: str) -> Any | None:
-        template = await self.get(template_id)
-        if template is None or template.workspace_id != workspace_id:
-            return None
-
-        await self._templates_no_commit.deactivate_active_templates(
-            workspace_id=workspace_id,
-            exclude_template_id=template_id,
-        )
-        template.is_active = True
-        await self.db.commit()
-        await self.db.refresh(template)
-        return template
+        async with self._client() as client:
+            return await client.activate_workspace_template(
+                workspace_id=workspace_id,
+                template_id=template_id,
+            )
 
     async def delete(self, template_id: str, workspace_id: str | None = None) -> bool:
         template = await self.get(template_id)
@@ -110,8 +127,13 @@ class TemplateService:
             return False
         source_file_path = str(template.source_file_path or "").strip() or None
         template_workspace_id = str(template.workspace_id)
-        await self.db.delete(template)
-        await self.db.commit()
+        async with self._client() as client:
+            deleted = await client.delete_workspace_template(
+                template_id,
+                workspace_id=workspace_id,
+            )
+        if not deleted:
+            return False
         if source_file_path:
             self._delete_template_source_file(
                 workspace_id=template_workspace_id,

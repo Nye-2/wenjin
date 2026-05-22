@@ -110,12 +110,8 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/dashboard/shared.py",
     "services/dashboard/thesis.py",
     "services/dashboard_service.py",
-    "services/latex/compile_service.py",
-    "services/latex/project_service.py",
-    "services/latex/template_service.py",
     "services/references/service.py",
     "services/referral_service.py",
-    "services/template_service.py",
     "services/user_dashboard_service.py",
     "services/user_service.py",
     "services/workspace_activity_service.py",
@@ -123,7 +119,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/workspace_prism_service.py",
     "task/tasks/credit_periodic.py",
     "tools/builtins/references.py",
-    "tools/builtins/workspace.py",
 }
 RUNTIME_DIRECT_SQL_ALLOWED_FILES = {
     "gateway/routers/dev_test_hooks.py",

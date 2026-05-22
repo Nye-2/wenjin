@@ -5,7 +5,7 @@ from __future__ import annotations
 import shlex
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -1023,9 +1023,9 @@ async def test_archive_upload_reader_collects_chunks_within_limit() -> None:
 
 @pytest.mark.asyncio
 async def test_copy_template_requires_existing_template() -> None:
-    db = AsyncMock()
-    db.get = AsyncMock(return_value=None)
-    service = LatexProjectService(db)
+    dataservice = MagicMock()
+    dataservice.get_latex_template = AsyncMock(return_value=None)
+    service = LatexProjectService(dataservice=dataservice)
 
     with pytest.raises(LatexTemplateNotFoundError, match="Template not found"):
         await service._copy_template_if_available("missing-template", Path("/tmp"))
@@ -1036,15 +1036,15 @@ async def test_copy_template_requires_available_assets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    db = AsyncMock()
-    db.get = AsyncMock(
+    dataservice = MagicMock()
+    dataservice.get_latex_template = AsyncMock(
         return_value=SimpleNamespace(
             template_path="missing-template-dir",
             main_file="main.tex",
         )
     )
     monkeypatch.setenv("WENJIN_LATEX_TEMPLATE_DIR", str(tmp_path))
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
 
     with pytest.raises(LatexTemplateUnavailableError, match="Template assets unavailable"):
         await service._copy_template_if_available("acl", tmp_path / "project")
@@ -1064,16 +1064,16 @@ async def test_permanent_delete_removes_compile_runs(
     (project_dir / "main.tex").write_text("x", encoding="utf-8")
     (compile_dir / "run-1").mkdir(parents=True, exist_ok=True)
 
-    db = AsyncMock()
-    service = LatexProjectService(db)
+    dataservice = MagicMock()
+    dataservice.delete_latex_project = AsyncMock(return_value=True)
+    service = LatexProjectService(dataservice=dataservice)
     project = SimpleNamespace(id=project_id)
 
     await service.permanent_delete(project)
 
     assert not project_dir.exists()
     assert not compile_dir.exists()
-    db.delete.assert_awaited_once_with(project)
-    db.commit.assert_awaited_once()
+    dataservice.delete_latex_project.assert_awaited_once_with(project_id)
 
 
 def test_pick_preferred_tex_path_prioritizes_main_and_shallow_paths() -> None:

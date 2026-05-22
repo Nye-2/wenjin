@@ -297,6 +297,33 @@ class AsyncDataServiceClient:
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("deactivated")) if isinstance(data, dict) else False
 
+    async def activate_workspace_template(
+        self,
+        *,
+        workspace_id: str,
+        template_id: str,
+    ) -> WorkspaceTemplatePayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/templates/workspaces/{workspace_id}/{template_id}/activate",
+        )
+        data = payload.get("data")
+        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
+
+    async def delete_workspace_template(
+        self,
+        template_id: str,
+        *,
+        workspace_id: str | None = None,
+    ) -> bool:
+        payload = await self._request(
+            "DELETE",
+            f"/internal/v1/templates/{template_id}",
+            params={"workspace_id": workspace_id},
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
     async def create_knowledge_memory(
         self,
         command: KnowledgeMemoryCreatePayload,

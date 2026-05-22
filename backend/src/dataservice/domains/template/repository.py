@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.workspace_template import WorkspaceTemplate
@@ -55,6 +55,24 @@ class TemplateRepository:
         if exclude_template_id is not None:
             stmt = stmt.where(WorkspaceTemplate.id != exclude_template_id)
         await self.session.execute(stmt.values(is_active=False))
+
+    async def activate_template(self, *, template_id: str, workspace_id: str) -> WorkspaceTemplate | None:
+        template = await self.get(template_id)
+        if template is None or str(template.workspace_id) != workspace_id:
+            return None
+        await self.deactivate_active_templates(
+            workspace_id=workspace_id,
+            exclude_template_id=template_id,
+        )
+        template.is_active = True
+        return template
+
+    async def delete_template(self, *, template_id: str, workspace_id: str | None = None) -> bool:
+        stmt = delete(WorkspaceTemplate).where(WorkspaceTemplate.id == template_id)
+        if workspace_id is not None:
+            stmt = stmt.where(WorkspaceTemplate.workspace_id == workspace_id)
+        result = await self.session.execute(stmt)
+        return bool(result.rowcount)
 
     def create(self, values: dict[str, Any]) -> WorkspaceTemplate:
         template = WorkspaceTemplate(**values)

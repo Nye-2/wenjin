@@ -8,13 +8,17 @@ import os
 import re
 import shlex
 import shutil
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.latex_api import LatexDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.latex import LatexCompileHistoryCreatePayload
+from src.dataservice_client.provider import dataservice_client
 from src.execution.docker.client import DockerClient, DockerExecutionError
 
 from .engine_config import (
@@ -70,10 +74,49 @@ def get_latex_compile_history_retention() -> int:
 class LatexCompileService:
     """Compile a persisted project by mounting its full file tree into Docker."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
-        self.data = LatexDataService(db)
+        self._dataservice = dataservice
         self._docker = DockerClient()
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
+
+    async def _record_history(
+        self,
+        *,
+        project_id: str,
+        engine: str,
+        main_file: str,
+        status: int,
+        log: str | None,
+        pdf_path: str | None,
+    ) -> Any:
+        async with self._client() as client:
+            return await client.record_latex_compile_history(
+                LatexCompileHistoryCreatePayload(
+                    project_id=project_id,
+                    engine=engine,
+                    main_file=main_file,
+                    status=status,
+                    log=log,
+                    pdf_path=pdf_path,
+                )
+            )
+
+    async def _get_history(self, history_id: str) -> Any | None:
+        async with self._client() as client:
+            return await client.get_latex_compile_history(history_id)
 
     async def compile_project(
         self,
@@ -118,7 +161,7 @@ class LatexCompileService:
             history_id = None
             pdf_endpoint: str | None = None
             if record_history:
-                history = await self.data.record_compile_history(
+                history = await self._record_history(
                     project_id=project.id,
                     engine=compiler,
                     main_file=entry_file,
@@ -146,7 +189,7 @@ class LatexCompileService:
         except (DockerExecutionError, FileNotFoundError, TimeoutError) as exc:
             history_id = None
             if record_history:
-                history = await self.data.record_compile_history(
+                history = await self._record_history(
                     project_id=project.id,
                     engine=compiler,
                     main_file=entry_file,
@@ -199,7 +242,8 @@ class LatexCompileService:
 
     async def _enforce_history_retention(self, project_id: str) -> None:
         keep_count = get_latex_compile_history_retention()
-        history_items = await self.data.list_compile_history(project_id)
+        async with self._client() as client:
+            history_items = await client.list_latex_compile_history(project_id)
         if len(history_items) <= keep_count:
             return
 
@@ -211,7 +255,9 @@ class LatexCompileService:
             if (run_dir := self._resolve_history_run_dir(item, compile_root=compile_root)) is not None
         }
         stale_items = history_items[keep_count:]
-        await self.data.delete_compile_histories(stale_items)
+        async with self._client() as client:
+            for item in stale_items:
+                await client.delete_latex_compile_history(str(item.id))
 
         if not compile_root.exists():
             return
@@ -250,7 +296,7 @@ class LatexCompileService:
         history_id: str,
         project_id: str,
     ) -> Path | None:
-        history = await self.data.get_compile_history(history_id)
+        history = await self._get_history(history_id)
         if history is None or history.project_id != project_id or not history.pdf_path:
             return None
         candidate = Path(history.pdf_path).resolve()
@@ -279,7 +325,7 @@ class LatexCompileService:
         history_id: str,
         project_id: str,
     ) -> Path | None:
-        history = await self.data.get_compile_history(history_id)
+        history = await self._get_history(history_id)
         if history is None or history.project_id != project_id or not history.pdf_path:
             return None
         pdf_candidate = Path(history.pdf_path).resolve()
@@ -410,7 +456,7 @@ class LatexCompileService:
         x: float,
         y: float,
     ) -> dict[str, object] | None:
-        history = await self.data.get_compile_history(history_id)
+        history = await self._get_history(history_id)
         if history is None or history.project_id != project_id or not history.pdf_path:
             return None
         pdf_path = Path(history.pdf_path).resolve()
@@ -461,7 +507,7 @@ class LatexCompileService:
         line: int,
         column: int = 1,
     ) -> dict[str, object] | None:
-        history = await self.data.get_compile_history(history_id)
+        history = await self._get_history(history_id)
         if history is None or history.project_id != project_id or not history.pdf_path:
             return None
         pdf_path = Path(history.pdf_path).resolve()

@@ -98,6 +98,20 @@ async def deactivate_active_templates(
     return envelope_ok({"deactivated": True})
 
 
+@router.post("/workspaces/{workspace_id}/{template_id}/activate")
+async def activate_template(
+    workspace_id: str,
+    template_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    template = await TemplateDataService(
+        uow.required_session,
+        autocommit=False,
+    ).activate(template_id=template_id, workspace_id=workspace_id)
+    await uow.commit()
+    return envelope_ok(_template_payload(template))
+
+
 @router.get("/{template_id}")
 async def get_template(
     template_id: str,
@@ -108,3 +122,17 @@ async def get_template(
         autocommit=False,
     ).get(template_id)
     return envelope_ok(_template_payload(template))
+
+
+@router.delete("/{template_id}")
+async def delete_template(
+    template_id: str,
+    workspace_id: str | None = None,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    deleted = await TemplateDataService(
+        uow.required_session,
+        autocommit=False,
+    ).delete(template_id=template_id, workspace_id=workspace_id)
+    await uow.commit()
+    return envelope_ok({"deleted": deleted})

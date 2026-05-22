@@ -57,7 +57,7 @@ async def get_reference_index_service(
 
 
 async def get_template_service(
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TemplateService:
     from src.services.template_service import TemplateService
-    return TemplateService(db)
+    return TemplateService(dataservice=dataservice)

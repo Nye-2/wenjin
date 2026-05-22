@@ -59,3 +59,15 @@ class TemplateDataService:
             workspace_id=workspace_id,
             exclude_template_id=exclude_template_id,
         )
+
+    async def activate(self, *, template_id: str, workspace_id: str) -> Any | None:
+        return await self._domain.activate(
+            template_id=template_id,
+            workspace_id=workspace_id,
+        )
+
+    async def delete(self, *, template_id: str, workspace_id: str | None = None) -> bool:
+        return await self._domain.delete(
+            template_id=template_id,
+            workspace_id=workspace_id,
+        )

@@ -6,13 +6,20 @@ import json
 import logging
 import mimetypes
 import shutil
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.latex_api import LatexDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.latex import (
+    LatexProjectCreatePayload,
+    LatexProjectTouchPayload,
+    LatexProjectUpdatePayload,
+)
+from src.dataservice_client.provider import dataservice_client
 
 from .paths import (
     get_latex_template_dir,
@@ -46,9 +53,22 @@ class LatexTemplateUnavailableError(LatexTemplateError):
 class LatexProjectService:
     """Manage LaTeX project records and persisted files."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
-        self.data = LatexDataService(db)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     async def list_by_user(
         self,
@@ -56,13 +76,15 @@ class LatexProjectService:
         *,
         include_trashed: bool = False,
     ) -> list[Any]:
-        return await self.data.list_projects_by_user(
-            user_id,
-            include_trashed=include_trashed,
-        )
+        async with self._client() as client:
+            return await client.list_latex_projects_by_user(
+                user_id=user_id,
+                include_trashed=include_trashed,
+            )
 
     async def get_owned(self, project_id: str, user_id: str) -> Any | None:
-        return await self.data.get_owned_project(project_id=project_id, user_id=user_id)
+        async with self._client() as client:
+            return await client.get_owned_latex_project(project_id=project_id, user_id=user_id)
 
     async def create(
         self,
@@ -71,11 +93,16 @@ class LatexProjectService:
         name: str,
         template_id: str | None = None,
     ) -> Any:
-        project = await self.data.create_project(
-            user_id=user_id,
-            name=name,
-            template_id=template_id,
-        )
+        async with self._client() as client:
+            project = await client.create_latex_project(
+                LatexProjectCreatePayload(
+                    user_id=user_id,
+                    name=name,
+                    template_id=template_id,
+                )
+            )
+        if project is None:
+            raise RuntimeError("DataService did not return created LaTeX project")
 
         root = project_root(project.id)
         root.mkdir(parents=True, exist_ok=True)
@@ -88,18 +115,20 @@ class LatexProjectService:
             preferred=project.main_file,
         )
         if detected_main is not None and detected_main != project.main_file:
-            project = await self.data.update_project(project, main_file=detected_main)
+            project = await self._update_project(project, main_file=detected_main)
 
         await self.sync_project_meta(project)
         return project
 
     async def update(self, project: Any, **kwargs: Any) -> Any:
-        project = await self.data.update_project(project, **kwargs)
+        project = await self._update_project(project, **kwargs)
         await self.sync_project_meta(project)
         return project
 
     async def soft_delete(self, project: Any) -> None:
-        project = await self.data.soft_delete_project(project)
+        async with self._client() as client:
+            updated = await client.soft_delete_latex_project(str(project.id))
+        project = updated or project
         await self.sync_project_meta(project)
 
     async def permanent_delete(self, project: Any) -> None:
@@ -109,7 +138,24 @@ class LatexProjectService:
         compile_root = root.parent / "_compile_runs" / str(project.id)
         if compile_root.exists():
             shutil.rmtree(compile_root, ignore_errors=True)
-        await self.data.delete_project(project)
+        async with self._client() as client:
+            await client.delete_latex_project(str(project.id))
+
+    async def _update_project(self, project: Any, **kwargs: Any) -> Any:
+        async with self._client() as client:
+            updated = await client.update_latex_project(
+                str(project.id),
+                LatexProjectUpdatePayload(**kwargs),
+            )
+        return updated or project
+
+    async def _touch_project(self, project: Any, **kwargs: Any) -> Any:
+        async with self._client() as client:
+            updated = await client.touch_latex_project(
+                str(project.id),
+                LatexProjectTouchPayload(**kwargs),
+            )
+        return updated or project
 
     def build_tree(self, project: Any) -> list[dict[str, str]]:
         root = project_root(project.id)
@@ -164,7 +210,7 @@ class LatexProjectService:
             if not existed
             else project.file_order
         )
-        project = await self.data.touch_project(project, file_order=next_order)
+        project = await self._touch_project(project, file_order=next_order)
         await self.sync_project_meta(project)
 
     def resolve_blob_file(self, project: Any, relative_path: str) -> tuple[Path, str]:
@@ -197,7 +243,7 @@ class LatexProjectService:
             if not existed
             else project.file_order
         )
-        project = await self.data.touch_project(project, file_order=next_order)
+        project = await self._touch_project(project, file_order=next_order)
         await self.sync_project_meta(project)
         return target.relative_to(project_root(project.id)).as_posix()
 
@@ -270,7 +316,7 @@ class LatexProjectService:
                         if detected_main:
                             project.main_file = detected_main
 
-            project = await self.data.touch_project(
+            project = await self._touch_project(
                 project,
                 file_order=next_order,
                 main_file=project.main_file,
@@ -287,7 +333,7 @@ class LatexProjectService:
     ) -> None:
         next_map = dict(project.file_order or {})
         next_map[str(folder or "")] = [str(item) for item in order]
-        project = await self.data.touch_project(project, file_order=next_map)
+        project = await self._touch_project(project, file_order=next_map)
         await self.sync_project_meta(project)
 
     async def update_llm_config(
@@ -295,7 +341,7 @@ class LatexProjectService:
         project: Any,
         llm_config: dict[str, Any] | None,
     ) -> Any:
-        project = await self.data.touch_project(project, llm_config=llm_config)
+        project = await self._touch_project(project, llm_config=llm_config)
         await self.sync_project_meta(project)
         return project
 
@@ -310,7 +356,7 @@ class LatexProjectService:
             if not existed
             else project.file_order
         )
-        project = await self.data.touch_project(project, file_order=next_order)
+        project = await self._touch_project(project, file_order=next_order)
         await self.sync_project_meta(project)
         return target.relative_to(project_root(project.id)).as_posix()
 
@@ -345,7 +391,7 @@ class LatexProjectService:
             old_path=from_path,
             new_path=to_path,
         )
-        project = await self.data.touch_project(
+        project = await self._touch_project(
             project,
             file_order=next_order,
             main_file=next_main_file,
@@ -374,7 +420,7 @@ class LatexProjectService:
         next_main_file = project.main_file
         if self._path_affects_main_file(project.main_file, relative_path):
             next_main_file = self._detect_main_file(root, preferred=None) or "main.tex"
-        project = await self.data.touch_project(
+        project = await self._touch_project(
             project,
             file_order=next_order,
             main_file=next_main_file,
@@ -410,7 +456,8 @@ class LatexProjectService:
         if not template_id:
             return False
 
-        template = await self.data.get_template(template_id)
+        async with self._client() as client:
+            template = await client.get_latex_template(template_id)
         if template is None:
             raise LatexTemplateNotFoundError(f"Template not found: {template_id}")
 

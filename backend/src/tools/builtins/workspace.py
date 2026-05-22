@@ -12,10 +12,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from src.application.workspace_resolvers import resolve_workspace_type
-from src.database import get_db_session
-from src.dataservice.asset_api import AssetDataService
-from src.dataservice.catalog_api import CatalogDataService
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client.provider import dataservice_client
 
 
 class ListCapabilitiesInput(BaseModel):
@@ -89,12 +86,11 @@ async def list_capabilities_tool(
     if runtime.workspace_id is None or runtime.user_id is None:
         return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
 
-    async with get_db_session() as db:
-        workspace_access = WorkspaceDataService(db)
-        workspace = await workspace_access.get_workspace(runtime.workspace_id)
+    async with dataservice_client() as client:
+        workspace = await client.get_workspace(runtime.workspace_id)
         if workspace is None:
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
-        if not await workspace_access.user_has_active_membership(
+        if not await client.workspace_has_active_membership(
             workspace_id=str(runtime.workspace_id),
             user_id=str(runtime.user_id),
         ):
@@ -103,7 +99,7 @@ async def list_capabilities_tool(
         workspace_type = resolve_workspace_type(workspace)
 
         capabilities = sorted(
-            await CatalogDataService(db, autocommit=False).list_capabilities(
+            await client.list_catalog_capabilities(
                 workspace_type=workspace_type,
                 enabled_only=True,
             ),
@@ -136,18 +132,17 @@ async def list_workspace_artifacts_tool(
     if runtime.workspace_id is None or runtime.user_id is None:
         return json.dumps({"error": "runtime_context_missing"}, ensure_ascii=False)
 
-    async with get_db_session() as db:
-        workspace_access = WorkspaceDataService(db)
-        workspace = await workspace_access.get_workspace(runtime.workspace_id)
+    async with dataservice_client() as client:
+        workspace = await client.get_workspace(runtime.workspace_id)
         if workspace is None:
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
-        if not await workspace_access.user_has_active_membership(
+        if not await client.workspace_has_active_membership(
             workspace_id=str(runtime.workspace_id),
             user_id=str(runtime.user_id),
         ):
             return json.dumps({"error": "workspace_not_found"}, ensure_ascii=False)
 
-        artifacts = await AssetDataService(db, autocommit=False).list_assets(
+        artifacts = await client.list_assets(
             workspace_id=runtime.workspace_id,
             asset_kind="artifact",
             limit=limit,

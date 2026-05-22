@@ -482,6 +482,8 @@ async def test_dataservice_client_template_contract_methods() -> None:
         body = json.loads(request.content.decode()) if request.content else None
         seen.append((request.method, request.url.path, body))
         path = request.url.path
+        if request.method == "DELETE":
+            return httpx.Response(200, json={"status": "ok", "data": {"deleted": True}})
         if path.endswith("/deactivate-active"):
             return httpx.Response(200, json={"status": "ok", "data": {"deactivated": True}})
         if request.method == "GET" and path == "/internal/v1/templates/workspaces/workspace-1":
@@ -508,13 +510,23 @@ async def test_dataservice_client_template_contract_methods() -> None:
             "workspace-1",
             WorkspaceTemplateDeactivatePayload(exclude_template_id="template-2"),
         )
+        activated = await client.activate_workspace_template(
+            workspace_id="workspace-1",
+            template_id="template-2",
+        )
         fetched = await client.get_workspace_template("template-2")
+        deleted = await client.delete_workspace_template(
+            "template-2",
+            workspace_id="workspace-1",
+        )
 
     assert active is not None and active.id == "template-2"
     assert listed[0].id == "template-1"
     assert created is not None and created.id == "template-2"
     assert deactivated is True
+    assert activated is not None and activated.id == "template-2"
     assert fetched is not None and fetched.id == "template-2"
+    assert deleted is True
     assert seen == [
         ("GET", "/internal/v1/templates/workspaces/workspace-1/active", None),
         ("GET", "/internal/v1/templates/workspaces/workspace-1", None),
@@ -538,7 +550,9 @@ async def test_dataservice_client_template_contract_methods() -> None:
             "/internal/v1/templates/workspaces/workspace-1/deactivate-active",
             {"exclude_template_id": "template-2"},
         ),
+        ("POST", "/internal/v1/templates/workspaces/workspace-1/template-2/activate", None),
         ("GET", "/internal/v1/templates/template-2", None),
+        ("DELETE", "/internal/v1/templates/template-2", None),
     ]
 
 

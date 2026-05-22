@@ -70,6 +70,24 @@ class DataServiceTemplateService:
         )
         await self._finish()
 
+    async def activate(self, *, template_id: str, workspace_id: str) -> Any | None:
+        template = await self.repository.activate_template(
+            template_id=template_id,
+            workspace_id=workspace_id,
+        )
+        if template is None:
+            return None
+        await self._finish(template)
+        return template
+
+    async def delete(self, *, template_id: str, workspace_id: str | None = None) -> bool:
+        deleted = await self.repository.delete_template(
+            template_id=template_id,
+            workspace_id=workspace_id,
+        )
+        await self._finish()
+        return deleted
+
     async def _finish(self, record: Any | None = None) -> None:
         if self.autocommit:
             await self.session.commit()
