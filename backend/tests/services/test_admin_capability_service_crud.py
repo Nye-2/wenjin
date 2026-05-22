@@ -1,22 +1,9 @@
-"""Tests for AdminCapabilityService CRUD operations.
+"""Tests for AdminCapabilityService CRUD operations through DataService."""
 
-Uses SQLite-compatible test models for Capability round-trip tests.
-AdminLog is monkeypatched to a lightweight mock model.
-"""
-
-import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import JSON, Boolean, String, Text
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.pool import StaticPool
 
 from src.services.admin_capability_service import AdminCapabilityService
 
@@ -39,106 +26,63 @@ ui_meta:
 """
 
 
-# ---------------------------------------------------------------------------
-# Minimal SQLite models
-# ---------------------------------------------------------------------------
+class _CatalogFake:
+    def __init__(self) -> None:
+        self.records: dict[tuple[str, str], SimpleNamespace] = {}
+        self.admin_logs: list[object] = []
+        self.record_catalog_admin_log = AsyncMock(side_effect=self._record_admin_log)
+
+    async def list_catalog_capabilities(self):
+        return sorted(
+            self.records.values(),
+            key=lambda item: (item.workspace_type, item.id),
+        )
+
+    async def get_catalog_capability(self, *, capability_id: str, workspace_type: str):
+        return self.records.get((workspace_type, capability_id))
+
+    async def upsert_catalog_capability(
+        self,
+        *,
+        workspace_type: str,
+        capability_id: str,
+        command,
+    ):
+        record = SimpleNamespace(**command.data)
+        self.records[(workspace_type, capability_id)] = record
+        return record
+
+    async def delete_catalog_capability(self, *, capability_id: str, workspace_type: str):
+        return self.records.pop((workspace_type, capability_id), None) is not None
+
+    async def set_catalog_capability_enabled(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+        command,
+    ):
+        record = self.records.get((workspace_type, capability_id))
+        if record is None:
+            return None
+        record.enabled = command.enabled
+        return record
+
+    async def _record_admin_log(self, command):
+        self.admin_logs.append(command)
+        return SimpleNamespace(id=f"log-{len(self.admin_logs)}")
 
 
-class _Base(DeclarativeBase):
-    pass
-
-
-class _TestCapability(_Base):
-    __tablename__ = "capabilities"
-
-    id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    workspace_type: Mapped[str] = mapped_column(String(50), primary_key=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    intent_description: Mapped[str] = mapped_column(Text, nullable=False)
-    trigger_phrases: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    required_decisions: Mapped[list] = mapped_column(
-        JSON, nullable=False, default=list
-    )
-    brief_schema: Mapped[dict] = mapped_column(JSON, nullable=False)
-    graph_template: Mapped[dict] = mapped_column(JSON, nullable=False)
-    ui_meta: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    runtime: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    dashboard_meta: Mapped[dict] = mapped_column(
-        JSON, nullable=False, default=dict
-    )
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-
-
-class _TestAdminLog(_Base):
-    """Lightweight admin_log stand-in for SQLite tests."""
-
-    __tablename__ = "admin_logs"
-
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    admin_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    action: Mapped[str] = mapped_column(String(100), nullable=False)
-    target_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="capability"
-    )
-    target_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest_asyncio.fixture
-async def crud_db():
-    engine = create_async_engine(
-        TEST_DB_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.create_all)
-
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with factory() as session:
-        yield session
-
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.drop_all)
-    await engine.dispose()
-
-
-@pytest.fixture(autouse=True)
-def _patch_models(monkeypatch):
-    """Replace the real ORM models with our SQLite-compatible ones."""
-    import src.services.admin_capability_service as mod
-
-    monkeypatch.setattr(mod, "AdminLog", _TestAdminLog)
-
-
-@pytest_asyncio.fixture
-async def service(crud_db):
+@pytest.fixture
+def service():
     bus = AsyncMock()
-    # Stub out the CrossRefValidator so we don't need the real registry
+    dataservice = _CatalogFake()
     fake_validator = MagicMock()
     fake_validator.validate_capability = AsyncMock(return_value=[])
-    svc = AdminCapabilityService(db=crud_db, event_bus=bus, model=_TestCapability)
+    svc = AdminCapabilityService(db=AsyncMock(), event_bus=bus, dataservice=dataservice)
     svc.validator = fake_validator
+    svc._test_dataservice = dataservice
     return svc
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -151,6 +95,7 @@ async def test_create_persists_capability(service):
         "capability.invalidated",
         {"id": "test_cap", "workspace_type": "thesis"},
     )
+    service._test_dataservice.record_catalog_admin_log.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -236,7 +181,6 @@ async def test_validate_returns_errors_without_writing(service):
     bad_yaml = SAMPLE_YAML.replace(
         "subagent_type: react", "subagent_type: nonexistent"
     )
-    # Stub the validator to return an error
     service.validator.validate_capability = AsyncMock(
         return_value=["subagent_type 'nonexistent' not in v2 subagent registry"]
     )
@@ -255,25 +199,7 @@ async def test_to_yaml_text_round_trips(service):
 
 
 @pytest.mark.asyncio
-async def test_create_uses_dataservice_client_without_gateway_commit():
-    dataservice = AsyncMock()
-    dataservice.get_catalog_capability.return_value = None
-    dataservice.upsert_catalog_capability.return_value = MagicMock(
-        id="test_cap",
-        workspace_type="thesis",
-    )
-    db = AsyncMock()
-    bus = AsyncMock()
-    service = AdminCapabilityService(db=db, event_bus=bus, dataservice=dataservice)
-    service.validator.validate_capability = AsyncMock(return_value=[])
-
-    cap = await service.create(yaml_text=SAMPLE_YAML, admin_id="admin-uuid")
-
-    assert cap.id == "test_cap"
-    dataservice.upsert_catalog_capability.assert_awaited_once()
-    dataservice.record_catalog_admin_log.assert_awaited_once()
-    db.commit.assert_not_awaited()
-    bus.publish.assert_awaited_once_with(
-        "capability.invalidated",
-        {"id": "test_cap", "workspace_type": "thesis"},
-    )
+async def test_create_does_not_commit_gateway_session(service):
+    service.db.commit = AsyncMock()
+    await service.create(yaml_text=SAMPLE_YAML, admin_id="admin-uuid")
+    service.db.commit.assert_not_awaited()

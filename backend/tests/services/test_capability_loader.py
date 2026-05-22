@@ -4,14 +4,18 @@ import textwrap
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
 
-from tests.database.conftest import DbCapability
+
+class _SeedCatalogFake:
+    def __init__(self, *, has_capabilities: bool = False) -> None:
+        self.has_catalog_capabilities = AsyncMock(return_value=has_capabilities)
+        self.load_catalog_capability_seed_items = AsyncMock()
+        self.list_catalog_capabilities = AsyncMock(return_value=[])
 
 
 @pytest.mark.asyncio
 async def test_load_seeds_when_empty(test_session, tmp_path):
-    """DB empty → loads YAML → Capability exists."""
+    """Catalog empty → loads YAML through DataService."""
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
     yaml_file = seed_dir / "deep_research.yaml"
@@ -40,57 +44,40 @@ async def test_load_seeds_when_empty(test_session, tmp_path):
 
     from src.services.capability_loader import CapabilityLoader
 
+    dataservice = _SeedCatalogFake(has_capabilities=False)
+    dataservice.load_catalog_capability_seed_items.return_value.loaded = 1
     loader = CapabilityLoader(
         session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
-        model=DbCapability,
+        dataservice=dataservice,
     )
     count = await loader.load_seeds_if_empty()
 
     assert count == 1
-
-    result = (
-        await test_session.execute(
-            select(DbCapability).where(
-                DbCapability.id == "deep_research",
-                DbCapability.workspace_type == "thesis",
-            )
-        )
-    ).scalar_one()
-
-    assert result.display_name == "深度文献调研"
-    assert result.intent_description == "用户希望对某个主题做学术性的深度文献调研"
-    assert result.enabled is True
-    assert result.trigger_phrases == []
-    assert result.required_decisions == []
+    command = dataservice.load_catalog_capability_seed_items.await_args.args[0]
+    assert command.items[0].data["display_name"] == "深度文献调研"
+    assert command.items[0].data["intent_description"] == "用户希望对某个主题做学术性的深度文献调研"
+    assert command.items[0].data["enabled"] is True
+    assert command.items[0].data["trigger_phrases"] == []
+    assert command.items[0].data["required_decisions"] == []
 
 
 @pytest.mark.asyncio
 async def test_load_skips_when_db_has_data(test_session, tmp_path):
-    """Pre-insert a Capability → loader returns 0."""
-    cap = DbCapability(
-        id="existing",
-        workspace_type="thesis",
-        display_name="Existing",
-        description="test",
-        intent_description="test",
-        brief_schema={"type": "object"},
-        graph_template={"phases": []},
-        ui_meta={},
-    )
-    test_session.add(cap)
-    await test_session.commit()
+    """Existing catalog data → loader returns 0."""
 
     from src.services.capability_loader import CapabilityLoader
 
+    dataservice = _SeedCatalogFake(has_capabilities=True)
     loader = CapabilityLoader(
         session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
-        model=DbCapability,
+        dataservice=dataservice,
     )
     count = await loader.load_seeds_if_empty()
 
     assert count == 0
+    dataservice.load_catalog_capability_seed_items.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -112,7 +99,7 @@ async def test_load_validates_required_fields(test_session, tmp_path):
     loader = CapabilityLoader(
         session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
-        model=DbCapability,
+        dataservice=_SeedCatalogFake(has_capabilities=False),
     )
 
     with pytest.raises(ValueError, match="Missing required fields"):
@@ -143,25 +130,18 @@ async def test_loads_ui_meta_from_yaml(test_session, tmp_path):
 
     from src.services.capability_loader import CapabilityLoader
 
+    dataservice = _SeedCatalogFake(has_capabilities=False)
+    dataservice.load_catalog_capability_seed_items.return_value.loaded = 1
     loader = CapabilityLoader(
         session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
-        model=DbCapability,
+        dataservice=dataservice,
     )
     count = await loader.load_seeds_if_empty()
 
     assert count == 1
-
-    result = (
-        await test_session.execute(
-            select(DbCapability).where(
-                DbCapability.id == "test_cap",
-                DbCapability.workspace_type == "thesis",
-            )
-        )
-    ).scalar_one()
-
-    assert result.ui_meta == {
+    command = dataservice.load_catalog_capability_seed_items.await_args.args[0]
+    assert command.items[0].data["ui_meta"] == {
         "icon": "search",
         "color": "purple",
         "order": 0,

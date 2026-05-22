@@ -1,17 +1,9 @@
 """Tests for CapabilityResolver and validate_capability."""
 
-from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-
-from tests.database.conftest import DbCapability
-
-
-@asynccontextmanager
-async def _make_session_factory(session):
-    """Wrap an existing session as a context manager for CapabilityResolver."""
-    yield session
 
 
 def _make_event_bus():
@@ -26,8 +18,7 @@ def _make_event_bus():
     return bus
 
 
-def _seed_capability(session, **overrides):
-    """Insert a capability with sensible defaults."""
+def _capability(**overrides):
     defaults = {
         "id": "deep_research",
         "workspace_type": "thesis",
@@ -59,24 +50,54 @@ def _seed_capability(session, **overrides):
         "ui_meta": {"icon": "search", "color": "purple", "order": 0},
     }
     defaults.update(overrides)
-    cap = DbCapability(**defaults)
-    session.add(cap)
-    return cap
+    return SimpleNamespace(**defaults)
+
+
+class _FakeCapabilityCatalog:
+    def __init__(self, capabilities):
+        self.capabilities = {
+            (cap.workspace_type, cap.id): cap
+            for cap in capabilities
+        }
+
+    async def get_catalog_capability(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+        enabled_only: bool = True,
+    ):
+        cap = self.capabilities.get((workspace_type, capability_id))
+        if cap is None:
+            return None
+        if enabled_only and not cap.enabled:
+            return None
+        return cap
+
+    async def list_catalog_capabilities(
+        self,
+        *,
+        workspace_type: str,
+        enabled_only: bool = True,
+    ):
+        return [
+            cap
+            for cap in self.capabilities.values()
+            if cap.workspace_type == workspace_type
+            and (not enabled_only or cap.enabled)
+        ]
 
 
 @pytest.mark.asyncio
-async def test_resolve_from_db(test_session):
+async def test_resolve_from_dataservice_catalog():
     """Seed capability → resolve → returns correct Capability."""
-    _seed_capability(test_session)
-    await test_session.commit()
-
     from src.services.capability_resolver import CapabilityResolver
 
     bus = _make_event_bus()
     resolver = CapabilityResolver(
-        session_factory=lambda: _make_session_factory(test_session),
+        session_factory=lambda: None,
         event_bus=bus,
-        model=DbCapability,
+        dataservice=_FakeCapabilityCatalog([_capability()]),
     )
 
     cap = await resolver.resolve("deep_research", "thesis")
@@ -87,18 +108,15 @@ async def test_resolve_from_db(test_session):
 
 
 @pytest.mark.asyncio
-async def test_resolve_uses_cache(test_session):
+async def test_resolve_uses_cache():
     """Resolve twice → same object reference (cache hit)."""
-    _seed_capability(test_session)
-    await test_session.commit()
-
     from src.services.capability_resolver import CapabilityResolver
 
     bus = _make_event_bus()
     resolver = CapabilityResolver(
-        session_factory=lambda: _make_session_factory(test_session),
+        session_factory=lambda: None,
         event_bus=bus,
-        model=DbCapability,
+        dataservice=_FakeCapabilityCatalog([_capability()]),
     )
 
     cap1 = await resolver.resolve("deep_research", "thesis")
@@ -108,18 +126,15 @@ async def test_resolve_uses_cache(test_session):
 
 
 @pytest.mark.asyncio
-async def test_invalidate_clears_cache(test_session):
-    """Resolve → publish invalidate event → cache entry removed → DB re-queried."""
-    _seed_capability(test_session)
-    await test_session.commit()
-
+async def test_invalidate_clears_cache():
+    """Resolve → publish invalidate event → cache entry removed → catalog re-read."""
     from src.services.capability_resolver import CapabilityResolver
 
     bus = _make_event_bus()
     resolver = CapabilityResolver(
-        session_factory=lambda: _make_session_factory(test_session),
+        session_factory=lambda: None,
         event_bus=bus,
-        model=DbCapability,
+        dataservice=_FakeCapabilityCatalog([_capability()]),
     )
 
     cap1 = await resolver.resolve("deep_research", "thesis")

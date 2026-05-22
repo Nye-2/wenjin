@@ -95,17 +95,7 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
     "dataservice_client",
 }
 RUNTIME_DATASERVICE_API_ALLOWED_FILES: set[str] = set()
-RUNTIME_DIRECT_SQL_ALLOWED_FILES = {
-    "gateway/routers/dev_test_hooks.py",
-    "services/admin_capability_service.py",
-    "services/admin_skill_service.py",
-    "services/capability_loader.py",
-    "services/capability_resolver.py",
-    "services/dashboard_service.py",
-    "services/skill_loader.py",
-    "services/skill_resolver.py",
-    "services/workspace_summary_service.py",
-}
+RUNTIME_DIRECT_SQL_ALLOWED_FILES: set[str] = set()
 
 
 def _imports(path: Path) -> list[str]:

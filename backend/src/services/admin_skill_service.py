@@ -7,7 +7,6 @@ from typing import Any
 
 import yaml
 from pydantic import ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -18,8 +17,6 @@ from src.dataservice_client.contracts.catalog import (
 )
 from src.dataservice_client.provider import dataservice_client
 from src.services.capability_schema import CapabilitySkillYamlModel, CrossRefValidator
-
-AdminLog: Any | None = None
 
 
 def _sha256(text: str) -> str:
@@ -34,20 +31,6 @@ def _yaml_to_catalog_data(model: CapabilitySkillYamlModel) -> dict[str, Any]:
         "display_name": model.display_name,
         "description": model.description,
         "worker_type": model.subagent_type,
-        "subagent_type": model.subagent_type,
-        "prompt": model.prompt,
-        "allowed_tools": list(model.allowed_tools),
-        "resources": list(model.resources),
-        "config": dict(model.config),
-    }
-
-
-def _yaml_to_legacy_model_data(model: CapabilitySkillYamlModel) -> dict[str, Any]:
-    return {
-        "id": model.id,
-        "enabled": model.enabled,
-        "display_name": model.display_name,
-        "description": model.description,
         "subagent_type": model.subagent_type,
         "prompt": model.prompt,
         "allowed_tools": list(model.allowed_tools),
@@ -75,11 +58,9 @@ class AdminSkillService:
         self,
         db: AsyncSession,
         *,
-        model: Any | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.db = db
-        self._model = model
         self._dataservice = dataservice
         self.validator = CrossRefValidator(db)
 
@@ -134,19 +115,6 @@ class AdminSkillService:
         admin_id: str,
         details: dict[str, Any],
     ) -> None:
-        if self._model is not None:
-            if AdminLog is not None:
-                self.db.add(
-                    AdminLog(
-                        action=action,
-                        admin_id=admin_id,
-                        target_user_id=None,
-                        details=details,
-                        target_type="skill",
-                    )
-                )
-            return
-
         command = AdminLogCreatePayload(
             action=action,
             admin_id=admin_id,
@@ -161,15 +129,9 @@ class AdminSkillService:
             await client.record_catalog_admin_log(command)
 
     async def list_all(self) -> list[Any]:
-        if self._model is not None:
-            result = await self.db.execute(select(self._model).order_by(self._model.id))
-            return list(result.scalars().all())
         return await self._list_skills()
 
     async def get(self, skill_id: str) -> Any | None:
-        if self._model is not None:
-            result = await self.db.execute(select(self._model).where(self._model.id == skill_id))
-            return result.scalars().first()
         return await self._get_skill(skill_id)
 
     async def validate(self, yaml_text: str) -> list[str]:
@@ -188,14 +150,10 @@ class AdminSkillService:
         if await self.get(model.id):
             raise ValueError(f"skill {model.id} already exists")
 
-        if self._model is not None:
-            skill = self._model(**_yaml_to_legacy_model_data(model))
-            self.db.add(skill)
-        else:
-            skill = await self._upsert_skill(
-                _yaml_to_catalog_data(model),
-                checksum=_sha256(yaml_text),
-            )
+        skill = await self._upsert_skill(
+            _yaml_to_catalog_data(model),
+            checksum=_sha256(yaml_text),
+        )
 
         await self._record_admin_log(
             action="skill_create",
@@ -205,8 +163,6 @@ class AdminSkillService:
                 "yaml_after_sha256": _sha256(yaml_text),
             },
         )
-        if self._model is not None:
-            await self.db.commit()
         return skill
 
     async def update(self, skill_id: str, yaml_text: str, admin_id: str) -> Any:
@@ -218,17 +174,10 @@ class AdminSkillService:
             raise ValueError("not found")
         before_yaml = yaml.safe_dump(_record_to_yaml_dict(skill), sort_keys=False, allow_unicode=True)
 
-        if self._model is not None:
-            for key, value in _yaml_to_legacy_model_data(model).items():
-                if key == "id":
-                    continue
-                setattr(skill, key, value)
-            updated = skill
-        else:
-            updated = await self._upsert_skill(
-                _yaml_to_catalog_data(model),
-                checksum=_sha256(yaml_text),
-            )
+        updated = await self._upsert_skill(
+            _yaml_to_catalog_data(model),
+            checksum=_sha256(yaml_text),
+        )
 
         await self._record_admin_log(
             action="skill_update",
@@ -239,8 +188,6 @@ class AdminSkillService:
                 "yaml_after_sha256": _sha256(yaml_text),
             },
         )
-        if self._model is not None:
-            await self.db.commit()
         return updated
 
     async def delete(self, skill_id: str, admin_id: str) -> None:
@@ -249,10 +196,7 @@ class AdminSkillService:
             raise ValueError("not found")
         before_yaml = yaml.safe_dump(_record_to_yaml_dict(skill), sort_keys=False, allow_unicode=True)
 
-        if self._model is not None:
-            await self.db.delete(skill)
-        else:
-            await self._delete_skill(skill_id)
+        await self._delete_skill(skill_id)
 
         await self._record_admin_log(
             action="skill_delete",
@@ -262,8 +206,6 @@ class AdminSkillService:
                 "yaml_before_sha256": _sha256(before_yaml),
             },
         )
-        if self._model is not None:
-            await self.db.commit()
 
     async def toggle(self, skill_id: str, admin_id: str) -> Any:
         skill = await self.get(skill_id)
@@ -271,16 +213,12 @@ class AdminSkillService:
             raise ValueError("not found")
         previous = skill.enabled
 
-        if self._model is not None:
-            skill.enabled = not previous
-            updated = skill
-        else:
-            updated = await self._set_skill_enabled(
-                skill_id=skill_id,
-                enabled=not previous,
-            )
-            if updated is None:
-                raise ValueError("not found")
+        updated = await self._set_skill_enabled(
+            skill_id=skill_id,
+            enabled=not previous,
+        )
+        if updated is None:
+            raise ValueError("not found")
 
         await self._record_admin_log(
             action="skill_toggle",
@@ -291,8 +229,6 @@ class AdminSkillService:
                 "enabled_after": updated.enabled,
             },
         )
-        if self._model is not None:
-            await self.db.commit()
         return updated
 
     def to_yaml_text(self, skill: Any) -> str:

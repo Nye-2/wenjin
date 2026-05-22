@@ -38,23 +38,38 @@ def _make_capability(
     )
 
 
+class _FakeSummaryDataService:
+    def __init__(self, capabilities: list[DbCapability]) -> None:
+        self.capabilities = list(capabilities)
+
+    async def list_catalog_capabilities(
+        self,
+        *,
+        workspace_type: str | None = None,
+        enabled_only: bool = False,
+    ):
+        return [
+            capability
+            for capability in self.capabilities
+            if (workspace_type is None or capability.workspace_type == workspace_type)
+            and (not enabled_only or capability.enabled)
+        ]
+
+
 @pytest.mark.asyncio
 async def test_summary_prioritizes_failed_module_and_generates_risk(test_session):
-    test_session.add_all(
-        [
-            _make_capability("deep_research", "thesis", order=0, display_name="深度调研"),
-            _make_capability(
-                "literature_management",
-                "thesis",
-                order=1,
-                display_name="文献管理",
-            ),
-            _make_capability("opening_research", "thesis", order=2, display_name="开题调研"),
-            _make_capability("thesis_writing", "thesis", order=3, display_name="论文写作"),
-            _make_capability("figure_generation", "thesis", order=4, display_name="图表生成"),
-        ]
-    )
-    await test_session.commit()
+    capabilities = [
+        _make_capability("deep_research", "thesis", order=0, display_name="深度调研"),
+        _make_capability(
+            "literature_management",
+            "thesis",
+            order=1,
+            display_name="文献管理",
+        ),
+        _make_capability("opening_research", "thesis", order=2, display_name="开题调研"),
+        _make_capability("thesis_writing", "thesis", order=3, display_name="论文写作"),
+        _make_capability("figure_generation", "thesis", order=4, display_name="图表生成"),
+    ]
 
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
@@ -86,7 +101,7 @@ async def test_summary_prioritizes_failed_module_and_generates_risk(test_session
         test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
-        capability_model=DbCapability,
+        dataservice=_FakeSummaryDataService(capabilities),
     )
 
     result = await service.get_summary(
@@ -105,19 +120,16 @@ async def test_summary_prioritizes_failed_module_and_generates_risk(test_session
 async def test_summary_builds_progress_and_recommended_actions_for_in_progress_module(
     test_session,
 ):
-    test_session.add_all(
-        [
-            _make_capability("literature_search", "sci", order=0, display_name="文献检索"),
-            _make_capability("paper_analysis", "sci", order=1, display_name="论文分析"),
-            _make_capability("writing", "sci", order=2, display_name="论文写作"),
-            _make_capability("literature_review", "sci", order=3, display_name="文献综述"),
-            _make_capability("framework_outline", "sci", order=4, display_name="框架与摘要"),
-            _make_capability("figure_generation", "sci", order=5, display_name="图表生成"),
-            _make_capability("peer_review", "sci", order=6, display_name="同行评审"),
-            _make_capability("journal_recommend", "sci", order=7, display_name="期刊推荐"),
-        ]
-    )
-    await test_session.commit()
+    capabilities = [
+        _make_capability("literature_search", "sci", order=0, display_name="文献检索"),
+        _make_capability("paper_analysis", "sci", order=1, display_name="论文分析"),
+        _make_capability("writing", "sci", order=2, display_name="论文写作"),
+        _make_capability("literature_review", "sci", order=3, display_name="文献综述"),
+        _make_capability("framework_outline", "sci", order=4, display_name="框架与摘要"),
+        _make_capability("figure_generation", "sci", order=5, display_name="图表生成"),
+        _make_capability("peer_review", "sci", order=6, display_name="同行评审"),
+        _make_capability("journal_recommend", "sci", order=7, display_name="期刊推荐"),
+    ]
 
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
@@ -136,7 +148,7 @@ async def test_summary_builds_progress_and_recommended_actions_for_in_progress_m
         test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
-        capability_model=DbCapability,
+        dataservice=_FakeSummaryDataService(capabilities),
     )
 
     result = await service.get_summary(
@@ -156,21 +168,18 @@ async def test_summary_builds_progress_and_recommended_actions_for_in_progress_m
 
 @pytest.mark.asyncio
 async def test_summary_warns_when_thesis_literature_is_thin(test_session):
-    test_session.add_all(
-        [
-            _make_capability("deep_research", "thesis", order=0, display_name="深度调研"),
-            _make_capability(
-                "literature_management",
-                "thesis",
-                order=1,
-                display_name="文献管理",
-            ),
-            _make_capability("opening_research", "thesis", order=2, display_name="开题调研"),
-            _make_capability("thesis_writing", "thesis", order=3, display_name="论文写作"),
-            _make_capability("figure_generation", "thesis", order=4, display_name="图表生成"),
-        ]
-    )
-    await test_session.commit()
+    capabilities = [
+        _make_capability("deep_research", "thesis", order=0, display_name="深度调研"),
+        _make_capability(
+            "literature_management",
+            "thesis",
+            order=1,
+            display_name="文献管理",
+        ),
+        _make_capability("opening_research", "thesis", order=2, display_name="开题调研"),
+        _make_capability("thesis_writing", "thesis", order=3, display_name="论文写作"),
+        _make_capability("figure_generation", "thesis", order=4, display_name="图表生成"),
+    ]
 
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
@@ -191,7 +200,7 @@ async def test_summary_warns_when_thesis_literature_is_thin(test_session):
         test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
-        capability_model=DbCapability,
+        dataservice=_FakeSummaryDataService(capabilities),
     )
 
     result = await service.get_summary(
@@ -209,13 +218,10 @@ async def test_summary_warns_when_thesis_literature_is_thin(test_session):
 async def test_summary_prefers_active_execution_session_for_current_phase_and_next_step(
     test_session,
 ):
-    test_session.add_all(
-        [
-            _make_capability("literature_search", "sci", order=0, display_name="文献检索"),
-            _make_capability("framework_outline", "sci", order=1, display_name="框架与摘要"),
-        ]
-    )
-    await test_session.commit()
+    capabilities = [
+        _make_capability("literature_search", "sci", order=0, display_name="文献检索"),
+        _make_capability("framework_outline", "sci", order=1, display_name="框架与摘要"),
+    ]
 
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
@@ -255,7 +261,7 @@ async def test_summary_prefers_active_execution_session_for_current_phase_and_ne
         dashboard_service=dashboard_service,
         activity_service=activity_service,
         execution_service=execution_service,
-        capability_model=DbCapability,
+        dataservice=_FakeSummaryDataService(capabilities),
     )
 
     result = await service.get_summary(
@@ -321,13 +327,10 @@ async def test_summary_adds_workspace_specific_warning_risks(
     modules: list[dict[str, object]],
     expected_risk_id: str,
 ):
-    test_session.add_all(
-        [
-            _make_capability(cap_id, workspace_type, order=order, display_name=name)
-            for cap_id, order, name in capabilities
-        ]
-    )
-    await test_session.commit()
+    catalog_capabilities = [
+        _make_capability(cap_id, workspace_type, order=order, display_name=name)
+        for cap_id, order, name in capabilities
+    ]
 
     dashboard_service = AsyncMock()
     dashboard_service.get_dashboard = AsyncMock(
@@ -339,7 +342,7 @@ async def test_summary_adds_workspace_specific_warning_risks(
         test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
-        capability_model=DbCapability,
+        dataservice=_FakeSummaryDataService(catalog_capabilities),
     )
 
     result = await service.get_summary(

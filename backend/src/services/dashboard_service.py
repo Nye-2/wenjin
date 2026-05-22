@@ -4,7 +4,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -29,11 +28,9 @@ class DashboardService(
         self,
         db: AsyncSession,
         *,
-        capability_model: type | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ):
         self.db = db
-        self._capability_model = capability_model
         self._dataservice = dataservice
 
     @asynccontextmanager
@@ -101,19 +98,10 @@ class DashboardService(
         ``id`` as a stable tie-breaker. Dispatch uses ``dashboard_meta.status_kind``
         when present, falling back to ``capability.id``.
         """
-        if self._capability_model is not None:
-            capability_model = self._capability_model
-            result = await self.db.execute(
-                select(capability_model)
-                .where(capability_model.workspace_type == workspace_type)
-                .where(capability_model.enabled == True)  # noqa: E712
-            )
-            raw_capabilities = result.scalars().all()
-        else:
-            raw_capabilities = await self._list_catalog_capabilities(
-                workspace_type=workspace_type,
-                enabled_only=True,
-            )
+        raw_capabilities = await self._list_catalog_capabilities(
+            workspace_type=workspace_type,
+            enabled_only=True,
+        )
         capabilities = sorted(raw_capabilities, key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id))
 
         modules: list[dict[str, Any]] = []

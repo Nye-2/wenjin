@@ -15,18 +15,17 @@ Endpoints:
 from __future__ import annotations
 
 from collections import deque
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.agents.chat_agent.blocks import AgentMessage
-from src.database import User
 from src.gateway.deps.academic import get_workspace_service
-from src.gateway.deps.core import get_db
-from src.services.auth import hash_password
+from src.gateway.deps.core import get_dataservice_client
+from src.dataservice_client import AsyncDataServiceClient
+from src.services.user_service import UserService
 
 router = APIRouter(prefix="/__test__", tags=["dev"])
 
@@ -67,31 +66,25 @@ def pop_next() -> AgentMessage | None:
     return _queue.popleft() if _queue else None
 
 
-async def _ensure_e2e_user(db: AsyncSession) -> User:
-    stmt = select(User).where(User.email == _E2E_USER_EMAIL)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+async def _ensure_e2e_user(dataservice: AsyncDataServiceClient) -> Any:
+    user_service = UserService(dataservice=dataservice)
+    user = await user_service.get_by_email(_E2E_USER_EMAIL)
     if user is not None:
         return user
-    user = User(
+    return await user_service.create_user(
         email=_E2E_USER_EMAIL,
         name="E2E Test",
-        hashed_password=hash_password("wenjin-e2e-password"),
-        is_active=True,
+        password="wenjin-e2e-password",
     )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    return user
 
 
 @router.post("/workspaces", response_model=WorkspaceOut)
 async def mint_workspace(
     payload: WorkspaceIn = WorkspaceIn(),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceOut:
-    user = await _ensure_e2e_user(db)
+    user = await _ensure_e2e_user(dataservice)
     try:
         workspace = await workspace_service.create(
             user_id=str(user.id),

@@ -23,7 +23,6 @@ from sqlalchemy.pool import StaticPool
 
 from tests.database.conftest import (
     DbAuditLog,
-    DbCapability,
     _Base,
 )
 
@@ -119,6 +118,48 @@ class _FakeAuditDataServiceClient:
         ][:limit]
 
 
+class _FakeCatalogDataServiceClient:
+    def __init__(self) -> None:
+        self.capabilities: dict[tuple[str, str], SimpleNamespace] = {}
+        self.has_catalog_capabilities = AsyncMock(side_effect=self._has_capabilities)
+
+    async def _has_capabilities(self) -> bool:
+        return bool(self.capabilities)
+
+    async def load_catalog_capability_seed_items(self, command):
+        for item in command.items:
+            record = SimpleNamespace(**item.data)
+            self.capabilities[(record.workspace_type, record.id)] = record
+        return SimpleNamespace(loaded=len(command.items))
+
+    async def get_catalog_capability(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+        enabled_only: bool = True,
+    ):
+        record = self.capabilities.get((workspace_type, capability_id))
+        if record is None:
+            return None
+        if enabled_only and not record.enabled:
+            return None
+        return record
+
+    async def list_catalog_capabilities(
+        self,
+        *,
+        workspace_type: str,
+        enabled_only: bool = True,
+    ):
+        return [
+            record
+            for (record_workspace_type, _), record in self.capabilities.items()
+            if record_workspace_type == workspace_type
+            and (not enabled_only or record.enabled)
+        ]
+
+
 _SEED_YAML = textwrap.dedent("""\
     id: deep_research
     workspace_type: thesis
@@ -156,10 +197,11 @@ async def test_capability_load_resolve_invalidate(db_session, tmp_path):
 
     from src.services.capability_loader import CapabilityLoader
 
+    dataservice = _FakeCatalogDataServiceClient()
     loader = CapabilityLoader(
         session=db_session,
         seed_dir=str(tmp_path / "capabilities"),
-        model=DbCapability,
+        dataservice=dataservice,
     )
     count = await loader.load_seeds_if_empty()
     assert count == 1, "Loader should have inserted exactly 1 capability"
@@ -170,7 +212,7 @@ async def test_capability_load_resolve_invalidate(db_session, tmp_path):
     resolver = CapabilityResolver(
         session_factory=_session_factory(db_session),
         event_bus=bus,
-        model=DbCapability,
+        dataservice=dataservice,
     )
 
     # First resolve: DB hit, result cached

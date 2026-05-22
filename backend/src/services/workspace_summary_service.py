@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -43,15 +42,16 @@ class WorkspaceSummaryService:
         dashboard_service: DashboardService | None = None,
         activity_service: WorkspaceActivityService | None = None,
         execution_service: ExecutionService | None = None,
-        capability_model: type | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.db = db
-        self._dashboard_service = dashboard_service or DashboardService(db)
+        self._dataservice = dataservice
+        self._dashboard_service = dashboard_service or DashboardService(
+            db,
+            dataservice=dataservice,
+        )
         self._activity_service = activity_service or WorkspaceActivityService(db)
         self._execution_service = execution_service
-        self._capability_model = capability_model
-        self._dataservice = dataservice
 
     async def _list_catalog_capabilities(
         self,
@@ -146,19 +146,10 @@ class WorkspaceSummaryService:
                 continue
             latest_execution_by_feature[feature_id] = execution
 
-        if self._capability_model is not None:
-            capability_model = self._capability_model
-            result = await self.db.execute(
-                select(capability_model)
-                .where(capability_model.workspace_type == workspace_type)
-                .where(capability_model.enabled == True)  # noqa: E712
-            )
-            raw_capabilities = result.scalars().all()
-        else:
-            raw_capabilities = await self._list_catalog_capabilities(
-                workspace_type=workspace_type,
-                enabled_only=True,
-            )
+        raw_capabilities = await self._list_catalog_capabilities(
+            workspace_type=workspace_type,
+            enabled_only=True,
+        )
         capabilities = sorted(raw_capabilities, key=lambda c: ((c.ui_meta or {}).get("order", 0), c.id))
 
         normalized: list[dict[str, Any]] = []

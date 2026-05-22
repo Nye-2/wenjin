@@ -8,7 +8,6 @@ from typing import Any
 
 import yaml
 from pydantic import ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -24,7 +23,6 @@ from src.services.event_bus import EventBus
 logger = logging.getLogger(__name__)
 
 INVALIDATE_CHANNEL = "capability.invalidated"
-AdminLog: Any | None = None
 
 
 def _sha256(text: str) -> str:
@@ -49,12 +47,12 @@ def _yaml_to_catalog_data(model: CapabilityYamlModel) -> dict[str, Any]:
         "description": model.description,
         "intent_description": model.intent_description,
         "trigger_phrases": list(model.trigger_phrases),
-        "required_decisions": [d.model_dump() for d in model.required_decisions],
+        "required_decisions": [d.model_dump(mode="json") for d in model.required_decisions],
         "brief_schema": model.brief_schema,
-        "graph_template": model.graph_template.model_dump(),
-        "ui_meta": model.ui_meta.model_dump(),
-        "runtime": model.runtime.model_dump(),
-        "dashboard_meta": model.dashboard_meta.model_dump(),
+        "graph_template": model.graph_template.model_dump(mode="json"),
+        "ui_meta": model.ui_meta.model_dump(mode="json"),
+        "runtime": model.runtime.model_dump(mode="json"),
+        "dashboard_meta": model.dashboard_meta.model_dump(mode="json"),
         "notes": model.notes,
     }
 
@@ -84,12 +82,10 @@ class AdminCapabilityService:
         db: AsyncSession,
         event_bus: EventBus,
         *,
-        model: Any | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.db = db
         self.event_bus = event_bus
-        self._model = model
         self._dataservice = dataservice
         self.validator = CrossRefValidator(db)
 
@@ -171,19 +167,6 @@ class AdminCapabilityService:
         admin_id: str,
         details: dict[str, Any],
     ) -> None:
-        if self._model is not None:
-            if AdminLog is not None:
-                self.db.add(
-                    AdminLog(
-                        action=action,
-                        admin_id=admin_id,
-                        target_user_id=None,
-                        details=details,
-                        target_type="capability",
-                    )
-                )
-            return
-
         command = AdminLogCreatePayload(
             action=action,
             admin_id=admin_id,
@@ -198,22 +181,9 @@ class AdminCapabilityService:
             await client.record_catalog_admin_log(command)
 
     async def list_all(self) -> list[Any]:
-        if self._model is not None:
-            result = await self.db.execute(
-                select(self._model).order_by(self._model.workspace_type, self._model.id)
-            )
-            return list(result.scalars().all())
         return await self._list_capabilities()
 
     async def get(self, capability_id: str, workspace_type: str) -> Any | None:
-        if self._model is not None:
-            result = await self.db.execute(
-                select(self._model).where(
-                    self._model.id == capability_id,
-                    self._model.workspace_type == workspace_type,
-                )
-            )
-            return result.scalars().first()
         return await self._get_capability(capability_id, workspace_type)
 
     async def validate(self, yaml_text: str) -> list[str]:
@@ -233,19 +203,10 @@ class AdminCapabilityService:
         if existing is not None:
             raise ValueError(f"capability {model.id} for {model.workspace_type} already exists")
 
-        if self._model is not None:
-            model_data = {
-                key: value
-                for key, value in _yaml_to_catalog_data(model).items()
-                if key != "schema_version"
-            }
-            cap = self._model(**model_data)
-            self.db.add(cap)
-        else:
-            cap = await self._upsert_capability(
-                _yaml_to_catalog_data(model),
-                checksum=_sha256(yaml_text),
-            )
+        cap = await self._upsert_capability(
+            _yaml_to_catalog_data(model),
+            checksum=_sha256(yaml_text),
+        )
 
         await self._record_admin_log(
             action="capability_create",
@@ -256,8 +217,6 @@ class AdminCapabilityService:
                 "yaml_after_sha256": _sha256(yaml_text),
             },
         )
-        if self._model is not None:
-            await self.db.commit()
         await self.publish_invalidation(model.id, model.workspace_type)
         return cap
 
@@ -280,17 +239,10 @@ class AdminCapabilityService:
         before_yaml = yaml.safe_dump(before_dict, sort_keys=False, allow_unicode=True)
         after_data = _yaml_to_catalog_data(model)
 
-        if self._model is not None:
-            for key, value in after_data.items():
-                if key in ("id", "workspace_type", "schema_version"):
-                    continue
-                setattr(cap, key, value)
-            updated = cap
-        else:
-            updated = await self._upsert_capability(
-                after_data,
-                checksum=_sha256(yaml_text),
-            )
+        updated = await self._upsert_capability(
+            after_data,
+            checksum=_sha256(yaml_text),
+        )
 
         await self._record_admin_log(
             action="capability_update",
@@ -303,8 +255,6 @@ class AdminCapabilityService:
                 "diff_fields": _diff_fields(before_dict, _record_to_yaml_dict(updated)),
             },
         )
-        if self._model is not None:
-            await self.db.commit()
         await self.publish_invalidation(model.id, model.workspace_type)
         return updated
 
@@ -314,13 +264,10 @@ class AdminCapabilityService:
             raise ValueError("not found")
         before_yaml = yaml.safe_dump(_record_to_yaml_dict(cap), sort_keys=False, allow_unicode=True)
 
-        if self._model is not None:
-            await self.db.delete(cap)
-        else:
-            await self._delete_capability(
-                capability_id=capability_id,
-                workspace_type=workspace_type,
-            )
+        await self._delete_capability(
+            capability_id=capability_id,
+            workspace_type=workspace_type,
+        )
 
         await self._record_admin_log(
             action="capability_delete",
@@ -331,8 +278,6 @@ class AdminCapabilityService:
                 "yaml_before_sha256": _sha256(before_yaml),
             },
         )
-        if self._model is not None:
-            await self.db.commit()
         await self.publish_invalidation(capability_id, workspace_type)
 
     async def toggle(self, capability_id: str, workspace_type: str, admin_id: str) -> Any:
@@ -341,17 +286,13 @@ class AdminCapabilityService:
             raise ValueError("not found")
         previous = cap.enabled
 
-        if self._model is not None:
-            cap.enabled = not previous
-            updated = cap
-        else:
-            updated = await self._set_capability_enabled(
-                capability_id=capability_id,
-                workspace_type=workspace_type,
-                enabled=not previous,
-            )
-            if updated is None:
-                raise ValueError("not found")
+        updated = await self._set_capability_enabled(
+            capability_id=capability_id,
+            workspace_type=workspace_type,
+            enabled=not previous,
+        )
+        if updated is None:
+            raise ValueError("not found")
 
         await self._record_admin_log(
             action="capability_toggle",
@@ -363,8 +304,6 @@ class AdminCapabilityService:
                 "enabled_after": updated.enabled,
             },
         )
-        if self._model is not None:
-            await self.db.commit()
         await self.publish_invalidation(capability_id, workspace_type)
         return updated
 

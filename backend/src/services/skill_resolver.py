@@ -28,11 +28,9 @@ class SkillResolver:
         *,
         session_factory: Callable[[], AsyncSession],
         event_bus: Any | None = None,
-        model: Any | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.session_factory = session_factory
-        self._model = model
         self._dataservice = dataservice
         self._cache: dict[str, object] = {}
         if event_bus is not None:
@@ -53,50 +51,13 @@ class SkillResolver:
     async def resolve(self, skill_id: str):
         if skill_id in self._cache:
             return self._cache[skill_id]
-        if self._model is None:
-            skill = await self._get_catalog_skill(skill_id)
-            if skill is not None:
-                self._cache[skill_id] = skill
-            return skill
-
-        session = self.session_factory()
-        if hasattr(session, "__aenter__"):
-            async with session as s:
-                from sqlalchemy import select
-
-                skill = await s.scalar(
-                    select(self._model).where(self._model.id == skill_id)
-                )
-        else:
-            from sqlalchemy import select
-
-            skill = await session.scalar(
-                select(self._model).where(self._model.id == skill_id)
-            )
+        skill = await self._get_catalog_skill(skill_id)
         if skill is not None:
             self._cache[skill_id] = skill
         return skill
 
     async def list_all_enabled(self) -> list:
-        if self._model is None:
-            return await self._list_enabled_catalog_skills()
-
-        session = self.session_factory()
-        if hasattr(session, "__aenter__"):
-            async with session as s:
-                from sqlalchemy import select
-
-                result = await s.execute(
-                    select(self._model).where(self._model.enabled.is_(True))
-                )
-                return list(result.scalars().all())
-        else:
-            from sqlalchemy import select
-
-            result = await session.execute(
-                select(self._model).where(self._model.enabled.is_(True))
-            )
-            return list(result.scalars().all())
+        return await self._list_enabled_catalog_skills()
 
     async def _on_invalidate(self, event: dict[str, Any]) -> None:
         skill_id = event.get("skill_id")

@@ -1,18 +1,9 @@
-"""Tests for AdminSkillService CRUD."""
+"""Tests for AdminSkillService CRUD through DataService."""
 
-import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import pytest_asyncio
-from sqlalchemy import JSON, Boolean, String, Text
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.pool import StaticPool
 
 from src.services.admin_skill_service import AdminSkillService
 
@@ -29,92 +20,50 @@ config: {}
 """
 
 
-# ---------------------------------------------------------------------------
-# Minimal SQLite models
-# ---------------------------------------------------------------------------
+class _SkillCatalogFake:
+    def __init__(self) -> None:
+        self.records: dict[str, SimpleNamespace] = {}
+        self.admin_logs: list[object] = []
+        self.record_catalog_admin_log = AsyncMock(side_effect=self._record_admin_log)
+
+    async def list_catalog_skills(self):
+        return sorted(self.records.values(), key=lambda item: item.id)
+
+    async def get_catalog_skill(self, skill_id: str):
+        return self.records.get(skill_id)
+
+    async def upsert_catalog_skill(self, *, skill_id: str, command):
+        data = dict(command.data)
+        if "subagent_type" not in data and "worker_type" in data:
+            data["subagent_type"] = data["worker_type"]
+        record = SimpleNamespace(**data)
+        self.records[skill_id] = record
+        return record
+
+    async def delete_catalog_skill(self, skill_id: str):
+        return self.records.pop(skill_id, None) is not None
+
+    async def set_catalog_skill_enabled(self, *, skill_id: str, command):
+        record = self.records.get(skill_id)
+        if record is None:
+            return None
+        record.enabled = command.enabled
+        return record
+
+    async def _record_admin_log(self, command):
+        self.admin_logs.append(command)
+        return SimpleNamespace(id=f"log-{len(self.admin_logs)}")
 
 
-class _Base(DeclarativeBase):
-    pass
-
-
-class _TestCapabilitySkill(_Base):
-    __tablename__ = "capability_skills"
-
-    id: Mapped[str] = mapped_column(String(100), primary_key=True)
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    subagent_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    allowed_tools: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    resources: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
-    config: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-
-
-class _TestAdminLog(_Base):
-    __tablename__ = "admin_logs"
-
-    id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    admin_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    action: Mapped[str] = mapped_column(String(100), nullable=False)
-    target_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default="skill"
-    )
-    target_user_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    details: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
-
-
-@pytest_asyncio.fixture
-async def skill_db():
-    engine = create_async_engine(
-        TEST_DB_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.create_all)
-
-    factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    async with factory() as session:
-        yield session
-
-    async with engine.begin() as conn:
-        await conn.run_sync(_Base.metadata.drop_all)
-    await engine.dispose()
-
-
-@pytest.fixture(autouse=True)
-def _patch_models(monkeypatch):
-    """Replace the real ORM models with our SQLite-compatible ones."""
-    import src.services.admin_skill_service as mod
-
-    monkeypatch.setattr(mod, "AdminLog", _TestAdminLog)
-
-
-@pytest_asyncio.fixture
-async def service(skill_db):
+@pytest.fixture
+def service():
     fake_validator = MagicMock()
     fake_validator.validate_skill = AsyncMock(return_value=[])
-    svc = AdminSkillService(db=skill_db, model=_TestCapabilitySkill)
+    dataservice = _SkillCatalogFake()
+    svc = AdminSkillService(db=AsyncMock(), dataservice=dataservice)
     svc.validator = fake_validator
+    svc._test_dataservice = dataservice
     return svc
-
-
-# ---------------------------------------------------------------------------
-# Tests
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -122,6 +71,7 @@ async def test_create_skill_persists(service):
     skill = await service.create(yaml_text=SAMPLE_SKILL_YAML, admin_id="admin-uuid")
     assert skill.id == "test-skill"
     assert skill.subagent_type == "react"
+    service._test_dataservice.record_catalog_admin_log.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -154,7 +104,9 @@ async def test_update_modifies_fields(service):
     await service.create(yaml_text=SAMPLE_SKILL_YAML, admin_id="admin-uuid")
     updated = SAMPLE_SKILL_YAML.replace("Test Skill", "Updated Skill")
     skill = await service.update(
-        skill_id="test-skill", yaml_text=updated, admin_id="admin-uuid"
+        skill_id="test-skill",
+        yaml_text=updated,
+        admin_id="admin-uuid",
     )
     assert skill.display_name == "Updated Skill"
 
@@ -164,7 +116,9 @@ async def test_update_rejects_id_mismatch(service):
     await service.create(yaml_text=SAMPLE_SKILL_YAML, admin_id="admin-uuid")
     with pytest.raises(ValueError, match="must match"):
         await service.update(
-            skill_id="wrong-id", yaml_text=SAMPLE_SKILL_YAML, admin_id="admin-uuid"
+            skill_id="wrong-id",
+            yaml_text=SAMPLE_SKILL_YAML,
+            admin_id="admin-uuid",
         )
 
 
@@ -195,20 +149,7 @@ async def test_to_yaml_text_round_trips(service):
 
 
 @pytest.mark.asyncio
-async def test_create_uses_dataservice_client_without_gateway_commit():
-    dataservice = AsyncMock()
-    dataservice.get_catalog_skill.return_value = None
-    dataservice.upsert_catalog_skill.return_value = MagicMock(
-        id="test-skill",
-        subagent_type="react",
-    )
-    db = AsyncMock()
-    service = AdminSkillService(db=db, dataservice=dataservice)
-    service.validator.validate_skill = AsyncMock(return_value=[])
-
-    skill = await service.create(yaml_text=SAMPLE_SKILL_YAML, admin_id="admin-uuid")
-
-    assert skill.id == "test-skill"
-    dataservice.upsert_catalog_skill.assert_awaited_once()
-    dataservice.record_catalog_admin_log.assert_awaited_once()
-    db.commit.assert_not_awaited()
+async def test_create_does_not_commit_gateway_session(service):
+    service.db.commit = AsyncMock()
+    await service.create(yaml_text=SAMPLE_SKILL_YAML, admin_id="admin-uuid")
+    service.db.commit.assert_not_awaited()

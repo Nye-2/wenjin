@@ -5,11 +5,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 import yaml
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.skill_loader import SkillLoader
-from tests.unit.conftest import UnitCapabilitySkill
+
+
+class _SkillSeedCatalogFake:
+    def __init__(self, *, has_skills: bool = False) -> None:
+        self.has_catalog_skills = AsyncMock(return_value=has_skills)
+        self.load_catalog_skill_seed_items = AsyncMock()
+        self.list_catalog_skills = AsyncMock(return_value=[])
 
 
 @pytest.mark.asyncio
@@ -27,27 +32,19 @@ async def test_load_seeds_if_empty_inserts_all_yamls(db_session: AsyncSession, t
         "config": {"sources": ["semantic_scholar"]},
     }))
 
-    loader = SkillLoader(db_session, seed_dir=tmp_path, model=UnitCapabilitySkill)
+    dataservice = _SkillSeedCatalogFake(has_skills=False)
+    dataservice.load_catalog_skill_seed_items.return_value.loaded = 1
+    loader = SkillLoader(db_session, seed_dir=tmp_path, dataservice=dataservice)
     count = await loader.load_seeds_if_empty()
     assert count == 1
 
-    rows = (await db_session.execute(select(UnitCapabilitySkill))).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].id == "scholar-searcher"
-    assert rows[0].config == {"sources": ["semantic_scholar"]}
+    command = dataservice.load_catalog_skill_seed_items.await_args.args[0]
+    assert command.items[0].data["id"] == "scholar-searcher"
+    assert command.items[0].data["config"] == {"sources": ["semantic_scholar"]}
 
 
 @pytest.mark.asyncio
 async def test_load_seeds_if_empty_skips_when_populated(db_session: AsyncSession, tmp_path: Path) -> None:
-    db_session.add(UnitCapabilitySkill(
-        id="existing",
-        display_name="x",
-        description="x",
-        subagent_type="react",
-        prompt="x",
-    ))
-    await db_session.commit()
-
     skill_yaml = tmp_path / "new.yaml"
     skill_yaml.write_text(yaml.safe_dump({
         "id": "new",
@@ -55,9 +52,11 @@ async def test_load_seeds_if_empty_skips_when_populated(db_session: AsyncSession
         "subagent_type": "react",
     }))
 
-    loader = SkillLoader(db_session, seed_dir=tmp_path, model=UnitCapabilitySkill)
+    dataservice = _SkillSeedCatalogFake(has_skills=True)
+    loader = SkillLoader(db_session, seed_dir=tmp_path, dataservice=dataservice)
     count = await loader.load_seeds_if_empty()
     assert count == 0
+    dataservice.load_catalog_skill_seed_items.assert_not_awaited()
 
 
 @pytest.mark.asyncio

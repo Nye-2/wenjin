@@ -7,7 +7,6 @@ import logging
 from pathlib import Path
 
 import yaml
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -49,19 +48,17 @@ class CapabilityLoader:
     Args:
         session: AsyncSession for database access.
         seed_dir: Path to the directory containing capability YAML seeds.
-        model: Optional test ORM model. Production writes through DataService catalog.
+        dataservice: Optional DataService client override for tests.
     """
 
     def __init__(
         self,
         session: AsyncSession,
         seed_dir: Path | None = None,
-        model=None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.session = session
         self.seed_dir = Path(seed_dir) if seed_dir is not None else DEFAULT_SEED_DIR
-        self._model = model
         self._dataservice = dataservice
 
     async def load_seeds_if_empty(self) -> int:
@@ -70,20 +67,14 @@ class CapabilityLoader:
         Returns:
             Number of capabilities loaded (0 if table already had data).
         """
-        if self._model is None:
-            if self._dataservice is not None:
-                has_capabilities = await self._dataservice.has_catalog_capabilities()
-            else:
-                async with dataservice_client() as client:
-                    has_capabilities = await client.has_catalog_capabilities()
-            if has_capabilities:
-                return 0
-            return await self._load_all_dataservice(overwrite=False)
-
-        existing = (await self.session.execute(select(self._model).limit(1))).first()
-        if existing:
+        if self._dataservice is not None:
+            has_capabilities = await self._dataservice.has_catalog_capabilities()
+        else:
+            async with dataservice_client() as client:
+                has_capabilities = await client.has_catalog_capabilities()
+        if has_capabilities:
             return 0
-        return await self._load_all()
+        return await self._load_all_dataservice(overwrite=False)
 
     async def load_all(self, overwrite: bool = False) -> list:
         """Load all YAML seeds, optionally overwriting existing rows.
@@ -94,39 +85,11 @@ class CapabilityLoader:
         Returns:
             List of loaded ORM instances.
         """
-        if self._model is None:
-            await self._load_all_dataservice(overwrite=overwrite)
-            if self._dataservice is not None:
-                return await self._dataservice.list_catalog_capabilities()
-            async with dataservice_client() as client:
-                return await client.list_catalog_capabilities()
-
-        if overwrite:
-            from sqlalchemy import delete as sa_delete
-            await self.session.execute(sa_delete(self._model))
-        await self._load_all()
-        result = await self.session.execute(select(self._model))
-        return list(result.scalars().all())
-
-    async def _load_all(self) -> int:
-        """Scan seed_dir/*/*.yaml, validate, and insert into DB.
-
-        Returns:
-            Number of capabilities loaded.
-
-        Raises:
-            ValueError: If a YAML file is missing required fields.
-        """
-        count = 0
-        for yaml_path in sorted(self.seed_dir.glob("*/*.yaml")):
-            data = self._read_and_validate(yaml_path)
-            cap = self._model(**data)
-            self.session.add(cap)
-            count += 1
-        if count > 0:
-            await self.session.commit()
-            logger.info("Loaded %d capability seed(s) from %s", count, self.seed_dir)
-        return count
+        await self._load_all_dataservice(overwrite=overwrite)
+        if self._dataservice is not None:
+            return await self._dataservice.list_catalog_capabilities()
+        async with dataservice_client() as client:
+            return await client.list_catalog_capabilities()
 
     async def _load_all_dataservice(self, *, overwrite: bool) -> int:
         command = CatalogSeedLoadPayload(

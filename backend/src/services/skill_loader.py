@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -39,63 +38,29 @@ class SkillLoader:
         session: AsyncSession,
         *,
         seed_dir: Path | None = None,
-        model: Any | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self.session = session
         self.seed_dir = Path(seed_dir) if seed_dir is not None else DEFAULT_SEED_DIR
-        self._model = model
         self._dataservice = dataservice
 
     async def load_seeds_if_empty(self) -> int:
-        if self._model is None:
-            if self._dataservice is not None:
-                has_skills = await self._dataservice.has_catalog_skills()
-            else:
-                async with dataservice_client() as client:
-                    has_skills = await client.has_catalog_skills()
-            if has_skills:
-                return 0
-            return await self._load_all_dataservice(overwrite=False)
-
-        existing = (await self.session.execute(select(self._model).limit(1))).first()
-        if existing:
+        if self._dataservice is not None:
+            has_skills = await self._dataservice.has_catalog_skills()
+        else:
+            async with dataservice_client() as client:
+                has_skills = await client.has_catalog_skills()
+        if has_skills:
             return 0
-        return await self._load_all()
+        return await self._load_all_dataservice(overwrite=False)
 
     async def load_all(self, overwrite: bool = False) -> list:
         """Load all skill YAML seeds and return catalog rows."""
-        if self._model is None:
-            await self._load_all_dataservice(overwrite=overwrite)
-            if self._dataservice is not None:
-                return await self._dataservice.list_catalog_skills()
-            async with dataservice_client() as client:
-                return await client.list_catalog_skills()
-
-        if overwrite:
-            from sqlalchemy import delete as sa_delete
-
-            await self.session.execute(sa_delete(self._model))
-        await self._load_all()
-        result = await self.session.execute(select(self._model))
-        return list(result.scalars().all())
-
-    async def _load_all(self) -> int:
-        if self._model is None:
-            return await self._load_all_dataservice(overwrite=False)
-
-        count = 0
-        if not self.seed_dir.exists():
-            logger.warning("Skill seed dir does not exist: %s", self.seed_dir)
-            return 0
-        for yaml_path in sorted(self.seed_dir.glob("*.yaml")):
-            data = self._read_and_validate(yaml_path)
-            self.session.add(self._model(**data))
-            count += 1
-        if count > 0:
-            await self.session.commit()
-            logger.info("Loaded %d skill seed(s) from %s", count, self.seed_dir)
-        return count
+        await self._load_all_dataservice(overwrite=overwrite)
+        if self._dataservice is not None:
+            return await self._dataservice.list_catalog_skills()
+        async with dataservice_client() as client:
+            return await client.list_catalog_skills()
 
     async def _load_all_dataservice(self, *, overwrite: bool) -> int:
         if not self.seed_dir.exists():
