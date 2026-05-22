@@ -53,30 +53,37 @@ export function LatexToolbar({
   }, []);
 
   return (
-    <div className="rounded-[1.4rem] border border-[var(--border-default)] bg-[rgba(251,248,242,0.94)] p-4 shadow-[0_14px_30px_rgba(19,34,53,0.06)]">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="rounded-lg border border-white/50 bg-white/75 p-3 shadow-sm">
+      <div className="flex flex-wrap items-center gap-2">
         <select
           value={engine}
           onChange={(event) => onEngineChange(event.target.value as LatexCompileEngine)}
-          className="h-10 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 text-sm"
+          className="h-9 rounded-md border border-[var(--border-default)] bg-white/90 px-2 text-sm"
         >
           <option value="xelatex">XeLaTeX</option>
           <option value="pdflatex">PDFLaTeX</option>
         </select>
 
-        <Button variant="outline" onClick={onSave} disabled={disableActions || isSaving}>
+        <Button size="sm" variant="outline" onClick={onSave} disabled={disableActions || isSaving}>
           <Save className="mr-2 h-4 w-4" />
           {isSaving ? "保存中..." : "保存"}
         </Button>
 
-        <Button onClick={onCompile} disabled={disableActions || isCompiling || isSaving}>
+        <Button size="sm" onClick={onCompile} disabled={disableActions || isCompiling || isSaving}>
           <Sparkles className="mr-2 h-4 w-4" />
           {isCompiling ? "编译中..." : "编译"}
         </Button>
+      </div>
 
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-surface)]">
+      <details className="mt-2">
+        <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-md px-2 py-1 text-xs text-[var(--text-muted)] hover:bg-white/70">
+          文件操作
+          <span className="text-[var(--v2-text-tertiary)]">{currentFolderLabel}</span>
+        </summary>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border-default)] bg-white/70 px-2.5 py-1.5 text-xs text-[var(--text-primary)] transition-colors hover:bg-white">
           <Upload className="h-4 w-4" />
-          上传到 {currentFolderLabel}
+          上传文件
           <input
             type="file"
             multiple
@@ -92,9 +99,9 @@ export function LatexToolbar({
           />
         </label>
 
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-surface)]">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border-default)] bg-white/70 px-2.5 py-1.5 text-xs text-[var(--text-primary)] transition-colors hover:bg-white">
           <FolderPlus className="h-4 w-4" />
-          上传目录到 {currentFolderLabel}
+          上传目录
           <input
             ref={directoryInputRef}
             type="file"
@@ -111,9 +118,9 @@ export function LatexToolbar({
           />
         </label>
 
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-[var(--border-default)] px-3 py-2 text-sm text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-surface)]">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[var(--border-default)] bg-white/70 px-2.5 py-1.5 text-xs text-[var(--text-primary)] transition-colors hover:bg-white">
           <Archive className="h-4 w-4" />
-          上传 ZIP 目录到 {currentFolderLabel}
+          上传 ZIP
           <input
             type="file"
             accept=".zip,application/zip"
@@ -128,9 +135,9 @@ export function LatexToolbar({
             }}
           />
         </label>
-      </div>
+        </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+      <div className="mt-2 grid gap-2 lg:grid-cols-2">
         <div className="flex gap-2">
           <Input
             value={newFilePath}
@@ -138,6 +145,7 @@ export function LatexToolbar({
             placeholder="新文件路径，例如 sections/intro.tex"
           />
           <Button
+            size="sm"
             variant="outline"
             disabled={disableActions || isCreatingFile || !newFilePath.trim()}
             onClick={async () => {
@@ -162,6 +170,7 @@ export function LatexToolbar({
             placeholder="新目录路径，例如 sections/appendix"
           />
           <Button
+            size="sm"
             variant="outline"
             disabled={disableActions || isCreatingFolder || !newFolderPath.trim()}
             onClick={async () => {
@@ -179,6 +188,7 @@ export function LatexToolbar({
           </Button>
         </div>
       </div>
+      </details>
     </div>
   );
 }

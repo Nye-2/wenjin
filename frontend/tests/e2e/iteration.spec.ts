@@ -219,7 +219,7 @@ test("Prism review links open the workspace surface before committing room outpu
 
   await page.getByRole("button", { name: "保护当前文件" }).click();
   await expect(page.getByText("当前文件已保护")).toBeVisible();
-  await expect(page.getByText("user_manual_protect").first()).toBeVisible();
+  await expect(page.getByText("保护段落")).toBeVisible();
 
   await page.goto(workbenchUrl);
   await page.getByRole("button", { name: "查看结果" }).click();

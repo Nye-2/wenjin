@@ -156,7 +156,7 @@ export function PrismReviewList({
                 "border-[var(--v2-accent-purple-300)] bg-white shadow-[0_0_0_3px_rgba(124,58,237,0.12)]",
             )}
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
                   <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-[var(--v2-text-secondary)]" />
@@ -184,7 +184,7 @@ export function PrismReviewList({
                 ) : null}
               </div>
               {renderActions ? (
-                <div className="flex flex-wrap justify-end gap-2">
+                <div className="flex flex-wrap gap-2 sm:justify-end">
                   {renderActions(item)}
                 </div>
               ) : null}

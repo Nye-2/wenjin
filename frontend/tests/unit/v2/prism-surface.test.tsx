@@ -276,11 +276,9 @@ describe("workspace prism surface", () => {
       "/workspaces/ws-1?room=library&item_id=lib-1",
     );
     expect(screen.getByTestId("latex-editor-shell")).toHaveTextContent("latex-1:1");
-    expect(screen.getByText("important source excerpt")).toBeInTheDocument();
-    expect(screen.getByText("user_protected")).toBeInTheDocument();
-    expect(screen.getByText("citation_style")).toBeInTheDocument();
-    expect(screen.getByText("APA 7")).toBeInTheDocument();
-    expect(screen.getByText("Prefer concise topic sentences")).toBeInTheDocument();
-    expect(screen.getByText("Intro drafting")).toBeInTheDocument();
+    expect(screen.getByText("待确认")).toBeInTheDocument();
+    expect(screen.getByText("来源")).toBeInTheDocument();
+    expect(screen.getByText("活动")).toBeInTheDocument();
+    expect(screen.getByText("保护段落")).toBeInTheDocument();
   });
 });

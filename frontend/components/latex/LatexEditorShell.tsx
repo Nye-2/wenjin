@@ -17,7 +17,6 @@ import { LatexFileChangeDiffPreview } from "@/components/latex/LatexFileChangeDi
 import { LatexFileTree } from "@/components/latex/LatexFileTree";
 import { LatexPdfPreview } from "@/components/latex/LatexPdfPreview";
 import { LatexToolbar } from "@/components/latex/LatexToolbar";
-import { Header } from "@/components/layout/header";
 import {
   fileChangeToPrismReviewItem,
   PrismReviewList,
@@ -610,6 +609,7 @@ export function LatexEditorShell({
   const [feedbackLoaded, setFeedbackLoaded] = useState(false);
   const [feedbackDraftComment, setFeedbackDraftComment] = useState("");
   const [feedbackScope, setFeedbackScope] = useState<"selection" | "section">("section");
+  const [isFeedbackPanelExpanded, setIsFeedbackPanelExpanded] = useState(false);
   const [activeFeedbackId, setActiveFeedbackId] = useState<string | null>(null);
   const [feedbackBusyId, setFeedbackBusyId] = useState<string | null>(null);
   const [feedbackStatus, setFeedbackStatus] = useState<string>("");
@@ -690,10 +690,26 @@ export function LatexEditorShell({
     [activeFilePath, feedbackItems],
   );
   const hasPdfDraftSelection = Boolean(pdfDraftSelection?.text.trim());
+  const hasFeedbackSelection = selectionText.trim().length > 0 || hasPdfDraftSelection;
   const canCreateFeedback = Boolean(
     feedbackDraftComment.trim()
-    && (selectionText.trim().length > 0 || hasPdfDraftSelection),
+    && hasFeedbackSelection,
   );
+  const feedbackPanelOpen = Boolean(
+    isFeedbackPanelExpanded ||
+      hasFeedbackSelection ||
+      feedbackDraftComment.trim() ||
+      currentFileFeedbacks.length > 0 ||
+      rewritePreviewFeedbackId ||
+      feedbackStatus ||
+      feedbackError ||
+      lastRewriteUndo,
+  );
+  const feedbackContextText = selectionText.trim()
+    ? `当前 TeX 已选中 ${selectionText.length} 个字符。`
+    : hasPdfDraftSelection
+      ? `当前 PDF 已选中 ${pdfDraftSelection?.text.trim().length || 0} 个字符。`
+      : "选择正文或 PDF 文本后添加点评与改写。";
   const pdfHighlightFeedbacks = useMemo(
     () =>
       feedbackItems.map((item) => ({
@@ -734,8 +750,8 @@ export function LatexEditorShell({
         fileChangeToPrismReviewItem({
           ...change,
           status: change.status || "applied",
-          title: change.title || change.path,
-          reason: change.reason || change.applied_hash,
+          title: change.title || `已写入稿件修改: ${change.path}`,
+          reason: change.reason || "可撤回的写入记录",
         }),
       ),
     [appliedFileChanges],
@@ -1594,34 +1610,35 @@ export function LatexEditorShell({
   }, [activeFileKind, activeFilePath, onReviewStateChanged, project]);
 
   return (
-    <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
-      <Header />
-      <section className="mx-auto max-w-[1500px] px-6 pb-10 pt-28">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+    <main className="flex h-full min-h-0 flex-col overflow-auto bg-[var(--v2-surface-soft)] text-[var(--text-primary)] xl:overflow-hidden">
+      <section className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-white/45 pb-3">
+          <div className="flex min-w-0 items-center gap-3">
             <Button
               variant="outline"
+              size="sm"
               onClick={() => router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces")}
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               {workspaceId ? "返回 Workbench" : "返回工作区"}
             </Button>
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-brass)]">
-                Latex Project
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase text-[var(--v2-text-secondary)]">
+                Prism Manuscript
               </p>
-              <h1 className="mt-1 text-2xl font-semibold">
+              <h1 className="mt-0.5 truncate text-base font-semibold text-[var(--v2-text-primary)]">
                 {project?.name || "加载项目中..."}
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="rounded-full border border-[var(--border-default)] bg-white/70 px-4 py-2 text-xs uppercase tracking-[0.18em] text-[var(--text-muted)]">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="rounded-md border border-white/55 bg-white/70 px-3 py-1.5 text-xs text-[var(--v2-text-secondary)]">
               主文件 {project?.main_file || "main.tex"}
             </div>
             <Button
               variant="destructive"
+              size="sm"
               disabled={!project || isDeletingProject || isProjectLoading}
               onClick={async () => {
                 if (!project) {
@@ -1654,8 +1671,8 @@ export function LatexEditorShell({
           </div>
         ) : null}
 
-        <div className="grid gap-5 xl:grid-cols-2">
-          <section className="space-y-4">
+        <div className="grid gap-3 xl:min-h-0 xl:flex-1 xl:grid-cols-[minmax(0,1fr)_460px]">
+          <section className="space-y-3 xl:flex xl:min-h-0 xl:flex-col xl:gap-3 xl:space-y-0 xl:overflow-hidden">
             <LatexToolbar
               engine={engine}
               onEngineChange={setEngine}
@@ -1673,16 +1690,21 @@ export function LatexEditorShell({
             />
 
             {fileChanges.length > 0 ? (
-              <div ref={fileChangesRef} className="rounded-[1.5rem] border border-amber-500/25 bg-amber-500/10 p-4">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-700" />
-                  <p className="text-sm font-medium text-amber-900">
-                    Prism 待确认写入
+              <div ref={fileChangesRef} className="order-1 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="h-4 w-4 text-amber-700" />
+                    <p className="text-sm font-medium text-amber-900">
+                      Prism 待确认写入
+                    </p>
+                    <span className="rounded-md bg-white/65 px-2 py-0.5 text-xs text-amber-900">
+                      {fileChanges.length}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-900/75">
+                    预览后接受，写入当前稿件
                   </p>
                 </div>
-                <p className="mt-2 text-xs leading-6 text-amber-900/80">
-                  来自 Compute 的生成内容需要确认后才会写入当前 LaTeX 项目。
-                </p>
                 {fileChangeError ? (
                   <div className="mt-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
                     {fileChangeError}
@@ -1748,7 +1770,7 @@ export function LatexEditorShell({
             ) : null}
 
             {appliedFileChanges.length > 0 ? (
-              <div className="rounded-[1.5rem] border border-emerald-500/20 bg-emerald-500/8 p-4">
+              <div className="order-1 rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-3">
                 <div className="flex items-center gap-2">
                   <RotateCcw className="h-4 w-4 text-emerald-700" />
                   <p className="text-sm font-medium text-emerald-900">
@@ -1785,15 +1807,27 @@ export function LatexEditorShell({
               </div>
             ) : null}
 
-            <div className="rounded-[1.5rem] border border-[var(--border-default)] bg-[rgba(251,248,242,0.95)] p-4">
+            <div className="order-3 rounded-lg border border-white/50 bg-white/70 p-3 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                  划词点评与改写
-                </p>
+                <div>
+                  <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
+                    划词点评与改写
+                  </p>
+                  <p className="mt-1 text-xs text-[var(--text-muted)]">
+                    {feedbackContextText}
+                  </p>
+                </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="text-xs text-[var(--text-muted)]">
-                    选中主稿文本后可直接点评
+                  <span className="rounded-md bg-white/70 px-2 py-1 text-xs text-[var(--text-muted)]">
+                    {currentFileFeedbacks.length} 条点评
                   </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setIsFeedbackPanelExpanded((prev) => !prev)}
+                  >
+                    {feedbackPanelOpen ? "收起点评" : "展开点评"}
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -1819,6 +1853,8 @@ export function LatexEditorShell({
                   {protectionError}
                 </div>
               ) : null}
+              {feedbackPanelOpen ? (
+                <>
               <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
                 <textarea
                   value={feedbackDraftComment}
@@ -1854,11 +1890,7 @@ export function LatexEditorShell({
                 </div>
               </div>
               <div className="mt-2 text-xs text-[var(--text-muted)]">
-                {selectionText.trim()
-                  ? `当前 TeX 已选中 ${selectionText.length} 个字符。`
-                  : hasPdfDraftSelection
-                    ? `当前 PDF 已选中 ${pdfDraftSelection?.text.trim().length || 0} 个字符。`
-                    : "请先在主稿编辑区或 PDF 预览区划词，再添加点评。"}
+                {feedbackContextText}
               </div>
               {feedbackError ? (
                 <div className="mt-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
@@ -2183,14 +2215,16 @@ export function LatexEditorShell({
                   </div>
                 )}
               </div>
+                </>
+              ) : null}
             </div>
 
-            <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
-              <aside className="rounded-[1.5rem] border border-[var(--border-default)] bg-[rgba(251,248,242,0.92)] p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+            <div className="order-2 grid gap-3 overflow-visible lg:grid-cols-[200px_minmax(0,1fr)] xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+              <aside className="min-h-0 overflow-hidden rounded-lg border border-white/50 bg-white/70 p-3 shadow-sm">
+                <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
                   文件
                 </p>
-                <div className="mt-4">
+                <div className="mt-3 max-h-[calc(100vh-250px)] overflow-auto">
                   <LatexFileTree
                     items={tree}
                     selectedPath={effectiveSelectedPath}
@@ -2210,7 +2244,7 @@ export function LatexEditorShell({
                 </div>
               </aside>
 
-              <div className="rounded-[1.5rem] border border-[var(--border-default)] bg-[rgba(251,248,242,0.95)] p-4">
+              <div className="flex min-h-0 flex-col rounded-lg border border-white/50 bg-white/80 p-3 shadow-sm">
                 <div className="mb-3 flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">
@@ -2229,7 +2263,7 @@ export function LatexEditorShell({
                   ) : null}
                 </div>
                 {activeFileKind === "blob" && activeBlobUrl ? (
-                  <div className="flex min-h-[680px] items-center justify-center overflow-hidden rounded-[1.25rem] border border-[var(--border-default)] bg-white">
+                  <div className="flex min-h-[520px] flex-1 items-center justify-center overflow-hidden rounded-md border border-[var(--border-default)] bg-white">
                     {activeFilePath && isImageFile(activeFilePath) ? (
                       // Blob URLs from project assets need direct browser rendering.
                       // eslint-disable-next-line @next/next/no-img-element
@@ -2257,19 +2291,19 @@ export function LatexEditorShell({
                       setSelectionRange([start, end]);
                     }}
                     readOnly={!activeFilePath || !isTextFile(activeFilePath)}
-                    className="min-h-[680px] w-full rounded-[1.25rem] border border-[var(--border-default)] bg-[rgba(244,240,232,0.55)] p-4 font-mono text-[13px] leading-6"
+                    className="min-h-[520px] flex-1 resize-none rounded-md border border-[var(--border-default)] bg-[rgba(244,240,232,0.55)] p-4 font-mono text-[13px] leading-6 outline-none focus:border-[var(--v2-accent-purple-300)]"
                   />
                 )}
               </div>
             </div>
           </section>
 
-          <section className="space-y-5">
-            <div className="rounded-[1.5rem] border border-[var(--border-default)] bg-[rgba(251,248,242,0.95)] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+          <section className="space-y-3 xl:min-h-0 xl:overflow-auto">
+            <div className="rounded-lg border border-white/50 bg-white/80 p-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
                 PDF 预览
               </p>
-              <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-[var(--border-default)] bg-white">
+              <div className="mt-3 overflow-hidden rounded-md border border-[var(--border-default)] bg-white">
                 {compiledPdfUrl ? (
                   <LatexPdfPreview
                     pdfUrl={compiledPdfUrl}
@@ -2278,10 +2312,10 @@ export function LatexEditorShell({
                     transientSelectionAnchor={transientPdfAnchor}
                     transientSelectionText={selectionText}
                     onSelection={handlePdfSelection}
-                    className="h-[78vh] min-h-[760px] w-full"
+                    className="h-[calc(100vh-240px)] min-h-[520px] w-full"
                   />
                 ) : (
-                  <div className="flex h-[78vh] min-h-[760px] items-center justify-center px-6 text-center text-sm text-[var(--text-muted)]">
+                  <div className="flex h-[calc(100vh-240px)] min-h-[520px] items-center justify-center px-6 text-center text-sm text-[var(--text-muted)]">
                     还没有可预览的 PDF。先保存并编译当前项目。
                   </div>
                 )}
@@ -2294,7 +2328,7 @@ export function LatexEditorShell({
               ) : null}
             </div>
 
-            <div className="rounded-[1.5rem] border border-[var(--border-default)] bg-[rgba(251,248,242,0.95)] p-4">
+            <div className="rounded-lg border border-white/50 bg-white/75 p-3 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
                   编译日志
