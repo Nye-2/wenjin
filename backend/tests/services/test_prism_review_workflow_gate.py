@@ -57,6 +57,43 @@ class _FakeDb:
         return self._results.pop(0)
 
 
+class _FakeDataServiceClient:
+    def __init__(
+        self,
+        *,
+        compute_session: SimpleNamespace,
+        execution: SimpleNamespace,
+        capability: SimpleNamespace,
+    ) -> None:
+        self.compute_session = compute_session
+        self.execution = execution
+        self.capability = capability
+
+    async def get_compute_session(self, compute_session_id: str) -> SimpleNamespace | None:
+        if self.compute_session.id != compute_session_id:
+            return None
+        return self.compute_session
+
+    async def get_execution(self, execution_id: str) -> SimpleNamespace | None:
+        if self.execution.id != execution_id:
+            return None
+        return self.execution
+
+    async def list_execution_nodes(self, execution_id: str) -> list[SimpleNamespace]:
+        _ = execution_id
+        return []
+
+    async def get_catalog_capability(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+    ) -> SimpleNamespace | None:
+        _ = capability_id
+        _ = workspace_type
+        return self.capability
+
+
 class _FakeCommitDb:
     committed = False
 
@@ -464,9 +501,6 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
     execution.result = _task(now).result
     db = _FakeDb(
         [
-            _Result(scalar=_compute_session(now)),
-            _Result(scalar=execution),
-            _Result(scalars=[]),
             _Result(scalar=_prism_project_from_latex(project)),
             _Result(scalars=[_prism_document_from_latex(project)]),
             _Result(
@@ -484,17 +518,19 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),
-            _Result(
-                scalar=_capability_record({
-                    "mode": "compute_workflow",
-                    "requires_sandbox": False,
-                    "review_gate": {},
-                    "allowed_paths": [],
-                })
-            ),
         ]
     )
-    projection = await ComputeProjectionService(db).get_projection(
+    dataservice = _FakeDataServiceClient(
+        compute_session=_compute_session(now),
+        execution=execution,
+        capability=_capability_record({
+            "mode": "compute_workflow",
+            "requires_sandbox": False,
+            "review_gate": {},
+            "allowed_paths": [],
+        }),
+    )
+    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
         compute_session_id="compute-1",
         user_id="user-1",
     )

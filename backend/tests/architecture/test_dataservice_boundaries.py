@@ -99,7 +99,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "agents/lead_agent/v2/runtime.py",
     "agents/middlewares/citation_context.py",
     "agents/middlewares/execution.py",
-    "compute/projection_service.py",
     "gateway/routers/admin_credit_rules.py",
     "gateway/routers/execution_commit.py",
     "gateway/routers/latex_files.py",

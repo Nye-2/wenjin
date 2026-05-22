@@ -7,13 +7,13 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.compute.events import serialize_compute_session
-from src.dataservice.catalog_api import CatalogDataService
-from src.dataservice.execution_api import (
-    ComputeSessionProjection,
-    ExecutionDataService,
-    ExecutionNodeProjection,
-    ExecutionRecordProjection,
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.execution import (
+    ComputeSessionPayload,
+    ExecutionNodePayload,
+    ExecutionPayload,
 )
+from src.dataservice_client.provider import dataservice_client
 from src.execution.public_paths import sandbox_path_to_public_url
 from src.services.execution_service import serialize_execution_record
 
@@ -66,7 +66,7 @@ _PRISM_OPTIONAL_ACTIONS = {
 }
 
 
-def _execution_task_payload(record: ExecutionRecordProjection) -> dict[str, Any]:
+def _execution_task_payload(record: ExecutionPayload) -> dict[str, Any]:
     return {
         "task_id": record.id,
         "execution_id": record.id,
@@ -88,9 +88,9 @@ def _execution_task_payload(record: ExecutionRecordProjection) -> dict[str, Any]
 
 
 def _node_payload(
-    record: ExecutionNodeProjection,
+    record: ExecutionNodePayload,
     *,
-    execution: ExecutionRecordProjection,
+    execution: ExecutionPayload,
 ) -> dict[str, Any]:
     output_data = record.output_data if isinstance(record.output_data, dict) else {}
     input_data = record.input_data if isinstance(record.input_data, dict) else {}
@@ -126,7 +126,7 @@ def _node_payload(
     }
 
 
-def _runtime_blocks(execution: ExecutionRecordProjection) -> list[dict[str, Any]]:
+def _runtime_blocks(execution: ExecutionPayload) -> list[dict[str, Any]]:
     snapshot = execution.runtime_state if isinstance(execution.runtime_state, dict) else {}
     blocks = snapshot.get("blocks")
     if not isinstance(blocks, list):
@@ -291,8 +291,8 @@ def _extract_files_from_value(
 
 def _collect_files(
     *,
-    execution: ExecutionRecordProjection,
-    nodes: list[ExecutionNodeProjection],
+    execution: ExecutionPayload,
+    nodes: list[ExecutionNodePayload],
     runtime_blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     files: list[dict[str, Any]] = []
@@ -561,8 +561,8 @@ def _collect_runtime_activity_logs(
 
 def _collect_logs(
     *,
-    execution: ExecutionRecordProjection,
-    nodes: list[ExecutionNodeProjection],
+    execution: ExecutionPayload,
+    nodes: list[ExecutionNodePayload],
     runtime_blocks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     logs: list[dict[str, Any]] = []
@@ -649,7 +649,7 @@ def _review_item_required(item: dict[str, Any]) -> bool:
 
 
 def _build_review_gate(
-    execution: ExecutionRecordProjection,
+    execution: ExecutionPayload,
     runtime_profile: dict[str, Any],
 ) -> dict[str, Any]:
     next_actions = [dict(item) for item in execution.next_actions or [] if isinstance(item, dict)]
@@ -683,14 +683,14 @@ def _build_review_gate(
 
 
 async def _build_runtime_profile_projection(
-    db: AsyncSession,
-    execution: ExecutionRecordProjection,
+    dataservice: AsyncDataServiceClient,
+    execution: ExecutionPayload,
 ) -> dict[str, Any]:
     workspace_type = str(execution.workspace_type or "").strip()
     feature_id = str(execution.feature_id or "").strip()
     if not workspace_type or not feature_id:
         return {}
-    capability = await CatalogDataService(db, autocommit=False).get_capability(
+    capability = await dataservice.get_catalog_capability(
         capability_id=feature_id,
         workspace_type=workspace_type,
     )
@@ -725,7 +725,7 @@ async def _build_runtime_profile_projection(
 
 def _build_sandbox_projection(
     *,
-    compute_session: ComputeSessionProjection,
+    compute_session: ComputeSessionPayload,
     files: list[dict[str, Any]],
     logs: list[dict[str, Any]],
     runtime_profile: dict[str, Any],
@@ -754,8 +754,14 @@ def _build_sandbox_projection(
 class ComputeProjectionService:
     """Build frontend-facing projections without making compute a business source of truth."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
+        self._dataservice = dataservice
 
     async def get_projection(
         self,
@@ -763,15 +769,35 @@ class ComputeProjectionService:
         compute_session_id: str,
         user_id: str,
     ) -> dict[str, Any] | None:
-        execution_api = ExecutionDataService(self.db, autocommit=False)
-        compute_session = await execution_api.get_compute_session(compute_session_id)
+        if self._dataservice is not None:
+            client = self._dataservice
+            return await self._get_projection_with_client(
+                client,
+                compute_session_id=compute_session_id,
+                user_id=user_id,
+            )
+        async with dataservice_client() as client:
+            return await self._get_projection_with_client(
+                client,
+                compute_session_id=compute_session_id,
+                user_id=user_id,
+            )
+
+    async def _get_projection_with_client(
+        self,
+        client: AsyncDataServiceClient,
+        *,
+        compute_session_id: str,
+        user_id: str,
+    ) -> dict[str, Any] | None:
+        compute_session = await client.get_compute_session(compute_session_id)
         if compute_session is None or str(compute_session.user_id) != str(user_id):
             return None
-        execution = await execution_api.get_execution(str(compute_session.execution_id))
+        execution = await client.get_execution(str(compute_session.execution_id))
         if execution is None or str(execution.user_id) != str(user_id):
             return None
 
-        nodes = await execution_api.list_nodes(execution.id)
+        nodes = await client.list_execution_nodes(execution.id)
         primary_task = _execution_task_payload(execution)
         runtime_blocks = _runtime_blocks(execution)
         files = _collect_files(
@@ -800,7 +826,7 @@ class ComputeProjectionService:
             nodes=nodes,
             runtime_blocks=runtime_blocks,
         )
-        runtime_profile = await _build_runtime_profile_projection(self.db, execution)
+        runtime_profile = await _build_runtime_profile_projection(client, execution)
         review_gate = _build_review_gate(execution, runtime_profile)
         return {
             "compute_session": serialize_compute_session(compute_session),

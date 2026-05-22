@@ -41,6 +41,46 @@ class _FakeDb:
         return self._results.pop(0)
 
 
+class _FakeDataServiceClient:
+    def __init__(
+        self,
+        *,
+        compute_session: SimpleNamespace,
+        execution: SimpleNamespace,
+        nodes: list[SimpleNamespace] | None = None,
+        capability: SimpleNamespace | None = None,
+    ) -> None:
+        self.compute_session = compute_session
+        self.execution = execution
+        self.nodes = list(nodes or [])
+        self.capability = capability
+
+    async def get_compute_session(self, compute_session_id: str) -> SimpleNamespace | None:
+        if self.compute_session.id != compute_session_id:
+            return None
+        return self.compute_session
+
+    async def get_execution(self, execution_id: str) -> SimpleNamespace | None:
+        if self.execution.id != execution_id:
+            return None
+        return self.execution
+
+    async def list_execution_nodes(self, execution_id: str) -> list[SimpleNamespace]:
+        return [node for node in self.nodes if node.execution_id == execution_id]
+
+    async def get_catalog_capability(
+        self,
+        *,
+        capability_id: str,
+        workspace_type: str,
+    ) -> SimpleNamespace | None:
+        _ = capability_id
+        _ = workspace_type
+        if self.capability is None:
+            return None
+        return self.capability
+
+
 def _review_item(
     *,
     logical_key: str,
@@ -325,22 +365,19 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
     )
     db = _FakeDb(
         [
-            _Result(scalar=compute_session),
-            _Result(scalar=execution),
-            _Result(scalars=[subagent_node]),
-                _Result(scalar=_prism_project_from_latex(latex_project)),
-                _Result(scalars=[_prism_document_from_latex(latex_project)]),
-                _Result(scalars=[_prism_file_from_latex(latex_project)]),
-                _Result(scalar=latex_project),
+            _Result(scalar=_prism_project_from_latex(latex_project)),
+            _Result(scalars=[_prism_document_from_latex(latex_project)]),
+            _Result(scalars=[_prism_file_from_latex(latex_project)]),
+            _Result(scalar=latex_project),
             _Result(
                 scalars=[
-                        _review_item(
-                            logical_key="project:main",
-                            path="main.tex",
-                            latex_project_id="latex-project-1",
-                            reason="user_modified",
-                            payload={"pending_content": "\\section{Generated}"},
-                        )
+                    _review_item(
+                        logical_key="project:main",
+                        path="main.tex",
+                        latex_project_id="latex-project-1",
+                        reason="user_modified",
+                        payload={"pending_content": "\\section{Generated}"},
+                    )
                 ]
             ),
             _Result(scalars=[]),
@@ -350,18 +387,21 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),
-            _Result(
-                scalar=_capability_record({
-                    "mode": "compute_workflow",
-                    "requires_sandbox": False,
-                    "review_gate": {},
-                    "allowed_paths": [],
-                })
-            ),
         ]
     )
+    dataservice = _FakeDataServiceClient(
+        compute_session=compute_session,
+        execution=execution,
+        nodes=[subagent_node],
+        capability=_capability_record({
+            "mode": "compute_workflow",
+            "requires_sandbox": False,
+            "review_gate": {},
+            "allowed_paths": [],
+        }),
+    )
 
-    projection = await ComputeProjectionService(db).get_projection(
+    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
         compute_session_id="compute-1",
         user_id="user-1",
     )
@@ -469,22 +509,21 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
     )
     db = _FakeDb(
         [
-            _Result(scalar=compute_session),
-            _Result(scalar=execution),
-            _Result(scalars=[]),
             _Result(scalar=None),
-            _Result(
-                scalar=_capability_record({
-                    "mode": "compute_workflow",
-                    "requires_sandbox": False,
-                    "review_gate": {},
-                    "allowed_paths": [],
-                })
-            ),
         ]
     )
+    dataservice = _FakeDataServiceClient(
+        compute_session=compute_session,
+        execution=execution,
+        capability=_capability_record({
+            "mode": "compute_workflow",
+            "requires_sandbox": False,
+            "review_gate": {},
+            "allowed_paths": [],
+        }),
+    )
 
-    projection = await ComputeProjectionService(db).get_projection(
+    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
         compute_session_id="compute-2",
         user_id="user-1",
     )
@@ -534,22 +573,21 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
     )
     db = _FakeDb(
         [
-            _Result(scalar=compute_session),
-            _Result(scalar=execution),
-            _Result(scalars=[]),
             _Result(scalar=None),
-            _Result(
-                scalar=_capability_record({
-                    "mode": "compute_agentic",
-                    "requires_sandbox": True,
-                    "review_gate": {"kind": "artifact_preview"},
-                    "allowed_paths": [],
-                })
-            ),
         ]
     )
+    dataservice = _FakeDataServiceClient(
+        compute_session=compute_session,
+        execution=execution,
+        capability=_capability_record({
+            "mode": "compute_agentic",
+            "requires_sandbox": True,
+            "review_gate": {"kind": "artifact_preview"},
+            "allowed_paths": [],
+        }),
+    )
 
-    projection = await ComputeProjectionService(db).get_projection(
+    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
         compute_session_id="compute-figure",
         user_id="user-1",
     )
@@ -641,23 +679,20 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
     )
     db = _FakeDb(
         [
-            _Result(scalar=compute_session),
-            _Result(scalar=execution),
-            _Result(scalars=[]),
-                _Result(scalar=_prism_project_from_latex(latex_project)),
-                _Result(scalars=[_prism_document_from_latex(latex_project)]),
-                _Result(scalars=[_prism_file_from_latex(latex_project)]),
-                _Result(scalar=latex_project),
+            _Result(scalar=_prism_project_from_latex(latex_project)),
+            _Result(scalars=[_prism_document_from_latex(latex_project)]),
+            _Result(scalars=[_prism_file_from_latex(latex_project)]),
+            _Result(scalar=latex_project),
             _Result(scalars=[]),
             _Result(
                 scalars=[
-                        _review_item(
-                            logical_key="section:introduction",
-                            path="sections/introduction.tex",
-                            latex_project_id="latex-project-3",
-                            status="applied",
-                            payload={
-                                "previous_hash": "sha256:old",
+                    _review_item(
+                        logical_key="section:introduction",
+                        path="sections/introduction.tex",
+                        latex_project_id="latex-project-3",
+                        status="applied",
+                        payload={
+                            "previous_hash": "sha256:old",
                             "applied_hash": "sha256:new",
                             "revert_signature": "signature",
                         },
@@ -670,18 +705,20 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),
-            _Result(
-                scalar=_capability_record({
-                    "mode": "compute_workflow",
-                    "requires_sandbox": False,
-                    "review_gate": {},
-                    "allowed_paths": [],
-                })
-            ),
         ]
     )
+    dataservice = _FakeDataServiceClient(
+        compute_session=compute_session,
+        execution=execution,
+        capability=_capability_record({
+            "mode": "compute_workflow",
+            "requires_sandbox": False,
+            "review_gate": {},
+            "allowed_paths": [],
+        }),
+    )
 
-    projection = await ComputeProjectionService(db).get_projection(
+    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
         compute_session_id="compute-3",
         user_id="user-1",
     )
@@ -733,25 +770,22 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
     )
     db = _FakeDb(
         [
-            _Result(scalar=compute_session),
-            _Result(scalar=execution),
-            _Result(scalars=[]),
-                _Result(scalar=_prism_project_from_latex(authoritative_project)),
-                _Result(scalars=[_prism_document_from_latex(authoritative_project)]),
-                _Result(
-                    scalars=[
-                        _prism_file_from_latex(authoritative_project),
-                        _prism_file_from_latex(authoritative_project, "sections/current.tex"),
-                    ]
-                ),
-                _Result(scalar=authoritative_project),
+            _Result(scalar=_prism_project_from_latex(authoritative_project)),
+            _Result(scalars=[_prism_document_from_latex(authoritative_project)]),
             _Result(
                 scalars=[
-                        _review_item(
-                            logical_key="section:current",
-                            path="sections/current.tex",
-                            latex_project_id="latex-authoritative",
-                        )
+                    _prism_file_from_latex(authoritative_project),
+                    _prism_file_from_latex(authoritative_project, "sections/current.tex"),
+                ]
+            ),
+            _Result(scalar=authoritative_project),
+            _Result(
+                scalars=[
+                    _review_item(
+                        logical_key="section:current",
+                        path="sections/current.tex",
+                        latex_project_id="latex-authoritative",
+                    )
                 ]
             ),
             _Result(scalars=[]),
@@ -761,18 +795,20 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
             _Result(scalars=[]),
             _Result(scalars=[]),
             _Result(scalars=[]),
-            _Result(
-                scalar=_capability_record({
-                    "mode": "compute_workflow",
-                    "requires_sandbox": False,
-                    "review_gate": {},
-                    "allowed_paths": [],
-                })
-            ),
         ]
     )
+    dataservice = _FakeDataServiceClient(
+        compute_session=compute_session,
+        execution=execution,
+        capability=_capability_record({
+            "mode": "compute_workflow",
+            "requires_sandbox": False,
+            "review_gate": {},
+            "allowed_paths": [],
+        }),
+    )
 
-    projection = await ComputeProjectionService(db).get_projection(
+    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
         compute_session_id="compute-authoritative",
         user_id="user-1",
     )
