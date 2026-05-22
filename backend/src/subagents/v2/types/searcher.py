@@ -77,9 +77,21 @@ class SearcherSubagent(SubagentBase):
             return SubagentResult(output={"papers": []})
 
         config = ctx.skill.config
-        source_names: list[str] = config.get("sources", [])
+        search_config = config.get("search")
+        if not isinstance(search_config, dict):
+            extensions = config.get("extensions")
+            search_config = extensions.get("search") if isinstance(extensions, dict) else None
+        if not isinstance(search_config, dict):
+            search_config = config
+
+        source_names: list[str] = list(search_config.get("sources") or [])
         query: str = (ctx.inputs.get("query") or "").strip()
-        limit: int = int(config.get("max_results", 30))
+        limit: int = int(search_config.get("max_results", 30))
+
+        if not source_names:
+            raise ValueError(
+                "searcher subagent invoked without configured search sources"
+            )
 
         if not query:
             raise ValueError(
@@ -88,7 +100,7 @@ class SearcherSubagent(SubagentBase):
             )
 
         year_range: tuple[int, int] | None = None
-        year_min = config.get("year_min")
+        year_min = search_config.get("year_min")
         if year_min:
             from datetime import datetime
             year_range = (int(year_min), datetime.now().year)

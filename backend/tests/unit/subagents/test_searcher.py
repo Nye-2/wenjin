@@ -32,10 +32,10 @@ def _make_ctx(*, inputs: dict | None = None, skill=None) -> SubagentContext:
     )
 
 
-def _make_skill(sources: list[str] | None = None) -> MagicMock:
+def _make_skill(sources: list[str] | None = None, *, config: dict | None = None) -> MagicMock:
     """Build a mock CapabilitySkill with the given source config."""
     skill = MagicMock()
-    skill.config = {"sources": sources or []}
+    skill.config = config if config is not None else {"sources": sources or []}
     skill.prompt = ""
     skill.resources = []
     skill.allowed_tools = []
@@ -85,6 +85,16 @@ class TestNoSkill:
         assert result.output == {"papers": []}
 
 
+class TestMissingSources:
+    @pytest.mark.asyncio
+    async def test_raises_when_no_search_sources_configured(self):
+        sub = SearcherSubagent()
+        ctx = _make_ctx(inputs={"query": "test query"}, skill=_make_skill(sources=[]))
+
+        with pytest.raises(ValueError, match="without configured search sources"):
+            await sub.run(ctx)
+
+
 # ---------------------------------------------------------------------------
 # Test: run() -- single mock source
 # ---------------------------------------------------------------------------
@@ -115,6 +125,36 @@ class TestSingleSource:
         assert len(result.output["papers"]) == 2
         assert result.output["papers"][0]["title"] == "Paper A"
         assert result.output["papers"][1]["title"] == "Paper B"
+
+    @pytest.mark.asyncio
+    async def test_reads_search_config_from_skill_extensions(self):
+        papers = [_paper("Paper A", doi="10.1/a")]
+
+        mock_source = AsyncMock()
+        mock_source.search.return_value = papers
+
+        with patch(
+            "src.subagents.v2.types.searcher.get_search_source",
+            return_value=mock_source,
+        ):
+            sub = SearcherSubagent()
+            skill = _make_skill(
+                config={
+                    "extensions": {
+                        "search": {
+                            "sources": ["mock_src"],
+                            "max_results": 5,
+                        }
+                    }
+                }
+            )
+            ctx = _make_ctx(inputs={"query": "test query"}, skill=skill)
+            result = await sub.run(ctx)
+
+        mock_source.search.assert_awaited_once_with(
+            "test query", year_range=None, limit=5,
+        )
+        assert result.output["papers"][0]["title"] == "Paper A"
 
 
 # ---------------------------------------------------------------------------

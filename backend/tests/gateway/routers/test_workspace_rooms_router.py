@@ -36,6 +36,8 @@ def _fake_source(**overrides: object) -> SimpleNamespace:
         "id": "lib-1",
         "workspace_id": WS_ID,
         "title": "Paper A",
+        "authors_json": ["Researcher A", "Researcher B"],
+        "ingest_label": "execution:run-1",
         "is_deleted": False,
     }
     values.update(overrides)
@@ -132,6 +134,8 @@ class TestLibraryRoom:
 
         assert resp.status_code == 200
         assert resp.json()["items"][0]["id"] == "lib-1"
+        assert resp.json()["items"][0]["authors"] == ["Researcher A", "Researcher B"]
+        assert resp.json()["items"][0]["added_by"] == "execution:run-1"
         dataservice.list_sources.assert_awaited_once()
 
     def test_create_library_item_returns_201(self) -> None:

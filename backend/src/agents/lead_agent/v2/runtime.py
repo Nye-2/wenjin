@@ -10,7 +10,13 @@ from hashlib import sha256
 from typing import Annotated, Any, TypedDict
 
 from src.agents.contracts.task_brief import TaskBrief
-from src.agents.contracts.task_report import ResultError, ResultOutput, TaskReport
+from src.agents.contracts.task_report import (
+    MemoryFactData,
+    MemoryFactOutput,
+    ResultError,
+    ResultOutput,
+    TaskReport,
+)
 from src.agents.lead_agent.v2.compiler import compile_graph
 from src.agents.lead_agent.v2.output_mapping import (
     OutputMappingResolver,
@@ -22,6 +28,20 @@ from src.services.prism_file_content import normalize_prism_file_change_content
 logger = logging.getLogger(__name__)
 
 
+_MEMORY_BRIEF_LABELS = {
+    "topic": "研究主题",
+    "research_question": "研究问题",
+    "target_journal": "目标期刊/会议",
+    "target_conference": "目标会议",
+    "deliverable": "交付物",
+    "goal": "任务目标",
+    "language": "写作语言",
+    "method": "方法方向",
+    "focus": "研究焦点",
+}
+_EMPTY_MEMORY_VALUES = {"", "待定", "unknown", "n/a", "none", "null"}
+
+
 class ExecutionAborted(Exception):
     """Raised when the execution is cancelled via the Redis abort signal."""
 
@@ -30,6 +50,52 @@ def merge_node_results(left: dict[str, Any] | None, right: dict[str, Any] | None
     merged = dict(left or {})
     merged.update(dict(right or {}))
     return merged
+
+
+def _memory_facts_from_brief(brief: TaskBrief) -> list[MemoryFactData]:
+    """Derive reviewable workspace memory candidates from a capability brief."""
+
+    facts: list[MemoryFactData] = []
+    payload = brief.brief if isinstance(brief.brief, dict) else {}
+    for key, label in _MEMORY_BRIEF_LABELS.items():
+        value = _stringify_memory_value(payload.get(key))
+        if value is None:
+            continue
+        facts.append(
+            MemoryFactData(
+                content=f"{label}：{value}",
+                category="context",
+                confidence=0.9,
+            )
+        )
+
+    if not facts:
+        raw_message = _stringify_memory_value(brief.raw_message)
+        if raw_message is not None:
+            facts.append(
+                MemoryFactData(
+                    content=f"用户当前任务需求：{raw_message}",
+                    category="context",
+                    confidence=0.75,
+                )
+            )
+    return facts[:3]
+
+
+def _stringify_memory_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+    elif isinstance(value, (int, float, bool)):
+        text = str(value).strip()
+    elif isinstance(value, list):
+        text = "、".join(str(item).strip() for item in value if str(item).strip())
+    else:
+        return None
+    if not text or text.lower() in _EMPTY_MEMORY_VALUES:
+        return None
+    return text[:500]
 
 
 class ExecutionState(TypedDict, total=False):
@@ -187,7 +253,7 @@ class LeadAgentRuntime:
 
         # Build report
         duration = int((datetime.now(UTC) - started_at).total_seconds())
-        outputs = self._collect_outputs(final_state, cap)
+        outputs = self._collect_outputs(final_state, cap, brief=brief)
         narrative = self._build_narrative(cap, final_state)
         token_usage = self._aggregate_token_usage(final_state)
         if status == "completed":
@@ -530,12 +596,46 @@ class LeadAgentRuntime:
                     )
         return errors
 
-    def _collect_outputs(self, state: dict, cap: Any) -> list[ResultOutput]:
+    def _collect_outputs(
+        self,
+        state: dict,
+        cap: Any,
+        *,
+        brief: TaskBrief,
+    ) -> list[ResultOutput]:
         graph_template = cap.graph_template if hasattr(cap, "graph_template") else {}
         node_results = state.get("node_results", {})
         if not graph_template or not node_results:
+            outputs: list[ResultOutput] = []
+        else:
+            outputs = OutputMappingResolver().resolve(graph_template, node_results)
+        outputs.extend(self._collect_policy_memory_outputs(cap, brief, outputs))
+        return outputs
+
+    def _collect_policy_memory_outputs(
+        self,
+        cap: Any,
+        brief: TaskBrief,
+        existing_outputs: list[ResultOutput],
+    ) -> list[ResultOutput]:
+        if any(output.kind == "memory_fact" for output in existing_outputs):
             return []
-        return OutputMappingResolver().resolve(graph_template, node_results)
+        policy = self._capability_policy(cap).get("review_policy", {})
+        targets = policy.get("default_targets") if isinstance(policy, dict) else []
+        if "room_memory_candidate" not in set(targets or []):
+            return []
+
+        facts = _memory_facts_from_brief(brief)
+        return [
+            MemoryFactOutput(
+                id=f"policy-memory-{index}",
+                kind="memory_fact",
+                preview=fact.content[:80],
+                default_checked=True,
+                data=fact,
+            )
+            for index, fact in enumerate(facts)
+        ]
 
     async def _stage_prism_review_items(
         self,

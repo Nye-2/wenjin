@@ -63,6 +63,47 @@ describe("LibraryDrawer", () => {
     expect(screen.getAllByTestId("library-item")).toHaveLength(2);
   });
 
+  it("renders DataService SourcePayload items returned by the library API", async () => {
+    const sourcePayload = {
+      id: "src-1",
+      workspace_id: "ws-1",
+      title: "OpenFedLLM: Training Large Language Models on Decentralized Private Data",
+      authors_json: ["Tianshi Che", "Ji Liu"],
+      year: 2023,
+      abstract: "A Semantic Scholar search result.",
+      ingest_label: "execution:run-1",
+      source_kind: "paper",
+      library_status: "included",
+      created_at: "2026-05-23T00:00:00Z",
+    };
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/library/src-1")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(sourcePayload),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ items: [sourcePayload], count: 1 }),
+      });
+    });
+    render(
+      <LibraryDrawer
+        workspaceId="ws-1"
+        open={true}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByText(/OpenFedLLM/);
+    expect(screen.getByText("Tianshi Che, Ji Liu")).toBeInTheDocument();
+    expect(screen.getByText("execution:run-1")).toBeInTheDocument();
+    expect(
+      await screen.findByText("A Semantic Scholar search result."),
+    ).toBeInTheDocument();
+  });
+
   it("shows empty state when no items", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,

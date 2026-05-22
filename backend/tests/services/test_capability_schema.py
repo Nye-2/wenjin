@@ -226,6 +226,12 @@ class TestCapabilitySkillV2Yaml:
                 "profiles": ["analysis", "visualization"],
             },
             "quality_gates": ["all_artifacts_have_input_hashes"],
+            "extensions": {
+                "search": {
+                    "sources": ["semantic_scholar"],
+                    "max_results": 10,
+                }
+            },
         }
 
     def test_minimal_valid_v2(self):
@@ -257,3 +263,4 @@ class TestCapabilitySkillV2Yaml:
         assert data["subagent_type"] == "react"
         assert data["prompt"] == "Run reproducible analysis and return artifacts."
         assert data["allowed_tools"] == ["sandbox.run_python", "sandbox.write_file"]
+        assert data["config"]["extensions"]["search"]["sources"] == ["semantic_scholar"]

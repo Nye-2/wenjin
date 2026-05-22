@@ -16,6 +16,7 @@ beforeEach(() => {
         room_targets: {
           documents: [{ output_id: "o3", item_id: "doc-77" }],
           library: [{ output_id: "o1", item_id: "lib-88" }],
+          memory: [{ output_id: "o4", item_id: "mem-99" }],
         },
       }),
   });
@@ -63,6 +64,17 @@ const SAMPLE_DATA = {
         content: "# 综述\n- 研究背景",
       },
     },
+    {
+      id: "o4",
+      kind: "memory_fact" as const,
+      preview: "研究主题：联邦学习大模型",
+      default_checked: true,
+      data: {
+        category: "context",
+        content: "研究主题：联邦学习大模型",
+        confidence: 0.9,
+      },
+    },
   ],
 };
 
@@ -79,7 +91,7 @@ describe("ResultCard", () => {
     expect(screen.getAllByText("Deep Learning")).toHaveLength(2);
     expect(screen.getByText("Transformers")).toBeInTheDocument();
     expect(screen.getByText("综述初稿")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(4);
     expect(screen.getByText("保存到工作区")).toBeInTheDocument();
   });
 
@@ -133,6 +145,16 @@ describe("ResultCard", () => {
     );
     expect(libraryUrl.searchParams.get("room")).toBe("library");
     expect(libraryUrl.searchParams.get("item_id")).toBe("lib-88");
+
+    const memoryLink = screen.getByRole("link", {
+      name: "打开已保存的 研究主题：联邦学习大模型",
+    });
+    const memoryUrl = new URL(
+      memoryLink.getAttribute("href")!,
+      "https://example.test",
+    );
+    expect(memoryUrl.searchParams.get("room")).toBe("memory");
+    expect(memoryUrl.searchParams.get("item_id")).toBe("mem-99");
   });
 
   it("renders DB-backed Prism review items with workspace navigation", () => {
@@ -194,7 +216,7 @@ describe("ResultCard", () => {
       "/api/executions/exec-1/commit",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ accepted_ids: ["o1", "o2"] }),
+        body: JSON.stringify({ accepted_ids: ["o1", "o2", "o4"] }),
       }),
     );
   });
@@ -236,12 +258,7 @@ describe("ResultCard", () => {
     fireEvent.click(checkboxes[2]);
     fireEvent.click(screen.getByText("仅保存勾选项"));
 
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/executions/exec-1/commit",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ accepted_ids: ["o2", "o3"] }),
-      }),
-    );
+    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
+    expect([...body.accepted_ids].sort()).toEqual(["o2", "o3", "o4"]);
   });
 });

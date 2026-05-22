@@ -342,6 +342,7 @@ class CapabilitySkillV2YamlModel(BaseModel):
                 "context_access": data["context_access"],
                 "sandbox_access": data["sandbox_access"],
                 "quality_gates": data["quality_gates"],
+                "extensions": data["extensions"],
             },
         }
 

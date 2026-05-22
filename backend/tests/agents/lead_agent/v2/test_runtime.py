@@ -31,7 +31,11 @@ SIMPLE_GRAPH_TEMPLATE = {
 }
 
 
-def _make_fake_capability(graph_template: dict | None = None) -> SimpleNamespace:
+def _make_fake_capability(
+    graph_template: dict | None = None,
+    *,
+    definition_json: dict | None = None,
+) -> SimpleNamespace:
     """Return a lightweight stand-in for a Capability ORM object."""
     return SimpleNamespace(
         id="test_cap",
@@ -39,6 +43,7 @@ def _make_fake_capability(graph_template: dict | None = None) -> SimpleNamespace
         display_name="Test Capability",
         graph_template=graph_template or SIMPLE_GRAPH_TEMPLATE,
         brief_schema={"properties": {"topic": {"type": "string"}}},
+        definition_json=definition_json or {},
     )
 
 
@@ -272,6 +277,105 @@ async def test_stage_prism_review_items_from_writer_output():
     assert command.source_task_id == "manuscript_writer"
     assert "Draft" in command.pending_content
     assert command.pending_hash
+
+
+def test_collect_outputs_adds_policy_memory_candidates_from_brief():
+    cap = _make_fake_capability(
+        graph_template={
+            "phases": [
+                {
+                    "name": "write",
+                    "tasks": [
+                        {
+                            "name": "writer",
+                            "subagent_type": "react",
+                            "outputs": [],
+                        }
+                    ],
+                }
+            ]
+        },
+        definition_json={
+            "review_policy": {
+                "default_targets": [
+                    "prism_file_change",
+                    "room_memory_candidate",
+                ]
+            }
+        },
+    )
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+    brief = TaskBrief(
+        capability_id="research_question_to_paper",
+        raw_message="联邦学习大模型",
+        workspace_id="ws-001",
+        brief={
+            "topic": "联邦学习大模型",
+            "research_question": "效率优化与隐私保护",
+            "target_journal": "待定",
+        },
+    )
+
+    outputs = runtime._collect_outputs(
+        {"node_results": {"writer": {"output": {"text": "draft"}}}},
+        cap,
+        brief=brief,
+    )
+
+    memory_outputs = [output for output in outputs if output.kind == "memory_fact"]
+    assert [output.data.content for output in memory_outputs] == [
+        "研究主题：联邦学习大模型",
+        "研究问题：效率优化与隐私保护",
+    ]
+    assert all(output.default_checked for output in memory_outputs)
+
+
+def test_collect_outputs_does_not_duplicate_explicit_memory_outputs():
+    cap = _make_fake_capability(
+        graph_template={
+            "phases": [
+                {
+                    "name": "write",
+                    "tasks": [
+                        {
+                            "name": "writer",
+                            "subagent_type": "react",
+                            "outputs": [
+                                {
+                                    "kind": "memory_fact",
+                                    "mapping": {
+                                        "content": "{{output.memory}}",
+                                        "category": "preference",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
+        definition_json={
+            "review_policy": {"default_targets": ["room_memory_candidate"]}
+        },
+    )
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+
+    outputs = runtime._collect_outputs(
+        {"node_results": {"writer": {"output": {"memory": "用户偏好英文初稿"}}}},
+        cap,
+        brief=_make_brief("research_question_to_paper"),
+    )
+
+    memory_outputs = [output for output in outputs if output.kind == "memory_fact"]
+    assert len(memory_outputs) == 1
+    assert memory_outputs[0].data.content == "用户偏好英文初稿"
+    assert memory_outputs[0].data.category == "preference"
 
 
 @pytest.mark.asyncio

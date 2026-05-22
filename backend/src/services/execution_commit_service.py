@@ -120,6 +120,9 @@ class ExecutionCommitService:
         room_targets: dict[str, list[dict[str, str]]] = {
             "documents": [],
             "library": [],
+            "memory": [],
+            "decisions": [],
+            "tasks": [],
         }
         room_candidates: list[RoomCandidatePayload] = []
 
@@ -260,11 +263,21 @@ class ExecutionCommitService:
                     workspace_id=execution.workspace_id,
                     execution_id=execution_id,
                     candidates=room_candidates,
-                    actor_id=f"execution:{execution_id}",
                 )
                 for key, value in room_review_result.counts.items():
                     if key in counts:
                         counts[key] += value
+                for item in room_review_result.item_results:
+                    room = item.get("room")
+                    source_item_id = item.get("source_item_id")
+                    record_id = item.get("record_id")
+                    if room in room_targets and source_item_id and record_id:
+                        room_targets[room].append(
+                            {
+                                "output_id": str(source_item_id),
+                                "item_id": str(record_id),
+                            }
+                        )
 
             # 5. Always write run_history
             capability_id = execution.feature_id or report.capability_id
@@ -308,6 +321,9 @@ class ExecutionCommitService:
                         "activity",
                         "artifacts",
                         "dashboard",
+                        "memory",
+                        "decisions",
+                        "tasks",
                         "references",
                     ]
                 },

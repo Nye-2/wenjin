@@ -197,6 +197,27 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
     return dict(row)
 
 
+def _library_item_to_dict(row: Any) -> dict[str, Any]:
+    """Project a DataService SourcePayload into the workspace Library contract."""
+    data = _row_to_dict(row)
+    authors = data.get("authors")
+    if not isinstance(authors, list):
+        authors = data.get("authors_json") if isinstance(data.get("authors_json"), list) else []
+    added_by = (
+        data.get("added_by")
+        or data.get("source_label")
+        or data.get("ingest_label")
+        or data.get("source_type")
+        or data.get("ingest_kind")
+        or "library"
+    )
+    return {
+        **data,
+        "authors": authors,
+        "added_by": added_by,
+    }
+
+
 def _execution_to_run_dict(row: Any) -> dict[str, Any]:
     """Project an execution record into the workspace Runs room contract."""
     result = getattr(row, "result", None) or {}
@@ -511,7 +532,7 @@ async def list_library_items(
         include_deleted=False,
         limit=limit,
     )
-    return {"items": [_row_to_dict(i) for i in items], "count": len(items)}
+    return {"items": [_library_item_to_dict(i) for i in items], "count": len(items)}
 
 
 @router.post("/{ws_id}/library", status_code=status.HTTP_201_CREATED)
@@ -524,7 +545,7 @@ async def create_library_item(
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     item = await dataservice.create_source(_library_source_command(ws_id, body.model_dump()))
-    return _row_to_dict(item)
+    return _library_item_to_dict(item)
 
 
 @router.get("/{ws_id}/library/{item_id}")
@@ -542,7 +563,7 @@ async def get_library_item(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Library item not found",
         )
-    return _row_to_dict(item)
+    return _library_item_to_dict(item)
 
 
 @router.delete("/{ws_id}/library/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

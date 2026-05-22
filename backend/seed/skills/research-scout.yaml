@@ -27,3 +27,8 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+extensions:
+  search:
+    sources:
+    - semantic_scholar
+    max_results: 10

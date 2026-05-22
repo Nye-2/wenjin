@@ -153,7 +153,13 @@ class RoomsDataService:
             if applied is None or not applied.result_json:
                 continue
             result = dict(applied.result_json)
-            item_results.append({"review_item_id": applied.id, **result})
+            item_results.append(
+                {
+                    "review_item_id": applied.id,
+                    "source_item_id": applied.source_item_id,
+                    **result,
+                }
+            )
             room = result.get("room")
             if room in counts:
                 counts[room] += 1

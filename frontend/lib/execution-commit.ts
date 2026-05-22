@@ -11,6 +11,9 @@ export interface ExecutionCommitResponse {
   room_targets?: {
     documents?: CommitRoomTarget[];
     library?: CommitRoomTarget[];
+    memory?: CommitRoomTarget[];
+    decisions?: CommitRoomTarget[];
+    tasks?: CommitRoomTarget[];
   };
 }
 
@@ -85,12 +88,54 @@ export function buildCommittedRoomLinks(options: {
     });
   }
 
+  for (const target of roomTargets.memory ?? []) {
+    const preview = previewById.get(target.output_id);
+    links.push({
+      key: `memory:${target.item_id}`,
+      label: `打开已保存的 ${preview?.title ?? "Memory"}`,
+      href: buildWorkspaceRoomHref({
+        workspaceId,
+        room: "memory",
+        itemId: target.item_id,
+        query: preview?.title ?? null,
+      }),
+    });
+  }
+
+  for (const target of roomTargets.decisions ?? []) {
+    const preview = previewById.get(target.output_id);
+    links.push({
+      key: `decisions:${target.item_id}`,
+      label: `打开已保存的 ${preview?.title ?? "Decision"}`,
+      href: buildWorkspaceRoomHref({
+        workspaceId,
+        room: "decisions",
+        itemId: target.item_id,
+        query: preview?.title ?? null,
+      }),
+    });
+  }
+
+  for (const target of roomTargets.tasks ?? []) {
+    const preview = previewById.get(target.output_id);
+    links.push({
+      key: `tasks:${target.item_id}`,
+      label: `打开已保存的 ${preview?.title ?? "Task"}`,
+      href: buildWorkspaceRoomHref({
+        workspaceId,
+        room: "tasks",
+        itemId: target.item_id,
+        query: preview?.title ?? null,
+      }),
+    });
+  }
+
   return links;
 }
 
 function buildWorkspaceRoomHref(options: {
   workspaceId: string;
-  room: "documents" | "library";
+  room: "documents" | "library" | "memory" | "decisions" | "tasks";
   itemId: string;
   query: string | null;
 }): string {

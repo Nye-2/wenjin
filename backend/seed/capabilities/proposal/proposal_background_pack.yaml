@@ -98,7 +98,18 @@ graph_template:
       skill_id: research-scout
       inputs:
         query: "{{raw_message}}"
-      outputs: []
+      outputs:
+      - kind: library_item
+        iterate_on: output.papers
+        default_checked: true
+        mapping:
+          title: "{{item.title}}"
+          authors: "{{item.authors}}"
+          year: "{{item.year}}"
+          doi: "{{item.doi}}"
+          url: "{{item.url}}"
+          abstract: "{{item.abstract}}"
+          metadata: "{{item.raw}}"
     - name: literature_synthesizer
       subagent_type: react
       skill_id: literature-synthesizer

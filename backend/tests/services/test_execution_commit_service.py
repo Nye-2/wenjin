@@ -69,9 +69,9 @@ def _make_service(
             review_batch_id="review-batch-1",
             counts={"memory": 1, "decisions": 1, "tasks": 1},
             item_results=[
-                {"room": "memory", "record_id": "fact-1"},
-                {"room": "decisions", "record_id": "dec-1"},
-                {"room": "tasks", "record_id": "task-1"},
+                {"room": "memory", "record_id": "fact-1", "source_item_id": "out-mem"},
+                {"room": "decisions", "record_id": "dec-1", "source_item_id": "out-dec"},
+                {"room": "tasks", "record_id": "task-1", "source_item_id": "out-task"},
             ],
         )
     )
@@ -197,10 +197,26 @@ async def test_commit_returns_room_targets_for_committed_items():
         accepted_ids=["out-lib", "out-doc"],
     )
 
-    assert result["room_targets"] == {
-        "documents": [{"output_id": "out-doc", "item_id": "doc-1"}],
-        "library": [{"output_id": "out-lib", "item_id": "lib-1"}],
-    }
+    assert result["room_targets"]["documents"] == [{"output_id": "out-doc", "item_id": "doc-1"}]
+    assert result["room_targets"]["library"] == [{"output_id": "out-lib", "item_id": "lib-1"}]
+
+
+@pytest.mark.asyncio
+async def test_commit_returns_room_targets_for_room_candidates():
+    """Memory/decision/task candidates return workspace room focus metadata."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accepted_ids=["out-mem", "out-dec", "out-task"],
+    )
+
+    assert result["room_targets"]["memory"] == [{"output_id": "out-mem", "item_id": "fact-1"}]
+    assert result["room_targets"]["decisions"] == [{"output_id": "out-dec", "item_id": "dec-1"}]
+    assert result["room_targets"]["tasks"] == [{"output_id": "out-task", "item_id": "task-1"}]
 
 
 @pytest.mark.asyncio
@@ -304,9 +320,12 @@ async def test_commit_publishes_refresh_event():
         {
             "refresh_targets": [
                 "activity",
-                "artifacts",
-                "dashboard",
-                "references",
-            ]
-        },
+                        "artifacts",
+                        "dashboard",
+                        "memory",
+                        "decisions",
+                        "tasks",
+                        "references",
+                    ]
+                },
     )
