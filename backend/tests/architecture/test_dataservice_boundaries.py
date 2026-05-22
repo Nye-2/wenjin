@@ -96,7 +96,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
 }
 RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "gateway/routers/latex_files.py",
-    "gateway/routers/latex_helpers.py",
     "gateway/routers/references.py",
     "gateway/routers/workspace_rooms.py",
     "gateway/routers/workspaces.py",
