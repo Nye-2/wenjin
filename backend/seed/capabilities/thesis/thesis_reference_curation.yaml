@@ -96,7 +96,8 @@ graph_template:
     - name: research_scout
       subagent_type: searcher
       skill_id: research-scout
-      inputs: {}
+      inputs:
+        query: "{{raw_message}}"
       outputs: []
     - name: source_quality_auditor
       subagent_type: react

@@ -153,6 +153,9 @@ class FakeExecutionRepository:
             return self.record
         return None
 
+    async def lock_execution(self, execution_id: str) -> None:
+        _ = execution_id
+
     async def list_executions(self, **kwargs: Any) -> list[SimpleNamespace]:
         _ = kwargs
         return [self.record] if self.record is not None else []

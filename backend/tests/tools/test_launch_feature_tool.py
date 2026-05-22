@@ -97,13 +97,15 @@ async def test_launch_feature_creates_execution_and_dispatches():
     fake_publish = AsyncMock()
     fake_celery = MagicMock()
     fake_celery.enabled = True
-    fake_task = MagicMock()
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.return_value = SimpleNamespace(id="worker-task-1")
+    fake_service.update_execution = AsyncMock()
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
          patch("src.workspace_events.publish_workspace_event", fake_publish), \
          patch("src.config.app_config.celery_settings", fake_celery), \
-         patch("src.task.tasks.execution.execute_execution", fake_task):
+         patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
             {
                 "feature_id": "idea_to_thesis_manuscript",
@@ -128,9 +130,15 @@ async def test_launch_feature_creates_execution_and_dispatches():
     assert create_kwargs["thread_id"] == "th-1"
     assert create_kwargs["display_name"] == "Idea To Thesis Manuscript"
     assert create_kwargs["commit"] is False
-    fake_task.apply_async.assert_called_once_with(
+    fake_celery_app.send_task.assert_called_once_with(
+        "src.task.tasks.execute_execution",
         args=["exec-1"],
         queue="long_running",
+    )
+    fake_service.update_execution.assert_awaited_with(
+        "exec-1",
+        dispatch_mode="celery_worker",
+        worker_task_id="worker-task-1",
     )
 
 
@@ -143,12 +151,14 @@ async def test_launch_feature_uses_selected_skill_from_runtime_config_when_tool_
     fake_service.create_execution = AsyncMock(return_value=fake_execution)
     fake_celery = MagicMock()
     fake_celery.enabled = True
-    fake_task = MagicMock()
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.return_value = SimpleNamespace(id="worker-task-2")
+    fake_service.update_execution = AsyncMock()
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
          patch("src.config.app_config.celery_settings", fake_celery), \
-         patch("src.task.tasks.execution.execute_execution", fake_task):
+         patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
             {
                 "feature_id": "idea_to_thesis_manuscript",
@@ -179,12 +189,14 @@ async def test_launch_feature_merges_runtime_launch_params_when_tool_args_are_pa
     fake_service.create_execution = AsyncMock(return_value=fake_execution)
     fake_celery = MagicMock()
     fake_celery.enabled = True
-    fake_task = MagicMock()
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.return_value = SimpleNamespace(id="worker-task-3")
+    fake_service.update_execution = AsyncMock()
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
          patch("src.config.app_config.celery_settings", fake_celery), \
-         patch("src.task.tasks.execution.execute_execution", fake_task):
+         patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
             {
                 "feature_id": "idea_to_thesis_manuscript",
@@ -229,12 +241,13 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
     fake_service.create_execution = AsyncMock()
     fake_celery = MagicMock()
     fake_celery.enabled = True
-    fake_task = MagicMock()
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.return_value = SimpleNamespace(id="worker-task-9")
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
          patch("src.config.app_config.celery_settings", fake_celery), \
-         patch("src.task.tasks.execution.execute_execution", fake_task):
+         patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
             {
                 "feature_id": "idea_to_thesis_manuscript",
@@ -254,12 +267,17 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
     assert result["status"] == "launched"
     assert result["execution_id"] == "exec-9"
     fake_service.create_execution.assert_not_called()
-    fake_service.update_execution.assert_awaited_once()
-    update_kwargs = fake_service.update_execution.await_args.kwargs
+    assert fake_service.update_execution.await_count == 2
+    update_kwargs = fake_service.update_execution.await_args_list[0].kwargs
     assert update_kwargs["status"] == "pending"
     assert update_kwargs["thread_id"] == "th-1"
     assert update_kwargs["entry_skill_id"] == "manuscript-writer"
     assert update_kwargs["params"]["brief"]["capability_id"] == "idea_to_thesis_manuscript"
+    dispatch_kwargs = fake_service.update_execution.await_args_list[1].kwargs
+    assert dispatch_kwargs == {
+        "dispatch_mode": "celery_worker",
+        "worker_task_id": "worker-task-9",
+    }
 
 
 @pytest.mark.asyncio
@@ -278,12 +296,12 @@ async def test_launch_feature_rejects_resume_execution_id_from_another_workspace
     fake_service.create_execution = AsyncMock()
     fake_celery = MagicMock()
     fake_celery.enabled = True
-    fake_task = MagicMock()
+    fake_celery_app = MagicMock()
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
          patch("src.config.app_config.celery_settings", fake_celery), \
-         patch("src.task.tasks.execution.execute_execution", fake_task):
+         patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
             {
                 "feature_id": "idea_to_thesis_manuscript",
@@ -305,7 +323,7 @@ async def test_launch_feature_rejects_resume_execution_id_from_another_workspace
     assert result["execution_id"] == "exec-foreign"
     fake_service.update_execution.assert_not_called()
     fake_service.create_execution.assert_not_called()
-    fake_task.apply_async.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -403,13 +421,13 @@ async def test_launch_feature_returns_error_when_queue_dispatch_fails():
     fake_service.create_execution = AsyncMock(return_value=fake_execution)
     fake_service.complete_execution = AsyncMock()
     fake_celery = MagicMock(enabled=True)
-    fake_task = MagicMock()
-    fake_task.apply_async.side_effect = RuntimeError("queue down")
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.side_effect = RuntimeError("queue down")
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
          patch("src.config.app_config.celery_settings", fake_celery), \
-         patch("src.task.tasks.execution.execute_execution", fake_task):
+         patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
             {"feature_id": "idea_to_thesis_manuscript", "params": {}},
             config={

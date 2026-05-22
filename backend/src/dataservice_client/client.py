@@ -197,6 +197,30 @@ from src.dataservice_client.contracts.workspace import (
 from src.dataservice_client.errors import DataServiceClientError
 
 
+def _clean_request_params(params: Any) -> Any:
+    """Remove absent query params before handing them to httpx.
+
+    httpx serializes ``None`` query values as empty strings. DataService treats
+    those empty strings as real filter values, so optional params must be
+    stripped at the client boundary.
+    """
+    if not isinstance(params, dict):
+        return params
+
+    cleaned: dict[str, Any] = {}
+    for key, value in params.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            normalized = [item for item in value if item is not None]
+            if not normalized:
+                continue
+            cleaned[key] = normalized
+            continue
+        cleaned[key] = value
+    return cleaned
+
+
 class AsyncDataServiceClient:
     """Small typed client used by gateway, worker, and agent runtime code."""
 
@@ -3117,6 +3141,8 @@ class AsyncDataServiceClient:
         headers = dict(kwargs.pop("headers", {}) or {})
         if authenticated:
             headers["X-Wenjin-Internal-Token"] = self.internal_token
+        if "params" in kwargs:
+            kwargs["params"] = _clean_request_params(kwargs["params"])
         response = await self._client.request(method, path, headers=headers, **kwargs)
         if response.status_code >= 400:
             raise DataServiceClientError.from_response(response)

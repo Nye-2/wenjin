@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -42,6 +42,13 @@ class ConversationRepository:
             .with_for_update()
             .execution_options(populate_existing=True)
         )
+
+    async def next_message_sequence(self, thread_id: str) -> int:
+        result = await self.session.execute(
+            select(func.max(ThreadMessage.sequence_index)).where(ThreadMessage.thread_id == thread_id)
+        )
+        current = result.scalar_one_or_none()
+        return int(current) + 1 if current is not None else 0
 
     async def get_thread(self, thread_id: str) -> Thread | None:
         result = await self.session.execute(select(Thread).where(Thread.id == thread_id))

@@ -215,7 +215,9 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
 
     fake_publish = AsyncMock()
     fake_celery = MagicMock(enabled=True)
-    fake_task = MagicMock()
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.return_value = SimpleNamespace(id="worker-task-42")
+    fake_execution_service.update_execution = AsyncMock()
 
     with (
         patch("src.database.get_db_session", _fake_db_session),
@@ -225,7 +227,7 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
               return_value=fake_execution_service),
         patch("src.workspace_events.publish_workspace_event", fake_publish),
         patch("src.config.app_config.celery_settings", fake_celery),
-        patch("src.task.tasks.execution.execute_execution", fake_task),
+        patch("src.task.celery_app.celery_app", fake_celery_app),
     ):
         result = await launch_feature_tool.ainvoke(
             {
@@ -249,8 +251,15 @@ async def test_launch_feature_dispatches_execution_for_known_capability():
     assert create_kwargs["thread_id"] == "t-1"
     assert create_kwargs["display_name"] == "问题到 SCI 初稿"
     assert create_kwargs["commit"] is False
-    fake_task.apply_async.assert_called_once_with(
-        args=["exec-42"], queue="long_running"
+    fake_celery_app.send_task.assert_called_once_with(
+        "src.task.tasks.execute_execution",
+        args=["exec-42"],
+        queue="long_running",
+    )
+    fake_execution_service.update_execution.assert_awaited_with(
+        "exec-42",
+        dispatch_mode="celery_worker",
+        worker_task_id="worker-task-42",
     )
 
 

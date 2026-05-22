@@ -181,6 +181,9 @@ def test_distribute_brief_includes_manuscript_context():
     distributed = runtime._distribute_brief(brief, cap)
 
     assert distributed["make_outline"]["topic"] == "quantum computing"
+    assert distributed["make_outline"]["raw_message"] == "write an outline"
+    assert distributed["make_outline"]["workspace_id"] == "ws-001"
+    assert distributed["make_outline"]["capability_id"] == "test_cap"
     assert distributed["make_outline"]["manuscript_context"]["main_file"] == (
         "main.tex"
     )

@@ -547,6 +547,7 @@ class DataServiceExecutionService:
         execution_id: str,
         command: ExecutionEventCreateCommand,
     ) -> ExecutionEventProjection:
+        await self.repository.lock_execution(execution_id)
         record = await self.repository.append_event(
             execution_id=execution_id,
             workspace_id=command.workspace_id,

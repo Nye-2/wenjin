@@ -165,11 +165,11 @@ async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
         get_workspace_type=AsyncMock(return_value="thesis"),
     )
 
-    # 4. Invoke with a TaskBrief for the simplest capability (outline_generate)
+    # 4. Invoke with a TaskBrief for a current thesis capability.
     brief = TaskBrief(
-        capability_id="outline_generate",
-        brief={"topic": "Conditional GAN for image synthesis"},
-        raw_message="帮我做个论文大纲",
+        capability_id="idea_to_thesis_manuscript",
+        brief={"goal": "Conditional GAN for image synthesis", "deliverable": "完整论文主稿"},
+        raw_message="根据 idea 写一版论文全文",
         decisions={},
         workspace_id="ws-test",
     )

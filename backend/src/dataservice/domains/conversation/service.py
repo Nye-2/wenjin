@@ -26,6 +26,17 @@ from src.dataservice.domains.conversation.contracts import (
 from src.dataservice.domains.conversation.models import MessageBlock, ThreadMessage
 from src.dataservice.domains.conversation.repository import ConversationRepository
 
+_LAST_MESSAGE_PREVIEW_LIMIT = 120
+
+
+def _truncate_message_preview(content: str | None, limit: int = _LAST_MESSAGE_PREVIEW_LIMIT) -> str | None:
+    normalized = " ".join((content or "").split())
+    if not normalized:
+        return None
+    if len(normalized) <= limit:
+        return normalized
+    return normalized[: limit - 3].rstrip() + "..."
+
 
 class DataServiceConversationService:
     """DataService-owned conversation message and block operations."""
@@ -136,13 +147,16 @@ class DataServiceConversationService:
         return True
 
     async def append_message(self, command: ConversationMessageCreateCommand) -> ThreadMessage:
+        await self.repository.lock_thread(command.thread_id)
+        thread = await self.repository.get_thread(command.thread_id)
+        sequence_index = await self.repository.next_message_sequence(command.thread_id)
         message = self.repository.create_message(
             thread_id=command.thread_id,
             workspace_id=command.workspace_id,
             user_id=command.user_id,
             role=command.role,
             content=command.content,
-            sequence_index=command.sequence_index,
+            sequence_index=sequence_index,
             timestamp=command.timestamp,
             metadata_json=dict(command.metadata or {}),
             source_json=dict(command.source_json or {}),
@@ -153,6 +167,7 @@ class DataServiceConversationService:
                 "blocks": command.blocks,
             }
         )
+        await self.session.flush([message])
         for index, block in enumerate(raw_blocks):
             payload = normalize_block_payload(block) if isinstance(block, Mapping) else {}
             self.repository.create_block(
@@ -162,17 +177,25 @@ class DataServiceConversationService:
                 sequence_index=index,
                 payload_json=payload,
             )
+        if thread is not None:
+            normalized_role = str(command.role).strip()
+            thread.message_count = sequence_index + 1
+            thread.last_message_role = normalized_role or None
+            thread.last_message_preview = _truncate_message_preview(command.content)
+            thread.updated_at = command.timestamp or datetime.now(UTC)
         await self._finish()
         return message
 
     async def rebuild_messages(self, command: ConversationMessagesRebuildCommand) -> list[ThreadMessage]:
+        await self.repository.lock_thread(command.thread_id)
+        thread = await self.repository.get_thread(command.thread_id)
         await self.repository.delete_thread_messages(command.thread_id)
         created: list[ThreadMessage] = []
         for index, raw_message in enumerate(command.messages):
             if not isinstance(raw_message, Mapping):
                 continue
             created.append(
-                self._materialize_bridge_message(
+                await self._materialize_bridge_message(
                     thread_id=command.thread_id,
                     workspace_id=command.workspace_id,
                     user_id=command.user_id,
@@ -180,6 +203,17 @@ class DataServiceConversationService:
                     sequence_index=index,
                 )
             )
+        if thread is not None:
+            thread.message_count = len(created)
+            last_message = created[-1] if created else None
+            if last_message is not None:
+                thread.last_message_role = last_message.role
+                thread.last_message_preview = _truncate_message_preview(last_message.content)
+                thread.updated_at = last_message.timestamp or datetime.now(UTC)
+            else:
+                thread.last_message_role = None
+                thread.last_message_preview = None
+                thread.updated_at = datetime.now(UTC)
         await self._finish()
         return created
 
@@ -243,7 +277,7 @@ class DataServiceConversationService:
             )
         ]
 
-    def _materialize_bridge_message(
+    async def _materialize_bridge_message(
         self,
         *,
         thread_id: str,
@@ -275,6 +309,7 @@ class DataServiceConversationService:
             metadata_json=command.metadata,
             source_json=command.source_json,
         )
+        await self.session.flush([created])
         for block_index, payload in enumerate(command.blocks):
             self.repository.create_block(
                 message_id=created.id,

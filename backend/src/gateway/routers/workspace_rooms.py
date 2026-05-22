@@ -197,6 +197,50 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
     return dict(row)
 
 
+def _execution_to_run_dict(row: Any) -> dict[str, Any]:
+    """Project an execution record into the workspace Runs room contract."""
+    result = getattr(row, "result", None) or {}
+    task_report = result.get("task_report") if isinstance(result, dict) else None
+    if not isinstance(task_report, dict):
+        task_report = {}
+
+    raw_usage = task_report.get("token_usage")
+    token_usage = None
+    if isinstance(raw_usage, dict):
+        token_usage = {
+            "input": int(raw_usage.get("input") or raw_usage.get("input_tokens") or 0),
+            "output": int(raw_usage.get("output") or raw_usage.get("output_tokens") or 0),
+        }
+
+    started_at = getattr(row, "started_at", None) or getattr(row, "created_at", None)
+    completed_at = getattr(row, "completed_at", None)
+
+    return {
+        "id": str(getattr(row, "id", "")),
+        "capability_name": (
+            getattr(row, "display_name", None)
+            or getattr(row, "feature_id", None)
+            or getattr(row, "execution_type", None)
+            or "Execution"
+        ),
+        "status": getattr(row, "status", "running"),
+        "started_at": started_at.isoformat() if hasattr(started_at, "isoformat") else str(started_at or ""),
+        "completed_at": (
+            completed_at.isoformat()
+            if hasattr(completed_at, "isoformat")
+            else (str(completed_at) if completed_at else None)
+        ),
+        "summary": (
+            getattr(row, "result_summary", None)
+            or task_report.get("narrative")
+            or getattr(row, "message", None)
+            or getattr(row, "error", None)
+            or ""
+        ),
+        "token_usage": token_usage,
+    }
+
+
 def _library_source_command(workspace_id: str, data: dict[str, Any]) -> SourceCreatePayload:
     return SourceCreatePayload(
         workspace_id=workspace_id,
@@ -704,7 +748,7 @@ async def list_runs(
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
     runs = await dataservice.list_executions(workspace_id=ws_id, limit=limit)
-    return {"items": [_row_to_dict(r) for r in runs], "count": len(runs)}
+    return {"items": [_execution_to_run_dict(r) for r in runs], "count": len(runs)}
 
 
 @router.get("/{ws_id}/runs/{run_id}")
@@ -719,7 +763,7 @@ async def get_run(
     run = await dataservice.get_execution(run_id)
     if run is None or run.workspace_id != ws_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    return _row_to_dict(run)
+    return _execution_to_run_dict(run)
 
 
 # ===========================================================================

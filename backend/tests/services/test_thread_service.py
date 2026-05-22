@@ -97,7 +97,9 @@ class _FakeConversationDataService:
         return thread
 
     async def _append_message(self, thread_id: str, command):
-        self.messages.setdefault(thread_id, []).append(
+        messages = self.messages.setdefault(thread_id, [])
+        sequence_index = len(messages)
+        messages.append(
             {
                 "role": command.role,
                 "content": command.content,
@@ -106,7 +108,18 @@ class _FakeConversationDataService:
                 "blocks": list(command.blocks or []),
             }
         )
-        return None
+        return ConversationMessagePayload(
+            id=f"msg-{sequence_index}",
+            thread_id=thread_id,
+            user_id=self.threads[thread_id].user_id,
+            workspace_id=self.threads[thread_id].workspace_id,
+            role=command.role,
+            content=command.content,
+            sequence_index=sequence_index,
+            timestamp=command.timestamp,
+            metadata_json=dict(command.metadata or {}),
+            blocks=[],
+        )
 
     async def _rebuild_messages(self, thread_id: str, command):
         self.messages[thread_id] = list(command.messages)

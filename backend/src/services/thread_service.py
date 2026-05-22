@@ -320,7 +320,6 @@ class ThreadService:
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Append a message through the DataService conversation boundary."""
-        await self._lock_thread_row(str(thread.id))
         resolved_timestamp = timestamp or datetime.now(UTC)
         message: dict[str, Any] = {
             "role": role,
@@ -332,18 +331,6 @@ class ThreadService:
         if isinstance(metadata, Mapping) and metadata:
             message["metadata"] = dict(metadata)
         sequence_index = max(int(thread.message_count or 0), 0)
-        thread.message_count = sequence_index + 1
-        normalized_role = str(role).strip()
-        thread.last_message_role = normalized_role or None
-        thread.last_message_preview = _truncate_message_preview(content)
-        thread.updated_at = resolved_timestamp
-        await self._persist_thread_fields(
-            thread,
-                message_count=thread.message_count,
-                last_message_role=thread.last_message_role,
-                last_message_preview=thread.last_message_preview,
-                updated_at=thread.updated_at,
-        )
         command = ConversationMessageCreatePayload(
             thread_id=str(thread.id),
             user_id=str(thread.user_id),
@@ -356,10 +343,15 @@ class ThreadService:
             metadata=dict(message.get("metadata") or {}),
         )
         if self._dataservice is not None:
-            await self._dataservice.append_conversation_message(str(thread.id), command)
+            persisted = await self._dataservice.append_conversation_message(str(thread.id), command)
         else:
             async with dataservice_client() as client:
-                await client.append_conversation_message(str(thread.id), command)
+                persisted = await client.append_conversation_message(str(thread.id), command)
+        normalized_role = str(role).strip()
+        thread.message_count = (persisted.sequence_index + 1) if persisted is not None else sequence_index + 1
+        thread.last_message_role = normalized_role or None
+        thread.last_message_preview = _truncate_message_preview(content)
+        thread.updated_at = resolved_timestamp
         return message
 
     async def update_attachment_extraction_state(

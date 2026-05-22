@@ -36,6 +36,10 @@ def _thread_like() -> Any:
             "user_id": "user-1",
             "workspace_id": "ws-1",
             "messages": [],
+            "message_count": 0,
+            "last_message_role": None,
+            "last_message_preview": None,
+            "updated_at": None,
         },
     )()
 
@@ -61,6 +65,16 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
 async def test_append_message_materializes_ordered_blocks_and_tool_record() -> None:
     session = FakeSession()
     service = DataServiceConversationService(session)  # type: ignore[arg-type]
+    thread = SimpleNamespace(
+        id="thread-1",
+        message_count=0,
+        last_message_role=None,
+        last_message_preview=None,
+        updated_at=None,
+    )
+    service.repository.lock_thread = AsyncMock()  # type: ignore[method-assign]
+    service.repository.get_thread = AsyncMock(return_value=thread)  # type: ignore[method-assign]
+    service.repository.next_message_sequence = AsyncMock(return_value=0)  # type: ignore[method-assign]
 
     message = await service.append_message(
         ConversationMessageCreateCommand(
@@ -86,6 +100,10 @@ async def test_append_message_materializes_ordered_blocks_and_tool_record() -> N
     tool_rows = [item for item in session.added if isinstance(item, ToolInvocationRecord)]
     assert len(tool_rows) == 1
     assert tool_rows[0].tool_name == "search"
+    assert thread.message_count == 1
+    assert thread.last_message_role == "assistant"
+    assert thread.last_message_preview == "Done"
+    session.flush.assert_awaited_once()
     session.commit.assert_awaited_once()
 
 
@@ -94,6 +112,8 @@ async def test_conversation_public_api_replaces_thread_messages() -> None:
     session = FakeSession()
     api = ConversationDataService(session, autocommit=False)  # type: ignore[arg-type]
     thread = _thread_like()
+    api._domain.repository.lock_thread = AsyncMock()  # type: ignore[attr-defined,method-assign] # noqa: SLF001
+    api._domain.repository.get_thread = AsyncMock(return_value=thread)  # type: ignore[attr-defined,method-assign] # noqa: SLF001
     messages = [
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hi", "blocks": [{"kind": "text", "content": "Hi"}]},
@@ -106,7 +126,7 @@ async def test_conversation_public_api_replaces_thread_messages() -> None:
     assert [row.sequence_index for row in message_rows] == [0, 1]
     block_rows = [item for item in session.added if isinstance(item, MessageBlock)]
     assert [row.sequence_index for row in block_rows] == [0, 0]
-    session.flush.assert_awaited_once()
+    assert session.flush.await_count == 3
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -209,7 +210,6 @@ class TestDocumentsRoom:
 
         assert resp.status_code == 404
 
-
 class TestDecisionsRoom:
     def test_list_decisions_happy(self) -> None:
         _app, client, dataservice = _make_app()
@@ -285,13 +285,36 @@ class TestRunsRoom:
     def test_list_runs_happy(self) -> None:
         _app, client, dataservice = _make_app()
         dataservice.list_executions.return_value = [
-            _fake_row(id="run-1", workspace_id=WS_ID, title="Run 1", status="completed")
+            _fake_row(
+                id="exec-1",
+                display_name="文献定位与创新点",
+                feature_id="sci_literature_positioning",
+                execution_type="feature",
+                status="completed",
+                started_at=None,
+                created_at=datetime.fromisoformat("2026-05-22T09:08:55+00:00"),
+                completed_at=datetime.fromisoformat("2026-05-22T09:09:39+00:00"),
+                result_summary="完成 文献定位与创新点，共执行 3 个节点。",
+                message=None,
+                error=None,
+                result={"task_report": {"token_usage": {"input_tokens": 10, "output_tokens": 5}}},
+            )
         ]
 
         resp = client.get(f"/workspaces/{WS_ID}/runs")
 
         assert resp.status_code == 200
-        assert resp.json()["items"][0]["id"] == "run-1"
+        assert resp.json()["items"] == [
+            {
+                "id": "exec-1",
+                "capability_name": "文献定位与创新点",
+                "status": "completed",
+                "started_at": "2026-05-22T09:08:55+00:00",
+                "completed_at": "2026-05-22T09:09:39+00:00",
+                "summary": "完成 文献定位与创新点，共执行 3 个节点。",
+                "token_usage": {"input": 10, "output": 5},
+            }
+        ]
 
     def test_get_run_not_found(self) -> None:
         _app, client, dataservice = _make_app()

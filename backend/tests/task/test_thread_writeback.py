@@ -65,7 +65,7 @@ async def test_append_task_thread_message_writes_completion_card(
         task_type="workspace_feature",
         payload={
             "thread_id": "thread-1",
-            "feature_id": "framework_outline",
+            "feature_id": "thesis_research_pack",
             "params": {"topic": "LLM planning"},
         },
         result={
@@ -80,7 +80,7 @@ async def test_append_task_thread_message_writes_completion_card(
     assert len(kwargs["blocks"]) == 1
     block = kwargs["blocks"][0]
     assert block["kind"] == "result_card"
-    assert block["title"].startswith("框架大纲")
+    assert block["title"].startswith("论文研究包")
     assert "已完成" in block["title"]
     assert {
         (link.get("label"), link.get("href"))
@@ -88,7 +88,7 @@ async def test_append_task_thread_message_writes_completion_card(
     } >= {
         (
             "基于当前产物继续",
-            "/workspaces/ws-1?feature=framework_outline&topic=LLM+planning&source_artifact_id=artifact-1&context_artifact_ids=artifact-1",
+            "/workspaces/ws-1?feature=thesis_research_pack&topic=LLM+planning&source_artifact_id=artifact-1&context_artifact_ids=artifact-1",
         ),
     }
     publish_thread_updated.assert_awaited_once_with(thread)

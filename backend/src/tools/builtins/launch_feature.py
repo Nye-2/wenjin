@@ -254,14 +254,19 @@ async def launch_feature_tool(
                 "detail": "已有执行正在运行，请稍候。",
             }
 
-    # Dispatch Celery task to run the execution
-    from src.task.tasks.execution import execute_execution
+    # Dispatch through the project Celery app rather than the shared_task proxy.
+    # The chat gateway process does not own worker task registration, so using
+    # send_task keeps dispatch bound to Wenjin's configured broker/app.
+    from src.task.celery_app import celery_app
 
+    worker_task_id: str | None = None
     try:
-        execute_execution.apply_async(
+        worker_task = celery_app.send_task(
+            "src.task.tasks.execute_execution",
             args=[str(execution.id)],
             queue="long_running",
         )
+        worker_task_id = str(getattr(worker_task, "id", "") or "") or None
     except Exception:
         from src.database import get_db_session
         from src.services.execution_service import ExecutionService
@@ -280,6 +285,23 @@ async def launch_feature_tool(
             "feature_id": feature_id,
             "detail": "后台执行队列暂时不可用，请稍后重试。",
         }
+
+    if worker_task_id:
+        try:
+            from src.database import get_db_session
+            from src.services.execution_service import ExecutionService
+
+            async with get_db_session() as db:
+                svc = ExecutionService(db)
+                await svc.update_execution(
+                    str(execution.id),
+                    dispatch_mode="celery_worker",
+                    worker_task_id=worker_task_id,
+                )
+        except Exception:
+            # Dispatch already succeeded. Missing dispatch metadata should not
+            # convert a valid execution into a failed launch.
+            pass
 
     return {
         "status": "launched",

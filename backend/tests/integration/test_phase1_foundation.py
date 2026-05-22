@@ -161,26 +161,65 @@ class _FakeCatalogDataServiceClient:
 
 
 _SEED_YAML = textwrap.dedent("""\
+    schema_version: capability.v2
     id: deep_research
     workspace_type: thesis
-    display_name: 深度文献调研
-    description: 对某个主题做学术性的深度文献调研
-    intent_description: 用户希望对某个主题做学术性的深度文献调研
-    brief_schema:
-      type: object
-      required: [topic]
-      properties:
-        topic: {type: string}
+    enabled: true
+    display:
+      name: 深度文献调研
+      description: 对某个主题做学术性的深度文献调研
+      icon: search
+      color: purple
+      order: 0
+      entry_tier: primary
+    intent:
+      description: 用户希望对某个主题做学术性的深度文献调研
+      trigger_phrases: [深度文献调研]
+    mission:
+      goal: build_research_pack
+      primary_surface: prism
+      document_role: evidence_pack
+      user_promise: 生成可审阅的文献调研结果
+      allowed_deliverables: [evidence_pack]
+    inputs:
+      required_decisions: []
+      brief_schema:
+        type: object
+        required: [topic]
+        properties:
+          topic: {type: string}
+    context_policy:
+      room_reads:
+        library: summary
+      prism_context:
+        include_outline: true
+      full_text_access: explicit_tool_only
+    sandbox_policy:
+      mode: conditional
+      profiles: [analysis]
+      allowed_operations: [run_python]
+      isolation:
+        provider: docker
+        network: default_deny_allowlist
+      resource_limits:
+        cpu: 2
+        memory_mb: 4096
+      artifact_policy:
+        review_required: true
+    review_policy:
+      default_targets: [prism_file_change]
+      require_user_acceptance: true
+      allow_bulk_accept: true
+    quality_gates: [provenance_required_for_claims]
     graph_template:
       phases:
         - name: discover
           tasks:
             - name: search
               subagent_type: searcher
-    ui_meta:
-      icon: search
-      color: purple
-      order: 0
+              skill_id: literature-searcher
+              inputs:
+                query: "{{topic}}"
 """)
 
 

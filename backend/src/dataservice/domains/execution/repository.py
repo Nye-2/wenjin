@@ -129,6 +129,13 @@ class ExecutionRepository:
         )
         return result.scalar_one_or_none()
 
+    async def lock_execution(self, execution_id: str) -> None:
+        await self.session.execute(
+            select(ExecutionRecord)
+            .where(ExecutionRecord.id == execution_id)
+            .with_for_update()
+        )
+
     async def list_executions(
         self,
         *,

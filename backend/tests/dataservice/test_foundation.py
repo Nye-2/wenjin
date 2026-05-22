@@ -209,6 +209,28 @@ async def test_dataservice_client_sends_internal_token() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dataservice_client_strips_none_query_params() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.query.decode() == "workspace_id=ws-1&status=running&status=completed&limit=20"
+        return httpx.Response(200, json={"status": "ok", "data": []})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        await client.list_executions(
+            user_id=None,
+            workspace_id="ws-1",
+            thread_id=None,
+            execution_type=None,
+            status=["running", None, "completed"],  # type: ignore[list-item]
+            limit=20,
+        )
+
+
+@pytest.mark.asyncio
 async def test_dataservice_client_workspace_contract_methods() -> None:
     seen: list[tuple[str, str, dict[str, Any] | None]] = []
 

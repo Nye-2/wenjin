@@ -6,7 +6,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import ResultError, ResultOutput, TaskReport
@@ -21,6 +21,12 @@ class ExecutionAborted(Exception):
     """Raised when the execution is cancelled via the Redis abort signal."""
 
 
+def merge_node_results(left: dict[str, Any] | None, right: dict[str, Any] | None) -> dict[str, Any]:
+    merged = dict(left or {})
+    merged.update(dict(right or {}))
+    return merged
+
+
 class ExecutionState(TypedDict, total=False):
     """LangGraph state threaded through all subagent nodes."""
 
@@ -28,7 +34,7 @@ class ExecutionState(TypedDict, total=False):
     execution_id: str
     inputs_for_tasks: dict
     workspace_data: dict
-    node_results: dict
+    node_results: Annotated[dict[str, Any], merge_node_results]
     capability_policy: dict[str, Any]
 
 
@@ -486,6 +492,9 @@ class LeadAgentRuntime:
         for phase in cap.graph_template["phases"]:
             for task in phase["tasks"]:
                 task_inputs = dict(brief.brief)
+                task_inputs.setdefault("raw_message", brief.raw_message)
+                task_inputs.setdefault("workspace_id", brief.workspace_id)
+                task_inputs.setdefault("capability_id", brief.capability_id)
                 if brief.manuscript_context:
                     task_inputs["manuscript_context"] = brief.manuscript_context
                 result[task["name"]] = task_inputs
