@@ -89,23 +89,6 @@ export async function waitRun(data: RunRequest): Promise<RunWaitResponse> {
   return response.data;
 }
 
-
-// Run lifecycle controls (Plan 2 T2)
-// Paths match backend Plan 1 T10 (run-scoped, not workspace-scoped):
-//   POST /runs/{run_id}/pause | /resume
-//   DELETE /runs/{run_id}
-// Backend: backend/src/gateway/routers/runs.py
-async function postNoBody(url: string): Promise<void> {
-  const res = await fetch(url, { method: "POST" });
-  if (!res.ok) throw new Error(`POST ${url} failed: ${res.status}`);
-}
-
-export const pauseRunLifecycle = (runId: string) =>
-  postNoBody(`/api/runs/${encodeURIComponent(runId)}/pause`);
-
-export const resumeRunLifecycle = (runId: string) =>
-  postNoBody(`/api/runs/${encodeURIComponent(runId)}/resume`);
-
 export async function deleteRunLifecycle(runId: string): Promise<void> {
   const res = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: "DELETE" });
   if (!res.ok) throw new Error(`DELETE run failed: ${res.status}`);

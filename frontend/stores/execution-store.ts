@@ -25,8 +25,6 @@ interface ExecutionState {
   executions: Map<string, ExecutionRecord>;
   /** Currently active execution ID (most recently updated) */
   currentExecutionId: string | null;
-  /** Set of execution IDs that the user has explicitly paused */
-  pausedExecutionIds: Set<string>;
   /** Collapsed phase keys for UI state */
   collapsedPhaseKeys: Set<string>;
   /** Collapsed execution IDs for UI state */
@@ -38,8 +36,6 @@ interface ExecutionState {
   setCurrentExecution: (id: string | null) => void;
   toggleExecutionCollapsed: (id: string) => void;
   togglePhaseCollapsed: (executionId: string, phaseIndex: number) => void;
-  pauseExecution: (id: string) => void;
-  resumeExecution: (id: string) => void;
   deleteExecution: (id: string) => void;
   clear: () => void;
 }
@@ -65,7 +61,6 @@ function deepCloneExecution(record: ExecutionRecord): ExecutionRecord {
 export const useExecutionStore = create<ExecutionState>((set) => ({
   executions: new Map(),
   currentExecutionId: null,
-  pausedExecutionIds: new Set(),
   collapsedPhaseKeys: new Set(),
   collapsedExecutionIds: new Set(),
 
@@ -252,20 +247,6 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
     });
   },
 
-  pauseExecution(id) {
-    set((state) => ({
-      pausedExecutionIds: new Set([...state.pausedExecutionIds, id]),
-    }));
-  },
-
-  resumeExecution(id) {
-    set((state) => {
-      const next = new Set(state.pausedExecutionIds);
-      next.delete(id);
-      return { pausedExecutionIds: next };
-    });
-  },
-
   deleteExecution(id) {
     set((state) => {
       const next = new Map(state.executions);
@@ -282,7 +263,6 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
     set({
       executions: new Map(),
       currentExecutionId: null,
-      pausedExecutionIds: new Set(),
       collapsedPhaseKeys: new Set(),
       collapsedExecutionIds: new Set(),
     });

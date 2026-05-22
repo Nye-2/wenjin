@@ -241,32 +241,20 @@ latex_projects
 - `GET /workspaces/:id/prism`
   - workspace Prism surface
 
-### Compatibility routes
+### Removed standalone routes
 
-- `GET /latex/:projectId`
-  - 若该 project 绑定某个 workspace 且 `surface_role = primary_manuscript`
-    - redirect 到 `/workspaces/:workspaceId/prism`
-  - 否则继续按 standalone LaTeX project 打开
-
-### Why keep `/latex/:projectId`
-
-- 历史链接不失效
-- 允许 standalone LaTeX 场景继续工作
-- 给迁移期和内部工具留缓冲空间
+- `GET /latex/:projectId` has been removed.
+- Workspace-owned Prism is the only manuscript collaboration surface.
+- Historical standalone LaTeX links fail closed instead of redirecting through a compatibility layer.
 
 ### Frontend navigation semantics
 
-当前 `open_prism` / `preview_prism_changes` 直接构造 `/latex/:projectId`。
-
-迁移后改为：
-
-- 优先走 `/workspaces/:id/prism`
-- 若缺少 workspace context，再 fallback 到 `/latex/:projectId`
+`open_prism` / `preview_prism_changes` now resolve to `/workspaces/:id/prism`.
 
 结果是：
 
 - 在 workspace 内触发 Prism action 时，用户留在 workspace 语义中
-- 只有通用 LaTeX 入口才需要裸 project route
+- 不再存在裸 project route 作为运行时入口
 
 ## Backend Architecture
 
@@ -368,7 +356,7 @@ class WorkspacePrismService:
 1. execution / task 层保留 `latex_project_id` pointer
 2. `ComputeProjectionService` 先判断当前 execution 是否关联 workspace-owned Prism
 3. 若是，则直接通过 `WorkspacePrismService` / `LatexPrismStatusResolver` 构造 projection
-4. payload 扫描逻辑保留为迁移期 fallback，仅用于旧 execution 或非 canonical 路径
+4. projection 只读 workspace-owned Prism surface，不再扫描 execution payload
 
 ### Expected result
 
@@ -504,11 +492,11 @@ next actions 应收敛成三类：
 3. 回到 `/workspaces/:id`
 4. Compute projection 里看到更新后的 Prism status
 
-### Flow 4: Legacy direct link
+### Flow 4: Removed direct link
 
 1. 用户访问 `/latex/:projectId`
-2. 若该 project 属于 workspace primary manuscript
-3. redirect 到 `/workspaces/:id/prism`
+2. 系统不再提供 standalone Prism runtime route
+3. 用户从 workspace surface switch 或 Prism action 进入 `/workspaces/:id/prism`
 
 ## Migration Plan
 
@@ -531,13 +519,13 @@ next actions 应收敛成三类：
 ### Phase 3: Routing
 
 1. 新增 `/workspaces/:id/prism`
-2. 为 `/latex/:projectId` 增 redirect resolve
+2. 移除 `/latex/:projectId` standalone runtime route
 3. 前端所有 `open_prism` / `preview_prism_changes` handoff 改指向 workspace Prism route
 
 ### Phase 4: Compute
 
 1. `ComputeProjectionService` 引入 authoritative Prism source
-2. payload scan 改成 fallback-only
+2. 移除 execution payload scan 作为 Prism 状态来源
 3. `LatexPrismStatusResolver` 继续负责 file change / compile 状态刷新
 
 ### Phase 5: Frontend shell
@@ -560,10 +548,10 @@ next actions 应收敛成三类：
 - service test：workspace 只能拿到自己的 primary manuscript
 - route test：
   - `/workspaces/:id/prism` 返回 linked surface
-  - `/latex/:projectId` 正确 redirect
+  - `/latex/:projectId` 不再作为运行时入口
 - compute projection test：
   - authoritative Prism state 优先
-  - legacy payload scan 仅作 fallback
+  - execution payload 不参与 Prism projection
 
 ### Frontend
 
@@ -603,13 +591,13 @@ next actions 应收敛成三类：
 缓解：
 
 - 显式规定 `workspace_id` / `surface_role` 为 canonical binding
-- `llm_config.workspace_id` 仅作为迁移期 fallback 读取
+- `workspace_id` / `surface_role` 是 canonical binding；`llm_config.workspace_id` 不作为运行时绑定来源
 
 ### Risk 4: Compute projection regression
 
 缓解：
 
-- 在引入 authoritative source 前保留 payload scan fallback
+- 通过 authoritative Prism surface projection 构建 Compute projection
 - 用 targeted compute tests 锁定行为
 
 ## Final Recommendation
