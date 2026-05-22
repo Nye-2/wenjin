@@ -17,6 +17,7 @@ from src.agents.lead_agent.v2.output_mapping import (
     resolve_output_mapping_value,
 )
 from src.services.capability_resolver import CapabilityResolver
+from src.services.prism_file_content import normalize_prism_file_change_content
 
 logger = logging.getLogger(__name__)
 
@@ -616,6 +617,21 @@ class LeadAgentRuntime:
         )
 
         mapping = decl.get("mapping") if isinstance(decl.get("mapping"), dict) else {}
+        path_value = resolve_output_mapping_value(
+            str(mapping.get("path") or default_path),
+            output,
+        )
+        path = str(path_value or default_path).strip() or default_path
+        content_format_value = (
+            resolve_output_mapping_value(str(mapping["content_format"]), output)
+            if "content_format" in mapping
+            else None
+        )
+        content_format = (
+            str(content_format_value).strip()
+            if content_format_value is not None and str(content_format_value).strip()
+            else None
+        )
         pending_content = resolve_output_mapping_value(
             str(
                 mapping.get("pending_content")
@@ -626,12 +642,11 @@ class LeadAgentRuntime:
         )
         if not isinstance(pending_content, str) or not pending_content.strip():
             return None
-
-        path_value = resolve_output_mapping_value(
-            str(mapping.get("path") or default_path),
-            output,
+        pending_content = normalize_prism_file_change_content(
+            pending_content,
+            path=path,
+            content_format=content_format,
         )
-        path = str(path_value or default_path).strip() or default_path
         logical_key_value = resolve_output_mapping_value(
             str(mapping.get("logical_key") or f"project:{path}"),
             output,

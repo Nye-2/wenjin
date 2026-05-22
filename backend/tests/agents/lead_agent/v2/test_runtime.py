@@ -274,6 +274,89 @@ async def test_stage_prism_review_items_from_writer_output():
     assert command.pending_hash
 
 
+@pytest.mark.asyncio
+async def test_stage_prism_review_items_normalizes_tex_markdown_output():
+    graph_template = {
+        "phases": [
+            {
+                "name": "write",
+                "tasks": [
+                    {
+                        "name": "manuscript_writer",
+                        "subagent_type": "react",
+                        "outputs": [
+                            {
+                                "kind": "prism_file_change",
+                                "mapping": {
+                                    "logical_key": "project:main",
+                                    "path": "main.tex",
+                                    "content_format": "latex_document",
+                                    "reason": "feature_proposal",
+                                    "pending_content": "{{output.text}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+    brief = TaskBrief(
+        capability_id="research_question_to_paper",
+        raw_message="write a manuscript",
+        workspace_id="ws-001",
+        brief={},
+        manuscript_context={
+            "latex_project_id": "latex-1",
+            "main_file": "main.tex",
+        },
+    )
+    staged: list[object] = []
+
+    class _FakeClient:
+        async def upsert_pending_prism_file_change(self, command):
+            staged.append(command)
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        return_value=_FakeClientContext(),
+    ):
+        await runtime._stage_prism_review_items(
+            {
+                "node_results": {
+                    "manuscript_writer": {
+                        "output": {
+                            "text": "# **联邦学习大模型**\n\n### **1. 引言**\n\n1. 通信效率",
+                        },
+                    },
+                },
+            },
+            cap,
+            brief=brief,
+            execution_id="exec-1",
+        )
+
+    assert len(staged) == 1
+    command = staged[0]
+    assert command.path == "main.tex"
+    assert command.pending_content.startswith("\\documentclass[UTF8,12pt]{ctexart}")
+    assert "\\title{联邦学习大模型}" in command.pending_content
+    assert "\\section{1. 引言}" in command.pending_content
+    assert "\\begin{enumerate}" in command.pending_content
+
+
 # ---------------------------------------------------------------------------
 # test_run_session_handles_unknown_subagent_capability
 # ---------------------------------------------------------------------------
