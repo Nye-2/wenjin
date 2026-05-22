@@ -180,8 +180,10 @@ from src.dataservice_client.contracts.template import (
     WorkspaceTemplatePayload,
 )
 from src.dataservice_client.contracts.workspace import (
+    WorkspaceAdminStatsPayload,
     WorkspaceCreatePayload,
     WorkspacePayload,
+    WorkspaceStatsPayload,
     WorkspaceUpdatePayload,
 )
 from src.dataservice_client.errors import DataServiceClientError
@@ -1578,6 +1580,14 @@ class AsyncDataServiceClient:
         )
         return dict(payload["data"])
 
+    async def count_executions_by_status(self, *, user_id: str | None = None) -> dict[str, int]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/analytics/status-counts",
+            params={"user_id": user_id},
+        )
+        return {str(key): int(value) for key, value in dict(payload["data"]).items()}
+
     async def count_running_feature_executions(
         self,
         *,
@@ -1672,6 +1682,17 @@ class AsyncDataServiceClient:
 
     async def list_execution_nodes(self, execution_id: str) -> list[ExecutionNodePayload]:
         payload = await self._request("GET", f"/internal/v1/executions/{execution_id}/nodes")
+        return [ExecutionNodePayload.model_validate(item) for item in payload["data"]]
+
+    async def list_execution_nodes_by_execution_ids(
+        self,
+        execution_ids: list[str],
+    ) -> list[ExecutionNodePayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/nodes/batch",
+            params={"execution_id": execution_ids},
+        )
         return [ExecutionNodePayload.model_validate(item) for item in payload["data"]]
 
     async def get_execution_node(self, node_record_id: str) -> ExecutionNodePayload | None:
@@ -2737,6 +2758,14 @@ class AsyncDataServiceClient:
             params={"member_user_id": member_user_id},
         )
         return [WorkspacePayload.model_validate(item) for item in payload["data"]]
+
+    async def get_workspace_stats_for_member(self, user_id: str) -> WorkspaceStatsPayload:
+        payload = await self._request("GET", f"/internal/v1/workspaces/stats/member/{user_id}")
+        return WorkspaceStatsPayload.model_validate(payload["data"])
+
+    async def get_admin_workspace_stats(self) -> WorkspaceAdminStatsPayload:
+        payload = await self._request("GET", "/internal/v1/workspaces/stats/admin")
+        return WorkspaceAdminStatsPayload.model_validate(payload["data"])
 
     async def get_workspace(self, workspace_id: str) -> WorkspacePayload | None:
         payload = await self._request("GET", f"/internal/v1/workspaces/{workspace_id}")

@@ -8,25 +8,67 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from src.dataservice.domains.execution.contracts import (
-    ExecutionNodeProjection,
-    ExecutionRecordProjection,
+from src.dataservice_client.contracts.account import AccountUserPayload
+from src.dataservice_client.contracts.execution import (
+    ExecutionNodePayload,
+    ExecutionPayload,
 )
-from src.dataservice.domains.workspace.contracts import WorkspaceStatsRecord
+from src.dataservice_client.contracts.workspace import WorkspaceStatsPayload
 from src.services.user_dashboard_service import UserDashboardService
 
 
-class _RowsResult:
-    def __init__(self, rows):
-        self._rows = rows
+class FakeDashboardDataServiceClient:
+    def __init__(self) -> None:
+        self.user = AccountUserPayload(
+            id="user-1",
+            email="user-1@example.com",
+            name="User 1",
+            role="user",
+            is_active=True,
+            is_superuser=False,
+            credits=-2,
+            total_credits_earned=100,
+            total_credits_spent=102,
+            created_at=datetime(2026, 3, 26, tzinfo=UTC),
+            last_login=None,
+        )
+        self.workspace_stats = WorkspaceStatsPayload(
+            total=0,
+            by_type={},
+            created_last_7d=0,
+        )
+        self.status_counts: dict[str, int] = {}
+        self.executions: list[ExecutionPayload] = []
+        self.nodes: list[ExecutionNodePayload] = []
 
-    def all(self):
-        return self._rows
+    async def get_account_user(self, user_id: str) -> AccountUserPayload | None:
+        return self.user if user_id == self.user.id else None
+
+    async def get_workspace_stats_for_member(self, user_id: str) -> WorkspaceStatsPayload:
+        return self.workspace_stats
+
+    async def count_executions_by_status(self, *, user_id: str | None = None) -> dict[str, int]:
+        return self.status_counts
+
+    async def list_executions(
+        self,
+        *,
+        user_id: str | None = None,
+        limit: int = 50,
+    ) -> list[ExecutionPayload]:
+        return self.executions[:limit]
+
+    async def list_execution_nodes_by_execution_ids(
+        self,
+        execution_ids: list[str],
+    ) -> list[ExecutionNodePayload]:
+        wanted = set(execution_ids)
+        return [node for node in self.nodes if node.execution_id in wanted]
 
 
-def _execution_projection(**overrides) -> ExecutionRecordProjection:
+def _execution_projection(**overrides) -> ExecutionPayload:
     now = overrides.get("created_at") or datetime.now(UTC)
-    return ExecutionRecordProjection(
+    return ExecutionPayload(
         id=overrides.get("id", "exec-1"),
         user_id=overrides.get("user_id", "user-1"),
         workspace_id=overrides.get("workspace_id", "ws-1"),
@@ -46,9 +88,9 @@ def _execution_projection(**overrides) -> ExecutionRecordProjection:
     )
 
 
-def _node_projection(**overrides) -> ExecutionNodeProjection:
+def _node_projection(**overrides) -> ExecutionNodePayload:
     now = overrides.get("created_at") or datetime.now(UTC)
-    return ExecutionNodeProjection(
+    return ExecutionNodePayload(
         id=overrides.get("id", "node-1"),
         execution_id=overrides.get("execution_id", "exec-1"),
         node_id=overrides.get("node_id", "phase__task"),
@@ -63,22 +105,8 @@ def _node_projection(**overrides) -> ExecutionNodeProjection:
 @pytest.mark.asyncio
 async def test_get_dashboard_includes_thread_credit_status() -> None:
     db = AsyncMock()
-    db.get = AsyncMock(
-        return_value=SimpleNamespace(
-            id="user-1",
-            email="user-1@example.com",
-            name="User 1",
-            is_superuser=False,
-            is_active=True,
-            created_at=datetime(2026, 3, 26, tzinfo=UTC),
-            last_login=None,
-            credits=-2,
-            total_credits_earned=100,
-            total_credits_spent=102,
-        )
-    )
-
-    service = UserDashboardService(db)
+    fake_client = FakeDashboardDataServiceClient()
+    service = UserDashboardService(db, dataservice=fake_client)
     service._get_workspace_stats = AsyncMock(return_value={"total": 1, "by_type": {"thesis": 1}, "created_last_7d": 0})
     service._get_task_stats = AsyncMock(
         return_value=(
@@ -147,36 +175,33 @@ async def test_get_dashboard_includes_thread_credit_status() -> None:
 @pytest.mark.asyncio
 async def test_get_token_usage_stats_aggregates_feature_and_subagent_usage() -> None:
     db = AsyncMock()
-    service = UserDashboardService(db)
-    service._execution.list_executions = AsyncMock(
-        return_value=[
-            _execution_projection(
-                id="exec-1",
-                result_json={
-                    "token_usage": {
-                        "input_tokens": 100,
-                        "output_tokens": 20,
-                        "total_tokens": 120,
-                    }
-                },
-            ),
-            _execution_projection(id="exec-2", result_json={}),
-        ]
-    )
-    service._execution.list_nodes_by_execution_ids = AsyncMock(
-        return_value=[
-            _node_projection(
-                id="node-1",
-                execution_id="exec-1",
-                token_usage={
-                    "input_tokens": 30,
-                    "output_tokens": 10,
-                    "total_tokens": 40,
-                },
-            ),
-            _node_projection(id="node-2", execution_id="exec-2"),
-        ]
-    )
+    fake_client = FakeDashboardDataServiceClient()
+    fake_client.executions = [
+        _execution_projection(
+            id="exec-1",
+            result_json={
+                "token_usage": {
+                    "input_tokens": 100,
+                    "output_tokens": 20,
+                    "total_tokens": 120,
+                }
+            },
+        ),
+        _execution_projection(id="exec-2", result_json={}),
+    ]
+    fake_client.nodes = [
+        _node_projection(
+            id="node-1",
+            execution_id="exec-1",
+            token_usage={
+                "input_tokens": 30,
+                "output_tokens": 10,
+                "total_tokens": 40,
+            },
+        ),
+        _node_projection(id="node-2", execution_id="exec-2"),
+    ]
+    service = UserDashboardService(db, dataservice=fake_client)
     stats = await service._get_token_usage_stats(
         user_id="user-1",
         thread_credit_status={
@@ -199,14 +224,13 @@ async def test_get_token_usage_stats_aggregates_feature_and_subagent_usage() -> 
 @pytest.mark.asyncio
 async def test_get_workspace_stats_uses_dataservice_projection() -> None:
     db = AsyncMock()
-    service = UserDashboardService(db)
-    service._workspace.get_workspace_stats_for_member = AsyncMock(
-        return_value=WorkspaceStatsRecord(
-            total=2,
-            by_type={"thesis": 1, "sci": 1},
-            created_last_7d=1,
-        )
+    fake_client = FakeDashboardDataServiceClient()
+    fake_client.workspace_stats = WorkspaceStatsPayload(
+        total=2,
+        by_type={"thesis": 1, "sci": 1},
+        created_last_7d=1,
     )
+    service = UserDashboardService(db, dataservice=fake_client)
 
     stats = await service._get_workspace_stats("user-1")
 

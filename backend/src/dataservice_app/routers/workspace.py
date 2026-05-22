@@ -41,6 +41,25 @@ async def list_workspaces(
     return envelope_ok([workspace_to_record(workspace).model_dump(mode="json") for workspace in workspaces])
 
 
+@router.get("/stats/member/{user_id}")
+async def get_workspace_stats_for_member(
+    user_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
+    stats = await service.get_workspace_stats_for_member(user_id)
+    return envelope_ok(stats.model_dump(mode="json"))
+
+
+@router.get("/stats/admin")
+async def get_admin_workspace_stats(
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceWorkspaceService(uow.required_session, autocommit=False)
+    stats = await service.get_admin_workspace_stats()
+    return envelope_ok(stats.model_dump(mode="json"))
+
+
 @router.get("/{workspace_id}")
 async def get_workspace(
     workspace_id: str,

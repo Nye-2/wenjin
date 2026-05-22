@@ -6,15 +6,15 @@ Redis cache decorator from admin_analytics_cache.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.account_api import AccountDataService
-from src.dataservice.credit_api import CreditDataService
-from src.dataservice.execution_api import ExecutionDataService
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.provider import dataservice_client
 
 Granularity = Literal["day", "week"]
 
@@ -22,11 +22,22 @@ Granularity = Literal["day", "week"]
 class AdminAnalyticsService:
     """Service for admin analytics aggregation queries."""
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ) -> None:
         self.db = db
-        self._account = AccountDataService(db, autocommit=False)
-        self._credit = CreditDataService(db, autocommit=False)
-        self._workspace = WorkspaceDataService(db, autocommit=False)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     # ------------------------------------------------------------------
     # 1. User growth
@@ -36,21 +47,19 @@ class AdminAnalyticsService:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         since = now - timedelta(days=range_days)
-        growth = await self._account.aggregate_user_growth(
-            since=since,
-            granularity=granularity,
-        )
+        async with self._client() as client:
+            growth = await client.aggregate_account_user_growth(
+                since=since,
+                granularity=granularity,
+            )
 
-        execution_data = ExecutionDataService(self.db, autocommit=False)
         active_since = now - timedelta(days=1)
-        dau = await execution_data.count_active_execution_users(
-            created_since=active_since,
-        )
+        async with self._client() as client:
+            dau = await client.count_active_execution_users(created_since=active_since)
 
         active_since_w = now - timedelta(days=7)
-        wau = await execution_data.count_active_execution_users(
-            created_since=active_since_w,
-        )
+        async with self._client() as client:
+            wau = await client.count_active_execution_users(created_since=active_since_w)
 
         return {
             "kpis": {
@@ -70,10 +79,11 @@ class AdminAnalyticsService:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         since = now - timedelta(days=range_days)
-        return await ExecutionDataService(self.db, autocommit=False).aggregate_execution_stats(
-            created_since=since,
-            granularity=granularity,
-        )
+        async with self._client() as client:
+            return await client.aggregate_execution_stats(
+                created_since=since,
+                granularity=granularity,
+            )
 
     # ------------------------------------------------------------------
     # 3. Credit consumption
@@ -83,16 +93,19 @@ class AdminAnalyticsService:
     ) -> dict[str, Any]:
         now = datetime.now(UTC)
         since = now - timedelta(days=range_days)
-        return await self._credit.aggregate_credit_consumption_stats(
-            since=since,
-            granularity=granularity,
-        )
+        async with self._client() as client:
+            stats = await client.aggregate_credit_consumption_stats(
+                since=since,
+                granularity=granularity,
+            )
+        return stats.model_dump(mode="json")
 
     # ------------------------------------------------------------------
     # 4. Workspace adoption
     # ------------------------------------------------------------------
     async def workspace_adoption_stats(self) -> dict[str, Any]:
-        stats = await self._workspace.get_admin_workspace_stats()
+        async with self._client() as client:
+            stats = await client.get_admin_workspace_stats()
         by_type = [
             {
                 "type": workspace_type,
@@ -101,7 +114,8 @@ class AdminAnalyticsService:
             for workspace_type, count in stats.by_type.items()
         ]
 
-        account_stats = await self._account.get_admin_stats()
+        async with self._client() as client:
+            account_stats = await client.get_account_admin_stats()
         total_users = account_stats.total_users
 
         return {

@@ -7,8 +7,9 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, Query
 
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_admin
-from src.gateway.deps.core import get_db
+from src.gateway.deps.core import get_dataservice_client
 from src.services.admin_analytics_cache import cached
 from src.services.admin_analytics_service import AdminAnalyticsService
 
@@ -17,8 +18,10 @@ router = APIRouter(tags=["dashboard"])
 Granularity = Literal["day", "week"]
 
 
-def _get_service(db=Depends(get_db)) -> AdminAnalyticsService:
-    return AdminAnalyticsService(db)
+def _get_service(
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> AdminAnalyticsService:
+    return AdminAnalyticsService(dataservice=dataservice)
 
 
 def _parse_range(range_str: str) -> int:

@@ -3,7 +3,8 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.gateway.deps.core import get_db
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps.core import get_dataservice_client, get_db
 from src.services.admin_dashboard_service import AdminDashboardService
 from src.services.credit_service import CreditService
 from src.services.dashboard_service import DashboardService
@@ -29,9 +30,10 @@ async def get_credit_service(
 
 async def get_user_dashboard_service(
     db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> UserDashboardService:
     """Get user dashboard service instance."""
-    return UserDashboardService(db)
+    return UserDashboardService(db, dataservice=dataservice)
 
 
 async def get_admin_dashboard_service(

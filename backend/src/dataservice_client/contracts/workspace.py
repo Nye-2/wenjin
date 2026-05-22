@@ -82,3 +82,19 @@ class WorkspaceUpdatePayload(BaseModel):
     description: str | None = None
     settings_json: dict[str, Any] | None = None
     active_thread_id: str | None = None
+
+
+class WorkspaceStatsPayload(BaseModel):
+    """Workspace aggregate stats for user-facing dashboards."""
+
+    total: int
+    by_type: dict[str, int] = Field(default_factory=dict)
+    created_last_7d: int
+
+
+class WorkspaceAdminStatsPayload(BaseModel):
+    """Workspace aggregate stats for admin-facing dashboards."""
+
+    total: int
+    by_type: dict[str, int] = Field(default_factory=dict)
+    users_with_workspaces: int

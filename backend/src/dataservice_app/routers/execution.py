@@ -86,6 +86,16 @@ async def aggregate_execution_stats(
     return envelope_ok(stats)
 
 
+@router.get("/analytics/status-counts")
+async def count_executions_by_status(
+    user_id: str | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    counts = await service.count_executions_by_status(user_id=user_id)
+    return envelope_ok(counts)
+
+
 @router.get("/features/running-count")
 async def count_running_feature_executions(
     workspace_id: str = Query(...),
@@ -282,6 +292,16 @@ async def update_compute_session(
     record = await service.update_compute_session(compute_session_id, command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.get("/nodes/batch")
+async def list_nodes_by_execution_ids(
+    execution_id: list[str] = Query(default_factory=list),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    records = await service.list_nodes_by_execution_ids(execution_id)
+    return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
 @router.get("/nodes/{node_record_id}")

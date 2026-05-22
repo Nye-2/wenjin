@@ -224,6 +224,22 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
             return httpx.Response(200, json={"status": "ok", "data": workspace_payload()})
         if request.method == "GET" and request.url.path == "/internal/v1/workspaces":
             return httpx.Response(200, json={"status": "ok", "data": [workspace_payload()]})
+        if request.method == "GET" and request.url.path.endswith("/stats/member/user-1"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "data": {"total": 2, "by_type": {"thesis": 1}, "created_last_7d": 1},
+                },
+            )
+        if request.method == "GET" and request.url.path.endswith("/stats/admin"):
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "data": {"total": 3, "by_type": {"sci": 2}, "users_with_workspaces": 2},
+                },
+            )
         if request.method == "GET" and request.url.path.endswith("/members/user-1/active"):
             return httpx.Response(
                 200,
@@ -252,6 +268,8 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
             )
         )
         listed = await client.list_workspaces(member_user_id="user-1")
+        member_stats = await client.get_workspace_stats_for_member("user-1")
+        admin_stats = await client.get_admin_workspace_stats()
         fetched = await client.get_workspace("workspace-2")
         has_membership = await client.workspace_has_active_membership(
             workspace_id="workspace-2",
@@ -265,6 +283,8 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
 
     assert created.workspace_type == "thesis"
     assert listed[0].id == "workspace-1"
+    assert member_stats.total == 2
+    assert admin_stats.users_with_workspaces == 2
     assert fetched is not None
     assert fetched.id == "workspace-2"
     assert has_membership is True
@@ -285,6 +305,8 @@ async def test_dataservice_client_workspace_contract_methods() -> None:
             },
         ),
         ("GET", "/internal/v1/workspaces", None),
+        ("GET", "/internal/v1/workspaces/stats/member/user-1", None),
+        ("GET", "/internal/v1/workspaces/stats/admin", None),
         ("GET", "/internal/v1/workspaces/workspace-2", None),
         ("GET", "/internal/v1/workspaces/workspace-2/members/user-1/active", None),
         (
@@ -1238,6 +1260,11 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
                 200,
                 json={"status": "ok", "data": {"kpis": {"total": 5}, "time_series": []}},
             )
+        if request.url.path.endswith("/analytics/status-counts"):
+            return httpx.Response(
+                200,
+                json={"status": "ok", "data": {"completed": 3, "failed": 1}},
+            )
         if request.url.path.endswith("/features/running-count"):
             return httpx.Response(200, json={"status": "ok", "data": {"count": 2}})
         if request.url.path.endswith("/features/latest-status"):
@@ -1245,6 +1272,8 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
         if request.url.path.endswith("/reconcile-interrupted"):
             return httpx.Response(200, json={"status": "ok", "data": {"reconciled": 2}})
         if request.method == "GET" and request.url.path.endswith("/nodes"):
+            return httpx.Response(200, json={"status": "ok", "data": [node_payload()]})
+        if request.method == "GET" and request.url.path.endswith("/nodes/batch"):
             return httpx.Response(200, json={"status": "ok", "data": [node_payload()]})
         if request.method == "PATCH":
             return httpx.Response(200, json={"status": "ok", "data": node_payload("completed")})
@@ -1261,6 +1290,7 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
         created_since = datetime(2026, 5, 20)
         active_users = await client.count_active_execution_users(created_since=created_since)
         stats = await client.aggregate_execution_stats(created_since=created_since)
+        status_counts = await client.count_executions_by_status(user_id="user-1")
         running_count = await client.count_running_feature_executions(
             workspace_id="ws-1",
             capability_id="idea_to_manuscript",
@@ -1271,6 +1301,7 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
         )
         reconciled = await client.reconcile_interrupted_executions()
         listed = await client.list_execution_nodes("exec-1")
+        batch_listed = await client.list_execution_nodes_by_execution_ids(["exec-1"])
         fetched = await client.get_execution_node("node-row-1")
         found = await client.find_execution_node(execution_id="exec-1", node_id="node-1")
         upserted = await client.upsert_execution_node(
@@ -1289,10 +1320,12 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
 
     assert active_users == 4
     assert stats["kpis"] == {"total": 5}
+    assert status_counts == {"completed": 3, "failed": 1}
     assert running_count == 2
     assert latest_status == "running"
     assert reconciled == 2
     assert listed[0].id == "node-row-1"
+    assert batch_listed[0].id == "node-row-1"
     assert fetched is not None and fetched.node_id == "node-1"
     assert found is not None and found.execution_id == "exec-1"
     assert upserted.status == "running"
@@ -1300,10 +1333,12 @@ async def test_dataservice_client_execution_node_contract_methods() -> None:
     assert seen == [
         ("GET", "/internal/v1/executions/analytics/active-users/count", None),
         ("GET", "/internal/v1/executions/analytics/stats", None),
+        ("GET", "/internal/v1/executions/analytics/status-counts", None),
         ("GET", "/internal/v1/executions/features/running-count", None),
         ("GET", "/internal/v1/executions/features/latest-status", None),
         ("POST", "/internal/v1/executions/reconcile-interrupted", None),
         ("GET", "/internal/v1/executions/exec-1/nodes", None),
+        ("GET", "/internal/v1/executions/nodes/batch", None),
         ("GET", "/internal/v1/executions/nodes/node-row-1", None),
         ("GET", "/internal/v1/executions/exec-1/nodes/node-1", None),
         (

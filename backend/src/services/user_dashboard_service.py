@@ -1,13 +1,15 @@
 """User dashboard aggregation service."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.account_api import AccountDataService
-from src.dataservice.execution_api import ExecutionDataService, ExecutionNodeProjection
-from src.dataservice.workspace_api import WorkspaceDataService
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.execution import ExecutionNodePayload
+from src.dataservice_client.provider import dataservice_client
 from src.services.credit_service import CreditService
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
@@ -15,15 +17,27 @@ from src.services.thread_billing import combine_token_usage, normalize_token_usa
 class UserDashboardService:
     """Aggregate user-facing dashboard data."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ):
         self.db = db
-        self._account = AccountDataService(db, autocommit=False)
-        self._execution = ExecutionDataService(db, autocommit=False)
-        self._workspace = WorkspaceDataService(db, autocommit=False)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     async def get_dashboard(self, user_id: str) -> dict[str, Any]:
         """Build user dashboard payload."""
-        user = await self._account.get_user_record(user_id)
+        async with self._client() as client:
+            user = await client.get_account_user(user_id)
         if user is None:
             raise ValueError("User not found")
 
@@ -65,7 +79,8 @@ class UserDashboardService:
         }
 
     async def _get_workspace_stats(self, user_id: str) -> dict[str, Any]:
-        stats = await self._workspace.get_workspace_stats_for_member(user_id)
+        async with self._client() as client:
+            stats = await client.get_workspace_stats_for_member(user_id)
         return {
             "total": stats.total,
             "by_type": stats.by_type,
@@ -73,17 +88,16 @@ class UserDashboardService:
         }
 
     async def _get_task_stats(self, user_id: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        counts = await self._execution.count_executions_by_status(user_id=user_id)
+        async with self._client() as client:
+            counts = await client.count_executions_by_status(user_id=user_id)
         total = sum(counts.values())
         success = int(counts.get("success", 0)) + int(counts.get("completed", 0))
         # Only count terminal tasks (success + failed + cancelled) for completion rate
         terminal = success + int(counts.get("failed", 0)) + int(counts.get("cancelled", 0))
         completion_rate = float(round(success / terminal, 4)) if terminal else 0.0
 
-        recent_executions = await self._execution.list_executions(
-            user_id=user_id,
-            limit=10,
-        )
+        async with self._client() as client:
+            recent_executions = await client.list_executions(user_id=user_id, limit=10)
         recent_tasks = [
             {
                 "id": execution.id,
@@ -144,10 +158,8 @@ class UserDashboardService:
         thread_credit_status: dict[str, Any],
     ) -> dict[str, Any]:
         """Build token usage aggregates for thread, feature tasks, and subagents."""
-        executions = await self._execution.list_executions(
-            user_id=user_id,
-            limit=10000,
-        )
+        async with self._client() as client:
+            executions = await client.list_executions(user_id=user_id, limit=10000)
         feature_usages = []
         for execution in executions:
             usage = None
@@ -158,9 +170,10 @@ class UserDashboardService:
                 feature_usages.append(usage)
         feature_usage_total = combine_token_usage(feature_usages)
 
-        nodes = await self._execution.list_nodes_by_execution_ids(
-            [execution.id for execution in executions]
-        )
+        async with self._client() as client:
+            nodes = await client.list_execution_nodes_by_execution_ids(
+                [execution.id for execution in executions]
+            )
         subagent_usages = []
         for node in nodes:
             usage = self._node_token_usage(node)
@@ -216,7 +229,7 @@ class UserDashboardService:
         }
 
     @staticmethod
-    def _node_token_usage(record: ExecutionNodeProjection) -> Any | None:
+    def _node_token_usage(record: ExecutionNodePayload) -> Any | None:
         usage = normalize_token_usage(record.token_usage)
         if usage is not None:
             return usage
