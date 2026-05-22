@@ -80,20 +80,18 @@ export default function WorkspacePrismPage({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <SurfaceSwitch workspaceId={id} active="prism" />
-      <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-h-0 flex-1 overflow-hidden">
         {surface?.latex_project_id ? (
-          <>
-            <div className="min-w-0">
-              <LatexEditorShell
-                projectId={surface.latex_project_id}
-                workspaceId={id}
-                initialFileChanges={surface.file_changes ?? []}
-                initialAppliedFileChanges={surface.applied_file_changes ?? []}
-                onReviewStateChanged={refreshSurface}
-              />
-            </div>
+          <div className="flex h-full min-h-0 flex-col">
             <PrismContextRail surface={surface} />
-          </>
+            <LatexEditorShell
+              projectId={surface.latex_project_id}
+              workspaceId={id}
+              initialFileChanges={surface.file_changes ?? []}
+              initialAppliedFileChanges={surface.applied_file_changes ?? []}
+              onReviewStateChanged={refreshSurface}
+            />
+          </div>
         ) : error ? (
           <WorkspaceSurfaceState
             tone="error"
