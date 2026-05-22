@@ -8,11 +8,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.asset_api import AssetDataService
-from src.dataservice.execution_api import ExecutionDataService
-from src.dataservice.rooms_api import RoomsDataService
-from src.dataservice.source_api import SourceDataService
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps import get_db
+from src.gateway.deps.core import get_dataservice_client
 from src.services.execution_commit_service import ExecutionCommitService
 from src.services.execution_service import ExecutionService
 
@@ -33,8 +31,10 @@ class CommitRequest(BaseModel):
 # Service factory
 # ---------------------------------------------------------------------------
 
-
-def _get_commit_service(db: AsyncSession = Depends(get_db)) -> ExecutionCommitService:
+def _get_commit_service(
+    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> ExecutionCommitService:
     """Construct ExecutionCommitService from per-request DB session."""
     try:
         from src.academic.cache.redis_client import redis_client as _rc
@@ -43,11 +43,8 @@ def _get_commit_service(db: AsyncSession = Depends(get_db)) -> ExecutionCommitSe
         _redis = None
 
     return ExecutionCommitService(
-        execution_service=ExecutionService(db),
-        source_data_service=SourceDataService(db),
-        asset_data_service=AssetDataService(db),
-        execution_data_service=ExecutionDataService(db),
-        rooms_data_service=RoomsDataService(db),
+        execution_service=ExecutionService(db, dataservice=dataservice),
+        dataservice=dataservice,
         redis=_redis,
     )
 

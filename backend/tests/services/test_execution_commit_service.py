@@ -61,14 +61,10 @@ def _make_service(
     execution_svc = MagicMock()
     execution_svc.get_by_id = AsyncMock(return_value=execution)
 
-    source_svc = MagicMock()
-    source_svc.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
-
-    asset_svc = MagicMock()
-    asset_svc.register_asset_record = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
-
-    rooms_data_svc = MagicMock()
-    rooms_data_svc.stage_and_apply_candidates = AsyncMock(
+    dataservice = MagicMock()
+    dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
+    dataservice.register_asset = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
+    dataservice.stage_and_apply_room_candidates = AsyncMock(
         return_value=SimpleNamespace(
             review_batch_id="review-batch-1",
             counts={"memory": 1, "decisions": 1, "tasks": 1},
@@ -79,26 +75,18 @@ def _make_service(
             ],
         )
     )
-
-    execution_data_svc = MagicMock()
-    execution_data_svc.record_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
+    dataservice.append_execution_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
 
     svc = ExecutionCommitService(
         execution_service=execution_svc,
-        source_data_service=source_svc,
-        asset_data_service=asset_svc,
-        execution_data_service=execution_data_svc,
-        rooms_data_service=rooms_data_svc,
+        dataservice=dataservice,
         redis=redis,
         referral_first_task_callback=AsyncMock(),
     )
 
     mocks = {
         "execution": execution_svc,
-        "sources": source_svc,
-        "assets": asset_svc,
-        "rooms_data": rooms_data_svc,
-        "execution_data": execution_data_svc,
+        "dataservice": dataservice,
     }
     return svc, mocks
 
@@ -164,10 +152,10 @@ async def test_commit_all_writes_all_kinds():
     assert result["committed"]["decisions"] == 1
     assert result["committed"]["tasks"] == 1
 
-    mocks["sources"].create_source.assert_called_once()
-    mocks["assets"].register_asset_record.assert_called_once()
-    mocks["rooms_data"].stage_and_apply_candidates.assert_called_once()
-    mocks["execution_data"].record_event.assert_called_once()
+    mocks["dataservice"].create_source.assert_called_once()
+    mocks["dataservice"].register_asset.assert_called_once()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_called_once()
+    mocks["dataservice"].append_execution_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -189,11 +177,11 @@ async def test_commit_some_only():
     assert result["committed"]["decisions"] == 0
     assert result["committed"]["tasks"] == 0
 
-    mocks["sources"].create_source.assert_called_once()
-    mocks["assets"].register_asset_record.assert_called_once()
-    mocks["rooms_data"].stage_and_apply_candidates.assert_not_called()
+    mocks["dataservice"].create_source.assert_called_once()
+    mocks["dataservice"].register_asset.assert_called_once()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
     # run_history must still be called
-    mocks["execution_data"].record_event.assert_called_once()
+    mocks["dataservice"].append_execution_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -226,10 +214,10 @@ async def test_commit_empty_still_writes_run_history():
     result = await svc.commit_outputs(EXECUTION_ID, accept_all=False, accepted_ids=[])
 
     assert all(v == 0 for v in result["committed"].values())
-    mocks["sources"].create_source.assert_not_called()
-    mocks["assets"].register_asset_record.assert_not_called()
-    mocks["rooms_data"].stage_and_apply_candidates.assert_not_called()
-    mocks["execution_data"].record_event.assert_called_once()
+    mocks["dataservice"].create_source.assert_not_called()
+    mocks["dataservice"].register_asset.assert_not_called()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
+    mocks["dataservice"].append_execution_event.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -261,7 +249,7 @@ async def test_commit_idempotent_with_key():
         accept_all=True,
         idempotency_key="key-abc",
     )
-    assert mocks["execution_data"].record_event.call_count == 1
+    assert mocks["dataservice"].append_execution_event.call_count == 1
 
     # Second call with same key — should return cached, no additional writes
     result2 = await svc.commit_outputs(
@@ -270,7 +258,7 @@ async def test_commit_idempotent_with_key():
         idempotency_key="key-abc",
     )
     # Run-history event should still only have been called once (second call short-circuits)
-    assert mocks["execution_data"].record_event.call_count == 1
+    assert mocks["dataservice"].append_execution_event.call_count == 1
     assert result1 == result2
 
 

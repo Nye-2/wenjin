@@ -97,7 +97,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
 RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "agents/lead_agent/v2/runtime.py",
     "gateway/routers/admin_credit_rules.py",
-    "gateway/routers/execution_commit.py",
     "gateway/routers/latex_files.py",
     "gateway/routers/latex_helpers.py",
     "gateway/routers/references.py",
@@ -113,7 +112,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/dashboard/shared.py",
     "services/dashboard/thesis.py",
     "services/dashboard_service.py",
-    "services/execution_commit_service.py",
     "services/latex/compile_service.py",
     "services/latex/project_service.py",
     "services/latex/template_service.py",
