@@ -74,6 +74,9 @@ class CreditDataService:
     async def apply_periodic_grant_rule(self, *, rule: Any, now: Any) -> int:
         return await self._domain.apply_periodic_grant_rule(rule=rule, now=now)
 
+    async def process_periodic_grant_rules(self, *, now: Any | None = None) -> dict[str, int]:
+        return await self._domain.process_periodic_grant_rules(now=now)
+
     async def record_consumption(self, **kwargs: Any) -> tuple[Any, int]:
         return await self._domain.record_consumption(**kwargs)
 

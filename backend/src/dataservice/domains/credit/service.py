@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from croniter import croniter
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.credit import CreditTransactionType
@@ -285,6 +286,38 @@ class DataServiceCreditService:
         rule.last_triggered_at = now
         await self._finish()
         return len(users)
+
+    async def process_periodic_grant_rules(self, *, now: datetime | None = None) -> dict[str, int]:
+        effective_now = now or datetime.now(UTC)
+        summary: dict[str, int] = {
+            "rules_evaluated": 0,
+            "rules_fired": 0,
+            "users_granted": 0,
+        }
+        rules = await self.list_enabled_periodic_grant_rules()
+        for rule in rules:
+            summary["rules_evaluated"] += 1
+            config = rule.config if isinstance(rule.config, dict) else {}
+            cron_expr = config.get("cron")
+            if not cron_expr:
+                continue
+            base = rule.last_triggered_at or (effective_now - timedelta(days=30))
+            try:
+                next_fire = croniter(cron_expr, base).get_next(datetime)
+                if next_fire.tzinfo is None:
+                    next_fire = next_fire.replace(tzinfo=UTC)
+                else:
+                    next_fire = next_fire.astimezone(UTC)
+            except Exception:
+                continue
+            if next_fire > effective_now:
+                continue
+            summary["users_granted"] += await self.apply_periodic_grant_rule(
+                rule=rule,
+                now=effective_now,
+            )
+            summary["rules_fired"] += 1
+        return summary
 
     async def record_consumption(
         self,

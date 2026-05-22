@@ -9,12 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime, timedelta
 
-from croniter import croniter
-
-from src.database import get_db_session
-from src.dataservice.credit_api import CreditDataService
+from src.dataservice_client.provider import dataservice_client
 from src.task.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -51,38 +47,9 @@ async def _process_periodic_rules() -> dict[str, int]:
 
 
 async def _process_periodic_rules_inner() -> dict[str, int]:
-    now = datetime.now(UTC)
-    summary: dict[str, int] = {"rules_evaluated": 0, "rules_fired": 0, "users_granted": 0}
-    async with get_db_session() as db:
-        credit_data = CreditDataService(db, autocommit=False)
-        rules = await credit_data.list_enabled_periodic_grant_rules()
-
-        for rule in rules:
-            summary["rules_evaluated"] += 1
-            cron_expr = rule.config.get("cron")
-            if not cron_expr:
-                logger.warning("rule %s missing cron in config; skipping", rule.id)
-                continue
-
-            base = rule.last_triggered_at or (now - timedelta(days=30))
-            try:
-                itr = croniter(cron_expr, base)
-                next_fire = itr.get_next(datetime).replace(tzinfo=UTC)
-            except Exception:
-                logger.exception("rule %s invalid cron %r; skipping", rule.id, cron_expr)
-                continue
-
-            if next_fire > now:
-                continue  # not yet due
-
-            summary["users_granted"] += await credit_data.apply_periodic_grant_rule(
-                rule=rule,
-                now=now,
-            )
-            summary["rules_fired"] += 1
-
-        await db.commit()
-    return summary
+    async with dataservice_client() as client:
+        summary = await client.process_credit_periodic_grant_rules()
+    return summary.model_dump()
 
 
 @celery_app.task(name="credit_periodic.process_credit_grant_rules")

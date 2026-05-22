@@ -1,138 +1,196 @@
-"""Tests for credit service chat billing behavior."""
+"""Tests for DataService-backed credit billing behavior."""
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
-from src.database.models.credit import CreditTransaction, CreditTransactionType
-from src.database.models.user import User
+from src.dataservice_client.contracts.credit import (
+    CreditAdminAdjustPayload,
+    CreditConsumptionCreatePayload,
+    CreditRefundPayload,
+    CreditSummaryPayload,
+)
 from src.services.billing_policy import TokenBillingPolicy
 from src.services.credit_service import CreditService
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+class FakeCreditClient:
+    def __init__(self) -> None:
+        self.balances: dict[str, int] = {}
+        self.transactions: list[SimpleNamespace] = []
+        self._counter = 0
+        self._refunded: set[str] = set()
+
+    def add_user(self, user_id: str = "user-1", *, credits: int = 10) -> None:
+        self.balances[user_id] = credits
+
+    def seed_consumption(
+        self,
+        *,
+        user_id: str,
+        transaction_type: str,
+        amount: int,
+        total_tokens: int,
+        balance_after: int,
+        metadata_type: str | None = None,
+    ) -> None:
+        metadata = {"token_usage": {"total_tokens": total_tokens}}
+        if metadata_type:
+            metadata["type"] = metadata_type
+        self._counter += 1
+        self.transactions.append(
+            SimpleNamespace(
+                id=f"seed-{self._counter}",
+                user_id=user_id,
+                transaction_type=transaction_type,
+                amount=amount,
+                balance_after=balance_after,
+                description="seed tx",
+                feature_id="thread" if transaction_type == "thread_token_consume" else "deep_research",
+                workspace_id=None,
+                task_id=None,
+                admin_id=None,
+                metadata=metadata,
+                created_at=None,
+            )
+        )
+
+    async def get_credit_balance(self, user_id: str) -> int | None:
+        return self.balances.get(user_id)
+
+    async def get_credit_summary(self, user_id: str) -> CreditSummaryPayload | None:
+        if user_id not in self.balances:
+            return None
+        return CreditSummaryPayload(credits=self.balances[user_id], total_earned=0, total_spent=0)
+
+    async def get_credit_history(
+        self,
+        *,
+        user_id: str | None = None,
+        transaction_type: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ):
+        rows = [
+            tx
+            for tx in self.transactions
+            if (user_id is None or tx.user_id == user_id)
+            and (transaction_type is None or tx.transaction_type == transaction_type)
+        ]
+        return SimpleNamespace(transactions=rows[offset : offset + limit], total=len(rows))
+
+    async def get_credit_consumed_tokens(
+        self,
+        *,
+        user_id: str,
+        consume_type: str,
+        metadata_type: str | None = None,
+    ) -> int:
+        total = 0
+        for tx in self.transactions:
+            if tx.id in self._refunded:
+                continue
+            if tx.user_id != user_id or tx.transaction_type != consume_type:
+                continue
+            if metadata_type and tx.metadata.get("type") != metadata_type:
+                continue
+            usage = tx.metadata.get("token_usage") or {}
+            total += int(usage.get("total_tokens", 0) or 0)
+        return total
+
+    async def record_credit_consumption(self, command: CreditConsumptionCreatePayload):
+        before = self.balances.get(command.user_id)
+        if before is None:
+            raise ValueError("User not found")
+        after = before - command.amount
+        self.balances[command.user_id] = after
+        self._counter += 1
+        tx = SimpleNamespace(
+            id=f"tx-{self._counter}",
+            user_id=command.user_id,
+            transaction_type=command.transaction_type,
+            amount=command.amount,
+            balance_after=after,
+            description=command.description,
+            feature_id=command.feature_id,
+            workspace_id=command.workspace_id,
+            task_id=command.task_id,
+            admin_id=None,
+            metadata=dict(command.metadata),
+            created_at=None,
+        )
+        self.transactions.append(tx)
+        return tx, before
+
+    async def refund_credit_consumption(self, command: CreditRefundPayload):
+        original = next(tx for tx in self.transactions if tx.id == command.original_transaction_id)
+        self._refunded.add(original.id)
+        self.balances[command.user_id] = self.balances.get(command.user_id, 0) + int(original.amount)
+        self._counter += 1
+        tx = SimpleNamespace(
+            id=f"refund-{self._counter}",
+            user_id=command.user_id,
+            transaction_type="refund",
+            amount=int(original.amount),
+            balance_after=self.balances[command.user_id],
+            description=command.reason,
+            feature_id=original.feature_id,
+            workspace_id=original.workspace_id,
+            task_id=command.task_id,
+            admin_id=None,
+            metadata={"original_transaction_id": original.id},
+            created_at=None,
+        )
+        self.transactions.append(tx)
+        return tx
+
+    async def admin_adjust_credit(self, command: CreditAdminAdjustPayload):
+        before = self.balances.get(command.target_user_id)
+        if before is None:
+            raise ValueError("User not found")
+        after = before + command.amount
+        self.balances[command.target_user_id] = after
+        self._counter += 1
+        tx = SimpleNamespace(
+            id=f"admin-{self._counter}",
+            user_id=command.target_user_id,
+            transaction_type=command.transaction_type,
+            amount=command.amount,
+            balance_after=after,
+            description=command.description,
+            feature_id=None,
+            workspace_id=None,
+            task_id=None,
+            admin_id=command.admin_id,
+            metadata=dict(command.metadata),
+            created_at=None,
+        )
+        self.transactions.append(tx)
+        return tx
 
 
 @pytest_asyncio.fixture
-async def async_engine():
-    """Create an async engine backed by a single in-memory SQLite connection."""
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        echo=False,
-        poolclass=StaticPool,
-    )
-    async with engine.begin() as conn:
-        await conn.run_sync(User.__table__.create)
-        await conn.run_sync(CreditTransaction.__table__.create)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(CreditTransaction.__table__.drop)
-        await conn.run_sync(User.__table__.drop)
-    await engine.dispose()
+async def fake_credit_client() -> FakeCreditClient:
+    return FakeCreditClient()
 
 
 @pytest_asyncio.fixture
-async def db_session(async_engine):
-    """Create a database session for credit service tests."""
-    async_session_maker = async_sessionmaker(
-        async_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
-    async with async_session_maker() as session:
-        yield session
-
-
-@pytest_asyncio.fixture
-async def credit_service(db_session):
-    """Create a credit service instance."""
-    return CreditService(db_session)
-
-
-async def _create_user(
-    db_session: AsyncSession,
-    *,
-    user_id: str = "user-1",
-    credits: int = 10,
-) -> User:
-    user = User(
-        id=user_id,
-        email=f"{user_id}@example.com",
-        name=user_id,
-        hashed_password="hashed",
-        credits=credits,
-        total_credits_earned=credits,
-        total_credits_spent=0,
-    )
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
-    return user
-
-
-async def _create_chat_transaction(
-    db_session: AsyncSession,
-    *,
-    user_id: str,
-    amount: int,
-    total_tokens: int,
-    balance_after: int,
-) -> CreditTransaction:
-    tx = CreditTransaction(
-        user_id=user_id,
-        transaction_type=CreditTransactionType.THREAD_TOKEN_CONSUME,
-        amount=amount,
-        balance_after=balance_after,
-        description="seed chat tx",
-        feature_id="thread",
-        tx_metadata={"token_usage": {"total_tokens": total_tokens}},
-    )
-    db_session.add(tx)
-    await db_session.commit()
-    await db_session.refresh(tx)
-    return tx
-
-
-async def _create_feature_transaction(
-    db_session: AsyncSession,
-    *,
-    user_id: str,
-    amount: int,
-    total_tokens: int,
-    balance_after: int,
-    feature_id: str = "deep_research",
-) -> CreditTransaction:
-    tx = CreditTransaction(
-        user_id=user_id,
-        transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
-        amount=amount,
-        balance_after=balance_after,
-        description="seed feature tx",
-        feature_id=feature_id,
-        tx_metadata={
-            "type": "feature_token_billing",
-            "token_usage": {"total_tokens": total_tokens},
-        },
-    )
-    db_session.add(tx)
-    await db_session.commit()
-    await db_session.refresh(tx)
-    return tx
+async def credit_service(fake_credit_client: FakeCreditClient) -> CreditService:
+    return CreditService(dataservice=fake_credit_client)
 
 
 @pytest.mark.asyncio
 async def test_consume_for_thread_usage_applies_free_quota_before_charging(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=10)
-    await _create_chat_transaction(
-        db_session,
+    fake_credit_client.add_user(credits=10)
+    fake_credit_client.seed_consumption(
         user_id="user-1",
+        transaction_type="thread_token_consume",
         amount=0,
         total_tokens=95000,
         balance_after=10,
@@ -156,13 +214,13 @@ async def test_consume_for_thread_usage_applies_free_quota_before_charging(
 
 @pytest.mark.asyncio
 async def test_can_start_thread_turn_blocks_when_free_quota_exhausted_and_balance_empty(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=0)
-    await _create_chat_transaction(
-        db_session,
+    fake_credit_client.add_user(credits=0)
+    fake_credit_client.seed_consumption(
         user_id="user-1",
+        transaction_type="thread_token_consume",
         amount=0,
         total_tokens=100000,
         balance_after=0,
@@ -173,21 +231,21 @@ async def test_can_start_thread_turn_blocks_when_free_quota_exhausted_and_balanc
 
 @pytest.mark.asyncio
 async def test_can_start_feature_task_blocks_when_balance_empty(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=0)
+    fake_credit_client.add_user(credits=0)
 
     assert await credit_service.can_start_feature_task("user-1") is False
 
 
 @pytest.mark.asyncio
 async def test_can_start_feature_task_allows_free_feature_quota(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _create_user(db_session, credits=0)
+    fake_credit_client.add_user(credits=0)
     monkeypatch.setattr(
         CreditService,
         "get_feature_billing_policy",
@@ -200,12 +258,13 @@ async def test_can_start_feature_task_allows_free_feature_quota(
             )
         ),
     )
-    await _create_feature_transaction(
-        db_session,
+    fake_credit_client.seed_consumption(
         user_id="user-1",
+        transaction_type="workflow_consume",
         amount=0,
         total_tokens=5000,
         balance_after=0,
+        metadata_type="feature_token_billing",
     )
 
     assert await credit_service.can_start_feature_task("user-1") is True
@@ -213,10 +272,10 @@ async def test_can_start_feature_task_allows_free_feature_quota(
 
 @pytest.mark.asyncio
 async def test_refund_consumption_releases_free_chat_tokens(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=3)
+    fake_credit_client.add_user(credits=3)
 
     result = await credit_service.consume_for_thread_usage(
         user_id="user-1",
@@ -242,14 +301,14 @@ async def test_refund_consumption_releases_free_chat_tokens(
 
 
 @pytest.mark.asyncio
-async def test_consume_for_thread_usage_allows_single_turn_overdraft_then_blocks_next_turn(
-    db_session: AsyncSession,
+async def test_consume_for_thread_usage_allows_dataservice_atomic_overdraft(
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=1)
-    await _create_chat_transaction(
-        db_session,
+    fake_credit_client.add_user(credits=1)
+    fake_credit_client.seed_consumption(
         user_id="user-1",
+        transaction_type="thread_token_consume",
         amount=0,
         total_tokens=100000,
         balance_after=1,
@@ -271,10 +330,10 @@ async def test_consume_for_thread_usage_allows_single_turn_overdraft_then_blocks
 
 @pytest.mark.asyncio
 async def test_consume_for_feature_usage_charges_by_tokens(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=10)
+    fake_credit_client.add_user(credits=10)
 
     result = await credit_service.consume_for_feature_usage(
         user_id="user-1",
@@ -294,10 +353,10 @@ async def test_consume_for_feature_usage_charges_by_tokens(
 
 @pytest.mark.asyncio
 async def test_refund_consumption_releases_feature_tokens(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=10)
+    fake_credit_client.add_user(credits=10)
     result = await credit_service.consume_for_feature_usage(
         user_id="user-1",
         feature_id="deep_research",
@@ -320,11 +379,11 @@ async def test_refund_consumption_releases_feature_tokens(
 
 @pytest.mark.asyncio
 async def test_refund_consumption_releases_free_feature_tokens(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    await _create_user(db_session, credits=10)
+    fake_credit_client.add_user(credits=10)
     monkeypatch.setattr(
         CreditService,
         "get_feature_billing_policy",
@@ -362,10 +421,10 @@ async def test_refund_consumption_releases_free_feature_tokens(
 
 @pytest.mark.asyncio
 async def test_admin_deduct_keeps_direction_correct_for_negative_balances(
-    db_session: AsyncSession,
+    fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
 ) -> None:
-    await _create_user(db_session, credits=-1)
+    fake_credit_client.add_user(credits=-1)
 
     tx = await credit_service.admin_deduct(
         admin_id="admin-1",
@@ -376,5 +435,5 @@ async def test_admin_deduct_keeps_direction_correct_for_negative_balances(
 
     assert tx.amount == -5
     assert tx.balance_after == -6
-    assert tx.tx_metadata["requested_amount"] == 5
+    assert tx.metadata["requested_amount"] == 5
     assert await credit_service.get_balance("user-1") == -6

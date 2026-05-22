@@ -95,7 +95,6 @@ RUNTIME_DATASERVICE_API_ALLOWED_ROOTS = {
     "dataservice_client",
 }
 RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
-    "gateway/routers/admin_credit_rules.py",
     "gateway/routers/latex_files.py",
     "gateway/routers/latex_helpers.py",
     "gateway/routers/references.py",
@@ -104,20 +103,15 @@ RUNTIME_DATASERVICE_API_ALLOWED_FILES = {
     "services/admin_analytics_service.py",
     "services/admin_dashboard_service.py",
     "services/auth.py",
-    "services/credit_grant_rule_service.py",
-    "services/credit_redeem_service.py",
-    "services/credit_service.py",
     "services/dashboard/shared.py",
     "services/dashboard/thesis.py",
     "services/dashboard_service.py",
     "services/references/service.py",
-    "services/referral_service.py",
     "services/user_dashboard_service.py",
     "services/user_service.py",
     "services/workspace_activity_service.py",
     "services/workspace_latex_projects.py",
     "services/workspace_prism_service.py",
-    "task/tasks/credit_periodic.py",
     "tools/builtins/references.py",
 }
 RUNTIME_DIRECT_SQL_ALLOWED_FILES = {

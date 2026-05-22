@@ -1,11 +1,20 @@
 """Credit service for balance management and credit ledger operations."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.dataservice.credit_api import CreditDataService, CreditTransactionType
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.credit import (
+    CreditAdminAdjustPayload,
+    CreditConsumptionCreatePayload,
+    CreditRefundPayload,
+)
+from src.dataservice_client.provider import dataservice_client
 from src.services.billing_policy import (
     TokenBillingPolicy,
     calculate_token_billing_charge,
@@ -21,6 +30,17 @@ from src.services.thread_billing import (
 )
 
 REGISTRATION_BONUS = 100
+
+
+class CreditTransactionType(StrEnum):
+    ADMIN_GRANT = "admin_grant"
+    ADMIN_DEDUCT = "admin_deduct"
+    WORKFLOW_CONSUME = "workflow_consume"
+    THREAD_TOKEN_CONSUME = "thread_token_consume"
+    REGISTRATION_BONUS = "registration_bonus"
+    REFUND = "refund"
+    REFERRAL_BONUS = "referral_bonus"
+    REDEEM_CODE = "redeem_code"
 
 
 @dataclass(slots=True)
@@ -88,9 +108,22 @@ class FeatureCreditConsumption:
 class CreditService:
     """Credit accounting service."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        dataservice: AsyncDataServiceClient | None = None,
+    ):
         self.db = db
-        self.data = CreditDataService(db)
+        self._dataservice = dataservice
+
+    @asynccontextmanager
+    async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
+        if self._dataservice is not None:
+            yield self._dataservice
+            return
+        async with dataservice_client() as client:
+            yield client
 
     @staticmethod
     def get_thread_billing_policy() -> TokenBillingPolicy:
@@ -109,17 +142,19 @@ class CreditService:
 
     async def get_balance(self, user_id: str) -> int:
         """Get user current credit balance."""
-        balance = await self.data.get_balance(user_id)
+        async with self._client() as client:
+            balance = await client.get_credit_balance(user_id)
         if balance is None:
             raise ValueError("User not found")
         return int(balance)
 
     async def get_credit_summary(self, user_id: str) -> dict[str, int]:
         """Get user credit summary."""
-        summary = await self.data.get_credit_summary(user_id)
+        async with self._client() as client:
+            summary = await client.get_credit_summary(user_id)
         if summary is None:
             raise ValueError("User not found")
-        return summary
+        return summary.model_dump()
 
     async def get_history(
         self,
@@ -131,13 +166,14 @@ class CreditService:
     ) -> tuple[list[dict[str, Any]], int]:
         """Get paginated credit history for a single user."""
         tx_type = self._parse_transaction_type(transaction_type)
-        transactions, total = await self.data.get_credit_history(
-            user_id=user_id,
-            transaction_type=tx_type,
-            limit=limit,
-            offset=offset,
-        )
-        return [self._to_dict(tx) for tx in transactions], int(total)
+        async with self._client() as client:
+            history = await client.get_credit_history(
+                user_id=user_id,
+                transaction_type=tx_type,
+                limit=limit,
+                offset=offset,
+            )
+        return [self._to_dict(tx) for tx in history.transactions], int(history.total)
 
     async def get_all_history(
         self,
@@ -149,28 +185,31 @@ class CreditService:
     ) -> tuple[list[dict[str, Any]], int]:
         """Get paginated credit history across users (admin view)."""
         tx_type = self._parse_transaction_type(transaction_type)
-        transactions, total = await self.data.get_credit_history(
-            user_id=user_id,
-            transaction_type=tx_type,
-            limit=limit,
-            offset=offset,
-        )
-        return [self._to_dict(tx) for tx in transactions], int(total)
+        async with self._client() as client:
+            history = await client.get_credit_history(
+                user_id=user_id,
+                transaction_type=tx_type,
+                limit=limit,
+                offset=offset,
+            )
+        return [self._to_dict(tx) for tx in history.transactions], int(history.total)
 
     async def get_consumed_thread_tokens(self, user_id: str) -> int:
         """Return successfully settled historical thread tokens for a user."""
-        return await self.data.get_consumed_tokens(
-            user_id=user_id,
-            consume_type=CreditTransactionType.THREAD_TOKEN_CONSUME,
-        )
+        async with self._client() as client:
+            return await client.get_credit_consumed_tokens(
+                user_id=user_id,
+                consume_type=CreditTransactionType.THREAD_TOKEN_CONSUME.value,
+            )
 
     async def get_consumed_feature_tokens(self, user_id: str) -> int:
         """Return successfully settled historical feature-task tokens for a user."""
-        return await self.data.get_consumed_tokens(
-            user_id=user_id,
-            consume_type=CreditTransactionType.WORKFLOW_CONSUME,
-            metadata_type="feature_token_billing",
-        )
+        async with self._client() as client:
+            return await client.get_credit_consumed_tokens(
+                user_id=user_id,
+                consume_type=CreditTransactionType.WORKFLOW_CONSUME.value,
+                metadata_type="feature_token_billing",
+            )
 
     async def can_start_thread_turn(self, user_id: str) -> bool:
         """Return whether the user can start a billable thread turn.
@@ -187,10 +226,7 @@ class CreditService:
         if consumed_tokens < policy.free_tokens:
             return True
 
-        # Lock the user row to prevent concurrent budget checks from both
-        # passing before either has a chance to deduct credits.
-        user = await self._get_user_for_update(user_id)
-        return int(user.credits) > 0
+        return await self.get_balance(user_id) > 0
 
     async def can_start_feature_task(self, user_id: str) -> bool:
         """Return whether the user can enqueue a billable feature task.
@@ -208,8 +244,7 @@ class CreditService:
         if consumed_tokens < policy.free_tokens:
             return True
 
-        user = await self._get_user_for_update(user_id)
-        return int(user.credits) > 0
+        return await self.get_balance(user_id) > 0
 
     @staticmethod
     def _normalize_usage_dict(token_usage: TokenUsage | dict[str, int]) -> dict[str, int]:
@@ -266,42 +301,40 @@ class CreditService:
                 charged=False,
             )
 
-        user = await self._get_user_for_update(user_id)
-        balance_before = int(user.credits)
         credits_to_charge = charge.credits_to_charge
-        if credits_to_charge > 0:
-            max_charge = balance_before + policy.max_overdraft_credits
-            credits_to_charge = min(credits_to_charge, max(0, max_charge))
 
         tx_metadata = {
             "token_usage": normalized_usage,
             "thread_id": thread_id,
-            "balance_before": balance_before,
             "policy": policy.as_dict(),
             "historical_tokens_before": historical_tokens_before,
             "historical_tokens_after": historical_tokens_after,
             "free_tokens_applied": charge.free_tokens_applied,
             "billable_tokens": charge.billable_tokens,
             "model_name": model_name,
-            "overdraft_credits": max(credits_to_charge - max(balance_before, 0), 0),
         }
         if metadata:
             tx_metadata.update(metadata)
 
-        tx, _balance_before = await self.data.record_consumption(
-            user_id=user_id,
-            transaction_type=CreditTransactionType.THREAD_TOKEN_CONSUME,
-            amount=credits_to_charge,
-            description=description or self._build_thread_description(
-                total_tokens=total_tokens,
-                credits_charged=credits_to_charge,
-                free_tokens_applied=charge.free_tokens_applied,
-            ),
-            feature_id="thread",
-            workspace_id=workspace_id,
-            task_id=None,
-            metadata=tx_metadata,
-        )
+        async with self._client() as client:
+            tx, balance_before = await client.record_credit_consumption(
+                CreditConsumptionCreatePayload(
+                    user_id=user_id,
+                    transaction_type=CreditTransactionType.THREAD_TOKEN_CONSUME.value,
+                    amount=credits_to_charge,
+                    description=description or self._build_thread_description(
+                        total_tokens=total_tokens,
+                        credits_charged=credits_to_charge,
+                        free_tokens_applied=charge.free_tokens_applied,
+                    ),
+                    feature_id="thread",
+                    workspace_id=workspace_id,
+                    task_id=None,
+                    metadata=tx_metadata,
+                )
+            )
+        if tx is None:
+            raise ValueError("Credit transaction was not recorded")
         return ThreadCreditConsumption(
             token_usage=normalized_usage,
             model_name=model_name,
@@ -351,42 +384,40 @@ class CreditService:
                 charged=False,
             )
 
-        user = await self._get_user_for_update(user_id)
-        balance_before = int(user.credits)
         credits_to_charge = charge.credits_to_charge
-        if credits_to_charge > 0:
-            max_charge = balance_before + policy.max_overdraft_credits
-            credits_to_charge = min(credits_to_charge, max(0, max_charge))
 
         tx_metadata = {
             "type": "feature_token_billing",
             "token_usage": normalized_usage,
-            "balance_before": balance_before,
             "policy": policy.as_dict(),
             "historical_tokens_before": historical_tokens_before,
             "historical_tokens_after": historical_tokens_after,
             "free_tokens_applied": charge.free_tokens_applied,
             "billable_tokens": charge.billable_tokens,
-            "overdraft_credits": max(credits_to_charge - max(balance_before, 0), 0),
         }
         if metadata:
             tx_metadata.update(metadata)
 
-        tx, _balance_before = await self.data.record_consumption(
-            user_id=user_id,
-            transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
-            amount=credits_to_charge,
-            description=description or self._build_feature_token_description(
-                feature_id=feature_id,
-                total_tokens=total_tokens,
-                credits_charged=credits_to_charge,
-                free_tokens_applied=charge.free_tokens_applied,
-            ),
-            feature_id=feature_id,
-            workspace_id=workspace_id,
-            task_id=task_id,
-            metadata=tx_metadata,
-        )
+        async with self._client() as client:
+            tx, balance_before = await client.record_credit_consumption(
+                CreditConsumptionCreatePayload(
+                    user_id=user_id,
+                    transaction_type=CreditTransactionType.WORKFLOW_CONSUME.value,
+                    amount=credits_to_charge,
+                    description=description or self._build_feature_token_description(
+                        feature_id=feature_id,
+                        total_tokens=total_tokens,
+                        credits_charged=credits_to_charge,
+                        free_tokens_applied=charge.free_tokens_applied,
+                    ),
+                    feature_id=feature_id,
+                    workspace_id=workspace_id,
+                    task_id=task_id,
+                    metadata=tx_metadata,
+                )
+            )
+        if tx is None:
+            raise ValueError("Credit transaction was not recorded")
         return FeatureCreditConsumption(
             token_usage=normalized_usage,
             free_tokens_applied=charge.free_tokens_applied,
@@ -424,12 +455,15 @@ class CreditService:
         task_id: str | None = None,
     ) -> Any | None:
         """Refund a refundable consume transaction."""
-        return await self.data.refund_consumption(
-            user_id=user_id,
-            original_transaction_id=original_transaction_id,
-            reason=reason,
-            task_id=task_id,
-        )
+        async with self._client() as client:
+            return await client.refund_credit_consumption(
+                CreditRefundPayload(
+                    user_id=user_id,
+                    original_transaction_id=original_transaction_id,
+                    reason=reason,
+                    task_id=task_id,
+                )
+            )
 
     async def admin_grant(
         self,
@@ -443,13 +477,16 @@ class CreditService:
         if amount <= 0:
             raise ValueError("Amount must be positive")
 
-        return await self.data.admin_adjust(
-            target_user_id=target_user_id,
-            transaction_type=CreditTransactionType.ADMIN_GRANT,
-            amount=amount,
-            description=description,
-            admin_id=admin_id,
-        )
+        async with self._client() as client:
+            return await client.admin_adjust_credit(
+                CreditAdminAdjustPayload(
+                    target_user_id=target_user_id,
+                    transaction_type=CreditTransactionType.ADMIN_GRANT.value,
+                    amount=amount,
+                    description=description,
+                    admin_id=admin_id,
+                )
+            )
 
     async def admin_deduct(
         self,
@@ -463,21 +500,21 @@ class CreditService:
         if amount <= 0:
             raise ValueError("Amount must be positive")
 
-        user = await self._get_user_for_update(target_user_id)
-        balance_before = int(user.credits)
         actual_deduction = amount
-        return await self.data.admin_adjust(
-            target_user_id=target_user_id,
-            transaction_type=CreditTransactionType.ADMIN_DEDUCT,
-            amount=-actual_deduction,
-            description=description,
-            admin_id=admin_id,
-            metadata={
-                "requested_amount": amount,
-                "actual_deduction": actual_deduction,
-                "balance_before": balance_before,
-            },
-        )
+        async with self._client() as client:
+            return await client.admin_adjust_credit(
+                CreditAdminAdjustPayload(
+                    target_user_id=target_user_id,
+                    transaction_type=CreditTransactionType.ADMIN_DEDUCT.value,
+                    amount=-actual_deduction,
+                    description=description,
+                    admin_id=admin_id,
+                    metadata={
+                        "requested_amount": amount,
+                        "actual_deduction": actual_deduction,
+                    },
+                )
+            )
 
     async def grant_registration_bonus(
         self,
@@ -489,29 +526,25 @@ class CreditService:
         if amount <= 0:
             raise ValueError("Amount must be positive")
 
-        return await self.data.admin_adjust(
-            target_user_id=user_id,
-            transaction_type=CreditTransactionType.REGISTRATION_BONUS,
-            amount=amount,
-            description=f"注册奖励 +{amount} 积分",
-            admin_id=None,
-        )
-
-    async def _get_user_for_update(self, user_id: str) -> Any:
-        """Return the user row locked by DataService via SELECT ... with_for_update()."""
-        user = await self.data.get_user_for_update(user_id)
-        if user is None:
-            raise ValueError("User not found")
-        return user
+        async with self._client() as client:
+            return await client.admin_adjust_credit(
+                CreditAdminAdjustPayload(
+                    target_user_id=user_id,
+                    transaction_type=CreditTransactionType.REGISTRATION_BONUS.value,
+                    amount=amount,
+                    description=f"注册奖励 +{amount} 积分",
+                    admin_id=None,
+                )
+            )
 
     def _parse_transaction_type(
         self,
         transaction_type: str | None,
-    ) -> CreditTransactionType | None:
+    ) -> str | None:
         if not transaction_type:
             return None
         try:
-            return CreditTransactionType(transaction_type)
+            return CreditTransactionType(transaction_type).value
         except ValueError as exc:
             raise ValueError(f"Unsupported transaction type: {transaction_type}") from exc
 
@@ -546,7 +579,7 @@ class CreditService:
         return {
             "id": str(tx.id),
             "user_id": str(tx.user_id),
-            "type": tx.transaction_type.value,
+            "type": tx.transaction_type.value if hasattr(tx.transaction_type, "value") else tx.transaction_type,
             "amount": int(tx.amount),
             "balance_after": int(tx.balance_after),
             "description": tx.description,
@@ -554,6 +587,6 @@ class CreditService:
             "workspace_id": tx.workspace_id,
             "task_id": tx.task_id,
             "admin_id": tx.admin_id,
-            "metadata": tx.tx_metadata or {},
+            "metadata": getattr(tx, "tx_metadata", None) or getattr(tx, "metadata", None) or {},
             "created_at": tx.created_at.isoformat() if tx.created_at else None,
         }

@@ -17,6 +17,7 @@ from src.dataservice_client.contracts.credit import (
     CreditConsumptionCreatePayload,
     CreditGrantRuleCreatePayload,
     CreditGrantRuleUpdatePayload,
+    CreditPeriodicGrantProcessPayload,
     CreditRedeemCodeCreatePayload,
     CreditRedeemPayload,
     CreditReferralCreatePayload,
@@ -128,6 +129,18 @@ async def get_grant_rule(
     return envelope_ok(_rule_payload(rule))
 
 
+@router.get("/active-grant-rules/{rule_type}")
+async def get_active_grant_rule(
+    rule_type: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    rule = await CreditDataService(
+        uow.required_session,
+        autocommit=False,
+    ).get_active_grant_rule(CreditGrantRuleType(rule_type))
+    return envelope_ok(_rule_payload(rule))
+
+
 @router.post("/grant-rules")
 async def create_grant_rule(
     payload: CreditGrantRuleCreatePayload,
@@ -194,6 +207,33 @@ async def delete_grant_rule(
     return envelope_ok({"deleted": deleted is not None})
 
 
+@router.post("/users/{user_id}/registration-bonus")
+async def apply_registration_bonus(
+    user_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = CreditDataService(uow.required_session, autocommit=False)
+    rule = await service.get_active_grant_rule(CreditGrantRuleType.REGISTRATION_BONUS)
+    tx = None
+    if rule is not None:
+        tx = await service.apply_registration_bonus_from_rule(user_id=user_id, rule=rule)
+        await uow.commit()
+    return envelope_ok(_transaction_payload(tx))
+
+
+@router.post("/periodic-grants/process")
+async def process_periodic_grant_rules(
+    payload: CreditPeriodicGrantProcessPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    summary = await CreditDataService(
+        uow.required_session,
+        autocommit=False,
+    ).process_periodic_grant_rules(now=payload.now)
+    await uow.commit()
+    return envelope_ok(summary)
+
+
 @router.get("/users/{user_id}/balance")
 async def get_balance(
     user_id: str,
@@ -204,6 +244,24 @@ async def get_balance(
         autocommit=False,
     ).get_balance(user_id)
     return envelope_ok({"balance": balance})
+
+
+@router.get("/users/{user_id}/consumed-tokens")
+async def get_consumed_tokens(
+    user_id: str,
+    consume_type: str = Query(),
+    metadata_type: str | None = Query(default=None),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    consumed = await CreditDataService(
+        uow.required_session,
+        autocommit=False,
+    ).get_consumed_tokens(
+        user_id=user_id,
+        consume_type=CreditTransactionType(consume_type),
+        metadata_type=metadata_type,
+    )
+    return envelope_ok({"consumed_tokens": consumed})
 
 
 @router.get("/users/{user_id}/summary")

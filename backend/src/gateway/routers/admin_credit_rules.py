@@ -6,22 +6,25 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
 
-from src.database import User, get_db_session
-from src.dataservice.credit_api import CreditGrantRuleType
+from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_admin
+from src.gateway.deps import get_dataservice_client
+from src.services.credit_grant_rule_service import CreditGrantRuleType
 from src.services.credit_grant_rule_service import CreditGrantRuleService
 
 router = APIRouter(prefix="/admin/credit-rules", tags=["admin", "credits"])
 
 
-async def _service():
-    async with get_db_session() as db:
-        yield CreditGrantRuleService(db)
+async def _service(
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> CreditGrantRuleService:
+    return CreditGrantRuleService(dataservice=dataservice)
 
 
 def _to_dict(rule) -> dict[str, Any]:
     return {
-        "id": rule.id, "name": rule.name, "rule_type": rule.rule_type.value,
+        "id": rule.id, "name": rule.name, "rule_type": rule.rule_type,
         "enabled": rule.enabled, "amount": rule.amount, "description": rule.description,
         "config": rule.config, "last_triggered_at": rule.last_triggered_at,
         "created_at": rule.created_at, "updated_at": rule.updated_at,

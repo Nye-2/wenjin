@@ -157,3 +157,13 @@ class CreditRedeemPayload(BaseModel):
 class CreditReferralCreatePayload(BaseModel):
     referrer_user_id: str
     referee_user_id: str
+
+
+class CreditPeriodicGrantProcessPayload(BaseModel):
+    now: datetime | None = None
+
+
+class CreditPeriodicGrantSummaryPayload(BaseModel):
+    rules_evaluated: int
+    rules_fired: int
+    users_granted: int

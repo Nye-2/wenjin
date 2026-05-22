@@ -58,6 +58,8 @@ from src.dataservice_client.contracts.credit import (
     CreditGrantRulePayload,
     CreditGrantRuleUpdatePayload,
     CreditHistoryPayload,
+    CreditPeriodicGrantProcessPayload,
+    CreditPeriodicGrantSummaryPayload,
     CreditRedeemCodeCreatePayload,
     CreditRedeemCodePayload,
     CreditRedeemPayload,
@@ -899,6 +901,14 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return CreditGrantRulePayload.model_validate(data) if data is not None else None
 
+    async def get_active_credit_grant_rule(
+        self,
+        rule_type: str,
+    ) -> CreditGrantRulePayload | None:
+        payload = await self._request("GET", f"/internal/v1/credit/active-grant-rules/{rule_type}")
+        data = payload.get("data")
+        return CreditGrantRulePayload.model_validate(data) if data is not None else None
+
     async def create_credit_grant_rule(
         self,
         command: CreditGrantRuleCreatePayload,
@@ -934,10 +944,52 @@ class AsyncDataServiceClient:
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("deleted")) if isinstance(data, dict) else False
 
+    async def apply_credit_registration_bonus(
+        self,
+        user_id: str,
+    ) -> CreditTransactionPayload | None:
+        payload = await self._request("POST", f"/internal/v1/credit/users/{user_id}/registration-bonus")
+        data = payload.get("data")
+        return CreditTransactionPayload.model_validate(data) if data is not None else None
+
+    async def get_credit_balance(self, user_id: str) -> int | None:
+        payload = await self._request("GET", f"/internal/v1/credit/users/{user_id}/balance")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict) or data.get("balance") is None:
+            return None
+        return int(data["balance"])
+
     async def get_credit_summary(self, user_id: str) -> CreditSummaryPayload | None:
         payload = await self._request("GET", f"/internal/v1/credit/users/{user_id}/summary")
         data = payload.get("data")
         return CreditSummaryPayload.model_validate(data) if data is not None else None
+
+    async def get_credit_consumed_tokens(
+        self,
+        *,
+        user_id: str,
+        consume_type: str,
+        metadata_type: str | None = None,
+    ) -> int:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/credit/users/{user_id}/consumed-tokens",
+            params={"consume_type": consume_type, "metadata_type": metadata_type},
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return int(data.get("consumed_tokens", 0)) if isinstance(data, dict) else 0
+
+    async def process_credit_periodic_grant_rules(
+        self,
+        command: CreditPeriodicGrantProcessPayload | None = None,
+    ) -> CreditPeriodicGrantSummaryPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/credit/periodic-grants/process",
+            json=(command or CreditPeriodicGrantProcessPayload()).model_dump(mode="json"),
+        )
+        return CreditPeriodicGrantSummaryPayload.model_validate(payload["data"])
+
 
     async def get_credit_history(
         self,
@@ -1096,6 +1148,28 @@ class AsyncDataServiceClient:
         )
         data = payload.get("data")
         return CreditReferralPayload.model_validate(data) if data is not None else None
+
+    async def apply_credit_referee_signup_bonus(
+        self,
+        referee_user_id: str,
+    ) -> CreditTransactionPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/credit/referrals/{referee_user_id}/apply-referee-signup",
+        )
+        data = payload.get("data")
+        return CreditTransactionPayload.model_validate(data) if data is not None else None
+
+    async def apply_credit_referrer_first_task_bonus(
+        self,
+        referee_user_id: str,
+    ) -> CreditTransactionPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/credit/referrals/{referee_user_id}/apply-referrer-first-task",
+        )
+        data = payload.get("data")
+        return CreditTransactionPayload.model_validate(data) if data is not None else None
 
     async def append_conversation_message(
         self,
