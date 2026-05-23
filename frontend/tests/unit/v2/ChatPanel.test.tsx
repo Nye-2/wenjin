@@ -547,4 +547,33 @@ describe("ChatPanel v2", () => {
       ),
     );
   });
+
+  it("does not submit while an IME composition is active", async () => {
+    const loadHistory = vi.fn().mockResolvedValue(null);
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({
+      loadHistory,
+      sendMessage,
+      messages: [],
+      isSending: false,
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+
+    await waitFor(() => expect(loadHistory).toHaveBeenCalledWith("ws-1"));
+
+    const input = screen.getByPlaceholderText("输入消息... Shift+Enter 换行");
+    fireEvent.change(input, { target: { value: "aaai" } });
+    fireEvent.compositionStart(input);
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: false });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    fireEvent.compositionEnd(input);
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter", shiftKey: false });
+
+    await waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith("ws-1", "aaai", [], undefined),
+    );
+  });
 });

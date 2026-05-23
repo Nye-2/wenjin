@@ -89,6 +89,7 @@ export function ChatPanel({
     historyHydration.workspaceId === workspaceId && historyHydration.hydrated;
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isComposingRef = useRef(false);
   const autoLaunchedSeedRef = useRef<string | null>(null);
   const entrySeed = useMemo(
     () => parseWorkspaceThreadEntrySeed(searchParams),
@@ -262,6 +263,14 @@ export function ChatPanel({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const nativeEvent = e.nativeEvent as KeyboardEvent;
+    if (
+      isComposingRef.current ||
+      nativeEvent.isComposing ||
+      nativeEvent.keyCode === 229
+    ) {
+      return;
+    }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -458,6 +467,12 @@ export function ChatPanel({
             placeholder={inputPlaceholder}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+            }}
             onKeyDown={handleKeyDown}
             rows={1}
             style={{
