@@ -216,6 +216,21 @@ class CapabilityV2ReviewPolicyModel(BaseModel):
     allow_bulk_accept: bool = True
 
 
+class CapabilityV2CitationPolicyModel(BaseModel):
+    """Runtime contract for workspace-scoped citation handling."""
+
+    model_config = ConfigDict(extra="forbid")
+    source_scope: Literal["none", "workspace_library"] = "none"
+    required_for_prism_manuscript: bool = False
+    allowed_commands: list[
+        Literal["cite", "citep", "citet", "citealp", "parencite", "textcite"]
+    ] = Field(default_factory=lambda: ["cite"])
+    bibliography_file: str = "refs.bib"
+    bibliography_command: str = "\\bibliography{refs}"
+    missing_key_behavior: Literal["warn", "block_prism_stage"] = "warn"
+    record_usage: bool = True
+
+
 class CapabilityV2YamlModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["capability.v2"]
@@ -229,6 +244,7 @@ class CapabilityV2YamlModel(BaseModel):
     context_policy: CapabilityV2ContextPolicyModel
     sandbox_policy: CapabilityV2SandboxPolicyModel
     review_policy: CapabilityV2ReviewPolicyModel
+    citation_policy: CapabilityV2CitationPolicyModel = Field(default_factory=CapabilityV2CitationPolicyModel)
     quality_gates: list[str] = Field(default_factory=list)
     graph_template: GraphTemplateModel
     extensions: dict[str, Any] = Field(default_factory=dict)

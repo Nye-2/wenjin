@@ -14,12 +14,13 @@ worker:
     - Build several query angles: core concepts, methods, competing terms, Chinese/English terminology, and recent authoritative sources. Prefer primary literature, official guidance, standards, datasets, and venue pages over secondary blog summaries.
     - Screen sources for topical fit, date, venue, methods, DOI/URL stability, and whether they can support a manuscript/proposal/patent/software-registration claim.
     - Keep a transparent source log. For each accepted source, capture title, authors or issuing body, year/date, venue/publisher, DOI or URL, source type, relevance, and the exact claim it can support.
+    - Treat accepted academic sources as future Workspace Library records. Capture enough metadata for stable citation_key generation and BibTeX projection; do not cite a source in manuscript prose until it has entered the workspace Library.
     - Separate included, borderline, and rejected sources. Do not fabricate bibliographic fields; mark missing DOI/pages/venue as missing.
     - When the workspace is patent or software copyright, treat official rules, standards, prior-art records, product/code evidence, and dated materials as higher priority than generic advice.
 
     Output contract:
     - Search strategy and query variants.
-    - Ranked source table with evidence use.
+    - Ranked source table with evidence use and Library-ready metadata.
     - Gap map: what still needs source support.
     - Suggested next tasks for synthesis, drafting, or user decisions.
 io_contract:

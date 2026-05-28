@@ -194,6 +194,15 @@ def test_distribute_brief_includes_manuscript_context():
     )
 
 
+def test_needs_library_context_when_citation_policy_uses_workspace_library():
+    assert LeadAgentRuntime._needs_library_context(
+        {
+            "context_policy": {"room_reads": {}},
+            "citation_policy": {"source_scope": "workspace_library"},
+        }
+    )
+
+
 @pytest.mark.asyncio
 async def test_stage_prism_review_items_from_writer_output():
     graph_template = {
@@ -459,6 +468,306 @@ async def test_stage_prism_review_items_normalizes_tex_markdown_output():
     assert "\\title{联邦学习大模型}" in command.pending_content
     assert "\\section{1. 引言}" in command.pending_content
     assert "\\begin{enumerate}" in command.pending_content
+
+
+@pytest.mark.asyncio
+async def test_stage_prism_review_items_blocks_missing_library_citation_keys():
+    graph_template = {
+        "phases": [
+            {
+                "name": "write",
+                "tasks": [
+                    {
+                        "name": "manuscript_writer",
+                        "subagent_type": "react",
+                        "outputs": [
+                            {
+                                "kind": "prism_file_change",
+                                "mapping": {
+                                    "logical_key": "project:main",
+                                    "path": "main.tex",
+                                    "content_format": "latex_document",
+                                    "pending_content": "{{output.text}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(
+        graph_template=graph_template,
+        definition_json={
+            "citation_policy": {
+                "source_scope": "workspace_library",
+                "required_for_prism_manuscript": True,
+                "missing_key_behavior": "block_prism_stage",
+                "record_usage": True,
+            }
+        },
+    )
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+    brief = TaskBrief(
+        capability_id="research_question_to_paper",
+        raw_message="write a manuscript",
+        workspace_id="ws-001",
+        brief={},
+        manuscript_context={
+            "latex_project_id": "latex-1",
+            "main_file": "main.tex",
+        },
+    )
+    staged: list[object] = []
+
+    class _FakeClient:
+        async def upsert_pending_prism_file_change(self, command):
+            staged.append(command)
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        return_value=_FakeClientContext(),
+    ):
+        await runtime._stage_prism_review_items(
+            {
+                "workspace_data": {
+                    "library_context": {
+                        "citation_keys": ["smith2026"],
+                    }
+                },
+                "node_results": {
+                    "manuscript_writer": {
+                        "output": {
+                            "text": (
+                                "\\documentclass{article}\\begin{document}"
+                                "Claim \\cite{missing2026}.\\end{document}"
+                            ),
+                        },
+                    },
+                },
+            },
+            cap,
+            brief=brief,
+            execution_id="exec-1",
+        )
+
+    assert staged == []
+
+
+@pytest.mark.asyncio
+async def test_stage_prism_review_items_records_valid_library_citation_usage():
+    graph_template = {
+        "phases": [
+            {
+                "name": "write",
+                "tasks": [
+                    {
+                        "name": "manuscript_writer",
+                        "subagent_type": "react",
+                        "outputs": [
+                            {
+                                "kind": "prism_file_change",
+                                "mapping": {
+                                    "logical_key": "project:main",
+                                    "path": "main.tex",
+                                    "content_format": "latex_document",
+                                    "pending_content": "{{output.text}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(
+        graph_template=graph_template,
+        definition_json={
+            "citation_policy": {
+                "source_scope": "workspace_library",
+                "required_for_prism_manuscript": True,
+                "missing_key_behavior": "block_prism_stage",
+                "record_usage": True,
+            }
+        },
+    )
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+    brief = TaskBrief(
+        capability_id="research_question_to_paper",
+        raw_message="write a manuscript",
+        workspace_id="ws-001",
+        brief={},
+        manuscript_context={
+            "latex_project_id": "latex-1",
+            "main_file": "main.tex",
+        },
+    )
+    staged: list[object] = []
+    usage_calls: list[object] = []
+
+    class _FakeClient:
+        async def upsert_pending_prism_file_change(self, command):
+            staged.append(command)
+            return SimpleNamespace(id="review-item-1")
+
+        async def record_source_citation_usage(self, command):
+            usage_calls.append(command)
+            return {"recorded": len(command.citation_keys)}
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        return_value=_FakeClientContext(),
+    ):
+        await runtime._stage_prism_review_items(
+            {
+                "workspace_data": {
+                    "library_context": {
+                        "citation_keys": ["smith2026", "doe2025"],
+                    }
+                },
+                "node_results": {
+                    "manuscript_writer": {
+                        "output": {
+                            "text": (
+                                "\\documentclass{article}\\begin{document}"
+                                "Claim \\cite{smith2026}.\\end{document}"
+                            ),
+                        },
+                    },
+                },
+            },
+            cap,
+            brief=brief,
+            execution_id="exec-1",
+        )
+
+    assert len(staged) == 1
+    assert len(usage_calls) == 1
+    usage = usage_calls[0]
+    assert usage.workspace_id == "ws-001"
+    assert usage.citation_keys == ["smith2026"]
+    assert usage.execution_id == "exec-1"
+    assert usage.task_id == "manuscript_writer"
+    assert usage.latex_project_id == "latex-1"
+    assert usage.target_id == "review-item-1"
+    assert usage.target_ref_json == {
+        "logical_key": "project:main",
+        "path": "main.tex",
+    }
+    assert usage.generated_text.startswith("\\documentclass")
+
+
+@pytest.mark.asyncio
+async def test_stage_prism_review_items_does_not_record_usage_for_non_library_keys():
+    graph_template = {
+        "phases": [
+            {
+                "name": "write",
+                "tasks": [
+                    {
+                        "name": "manuscript_writer",
+                        "subagent_type": "react",
+                        "outputs": [
+                            {
+                                "kind": "prism_file_change",
+                                "mapping": {
+                                    "logical_key": "project:main",
+                                    "path": "main.tex",
+                                    "content_format": "latex_document",
+                                    "pending_content": "{{output.text}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(
+        graph_template=graph_template,
+        definition_json={
+            "citation_policy": {
+                "source_scope": "workspace_library",
+                "missing_key_behavior": "warn",
+                "record_usage": True,
+            }
+        },
+    )
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+    brief = TaskBrief(
+        capability_id="sci_literature_positioning",
+        raw_message="draft",
+        workspace_id="ws-001",
+        brief={},
+        manuscript_context={"latex_project_id": "latex-1", "main_file": "main.tex"},
+    )
+    staged: list[object] = []
+    usage_calls: list[object] = []
+
+    class _FakeClient:
+        async def upsert_pending_prism_file_change(self, command):
+            staged.append(command)
+            return SimpleNamespace(id="review-item-1")
+
+        async def record_source_citation_usage(self, command):
+            usage_calls.append(command)
+            return {"recorded": len(command.citation_keys)}
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with patch(
+        "src.dataservice_client.provider.dataservice_client",
+        return_value=_FakeClientContext(),
+    ):
+        await runtime._stage_prism_review_items(
+            {
+                "workspace_data": {"library_context": {"citation_keys": ["smith2026"]}},
+                "node_results": {
+                    "manuscript_writer": {
+                        "output": {
+                            "text": (
+                                "\\documentclass{article}\\begin{document}"
+                                "Claim \\cite{not_in_library}.\\end{document}"
+                            ),
+                        },
+                    },
+                },
+            },
+            cap,
+            brief=brief,
+            execution_id="exec-1",
+        )
+
+    assert len(staged) == 1
+    assert usage_calls == []
 
 
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ worker:
     Operating rules:
     - Use upstream outputs as controlling context. Do not ignore architect, evidence, literature, or audit results when they are present.
     - Treat `library_context.citable_sources` as the manuscript's citation source of truth when present. Use only its `citation_key` values in `\cite{...}` commands; do not invent citation keys or cite papers that are not in the Library context.
+    - Do not author `refs.bib` content. `refs.bib` is a runtime projection from Workspace Library Source metadata; the manuscript should only include the bibliography command that points to it.
     - Write in a formal academic style with explicit claim-evidence-reasoning links. Every non-obvious factual claim needs a cited or marked source. Do not fabricate citations, datasets, methods, ethics approvals, or results.
     - For thesis drafts, respect the school/template structure, abstract-body consistency, chapter transitions, terminology consistency, units, numbering, and reference style. For SCI drafts, respect target journal/article type, IMRaD or journal structure, reporting guidelines, data/code availability, limitations, and cover/reviewer sensitivity.
     - If evidence is incomplete, write conservative prose and mark TODO/NEEDS_SOURCE/NEEDS_DATA rather than presenting speculation as fact.
@@ -21,6 +22,7 @@ worker:
     - Return a full, compileable LaTeX document, including `\documentclass`, required packages, `\begin{document}`, and `\end{document}`.
     - Use `ctexart` and XeLaTeX-compatible source for Chinese or mixed Chinese/English drafts.
     - If Library sources are available, include `\bibliographystyle{plain}` and `\bibliography{refs}` before `\end{document}` and cite those sources with `\cite{...}` in the relevant sections.
+    - If no Library source supports a claim, rewrite conservatively or mark `NEEDS_SOURCE` instead of inventing a citation key.
     - Do not return Markdown headings, Markdown bold markers, or explanatory wrapper text for `.tex` outputs.
 
     Output contract:

@@ -129,9 +129,22 @@ review_policy:
   - room_task
   require_user_acceptance: true
   allow_bulk_accept: true
+citation_policy:
+  source_scope: workspace_library
+  required_for_prism_manuscript: false
+  allowed_commands:
+  - cite
+  - citep
+  - citet
+  bibliography_file: refs.bib
+  bibliography_command: \bibliography{refs}
+  missing_key_behavior: warn
+  record_usage: true
 quality_gates:
 - no_direct_primary_document_write
 - provenance_required_for_claims
+- library_sources_are_citation_ssot
+- citation_ready_plan_required
 - protected_sections_readonly
 - upstream_outputs_must_be_used
 - unsupported_claims_marked_for_user_decision
@@ -149,7 +162,7 @@ graph_template:
       skill_id: research-scout
       inputs:
         query: '{{topic}} {{query}} {{goal}} {{raw_message}}'
-        task_focus: 检索并筛选可支撑本任务的权威来源，输出可追溯来源表和缺口清单。
+        task_focus: 检索并筛选可支撑本任务的权威来源，输出可追溯来源表、Library-ready metadata、claim support 和缺口清单；后续写作只能使用入库后生成的 citation_key。
         capability_name: 文献定位与创新点
         capability_goal: produce_workspace_review_package
         workspace_type: sci
@@ -180,7 +193,7 @@ graph_template:
       subagent_type: react
       skill_id: literature-synthesizer
       inputs:
-        task_focus: 把检索结果和材料综合为主题矩阵、gap、可引用论断和后续写作素材。
+        task_focus: 把检索结果和 Library sources 综合为主题矩阵、gap、related work 分组、claim-evidence-citation plan 和后续全文写作可直接消费的 contribution candidates；所有引用计划必须使用 workspace Library citation_key，不得虚构 key。
         capability_name: 文献定位与创新点
         capability_goal: produce_workspace_review_package
         workspace_type: sci
@@ -197,7 +210,7 @@ graph_template:
       subagent_type: react
       skill_id: source-quality-auditor
       inputs:
-        task_focus: 审查来源权威性、元数据完整性、时效性和 claim-source 匹配风险。
+        task_focus: 审查来源权威性、元数据完整性、时效性、BibTeX readiness 和 claim-source 匹配风险；标出哪些 source 可进入 refs.bib projection，哪些只能作为待核验线索。
         capability_name: 文献定位与创新点
         capability_goal: produce_workspace_review_package
         workspace_type: sci

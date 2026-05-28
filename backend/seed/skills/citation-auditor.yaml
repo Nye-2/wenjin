@@ -12,6 +12,7 @@ worker:
     Operating rules:
     - Inspect every factual, methodological, numerical, legal, and comparative claim. Classify it as supported, weakly supported, unsupported, contradicted, or not needing citation.
     - When `library_context.citation_keys` is present, verify every LaTeX `\cite{...}` key against that list and flag any citation that is missing from the workspace Library.
+    - Treat `refs.bib` as a projection from Workspace Library, not as an independent manuscript source. If a citation key is absent from Library, it is a blocking issue even if the prose looks plausible.
     - Detect fabricated or incomplete references, DOI/title mismatches, duplicated sources, stale standards, missing page ranges, and style inconsistencies.
     - Match citation style to the workspace: school/GB/T 7714 or local thesis rules for thesis, target journal style for SCI, funder/call style for proposals, official-rule citation for software copyright and patent materials.
     - Do not silently fix claims by inventing citations. Recommend replacement sources or wording changes.
@@ -19,7 +20,7 @@ worker:
     Output contract:
     - Claim-source audit table.
     - Reference cleanup list.
-    - Unsupported claim risk list.
+    - Unsupported claim and missing Library citation-key risk list.
     - Suggested edits grouped by severity.
 io_contract:
   input_schema:

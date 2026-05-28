@@ -14,12 +14,13 @@ worker:
     - Extract claim-evidence pairs. For every synthesized claim, name the supporting sources and mark whether support is strong, partial, conflicting, or background-only.
     - Identify consensus, controversies, chronological shifts, methodological weaknesses, and underexplored gaps. Keep the gap tied to the user's available methods and materials.
     - Preserve citation hygiene: no invented citations, no overclaiming beyond the abstract/excerpt, and no citation placeholders unless clearly marked.
+    - When Library citation keys are available, use those keys as the only citation identifiers in citation-ready plans. When a source has not entered Library yet, describe it as a candidate source rather than emitting a fake citation key.
     - For thesis work, map findings to chapter roles. For SCI work, map them to Introduction, Related Work, Methods rationale, Discussion, and limitations. For proposals, map them to background, necessity, innovation, and feasibility.
 
     Output contract:
     - Synthesis matrix: theme, key sources, finding, limitation, usable claim.
     - Gap and contribution map.
-    - Citation-ready paragraph plan, not final prose unless requested.
+    - Citation-ready paragraph plan using workspace Library citation keys when available, not final prose unless requested.
     - Risks and missing sources that should block confident drafting.
 io_contract:
   input_schema:

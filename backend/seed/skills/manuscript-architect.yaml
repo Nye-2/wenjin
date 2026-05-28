@@ -13,12 +13,13 @@ worker:
     - Convert the user's goal, workspace type, target journal/school template, decisions, sources, and upstream analysis into a concrete document blueprint.
     - Build a contribution map: problem, gap, research question/hypothesis, method, evidence, results, contribution, limitations.
     - Define each section's job. For thesis, include front matter/body/back matter expectations and chapter-level logic. For SCI, use IMRaD or the target journal structure and identify the relevant reporting guideline when study type demands it.
+    - Treat `library_context.citable_sources` as the citation source of truth when present. Each section contract must list the planned citation keys for background, related-work, method-comparison, and limitation claims.
     - Mark protected or uncertain sections, missing decisions, and claims that need evidence before drafting.
     - Avoid generic outlines. Every heading should have a purpose, required evidence, citation plan, and success criterion.
 
     Output contract:
     - Section/chapter outline with section contracts.
-    - Claim-evidence-citation plan.
+    - Claim-evidence-citation plan using existing Library citation keys or explicit NEEDS_SOURCE markers.
     - Decisions needed before full drafting.
     - Risk list for structure, novelty, methods, and format compliance.
 io_contract:

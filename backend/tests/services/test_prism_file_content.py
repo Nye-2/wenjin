@@ -45,6 +45,110 @@ def test_fenced_complete_latex_document_is_unwrapped():
     assert ensure_latex_document(source) == "\\documentclass{article}\\begin{document}Draft\\end{document}"
 
 
+def test_latex_document_embedded_in_unbalanced_fence_is_extracted():
+    source = (
+        "```latex\n"
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "Draft\n"
+        "\\end{document}\n"
+        "Explanation outside the file contract."
+    )
+
+    assert ensure_latex_document(source) == (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "Draft\n"
+        "\\end{document}"
+    )
+
+
+def test_latex_document_excludes_trailing_markdown_notes():
+    source = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "Draft\n"
+        "\\bibliographystyle{plain}\n"
+        "\\bibliography{refs}\n"
+        "\\end{document}\n\n"
+        "Notes:\n"
+        "1. The bibliography appears before `\\end{document}`.\n"
+    )
+
+    assert ensure_latex_document(source) == (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "Draft\n"
+        "\\bibliographystyle{plain}\n"
+        "\\bibliography{refs}\n"
+        "\\end{document}"
+    )
+
+
+def test_latex_document_declares_common_math_operators():
+    source = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsmath}\n"
+        "\\begin{document}\n"
+        "$x = \\argmin_y f(y)$ and $z = \\argmax_y g(y)$.\n"
+        "\\end{document}"
+    )
+
+    result = ensure_latex_document(source)
+
+    assert "\\DeclareMathOperator*{\\argmin}{arg\\,min}" in result
+    assert "\\DeclareMathOperator*{\\argmax}{arg\\,max}" in result
+    assert result.index("\\DeclareMathOperator*{\\argmin}") < result.index("\\begin{document}")
+
+
+def test_latex_document_imports_amssymb_for_mathbb():
+    source = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsmath}\n"
+        "\\begin{document}\n"
+        "$x \\in \\mathbb{R}$\n"
+        "\\end{document}"
+    )
+
+    result = ensure_latex_document(source)
+
+    assert "\\usepackage{amssymb}" in result
+    assert result.index("\\usepackage{amssymb}") < result.index("\\begin{document}")
+
+
+def test_latex_document_repairs_malformed_reference_braces():
+    source = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "See Section~\\ref:compression} and Eq.~\\eqref:eq:loss}.\n"
+        "\\end{document}"
+    )
+
+    result = ensure_latex_document(source)
+
+    assert "Section~\\ref{compression}" in result
+    assert "Eq.~\\eqref{eq:loss}" in result
+    assert "\\ref:compression}" not in result
+    assert "\\eqref:eq:loss}" not in result
+
+
+def test_latex_document_declares_used_common_theorem_environments():
+    source = (
+        "\\documentclass{article}\n"
+        "\\usepackage{amsthm}\n"
+        "\\begin{document}\n"
+        "\\begin{assumption}[Smoothness]\n"
+        "The loss is smooth.\n"
+        "\\end{assumption}\n"
+        "\\end{document}"
+    )
+
+    result = ensure_latex_document(source)
+
+    assert "\\newtheorem{assumption}{Assumption}" in result
+    assert result.index("\\newtheorem{assumption}{Assumption}") < result.index("\\begin{document}")
+
+
 def test_non_tex_file_change_keeps_plain_content():
     source = "# Markdown report"
 

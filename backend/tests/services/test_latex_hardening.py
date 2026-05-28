@@ -666,6 +666,44 @@ async def test_compile_project_can_skip_history_record(
     db.refresh.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_compile_project_treats_nonzero_exit_as_failure_even_if_pdf_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("WENJIN_LATEX_DATA_DIR", str(tmp_path))
+    project = SimpleNamespace(id="proj-nonzero-pdf", main_file="main.tex")
+    project_dir = tmp_path / project.id
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "main.tex").write_text(
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+        encoding="utf-8",
+    )
+
+    async def _fake_compile(
+        self: LatexCompileService,
+        mounted_project_dir: Path,
+        *,
+        entry_file: str,
+        compiler: str,
+    ) -> tuple[int, str, str, Path]:
+        del self, entry_file, compiler
+        pdf_path = mounted_project_dir / "main.pdf"
+        pdf_path.write_bytes(b"%PDF-1.4\npartial output")
+        return 1, "Undefined control sequence", "", pdf_path
+
+    service = LatexCompileService(AsyncMock())
+    monkeypatch.setattr(LatexCompileService, "_run_compile_in_docker", _fake_compile)
+
+    payload = await service.compile_project(project, engine="xelatex", record_history=False)
+
+    assert payload["ok"] is False
+    assert payload["status"] == 1
+    assert payload["pdf_path"] is None
+    assert payload["pdf_endpoint"] is None
+    assert "Undefined control sequence" in str(payload["error"])
+
+
 def test_parse_synctex_edit_output() -> None:
     output = (
         "SyncTeX result begin\n"

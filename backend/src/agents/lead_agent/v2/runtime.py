@@ -25,9 +25,11 @@ from src.agents.lead_agent.v2.output_mapping import (
     OutputMappingResolver,
     resolve_output_mapping_value,
 )
+from src.dataservice_client.contracts.source import SourceCitationUsageCreatePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.capability_resolver import CapabilityResolver
 from src.services.prism_file_content import normalize_prism_file_change_content
+from src.services.references.utils import extract_citation_keys_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -332,16 +334,24 @@ class LeadAgentRuntime:
             "context_policy": dict(definition.get("context_policy") or {}),
             "sandbox_policy": dict(definition.get("sandbox_policy") or {}),
             "review_policy": dict(definition.get("review_policy") or {}),
+            "citation_policy": dict(definition.get("citation_policy") or {}),
             "quality_gates": list(definition.get("quality_gates") or []),
         }
 
     @staticmethod
     def _needs_library_context(capability_policy: dict[str, Any]) -> bool:
         context_policy = capability_policy.get("context_policy")
-        if not isinstance(context_policy, dict):
+        if isinstance(context_policy, dict):
+            room_reads = context_policy.get("room_reads")
+            if isinstance(room_reads, dict) and "library" in room_reads:
+                return True
+        citation_policy = capability_policy.get("citation_policy")
+        if not isinstance(citation_policy, dict):
             return False
-        room_reads = context_policy.get("room_reads")
-        return isinstance(room_reads, dict) and "library" in room_reads
+        return (
+            citation_policy.get("source_scope") == "workspace_library"
+            or bool(citation_policy.get("required_for_prism_manuscript"))
+        )
 
     async def _load_workspace_data(self, workspace_id: str) -> dict[str, Any]:
         """Load lightweight room data that subagents can safely consume."""
@@ -804,7 +814,7 @@ class LeadAgentRuntime:
         )
         from src.dataservice_client.provider import dataservice_client
 
-        commands: list[PrismFileChangeUpsertPayload] = []
+        commands: list[tuple[PrismFileChangeUpsertPayload, list[str]]] = []
         default_path = str(manuscript_context.get("main_file") or "main.tex").strip() or "main.tex"
         workspace_data = state.get("workspace_data") if isinstance(state, dict) else {}
         library_context = (
@@ -812,10 +822,15 @@ class LeadAgentRuntime:
             if isinstance(workspace_data, dict)
             else None
         )
+        citation_policy = self._capability_policy(cap).get("citation_policy", {})
+        if not isinstance(citation_policy, dict):
+            citation_policy = {}
         require_bibliography = (
             isinstance(library_context, dict)
             and bool(library_context.get("citation_keys"))
         )
+        allowed_citation_keys = self._library_citation_keys(library_context)
+        block_missing = citation_policy.get("missing_key_behavior") == "block_prism_stage"
 
         for phase in graph_template.get("phases", []):
             for task in phase.get("tasks", []):
@@ -842,17 +857,106 @@ class LeadAgentRuntime:
                         require_bibliography=require_bibliography,
                     )
                     if command is not None:
-                        commands.append(command)
+                        cited_keys = extract_citation_keys_from_text(command.pending_content)
+                        missing_keys = [
+                            key for key in cited_keys
+                            if key not in allowed_citation_keys
+                        ]
+                        if (
+                            command.path.endswith(".tex")
+                            and citation_policy.get("source_scope") == "workspace_library"
+                            and block_missing
+                            and missing_keys
+                        ):
+                            logger.warning(
+                                "Blocked Prism staging for %s because citations are missing from Library: %s",
+                                command.path,
+                                ", ".join(missing_keys),
+                            )
+                            continue
+                        commands.append((command, cited_keys))
 
         if not commands:
             return
 
         try:
             async with dataservice_client() as client:
-                for command in commands:
-                    await client.upsert_pending_prism_file_change(command)
+                for command, cited_keys in commands:
+                    review_item = await client.upsert_pending_prism_file_change(command)
+                    await self._record_prism_file_citation_usage(
+                        client,
+                        command=command,
+                        cited_keys=cited_keys,
+                        allowed_citation_keys=allowed_citation_keys,
+                        review_item_id=str(getattr(review_item, "id", "") or "") or None,
+                        citation_policy=citation_policy,
+                    )
         except Exception:
             logger.warning("Failed to stage Prism review items", exc_info=True)
+
+    @staticmethod
+    def _library_citation_keys(library_context: Any) -> set[str]:
+        if not isinstance(library_context, dict):
+            return set()
+        return {
+            str(key).strip()
+            for key in list(library_context.get("citation_keys") or [])
+            if str(key).strip()
+        }
+
+    async def _record_prism_file_citation_usage(
+        self,
+        client: Any,
+        *,
+        command: Any,
+        cited_keys: list[str],
+        allowed_citation_keys: set[str],
+        review_item_id: str | None,
+        citation_policy: dict[str, Any],
+    ) -> None:
+        if not citation_policy.get("record_usage", True):
+            return
+        citation_keys = [
+            key for key in cited_keys
+            if not allowed_citation_keys or key in allowed_citation_keys
+        ]
+        if not citation_keys:
+            return
+        recorder = getattr(client, "record_source_citation_usage", None)
+        if not callable(recorder):
+            recorder = getattr(client, "record_citation_usage", None)
+        if not callable(recorder):
+            return
+        if citation_policy.get("source_scope") == "workspace_library":
+            citation_keys = [key for key in citation_keys if key in allowed_citation_keys]
+        if not citation_keys:
+            return
+        try:
+            await recorder(
+                SourceCitationUsageCreatePayload(
+                    workspace_id=command.workspace_id,
+                    citation_keys=citation_keys,
+                    execution_id=command.source_execution_id,
+                    task_id=command.source_task_id,
+                    latex_project_id=command.latex_project_id,
+                    target_domain="prism",
+                    target_kind="prism_file",
+                    target_id=review_item_id,
+                    target_ref_json={
+                        "logical_key": command.logical_key,
+                        "path": command.path,
+                    },
+                    generated_text=command.pending_content[:4000],
+                    usage_type="manuscript_citation",
+                    accepted_status="pending",
+                )
+            )
+        except Exception:
+            logger.warning(
+                "Failed to record Prism file citation usage for %s",
+                command.path,
+                exc_info=True,
+            )
 
     async def _sync_prism_bibliography(
         self,

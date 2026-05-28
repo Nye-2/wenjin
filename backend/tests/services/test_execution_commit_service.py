@@ -211,6 +211,31 @@ async def test_commit_returns_room_targets_for_committed_items():
 
 
 @pytest.mark.asyncio
+async def test_commit_document_writes_to_documents_room_source():
+    """Execution-backed documents must be visible through the Documents room."""
+    outputs = [
+        DocumentOutput(
+            id="out-doc",
+            preview="A doc",
+            kind="document",
+            data=DocumentData(
+                name="文献定位与创新点.md",
+                doc_kind="draft",
+                content="# Literature positioning",
+            ),
+        )
+    ]
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+
+    asset_payload = mocks["dataservice"].register_asset.call_args.args[0]
+    assert asset_payload.source_kind == "documents_room"
+
+
+@pytest.mark.asyncio
 async def test_commit_returns_room_targets_for_room_candidates():
     """Memory/decision/task candidates return workspace room focus metadata."""
     outputs = _all_kinds_outputs()

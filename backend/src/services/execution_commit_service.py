@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # content lives in asset metadata so gateway and worker do not need a shared
 # filesystem for generated markdown.
 _INLINE_DOC_PATH_PREFIX = "inline://"
+_DOCUMENTS_ROOM_SOURCE_KIND = "documents_room"
 _CITATION_KEY_RE = re.compile(r"[^a-z0-9]+")
 _ALLOWED_OVERRIDE_FIELDS: dict[str, set[str]] = {
     "document": {"content", "name", "doc_kind"},
@@ -219,7 +220,7 @@ class ExecutionCommitService:
                         "size_bytes": size_bytes,
                         "parent_asset_id": data.get("parent_id"),
                         "created_by": f"execution:{execution_id}",
-                        "source_kind": "execution_output",
+                        "source_kind": _DOCUMENTS_ROOM_SOURCE_KIND,
                         "source_id": output.id,
                     }
                     metadata_extra.setdefault("kind", payload["asset_kind"])

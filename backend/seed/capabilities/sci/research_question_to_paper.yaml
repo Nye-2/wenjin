@@ -131,9 +131,24 @@ review_policy:
   - room_task
   require_user_acceptance: true
   allow_bulk_accept: true
+citation_policy:
+  source_scope: workspace_library
+  required_for_prism_manuscript: true
+  allowed_commands:
+  - cite
+  - citep
+  - citet
+  bibliography_file: refs.bib
+  bibliography_command: \bibliography{refs}
+  missing_key_behavior: block_prism_stage
+  record_usage: true
 quality_gates:
 - no_direct_primary_document_write
 - provenance_required_for_claims
+- library_sources_are_citation_ssot
+- refs_bib_projection_synced
+- missing_citation_keys_block_prism_stage
+- citation_usage_recorded
 - protected_sections_readonly
 - upstream_outputs_must_be_used
 - unsupported_claims_marked_for_user_decision
@@ -150,7 +165,7 @@ graph_template:
       subagent_type: react
       skill_id: manuscript-architect
       inputs:
-        task_focus: 建立章节结构、论证链、section contract、claim-evidence-citation plan；优先使用 library_context 中已有文献作为引用事实源。
+        task_focus: 建立章节结构、论证链、section contract、claim-evidence-citation plan；必须把 library_context.citable_sources 作为引用事实源，为每个背景、相关工作和方法比较论断分配现有 citation_key，缺失来源时标记 NEEDS_SOURCE。
         capability_name: 问题到 SCI 初稿
         capability_goal: produce_or_update_primary_document
         workspace_type: sci
@@ -168,7 +183,7 @@ graph_template:
       subagent_type: react
       skill_id: evidence-analyst
       inputs:
-        task_focus: 规划或核验数据、实验、代码、截图和量化结论，标明可复现证据与限制。
+        task_focus: 规划或核验数据、实验、代码、截图和量化结论，标明可复现证据与限制；不要把 sandbox 探针或估算写成真实实验结论，所有外部事实仍需绑定 Library citation_key。
         capability_name: 问题到 SCI 初稿
         capability_goal: produce_or_update_primary_document
         workspace_type: sci
@@ -241,7 +256,7 @@ graph_template:
       subagent_type: react
       skill_id: manuscript-writer
       inputs:
-        task_focus: 基于上游结构、证据与 Library citation context 写作或修订主稿；正文中的背景、相关工作、方法比较和非显然论断必须优先引用 library_context.citable_sources 的 citation_key；不得发明 citation key；主稿必须包含 \bibliographystyle{plain} 和 \bibliography{refs}。
+        task_focus: 基于上游结构、证据与 Library citation context 写作或修订主稿；正文中的背景、相关工作、方法比较和非显然论断必须引用 library_context.citable_sources 的 citation_key；不得发明 citation key；不得手写 refs.bib 内容；主稿必须包含 \bibliographystyle{plain} 和 \bibliography{refs}，由 runtime 从 Library projection 写入 refs.bib。
         capability_name: 问题到 SCI 初稿
         capability_goal: produce_or_update_primary_document
         workspace_type: sci
@@ -268,7 +283,7 @@ graph_template:
       subagent_type: react
       skill_id: citation-auditor
       inputs:
-        task_focus: 审查文本中的事实/方法/数值论断是否有可靠来源支撑，重点检查正文 \cite{...} 是否来自 library_context.citation_keys，且 Prism 的 refs.bib 能覆盖这些引用。
+        task_focus: 审查文本中的事实/方法/数值论断是否有可靠来源支撑，重点检查正文 \cite{...} 是否来自 library_context.citation_keys，且 Prism 的 refs.bib projection 能覆盖这些引用；发现 missing key 时必须标为 blocking risk，不得建议虚构引用修补。
         capability_name: 问题到 SCI 初稿
         capability_goal: produce_or_update_primary_document
         workspace_type: sci

@@ -155,7 +155,7 @@ class LatexCompileService:
                 compiler=compiler,
             )
             log = "\n".join(part for part in (stdout, stderr) if part).strip() or None
-            success = pdf_path.exists()
+            success = exit_code == 0 and pdf_path.exists()
             failure_status = exit_code if isinstance(exit_code, int) and exit_code != 0 else 1
             page_count = self._count_pdf_pages(pdf_path) if success else None
             history_id = None
@@ -283,6 +283,20 @@ class LatexCompileService:
             return "PDFLaTeX cannot compile this ctex/CJK Chinese manuscript in the current runtime. Use XeLaTeX for Chinese or mixed-language documents."
         if "timed out" in text or "timeout" in text:
             return "Compilation timed out."
+        for line in (log or "").splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            lowered = stripped.lower()
+            if (
+                "undefined control sequence" in lowered
+                or "fatal error" in lowered
+                or "emergency stop" in lowered
+                or "error" in lowered
+            ):
+                return f"Compilation failed: {stripped[:300]}"
+        if log and log.strip():
+            return f"Compilation failed: {log.strip().splitlines()[0][:300]}"
         return "No PDF generated."
 
     @staticmethod

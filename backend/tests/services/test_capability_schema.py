@@ -163,6 +163,35 @@ class TestCapabilityV2Yaml:
         assert data["ui_meta"]["entry_tier"] == "primary"
         assert data["runtime"]["sandbox_policy"]["mode"] == "conditional"
 
+    def test_citation_policy_round_trips_to_catalog_data(self):
+        payload = self._valid_payload()
+        payload["citation_policy"] = {
+            "source_scope": "workspace_library",
+            "required_for_prism_manuscript": True,
+            "allowed_commands": ["cite", "citep", "citet"],
+            "bibliography_file": "refs.bib",
+            "bibliography_command": "\\bibliography{refs}",
+            "missing_key_behavior": "block_prism_stage",
+            "record_usage": True,
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+        data = model.to_catalog_data()
+
+        assert data["citation_policy"]["source_scope"] == "workspace_library"
+        assert data["citation_policy"]["bibliography_file"] == "refs.bib"
+        assert data["citation_policy"]["missing_key_behavior"] == "block_prism_stage"
+        assert data["citation_policy"]["record_usage"] is True
+
+    def test_citation_policy_rejects_invalid_missing_key_behavior(self):
+        payload = self._valid_payload()
+        payload["citation_policy"] = {
+            "missing_key_behavior": "silently_ignore",
+        }
+
+        with pytest.raises(ValidationError):
+            CapabilityV2YamlModel(**payload)
+
     def test_required_decision_type_validated(self):
         with pytest.raises(ValidationError):
             CapabilityYamlModel(

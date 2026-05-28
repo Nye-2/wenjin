@@ -1,6 +1,6 @@
 # Workspace Reference Library
 
-更新时间：2026-05-21
+更新时间：2026-05-28
 状态：Current
 
 本文档是 workspace 文献中心的当前事实源。历史重建任务书、SSOT review 和阶段性计划已清理；追溯请使用 Git 历史。
@@ -38,9 +38,10 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 5. 上传全文进入 `workspace_assets` / `source_assets`，预处理后写入 canonical `source_outline_nodes` 和 `source_text_units`。
 6. 写作 evidence pack 只从已纳入 Reference Library 的文献和索引内容构建。
 7. `refs.bib` 是 projection，由 `SourceBibliographyService` 从 Source DataService metadata 生成。
-8. Prism 写入正文引用时必须同步或校验 `refs.bib`。
-9. compile 前必须校验 `\cite{}` 是否存在于当前 workspace 文献中心。
-10. Prism 稿件变更与文献/文档来源的关联进入 canonical `provenance_links`。
+8. Prism 写入正文引用时必须同步或校验 `refs.bib`；agent 不直接手写 `refs.bib` 内容。
+9. capability 通过 `citation_policy` 声明 Library citation contract；SCI 主稿写作使用 `workspace_library` source scope，missing key 以 `block_prism_stage` 处理。
+10. compile 前必须校验 `\cite{}` 是否存在于当前 workspace 文献中心。
+11. Prism 稿件变更与文献/文档来源的关联进入 canonical `provenance_links`。
 
 ## 3. 数据模型
 
@@ -72,6 +73,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 - Source outline/text-unit APIs：outline-first 检索与 page/content 读取。
 - `SourceBibliographyService`：BibTeX 生成、citation validation、Prism sync。
 - `PrismReviewDataService`：从 canonical Prism review content 与 Source/Provenance 生成 source links。
+- LeadAgentRuntime：读取 capability `citation_policy`，把 Library sources 注入为 `library_context` / `citation_context`，在 Prism staging 时阻断 missing citation key，并记录 `record_source_citation_usage`。
 
 API 面：
 
@@ -127,11 +129,12 @@ API 面：
 当前写作闭环的最小可回归路径是：
 
 1. Reference Library 生成 outline-first evidence pack。
-2. 写作使用 citation key 通过 `SourceDataService.record_citation_usage` 写入 `provenance_links`，并把候选/已纳入 source 推进到 `used_in_draft`。
-3. `SourceBibliographyService` 以当前 workspace 文献和 usage 生成 `refs.bib`。
-4. `sync_prism` 将 `refs.bib` 写入 workspace Prism，并确保 `main.tex` 包含 bibliography 入口。
-5. Prism review content 中可识别的 citation key 进入 `provenance_links`。
-6. compile 前用 citation validation 阻断 missing key 和 metadata-only key。
+2. capability 声明 `citation_policy.source_scope=workspace_library`；Lead Agent 将 Library citation keys 作为写作唯一引用事实源。
+3. 写作使用 citation key 通过 `SourceDataService.record_citation_usage` 写入 `provenance_links`，并把候选/已纳入 source 推进到 `used_in_draft`。
+4. `SourceBibliographyService` 以当前 workspace 文献和 usage 生成 `refs.bib`。
+5. `sync_prism` 将 `refs.bib` 写入 workspace Prism，并确保 `main.tex` 包含 bibliography 入口。
+6. Prism review content 中可识别的 citation key 进入 `provenance_links`。
+7. Prism staging 和 compile 前用 citation validation 阻断 missing key 和 metadata-only key。
 
 对应门禁：`tests/services/test_reference_writing_workflow_gate.py`。
 

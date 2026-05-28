@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 _LATEX_DOCUMENT_RE = re.compile(
-    r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}.*\\begin\{document\}.*\\end\{document\}",
+    r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}.*?\\begin\{document\}.*?\\end\{document\}",
     re.DOTALL,
 )
 _FENCED_CODE_RE = re.compile(r"^```(?:latex|tex)?\s*\n(?P<body>.*)\n```\s*$", re.DOTALL | re.IGNORECASE)
@@ -13,6 +13,22 @@ _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _ORDERED_ITEM_RE = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$")
 _UNORDERED_ITEM_RE = re.compile(r"^\s*[-*+]\s+(.+?)\s*$")
 _INLINE_TOKEN_RE = re.compile(r"(\*\*.+?\*\*|`.+?`)")
+_AMSMATH_PACKAGE_RE = re.compile(r"\\usepackage(?:\[[^\]]*\])?\{(?:[^}]*,)?amsmath(?:,[^}]*)?\}")
+_AMSSYMB_PACKAGE_RE = re.compile(r"\\usepackage(?:\[[^\]]*\])?\{(?:[^}]*,)?(?:amssymb|amsfonts)(?:,[^}]*)?\}")
+_MALFORMED_ARGUMENT_COMMAND_RE = re.compile(
+    r"\\(?P<command>ref|eqref|autoref|pageref|cite|citet|citep|citealp|parencite|textcite):"
+    r"(?P<argument>[A-Za-z0-9_.:-]+)\}"
+)
+_COMMON_MATH_OPERATORS = {
+    "argmin": r"arg\,min",
+    "argmax": r"arg\,max",
+}
+_COMMON_THEOREM_ENVIRONMENTS = {
+    "assumption": "Assumption",
+    "claim": "Claim",
+    "corollary": "Corollary",
+    "example": "Example",
+}
 
 
 def normalize_prism_file_change_content(
@@ -44,9 +60,48 @@ def ensure_latex_document(content: str) -> str:
     fenced = _FENCED_CODE_RE.match(text)
     if fenced:
         text = fenced.group("body").strip()
-    if _LATEX_DOCUMENT_RE.search(text):
-        return text
-    return markdownish_to_latex_document(text)
+    document = _LATEX_DOCUMENT_RE.search(text)
+    if document:
+        return _normalize_latex_document(document.group(0).strip())
+    return _normalize_latex_document(markdownish_to_latex_document(text))
+
+
+def _normalize_latex_document(content: str) -> str:
+    repaired = _repair_common_latex_argument_braces(content)
+    with_math = _ensure_common_math_operator_declarations(repaired)
+    return _ensure_common_theorem_environment_declarations(with_math)
+
+
+def _repair_common_latex_argument_braces(content: str) -> str:
+    """Repair common LLM typos like `\\ref:label}` to `\\ref{label}`."""
+
+    return _MALFORMED_ARGUMENT_COMMAND_RE.sub(
+        lambda match: f"\\{match.group('command')}{{{match.group('argument')}}}",
+        content,
+    )
+
+
+def _ensure_common_theorem_environment_declarations(content: str) -> str:
+    """Declare theorem-like environments that generated manuscripts often use."""
+
+    begin_index = content.find(r"\begin{document}")
+    if begin_index < 0:
+        return content
+
+    preamble = content[:begin_index].rstrip()
+    declarations: list[str] = []
+    for env_name, display_name in _COMMON_THEOREM_ENVIRONMENTS.items():
+        if not re.search(rf"\\begin\{{{re.escape(env_name)}\}}", content):
+            continue
+        if re.search(rf"\\newtheorem\{{{re.escape(env_name)}\}}", preamble):
+            continue
+        declarations.append(rf"\newtheorem{{{env_name}}}{{{display_name}}}")
+
+    if not declarations:
+        return content
+
+    body = content[begin_index:].lstrip()
+    return f"{preamble}\n" + "\n".join(declarations) + f"\n\n{body}"
 
 
 def markdownish_to_latex_document(content: str) -> str:
@@ -84,6 +139,38 @@ def markdownish_to_latex_document(content: str) -> str:
         f"{body}\n\n"
         "\\end{document}\n"
     )
+
+
+def _ensure_common_math_operator_declarations(content: str) -> str:
+    """Declare common operators that LLM manuscripts often use as commands."""
+
+    begin_index = content.find(r"\begin{document}")
+    if begin_index < 0:
+        return content
+
+    package_insertions: list[str] = []
+    preamble = content[:begin_index].rstrip()
+    if r"\mathbb" in content and not _AMSSYMB_PACKAGE_RE.search(preamble):
+        package_insertions.append(r"\usepackage{amssymb}")
+
+    declarations: list[str] = []
+    for command, operator_text in _COMMON_MATH_OPERATORS.items():
+        if not re.search(rf"\\{command}(?=[^A-Za-z]|$)", content):
+            continue
+        if re.search(rf"\\DeclareMathOperator\*?\{{\\{command}\}}", content):
+            continue
+        declarations.append(rf"\DeclareMathOperator*{{\{command}}}{{{operator_text}}}")
+
+    if not package_insertions and not declarations:
+        return content
+
+    body = content[begin_index:].lstrip()
+    insertion = []
+    if not _AMSMATH_PACKAGE_RE.search(preamble):
+        insertion.append(r"\usepackage{amsmath}")
+    insertion.extend(package_insertions)
+    insertion.extend(declarations)
+    return f"{preamble}\n" + "\n".join(insertion) + f"\n\n{body}"
 
 
 def _convert_markdownish_body(lines: list[str]) -> list[str]:

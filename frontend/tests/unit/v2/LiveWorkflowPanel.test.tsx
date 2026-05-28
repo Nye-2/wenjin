@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ExecutionRecord } from "@/lib/api/types";
 import { useExecutionStore } from "@/stores/execution-store";
+import { useChatStoreV2 } from "@/stores/chat-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { LiveWorkflowPanel } from "@/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel";
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
+const originalSendMessage = useChatStoreV2.getState().sendMessage;
 
 function makeCompletedRecord(): ExecutionRecord {
   return {
@@ -67,6 +69,8 @@ describe("LiveWorkflowPanel", () => {
         }),
     });
     localStorage.clear();
+    useChatStoreV2.getState().reset();
+    useChatStoreV2.setState({ sendMessage: originalSendMessage });
     useExecutionStore.getState().clear();
     useWorkbenchLayoutStore.getState().reset();
   });
@@ -93,5 +97,32 @@ describe("LiveWorkflowPanel", () => {
         },
       },
     });
+  });
+
+  it("asks for a concrete topic before direct capability launch can run broad research", async () => {
+    const sendMessage = vi.fn().mockResolvedValue(undefined);
+    useChatStoreV2.setState({ sendMessage });
+
+    render(
+      <LiveWorkflowPanel
+        workspaceId="ws-1"
+        features={[
+          {
+            id: "sci_literature_positioning",
+            name: "文献定位与创新点",
+            description: "建立相关工作、gap 和 contribution positioning",
+            icon: "book-open",
+            stages: [],
+          },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /文献定位与创新点/ }));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    const [, prompt] = sendMessage.mock.calls[0];
+    expect(prompt).toContain("缺少具体研究主题");
+    expect(prompt).toContain("先向用户确认");
   });
 });
