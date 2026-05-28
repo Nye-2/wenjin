@@ -32,6 +32,50 @@ inputs:
         type: string
       deliverable:
         type: string
+      topic:
+        type: string
+        description: 核心主题、题目或技术方向。
+      query:
+        type: string
+        description: 检索关键词或需要展开的问题。
+      raw_message:
+        type: string
+        description: 用户原始请求文本。
+      target_format:
+        type: string
+        description: 学校、期刊、基金、软著或专利模板要求。
+      audience:
+        type: string
+        description: 目标读者、评审人或审查场景。
+      constraints:
+        type: string
+        description: 页数、语言、截止日期、格式和禁止事项。
+      existing_materials_summary:
+        type: string
+        description: 已有文献、数据、代码、草稿或证明材料摘要。
+      source_guidelines:
+        type: array
+        items:
+          type: string
+        description: 用户指定或系统识别的规范、指南、标准或官方来源。
+      target_journal:
+        type: string
+        description: 目标期刊或备选期刊。
+      article_type:
+        type: string
+        description: Original Article/Review/Case Study/Short Communication 等。
+      reporting_guideline:
+        type: string
+        description: 适用 reporting guideline，如 PRISMA、CONSORT、STROBE、ARRIVE、SAGER 等。
+      study_design:
+        type: string
+        description: 实验、观察、建模、综述或方法学研究设计。
+      data_assets:
+        type: string
+        description: 数据、代码、实验记录、图表或补充材料。
+      submission_constraints:
+        type: string
+        description: 字数、图表数量、开放数据、伦理、cover letter 等要求。
 context_policy:
   room_reads:
     library: summary
@@ -89,24 +133,111 @@ quality_gates:
 - no_direct_primary_document_write
 - provenance_required_for_claims
 - protected_sections_readonly
+- upstream_outputs_must_be_used
+- unsupported_claims_marked_for_user_decision
+- result_card_review_before_commit
+- reporting_guideline_checked
+- imrad_or_journal_structure_respected
+- methods_results_discussion_consistent
+- data_code_availability_considered
 graph_template:
   phases:
-  - name: mission_execution
+  - name: step_01_evidence_analyst
     tasks:
     - name: evidence_analyst
       subagent_type: react
       skill_id: evidence-analyst
-      inputs: {}
+      inputs:
+        task_focus: 规划或核验数据、实验、代码、截图和量化结论，标明可复现证据与限制。
+        capability_name: 实验/实证结果包
+        capability_goal: produce_workspace_review_package
+        workspace_type: sci
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_02_sandbox_empirical_probe
+    depends_on:
+    - step_01_evidence_analyst
+    tasks:
+    - name: sandbox_empirical_probe
+      subagent_type: sandbox_python
+      skill_id: empirical-sandbox-probe
+      inputs:
+        operation: python_script
+        node_id: sci_empirical_package__sandbox_empirical_probe
+        script_name: empirical_probe.py
+        upstream_outputs: '{{phases}}'
+        script: |
+          import json
+          import math
+
+          # Deterministic probe: estimates relative communication cost for
+          # full fine-tuning vs LoRA-style adapter fine-tuning. It is a
+          # reproducibility scaffold, not a claim of empirical performance.
+          model_params = 7_000_000_000
+          lora_trainable_params = 16_000_000
+          clients = [10, 50, 100]
+          rounds = [20, 50, 100]
+          bytes_per_param = 2
+          rows = []
+          for client_count in clients:
+              for round_count in rounds:
+                  full_gb = model_params * bytes_per_param * client_count * round_count / (1024 ** 3)
+                  lora_gb = lora_trainable_params * bytes_per_param * client_count * round_count / (1024 ** 3)
+                  rows.append({
+                      "clients": client_count,
+                      "rounds": round_count,
+                      "full_tuning_transfer_gb": round(full_gb, 2),
+                      "adapter_transfer_gb": round(lora_gb, 2),
+                      "reduction_ratio": round(full_gb / lora_gb, 1),
+                  })
+          print(json.dumps({
+              "probe": "federated_llm_adapter_communication_cost",
+              "assumption": "fp16 parameter deltas; no optimizer-state transfer",
+              "rows": rows,
+              "claim_boundary": "Use only as a sandbox sanity-check scaffold unless replaced by project data.",
+          }, ensure_ascii=False))
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 实验沙盒探针.md
+          doc_kind: analysis_report
+          content: '{{output.report_markdown}}'
+      prompt_template: '{{raw_message}}'
+  - name: step_03_figure_engineer
+    depends_on:
+    - step_02_sandbox_empirical_probe
+    tasks:
     - name: figure_engineer
       subagent_type: react
       skill_id: figure-engineer
-      inputs: {}
+      inputs:
+        task_focus: 设计图表/流程图/架构图/附图说明，使其服务论证或申报材料一致性。
+        capability_name: 实验/实证结果包
+        capability_goal: produce_workspace_review_package
+        workspace_type: sci
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        upstream_outputs: '{{phases}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_04_manuscript_writer
+    depends_on:
+    - step_03_figure_engineer
+    tasks:
     - name: manuscript_writer
       subagent_type: react
       skill_id: manuscript-writer
-      inputs: {}
+      inputs:
+        task_focus: 基于上游结构与证据写作或修订主稿，缺证据处显式标记。
+        capability_name: 实验/实证结果包
+        capability_goal: produce_workspace_review_package
+        workspace_type: sci
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        upstream_outputs: '{{phases}}'
       outputs:
       - kind: document
         default_checked: true
@@ -114,4 +245,13 @@ graph_template:
           name: 实验实证结果包.md
           doc_kind: analysis_report
           content: '{{output.text}}'
-extensions: {}
+      prompt_template: '{{raw_message}}'
+extensions:
+  content_strategy:
+    workflow_pattern: sequential_upstream_context
+    strategy: ICMJE/IMRaD manuscript preparation, EQUATOR/PRISMA-style reporting-guideline awareness, and reproducibility checks.
+    source_notes:
+    - ICMJE manuscript sections
+    - EQUATOR reporting guideline lookup
+    - PRISMA 2020 for systematic reviews when applicable
+    - FAIR/TOP reproducibility concepts

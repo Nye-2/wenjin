@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, act } from "@testing-library/react";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
 const mockUseSearchParams = vi.fn(() => new URLSearchParams());
 
@@ -14,6 +15,8 @@ describe("V2 Workspace page", () => {
   beforeEach(() => {
     mockUseSearchParams.mockReset();
     mockUseSearchParams.mockReturnValue(new URLSearchParams());
+    localStorage.clear();
+    useWorkbenchLayoutStore.getState().reset();
   });
 
   it("renders chat / panel / topbar zones", async () => {
@@ -77,5 +80,20 @@ describe("V2 Workspace page", () => {
 
     const searchInput = screen.getByTestId("drawer-search") as HTMLInputElement;
     expect(searchInput.value).toBe("outline");
+  });
+
+  it("hides chat completely when the workbench is fullscreen", async () => {
+    useWorkbenchLayoutStore.getState().setWorkbenchFullscreen(true);
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <V2Page params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>
+      );
+    });
+
+    expect(screen.queryByTestId("chat-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("workflow-panel")).toBeInTheDocument();
   });
 });

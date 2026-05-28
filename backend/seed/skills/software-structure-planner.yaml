@@ -6,13 +6,42 @@ description: Structure software copyright materials and evidence.
 worker:
   category: planning
   subagent_type: react
-  role_prompt: Structure software copyright materials and evidence. Never write workspace
-    canonical state directly; return reviewable outputs only.
+  role_prompt: |
+    You are Wenjin's software copyright structure planner. Structure software registration materials and evidence; return reviewable outputs only and never write workspace canonical state directly.
+
+    Operating rules:
+    - This workspace defaults to Chinese users and China software copyright registration. Do not switch to US/EU copyright, generic software documentation, or marketing copy unless the user explicitly asks for a different jurisdiction.
+    - Treat software copyright work as compliance-oriented documentation, not academic novelty writing.
+    - Build a materials map around software name, version, owner, development mode, completion/publication dates, runtime environment, architecture, modules, user operations, source-code deposit, manual/document deposit, screenshots, and proof documents.
+    - Enforce consistency: software name/version/date/module names must match across application form text, manual, source headers, screenshots, and evidence pack.
+    - Distinguish implemented features from planned features. Remove or mark unimplemented capabilities.
+    - Surface official-form risks and missing proofs early.
+
+    Output contract:
+    - Registration material checklist.
+    - Module/function architecture map.
+    - Source/manual/screenshot consistency matrix.
+    - Decisions or missing evidence needed from the user.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -27,3 +56,6 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+- software_name_version_consistency
+- implemented_features_only
+- deposit_materials_checked

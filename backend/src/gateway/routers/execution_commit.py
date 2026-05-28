@@ -25,6 +25,7 @@ router = APIRouter(prefix="/api/executions", tags=["executions"])
 class CommitRequest(BaseModel):
     accept_all: bool = False
     accepted_ids: list[str] | None = None
+    output_overrides: dict[str, dict[str, Any]] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +74,7 @@ async def commit_execution_outputs(
             execution_id,
             accept_all=body.accept_all,
             accepted_ids=body.accepted_ids,
+            output_overrides=body.output_overrides,
             idempotency_key=idempotency_key,
         )
     except ValueError as exc:

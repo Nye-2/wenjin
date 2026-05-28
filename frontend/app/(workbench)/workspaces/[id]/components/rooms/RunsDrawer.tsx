@@ -12,6 +12,7 @@ import {
 } from "@/lib/execution-run-view";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { WorkspaceActionLink } from "../WorkspaceActionLink";
 
 interface RunsDrawerProps {
@@ -83,6 +84,9 @@ export function RunsDrawer({
   const [visible, setVisible] = useState(false);
   const highlightedRunId = useRunUiStore((state) => state.highlightedRunId);
   const focusRun = useRunUiStore((state) => state.focusRun);
+  const refreshCounter = useRoomRefreshStore(
+    (state) => state.countersByWorkspace[workspaceId]?.runs ?? 0,
+  );
   const executionRecords = useExecutionStore(
     useShallow((state) => Array.from(state.executions.values())),
   );
@@ -106,7 +110,7 @@ export function RunsDrawer({
 
   useEffect(() => {
     if (open) fetchItems();
-  }, [open, fetchItems]);
+  }, [open, fetchItems, refreshCounter]);
 
   function handleClose() {
     setVisible(false);

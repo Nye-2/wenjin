@@ -156,6 +156,43 @@
   /* Fonts */
   --v2-font-sans: 'SF Pro Display', 'Inter', system-ui, -apple-system, 'PingFang SC', sans-serif;
   --v2-font-mono: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+
+  /* ═══════════ Wenjin Research Navigation System ═══════════ */
+  --wjn-bg-base: #F6F8FB;
+  --wjn-bg-rail: #F9FAFC;
+  --wjn-surface: #FFFFFF;
+  --wjn-surface-raised: rgba(255, 255, 255, 0.86);
+  --wjn-surface-subtle: #F1F4F8;
+  --wjn-line: rgba(15, 23, 42, 0.08);
+  --wjn-line-strong: rgba(15, 23, 42, 0.13);
+  --wjn-text: #111827;
+  --wjn-text-secondary: rgba(17, 24, 39, 0.68);
+  --wjn-text-muted: rgba(17, 24, 39, 0.46);
+  --wjn-accent: #4F46E5;
+  --wjn-accent-strong: #3730A3;
+  --wjn-accent-soft: rgba(79, 70, 229, 0.10);
+  --wjn-accent-line: rgba(79, 70, 229, 0.24);
+  --wjn-evidence: #0F766E;
+  --wjn-evidence-soft: rgba(15, 118, 110, 0.10);
+  --wjn-review: #B45309;
+  --wjn-review-soft: rgba(180, 83, 9, 0.10);
+  --wjn-success: #15803D;
+  --wjn-error: #B91C1C;
+  --wjn-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --wjn-shadow-md: 0 12px 32px rgba(15, 23, 42, 0.08);
+  --wjn-radius: 8px;
+  --wjn-radius-lg: 12px;
+  --wjn-font-sans: var(--v2-font-sans);
+  --wjn-font-mono: var(--v2-font-mono);
+
+  /* Keep existing v2 components visually aligned with the new system. */
+  --v2-surface-soft: var(--wjn-bg-base);
+  --v2-surface-card: var(--wjn-surface-subtle);
+  --v2-accent-purple-100: var(--wjn-accent-soft);
+  --v2-accent-purple-300: var(--wjn-accent-line);
+  --v2-accent-purple-700: var(--wjn-accent);
+  --v2-border-default: var(--wjn-line);
+  --v2-border-soft: var(--wjn-line);
 }
 
 /* Global keyframes for v2 */
@@ -226,10 +263,67 @@ html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
-  font-family: var(--font-sans), "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-  background: var(--bg-base);
-  color: var(--text-primary);
+  font-family: var(--wjn-font-sans), "Noto Sans SC", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--wjn-bg-base);
+  color: var(--wjn-text);
   min-height: 100vh;
+}
+
+.wjn-topbar {
+  border-bottom: 1px solid var(--wjn-line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(249, 250, 252, 0.86));
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.wjn-shell-bg {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.72), rgba(246,248,251,0.96)),
+    var(--wjn-bg-base);
+}
+
+.wjn-hairline-panel {
+  background: var(--wjn-surface-raised);
+  border: 1px solid var(--wjn-line);
+  box-shadow: var(--wjn-shadow-sm);
+}
+
+.wjn-nav-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--wjn-radius);
+  border: 1px solid transparent;
+  color: var(--wjn-text-secondary);
+  font-size: 12.5px;
+  font-weight: 650;
+  transition:
+    color 150ms var(--v2-ease-standard),
+    background 150ms var(--v2-ease-standard),
+    border-color 150ms var(--v2-ease-standard);
+}
+
+.wjn-nav-chip:hover {
+  background: rgba(15, 23, 42, 0.045);
+  color: var(--wjn-text);
+}
+
+.wjn-nav-chip[data-active="true"] {
+  background: var(--wjn-accent-soft);
+  border-color: var(--wjn-accent-line);
+  color: var(--wjn-accent-strong);
+}
+
+.wjn-trace-line {
+  background:
+    linear-gradient(180deg, transparent, var(--wjn-line-strong), transparent);
+}
+
+.wjn-tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Glass Card ── */
@@ -455,8 +549,8 @@ textarea:focus {
 
 .route-grid {
   background-image:
-    linear-gradient(rgba(31, 66, 99, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(31, 66, 99, 0.08) 1px, transparent 1px);
+    linear-gradient(rgba(15, 23, 42, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.055) 1px, transparent 1px);
   background-size: 44px 44px;
 }
 

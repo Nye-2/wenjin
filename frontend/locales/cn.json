@@ -18,7 +18,7 @@
     "adminDashboard": "管理总览",
     "settings": "设置",
     "logout": "退出登录",
-    "productTagline": "研究工作流 AI 工作台"
+    "productTagline": "证据驱动的研究导航系统"
   },
   "workspaceSurfaces": {
     "ariaLabel": "工作空间表面",
@@ -33,30 +33,30 @@
   "brand": {
     "cn": "问津",
     "en": "Wenjin",
-    "motto": "向研究深处问津",
-    "tagline": "面向论文、申报、专利与项目写作的 AI 工作台",
-    "english": "Find the way, move the work forward.",
-    "summary": "让复杂研究任务沿着清晰路径持续推进"
+    "motto": "把研究过程变成可追溯的路线",
+    "tagline": "面向论文、申报、软著与专利材料的 AI 研究导航系统",
+    "english": "Evidence visible. Process traceable.",
+    "summary": "让复杂研究任务从对话进入证据、审阅与交付闭环"
   },
   "home": {
     "title": "问津",
-    "heroBadge": "Vibe Writing · Vibe Rewriting",
-    "subtitle": "从选题到写作，再从写作到润色交付——一套系统把学术写作从会话推进到可交付。",
-    "getStarted": "开始写作",
-    "openPrism": "打开主稿台",
+    "heroBadge": "Workbench · Prism · Evidence Review",
+    "subtitle": "从选题、检索、证据整理到主稿修订与材料提交，问津把每一步运行过程、判断依据和候选成果都放到用户可审阅的工作台里。",
+    "getStarted": "进入工作空间",
+    "openPrism": "打开 Prism 主稿台",
     "learnMore": "查看能力",
     "features": {
       "title": "支持的任务类型",
       "subtitle": "不同任务，共享同一条可推进工作路径"
     },
     "pathCard": {
-      "eyebrow": "当前工作路径",
-      "title": "从问题定义到成果交付",
+      "eyebrow": "研究路线",
+      "title": "从意图到证据，再到可提交成果",
       "workspaceLabel": "示例 workspace",
       "workspaceValue": "多模态研究项目设计",
       "nextLabel": "下一步",
-      "nextAction": "生成研究路径建议",
-      "note": "问津把来源、阶段、草稿与成果放进同一条路线。"
+      "nextAction": "启动证据收集与结构规划",
+      "note": "右侧 Workbench 展示运行轨迹、证据表与审阅入口，左侧 Chat 负责意图和介入。"
     },
     "status": {
       "done": "已完成",
@@ -143,21 +143,21 @@
       }
     },
     "modes": {
-      "eyebrow": "两种模式，一条链路",
-      "title": "先写出来，再改到位",
+      "eyebrow": "两个表面，一条链路",
+      "title": "先在 Workbench 推进，再在 Prism 精修",
       "writing": {
-        "badge": "Vibe Writing",
+        "badge": "Workbench",
         "product": "Wenjin Workspace",
-        "tagline": "从无到有：AI 引导式写作",
-        "description": "通过自然对话探索研究方向、收集证据、构建结构、迭代成稿。每一步产出都自动沉淀为可复用的研究成果。",
-        "keywords": "对话即工作流 · 阶段感知推进 · 成果自动沉淀"
+        "tagline": "运行可见：从意图到证据链",
+        "description": "Chat 收集意图，Lead Agent 在右侧推进任务，过程中的节点、工具、证据和候选成果都可以被查看、编辑和审阅。",
+        "keywords": "运行轨迹 · 证据表 · 候选成果审阅"
       },
       "rewriting": {
-        "badge": "Vibe Rewriting",
+        "badge": "Prism",
         "product": "WenjinPrism",
-        "tagline": "从有到精：主稿编辑与交付",
-        "description": "把工作空间的产出导入学术模板，在主稿台上编辑、编译、预览——持续打磨到可交付品质。",
-        "keywords": "学术会议模板 · 编译预览 · 工作空间同步"
+        "tagline": "划词优化：从主稿到交付稿",
+        "description": "把工作空间沉淀的内容带入主稿台，在编辑、编译和预览之间完成局部润色、结构修订与格式交付。",
+        "keywords": "划词优化 · 编译预览 · 审阅链路同步"
       }
     },
     "workspaceTypes": {

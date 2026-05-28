@@ -12,6 +12,20 @@ from src.config.app_config import redis_settings
 
 logger = logging.getLogger(__name__)
 
+_TERMINAL_EXECUTION_STATUSES = frozenset(
+    {
+        "completed",
+        "failed",
+        "failed_partial",
+        "cancelled",
+    }
+)
+
+
+def is_terminal_execution_status(status: Any) -> bool:
+    """Return whether a redelivered execution task should no-op."""
+    return str(status or "").strip().lower() in _TERMINAL_EXECUTION_STATUSES
+
 
 def _result_card_data_from_task_report(execution_id: str, task_report: dict[str, Any]) -> dict[str, Any]:
     """Build the async ResultCard payload consumed by the workspace frontend."""
@@ -126,6 +140,14 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         record = await execution_service.get_by_id(execution_id)
         if record is None:
             return {"ok": False, "reason": "execution_not_found", "execution_id": execution_id}
+        if is_terminal_execution_status(getattr(record, "status", None)):
+            return {
+                "ok": True,
+                "execution_id": execution_id,
+                "status": getattr(record, "status", "unknown"),
+                "skipped": True,
+                "reason": "execution_already_terminal",
+            }
 
         workspace_id = str(record.workspace_id) if record.workspace_id else None
 
@@ -226,6 +248,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             publish_event=_publish_fn,
             get_workspace_type=_resolve_ws_type_with_fallback,
             redis=redis_client.client,
+            db=db,
             record_node_event=_record_node_event,
         )
         engine = ExecutionEngineV2(

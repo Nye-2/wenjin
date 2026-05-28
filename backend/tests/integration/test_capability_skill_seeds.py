@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 SEED_ROOT = Path(__file__).resolve().parent.parent.parent / "seed"
+SKILLLESS_SUBAGENTS = {"sandbox_python", "prism_selection_optimizer"}
 
 
 def _collect_skill_ids() -> set[str]:
@@ -19,6 +20,10 @@ def _collect_capability_files() -> list[Path]:
     return list((SEED_ROOT / "capabilities").glob("*/*.yaml"))
 
 
+def _is_hidden_capability(data: dict) -> bool:
+    return (data.get("display") or {}).get("entry_tier") == "hidden"
+
+
 def test_every_capability_skill_id_exists():
     skill_ids = _collect_skill_ids()
     assert skill_ids, "no skills found"
@@ -27,6 +32,8 @@ def test_every_capability_skill_id_exists():
         data = yaml.safe_load(cap_path.read_text())
         for phase in data["graph_template"]["phases"]:
             for task in phase["tasks"]:
+                if task.get("subagent_type") in SKILLLESS_SUBAGENTS:
+                    continue
                 sid = task.get("skill_id")
                 assert sid is not None, f"{cap_path}: task {task.get('name')} missing skill_id"
                 assert sid in skill_ids, (
@@ -35,8 +42,11 @@ def test_every_capability_skill_id_exists():
                 )
 
 
-def test_every_capability_subagent_type_is_searcher_or_react():
-    valid = {"searcher", "react"}
+def test_every_capability_subagent_type_is_registered():
+    from src.subagents.v2 import types as _types  # noqa: F401
+    from src.subagents.v2.registry import REGISTRY
+
+    valid = set(REGISTRY.all_names())
     for cap_path in _collect_capability_files():
         data = yaml.safe_load(cap_path.read_text())
         for phase in data["graph_template"]["phases"]:
@@ -82,7 +92,10 @@ def test_every_capability_required_fields_present():
         missing = required - set(data.keys())
         assert not missing, f"{cap_path}: missing fields {missing}"
         assert data["schema_version"] == "capability.v2"
-        assert data["mission"]["primary_surface"] == "prism"
+        if _is_hidden_capability(data):
+            assert data["mission"]["primary_surface"] in {"prism", "sandbox", "none"}
+        else:
+            assert data["mission"]["primary_surface"] == "prism"
         assert "requires_sandbox" not in data
         assert "runtime" not in data
 
@@ -115,6 +128,138 @@ def test_every_capability_declares_result_exit():
             )
 
 
+def test_visible_multistep_capabilities_are_sequential():
+    for cap_path in _collect_capability_files():
+        data = yaml.safe_load(cap_path.read_text())
+        if _is_hidden_capability(data):
+            continue
+
+        phases = data["graph_template"]["phases"]
+        tasks = [task for phase in phases for task in phase["tasks"]]
+        if len(tasks) <= 1:
+            continue
+
+        assert len(phases) == len(tasks), (
+            f"{cap_path}: multistep capabilities must use one task per phase so "
+            "downstream agents receive upstream outputs instead of running in parallel"
+        )
+        for index, phase in enumerate(phases):
+            assert len(phase["tasks"]) == 1, (
+                f"{cap_path}: phase {phase['name']} should contain exactly one task"
+            )
+            if index == 0:
+                assert "depends_on" not in phase, (
+                    f"{cap_path}: first phase should not declare depends_on"
+                )
+                continue
+
+            expected = [phases[index - 1]["name"]]
+            assert phase.get("depends_on") == expected, (
+                f"{cap_path}: phase {phase['name']} should depend on {expected}"
+            )
+            task_inputs = phase["tasks"][0].get("inputs") or {}
+            assert task_inputs.get("upstream_outputs") == "{{phases}}", (
+                f"{cap_path}: downstream task {phase['tasks'][0]['name']} must receive "
+                "the rendered upstream phase outputs"
+            )
+
+
+def test_workspace_specific_quality_gates_present():
+    expected_by_workspace = {
+        "thesis": {
+            "thesis_structure_matches_school_template",
+            "chapter_claims_have_evidence",
+            "references_follow_target_style",
+        },
+        "sci": {
+            "reporting_guideline_checked",
+            "imrad_or_journal_structure_respected",
+            "data_code_availability_considered",
+        },
+        "proposal": {
+            "objective_method_metric_alignment",
+            "review_criteria_explicitly_addressed",
+            "feasibility_risk_mitigation_included",
+        },
+        "software_copyright": {
+            "application_form_source_manual_consistency",
+            "software_name_version_consistent",
+            "source_and_document_deposit_rules_checked",
+            "no_claims_about_unimplemented_features",
+        },
+        "patent": {
+            "claim_terms_supported_by_description",
+            "independent_claim_scope_not_overbroad",
+            "embodiments_enable_claim_features",
+            "drawings_reference_numerals_consistent",
+        },
+    }
+
+    for cap_path in _collect_capability_files():
+        data = yaml.safe_load(cap_path.read_text())
+        if _is_hidden_capability(data):
+            continue
+
+        gates = set(data.get("quality_gates") or [])
+        expected = expected_by_workspace[data["workspace_type"]]
+        missing = expected - gates
+        assert not missing, f"{cap_path}: missing workspace-specific gates {sorted(missing)}"
+
+
+def test_china_jurisdiction_defaults_for_software_copyright_and_patent():
+    for cap_path in _collect_capability_files():
+        data = yaml.safe_load(cap_path.read_text())
+        if _is_hidden_capability(data):
+            continue
+
+        workspace_type = data["workspace_type"]
+        if workspace_type not in {"software_copyright", "patent"}:
+            continue
+
+        strategy = (
+            (data.get("extensions") or {})
+            .get("content_strategy", {})
+            .get("strategy", "")
+        )
+        if workspace_type == "software_copyright":
+            assert "China software copyright" in strategy, (
+                f"{cap_path}: software copyright capabilities must default to "
+                "China registration practice"
+            )
+            continue
+
+        assert "China/CNIPA-first" in strategy, (
+            f"{cap_path}: patent capabilities must default to China/CNIPA practice"
+        )
+        jurisdiction = (
+            data.get("inputs", {})
+            .get("brief_schema", {})
+            .get("properties", {})
+            .get("jurisdiction", {})
+            .get("description", "")
+        )
+        assert "默认中国专利申请语境" in jurisdiction, (
+            f"{cap_path}: patent jurisdiction field must make China the default"
+        )
+
+
+def test_china_jurisdiction_defaults_for_software_and_patent_skills():
+    prompts_by_id = {
+        yaml.safe_load(path.read_text())["id"]: yaml.safe_load(path.read_text())["worker"]["role_prompt"]
+        for path in (SEED_ROOT / "skills").glob("*.yaml")
+    }
+
+    for skill_id in {"software-structure-planner", "software-doc-drafter"}:
+        assert "China software copyright registration" in prompts_by_id[skill_id], (
+            f"{skill_id}: software copyright skills must default to China registration"
+        )
+
+    for skill_id in {"patent-strategist", "patent-drafter"}:
+        assert "China/CNIPA patent application practice" in prompts_by_id[skill_id], (
+            f"{skill_id}: patent skills must default to China/CNIPA practice"
+        )
+
+
 def test_every_skill_required_fields_present():
     required = {
         "schema_version",
@@ -134,6 +279,13 @@ def test_every_skill_required_fields_present():
         assert data["schema_version"] == "capability_skill.v2"
         assert "config" not in data
         assert "subagent_type" not in data
+        role_prompt = data["worker"]["role_prompt"]
+        assert "Operating rules:" in role_prompt, (
+            f"{skill_path}: skill prompt must define executable operating rules"
+        )
+        assert "Output contract:" in role_prompt, (
+            f"{skill_path}: skill prompt must define an output contract"
+        )
 
 
 def test_capability_count_matches_spec():
@@ -141,6 +293,8 @@ def test_capability_count_matches_spec():
     by_ws: dict[str, int] = {}
     for f in files:
         data = yaml.safe_load(f.read_text())
+        if _is_hidden_capability(data):
+            continue
         by_ws[data["workspace_type"]] = by_ws.get(data["workspace_type"], 0) + 1
     assert by_ws.get("thesis") == 6, f"thesis: expected 6, got {by_ws.get('thesis', 0)}"
     assert by_ws.get("sci") == 7, f"sci: expected 7, got {by_ws.get('sci', 0)}"

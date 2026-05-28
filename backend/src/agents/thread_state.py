@@ -26,14 +26,6 @@ class AgentState(TypedDict):
     remaining_steps: NotRequired[int]
 
 
-# ============ Supporting Types ============
-
-
-class SandboxState(TypedDict):
-    """Sandbox execution state."""
-    sandbox_id: NotRequired[str | None]
-
-
 class ThreadDataState(TypedDict):
     """Per-thread directory paths."""
     workspace_path: NotRequired[str | None]
@@ -152,7 +144,6 @@ class ThreadState(AgentState):
         - messages: Annotated list with add_messages reducer
 
     Shared infrastructure fields:
-        - sandbox: SandboxState for execution environment
         - thread_data: ThreadDataState for per-thread directories
         - title: Auto-generated thread title
         - artifacts: String paths with a deduplication reducer
@@ -175,7 +166,6 @@ class ThreadState(AgentState):
     """
 
     # Shared base fields
-    sandbox: NotRequired[SandboxState | None]
     thread_data: NotRequired[ThreadDataState | None]
     title: NotRequired[str | None]
     artifacts: Annotated[list[str], merge_artifacts]

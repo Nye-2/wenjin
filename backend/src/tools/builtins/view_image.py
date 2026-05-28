@@ -25,7 +25,7 @@ class ViewImageInput(BaseModel):
     """Input for view_image."""
 
     image_path: str = Field(
-        description="Absolute sandbox path to the image file under /mnt/user-data/*",
+        description="Absolute thread data path to the image file under /mnt/user-data/*",
     )
 
 
@@ -59,7 +59,7 @@ def _resolve_thread_virtual_path(
     relative = normalized_path.removeprefix(_VIRTUAL_USER_DATA_ROOT)
     candidate = (thread_root / relative).resolve()
     if not _is_within_root(candidate, thread_root):
-        raise ValueError(f"Image path escapes the thread sandbox: {virtual_path}")
+        raise ValueError(f"Image path escapes the thread data root: {virtual_path}")
     return candidate
 
 

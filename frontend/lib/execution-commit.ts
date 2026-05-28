@@ -17,6 +17,15 @@ export interface ExecutionCommitResponse {
   };
 }
 
+export interface ExecutionCommitRequest {
+  accept_all?: boolean;
+  accepted_ids?: string[];
+  output_overrides?: Record<
+    string,
+    { data?: Record<string, unknown>; preview?: string }
+  >;
+}
+
 export interface CommittedRoomLink {
   key: string;
   label: string;
@@ -26,7 +35,7 @@ export interface CommittedRoomLink {
 export async function commitExecutionOutputs(options: {
   executionId: string;
   idempotencyKey: string;
-  body: Record<string, unknown>;
+  body: ExecutionCommitRequest;
 }): Promise<ExecutionCommitResponse> {
   const response = await authorizedFetch(
     `/api/executions/${options.executionId}/commit`,

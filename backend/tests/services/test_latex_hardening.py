@@ -729,6 +729,28 @@ async def test_find_existing_project_scopes_by_workspace_and_owner() -> None:
     ]
 
 
+def test_latex_default_project_files_use_refs_bib(tmp_path) -> None:
+    """New Prism/LaTeX projects use refs.bib as the only BibTeX SSOT."""
+    LatexProjectService._write_default_files(tmp_path)
+
+    assert (tmp_path / "refs.bib").exists()
+    assert not (tmp_path / "references.bib").exists()
+
+
+def test_workspace_main_tex_uses_refs_bibliography() -> None:
+    """Workspace-generated manuscript templates point at refs.bib."""
+    service = WorkspaceLatexProjectService(AsyncMock())
+
+    main_tex = service._build_sci_main_tex(
+        paper_title="Federated LLM Fine-Tuning",
+        section_map={"introduction": "sections/introduction.tex"},
+        keywords=["federated learning", "large language models"],
+    )
+
+    assert "\\bibliography{refs}" in main_tex
+    assert "\\bibliography{references}" not in main_tex
+
+
 @pytest.mark.asyncio
 async def test_bridge_write_records_managed_change_as_feature_proposal(
     monkeypatch: pytest.MonkeyPatch,

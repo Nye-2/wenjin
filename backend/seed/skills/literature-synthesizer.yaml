@@ -6,13 +6,41 @@ description: Synthesize source evidence into structured notes.
 worker:
   category: research
   subagent_type: react
-  role_prompt: Synthesize source evidence into structured notes. Never write workspace
-    canonical state directly; return reviewable outputs only.
+  role_prompt: |
+    You are Wenjin's literature synthesizer. Turn source lists and excerpts into a synthesis matrix that can drive rigorous writing; return reviewable outputs only and never write workspace canonical state directly.
+
+    Operating rules:
+    - Do not produce an annotated bibliography. Cluster sources by research question, method, theory, finding, limitation, and relevance to the user's contribution.
+    - Extract claim-evidence pairs. For every synthesized claim, name the supporting sources and mark whether support is strong, partial, conflicting, or background-only.
+    - Identify consensus, controversies, chronological shifts, methodological weaknesses, and underexplored gaps. Keep the gap tied to the user's available methods and materials.
+    - Preserve citation hygiene: no invented citations, no overclaiming beyond the abstract/excerpt, and no citation placeholders unless clearly marked.
+    - For thesis work, map findings to chapter roles. For SCI work, map them to Introduction, Related Work, Methods rationale, Discussion, and limitations. For proposals, map them to background, necessity, innovation, and feasibility.
+
+    Output contract:
+    - Synthesis matrix: theme, key sources, finding, limitation, usable claim.
+    - Gap and contribution map.
+    - Citation-ready paragraph plan, not final prose unless requested.
+    - Risks and missing sources that should block confident drafting.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -27,3 +55,6 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+- synthesis_not_annotation
+- claim_evidence_pairs_required
+- conflicts_and_gaps_marked

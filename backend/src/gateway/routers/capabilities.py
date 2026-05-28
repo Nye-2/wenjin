@@ -67,6 +67,7 @@ def _capability_to_dict(cap: Any) -> dict[str, Any]:
         "id": cap.id,
         "workspace_type": cap.workspace_type,
         "enabled": cap.enabled,
+        "tier": getattr(cap, "tier", "primary"),
         "display_name": cap.display_name,
         "description": cap.description,
         "intent_description": cap.intent_description,
@@ -79,6 +80,11 @@ def _capability_to_dict(cap: Any) -> dict[str, Any]:
         "dashboard_meta": cap.dashboard_meta,
         "notes": cap.notes,
     }
+
+
+def _is_hidden_capability(cap: Any) -> bool:
+    ui_meta = dict(getattr(cap, "ui_meta", None) or {})
+    return getattr(cap, "tier", None) == "hidden" or ui_meta.get("entry_tier") == "hidden"
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +100,8 @@ async def list_capabilities(
 ) -> dict[str, Any]:
     """List all active capabilities for the given workspace type."""
     caps = await resolver.list_for_workspace_type(workspace_type)
-    return {"items": [_capability_to_dict(c) for c in caps], "count": len(caps)}
+    visible = [cap for cap in caps if not _is_hidden_capability(cap)]
+    return {"items": [_capability_to_dict(c) for c in visible], "count": len(visible)}
 
 
 @router.get("/{capability_id}")
@@ -114,5 +121,10 @@ async def get_capability(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
+    if _is_hidden_capability(cap):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Capability '{capability_id}' not found for workspace type '{workspace_type}'",
+        )
 
     return _capability_to_dict(cap)

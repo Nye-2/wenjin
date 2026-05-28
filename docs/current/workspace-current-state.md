@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-05-22
+更新时间：2026-05-27
 状态：Current
 适用项目：`wenjin`
 
@@ -21,6 +21,7 @@
 3. 1:1 映射：lead-busy 时阻塞新的 dispatch
 4. Chat turn 本身通过 `/api/threads/{thread_id}/runs/stream` 运行；当 Chat Agent 调用 `launch_feature` 时，stream 会显式输出 `tool_invocation` 与 `tool_result`
 5. `launch_feature` 的 `tool_result.status == "launched"` 必须包含 canonical `execution_id`，前端据此建立 run receipt 与右侧 Current run 焦点
+6. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
 
 ## 3. Capability 数据驱动
 
@@ -32,16 +33,17 @@
 6. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
 7. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由 Lead runtime stage 到 DB-backed review item。
 
-## 4. 8 Workspace Rooms
+## 4. User-Facing Workspace Rooms
 
 1. **Library** — 文献条目（library_item outputs commit 到此）
 2. **Documents** — 文档（document outputs）
 3. **Decisions** — 决策记录（decision outputs）
 4. **Memory** — 事实和偏好（memory_fact outputs）
 5. **Run History** — 执行历史记录
-6. **Sandbox** — 代码执行沙箱
-7. **Tasks** — 后续任务（task outputs）
-8. **Settings** — 工作区设置
+6. **Tasks** — 后续任务（task outputs）
+7. **Settings** — 工作区设置
+
+Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用的内部执行基座；用户只在 execution/run detail、ResultCard 和 review item 中查看只读计算记录、脚本摘要、日志、产物和 provenance。内部诊断 capability 可以被 Chat Agent 调度，但实际 Docker sandbox 运行必须发生在 LeadAgentRuntime 的 `sandbox_python` subagent。
 
 ## 5. Result Card 闭环流程
 
@@ -86,7 +88,7 @@
 3. **Workbench 右面板**（Execution / Compute）：Current run、execution graph、node 详情、room drawers、Compute Stage
 4. **Prism surface**：LaTeX editor、compile/PDF、Changes review、workspace context rail
 5. Room drawers（顶部 toolbar）：Library / Documents / Tasks / Runs 等；Runs drawer 是执行历史与审计面，不是第二套运行状态源
-6. Settings page：Memory / Decisions / Sandbox / Settings 管理
+6. Settings page：Memory / Decisions / Settings 管理；Sandbox 不在 Settings 或顶栏 room 中暴露为用户操作台
 
 ## 8. 线程模型
 

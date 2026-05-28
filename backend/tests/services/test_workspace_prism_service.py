@@ -126,7 +126,7 @@ class _DbBackedDataServiceClient:
 
         return await ProvenanceDataService(self.db, autocommit=False).list_links(**kwargs)
 
-    async def list_room_decisions(self, workspace_id: str) -> dict[str, str]:
+    async def list_room_decisions(self, workspace_id: str) -> list[object]:
         from src.dataservice.rooms_api import RoomsDataService
 
         return await RoomsDataService(self.db, autocommit=False).list_active_decisions(workspace_id)

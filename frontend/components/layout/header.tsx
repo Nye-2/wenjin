@@ -37,38 +37,38 @@ export function Header({ showLanguageSwitcher = true }: HeaderProps) {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 border-b border-[var(--border-default)]/80 bg-[var(--bg-base)]/88 px-4 py-3 backdrop-blur-xl">
+      <header className="fixed left-0 right-0 top-0 z-50 border-b border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] px-4 py-3 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
           <Link href="/" className="group flex min-w-0 items-center gap-3">
-            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/60 bg-[linear-gradient(145deg,var(--brand-navy),var(--brand-teal))] shadow-[0_12px_30px_rgba(31,66,99,0.22)] transition-transform duration-200 group-hover:-translate-y-0.5">
+            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[var(--wjn-radius)] border border-[var(--wjn-accent-line)] bg-[var(--wjn-accent)] shadow-[var(--wjn-shadow-sm)] transition-transform duration-200 group-hover:-translate-y-0.5">
               <svg className="absolute inset-0 h-full w-full opacity-90" viewBox="0 0 44 44" fill="none" aria-hidden="true">
                 <path
                   d="M8 31C14 24 20 22 26 19C31 17 34 14 36 10"
-                  stroke="rgba(247,244,238,0.92)"
+                  stroke="rgba(255,255,255,0.92)"
                   strokeWidth="2"
                   strokeLinecap="round"
                 />
-                <circle cx="8" cy="31" r="3" fill="rgba(247,244,238,0.92)" />
-                <circle cx="26" cy="19" r="2.4" fill="rgba(247,244,238,0.72)" />
-                <circle cx="36" cy="10" r="3.1" fill="var(--brand-brass)" />
+                <circle cx="8" cy="31" r="3" fill="rgba(255,255,255,0.92)" />
+                <circle cx="26" cy="19" r="2.4" fill="rgba(255,255,255,0.72)" />
+                <circle cx="36" cy="10" r="3.1" fill="var(--wjn-review)" />
               </svg>
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2 leading-none">
-                <span className="font-serif text-lg font-semibold tracking-wide text-[var(--text-primary)]">
+                <span className="text-lg font-semibold text-[var(--wjn-text)]">
                   {t("brand.cn")}
                 </span>
-                <span className="text-[10px] font-sans uppercase tracking-[0.3em] text-[var(--text-muted)]">
+                <span className="text-[10px] text-[var(--wjn-text-muted)]">
                   {t("brand.en")}
                 </span>
               </div>
-              <p className="hidden truncate text-xs text-[var(--text-secondary)] sm:block">
+              <p className="hidden truncate text-xs text-[var(--wjn-text-secondary)] sm:block">
                 {t("nav.productTagline")}
               </p>
             </div>
           </Link>
 
-          <div className="hidden rounded-full border border-[var(--border-default)] bg-white/70 px-4 py-2 text-xs text-[var(--text-secondary)] lg:block">
+          <div className="hidden rounded-full border border-[var(--wjn-line)] bg-white px-4 py-2 text-xs text-[var(--wjn-text-secondary)] lg:block">
             {t("brand.english")}
           </div>
 
@@ -81,7 +81,7 @@ export function Header({ showLanguageSwitcher = true }: HeaderProps) {
               <div className="flex items-center gap-2">
                 <motion.button
                   onClick={openLogin}
-                  className="rounded-xl px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-white/70"
+                  className="rounded-[var(--wjn-radius)] px-4 py-2 text-sm font-medium text-[var(--wjn-text)] transition-colors hover:bg-white"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >
@@ -89,7 +89,7 @@ export function Header({ showLanguageSwitcher = true }: HeaderProps) {
                 </motion.button>
                 <motion.button
                   onClick={openRegister}
-                  className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] px-4 py-2 text-sm font-medium text-white transition-shadow hover:shadow-lg hover:shadow-[var(--brand-navy)]/20"
+                  className="inline-flex items-center gap-2 rounded-[var(--wjn-radius)] bg-[var(--wjn-accent)] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[var(--wjn-accent-strong)]"
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                 >

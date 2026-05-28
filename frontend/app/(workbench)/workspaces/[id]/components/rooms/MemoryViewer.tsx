@@ -6,6 +6,7 @@ import {
   deleteMemoryFact,
   type MemoryFact,
 } from "@/lib/api/v2/memory";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 
 interface MemoryViewerProps {
   workspaceId: string;
@@ -31,6 +32,9 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const refreshCounter = useRoomRefreshStore(
+    (state) => state.countersByWorkspace[workspaceId]?.memory ?? 0,
+  );
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -49,7 +53,7 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
 
   useEffect(() => {
     fetchItems();
-  }, [fetchItems]);
+  }, [fetchItems, refreshCounter]);
 
   async function handleDelete(factId: string) {
     try {

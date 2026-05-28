@@ -8,6 +8,7 @@ import {
   updateTaskStatus,
   type WorkspaceTask,
 } from "@/lib/api/v2/tasks";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 
 interface TasksDrawerProps {
   workspaceId: string;
@@ -55,6 +56,9 @@ export function TasksDrawer({
   const [visible, setVisible] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const refreshCounter = useRoomRefreshStore(
+    (state) => state.countersByWorkspace[workspaceId]?.tasks ?? 0,
+  );
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -75,7 +79,7 @@ export function TasksDrawer({
 
   useEffect(() => {
     if (open) fetchItems();
-  }, [open, fetchItems]);
+  }, [open, fetchItems, refreshCounter]);
 
   function handleClose() {
     setVisible(false);

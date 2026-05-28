@@ -37,11 +37,11 @@ class TestExecutionMiddleware:
         result = await middleware.before_tool(
             state=state,
             config=config,
-            tool_name="bash_tool",
-            tool_args={"command": "ls"},
+            tool_name="non_execution_tool",
+            tool_args={"input": "noop"},
         )
         # Returns (tool_name, tool_args) tuple unchanged
-        assert result == ("bash_tool", {"command": "ls"})
+        assert result == ("non_execution_tool", {"input": "noop"})
 
     @pytest.mark.asyncio
     async def test_processes_compile_latex_tool(self, middleware, mock_service):

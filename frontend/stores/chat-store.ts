@@ -71,6 +71,13 @@ export type SendMessageOptions = {
   metadata?: Record<string, unknown> | null;
 };
 
+export type SendMessageResult = {
+  executionId?: string | null;
+  featureId?: string | null;
+  status?: string | null;
+  toolResult?: ToolResultData | null;
+};
+
 // ── Event type (discriminated union) ────────────────────────────────────────
 
 type ChatEvent =
@@ -115,7 +122,7 @@ interface ChatState {
     content: string,
     attachments?: Array<{ name: string; path: string }>,
     options?: SendMessageOptions,
-  ): Promise<void>;
+  ): Promise<SendMessageResult | void>;
   reset(): void;
 }
 
@@ -512,6 +519,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
     const { isSending } = get();
     if (isSending || !content.trim()) return;
     set({ isSending: true });
+    let launchedResult: SendMessageResult | null = null;
 
     const userMsgId = crypto.randomUUID();
     get().handleEvent({
@@ -651,9 +659,30 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               break;
             }
             case "tool_result": {
+              const toolResult = (data.data ?? {}) as ToolResultData;
+              if (
+                toolResult.status === "launched" &&
+                typeof toolResult.execution_id === "string" &&
+                toolResult.execution_id.trim()
+              ) {
+                launchedResult = {
+                  executionId: toolResult.execution_id.trim(),
+                  featureId:
+                    typeof toolResult.feature_id === "string"
+                      ? toolResult.feature_id
+                      : null,
+                  status: toolResult.status,
+                  toolResult,
+                };
+              } else if (!launchedResult && toolResult.status) {
+                launchedResult = {
+                  status: toolResult.status,
+                  toolResult,
+                };
+              }
               store.handleEvent({
                 type: "chat.assistant.tool_result",
-                data: (data.data ?? {}) as ToolResultData,
+                data: toolResult,
               });
               break;
             }
@@ -714,6 +743,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       flushFrame();
 
       get().handleEvent({ type: "chat.assistant.completion" });
+      return launchedResult ?? undefined;
     } catch {
       get().handleEvent({ type: "chat.assistant.completion" });
     } finally {

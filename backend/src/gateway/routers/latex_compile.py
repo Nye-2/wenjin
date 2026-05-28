@@ -15,6 +15,7 @@ from src.gateway.contracts.latex import LatexCompileRequest, LatexCompileRespons
 from src.gateway.deps.core import get_db
 from src.gateway.routers.latex_helpers import _not_found
 from src.services.latex import LatexCompileService, LatexProjectService
+from src.services.references import SourceBibliographyService
 
 router = APIRouter(prefix="/latex", tags=["latex"])
 
@@ -30,11 +31,30 @@ async def compile_project(
     project = await project_service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
+    main_file = request.main_file or project.main_file
+    workspace_id = _workspace_id_for_project(project)
+    if workspace_id:
+        try:
+            latex_content = project_service.read_text_file(project, main_file)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        validation = await SourceBibliographyService(db=db).validate_citations(
+            workspace_id=workspace_id,
+            latex_content=latex_content,
+        )
+        if not validation.get("valid", False):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": "Citation validation failed before compile",
+                    **validation,
+                },
+            )
     compile_service = LatexCompileService(db)
     try:
         payload = await compile_service.compile_project(
             project,
-            main_file=request.main_file,
+            main_file=main_file,
             engine=request.engine,
         )
     except FileNotFoundError as exc:
@@ -42,6 +62,18 @@ async def compile_project(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return LatexCompileResponse.model_validate(payload)
+
+
+def _workspace_id_for_project(project: object) -> str | None:
+    workspace_id = getattr(project, "workspace_id", None)
+    if workspace_id:
+        return str(workspace_id)
+    llm_config = getattr(project, "llm_config", None)
+    if isinstance(llm_config, dict):
+        value = llm_config.get("workspace_id")
+        if value:
+            return str(value)
+    return None
 
 
 @router.get("/projects/{project_id}/compile/{history_id}/pdf")

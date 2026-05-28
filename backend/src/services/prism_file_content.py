@@ -30,6 +30,8 @@ def normalize_prism_file_change_content(
     """
 
     normalized_format = (content_format or "").strip().lower()
+    if normalized_format in {"raw", "latex_fragment", "tex_fragment"}:
+        return content
     if normalized_format in {"latex", "latex_document", "tex"} or path.lower().endswith(".tex"):
         return ensure_latex_document(content)
     return content

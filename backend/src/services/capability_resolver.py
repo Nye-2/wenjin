@@ -28,7 +28,21 @@ _REQUIRED_OUTPUT_FIELDS = {
 }
 
 _VALID_FIELDS_BY_KIND = {
-    "library_item": {"title", "authors", "year", "doi", "url", "abstract", "metadata"},
+    "library_item": {
+        "title",
+        "authors",
+        "year",
+        "venue",
+        "doi",
+        "url",
+        "abstract",
+        "citation_count",
+        "source",
+        "external_id",
+        "evidence_level",
+        "verified_at",
+        "metadata",
+    },
     "document": {"name", "mime_type", "storage_path", "size_bytes", "doc_kind", "parent_id"},
     "memory_fact": {"content", "category", "confidence"},
     "decision": {"key", "value", "confidence"},

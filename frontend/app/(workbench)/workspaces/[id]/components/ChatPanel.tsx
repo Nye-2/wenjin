@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useMemo, useState, memo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
+import { SendHorizontal } from "lucide-react";
 import type { WorkspaceCapability } from "@/lib/api";
 import {
   buildContinueThreadBlockAction,
@@ -282,16 +283,16 @@ export function ChatPanel({
       data-testid={testId}
       className={className}
       style={{
-        background: "var(--v2-surface-white)",
+        background: "var(--wjn-surface)",
         display: "flex",
         flexDirection: "column",
-        fontFamily: "var(--v2-font-sans)",
+        fontFamily: "var(--wjn-font-sans)",
       }}
     >
       {/* Message list / idle state */}
       <div
         ref={scrollRef}
-        style={{ flex: 1, overflowY: "auto", padding: "16px 12px" }}
+        style={{ flex: 1, overflowY: "auto", padding: "18px 14px" }}
       >
         {messages.length === 0 && workspaceName && typeConfig ? (
           <div
@@ -301,18 +302,32 @@ export function ChatPanel({
               alignItems: "center",
               justifyContent: "center",
               height: "100%",
-              padding: "0 20px",
+              padding: "0 22px",
               animation: "v2-glass-in 400ms var(--v2-ease-standard)",
             }}
           >
-            <div style={{ fontSize: 36, marginBottom: 12 }}>{typeConfig.icon}</div>
+            <div
+              className="wjn-hairline-panel"
+              style={{
+                width: 46,
+                height: 46,
+                borderRadius: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 24,
+                marginBottom: 14,
+              }}
+            >
+              {typeConfig.icon}
+            </div>
             <div
               style={{
                 fontSize: 18,
-                fontWeight: 600,
-                color: "var(--v2-text-primary)",
+                fontWeight: 700,
+                color: "var(--wjn-text)",
                 marginBottom: 6,
-                fontFamily: "var(--v2-font-sans)",
+                fontFamily: "var(--wjn-font-sans)",
               }}
             >
               {workspaceName}
@@ -320,8 +335,10 @@ export function ChatPanel({
             <div
               style={{
                 fontSize: 13,
-                color: "var(--v2-text-tertiary)",
-                fontFamily: "var(--v2-font-sans)",
+                color: "var(--wjn-text-muted)",
+                fontFamily: "var(--wjn-font-sans)",
+                textAlign: "center",
+                lineHeight: 1.6,
               }}
             >
               {typeConfig.chatSubtitle}
@@ -345,12 +362,12 @@ export function ChatPanel({
               alignItems: "center",
               gap: 6,
               padding: "4px 4px",
-              color: "var(--v2-text-tertiary)",
+              color: "var(--wjn-text-muted)",
               fontSize: 13,
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
             }}
           >
-            <span style={{ animation: "v2-pulse-soft 1.5s infinite" }}>●</span>
+            <span style={{ color: "var(--wjn-accent)", animation: "v2-pulse-soft 1.5s infinite" }}>●</span>
             思考中...
           </div>
         )}
@@ -375,28 +392,28 @@ export function ChatPanel({
                 disabled={isSending}
                 style={{
                   padding: "6px 14px",
-                  borderRadius: "var(--v2-radius-pill)",
-                  border: "1px solid var(--v2-border-default)",
-                  background: "var(--v2-accent-purple-100)",
-                  color: "var(--v2-accent-purple-700)",
+                  borderRadius: "var(--wjn-radius)",
+                  border: "1px solid var(--wjn-line)",
+                  background: "#fff",
+                  color: "var(--wjn-text-secondary)",
                   fontSize: 12.5,
-                  fontWeight: 500,
+                  fontWeight: 600,
                   cursor: isSending ? "not-allowed" : "pointer",
-                  fontFamily: "var(--v2-font-sans)",
+                  fontFamily: "var(--wjn-font-sans)",
                   transition: "background 150ms, border-color 150ms",
                   opacity: isSending ? 0.5 : 1,
                 }}
                 onMouseEnter={(e) => {
                   if (!isSending) {
                     e.currentTarget.style.background =
-                      "var(--v2-accent-purple-300)";
+                      "var(--wjn-accent-soft)";
                     e.currentTarget.style.borderColor =
-                      "var(--v2-accent-purple-300)";
+                      "var(--wjn-accent-line)";
                   }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "var(--v2-accent-purple-100)";
-                  e.currentTarget.style.borderColor = "var(--v2-border-default)";
+                  e.currentTarget.style.background = "#fff";
+                  e.currentTarget.style.borderColor = "var(--wjn-line)";
                 }}
               >
                 {text}
@@ -408,8 +425,9 @@ export function ChatPanel({
       {/* Input area */}
       <div
         style={{
-          borderTop: "1px solid var(--v2-border-soft)",
+          borderTop: "1px solid var(--wjn-line)",
           padding: "12px",
+          background: "linear-gradient(180deg, rgba(255,255,255,0.8), rgba(249,250,252,0.96))",
         }}
       >
         {/* Attachment chips */}
@@ -421,9 +439,9 @@ export function ChatPanel({
                 style={{
                   fontSize: 11,
                   padding: "2px 8px",
-                  borderRadius: "var(--v2-radius-pill)",
-                  background: "var(--v2-accent-purple-100)",
-                  color: "var(--v2-accent-purple-700)",
+                  borderRadius: "var(--wjn-radius)",
+                  background: "var(--wjn-accent-soft)",
+                  color: "var(--wjn-accent-strong)",
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 4,
@@ -437,7 +455,7 @@ export function ChatPanel({
                     background: "none",
                     border: "none",
                     cursor: "pointer",
-                    color: "var(--v2-text-tertiary)",
+                    color: "var(--wjn-text-muted)",
                     fontSize: 13,
                     padding: 0,
                     lineHeight: 1,
@@ -478,13 +496,13 @@ export function ChatPanel({
             style={{
               flex: 1,
               padding: "8px 12px",
-              borderRadius: "var(--v2-radius-md)",
-              border: "1px solid var(--v2-border-default)",
-              background: "var(--v2-surface-soft)",
+              borderRadius: "var(--wjn-radius)",
+              border: "1px solid var(--wjn-line)",
+              background: "#fff",
               fontSize: 13.5,
               outline: "none",
-              fontFamily: "var(--v2-font-sans)",
-              color: "var(--v2-text-primary)",
+              fontFamily: "var(--wjn-font-sans)",
+              color: "var(--wjn-text)",
               opacity: isSending ? 0.6 : 1,
               resize: "none",
               minHeight: 38,
@@ -497,23 +515,26 @@ export function ChatPanel({
             disabled={isSending || !inputValue.trim()}
             data-testid="chat-send"
             style={{
-              padding: "8px 16px",
-              borderRadius: "var(--v2-radius-md)",
+              width: 38,
+              height: 38,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "var(--wjn-radius)",
               border: "none",
               background:
                 isSending || !inputValue.trim()
-                  ? "var(--v2-border-default)"
-                  : "var(--v2-accent-purple-700)",
+                  ? "var(--wjn-line-strong)"
+                  : "var(--wjn-accent)",
               color: "#FFFFFF",
               fontSize: 13,
-              fontWeight: 500,
               cursor:
                 isSending || !inputValue.trim() ? "not-allowed" : "pointer",
-              fontFamily: "var(--v2-font-sans)",
               opacity: isSending ? 0.6 : 1,
             }}
+            aria-label="发送"
           >
-            {isSending ? "..." : "发送"}
+            {isSending ? "..." : <SendHorizontal size={16} aria-hidden="true" />}
           </button>
         </div>
       </div>
@@ -553,11 +574,12 @@ const MessageRow = memo(function MessageRow({
         style={{
           maxWidth: "85%",
           padding: isUser ? "10px 14px" : "0 4px",
-          borderRadius: isUser ? 14 : 0,
-          background: isUser ? "var(--v2-surface-card)" : "transparent",
+          borderRadius: isUser ? "var(--wjn-radius-lg)" : 0,
+          background: isUser ? "var(--wjn-surface-subtle)" : "transparent",
           fontSize: 13.5,
           lineHeight: 1.55,
-          color: "var(--v2-text-primary)",
+          color: "var(--wjn-text)",
+          border: isUser ? "1px solid var(--wjn-line)" : "none",
         }}
       >
         {message.blocks.map((block, i) => (

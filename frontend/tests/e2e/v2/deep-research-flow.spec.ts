@@ -128,9 +128,10 @@ test.describe("Workspace Deep Research Flow", () => {
   });
 
   test("renders room buttons in topbar", async ({ page }) => {
-    // 8 room buttons: Library, Documents, Decisions, Memory, Runs, Tasks, Sandbox, Settings
+    // 7 user-facing room buttons: Library, Documents, Decisions, Memory, Runs, Tasks, Settings
     const buttons = page.locator('[data-testid="rooms-topbar"] button');
-    await expect(buttons).toHaveCount(8);
+    await expect(buttons).toHaveCount(7);
+    await expect(page.getByRole("button", { name: "Sandbox" })).toHaveCount(0);
   });
 
   test("topbar room buttons are clickable", async ({ page }) => {
@@ -150,5 +151,13 @@ test.describe("Workspace Deep Research Flow", () => {
     await expect(
       page.getByTestId("rooms-topbar").getByText("Workspace"),
     ).toBeVisible();
+  });
+
+  test("sandbox room deep link is ignored", async ({ page }) => {
+    await page.goto("/workspaces/ws-1?room=sandbox");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByTestId("settings-page")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Sandbox" })).toHaveCount(0);
   });
 });

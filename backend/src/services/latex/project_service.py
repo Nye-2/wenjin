@@ -482,7 +482,7 @@ class LatexProjectService:
             )
             if detected_main is None:
                 self._write_default_files(target_root)
-        bib_file = target_root / "references.bib"
+        bib_file = target_root / "refs.bib"
         if not bib_file.exists():
             bib_file.write_text("", encoding="utf-8")
         return True
@@ -490,7 +490,7 @@ class LatexProjectService:
     @staticmethod
     def _write_default_files(root: Path) -> None:
         (root / "main.tex").write_text(_DEFAULT_MAIN_TEX, encoding="utf-8")
-        (root / "references.bib").write_text("", encoding="utf-8")
+        (root / "refs.bib").write_text("", encoding="utf-8")
 
     @staticmethod
     def _detect_main_file(root: Path, *, preferred: str | None) -> str | None:

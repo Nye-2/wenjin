@@ -9,6 +9,7 @@ import {
   type LibraryItemDetail,
 } from "@/lib/api/v2/library";
 import { buildLibraryRoomPreview } from "@/lib/workspace-result-preview";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
 
 interface LibraryDrawerProps {
@@ -36,6 +37,9 @@ export function LibraryDrawer({
   const [detail, setDetail] = useState<LibraryItemDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const refreshCounter = useRoomRefreshStore(
+    (state) => state.countersByWorkspace[workspaceId]?.library ?? 0,
+  );
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -66,7 +70,7 @@ export function LibraryDrawer({
 
   useEffect(() => {
     if (open) fetchItems();
-  }, [open, fetchItems]);
+  }, [open, fetchItems, refreshCounter]);
 
   function handleClose() {
     setVisible(false);

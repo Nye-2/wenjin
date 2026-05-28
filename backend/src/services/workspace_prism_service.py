@@ -558,19 +558,8 @@ class WorkspacePrismService:
 
     async def _list_decisions(self, workspace_id: str) -> list[dict[str, Any]]:
         async with self._client() as client:
-            active = await client.list_room_decisions(workspace_id)
-        return [
-            {
-                "id": "",
-                "workspace_id": workspace_id,
-                "key": str(key),
-                "value": str(value),
-                "confidence": 1.0,
-                "extracted_by": "rooms_projection",
-                "created_at": None,
-            }
-            for key, value in list(active.items())[:5]
-        ]
+            decisions = await client.list_room_decisions(workspace_id)
+        return [_model_payload(item) for item in decisions[:5]]
 
     async def _list_memory_preferences(self, workspace_id: str) -> list[dict[str, Any]]:
         async with self._client() as client:

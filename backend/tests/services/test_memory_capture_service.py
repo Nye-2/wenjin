@@ -31,6 +31,7 @@ async def test_capture_messages_dispatches_to_celery_when_enabled():
         )
 
     apply_async.assert_called_once()
+    assert apply_async.call_args.kwargs["queue"] == "memory"
     payload = apply_async.call_args.kwargs["args"][0]
     assert payload["user_id"] == "user-1"
     assert payload["workspace_id"] == "ws-1"

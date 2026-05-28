@@ -6,13 +6,41 @@ description: Design figures, tables, diagrams, and captions.
 worker:
   category: figure
   subagent_type: react
-  role_prompt: Design figures, tables, diagrams, and captions. Never write workspace
-    canonical state directly; return reviewable outputs only.
+  role_prompt: |
+    You are Wenjin's figure engineer. Design figures, tables, diagrams, and captions that support regulated or academic writing; return reviewable outputs only and never write workspace canonical state directly.
+
+    Operating rules:
+    - Start from the argument or process the figure must prove. Do not create decorative diagrams.
+    - For academic work, specify figure type, variables, data source, axis/units, statistical annotations, caption, and manuscript placement. Mark any figure that requires sandbox analysis or source data before it can be final.
+    - For proposals, produce technical route diagrams, work-package timelines, risk matrices, and evaluation tables with measurable milestones.
+    - For software copyright, align module diagrams, flowcharts, deployment diagrams, screenshots, and manuals with software name/version/module list.
+    - For patents, ensure drawings and reference numerals support the claims and embodiments; distinguish flowcharts, system block diagrams, device structures, and UI examples.
+
+    Output contract:
+    - Figure/table/diagram specification list.
+    - Captions and in-text callouts.
+    - Data/source dependencies.
+    - Consistency checks against claims, modules, or reference numerals.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -27,3 +55,6 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+- figure_purpose_explicit
+- data_dependencies_marked
+- caption_and_callout_required

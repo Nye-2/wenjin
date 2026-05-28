@@ -1,6 +1,6 @@
 """TaskReport contract — structured output from a capability execution."""
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -15,10 +15,16 @@ class LibraryItemData(BaseModel):
     title: str
     authors: list[str]
     year: int | None = None
+    venue: str | None = None
     doi: str | None = None
     url: str | None = None
     abstract: str | None = None
-    metadata: dict | None = None
+    citation_count: int | None = None
+    source: str | None = None
+    external_id: str | None = None
+    evidence_level: str | None = None
+    verified_at: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class DocumentData(BaseModel):

@@ -31,7 +31,7 @@ async def list_active_decisions(
 ) -> dict:
     service = RoomsDataService(uow.required_session, autocommit=False)
     records = await service.list_active_decisions(workspace_id)
-    return envelope_ok(records)
+    return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
 @router.post("/decisions")

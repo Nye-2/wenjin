@@ -18,7 +18,7 @@
     "adminDashboard": "Admin Overview",
     "settings": "Settings",
     "logout": "Logout",
-    "productTagline": "Research Workflow AI Workspace"
+    "productTagline": "Evidence-backed research navigation"
   },
   "workspaceSurfaces": {
     "ariaLabel": "Workspace surfaces",
@@ -33,30 +33,30 @@
   "brand": {
     "cn": "问津",
     "en": "Wenjin",
-    "motto": "Find the way into deeper research",
-    "tagline": "An AI workspace for papers, proposals, patents, and project writing",
-    "english": "Find the way, move the work forward.",
-    "summary": "Keep complex research work moving along a clear route"
+    "motto": "Turn research work into a traceable route",
+    "tagline": "An AI research navigation system for papers, proposals, software copyright, and patents",
+    "english": "Evidence visible. Process traceable.",
+    "summary": "Move complex research from conversation into evidence, review, and delivery"
   },
   "home": {
     "title": "Wenjin",
-    "heroBadge": "Vibe Writing · Vibe Rewriting",
-    "subtitle": "From topic exploration to writing, from writing to polished delivery — one system that moves academic work from conversation to deliverable.",
-    "getStarted": "Start Writing",
-    "openPrism": "Open Manuscript Studio",
+    "heroBadge": "Workbench · Prism · Evidence Review",
+    "subtitle": "From topic framing, search, and evidence organization to manuscript revision and final materials, Wenjin keeps the process, rationale, and candidate outputs visible for review.",
+    "getStarted": "Enter Workspace",
+    "openPrism": "Open Prism Studio",
     "learnMore": "View Capabilities",
     "features": {
       "title": "Supported Work Types",
       "subtitle": "Different tasks, one route you can keep moving forward"
     },
     "pathCard": {
-      "eyebrow": "Current Work Route",
-      "title": "From question framing to final delivery",
+      "eyebrow": "Research Route",
+      "title": "From intent to evidence to deliverables",
       "workspaceLabel": "Example workspace",
       "workspaceValue": "Multimodal research project design",
       "nextLabel": "Next",
-      "nextAction": "Generate research route suggestions",
-      "note": "Wenjin keeps sources, phases, drafts, and outputs on one connected track."
+      "nextAction": "Start evidence collection and structure planning",
+      "note": "The right Workbench shows traces, evidence tables, and review entry points while Chat handles intent and intervention."
     },
     "status": {
       "done": "Done",
@@ -143,21 +143,21 @@
       }
     },
     "modes": {
-      "eyebrow": "Two Modes, One Pipeline",
-      "title": "Write First, Refine Second",
+      "eyebrow": "Two Surfaces, One Pipeline",
+      "title": "Advance in Workbench, refine in Prism",
       "writing": {
-        "badge": "Vibe Writing",
+        "badge": "Workbench",
         "product": "Wenjin Workspace",
-        "tagline": "From zero to draft: AI-guided writing",
-        "description": "Explore research directions, collect evidence, build structure, and iterate drafts through natural conversation. Every output is persisted as a reusable research artifact.",
-        "keywords": "Conversation as Workflow · Stage-Aware Progression · Artifact Persistence"
+        "tagline": "Visible runs: from intent to evidence chain",
+        "description": "Chat captures intent while the Lead Agent advances work on the right. Nodes, tools, evidence, and candidate outputs stay visible for inspection, editing, and review.",
+        "keywords": "Run Trace · Evidence Table · Candidate Output Review"
       },
       "rewriting": {
-        "badge": "Vibe Rewriting",
+        "badge": "Prism",
         "product": "WenjinPrism",
-        "tagline": "From draft to deliverable: manuscript editing & delivery",
-        "description": "Import workspace outputs into academic templates, edit, compile, and preview in the manuscript studio — refine continuously until it's ready to submit.",
-        "keywords": "Conference Templates · Compile & Preview · Workspace Sync"
+        "tagline": "Selection-based refinement: from manuscript to final draft",
+        "description": "Bring workspace outputs into the manuscript studio and move between editing, compile preview, local polishing, structural revision, and final delivery.",
+        "keywords": "Selection Refinement · Compile Preview · Review Sync"
       }
     },
     "workspaceTypes": {

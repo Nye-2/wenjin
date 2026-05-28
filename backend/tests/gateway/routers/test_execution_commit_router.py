@@ -59,6 +59,7 @@ def test_post_commit_returns_counts():
         "exec-1",
         accept_all=True,
         accepted_ids=None,
+        output_overrides=None,
         idempotency_key=None,
     )
 
@@ -94,6 +95,7 @@ def test_post_commit_passes_idempotency_key_header():
         "exec-2",
         accept_all=False,
         accepted_ids=["out-mem"],
+        output_overrides=None,
         idempotency_key="idem-key-xyz",
     )
 
@@ -112,3 +114,31 @@ def test_post_commit_accepted_ids_only():
     assert resp.status_code == 200
     data = resp.json()
     assert data["committed"]["decisions"] == 1
+
+
+def test_post_commit_passes_output_overrides():
+    """Staged frontend edits are forwarded to the commit service."""
+    expected = {"committed": {"library": 0, "documents": 1, "memory": 0, "decisions": 0, "tasks": 0}}
+    svc = _make_mock_service(return_value=expected)
+    client = _make_app(svc)
+
+    resp = client.post(
+        "/api/executions/exec-4/commit",
+        json={
+            "accept_all": True,
+            "output_overrides": {
+                "out-doc": {"data": {"name": "edited.md"}, "preview": "Edited doc"}
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    svc.commit_outputs.assert_called_once_with(
+        "exec-4",
+        accept_all=True,
+        accepted_ids=None,
+        output_overrides={
+            "out-doc": {"data": {"name": "edited.md"}, "preview": "Edited doc"}
+        },
+        idempotency_key=None,
+    )

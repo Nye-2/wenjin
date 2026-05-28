@@ -10,6 +10,7 @@ import {
   getWorkspacePrismSurface,
 } from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { PrismContextRail } from "./PrismContextRail";
 import { SurfaceSwitch } from "../components/SurfaceSwitch";
 
@@ -33,6 +34,9 @@ export default function WorkspacePrismPage({
     error: null,
   });
   const [surfaceRefreshToken, setSurfaceRefreshToken] = useState(0);
+  const prismRefreshCounter = useRoomRefreshStore(
+    (state) => state.countersByWorkspace[id]?.prism ?? 0,
+  );
 
   const surface = loadState.workspaceId === id ? loadState.surface : null;
   const error = loadState.workspaceId === id ? loadState.error : null;
@@ -75,7 +79,7 @@ export default function WorkspacePrismPage({
     return () => {
       cancelled = true;
     };
-  }, [id, surfaceRefreshToken]);
+  }, [id, prismRefreshCounter, surfaceRefreshToken]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">

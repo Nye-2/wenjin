@@ -2941,9 +2941,9 @@ class AsyncDataServiceClient:
         )
         return [SandboxArtifactPayload.model_validate(item) for item in payload["data"]]
 
-    async def list_room_decisions(self, workspace_id: str) -> dict[str, str]:
+    async def list_room_decisions(self, workspace_id: str) -> list[DecisionPayload]:
         payload = await self._request("GET", f"/internal/v1/rooms/workspaces/{workspace_id}/decisions")
-        return dict(payload["data"])
+        return [DecisionPayload.model_validate(item) for item in payload["data"]]
 
     async def set_room_decision(self, command: DecisionSetPayload) -> DecisionPayload:
         payload = await self._request(

@@ -1,0 +1,97 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { ExecutionRecord } from "@/lib/api/types";
+import { useExecutionStore } from "@/stores/execution-store";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
+import { LiveWorkflowPanel } from "@/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel";
+
+const mockFetch = vi.fn();
+global.fetch = mockFetch;
+
+function makeCompletedRecord(): ExecutionRecord {
+  return {
+    id: "exec-1",
+    user_id: "user-1",
+    workspace_id: "ws-1",
+    execution_type: "capability",
+    feature_id: "outline",
+    status: "completed",
+    params: {},
+    node_states: {},
+    artifact_ids: [],
+    next_actions: [],
+    child_execution_ids: [],
+    progress: 100,
+    created_at: "2026-05-18T00:00:00Z",
+    updated_at: "2026-05-18T00:00:05Z",
+    started_at: "2026-05-18T00:00:00Z",
+    completed_at: "2026-05-18T00:00:05Z",
+    result: {
+      task_report: {
+        execution_id: "exec-1",
+        capability_id: "outline",
+        status: "completed",
+        duration_seconds: 5,
+        narrative: "Outline completed.",
+        outputs: [
+          {
+            id: "doc-1",
+            kind: "document",
+            preview: "Thesis outline",
+            default_checked: true,
+            data: {
+              name: "outline.md",
+              mime_type: "text/markdown",
+              doc_kind: "outline",
+              content: "# Chapter 1",
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+describe("LiveWorkflowPanel", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { documents: 1 },
+          room_targets: {
+            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+          },
+        }),
+    });
+    localStorage.clear();
+    useExecutionStore.getState().clear();
+    useWorkbenchLayoutStore.getState().reset();
+  });
+
+  it("commits staged edits as output_overrides", async () => {
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review", true);
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.change(screen.getByLabelText("文件名"), {
+      target: { value: "edited-outline.md" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "全部接受" }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const [, init] = mockFetch.mock.calls[0];
+    expect(JSON.parse(init.body as string)).toEqual({
+      accept_all: true,
+      output_overrides: {
+        "doc-1": {
+          data: { name: "edited-outline.md" },
+        },
+      },
+    });
+  });
+});

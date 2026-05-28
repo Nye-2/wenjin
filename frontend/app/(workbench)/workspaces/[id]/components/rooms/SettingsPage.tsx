@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { MemoryViewer } from "./MemoryViewer";
 import { DecisionsViewer } from "./DecisionsViewer";
-import { SandboxConsole } from "./SandboxConsole";
 import { SettingsForm } from "./SettingsForm";
 
 interface SettingsPageProps {
@@ -13,12 +12,11 @@ interface SettingsPageProps {
   onClose: () => void;
 }
 
-type TabKey = "memory" | "decisions" | "sandbox" | "settings";
+type TabKey = "memory" | "decisions" | "settings";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "memory", label: "Memory" },
   { key: "decisions", label: "Decisions" },
-  { key: "sandbox", label: "Sandbox" },
   { key: "settings", label: "Settings" },
 ];
 
@@ -174,9 +172,6 @@ export function SettingsPage({
         )}
         {activeTab === "decisions" && (
           <DecisionsViewer workspaceId={workspaceId} />
-        )}
-        {activeTab === "sandbox" && (
-          <SandboxConsole workspaceId={workspaceId} />
         )}
         {activeTab === "settings" && (
           <SettingsForm workspaceId={workspaceId} />

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import logging
 import sys
 from collections.abc import Awaitable, Callable, Coroutine
@@ -29,6 +30,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _worker_runner: asyncio.Runner | None = None
+
+
+def parse_worker_cli_args(argv: list[str]) -> argparse.Namespace:
+    """Parse worker startup arguments for Docker and local entrypoints."""
+    parser = argparse.ArgumentParser(description="Start a Wenjin Celery worker")
+    parser.add_argument(
+        "concurrency",
+        nargs="?",
+        type=int,
+        default=celery_settings.worker_concurrency,
+    )
+    parser.add_argument(
+        "--queues",
+        default="",
+        help="Comma-separated Celery queues to consume.",
+    )
+    parsed = parser.parse_args(argv)
+    parsed.queues = [
+        queue.strip()
+        for queue in str(parsed.queues or "").split(",")
+        if queue.strip()
+    ]
+    return parsed
+
+
 type InitSentryFn = Callable[[], None]
 type ResetDbEngineFn = Callable[..., Awaitable[None]]
 type InitDbFn = Callable[[], Awaitable[None]]
@@ -261,8 +287,5 @@ def start_flower(port: int = 5555) -> None:
 
 
 if __name__ == "__main__":
-    # Default worker startup
-    concurrency = (
-        int(sys.argv[1]) if len(sys.argv) > 1 else celery_settings.worker_concurrency
-    )
-    start_worker(concurrency=concurrency)
+    args = parse_worker_cli_args(sys.argv[1:])
+    start_worker(concurrency=args.concurrency, queues=args.queues or None)

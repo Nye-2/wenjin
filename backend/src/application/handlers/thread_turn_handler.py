@@ -115,6 +115,25 @@ def _extract_launch_feature_params_from_metadata(
     return normalized
 
 
+def _extract_launch_feature_id_from_metadata(
+    metadata: Mapping[str, Any] | None,
+) -> str | None:
+    if not isinstance(metadata, Mapping):
+        return None
+    for bucket_name, key_name in (
+        ("orchestration", "feature_id"),
+        ("entry_seed", "feature_id"),
+        ("workbench_launch", "capability_id"),
+    ):
+        bucket = metadata.get(bucket_name)
+        if not isinstance(bucket, Mapping):
+            continue
+        feature_id = str(bucket.get(key_name) or "").strip()
+        if feature_id:
+            return feature_id
+    return None
+
+
 def _stringify_persisted_message_content(message: Mapping[str, Any]) -> str:
     role = str(message.get("role") or "").strip()
     content = str(message.get("content") or "").strip()
@@ -260,6 +279,9 @@ def build_thread_runtime_config(
     launch_feature_params = _extract_launch_feature_params_from_metadata(request.metadata)
     if launch_feature_params:
         configurable["launch_feature_params"] = launch_feature_params
+    launch_feature_id = _extract_launch_feature_id_from_metadata(request.metadata)
+    if launch_feature_id:
+        configurable["launch_feature_id"] = launch_feature_id
     if execution_id is not None:
         configurable["execution_id"] = execution_id
     return {"configurable": configurable}

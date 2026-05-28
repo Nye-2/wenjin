@@ -147,16 +147,30 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
               nodeState.output_preview = event.payload.output_preview;
             }
             if (typeof event.payload.thinking === "string") {
-              nodeState.thinking = (nodeState.thinking || "") + event.payload.thinking;
+              nodeState.thinking =
+                event.type === "execution.node.delta"
+                  ? (nodeState.thinking || "") + event.payload.thinking
+                  : event.payload.thinking;
             }
             if (event.payload.token_usage) {
               nodeState.token_usage = event.payload.token_usage as Record<string, number>;
             }
-            if (event.payload.input_data) {
-              nodeState.input = event.payload.input_data as Record<string, unknown>;
+            const inputPayload = event.payload.input_data ?? event.payload.input;
+            const outputPayload = event.payload.output_data ?? event.payload.output;
+            if (inputPayload) {
+              nodeState.input = inputPayload as Record<string, unknown>;
             }
-            if (event.payload.output_data) {
-              nodeState.output = event.payload.output_data as Record<string, unknown>;
+            if (outputPayload) {
+              nodeState.output = outputPayload as Record<string, unknown>;
+            }
+            if (Array.isArray(event.payload.tool_calls)) {
+              nodeState.tool_calls = event.payload.tool_calls as Record<string, unknown>[];
+            }
+            if (typeof event.payload.started_at === "string") {
+              nodeState.started_at = event.payload.started_at;
+            }
+            if (typeof event.payload.completed_at === "string") {
+              nodeState.completed_at = event.payload.completed_at;
             }
             updated.node_states[nodeId] = nodeState;
           }

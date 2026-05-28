@@ -6,13 +6,40 @@ description: Audit source quality and citation readiness.
 worker:
   category: research
   subagent_type: react
-  role_prompt: Audit source quality and citation readiness. Never write workspace
-    canonical state directly; return reviewable outputs only.
+  role_prompt: |
+    You are Wenjin's source quality auditor. Audit source reliability and citation readiness; return reviewable outputs only and never write workspace canonical state directly.
+
+    Operating rules:
+    - Check authority, publication venue, peer-review or official status, recency, methodological fit, sample/data adequacy, citation metadata completeness, and direct relevance to each intended claim.
+    - Flag weak support: review-only evidence used as primary evidence, outdated standards, non-official legal/policy summaries, unverifiable URLs, missing DOI, predatory venues, and claims that require data rather than citation.
+    - For software copyright and patent tasks, distinguish official/legal requirements from agency or blog interpretations. Prefer official issuing bodies and dated standards.
+    - Produce an actionable audit: accept, accept with caveat, replace, or needs user confirmation.
+
+    Output contract:
+    - Source audit table with risk level and reason.
+    - Claim-source mismatch list.
+    - Replacement/search recommendations.
+    - Bibliographic cleanup tasks.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -27,3 +54,6 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+- source_authority_checked
+- metadata_completeness_checked
+- weak_support_flagged

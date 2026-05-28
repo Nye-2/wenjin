@@ -5,6 +5,7 @@ import type { WorkspaceEvent } from "@/lib/api/types";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useComputeStore } from "@/stores/compute";
 import { useExecutionStore } from "@/stores/execution-store";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 
 const mockSubscribeWorkspaceEvents = vi.fn();
 const mockUseExecutionStream = vi.fn();
@@ -61,6 +62,7 @@ const makeExecutionRecord = () => ({
 beforeEach(() => {
   useChatStoreV2.getState().reset();
   useExecutionStore.getState().clear();
+  useRoomRefreshStore.getState().reset();
   useComputeStore.setState({
     byWorkspace: {},
     projectionBySessionId: {},
@@ -199,5 +201,30 @@ describe("useWorkspaceEventStream", () => {
     await waitFor(() => {
       expect(fetchProjection).toHaveBeenCalledWith("compute-1");
     });
+  });
+
+  it("invalidates workspace room targets from refresh events", () => {
+    let onEvent: ((event: WorkspaceEvent) => void) | undefined;
+    mockSubscribeWorkspaceEvents.mockImplementation((_workspaceId, handler) => {
+      onEvent = handler as (event: WorkspaceEvent) => void;
+      return vi.fn();
+    });
+
+    renderHook(() => useWorkspaceEventStream("ws-1"));
+
+    act(() => {
+      onEvent?.({
+        type: "workspace.refresh",
+        workspace_id: "ws-1",
+        refresh_targets: ["documents", "memory", "decisions", "tasks", "prism"],
+      });
+    });
+
+    const state = useRoomRefreshStore.getState();
+    expect(state.getCounter("ws-1", "documents")).toBe(1);
+    expect(state.getCounter("ws-1", "memory")).toBe(1);
+    expect(state.getCounter("ws-1", "decisions")).toBe(1);
+    expect(state.getCounter("ws-1", "tasks")).toBe(1);
+    expect(state.getCounter("ws-1", "prism")).toBe(1);
   });
 });

@@ -140,7 +140,7 @@ class MemoryCaptureService:
 
             from src.task.tasks.memory import capture_memory
 
-            capture_memory.apply_async(args=[payload], queue="default")
+            capture_memory.apply_async(args=[payload], queue="memory")
             return True
         except Exception:
             logger.warning(

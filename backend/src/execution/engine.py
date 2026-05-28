@@ -8,7 +8,9 @@ between Celery task dispatch and the runtime; Celery wiring is Phase 4 cutover w
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from inspect import isawaitable
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,6 +135,9 @@ class ExecutionEngineV2:
     ) -> TaskBrief:
         if brief.manuscript_context:
             return brief
+        explicit_context = self._explicit_manuscript_context_from_brief(brief)
+        if explicit_context is not None:
+            return brief.model_copy(update={"manuscript_context": explicit_context})
 
         db = getattr(self.execution_service, "db", None)
         workspace_id = str(brief.workspace_id or getattr(execution, "workspace_id", "") or "")
@@ -161,6 +166,30 @@ class ExecutionEngineV2:
             )
 
         return brief.model_copy(update={"manuscript_context": manuscript_context})
+
+    @staticmethod
+    def _explicit_manuscript_context_from_brief(brief: TaskBrief) -> dict[str, Any] | None:
+        params = brief.brief if isinstance(brief.brief, Mapping) else {}
+        latex_project_id = str(
+            params.get("latex_project_id")
+            or params.get("project_id")
+            or "",
+        ).strip()
+        if not latex_project_id:
+            return None
+        main_file = str(params.get("main_file") or "main.tex").strip() or "main.tex"
+        target_files: list[str] = []
+        file_path = str(params.get("file_path") or "").strip()
+        if file_path:
+            target_files.append(file_path)
+        if main_file and main_file not in target_files:
+            target_files.insert(0, main_file)
+        return {
+            "latex_project_id": latex_project_id,
+            "main_file": main_file,
+            "target_files": target_files,
+            "source": "explicit_launch_params",
+        }
 
     async def _requires_prism_surface(self, brief: TaskBrief, execution) -> bool:
         """Return whether this capability needs a workspace-owned Prism surface."""

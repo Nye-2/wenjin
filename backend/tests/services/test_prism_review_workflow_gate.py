@@ -189,7 +189,7 @@ class _FakeDataServiceClient:
 
     async def list_room_decisions(self, workspace_id: str):
         _ = workspace_id
-        return {}
+        return []
 
     async def list_room_memory_facts(self, *, workspace_id: str, limit: int = 5):
         _ = workspace_id

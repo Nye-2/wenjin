@@ -1,0 +1,91 @@
+schema_version: capability.v2
+id: internal_sandbox_smoke
+workspace_type: sci
+enabled: true
+display:
+  name: 内部实验环境自检
+  description: 验证 Lead Agent 可以在隔离 Docker sandbox 中运行受控 Python 计算
+  icon: terminal
+  color: slate
+  order: 9999
+  entry_tier: hidden
+intent:
+  description: 验证右侧 Lead Agent / subagent 的内部实验环境
+  trigger_phrases:
+  - 内部实验环境自检
+  - sandbox 自检
+  - sandbox smoke
+  - 实验环境自检
+  disambiguation: {}
+mission:
+  goal: internal_sandbox_health_check
+  primary_surface: sandbox
+  document_role: null
+  user_promise: 验证 agent 内部实验环境可用
+  allowed_deliverables:
+  - review_report
+inputs:
+  required_decisions: []
+  brief_schema:
+    type: object
+    properties:
+      goal:
+        type: string
+      user_request:
+        type: string
+context_policy:
+  room_reads: {}
+  prism_context: {}
+  full_text_access: none
+sandbox_policy:
+  mode: required
+  profiles:
+  - analysis
+  allowed_operations:
+  - run_python
+  isolation:
+    provider: docker
+    network: default_deny_allowlist
+    allow_host_docker_socket: false
+    allow_docker_socket: false
+    allow_privileged: false
+    allow_host_network: false
+    allow_host_paths: false
+    allow_sibling_containers: false
+    allow_sibling_container_access: false
+    allow_server_control: false
+  resource_limits:
+    cpu: 1
+    memory_mb: 512
+    timeout_seconds: 120
+    max_output_mb: 16
+  artifact_policy:
+    review_required: true
+    capture_stdout: true
+    capture_scripts: false
+    capture_input_hashes: true
+review_policy:
+  default_targets:
+  - sandbox_artifact
+  require_user_acceptance: true
+  allow_bulk_accept: true
+quality_gates:
+- no_user_command_execution
+- sandbox_provider_is_docker
+graph_template:
+  phases:
+  - name: sandbox_validation
+    tasks:
+    - name: python_smoke
+      subagent_type: sandbox_python
+      inputs:
+        operation: smoke_check
+        node_id: sandbox_validation__python_smoke
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: 内部实验环境自检.md
+          doc_kind: analysis_report
+          content: '{{output.report_markdown}}'
+extensions: {}

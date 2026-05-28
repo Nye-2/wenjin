@@ -11,6 +11,8 @@ from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.react import (
     ReactSubagent,
+    _build_default_user_payload,
+    _build_degraded_react_text,
     _parse_output,
     _render_user_message,
 )
@@ -19,14 +21,22 @@ from src.subagents.v2.types.react import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_ctx(*, inputs: dict | None = None, skill=None, tools=None) -> SubagentContext:
+def _make_ctx(
+    *,
+    inputs: dict | None = None,
+    skill=None,
+    tools=None,
+    prompt: str = "",
+    capability_policy: dict | None = None,
+) -> SubagentContext:
     return SubagentContext(
         workspace_id="ws-test",
         execution_id="exec-test",
-        prompt="",
+        prompt=prompt,
         inputs=inputs or {},
         tools=tools or [],
         workspace_data={},
+        capability_policy=capability_policy or {},
         skill=skill,
     )
 
@@ -76,6 +86,23 @@ class TestRenderUserMessage:
         assert json.loads(result) == {}
 
 
+class TestDefaultUserPayload:
+    def test_includes_capability_policy_for_default_payload(self):
+        ctx = _make_ctx(
+            inputs={"topic": "AI"},
+            prompt="Draft {{topic}}",
+            capability_policy={"quality_gates": ["claim_source_binding_checked"]},
+        )
+        payload = _build_default_user_payload(ctx, {"quality_gates": ["no_fabrication"]})
+
+        assert payload["topic"] == "AI"
+        assert payload["_task_prompt"] == "Draft {{topic}}"
+        assert payload["_capability_policy"] == {
+            "quality_gates": ["claim_source_binding_checked"]
+        }
+        assert payload["_skill_quality_gates"] == ["no_fabrication"]
+
+
 # ---------------------------------------------------------------------------
 # _parse_output
 # ---------------------------------------------------------------------------
@@ -111,6 +138,33 @@ class TestParseOutput:
     def test_no_output_kind_key(self):
         result = _parse_output("plain output", {})
         assert result == {"text": "plain output"}
+
+
+class TestDegradedOutput:
+    def test_manuscript_writer_degraded_output_uses_library_citations(self):
+        ctx = _make_ctx(
+            inputs={
+                "task_focus": "写作 SCI manuscript",
+                "topic": "federated fine-tuning of large language models",
+                "library_context": {
+                    "citation_keys": ["fedllm2026", "flora2024"],
+                    "citable_sources": [
+                        {"citation_key": "fedllm2026", "title": "FedLLM"},
+                        {"citation_key": "flora2024", "title": "FLoRA"},
+                    ],
+                },
+            },
+            skill=_make_skill(prompt="manuscript writer"),
+        )
+
+        text = _build_degraded_react_text(ctx, RuntimeError("502 Bad Gateway"))
+
+        assert "\\documentclass" in text
+        assert "\\cite{fedllm2026}" in text
+        assert "\\cite{flora2024}" in text
+        assert "\\bibliography{refs}" in text
+        assert "Bad Gateway" not in text
+        assert "configured model provider" not in text
 
 
 # ---------------------------------------------------------------------------

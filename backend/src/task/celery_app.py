@@ -38,7 +38,7 @@ celery_app.conf.update(
         "src.task.tasks.execute_task": {"queue": "default"},
         "src.task.tasks.execute_run": {"queue": "long_running"},
         "src.task.tasks.execute_execution": {"queue": "long_running"},
-        "src.task.tasks.capture_memory": {"queue": "default"},
+        "src.task.tasks.capture_memory": {"queue": "memory"},
     },
 
     # Queue definitions
@@ -54,6 +54,10 @@ celery_app.conf.update(
         "priority": {
             "exchange": "tasks",
             "routing_key": "task.priority",
+        },
+        "memory": {
+            "exchange": "tasks",
+            "routing_key": "task.memory",
         },
     },
 

@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-05-22
+更新时间：2026-05-27
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
@@ -100,7 +100,7 @@
 User action
   -> workspace ChatPanel / tool intent
   -> thread run stream
-  -> chat agent launch intent
+  -> Chat Agent launch intent
   -> launch_feature tool
   -> chat tool_result launch receipt
   -> ExecutionRecord create
@@ -292,9 +292,13 @@ User action
 - capability skill seed 必须是 `schema_version: capability_skill.v2`
 - `CapabilityLoader` / admin save / DataService Catalog 写入路径使用同一套 v2 schema
 - capability skills 由 `CapabilitySkillPreloadMiddleware` 注入 task spec / prompt 上下文
+- 多步 capability graph 必须用阶段依赖表达执行顺序；下游写作、审查和制图节点通过 `upstream_outputs: "{{phases}}"` 消费上游 planner/search/analysis 输出，避免同 phase 并行导致上下文丢失
+- skill seed 的 `role_prompt` 必须是可执行 instruction pack，包含 operating rules、output contract 和领域 quality gates；内容设计记录见 `docs/current/capability-skill-content-optimization.md`
 - `LeadAgentRuntime` 将 `mission`、`context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 注入 `capability_policy`
 - Compute 从 `sandbox_policy.mode` 推导 sandbox requirement
 - `OutputMappingResolver` 是结构化输出映射事实源
+- Chat Agent 不持有 sandbox provider、sandbox state、bash/file tools 或 sandbox middleware；它只能通过 `launch_feature` 调度 capability
+- Sandbox execution 只能由 Lead Agent graph 内的 subagent 节点根据 `capability_policy.sandbox_policy` 显式触发
 
 当前工作台里 `feature_id` 仅为传输字段名，不再代表旧 workflow catalog。执行事实源为：
 
@@ -319,16 +323,24 @@ User action
 
 ### 6.2 Rooms
 
-当前 8 个 rooms：
+当前用户可见 rooms：
 
 - Library
 - Documents
 - Decisions
 - Memory
 - Run History
-- Sandbox
 - Tasks
 - Settings
+
+Sandbox 是 Lead Agent / subagent-operated infrastructure，不是用户可操作 room。公开 workspace API 不提供任意 sandbox exec；Chat Agent 不 acquire sandbox，也不暴露 bash/file execution tools。DataService sandbox environment / job / artifact 只作为 Lead Agent、subagent 和 Compute projection 的内部事实源。用户通过 execution/run detail 查看只读 sandbox traces、日志摘要、脚本、产物和 provenance。
+
+当前代码边界：
+
+- sandbox provider primitives：`backend/src/sandbox/providers/`
+- Lead-owned sandbox runtime：`backend/src/agents/lead_agent/v2/sandbox_runtime.py`
+- sandbox subagent：`backend/src/subagents/v2/types/sandbox.py`
+- hidden diagnostic capability：`backend/seed/capabilities/sci/internal_sandbox_smoke.yaml`
 
 ### 6.3 Prism Manuscript Domain
 

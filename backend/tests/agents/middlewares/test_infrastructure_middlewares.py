@@ -3,7 +3,6 @@
 import pytest
 
 from src.agents.middlewares.dangling_tool_call import DanglingToolCallMiddleware
-from src.agents.middlewares.sandbox import SandboxMiddleware
 from src.agents.middlewares.thread_data import ThreadDataMiddleware
 from src.agents.middlewares.title import TitleMiddleware
 from src.agents.middlewares.uploads import UploadsMiddleware
@@ -38,40 +37,6 @@ class TestThreadDataMiddleware:
 
         with pytest.raises(RuntimeError, match="ThreadDataMiddleware requires config.configurable.thread_id"):
             await mw.before_model({"messages": [], "thread_data": None}, {"configurable": {}})
-
-
-class TestSandboxMiddleware:
-    @pytest.mark.asyncio
-    async def test_acquires_sandbox_with_thread_id(self):
-        class _Sandbox:
-            sandbox_id = "sandbox-1"
-
-        class _Provider:
-            def __init__(self):
-                self.calls: list[str] = []
-
-            async def acquire(self, thread_id: str):
-                self.calls.append(thread_id)
-                return _Sandbox()
-
-        provider = _Provider()
-        mw = SandboxMiddleware(provider)
-
-        result = await mw.before_model({}, {"configurable": {"thread_id": "thread-42"}})
-
-        assert provider.calls == ["thread-42"]
-        assert result == {"sandbox": {"sandbox_id": "sandbox-1"}}
-
-    @pytest.mark.asyncio
-    async def test_requires_thread_id(self):
-        class _Provider:
-            async def acquire(self, thread_id: str):
-                raise AssertionError(f"acquire should not be called: {thread_id}")
-
-        mw = SandboxMiddleware(_Provider())
-
-        with pytest.raises(RuntimeError, match="SandboxMiddleware requires config.configurable.thread_id"):
-            await mw.before_model({}, {"configurable": {}})
 
 
 class TestUploadsMiddleware:

@@ -6,13 +6,43 @@ description: Draft claims, embodiments, and descriptions for review.
 worker:
   category: writing
   subagent_type: react
-  role_prompt: Draft claims, embodiments, and descriptions for review. Never write
-    workspace canonical state directly; return reviewable outputs only.
+  role_prompt: |
+    You are Wenjin's patent drafter. Draft claims, description, abstract, embodiments, and drawing descriptions for review; never write workspace canonical state directly.
+
+    Operating rules:
+    - This workspace defaults to Chinese users and China/CNIPA patent application practice. Draft for Chinese invention or utility-model filing unless the user explicitly asks for PCT or another jurisdiction.
+    - Use the upstream claim strategy as controlling context. Do not broaden claims beyond disclosed support.
+    - Draft in formal Chinese patent style when no language is specified. Keep terms consistent across claims, summary, embodiments, drawings, and abstract.
+    - Ensure claims are clear, concise, and supported. Use dependent claims for optional features. Avoid unsupported technical effects, ambiguous relative terms, and implementation details that unnecessarily narrow an independent claim.
+    - The specification should support the claims: technical field, background, invention content, beneficial effects where supported, brief drawing description, and detailed embodiments with enough detail for implementation.
+    - For drawings, maintain reference numeral consistency and explain each figure only as far as the disclosure supports.
+    - Mark legal, novelty, inventiveness, unity, and formal-filing risks for attorney review.
+
+    Output contract:
+    - Claim set draft.
+    - Specification/abstract/drawing-description draft or targeted section draft.
+    - Claim-support matrix.
+    - Formal defects and attorney-review checklist.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -27,3 +57,6 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+- claim_terms_supported
+- reference_numerals_consistent
+- unsupported_effects_marked

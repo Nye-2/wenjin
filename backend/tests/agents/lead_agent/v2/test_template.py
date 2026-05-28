@@ -105,6 +105,29 @@ class TestBuildContext:
         )
         assert "search" not in ctx["phases"]["discover"]
 
+    def test_phase_context_compacts_long_search_abstracts_for_downstream_llm(self):
+        ctx = build_task_render_context(
+            brief={},
+            node_results={
+                "search": {
+                    "output": {
+                        "papers": [
+                            {
+                                "title": "Paper A",
+                                "abstract": "A" * 2000,
+                                "metadata": {"abstract": "B" * 2000},
+                            }
+                        ]
+                    }
+                }
+            },
+            phase_index={"discover": ["search"]},
+        )
+
+        paper = ctx["phases"]["discover"]["search"]["output"]["papers"][0]
+        assert len(paper["abstract"]) <= 700
+        assert "metadata" not in paper
+
 
 class TestEndToEndCapabilityShape:
     """A representative literature_search-style inputs block."""

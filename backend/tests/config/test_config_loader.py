@@ -60,7 +60,7 @@ class TestConfigLoader:
         config = load_config(str(cfg_path))
         assert config.subagents.enabled is False
         assert config.memory.enabled is False
-        assert config.sandbox is None
+        assert not hasattr(config, "sandbox")
         assert config.billing.thread.enabled is True
         assert config.billing.thread.free_tokens == 100000
         assert config.billing.thread.tokens_per_credit == 10000

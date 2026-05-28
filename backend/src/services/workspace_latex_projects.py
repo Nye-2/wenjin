@@ -315,22 +315,12 @@ class WorkspaceLatexProjectService:
         await self._safe_bridge_write(
             linked_project,
             workspace_id=workspace_id,
-            relative_path="references.bib",
+            relative_path="refs.bib",
             content=bib_tex,
-            logical_key="project:references",
+            logical_key="project:refs",
             metadata=project_metadata,
             allow_existing_write=created_linked_project,
         )
-        if bib_tex.strip():
-            await self._safe_bridge_write(
-                linked_project,
-                workspace_id=workspace_id,
-                relative_path="refs.bib",
-                content=bib_tex,
-                logical_key="project:refs_alias",
-                metadata=project_metadata,
-                allow_existing_write=created_linked_project,
-            )
         update_payload: dict[str, Any] = {
             "name": project_name,
             "main_file": main_file,
@@ -659,7 +649,7 @@ class WorkspaceLatexProjectService:
                 (f"\\noindent\\textbf{{Keywords}}: {keyword_line}\n" if keyword_line else ""),
                 *section_inputs,
                 "\\bibliographystyle{plain}",
-                "\\bibliography{references}",
+                "\\bibliography{refs}",
                 "\\end{document}",
             ]
         )

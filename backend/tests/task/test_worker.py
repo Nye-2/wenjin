@@ -156,3 +156,10 @@ def test_start_worker_coerces_solo_pool_concurrency(monkeypatch):
     assert len(calls) == 1
     assert "--concurrency=1" in calls[0]
     assert "--pool=solo" in calls[0]
+
+
+def test_parse_worker_cli_args_accepts_queue_list():
+    args = worker_module.parse_worker_cli_args(["2", "--queues", "long_running,default"])
+
+    assert args.concurrency == 2
+    assert args.queues == ["long_running", "default"]

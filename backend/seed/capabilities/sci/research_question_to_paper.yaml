@@ -34,6 +34,50 @@ inputs:
         type: string
       deliverable:
         type: string
+      topic:
+        type: string
+        description: 核心主题、题目或技术方向。
+      query:
+        type: string
+        description: 检索关键词或需要展开的问题。
+      raw_message:
+        type: string
+        description: 用户原始请求文本。
+      target_format:
+        type: string
+        description: 学校、期刊、基金、软著或专利模板要求。
+      audience:
+        type: string
+        description: 目标读者、评审人或审查场景。
+      constraints:
+        type: string
+        description: 页数、语言、截止日期、格式和禁止事项。
+      existing_materials_summary:
+        type: string
+        description: 已有文献、数据、代码、草稿或证明材料摘要。
+      source_guidelines:
+        type: array
+        items:
+          type: string
+        description: 用户指定或系统识别的规范、指南、标准或官方来源。
+      target_journal:
+        type: string
+        description: 目标期刊或备选期刊。
+      article_type:
+        type: string
+        description: Original Article/Review/Case Study/Short Communication 等。
+      reporting_guideline:
+        type: string
+        description: 适用 reporting guideline，如 PRISMA、CONSORT、STROBE、ARRIVE、SAGER 等。
+      study_design:
+        type: string
+        description: 实验、观察、建模、综述或方法学研究设计。
+      data_assets:
+        type: string
+        description: 数据、代码、实验记录、图表或补充材料。
+      submission_constraints:
+        type: string
+        description: 字数、图表数量、开放数据、伦理、cover letter 等要求。
 context_policy:
   room_reads:
     library: summary
@@ -91,24 +135,121 @@ quality_gates:
 - no_direct_primary_document_write
 - provenance_required_for_claims
 - protected_sections_readonly
+- upstream_outputs_must_be_used
+- unsupported_claims_marked_for_user_decision
+- result_card_review_before_commit
+- reporting_guideline_checked
+- imrad_or_journal_structure_respected
+- methods_results_discussion_consistent
+- data_code_availability_considered
 graph_template:
   phases:
-  - name: mission_execution
+  - name: step_01_manuscript_architect
     tasks:
     - name: manuscript_architect
       subagent_type: react
       skill_id: manuscript-architect
-      inputs: {}
+      inputs:
+        task_focus: 建立章节结构、论证链、section contract、claim-evidence-citation plan；优先使用 library_context 中已有文献作为引用事实源。
+        capability_name: 问题到 SCI 初稿
+        capability_goal: produce_or_update_primary_document
+        workspace_type: sci
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        library_context: '{{library_context}}'
+        citation_context: '{{citation_context}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_02_evidence_analyst
+    depends_on:
+    - step_01_manuscript_architect
+    tasks:
     - name: evidence_analyst
       subagent_type: react
       skill_id: evidence-analyst
-      inputs: {}
+      inputs:
+        task_focus: 规划或核验数据、实验、代码、截图和量化结论，标明可复现证据与限制。
+        capability_name: 问题到 SCI 初稿
+        capability_goal: produce_or_update_primary_document
+        workspace_type: sci
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        library_context: '{{library_context}}'
+        citation_context: '{{citation_context}}'
+        upstream_outputs: '{{phases}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_03_sandbox_method_probe
+    depends_on:
+    - step_02_evidence_analyst
+    tasks:
+    - name: sandbox_method_probe
+      subagent_type: sandbox_python
+      skill_id: manuscript-sandbox-probe
+      inputs:
+        operation: python_script
+        node_id: research_question_to_paper__sandbox_method_probe
+        script_name: method_probe.py
+        upstream_outputs: '{{phases}}'
+        script: |
+          import json
+
+          # Deterministic communication-cost probe for federated LLM
+          # fine-tuning manuscripts. This is a method sanity check and
+          # should not be written as experimental evidence without real data.
+          base_params = 7_000_000_000
+          adapter_params = 16_000_000
+          bytes_per_param = 2
+          client_counts = [10, 50, 100]
+          round_counts = [20, 50]
+          scenarios = []
+          for clients in client_counts:
+              for rounds in round_counts:
+                  full_transfer = base_params * bytes_per_param * clients * rounds
+                  adapter_transfer = adapter_params * bytes_per_param * clients * rounds
+                  scenarios.append({
+                      "clients": clients,
+                      "rounds": rounds,
+                      "full_tuning_gb": round(full_transfer / (1024 ** 3), 2),
+                      "adapter_tuning_gb": round(adapter_transfer / (1024 ** 3), 2),
+                      "communication_reduction": round(full_transfer / adapter_transfer, 1),
+                  })
+          print(json.dumps({
+              "probe": "federated_instruction_tuning_adapter_cost",
+              "scenarios": scenarios,
+              "required_user_confirmation": [
+                  "target model size",
+                  "adapter rank/trainable parameters",
+                  "client count and round budget",
+                  "dataset and evaluation protocol",
+              ],
+              "claim_boundary": "Sandbox probe is a reproducibility scaffold, not final empirical evidence.",
+          }, ensure_ascii=False))
+      outputs:
+      - kind: document
+        default_checked: true
+        mapping:
+          name: SCI 方法沙盒探针.md
+          doc_kind: analysis_report
+          content: '{{output.report_markdown}}'
+      prompt_template: '{{raw_message}}'
+  - name: step_04_manuscript_writer
+    depends_on:
+    - step_03_sandbox_method_probe
+    tasks:
     - name: manuscript_writer
       subagent_type: react
       skill_id: manuscript-writer
-      inputs: {}
+      inputs:
+        task_focus: 基于上游结构、证据与 Library citation context 写作或修订主稿；正文中的背景、相关工作、方法比较和非显然论断必须优先引用 library_context.citable_sources 的 citation_key；不得发明 citation key；主稿必须包含 \bibliographystyle{plain} 和 \bibliography{refs}。
+        capability_name: 问题到 SCI 初稿
+        capability_goal: produce_or_update_primary_document
+        workspace_type: sci
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        library_context: '{{library_context}}'
+        citation_context: '{{citation_context}}'
+        upstream_outputs: '{{phases}}'
       outputs:
       - kind: prism_file_change
         default_checked: true
@@ -118,9 +259,32 @@ graph_template:
           content_format: latex_document
           reason: feature_proposal
           pending_content: '{{output.text}}'
+      prompt_template: '{{raw_message}}'
+  - name: step_05_citation_auditor
+    depends_on:
+    - step_04_manuscript_writer
+    tasks:
     - name: citation_auditor
       subagent_type: react
       skill_id: citation-auditor
-      inputs: {}
+      inputs:
+        task_focus: 审查文本中的事实/方法/数值论断是否有可靠来源支撑，重点检查正文 \cite{...} 是否来自 library_context.citation_keys，且 Prism 的 refs.bib 能覆盖这些引用。
+        capability_name: 问题到 SCI 初稿
+        capability_goal: produce_or_update_primary_document
+        workspace_type: sci
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        library_context: '{{library_context}}'
+        citation_context: '{{citation_context}}'
+        upstream_outputs: '{{phases}}'
       outputs: []
-extensions: {}
+      prompt_template: '{{raw_message}}'
+extensions:
+  content_strategy:
+    workflow_pattern: sequential_upstream_context
+    strategy: ICMJE/IMRaD manuscript preparation, EQUATOR/PRISMA-style reporting-guideline awareness, and reproducibility checks.
+    source_notes:
+    - ICMJE manuscript sections
+    - EQUATOR reporting guideline lookup
+    - PRISMA 2020 for systematic reviews when applicable
+    - FAIR/TOP reproducibility concepts

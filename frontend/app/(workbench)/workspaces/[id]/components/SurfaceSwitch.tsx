@@ -28,25 +28,40 @@ export function SurfaceSwitch({ workspaceId, active }: SurfaceSwitchProps) {
   );
 
   return (
-    <div
-      role="tablist"
-      aria-label={ariaLabel}
-      className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--v2-border-soft)] bg-[rgba(255,255,255,0.72)] px-3 py-2 backdrop-blur-xl sm:px-4"
-    >
-      <SurfaceTab
-        href={`/workspaces/${workspaceId}`}
-        active={active === "workbench"}
+    <header className="wjn-topbar flex shrink-0 items-center justify-between gap-3 px-3 py-2 sm:px-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] border border-[var(--wjn-line)] bg-white text-[13px] font-semibold text-[var(--wjn-accent-strong)] shadow-[var(--wjn-shadow-sm)]">
+          问
+        </div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-[var(--wjn-text)]">
+            Wenjin
+          </div>
+          <div className="hidden truncate text-[11px] text-[var(--wjn-text-muted)] sm:block">
+            Research Navigation System
+          </div>
+        </div>
+      </div>
+      <nav
+        role="tablist"
+        aria-label={ariaLabel}
+        className="flex shrink-0 items-center gap-1 overflow-x-auto rounded-[10px] border border-[var(--wjn-line)] bg-white/75 p-1"
       >
-        {workbenchLabel}
-      </SurfaceTab>
-      <SurfaceTab
-        href={`/workspaces/${workspaceId}/prism`}
-        active={active === "prism"}
-        badge={prismPendingCount}
-      >
-        {prismLabel}
-      </SurfaceTab>
-    </div>
+        <SurfaceTab
+          href={`/workspaces/${workspaceId}`}
+          active={active === "workbench"}
+        >
+          {workbenchLabel}
+        </SurfaceTab>
+        <SurfaceTab
+          href={`/workspaces/${workspaceId}/prism`}
+          active={active === "prism"}
+          badge={prismPendingCount}
+        >
+          {prismLabel}
+        </SurfaceTab>
+      </nav>
+    </header>
   );
 }
 
@@ -67,10 +82,10 @@ function SurfaceTab({
       aria-selected={active}
       href={href}
       className={[
-        "inline-flex h-8 shrink-0 items-center rounded-[var(--v2-radius-pill)] px-3 text-sm font-medium transition-colors",
+        "inline-flex h-7 shrink-0 items-center rounded-[7px] px-3 text-[12.5px] font-semibold transition-colors",
         active
-          ? "bg-[var(--v2-accent-purple-100)] text-[var(--v2-accent-purple-700)]"
-          : "text-[var(--v2-text-secondary)] hover:bg-[rgba(20,20,30,0.06)] hover:text-[var(--v2-text-primary)]",
+          ? "bg-[var(--wjn-accent-soft)] text-[var(--wjn-accent-strong)]"
+          : "text-[var(--wjn-text-secondary)] hover:bg-[rgba(15,23,42,0.05)] hover:text-[var(--wjn-text)]",
       ].join(" ")}
     >
       {children}
@@ -82,7 +97,7 @@ function SurfaceTab({
             height: 16,
             borderRadius: 8,
             padding: "0 5px",
-            background: "var(--v2-accent-purple-700)",
+            background: "var(--wjn-review)",
             color: "#fff",
             fontSize: 10,
             lineHeight: "16px",

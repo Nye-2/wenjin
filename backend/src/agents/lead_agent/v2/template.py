@@ -30,6 +30,17 @@ from typing import Any
 
 _TEMPLATE_PATTERN = re.compile(r"\{\{(.+?)\}\}")
 _DEFAULT_FILTER_PATTERN = re.compile(r"^\s*default\s*\(\s*(.+?)\s*\)\s*$")
+_MAX_RENDER_CONTEXT_STRING = 700
+_MAX_RENDER_CONTEXT_LIST = 16
+_DROP_RENDER_CONTEXT_KEYS = frozenset(
+    {
+        "metadata",
+        "metadata_json",
+        "raw",
+        "raw_json",
+        "full_text",
+    }
+)
 
 
 def _is_pure_template(value: str) -> bool:
@@ -131,6 +142,34 @@ def render_template(value: Any, ctx: dict[str, Any]) -> Any:
     return value
 
 
+def _compact_string_for_render(value: str) -> str:
+    if len(value) <= _MAX_RENDER_CONTEXT_STRING:
+        return value
+    return value[: _MAX_RENDER_CONTEXT_STRING - 1].rstrip() + "…"
+
+
+def _compact_node_result_for_render(value: Any) -> Any:
+    """Bound upstream context before it is injected into downstream LLM inputs."""
+    if isinstance(value, str):
+        return _compact_string_for_render(value)
+
+    if isinstance(value, list):
+        return [
+            _compact_node_result_for_render(item)
+            for item in value[:_MAX_RENDER_CONTEXT_LIST]
+        ]
+
+    if isinstance(value, dict):
+        compacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) in _DROP_RENDER_CONTEXT_KEYS:
+                continue
+            compacted[key] = _compact_node_result_for_render(item)
+        return compacted
+
+    return value
+
+
 def build_task_render_context(
     *,
     brief: dict[str, Any],
@@ -151,7 +190,7 @@ def build_task_render_context(
         for task_name in task_names:
             entry = node_results.get(task_name)
             if isinstance(entry, dict):
-                bucket[task_name] = entry
+                bucket[task_name] = _compact_node_result_for_render(entry)
         phases_ctx[phase_name] = bucket
     ctx["phases"] = phases_ctx
     return ctx

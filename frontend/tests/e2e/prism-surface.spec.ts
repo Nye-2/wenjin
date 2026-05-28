@@ -31,8 +31,16 @@ test("workspace Prism surface stays usable on mobile without extra room reloads"
     "aria-selected",
     "true",
   );
-  await expect(page.getByText("Prism 待确认写入")).toBeVisible();
-  await expect(page.locator("textarea").last()).toBeVisible();
+  await expect(page.getByText("Prism 审阅")).toBeVisible();
+  await expect(page.getByText("PDF 默认收起，可切换到对照查看")).toBeVisible();
+  await expect(page.locator(".monaco-editor")).toBeVisible();
+  await expect
+    .poll(() =>
+      page
+        .locator(".monaco-editor")
+        .evaluate((element) => element.getBoundingClientRect().height),
+    )
+    .toBeGreaterThan(240);
 
   expect(requestedPaths).toContain("/api/workspaces/ws-1/events");
   expect(

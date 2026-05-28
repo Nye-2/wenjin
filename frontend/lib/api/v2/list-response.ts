@@ -16,12 +16,3 @@ export function readItemsArray<T>(
 
   throw new Error(`Invalid ${resourceName} response`);
 }
-
-export function readOptionalActiveItem<T>(payload: unknown): T[] | null {
-  if (!isRecord(payload) || !("active" in payload)) {
-    return null;
-  }
-
-  const active = payload.active;
-  return active ? [active as T] : [];
-}

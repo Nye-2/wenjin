@@ -9,7 +9,6 @@ from langgraph.types import Command
 
 from src.agents.chat_agent.dynamic_tools import DynamicToolNode
 from src.agents.middlewares.base import Middleware
-from src.agents.middlewares.sandbox_audit import SandboxAuditMiddleware
 from src.agents.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
 
 
@@ -119,48 +118,6 @@ async def test_dynamic_tool_node_before_tool_error_returns_tool_message():
     assert isinstance(tool_message, ToolMessage)
     assert getattr(tool_message, "status", None) == "error"
     assert "blocked by middleware" in str(tool_message.content)
-    assert called["value"] is False
-
-
-@pytest.mark.asyncio
-async def test_dynamic_tool_node_enforces_sandbox_audit_block():
-    called = {"value": False}
-
-    @tool("bash")
-    async def fake_bash(command: str) -> str:
-        """Fake bash tool for middleware integration checks."""
-        called["value"] = True
-        return f"ran: {command}"
-
-    node = DynamicToolNode(
-        lambda: [fake_bash],
-        middlewares=[SandboxAuditMiddleware()],
-    )
-
-    result = await node.ainvoke(
-        {
-            "messages": [
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": "bash",
-                            "args": {"command": "rm -rf /"},
-                            "id": "call-audit-1",
-                            "type": "tool_call",
-                        }
-                    ],
-                )
-            ]
-        },
-        config={"configurable": {"thread_id": "thread-1", "tool_call_id": "call-audit-1"}},
-        store=None,
-    )
-
-    tool_message = result["messages"][-1]
-    assert isinstance(tool_message, ToolMessage)
-    assert getattr(tool_message, "status", None) == "error"
-    assert "Command blocked by sandbox audit" in str(tool_message.content)
     assert called["value"] is False
 
 

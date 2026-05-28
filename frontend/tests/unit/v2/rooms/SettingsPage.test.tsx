@@ -30,22 +30,10 @@ const MOCK_DECISIONS = [
   },
 ];
 
-const MOCK_EXECUTIONS = [
-  {
-    id: "exec-1",
-    code: "print('hello')",
-    language: "python",
-    output: "hello\n",
-    status: "completed" as const,
-    created_at: "2026-01-12T10:00:00Z",
-  },
-];
-
 function mockFetch(overrides?: Record<string, unknown>) {
   const defaults: Record<string, unknown> = {
     "/api/workspaces/ws-1/memory": MOCK_MEMORY_FACTS,
     "/api/workspaces/ws-1/decisions": MOCK_DECISIONS,
-    "/api/workspaces/ws-1/sandbox/executions": MOCK_EXECUTIONS,
     "/api/workspaces/ws-1/settings": {
       name: "Test Workspace",
       auto_compact_threshold: 0.8,
@@ -58,23 +46,6 @@ function mockFetch(overrides?: Record<string, unknown>) {
     // Handle DELETE requests
     if (opts?.method === "DELETE") {
       return Promise.resolve({ ok: true });
-    }
-    // Handle POST to sandbox
-    if (
-      opts?.method === "POST" &&
-      url.includes("/sandbox/exec")
-    ) {
-      const body = JSON.parse(opts.body as string);
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            sandbox_id: "exec-new",
-            command: body.command,
-            status: "queued",
-            note: "execution result",
-          }),
-      });
     }
     // Handle POST/PUT to settings
     if (
@@ -116,7 +87,7 @@ describe("SettingsPage", () => {
     expect(screen.queryByTestId("settings-page")).not.toBeInTheDocument();
   });
 
-  it("renders with 4 tabs", () => {
+  it("renders with 3 tabs", () => {
     global.fetch = mockFetch();
     render(
       <SettingsPage
@@ -130,7 +101,7 @@ describe("SettingsPage", () => {
     expect(screen.getByTestId("settings-tabs")).toBeInTheDocument();
     expect(screen.getByTestId("tab-memory")).toBeInTheDocument();
     expect(screen.getByTestId("tab-decisions")).toBeInTheDocument();
-    expect(screen.getByTestId("tab-sandbox")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-sandbox")).not.toBeInTheDocument();
     expect(screen.getByTestId("tab-settings")).toBeInTheDocument();
   });
 
@@ -150,10 +121,6 @@ describe("SettingsPage", () => {
     // Switch to Decisions
     fireEvent.click(screen.getByTestId("tab-decisions"));
     expect(screen.getByTestId("decisions-viewer")).toBeInTheDocument();
-
-    // Switch to Sandbox
-    fireEvent.click(screen.getByTestId("tab-sandbox"));
-    expect(screen.getByTestId("sandbox-console")).toBeInTheDocument();
 
     // Switch to Settings (loads settings data async)
     fireEvent.click(screen.getByTestId("tab-settings"));
@@ -195,31 +162,6 @@ describe("SettingsPage", () => {
     expect(screen.getByText("microservices")).toBeInTheDocument();
     expect(screen.getByText("Better scalability for the team size")).toBeInTheDocument();
     expect(screen.getByTestId("decision-item")).toBeInTheDocument();
-  });
-
-  it("SandboxConsole runs code", async () => {
-    global.fetch = mockFetch();
-    render(
-      <SettingsPage
-        workspaceId="ws-1"
-        open={true}
-        onClose={vi.fn()}
-      />,
-    );
-
-    // Switch to Sandbox tab
-    fireEvent.click(screen.getByTestId("tab-sandbox"));
-
-    await screen.findByTestId("sandbox-editor");
-
-    const editor = screen.getByTestId("sandbox-editor");
-    fireEvent.change(editor, { target: { value: "print('test')" } });
-
-    const runButton = screen.getByTestId("sandbox-run");
-    fireEvent.click(runButton);
-
-    await screen.findByText("execution result");
-    expect(screen.getByText("execution result")).toBeInTheDocument();
   });
 
   it("SettingsForm saves settings", async () => {

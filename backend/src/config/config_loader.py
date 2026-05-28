@@ -33,7 +33,7 @@ class ToolConfig(BaseModel):
     def model_post_init(self, __context: object) -> None:
         """Derive name from ``use`` path when not explicitly set."""
         if not self.name and self.use:
-            # "src.tools.builtins.bash:bash_tool" → "bash_tool"
+            # "src.tools.builtins.references:search_reference_text_units_tool" → "search_reference_text_units_tool"
             self.name = self.use.rsplit(":", 1)[-1] if ":" in self.use else self.use
 
 
@@ -73,11 +73,6 @@ class MemoryConfig(BaseModel):
     max_context_turns: int = 3
     similarity_weight: float = 0.6
     confidence_weight: float = 0.4
-
-
-class SandboxConfig(BaseModel):
-    """Sandbox configuration."""
-    use: str  # e.g., "src.sandbox.providers.local:LocalSandboxProvider"
 
 
 class SkillsConfig(BaseModel):
@@ -183,7 +178,6 @@ class AppConfig(BaseModel):
         return v  # type: ignore[return-value]
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
-    sandbox: SandboxConfig | None = None
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     middlewares: MiddlewaresConfig = Field(default_factory=MiddlewaresConfig)
     circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)

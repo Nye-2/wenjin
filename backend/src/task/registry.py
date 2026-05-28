@@ -25,6 +25,7 @@ class TaskQueue(StrEnum):
     DEFAULT = "default"
     LONG_RUNNING = "long_running"
     PRIORITY = "priority"
+    MEMORY = "memory"
 
 
 DOCUMENT_PREPROCESS_TASK = "document_preprocess"

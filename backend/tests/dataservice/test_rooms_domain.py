@@ -171,7 +171,14 @@ async def test_decision_set_supersedes_previous_active_value() -> None:
     active = await service.list_active_decisions("ws-1")
 
     assert repository.decisions[old.id].superseded_by == new.id
-    assert active == {"citation_style": "APA"}
+    assert len(active) == 1
+    assert active[0].id == new.id
+    assert active[0].workspace_id == "ws-1"
+    assert active[0].key == "citation_style"
+    assert active[0].value == "APA"
+    assert active[0].confidence == 1.0
+    assert active[0].extracted_by == "user"
+    assert active[0].created_at == new.created_at
     assert session.commit_count == 2
 
 

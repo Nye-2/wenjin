@@ -111,10 +111,10 @@ class _FakeDataServiceClient:
         result = await self._db.execute(None)
         return result.scalars().all()
 
-    async def list_room_decisions(self, workspace_id: str) -> dict[str, str]:
+    async def list_room_decisions(self, workspace_id: str) -> list[SimpleNamespace]:
         _ = workspace_id
         await self._db.execute(None)
-        return {}
+        return []
 
     async def list_room_memory_facts(self, *, workspace_id: str, limit: int = 15, category: str | None = None):
         _ = workspace_id

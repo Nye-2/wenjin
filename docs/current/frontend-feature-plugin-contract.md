@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-05-22
+更新时间: 2026-05-27
 
 本文档定义 workspace capability 入口兼容层的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
 
@@ -93,9 +93,10 @@
   - 生成首条可编辑 prompt
   - 在第一次 chat turn 中把 `metadata.orchestration.feature_id + entry + params` 一并发给后端
 - 后端职责:
-  - 所有 chat turns 统一进入 lead-agent（`create_react_agent`）
-  - lead-agent 根据 workspace skills 上下文判断是否调用 `launch_feature` tool
+  - 所有 chat turns 统一进入 Chat Agent（`create_react_agent`）
+  - Chat Agent 根据 workspace mission catalog / skills 上下文判断是否调用 `launch_feature` tool
   - `launch_feature` tool 创建或复用 `ExecutionRecord`，并分发 `execute_execution(execution_id)`
+  - sandbox-backed work 不允许在 Chat Agent tool/middleware 中执行；它必须在 `execute_execution` 后进入 LeadAgentRuntime / subagent graph，根据 capability `sandbox_policy` 执行
   - thread run stream 必须把 `launch_feature` 的 `tool_invocation` / `tool_result` 发回前端
   - `tool_result.status == "launched"` 时必须携带 `execution_id`、`feature_id`，并尽量携带 `capability_name`
   - 在 `metadata.orchestration.execution_id` 存在时，走 ingress resume 继续同一 execution
@@ -152,6 +153,8 @@
 ## 6. Compute Runtime Notes
 
 - 执行态 UI 以 Compute projection 为主展示面；`ExecutionRecord`、task、subagent、runtime blocks、sandbox files、logs、artifacts 和 canonical Prism review items 是 projection 的事实来源。
+- Sandbox files/logs/artifacts 在前端只能作为 execution/run detail 的只读 trace 展示，不提供用户侧代码 console 或公开任意执行入口。
+- 公共 capability 目录接口（`/api/capabilities` 与 workspace-scoped capability list）必须过滤 `entry_tier: hidden` / hidden tier capability；这类 capability 只用于内部诊断或自动化验证，不作为用户卡片展示。
 - Thread message 只承载发起、追问、完成摘要和 pointer metadata，不用于恢复当前执行状态。
 - Thread message 的 `metadata.orchestration.execution_id` 只用作归属锚点，不替代 `ExecutionRecord` 的实时状态。
 - LiveWorkflowPanel 必须能从 `/api/workspaces/{workspace_id}/compute/sessions` 和 `/api/compute/sessions/{compute_session_id}/projection` 恢复任务状态。

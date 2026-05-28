@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Annotated, Any, TypedDict
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import (
@@ -22,6 +25,7 @@ from src.agents.lead_agent.v2.output_mapping import (
     OutputMappingResolver,
     resolve_output_mapping_value,
 )
+from src.dataservice_client.provider import dataservice_client
 from src.services.capability_resolver import CapabilityResolver
 from src.services.prism_file_content import normalize_prism_file_change_content
 
@@ -98,6 +102,16 @@ def _stringify_memory_value(value: Any) -> str | None:
     return text[:500]
 
 
+def _ensure_latex_bibliography_call(content: str) -> str:
+    """Ensure a complete LaTeX manuscript points at Prism's Library BibTeX file."""
+    if "\\bibliography{" in content or "\\printbibliography" in content:
+        return content
+    insertion = "\n\\bibliographystyle{plain}\n\\bibliography{refs}\n"
+    if "\\end{document}" in content:
+        return content.replace("\\end{document}", f"{insertion}\\end{{document}}", 1)
+    return f"{content.rstrip()}\n{insertion}\n"
+
+
 class ExecutionState(TypedDict, total=False):
     """LangGraph state threaded through all subagent nodes."""
 
@@ -128,6 +142,7 @@ class LeadAgentRuntime:
         publish_event: Callable | None = None,
         get_workspace_type: Callable | None = None,
         redis: Any | None = None,
+        db: AsyncSession | None = None,
         set_graph_structure: Callable | None = None,
         record_node_event: Callable | None = None,
     ) -> None:
@@ -162,6 +177,7 @@ class LeadAgentRuntime:
         self.publish_event = publish_event or _noop_publish
         self.get_workspace_type = get_workspace_type or _stub_get_ws_type
         self.redis = redis
+        self.db = db
         self.set_graph_structure = set_graph_structure
         self.record_node_event = record_node_event or _noop_record_node
 
@@ -200,14 +216,25 @@ class LeadAgentRuntime:
             except Exception:
                 logger.warning("Failed to persist graph_structure", exc_info=True)
 
+        capability_policy = self._capability_policy(cap)
+        workspace_data = (
+            await self._load_workspace_data(brief.workspace_id)
+            if self._needs_library_context(capability_policy)
+            else {}
+        )
+
         # Assemble initial state
         initial_state: ExecutionState = {
             "workspace_id": brief.workspace_id,
             "execution_id": execution_id,
-            "inputs_for_tasks": self._distribute_brief(brief, cap),
-            "workspace_data": {},
+            "inputs_for_tasks": self._distribute_brief(
+                brief,
+                cap,
+                workspace_data=workspace_data,
+            ),
+            "workspace_data": workspace_data,
             "node_results": {},
-            "capability_policy": self._capability_policy(cap),
+            "capability_policy": capability_policy,
         }
 
         # Compile + Execute — both are wrapped so unknown subagent_type is also caught
@@ -263,6 +290,10 @@ class LeadAgentRuntime:
                 brief=brief,
                 execution_id=execution_id,
             )
+            await self._sync_prism_bibliography(
+                brief=brief,
+                state=final_state,
+            )
         review_items = await self._load_review_items_for_execution(
             workspace_id=brief.workspace_id,
             execution_id=execution_id,
@@ -302,6 +333,75 @@ class LeadAgentRuntime:
             "sandbox_policy": dict(definition.get("sandbox_policy") or {}),
             "review_policy": dict(definition.get("review_policy") or {}),
             "quality_gates": list(definition.get("quality_gates") or []),
+        }
+
+    @staticmethod
+    def _needs_library_context(capability_policy: dict[str, Any]) -> bool:
+        context_policy = capability_policy.get("context_policy")
+        if not isinstance(context_policy, dict):
+            return False
+        room_reads = context_policy.get("room_reads")
+        return isinstance(room_reads, dict) and "library" in room_reads
+
+    async def _load_workspace_data(self, workspace_id: str) -> dict[str, Any]:
+        """Load lightweight room data that subagents can safely consume."""
+        normalized_workspace_id = str(workspace_id or "").strip()
+        if not normalized_workspace_id:
+            return {}
+        try:
+            async with dataservice_client() as client:
+                sources = await client.list_sources(
+                    workspace_id=normalized_workspace_id,
+                    include_deleted=False,
+                    include_excluded=False,
+                    limit=40,
+                )
+        except Exception:
+            logger.warning("Failed to load workspace source context", exc_info=True)
+            return {}
+
+        citable_sources: list[dict[str, Any]] = []
+        for source in sources:
+            citation_key = str(getattr(source, "citation_key", "") or "").strip()
+            if not citation_key:
+                continue
+            abstract = str(getattr(source, "abstract", "") or "").strip()
+            citable_sources.append(
+                {
+                    "id": str(getattr(source, "id", "") or ""),
+                    "citation_key": citation_key,
+                    "title": str(getattr(source, "title", "") or ""),
+                    "authors": list(getattr(source, "authors_json", None) or []),
+                    "year": getattr(source, "year", None),
+                    "venue": getattr(source, "venue", None),
+                    "doi": getattr(source, "doi", None),
+                    "url": getattr(source, "url", None),
+                    "library_status": str(getattr(source, "library_status", "") or ""),
+                    "evidence_level": str(getattr(source, "evidence_level", "") or ""),
+                    "abstract_excerpt": abstract[:500],
+                }
+            )
+
+        if not citable_sources:
+            return {}
+
+        return {
+            "library_context": {
+                "refs_bib_file": "refs.bib",
+                "bibliography_command": "\\bibliography{refs}",
+                "citation_command": "\\cite{citation_key}",
+                "citation_keys": [
+                    item["citation_key"] for item in citable_sources
+                ],
+                "citable_sources": citable_sources[:30],
+                "instruction": (
+                    "Use these Library sources as the citation source of truth. "
+                    "When drafting LaTeX, cite only these citation_key values with "
+                    "\\cite{...}; do not invent citation keys; include "
+                    "\\bibliographystyle{plain} and \\bibliography{refs} before "
+                    "\\end{document}."
+                ),
+            }
         }
 
     async def _load_skills_for_template(self, template: dict) -> dict[str, Any]:
@@ -480,7 +580,12 @@ class LeadAgentRuntime:
                         input_data=rendered_inputs if isinstance(rendered_inputs, dict) else {"value": rendered_inputs},
                         started_at=started_at,
                     )
-                    await _emit(meta["node_id"], "running")
+                    await _emit(
+                        meta["node_id"],
+                        "running",
+                        input_data=rendered_inputs if isinstance(rendered_inputs, dict) else {"value": rendered_inputs},
+                        started_at=started_at.isoformat(),
+                    )
                 except Exception:
                     logger.warning(
                         "Failed to record node 'running' for %s", meta["node_id"],
@@ -504,21 +609,41 @@ class LeadAgentRuntime:
                             output_data={"error": node_result["error"]},
                             completed_at=completed_at,
                         )
-                        await _emit(meta["node_id"], "failed", error=node_result["error"])
+                        await _emit(
+                            meta["node_id"],
+                            "failed",
+                            output_data={"error": node_result["error"]},
+                            output_preview=str(node_result["error"])[:240],
+                            completed_at=completed_at.isoformat(),
+                            error=node_result["error"],
+                        )
                     else:
+                        output_data = node_result.get("output") if isinstance(node_result, dict) else None
+                        thinking = node_result.get("thinking") if isinstance(node_result, dict) else None
+                        tool_calls = node_result.get("tool_calls") if isinstance(node_result, dict) else None
+                        token_usage = node_result.get("token_usage") if isinstance(node_result, dict) else None
                         await recorder(
                             execution_id=execution_id,
                             node_id=meta["node_id"],
                             node_type=meta["node_type"],
                             label=meta.get("label"),
                             status="completed",
-                            output_data=node_result.get("output") if isinstance(node_result, dict) else None,
-                            thinking=node_result.get("thinking") if isinstance(node_result, dict) else None,
-                            tool_calls=node_result.get("tool_calls") if isinstance(node_result, dict) else None,
-                            token_usage=node_result.get("token_usage") if isinstance(node_result, dict) else None,
+                            output_data=output_data,
+                            thinking=thinking,
+                            tool_calls=tool_calls,
+                            token_usage=token_usage,
                             completed_at=completed_at,
                         )
-                        await _emit(meta["node_id"], "completed")
+                        await _emit(
+                            meta["node_id"],
+                            "completed",
+                            output_data=output_data,
+                            output_preview=_preview_output(output_data),
+                            thinking=thinking,
+                            tool_calls=tool_calls,
+                            token_usage=token_usage,
+                            completed_at=completed_at.isoformat(),
+                        )
                 except Exception:
                     logger.warning(
                         "Failed to record node final state for %s", meta["node_id"],
@@ -564,8 +689,16 @@ class LeadAgentRuntime:
 
         return {"nodes": nodes, "edges": edges}
 
-    def _distribute_brief(self, brief: TaskBrief, cap: Any) -> dict:
+    def _distribute_brief(
+        self,
+        brief: TaskBrief,
+        cap: Any,
+        *,
+        workspace_data: dict[str, Any] | None = None,
+    ) -> dict:
         """V1: every task receives the full brief.brief dict as inputs."""
+        workspace_data = workspace_data or {}
+        library_context = workspace_data.get("library_context")
         result: dict[str, dict] = {}
         for phase in cap.graph_template["phases"]:
             for task in phase["tasks"]:
@@ -581,6 +714,9 @@ class LeadAgentRuntime:
                 task_inputs.setdefault("capability_id", brief.capability_id)
                 if brief.manuscript_context:
                     task_inputs["manuscript_context"] = brief.manuscript_context
+                if isinstance(library_context, dict) and library_context.get("citable_sources"):
+                    task_inputs["library_context"] = library_context
+                    task_inputs["citation_context"] = library_context
                 result[task["name"]] = task_inputs
         return result
 
@@ -670,6 +806,16 @@ class LeadAgentRuntime:
 
         commands: list[PrismFileChangeUpsertPayload] = []
         default_path = str(manuscript_context.get("main_file") or "main.tex").strip() or "main.tex"
+        workspace_data = state.get("workspace_data") if isinstance(state, dict) else {}
+        library_context = (
+            workspace_data.get("library_context")
+            if isinstance(workspace_data, dict)
+            else None
+        )
+        require_bibliography = (
+            isinstance(library_context, dict)
+            and bool(library_context.get("citation_keys"))
+        )
 
         for phase in graph_template.get("phases", []):
             for task in phase.get("tasks", []):
@@ -693,6 +839,7 @@ class LeadAgentRuntime:
                         task_name=task_name,
                         execution_id=execution_id,
                         default_path=default_path,
+                        require_bibliography=require_bibliography,
                     )
                     if command is not None:
                         commands.append(command)
@@ -707,6 +854,32 @@ class LeadAgentRuntime:
         except Exception:
             logger.warning("Failed to stage Prism review items", exc_info=True)
 
+    async def _sync_prism_bibliography(
+        self,
+        *,
+        brief: TaskBrief,
+        state: dict,
+    ) -> None:
+        """Keep workspace Library BibTeX materialized in Prism after manuscript runs."""
+        if self.db is None:
+            return
+        workspace_data = state.get("workspace_data") if isinstance(state, dict) else {}
+        library_context = (
+            workspace_data.get("library_context")
+            if isinstance(workspace_data, dict)
+            else None
+        )
+        if not isinstance(library_context, dict) or not library_context.get("citation_keys"):
+            return
+        try:
+            from src.services.references import SourceBibliographyService
+
+            await SourceBibliographyService(db=self.db).sync_prism(
+                workspace_id=brief.workspace_id,
+            )
+        except Exception:
+            logger.warning("Failed to sync Prism BibTeX from Library", exc_info=True)
+
     @staticmethod
     def _build_prism_file_change_command(
         decl: dict[str, Any],
@@ -717,6 +890,7 @@ class LeadAgentRuntime:
         task_name: str,
         execution_id: str,
         default_path: str,
+        require_bibliography: bool = False,
     ) -> Any | None:
         from src.dataservice_client.contracts.prism_review import (
             PrismFileChangeUpsertPayload,
@@ -753,6 +927,8 @@ class LeadAgentRuntime:
             path=path,
             content_format=content_format,
         )
+        if path == "main.tex" and require_bibliography:
+            pending_content = _ensure_latex_bibliography_call(pending_content)
         logical_key_value = resolve_output_mapping_value(
             str(mapping.get("logical_key") or f"project:{path}"),
             output,
@@ -803,6 +979,23 @@ class LeadAgentRuntime:
 # ---------------------------------------------------------------------------
 # Default callables
 # ---------------------------------------------------------------------------
+
+
+def _preview_output(output_data: Any) -> str | None:
+    """Return a compact, UI-safe output preview for execution.node events."""
+    if output_data is None:
+        return None
+    if isinstance(output_data, dict):
+        for key in ("summary", "message", "report_markdown", "stdout", "text"):
+            value = output_data.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()[:500]
+    if isinstance(output_data, str):
+        return output_data.strip()[:500]
+    try:
+        return json.dumps(output_data, ensure_ascii=False, sort_keys=True)[:500]
+    except Exception:
+        return str(output_data)[:500]
 
 
 async def _noop_publish(*args: Any, **kwargs: Any) -> None:

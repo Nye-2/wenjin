@@ -32,6 +32,7 @@ def _make_capability(cap_id: str = "deep_research", ws_type: str = "thesis") -> 
         id=cap_id,
         workspace_type=ws_type,
         enabled=True,
+        tier="primary",
         display_name="Deep Research",
         description="Deep research capability",
         intent_description="Do deep research",
@@ -92,6 +93,22 @@ class TestListCapabilities:
         assert resp.json()["count"] == 0
         assert resp.json()["items"] == []
 
+    def test_list_filters_hidden_capabilities(self) -> None:
+        visible = _make_capability("visible_cap")
+        hidden = _make_capability("internal_sandbox_smoke")
+        hidden.tier = "hidden"
+        hidden.ui_meta = {"entry_tier": "hidden"}
+        resolver = MagicMock()
+        resolver.list_for_workspace_type = AsyncMock(return_value=[visible, hidden])
+
+        client = _build_app(resolver=resolver)
+        resp = client.get("/capabilities?workspace_type=thesis")
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 1
+        assert [item["id"] for item in data["items"]] == ["visible_cap"]
+
 
 class TestGetCapability:
     def test_get_happy(self) -> None:
@@ -121,3 +138,16 @@ class TestGetCapability:
 
         assert resp.status_code == 404
         assert "missing_cap" in resp.json()["detail"]
+
+    def test_get_hidden_returns_not_found(self) -> None:
+        hidden = _make_capability("internal_sandbox_smoke")
+        hidden.tier = "hidden"
+        hidden.ui_meta = {"entry_tier": "hidden"}
+        resolver = MagicMock()
+        resolver.resolve = AsyncMock(return_value=hidden)
+
+        client = _build_app(resolver=resolver)
+        resp = client.get("/capabilities/internal_sandbox_smoke?workspace_type=thesis")
+
+        assert resp.status_code == 404
+        assert "internal_sandbox_smoke" in resp.json()["detail"]

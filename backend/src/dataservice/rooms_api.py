@@ -35,7 +35,7 @@ class RoomsDataService:
     async def set_decision(self, command: DecisionSetCommand) -> DecisionProjection:
         return await self._domain.set_decision(command)
 
-    async def list_active_decisions(self, workspace_id: str) -> dict[str, str]:
+    async def list_active_decisions(self, workspace_id: str) -> list[DecisionProjection]:
         return await self._domain.list_active_decisions(workspace_id)
 
     async def delete_decision(self, decision_id: str) -> bool:

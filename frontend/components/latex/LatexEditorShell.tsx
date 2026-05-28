@@ -1,16 +1,37 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Editor, { loader, type OnMount } from "@monaco-editor/react";
+import * as monaco from "monaco-editor";
 import {
   AlertTriangle,
+  Activity,
   ArrowLeft,
+  CheckCircle2,
+  Clock3,
+  Columns3,
   Eye,
   FileImage,
+  FileText,
+  Focus,
   Loader2,
+  MessageSquareText,
+  PanelRightClose,
+  PanelRightOpen,
   RotateCcw,
   ShieldCheck,
+  Sparkles,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { LatexFileChangeDiffPreview } from "@/components/latex/LatexFileChangeDiffPreview";
@@ -32,6 +53,7 @@ import type {
   LatexFeedbackRewriteUndoPayload,
   LatexFileChange,
   LatexFileChangePreviewResponse,
+  ExecutionRecord,
 } from "@/lib/api";
 import {
   applyLatexFeedbackRewrite,
@@ -43,6 +65,8 @@ import {
   revertLatexFeedbackRewrite,
   saveLatexProjectFeedback,
 } from "@/lib/api";
+import { listExecutions } from "@/lib/api/executions";
+import { groupExecutionPhases } from "@/lib/execution-phases";
 import {
   Dialog,
   DialogContent,
@@ -56,7 +80,30 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { useAuthStore } from "@/stores/auth";
+import { useChatStoreV2 } from "@/stores/chat-store";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useLatexStore } from "@/stores/latex";
+
+const monacoGlobal = globalThis as typeof globalThis & {
+  MonacoEnvironment?: {
+    getWorker?: (workerId: string, label: string) => Worker;
+  };
+};
+
+if (typeof window !== "undefined" && !monacoGlobal.MonacoEnvironment) {
+  monacoGlobal.MonacoEnvironment = {
+    getWorker: () =>
+      new Worker(
+        new URL(
+          "monaco-editor/esm/vs/editor/editor.worker.js",
+          import.meta.url,
+        ),
+        { type: "module" },
+      ),
+  };
+}
+
+loader.config({ monaco });
 
 interface LatexEditorShellProps {
   projectId: string;
@@ -81,6 +128,120 @@ interface LastRewriteUndoState extends LatexFeedbackRewriteUndoPayload {
   file_path: string;
   feedback_id: string;
 }
+
+type PrismSurfaceMode = "edit" | "compare" | "review" | "focus";
+type PrismInspectorTab = "assist" | "review" | "compile" | "agent";
+
+interface PrismTextEditorHandle {
+  focus: () => void;
+  setSelectionRange: (start: number, end: number) => void;
+}
+
+interface PrismMonacoEditorProps {
+  path: string | null;
+  value: string;
+  readOnly: boolean;
+  onChange: (value: string) => void;
+  onSelect: (range: [number, number]) => void;
+}
+
+function languageForPath(path: string | null): string {
+  const lower = (path || "").toLowerCase();
+  if (lower.endsWith(".bib")) return "bibtex";
+  if (lower.endsWith(".json")) return "json";
+  if (lower.endsWith(".md")) return "markdown";
+  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "yaml";
+  if (lower.endsWith(".tex") || lower.endsWith(".sty") || lower.endsWith(".cls")) {
+    return "latex";
+  }
+  return "plaintext";
+}
+
+const PrismMonacoEditor = forwardRef<PrismTextEditorHandle, PrismMonacoEditorProps>(
+  function PrismMonacoEditor(
+    {
+      path,
+      value,
+      readOnly,
+      onChange,
+      onSelect,
+    },
+    ref,
+  ) {
+    const monacoEditorRef = useRef<Parameters<OnMount>[0] | null>(null);
+    const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
+
+    useImperativeHandle(ref, () => ({
+      focus() {
+        monacoEditorRef.current?.focus();
+      },
+      setSelectionRange(start: number, end: number) {
+        const editor = monacoEditorRef.current;
+        const monaco = monacoRef.current;
+        const model = editor?.getModel();
+        if (!editor || !monaco || !model) {
+          return;
+        }
+        const safeStart = Math.max(0, Math.min(start, model.getValueLength()));
+        const safeEnd = Math.max(safeStart, Math.min(end, model.getValueLength()));
+        const startPosition = model.getPositionAt(safeStart);
+        const endPosition = model.getPositionAt(safeEnd);
+        const selection = new monaco.Selection(
+          startPosition.lineNumber,
+          startPosition.column,
+          endPosition.lineNumber,
+          endPosition.column,
+        );
+        editor.setSelection(selection);
+        editor.revealRangeInCenter(selection, 0);
+        editor.focus();
+      },
+    }), []);
+
+    const handleMount: OnMount = (editor, monaco) => {
+      monacoEditorRef.current = editor;
+      monacoRef.current = monaco;
+      editor.onDidChangeCursorSelection((event) => {
+        const model = editor.getModel();
+        if (!model) {
+          return;
+        }
+        const start = model.getOffsetAt(event.selection.getStartPosition());
+        const end = model.getOffsetAt(event.selection.getEndPosition());
+        onSelect([Math.min(start, end), Math.max(start, end)]);
+      });
+    };
+
+    return (
+      <Editor
+        key={path || "prism-editor"}
+        height="100%"
+        value={value}
+        language={languageForPath(path)}
+        onMount={handleMount}
+        onChange={(nextValue) => onChange(nextValue ?? "")}
+        options={{
+          readOnly,
+          minimap: { enabled: false },
+          fontSize: 14,
+          lineHeight: 22,
+          wordWrap: "on",
+          scrollBeyondLastLine: false,
+          folding: true,
+          lineNumbersMinChars: 3,
+          renderLineHighlight: "line",
+          automaticLayout: true,
+          padding: { top: 14, bottom: 14 },
+          overviewRulerBorder: false,
+          hideCursorInOverviewRuler: true,
+          smoothScrolling: true,
+          tabSize: 2,
+        }}
+        theme="vs"
+      />
+    );
+  },
+);
 
 function isTextFile(path: string): boolean {
   const lower = path.toLowerCase();
@@ -555,6 +716,84 @@ function shiftFeedbacksAfterRewrite(
   });
 }
 
+type PrismOptimizationJobStatus =
+  | "launching"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "advisory";
+
+interface PrismOptimizationJob {
+  id: string;
+  feedbackId: string;
+  executionId?: string | null;
+  status: PrismOptimizationJobStatus;
+  filePath: string;
+  scope: "selection" | "section";
+  instruction: string;
+  selectedText: string;
+  createdAt: string;
+  error?: string | null;
+}
+
+const TERMINAL_PRISM_EXECUTION_STATUSES = new Set([
+  "completed",
+  "failed_partial",
+  "failed",
+  "cancelled",
+]);
+
+function createPrismOptimizationJobId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `prism-job-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function trimSnippet(value: string, limit = 120): string {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= limit) {
+    return compact;
+  }
+  return `${compact.slice(0, limit - 1).trim()}…`;
+}
+
+function jobStatusFromExecution(record: ExecutionRecord | null | undefined): PrismOptimizationJobStatus | null {
+  if (!record) {
+    return null;
+  }
+  if (record.status === "completed") {
+    return "completed";
+  }
+  if (record.status === "failed_partial") {
+    return record.review_items?.length ? "completed" : "failed";
+  }
+  if (record.status === "cancelled") {
+    return "cancelled";
+  }
+  if (record.status === "failed") {
+    return "failed";
+  }
+  return "running";
+}
+
+function prismJobStatusLabel(status: PrismOptimizationJobStatus): string {
+  if (status === "completed") return "已生成待审修改";
+  if (status === "failed") return "优化失败";
+  if (status === "cancelled") return "已取消";
+  if (status === "advisory") return "需要稍后重试";
+  if (status === "running") return "Agent 正在优化";
+  return "正在启动 Agent";
+}
+
+function prismExecutionNodeLabel(status?: string): string {
+  if (status === "completed") return "完成";
+  if (status === "failed") return "失败";
+  if (status === "running") return "运行中";
+  return "等待";
+}
+
 export function LatexEditorShell({
   projectId,
   workspaceId,
@@ -567,6 +806,10 @@ export function LatexEditorShell({
   const fileChangesRef = useRef<HTMLDivElement | null>(null);
   const lastFileChangeFocusKey = useRef("");
   const { isAuthenticated, isLoading: authLoading } = useAuthStore();
+  const sendChatMessage = useChatStoreV2((state) => state.sendMessage);
+  const isChatSending = useChatStoreV2((state) => state.isSending);
+  const executions = useExecutionStore((state) => state.executions);
+  const upsertExecution = useExecutionStore((state) => state.upsertExecution);
   const {
     project,
     tree,
@@ -614,7 +857,6 @@ export function LatexEditorShell({
   const [feedbackLoaded, setFeedbackLoaded] = useState(false);
   const [feedbackDraftComment, setFeedbackDraftComment] = useState("");
   const [feedbackScope, setFeedbackScope] = useState<"selection" | "section">("section");
-  const [isFeedbackPanelExpanded, setIsFeedbackPanelExpanded] = useState(false);
   const [activeFeedbackId, setActiveFeedbackId] = useState<string | null>(null);
   const [feedbackBusyId, setFeedbackBusyId] = useState<string | null>(null);
   const [feedbackStatus, setFeedbackStatus] = useState<string>("");
@@ -636,11 +878,17 @@ export function LatexEditorShell({
   const [protectionError, setProtectionError] = useState("");
   const [pdfDraftSelection, setPdfDraftSelection] = useState<PdfDraftSelection | null>(null);
   const [transientPdfAnchor, setTransientPdfAnchor] = useState<LatexPdfAnchor | null>(null);
-  const [isWideSurface, setIsWideSurface] = useState(false);
-  const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const [prismOptimizationJobs, setPrismOptimizationJobs] = useState<PrismOptimizationJob[]>([]);
+  const [activePrismOptimizationJobId, setActivePrismOptimizationJobId] = useState<string | null>(null);
+  const [isPrismOptimizationTraceOpen, setIsPrismOptimizationTraceOpen] = useState(false);
+  const [surfaceMode, setSurfaceMode] = useState<PrismSurfaceMode>("edit");
+  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
+  const [activeInspectorTab, setActiveInspectorTab] = useState<PrismInspectorTab>("assist");
+  const editorRef = useRef<PrismTextEditorHandle | null>(null);
   const feedbackSaveTimerRef = useRef<number | null>(null);
   const texMapRequestSeqRef = useRef(0);
   const lastTexMapKeyRef = useRef("");
+  const syncedPrismOptimizationExecutionsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -667,14 +915,6 @@ export function LatexEditorShell({
     setBusyFileChangeKey(null);
     setFileChangeError("");
   }, [projectId]);
-
-  useEffect(() => {
-    const media = window.matchMedia("(min-width: 1280px)");
-    const update = () => setIsWideSurface(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
 
   const dirty = activeFileContent !== activeFileSavedContent;
   const containsCjkContent = /[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]/.test(activeFileContent);
@@ -714,21 +954,11 @@ export function LatexEditorShell({
     feedbackDraftComment.trim()
     && hasFeedbackSelection,
   );
-  const feedbackPanelOpen = Boolean(
-    isFeedbackPanelExpanded ||
-      hasFeedbackSelection ||
-      feedbackDraftComment.trim() ||
-      currentFileFeedbacks.length > 0 ||
-      rewritePreviewFeedbackId ||
-      feedbackStatus ||
-      feedbackError ||
-      lastRewriteUndo,
-  );
   const feedbackContextText = selectionText.trim()
     ? `当前 TeX 已选中 ${selectionText.length} 个字符。`
     : hasPdfDraftSelection
       ? `当前 PDF 已选中 ${pdfDraftSelection?.text.trim().length || 0} 个字符。`
-      : "选择正文或 PDF 文本后添加点评与改写。";
+      : "选择正文或 PDF 文本后添加点评，并交给 Agent 异步优化。";
   const pdfHighlightFeedbacks = useMemo(
     () =>
       feedbackItems.map((item) => ({
@@ -759,6 +989,81 @@ export function LatexEditorShell({
     () => feedbackItems.find((item) => item.id === rewritePreviewFeedbackId) || null,
     [feedbackItems, rewritePreviewFeedbackId],
   );
+
+  useEffect(() => {
+    if (hasFeedbackSelection || feedbackDraftComment.trim()) {
+      setActiveInspectorTab("assist");
+      setIsInspectorOpen(true);
+    }
+  }, [feedbackDraftComment, hasFeedbackSelection]);
+
+  useEffect(() => {
+    if (fileChanges.length > 0) {
+      setActiveInspectorTab("review");
+      setIsInspectorOpen(true);
+    }
+  }, [fileChanges.length]);
+
+  useEffect(() => {
+    if (compileResult && !compileResult.ok) {
+      setActiveInspectorTab("compile");
+      setIsInspectorOpen(true);
+    }
+  }, [compileResult]);
+
+  useEffect(() => {
+    if (activePrismOptimizationJobId) {
+      setActiveInspectorTab("agent");
+      setIsInspectorOpen(true);
+    }
+  }, [activePrismOptimizationJobId]);
+
+  const prismOptimizationExecutionIds = useMemo(
+    () =>
+      prismOptimizationJobs
+        .map((job) => job.executionId?.trim())
+        .filter((id): id is string => Boolean(id)),
+    [prismOptimizationJobs],
+  );
+  const prismOptimizationExecutionIdKey = prismOptimizationExecutionIds.join("|");
+  const activePrismOptimizationJob = useMemo(() => {
+    if (!prismOptimizationJobs.length) {
+      return null;
+    }
+    if (activePrismOptimizationJobId) {
+      const active = prismOptimizationJobs.find((job) => job.id === activePrismOptimizationJobId);
+      if (active) {
+        return active;
+      }
+    }
+    return prismOptimizationJobs[0];
+  }, [activePrismOptimizationJobId, prismOptimizationJobs]);
+  const activePrismOptimizationRecord = useMemo(() => {
+    if (!activePrismOptimizationJob?.executionId) {
+      return null;
+    }
+    return executions.get(activePrismOptimizationJob.executionId) ?? null;
+  }, [activePrismOptimizationJob, executions]);
+  const activePrismOptimizationPhases = useMemo(
+    () => groupExecutionPhases(activePrismOptimizationRecord),
+    [activePrismOptimizationRecord],
+  );
+  const prismOptimizationRecords = useMemo(
+    () =>
+      prismOptimizationJobs
+        .map((job) => (job.executionId ? executions.get(job.executionId) : null))
+        .filter((record): record is ExecutionRecord => Boolean(record)),
+    [executions, prismOptimizationJobs],
+  );
+  const optimizingFeedbackIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const job of prismOptimizationJobs) {
+      if (job.status === "launching" || job.status === "running") {
+        ids.add(job.feedbackId);
+      }
+    }
+    return ids;
+  }, [prismOptimizationJobs]);
   const pendingReviewItems = useMemo(
     () => fileChanges.map((change) => fileChangeToPrismReviewItem(change)),
     [fileChanges],
@@ -872,6 +1177,85 @@ export function LatexEditorShell({
     projectId,
     selectionRange,
   ]);
+
+  useEffect(() => {
+    if (!workspaceId || prismOptimizationExecutionIds.length === 0) {
+      return;
+    }
+    const expectedIds = new Set(prismOptimizationExecutionIds);
+    let cancelled = false;
+    const hydrate = () => {
+      void listExecutions({ workspace_id: workspaceId, limit: 20 })
+        .then(({ items }) => {
+          if (cancelled) {
+            return;
+          }
+          for (const item of items) {
+            if (
+              expectedIds.has(item.id) ||
+              item.feature_id === "prism_selection_optimize"
+            ) {
+              upsertExecution(item);
+            }
+          }
+        })
+        .catch(() => {
+          // The chat stream already launched the run; polling is best-effort for the small Prism trace.
+        });
+    };
+    hydrate();
+    const interval = window.setInterval(hydrate, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [
+    prismOptimizationExecutionIdKey,
+    prismOptimizationExecutionIds,
+    upsertExecution,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    if (!prismOptimizationJobs.length) {
+      return;
+    }
+    setPrismOptimizationJobs((prev) => {
+      let changed = false;
+      const next = prev.map((job) => {
+        const record = job.executionId ? executions.get(job.executionId) : null;
+        const status = jobStatusFromExecution(record);
+        if (!status || status === job.status) {
+          return job;
+        }
+        changed = true;
+        return { ...job, status };
+      });
+      return changed ? next : prev;
+    });
+  }, [executions, prismOptimizationJobs.length]);
+
+  useEffect(() => {
+    for (const record of prismOptimizationRecords) {
+      if (
+        !TERMINAL_PRISM_EXECUTION_STATUSES.has(record.status) ||
+        syncedPrismOptimizationExecutionsRef.current.has(record.id)
+      ) {
+        continue;
+      }
+      syncedPrismOptimizationExecutionsRef.current.add(record.id);
+      if (jobStatusFromExecution(record) === "completed") {
+        void loadProject(projectId)
+          .then(() => {
+            onReviewStateChanged?.();
+            setFeedbackStatus("Agent 已生成待确认修改，请在 Prism 待确认写入中预览并应用。");
+          })
+          .catch(() => {
+            setFeedbackStatus("Agent 已完成优化，请刷新后查看 Prism 待确认写入。");
+          });
+      }
+    }
+  }, [loadProject, onReviewStateChanged, prismOptimizationRecords, projectId]);
 
   useEffect(() => {
     setSelectionRange([0, 0]);
@@ -1162,6 +1546,160 @@ export function LatexEditorShell({
       setLastRewriteUndo(null);
     }
   }, [activeFeedbackId, clearRewritePreview, lastRewriteUndo, rewritePreviewFeedbackId]);
+
+  const launchPrismOptimizationFromFeedback = useCallback(async (item: LatexFeedbackItem) => {
+    const effectiveWorkspaceId = workspaceId || project?.workspace_id || "";
+    if (!effectiveWorkspaceId) {
+      setFeedbackError("当前 Prism 项目尚未关联 workspace，无法启动 Agent 优化。");
+      return;
+    }
+    if (!project) {
+      setFeedbackError("项目尚未加载完成。");
+      return;
+    }
+    if (isChatSending) {
+      setFeedbackError("左侧 Chat Agent 正在处理消息，请稍后再启动划词优化。");
+      return;
+    }
+
+    setFeedbackBusyId(item.id);
+    setFeedbackError("");
+    setFeedbackStatus("正在把划词优化交给右侧 Lead Agent。");
+    try {
+      if (activeFilePath !== item.file_path) {
+        setSelectedPath(item.file_path);
+        setSelectedPathType("file");
+        await openFile(item.file_path);
+      }
+
+      let latexState = useLatexStore.getState();
+      if (latexState.activeFileKind !== "text" || !latexState.activeFilePath) {
+        throw new Error("当前文件不可执行 Prism 划词优化。");
+      }
+      if (latexState.activeFileContent !== latexState.activeFileSavedContent) {
+        await saveActiveFile();
+        latexState = useLatexStore.getState();
+      }
+
+      const launchContent = latexState.activeFileContent;
+      const resolved = resolveFeedbackRange(item, launchContent);
+      if (!resolved) {
+        throw new Error("无法在当前文本中定位该点评原文。");
+      }
+      const anchor = item.anchor || buildFeedbackAnchor(launchContent, resolved.start, resolved.end);
+      const jobId = createPrismOptimizationJobId();
+      const job: PrismOptimizationJob = {
+        id: jobId,
+        feedbackId: item.id,
+        status: "launching",
+        filePath: item.file_path,
+        scope: feedbackScope,
+        instruction: item.comment,
+        selectedText: resolved.text,
+        createdAt: new Date().toISOString(),
+      };
+      setPrismOptimizationJobs((prev) => [job, ...prev].slice(0, 8));
+      setActivePrismOptimizationJobId(jobId);
+      setFeedbackItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? { ...entry, last_status: "pending", last_error: "" }
+            : entry,
+        ),
+      );
+
+      const prompt = [
+        "请启动「Prism 划词优化」能力（prism_selection_optimize）。",
+        `目标文件：${item.file_path}`,
+        `优化范围：${feedbackScope === "section" ? "所在 section" : "仅选区"}`,
+        "用户指令：",
+        item.comment,
+        "请由右侧 Lead Agent 异步处理，生成 Prism 待确认写入，不要直接覆盖正文。",
+      ].join("\n");
+      const result = await sendChatMessage(effectiveWorkspaceId, prompt, [], {
+        metadata: {
+          prism_selection_optimize: {
+            job_id: jobId,
+            feedback_id: item.id,
+            latex_project_id: project.id,
+            file_path: item.file_path,
+          },
+          orchestration: {
+            params: {
+              goal: "Prism 划词优化",
+              source_surface: "prism",
+              latex_project_id: project.id,
+              main_file: project.main_file,
+              file_path: item.file_path,
+              file_content: launchContent,
+              selected_text: resolved.text,
+              instruction: item.comment,
+              comment: item.comment,
+              selection_start: resolved.start,
+              selection_end: resolved.end,
+              anchor,
+              pdf_anchor: item.pdf_anchor || null,
+              scope: feedbackScope,
+              feedback_id: item.id,
+            },
+          },
+        },
+      });
+
+      if (result?.executionId) {
+        setPrismOptimizationJobs((prev) =>
+          prev.map((entry) =>
+            entry.id === jobId
+              ? { ...entry, executionId: result.executionId, status: "running" }
+              : entry,
+          ),
+        );
+        setFeedbackStatus("Agent 优化已启动，右下角可查看工作过程。");
+        return;
+      }
+
+      const detail =
+        typeof result?.toolResult?.detail === "string" && result.toolResult.detail.trim()
+          ? result.toolResult.detail.trim()
+          : "未能启动 Prism 划词优化，请稍后重试。";
+      setPrismOptimizationJobs((prev) =>
+        prev.map((entry) =>
+          entry.id === jobId
+            ? { ...entry, status: result?.status === "advisory" ? "advisory" : "failed", error: detail }
+            : entry,
+        ),
+      );
+      setFeedbackItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? { ...entry, last_status: "error", last_error: detail }
+            : entry,
+        ),
+      );
+      setFeedbackError(detail);
+    } catch (err) {
+      const message = readClientErrorMessage(err);
+      setFeedbackItems((prev) =>
+        prev.map((entry) =>
+          entry.id === item.id
+            ? { ...entry, last_status: "error", last_error: message }
+            : entry,
+        ),
+      );
+      setFeedbackError(`启动 Agent 优化失败: ${message}`);
+    } finally {
+      setFeedbackBusyId(null);
+    }
+  }, [
+    activeFilePath,
+    feedbackScope,
+    isChatSending,
+    openFile,
+    project,
+    saveActiveFile,
+    sendChatMessage,
+    workspaceId,
+  ]);
 
   const rewriteFromFeedback = useCallback(async (item: LatexFeedbackItem) => {
     if (!project || activeFileKind !== "text") {
@@ -1480,8 +2018,8 @@ export function LatexEditorShell({
     setActiveFeedbackId(item.id);
     setFeedbackDraftComment("");
     setPdfDraftSelection(null);
-    await rewriteFromFeedback(item);
-  }, [createFeedbackFromSelection, rewriteFromFeedback]);
+    await launchPrismOptimizationFromFeedback(item);
+  }, [createFeedbackFromSelection, launchPrismOptimizationFromFeedback]);
 
   const previewProjectFileChange = useCallback(async (change: LatexFileChange) => {
     if (!project) {
@@ -1628,78 +2166,128 @@ export function LatexEditorShell({
     }
   }, [activeFileKind, activeFilePath, onReviewStateChanged, project]);
 
-  return (
-    <main className="flex h-full min-h-0 flex-col overflow-auto bg-[var(--v2-surface-soft)] text-[var(--text-primary)] xl:overflow-hidden">
-      <section className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-3">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-white/45 pb-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces")}
-            >
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              {workspaceId ? "返回 Workbench" : "返回工作区"}
-            </Button>
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase text-[var(--v2-text-secondary)]">
-                Prism Manuscript
-              </p>
-              <h1 className="mt-0.5 truncate text-base font-semibold text-[var(--v2-text-primary)]">
-                {project?.name || "加载项目中..."}
-              </h1>
-            </div>
-          </div>
+  const surfaceModeOptions: Array<{
+    id: PrismSurfaceMode;
+    label: string;
+    icon: typeof FileText;
+  }> = [
+    { id: "edit", label: "编辑", icon: FileText },
+    { id: "compare", label: "对照", icon: Columns3 },
+    { id: "review", label: "审阅", icon: Eye },
+    { id: "focus", label: "专注", icon: Focus },
+  ];
 
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="rounded-md border border-white/55 bg-white/70 px-3 py-1.5 text-xs text-[var(--v2-text-secondary)]">
-              主文件 {project?.main_file || "main.tex"}
-            </div>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={!project || isDeletingProject || isProjectLoading}
-              onClick={async () => {
-                if (!project) {
-                  return;
-                }
-                const confirmed = window.confirm(
-                  `确定删除 LaTeX 项目「${project.name}」吗？`,
-                );
-                if (!confirmed) {
-                  return;
-                }
-                setIsDeletingProject(true);
-                try {
-                  await deleteProject();
-                  router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces");
-                } finally {
-                  setIsDeletingProject(false);
-                }
-              }}
-            >
-              <Trash2 className="mr-2 h-4 w-4" />
-              {isDeletingProject ? "删除中..." : "删除项目"}
-            </Button>
-          </div>
-        </div>
+  const inspectorTabs: Array<{
+    id: PrismInspectorTab;
+    label: string;
+    badge?: number;
+  }> = [
+    { id: "assist", label: "划词", badge: currentFileFeedbacks.length || undefined },
+    { id: "review", label: "审阅", badge: fileChanges.length || undefined },
+    { id: "compile", label: "编译" },
+    { id: "agent", label: "Agent", badge: prismOptimizationJobs.length || undefined },
+  ];
 
-        {error ? (
-          <div className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-sm text-red-600">
-            {error}
-          </div>
-        ) : null}
+  const openInspector = (tab: PrismInspectorTab) => {
+    setActiveInspectorTab(tab);
+    setIsInspectorOpen(true);
+  };
 
-        <ResizablePanelGroup
-          orientation={isWideSurface ? "horizontal" : "vertical"}
-          className="min-h-0 flex-1 gap-3 overflow-visible xl:overflow-hidden"
+  const renderProjectBar = () => (
+    <div className="wjn-topbar flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-3 px-3 py-2 md:px-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces")}
         >
-          <ResizablePanel
-            id="prism-editor-workspace"
-            defaultSize={isWideSurface ? "72%" : "60%"}
-            minSize={isWideSurface ? "48%" : "35%"}
-          >
-          <section className="h-full space-y-3 xl:flex xl:min-h-0 xl:flex-col xl:gap-3 xl:space-y-0 xl:overflow-auto">
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          {workspaceId ? "Workbench" : "工作区"}
+        </Button>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h1 className="truncate text-sm font-semibold text-[var(--wjn-text)]">
+              {project?.name || "加载项目中..."}
+            </h1>
+            <span className="rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white px-2 py-0.5 text-[11px] text-[var(--wjn-text-muted)]">
+              {dirty ? "未保存" : "已保存"}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate text-xs text-[var(--wjn-text-muted)]">
+            主文件 {project?.main_file || "main.tex"} · {activeFilePath || "未选择文件"}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        <select
+          value={engine}
+          onChange={(event) => setEngine(event.target.value as LatexCompileEngine)}
+          className="h-9 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white px-2 text-xs"
+        >
+          <option value="xelatex">XeLaTeX</option>
+          <option value="pdflatex">PDFLaTeX</option>
+        </select>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void saveActiveFile()}
+          disabled={isProjectLoading || isSaving || activeFileKind !== "text"}
+        >
+          {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+          保存
+        </Button>
+        <Button
+          size="sm"
+          onClick={() => void compileProject(engine)}
+          disabled={isProjectLoading || isCompiling || isSaving}
+        >
+          {isCompiling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+          {isCompiling ? "编译中" : "编译"}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setIsInspectorOpen((prev) => !prev)}
+        >
+          {isInspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+        </Button>
+      </div>
+    </div>
+  );
+
+  const renderResourceRail = () => (
+    <aside className="hidden w-[260px] shrink-0 flex-col border-r border-[var(--wjn-line)] bg-[var(--wjn-bg-rail)] lg:flex">
+      <div className="flex h-12 items-center justify-between border-b border-[var(--wjn-line)] px-3">
+        <p className="text-xs font-semibold text-[var(--wjn-text-secondary)]">资源</p>
+        <span className="text-[11px] text-[var(--wjn-text-muted)]">
+          {tree.length} 项
+        </span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        <LatexFileTree
+          items={tree}
+          selectedPath={effectiveSelectedPath}
+          onOpenFile={(path) => {
+            setSelectedPath(path);
+            setSelectedPathType("file");
+            void openFile(path);
+          }}
+          onSelectPath={(path, type) => {
+            setSelectedPath(path);
+            setSelectedPathType(type);
+          }}
+          onRenamePath={(fromPath, toPath) => renamePath(fromPath, toPath)}
+          onDeletePath={(path) => deletePath(path)}
+          onReorder={(folder, order) => saveOrder(folder, order)}
+        />
+      </div>
+      <div className="border-t border-[var(--wjn-line)] p-2">
+        <details>
+          <summary className="cursor-pointer rounded-[var(--wjn-radius)] px-2 py-1 text-xs text-[var(--wjn-text-muted)] hover:bg-white">
+            文件操作
+          </summary>
+          <div className="mt-2">
             <LatexToolbar
               engine={engine}
               onEngineChange={setEngine}
@@ -1716,723 +2304,1015 @@ export function LatexEditorShell({
               currentFolderLabel={currentFolder || "项目根目录"}
               engineHint={engineHint}
             />
+          </div>
+        </details>
+        <Button
+          variant="destructive"
+          size="sm"
+          className="mt-2 w-full"
+          disabled={!project || isDeletingProject || isProjectLoading}
+          onClick={async () => {
+            if (!project) {
+              return;
+            }
+            const confirmed = window.confirm(
+              `确定删除 LaTeX 项目「${project.name}」吗？`,
+            );
+            if (!confirmed) {
+              return;
+            }
+            setIsDeletingProject(true);
+            try {
+              await deleteProject();
+              router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces");
+            } finally {
+              setIsDeletingProject(false);
+            }
+          }}
+        >
+          <Trash2 className="mr-2 h-4 w-4" />
+          {isDeletingProject ? "删除中..." : "删除项目"}
+        </Button>
+      </div>
+    </aside>
+  );
 
-            {fileChanges.length > 0 ? (
-              <div ref={fileChangesRef} className="order-2 rounded-lg border border-amber-500/25 bg-amber-500/10 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-700" />
-                    <p className="text-sm font-medium text-amber-900">
-                      Prism 待确认写入
-                    </p>
-                    <span className="rounded-md bg-white/65 px-2 py-0.5 text-xs text-amber-900">
-                      {fileChanges.length}
-                    </span>
-                  </div>
-                  <p className="text-xs text-amber-900/75">
-                    预览后接受，写入当前稿件
-                  </p>
-                </div>
-                {fileChangeError ? (
-                  <div className="mt-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
-                    {fileChangeError}
-                  </div>
-                ) : null}
-                <PrismReviewList
-                  className="mt-3"
-                  items={pendingReviewItems}
-                  focusedItemId={focusedReviewItemId}
-                  focusedLogicalKey={focusedLogicalKey}
-                  renderActions={(item) => {
-                    const change = fileChanges.find(
-                      (entry) => entry.logical_key === item.logical_key,
-                    );
-                    if (!change) return null;
-                    const preview = fileChangePreviews[change.logical_key] ?? null;
-                    const isBusy = isSaving || busyFileChangeKey === change.logical_key;
-                    return (
-                      <>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void previewProjectFileChange(change)}
-                          disabled={isBusy}
-                        >
-                          <Eye className="mr-1.5 h-3.5 w-3.5" />
-                          {busyFileChangeKey === change.logical_key
-                            ? "处理中..."
-                            : preview
-                              ? "刷新 diff"
-                              : "预览 diff"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void discardPendingFileChange(change)}
-                          disabled={isBusy}
-                        >
-                          忽略本次
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={() => void applyPendingFileChange(change)}
-                          disabled={isBusy}
-                        >
-                          应用到 Prism
-                        </Button>
-                      </>
-                    );
-                  }}
-                  renderDetails={(item) => {
-                    const preview = fileChangePreviews[item.logical_key] ?? null;
-                    return preview ? (
-                      <LatexFileChangeDiffPreview
-                        preview={preview}
-                        maxOps={8}
-                        className="mt-3"
-                      />
-                    ) : null;
-                  }}
-                />
-              </div>
+  const renderEditorPanel = () => (
+    <div className="relative flex h-full min-h-0 flex-1 flex-col border border-[var(--wjn-line)] bg-white">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--wjn-line)] px-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 truncate text-sm font-medium text-[var(--text-primary)]">
+            <span className="truncate">{activeFilePath || "未选择文件"}</span>
+            {isFileLoading ? (
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[var(--text-muted)]" />
             ) : null}
+          </p>
+          <p className="text-[11px] text-[var(--text-muted)]">
+            {activeFileKind === "blob"
+              ? "预览文件"
+              : dirty
+                ? "存在未保存修改"
+                : "内容已同步"}
+          </p>
+        </div>
+        {hasFeedbackSelection ? (
+          <div className="flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white px-2 py-1 shadow-sm">
+            <span className="text-[11px] text-[var(--text-muted)]">
+              已选 {selectionText.trim() ? selectionText.length : pdfDraftSelection?.text.trim().length || 0} 字
+            </span>
+            <Button size="sm" variant="outline" onClick={() => openInspector("assist")}>
+              <MessageSquareText className="mr-1.5 h-3.5 w-3.5" />
+              点评
+            </Button>
+            <Button size="sm" onClick={() => openInspector("assist")}>
+              <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+              优化
+            </Button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setSurfaceMode("compare");
+              setIsInspectorOpen(false);
+            }}
+            className="rounded-md px-2 py-1 text-xs text-[var(--text-muted)] hover:bg-[rgba(15,23,42,0.04)]"
+          >
+            PDF 默认收起，可切换到对照查看
+          </button>
+        )}
+      </div>
 
-            {appliedFileChanges.length > 0 ? (
-              <div className="order-2 max-h-[180px] overflow-auto rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-3">
-                <div className="flex items-center gap-2">
-                  <RotateCcw className="h-4 w-4 text-emerald-700" />
-                  <p className="text-sm font-medium text-emerald-900">
-                    Prism 已写入变更
-                  </p>
-                </div>
-                <p className="mt-2 text-xs leading-6 text-emerald-900/80">
-                  已应用的 Compute 写入仍保留哈希校验撤回点，文件被后续手动修改后不会盲目覆盖。
-                </p>
-                <PrismReviewList
-                  className="mt-3"
-                  items={appliedReviewItems}
-                  focusedItemId={focusedReviewItemId}
-                  focusedLogicalKey={focusedLogicalKey}
-                  renderActions={(item) => {
-                    const change = appliedFileChanges.find(
-                      (entry) => entry.logical_key === item.logical_key,
-                    );
-                    if (!change) return null;
-                    const isBusy = isSaving || busyFileChangeKey === change.logical_key;
-                    return (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void revertAppliedFileChange(change)}
-                        disabled={isBusy}
-                      >
-                        <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                        {busyFileChangeKey === change.logical_key ? "撤回中..." : "撤回写入"}
-                      </Button>
-                    );
-                  }}
-                />
-              </div>
-            ) : null}
+      {activeFileKind === "blob" && activeBlobUrl ? (
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-white">
+          {activeFilePath && isImageFile(activeFilePath) ? (
+            // Blob URLs from project assets need direct browser rendering.
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={activeBlobUrl}
+              alt={activeFilePath}
+              className="max-h-full w-auto object-contain"
+            />
+          ) : (
+            <div className="px-6 text-center text-sm text-[var(--text-muted)]">
+              <FileImage className="mx-auto mb-3 h-8 w-8" />
+              该文件类型已加载，可通过浏览器直接预览或下载。
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="h-full min-h-0 flex-1">
+          <PrismMonacoEditor
+            ref={editorRef}
+            path={activeFilePath}
+            value={activeFileContent}
+            onChange={setActiveFileContent}
+            onSelect={setSelectionRange}
+            readOnly={!activeFilePath || !isTextFile(activeFilePath)}
+          />
+        </div>
+      )}
+    </div>
+  );
 
-            <div className="order-3 rounded-lg border border-white/50 bg-white/70 p-3 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
-                    划词点评与改写
-                  </p>
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">
-                    {feedbackContextText}
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <span className="rounded-md bg-white/70 px-2 py-1 text-xs text-[var(--text-muted)]">
-                    {currentFileFeedbacks.length} 条点评
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setIsFeedbackPanelExpanded((prev) => !prev)}
-                  >
-                    {feedbackPanelOpen ? "收起点评" : "展开点评"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void protectActiveFile()}
-                    disabled={
-                      isProtectingActiveFile ||
-                      !activeFilePath ||
-                      activeFileKind !== "text"
-                    }
-                  >
-                    <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
-                    {isProtectingActiveFile ? "保护中..." : "保护当前文件"}
-                  </Button>
-                </div>
-              </div>
-              {protectionStatus ? (
-                <div className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
-                  {protectionStatus}
-                </div>
-              ) : null}
-              {protectionError ? (
-                <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
-                  {protectionError}
-                </div>
-              ) : null}
-              {feedbackPanelOpen ? (
-                <>
-              <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                <textarea
-                  value={feedbackDraftComment}
-                  onChange={(event) => setFeedbackDraftComment(event.target.value)}
-                  placeholder="例如：这一段贡献点不够清晰，请加强问题定义和定量结论。"
-                  className="min-h-[92px] rounded-xl border border-[var(--border-default)] bg-white/85 px-3 py-2 text-sm leading-6"
-                />
-                <div className="space-y-2">
-                  <label className="block text-xs text-[var(--text-muted)]">改写范围</label>
-                  <select
-                    value={feedbackScope}
-                    onChange={(event) => setFeedbackScope(event.target.value as "selection" | "section")}
-                    className="w-full rounded-lg border border-[var(--border-default)] bg-white/90 px-2 py-2 text-sm"
-                  >
-                    <option value="section">重写所在 section</option>
-                    <option value="selection">仅重写选区</option>
-                  </select>
-                  <Button
-                    variant="outline"
-                    disabled={!canCreateFeedback || isSaving}
-                    onClick={addFeedbackOnly}
-                    className="w-full"
-                  >
-                    只保存点评
-                  </Button>
-                  <Button
-                    disabled={!canCreateFeedback || isSaving}
-                    onClick={() => void addFeedbackAndRewrite()}
-                    className="w-full"
-                  >
-                    点评并生成改写
-                  </Button>
-                </div>
-              </div>
-              <div className="mt-2 text-xs text-[var(--text-muted)]">
-                {feedbackContextText}
-              </div>
-              {feedbackError ? (
-                <div className="mt-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
-                  {feedbackError}
-                </div>
-              ) : null}
-              {feedbackStatus ? (
-                <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
-                  {feedbackStatus}
-                </div>
-              ) : null}
-              {lastRewriteUndo ? (
-                <div className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-white/80 px-3 py-2">
-                  <p className="text-xs text-[var(--text-muted)]">可撤销最近一次改写</p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => void undoLastRewrite()}
-                    disabled={isApplyingRewrite || isSaving}
-                  >
-                    {isApplyingRewrite ? "处理中..." : "撤销最近改写"}
-                  </Button>
-                </div>
-              ) : null}
-              {rewritePreviewFeedbackId && selectedRewriteCandidate ? (
-                <div className="mt-3 rounded-xl border border-[var(--border-default)] bg-white/80 p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                        Rewrite Diff Preview
-                      </p>
-                      <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                        候选 {selectedRewriteCandidateIndex + 1}/{rewriteCandidates.length} · Ctrl/Cmd + Enter 应用 · Esc 取消
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="inline-flex rounded-md border border-[var(--border-default)] bg-white/80 p-0.5">
-                        <button
-                          type="button"
-                          onClick={() => setDiffViewMode("inline")}
-                          className={`rounded px-2 py-1 text-xs ${diffViewMode === "inline" ? "bg-[var(--brand-navy)] text-white" : "text-[var(--text-muted)]"}`}
-                        >
-                          Inline
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDiffViewMode("side-by-side")}
-                          className={`rounded px-2 py-1 text-xs ${diffViewMode === "side-by-side" ? "bg-[var(--brand-navy)] text-white" : "text-[var(--text-muted)]"}`}
-                        >
-                          Side-by-side
-                        </button>
-                      </div>
-                      <select
-                        value={selectedRewriteCandidate.candidate_id}
-                        onChange={(event) => setSelectedRewriteCandidateId(event.target.value)}
-                        className="rounded-md border border-[var(--border-default)] bg-white px-2 py-1 text-xs"
-                      >
-                        {rewriteCandidates.map((candidate, index) => (
-                          <option key={candidate.candidate_id} value={candidate.candidate_id}>
-                            候选 {index + 1} · {rewriteProfileLabel(candidate.profile)} · {riskLevelLabel(candidate.risk_level)}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void regenerateRewritePreview()}
-                        disabled={!previewFeedbackItem || Boolean(feedbackBusyId) || isApplyingRewrite}
-                      >
-                        {feedbackBusyId ? "重生成中..." : "重生成"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => void copySelectedRewrite()}
-                        disabled={isApplyingRewrite}
-                      >
-                        复制改写
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => clearRewritePreview()}
-                        disabled={isApplyingRewrite}
-                      >
-                        取消
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => void applyRewriteCandidate()}
-                        disabled={isApplyingRewrite || isSaving}
-                      >
-                        {isApplyingRewrite ? "应用中..." : "确认应用"}
-                      </Button>
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs text-[var(--text-muted)]">
-                    {selectedRewriteCandidate.scope === "section"
-                      ? `重写范围：section（${selectedRewriteCandidate.section_title}）`
-                      : "重写范围：仅选区"}
-                    {" · "}
-                    风格：{rewriteProfileLabel(selectedRewriteCandidate.profile)}
-                    {" · "}
-                    <span className={`inline-flex rounded-full border px-1.5 py-0.5 ${riskLevelClass(selectedRewriteCandidate.risk_level)}`}>
-                      {riskLevelLabel(selectedRewriteCandidate.risk_level)}
-                    </span>
-                    {" · "}
-                    变更 token {selectedRewriteCandidate.diff.stats.tokens_changed}
-                    {" · +"}
-                    {selectedRewriteCandidate.diff.stats.chars_added}
-                    {" / -"}
-                    {selectedRewriteCandidate.diff.stats.chars_deleted}
-                  </p>
-                  {selectedRewriteCandidate.changes_summary.trim() ? (
-                    <p className="mt-2 rounded-lg border border-[var(--border-default)] bg-white/80 px-2 py-1 text-xs text-[var(--text-primary)]">
-                      模型摘要：{selectedRewriteCandidate.changes_summary.trim()}
+  const renderPdfPanel = () => (
+    <div className="flex min-h-0 flex-1 flex-col border border-[var(--wjn-line)] bg-white">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--wjn-line)] px-3">
+        <div>
+          <p className="text-sm font-medium">PDF 对照</p>
+          <p className="text-[11px] text-[var(--text-muted)]">
+            可在 PDF 中划词，系统会映射回 TeX
+          </p>
+        </div>
+        <Button size="sm" variant="outline" onClick={() => setSurfaceMode("edit")}>
+          收起 PDF
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden bg-white">
+        {compiledPdfUrl ? (
+          <LatexPdfPreview
+            pdfUrl={compiledPdfUrl}
+            feedbacks={pdfHighlightFeedbacks}
+            activeFeedbackId={activeFeedbackId}
+            transientSelectionAnchor={transientPdfAnchor}
+            transientSelectionText={selectionText}
+            onSelection={handlePdfSelection}
+            className="h-full min-h-[520px] w-full"
+          />
+        ) : isCompiling ? (
+          <div className="flex h-full min-h-[520px] flex-col items-center justify-center gap-3 px-6 text-center text-sm text-[var(--text-muted)]">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            正在使用 {engine} 编译当前项目...
+          </div>
+        ) : compileResult && !compileResult.ok ? (
+          <div className="flex h-full min-h-[520px] flex-col items-center justify-center px-6 text-center">
+            <p className="text-sm font-medium text-red-600">编译失败</p>
+            <p className="mt-2 max-w-sm text-xs leading-6 text-[var(--text-muted)]">
+              {compileResult.error || "没有生成 PDF。打开编译日志查看 LaTeX 输出。"}
+            </p>
+            <Button
+              variant="outline"
+              className="mt-4"
+              onClick={() => {
+                openInspector("compile");
+                setIsCompileLogOpen(true);
+              }}
+            >
+              查看编译日志
+            </Button>
+          </div>
+        ) : (
+          <div className="flex h-full min-h-[520px] flex-col items-center justify-center gap-3 px-6 text-center text-sm text-[var(--text-muted)]">
+            还没有可预览的 PDF。先保存并编译当前项目。
+            <Button size="sm" onClick={() => void compileProject(engine)} disabled={isCompiling || isSaving}>
+              编译生成 PDF
+            </Button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderWritingSurface = () => (
+    <section className="flex min-w-0 flex-1 flex-col bg-[var(--wjn-bg-base)]">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--wjn-line)] bg-white px-3">
+        <div className="inline-flex rounded-[10px] border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-0.5">
+          {surfaceModeOptions.map((option) => {
+            const Icon = option.icon;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  setSurfaceMode(option.id);
+                  if (option.id === "review") {
+                    openInspector("review");
+                  } else if (option.id === "compare" || option.id === "focus") {
+                    setIsInspectorOpen(false);
+                  }
+                }}
+                className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-xs ${
+                  surfaceMode === option.id
+                    ? "bg-white text-[var(--wjn-text)] shadow-sm"
+                    : "text-[var(--wjn-text-muted)] hover:text-[var(--wjn-text)]"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="hidden text-xs text-[var(--wjn-text-muted)] md:block">
+          {surfaceMode === "compare"
+            ? "正在显示 PDF 对照"
+            : "PDF 默认不展开，可切换到“对照”查看"}
+        </p>
+      </div>
+      <div className="flex min-h-0 flex-1 p-3">
+        {surfaceMode === "compare" ? (
+          <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 gap-3">
+            <ResizablePanel id="prism-editor-panel" defaultSize={56} minSize={36}>
+              {renderEditorPanel()}
+            </ResizablePanel>
+            <ResizableHandle withHandle className="bg-transparent" />
+            <ResizablePanel id="prism-pdf-panel" defaultSize={44} minSize={28}>
+              {renderPdfPanel()}
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        ) : (
+          renderEditorPanel()
+        )}
+      </div>
+    </section>
+  );
+
+  const renderRewritePreview = () => {
+    if (!rewritePreviewFeedbackId || !selectedRewriteCandidate) {
+      return null;
+    }
+
+    return (
+      <div className="rounded-lg border border-[var(--border-default)] bg-white p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-medium">改写 diff 预览</p>
+            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+              候选 {selectedRewriteCandidateIndex + 1}/{rewriteCandidates.length} · Cmd/Ctrl + Enter 应用 · Esc 取消
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedRewriteCandidate.candidate_id}
+              onChange={(event) => setSelectedRewriteCandidateId(event.target.value)}
+              className="h-8 rounded-md border border-[var(--border-default)] bg-white px-2 text-xs"
+            >
+              {rewriteCandidates.map((candidate, index) => (
+                <option key={candidate.candidate_id} value={candidate.candidate_id}>
+                  候选 {index + 1} · {rewriteProfileLabel(candidate.profile)} · {riskLevelLabel(candidate.risk_level)}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void regenerateRewritePreview()}
+              disabled={!previewFeedbackItem || Boolean(feedbackBusyId) || isApplyingRewrite}
+            >
+              {feedbackBusyId ? "重生成中..." : "重生成"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+          <span>
+            {selectedRewriteCandidate.scope === "section"
+              ? `section：${selectedRewriteCandidate.section_title || "未命名"}`
+              : "仅选区"}
+          </span>
+          <span>风格：{rewriteProfileLabel(selectedRewriteCandidate.profile)}</span>
+          <span className={`inline-flex rounded-full border px-1.5 py-0.5 ${riskLevelClass(selectedRewriteCandidate.risk_level)}`}>
+            {riskLevelLabel(selectedRewriteCandidate.risk_level)}
+          </span>
+          <span>
+            token {selectedRewriteCandidate.diff.stats.tokens_changed} · +{selectedRewriteCandidate.diff.stats.chars_added} / -{selectedRewriteCandidate.diff.stats.chars_deleted}
+          </span>
+        </div>
+
+        {selectedRewriteCandidate.changes_summary.trim() ? (
+          <p className="mt-2 rounded-md border border-[var(--border-default)] bg-[#f8f9fb] px-2 py-1 text-xs leading-5 text-[var(--text-secondary)]">
+            模型摘要：{selectedRewriteCandidate.changes_summary.trim()}
+          </p>
+        ) : null}
+
+        {selectedRewriteCandidate.diff.risk_flags.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {selectedRewriteCandidate.diff.risk_flags.map((flag) => (
+              <span
+                key={flag}
+                className={`rounded-full border px-2 py-0.5 text-[10px] ${riskFlagClass(flag)}`}
+              >
+                {riskFlagLabel(flag)}
+              </span>
+            ))}
+          </div>
+        ) : null}
+
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setDiffViewMode("inline")}
+            className={diffViewMode === "inline" ? "bg-[#eef0f3]" : ""}
+          >
+            Inline
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setDiffViewMode("side-by-side")}
+            className={diffViewMode === "side-by-side" ? "bg-[#eef0f3]" : ""}
+          >
+            对照
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowWhitespaceOnlyDiff((prev) => !prev)}
+          >
+            {showWhitespaceOnlyDiff ? "隐藏空白" : "显示空白"}
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setAllDiffHunksCollapsed(true)}>
+            折叠
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setAllDiffHunksCollapsed(false)}>
+            展开
+          </Button>
+        </div>
+
+        <div className="mt-3 max-h-[360px] space-y-2 overflow-auto rounded-lg border border-[var(--border-default)] bg-[#f8f9fb] p-2">
+          {selectedRewriteCandidate.diff.hunks.length === 0 ? (
+            <p className="text-xs text-[var(--text-muted)]">未检测到文本差异。</p>
+          ) : (
+            selectedRewriteCandidate.diff.hunks.map((hunk, index) => {
+              const hunkKey = `${hunk.old_start}-${hunk.old_end}-${hunk.new_start}-${hunk.new_end}-${index}`;
+              const changedOps = hunk.ops.filter((op) => op.op !== "equal");
+              const hiddenWhitespaceCount = changedOps.filter((op) => isWhitespaceOnlyDiffOp(op)).length;
+              const visibleOps = showWhitespaceOnlyDiff
+                ? changedOps
+                : changedOps.filter((op) => !isWhitespaceOnlyDiffOp(op));
+              const isCollapsed = Boolean(collapsedDiffHunks[hunkKey]);
+              return (
+                <div key={hunkKey} className="rounded-md border border-[var(--border-default)] bg-white p-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      Hunk #{index + 1} · old {hunk.old_start}-{hunk.old_end} · new {hunk.new_start}-{hunk.new_end}
                     </p>
-                  ) : null}
-                  {selectedRewriteCandidate.diff.risk_flags.length > 0 ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {selectedRewriteCandidate.diff.risk_flags.map((flag) => (
-                        <span
-                          key={flag}
-                          className={`rounded-full border px-2 py-0.5 text-[11px] ${riskFlagClass(flag)}`}
-                        >
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => toggleDiffHunkCollapsed(hunkKey)}
+                    >
+                      {isCollapsed ? "展开" : "折叠"}
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                    token {hunk.stats.tokens_changed} · +{hunk.stats.chars_added} / -{hunk.stats.chars_deleted}
+                    {hiddenWhitespaceCount > 0 && !showWhitespaceOnlyDiff
+                      ? ` · 已隐藏空白改动 ${hiddenWhitespaceCount} 条`
+                      : ""}
+                  </p>
+                  {hunk.risk_flags.length > 0 ? (
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {hunk.risk_flags.map((flag) => (
+                        <span key={flag} className={`rounded-full border px-2 py-0.5 text-[10px] ${riskFlagClass(flag)}`}>
                           {riskFlagLabel(flag)}
                         </span>
                       ))}
                     </div>
                   ) : null}
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setShowWhitespaceOnlyDiff((prev) => !prev)}
-                    >
-                      {showWhitespaceOnlyDiff ? "隐藏空白改动" : "显示空白改动"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setAllDiffHunksCollapsed(true)}
-                    >
-                      折叠全部 Hunk
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setAllDiffHunksCollapsed(false)}
-                    >
-                      展开全部 Hunk
-                    </Button>
-                  </div>
-                  <div className="mt-3 max-h-[320px] space-y-2 overflow-auto rounded-lg border border-[var(--border-default)] bg-[rgba(19,34,53,0.03)] p-2">
-                    {selectedRewriteCandidate.diff.hunks.length === 0 ? (
-                      <p className="text-xs text-[var(--text-muted)]">未检测到文本差异。</p>
-                    ) : (
-                      selectedRewriteCandidate.diff.hunks.map((hunk, index) => {
-                        const hunkKey = `${hunk.old_start}-${hunk.old_end}-${hunk.new_start}-${hunk.new_end}-${index}`;
-                        const changedOps = hunk.ops.filter((op) => op.op !== "equal");
-                        const hiddenWhitespaceCount = changedOps.filter((op) => isWhitespaceOnlyDiffOp(op)).length;
-                        const visibleOps = showWhitespaceOnlyDiff
-                          ? changedOps
-                          : changedOps.filter((op) => !isWhitespaceOnlyDiffOp(op));
-                        const isCollapsed = Boolean(collapsedDiffHunks[hunkKey]);
-                        return (
-                          <div key={hunkKey} className="rounded-md border border-[var(--border-default)] bg-white/80 p-2">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-[11px] text-[var(--text-muted)]">
-                                Hunk #{index + 1} · old {hunk.old_start}-{hunk.old_end} · new {hunk.new_start}-{hunk.new_end}
-                              </p>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => toggleDiffHunkCollapsed(hunkKey)}
-                              >
-                                {isCollapsed ? "展开" : "折叠"}
-                              </Button>
+                  {!isCollapsed ? (
+                    visibleOps.length > 0 ? (
+                      <div className="mt-2 space-y-2">
+                        {visibleOps.map((op, opIndex) => (
+                          <div key={`${op.old_start}-${op.new_start}-${opIndex}`} className="text-xs leading-5">
+                            <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+                              <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                {diffOpLabel(op.op)}
+                              </span>
+                              <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                {tokenKindLabel(op.token_kind)}
+                              </span>
+                              {isWhitespaceOnlyDiffOp(op) ? (
+                                <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                                  仅空白
+                                </span>
+                              ) : null}
                             </div>
-                            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                              token {hunk.stats.tokens_changed} · +{hunk.stats.chars_added} / -{hunk.stats.chars_deleted}
-                              {hiddenWhitespaceCount > 0 && !showWhitespaceOnlyDiff
-                                ? ` · 已隐藏空白改动 ${hiddenWhitespaceCount} 条`
-                                : ""}
-                            </p>
-                            {hunk.risk_flags.length > 0 ? (
-                              <div className="mt-1 flex flex-wrap gap-1.5">
-                                {hunk.risk_flags.map((flag) => (
-                                  <span key={flag} className={`rounded-full border px-2 py-0.5 text-[10px] ${riskFlagClass(flag)}`}>
-                                    {riskFlagLabel(flag)}
-                                  </span>
-                                ))}
+                            {diffViewMode === "side-by-side" ? (
+                              <div className="grid gap-2 md:grid-cols-2">
+                                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "insert" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-red-500/10 text-red-700"}`}>
+                                  {op.op === "insert" ? "(空)" : op.old_text || "(空)"}
+                                </pre>
+                                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "delete" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-emerald-500/10 text-emerald-700"}`}>
+                                  {op.op === "delete" ? "(空)" : op.new_text || "(空)"}
+                                </pre>
                               </div>
-                            ) : null}
-                            {!isCollapsed ? (
-                              visibleOps.length > 0 ? (
-                                diffViewMode === "inline" ? (
-                                  <div className="mt-1 space-y-1">
-                                    {visibleOps.map((op, opIndex) => (
-                                      <div key={`${op.old_start}-${op.new_start}-${opIndex}`} className="text-xs leading-5">
-                                        <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
-                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                            {diffOpLabel(op.op)}
-                                          </span>
-                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                            {tokenKindLabel(op.token_kind)}
-                                          </span>
-                                          {isWhitespaceOnlyDiffOp(op) ? (
-                                            <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                              仅空白改动
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                        {op.op === "replace" ? (
-                                          <>
-                                            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
-                                            <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
-                                          </>
-                                        ) : op.op === "insert" ? (
-                                          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
-                                        ) : (
-                                          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
-                                        )}
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="mt-1 space-y-1">
-                                    {visibleOps.map((op, opIndex) => (
-                                      <div key={`${op.old_start}-${op.new_start}-${opIndex}`} className="space-y-1">
-                                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
-                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                            {diffOpLabel(op.op)}
-                                          </span>
-                                          <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                            {tokenKindLabel(op.token_kind)}
-                                          </span>
-                                          {isWhitespaceOnlyDiffOp(op) ? (
-                                            <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                              仅空白改动
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                        <div className="grid gap-2 md:grid-cols-2">
-                                          <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "insert" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-red-500/10 text-red-700"}`}>
-                                            {op.op === "insert" ? "(空)" : op.old_text || "(空)"}
-                                          </pre>
-                                          <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "delete" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-emerald-500/10 text-emerald-700"}`}>
-                                            {op.op === "delete" ? "(空)" : op.new_text || "(空)"}
-                                          </pre>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )
-                              ) : (
-                                <p className="mt-1 text-xs text-[var(--text-muted)]">当前 hunk 仅包含空白改动。</p>
-                              )
-                            ) : null}
+                            ) : op.op === "replace" ? (
+                              <>
+                                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
+                                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
+                              </>
+                            ) : op.op === "insert" ? (
+                              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
+                            ) : (
+                              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
+                            )}
                           </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              ) : null}
-              <div className="mt-3">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                  当前文件点评
-                </p>
-                {!feedbackLoaded ? (
-                  <div className="text-xs text-[var(--text-muted)]">加载点评中...</div>
-                ) : currentFileFeedbacks.length === 0 ? (
-                  <div className="text-xs text-[var(--text-muted)]">当前文件还没有点评。</div>
-                ) : (
-                  <div className="space-y-2">
-                    {currentFileFeedbacks.map((item, index) => (
-                      <div
-                        key={item.id}
-                        className={`rounded-xl border px-3 py-2 ${
-                          activeFeedbackId === item.id
-                            ? "border-[var(--brand-brass)] bg-[rgba(180,134,63,0.08)]"
-                            : "border-[var(--border-default)] bg-white/80"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs font-medium">点评 #{index + 1}</p>
-                          <div className="text-[11px] text-[var(--text-muted)]">
-                            {item.last_status === "error"
-                              ? "失败"
-                              : item.last_status === "pending"
-                                ? "待确认"
-                                : item.last_status === "done"
-                                  ? "已采纳"
-                                  : "已保存"}
-                          </div>
-                        </div>
-                        <p className="mt-1 line-clamp-3 text-xs text-[var(--text-muted)]">
-                          {item.selected_text}
-                        </p>
-                        <p className="mt-1 text-sm">{item.comment}</p>
-                        {item.last_error ? (
-                          <p className="mt-1 text-xs text-red-600">{item.last_error}</p>
-                        ) : null}
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Button size="sm" variant="outline" onClick={() => focusFeedback(item)}>
-                            定位
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => void rewriteFromFeedback(item)}
-                            disabled={feedbackBusyId === item.id || isApplyingRewrite}
-                          >
-                            {feedbackBusyId === item.id ? "生成中..." : "AI 重写"}
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => removeFeedback(item.id)}>
-                            删除
-                          </Button>
-                        </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-                </>
-              ) : null}
-            </div>
-
-            <ResizablePanelGroup
-              orientation={isWideSurface ? "horizontal" : "vertical"}
-              className="order-1 min-h-[760px] gap-3 overflow-visible xl:flex-none"
-            >
-              <ResizablePanel
-                id="prism-file-tree"
-                defaultSize={isWideSurface ? "15%" : "18%"}
-                minSize={isWideSurface ? "10%" : "12%"}
-                maxSize={isWideSurface ? "28%" : "35%"}
-              >
-              <aside className="h-full min-h-0 overflow-hidden rounded-lg border border-white/50 bg-white/70 p-2.5 shadow-sm">
-                <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
-                  文件
-                </p>
-                <div className="mt-2 max-h-[calc(100vh-250px)] overflow-auto">
-                  <LatexFileTree
-                    items={tree}
-                    selectedPath={effectiveSelectedPath}
-                    onOpenFile={(path) => {
-                      setSelectedPath(path);
-                      setSelectedPathType("file");
-                      void openFile(path);
-                    }}
-                    onSelectPath={(path, type) => {
-                      setSelectedPath(path);
-                      setSelectedPathType(type);
-                    }}
-                    onRenamePath={(fromPath, toPath) => renamePath(fromPath, toPath)}
-                    onDeletePath={(path) => deletePath(path)}
-                    onReorder={(folder, order) => saveOrder(folder, order)}
-                  />
-                </div>
-              </aside>
-              </ResizablePanel>
-
-              <ResizableHandle
-                withHandle
-                className="bg-white/50"
-              />
-
-              <ResizablePanel
-                id="prism-tex-editor"
-                defaultSize={isWideSurface ? "85%" : "82%"}
-                minSize={isWideSurface ? "45%" : "50%"}
-              >
-              <div className="flex h-full min-h-0 flex-col rounded-lg border border-white/50 bg-white/80 p-3 shadow-sm">
-                <div className="mb-3 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">
-                      {activeFilePath || "未选择文件"}
-                    </p>
-                    <p className="mt-1 text-xs text-[var(--text-muted)]">
-                      {activeFileKind === "blob"
-                        ? "当前文件以预览模式打开"
-                        : dirty
-                          ? "存在未保存修改"
-                          : "内容已同步"}
-                    </p>
-                  </div>
-                  {isFileLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin text-[var(--text-muted)]" />
+                    ) : (
+                      <p className="mt-2 text-xs text-[var(--text-muted)]">当前 hunk 仅包含空白改动。</p>
+                    )
                   ) : null}
                 </div>
-                {activeFileKind === "blob" && activeBlobUrl ? (
-                  <div className="flex min-h-[520px] flex-1 items-center justify-center overflow-hidden rounded-md border border-[var(--border-default)] bg-white">
-                    {activeFilePath && isImageFile(activeFilePath) ? (
-                      // Blob URLs from project assets need direct browser rendering.
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={activeBlobUrl}
-                        alt={activeFilePath}
-                        className="max-h-[660px] w-auto object-contain"
-                      />
-                    ) : (
-                      <div className="px-6 text-center text-sm text-[var(--text-muted)]">
-                        <FileImage className="mx-auto mb-3 h-8 w-8" />
-                        该文件类型已加载，可通过浏览器直接预览或下载。
+              );
+            })
+          )}
+        </div>
+
+        <div className="mt-3 flex flex-wrap justify-end gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void copySelectedRewrite()}
+            disabled={isApplyingRewrite}
+          >
+            复制改写
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => clearRewritePreview()}
+            disabled={isApplyingRewrite}
+          >
+            取消
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => void applyRewriteCandidate()}
+            disabled={isApplyingRewrite || isSaving}
+          >
+            {isApplyingRewrite ? "应用中..." : "确认应用"}
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderFeedbackInspector = () => (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium">划词点评与 Agent 优化</p>
+        <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">{feedbackContextText}</p>
+      </div>
+      <textarea
+        value={feedbackDraftComment}
+        onChange={(event) => setFeedbackDraftComment(event.target.value)}
+        placeholder="例如：这一段贡献点不够清晰，请加强问题定义和定量结论。"
+        className="min-h-[112px] w-full resize-none rounded-lg border border-[var(--border-default)] bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-[var(--v2-accent-purple-300)]"
+      />
+      <div className="grid gap-2">
+        <label className="text-xs text-[var(--text-muted)]">优化范围</label>
+        <select
+          value={feedbackScope}
+          onChange={(event) => setFeedbackScope(event.target.value as "selection" | "section")}
+          className="h-9 rounded-lg border border-[var(--border-default)] bg-white px-2 text-sm"
+        >
+          <option value="section">重写所在 section</option>
+          <option value="selection">仅重写选区</option>
+        </select>
+      </div>
+      <div className="grid gap-2">
+        <Button
+          disabled={!canCreateFeedback || isSaving || isChatSending || Boolean(feedbackBusyId)}
+          onClick={() => void addFeedbackAndRewrite()}
+        >
+          {feedbackBusyId ? "提交中..." : "交给 Agent 优化"}
+        </Button>
+        <Button
+          variant="outline"
+          disabled={!canCreateFeedback || isSaving}
+          onClick={addFeedbackOnly}
+        >
+          只保存点评
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => void protectActiveFile()}
+          disabled={isProtectingActiveFile || !activeFilePath || activeFileKind !== "text"}
+        >
+          <ShieldCheck className="mr-1.5 h-3.5 w-3.5" />
+          {isProtectingActiveFile ? "保护中..." : "保护当前文件"}
+        </Button>
+      </div>
+      {feedbackError ? (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
+          {feedbackError}
+        </div>
+      ) : null}
+      {feedbackStatus ? (
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
+          {feedbackStatus}
+        </div>
+      ) : null}
+      {protectionStatus ? (
+        <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
+          {protectionStatus}
+        </div>
+      ) : null}
+      {protectionError ? (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
+          {protectionError}
+        </div>
+      ) : null}
+      {lastRewriteUndo ? (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-default)] bg-white px-3 py-2">
+          <p className="text-xs text-[var(--text-muted)]">可撤销最近一次本地改写。</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void undoLastRewrite()}
+            disabled={isApplyingRewrite || isSaving}
+          >
+            {isApplyingRewrite ? "处理中..." : "撤销"}
+          </Button>
+        </div>
+      ) : null}
+      {renderRewritePreview()}
+      <div className="border-t border-[rgba(15,23,42,0.08)] pt-3">
+        <p className="mb-2 text-xs font-semibold text-[var(--text-muted)]">
+          当前文件点评
+        </p>
+        {!feedbackLoaded ? (
+          <div className="text-xs text-[var(--text-muted)]">加载点评中...</div>
+        ) : currentFileFeedbacks.length === 0 ? (
+          <div className="text-xs text-[var(--text-muted)]">当前文件还没有点评。</div>
+        ) : (
+          <div className="space-y-2">
+            {currentFileFeedbacks.map((item, index) => (
+              <div
+                key={item.id}
+                className={`rounded-lg border px-3 py-2 ${
+                  activeFeedbackId === item.id
+                    ? "border-[var(--v2-accent-purple-300)] bg-[rgba(124,92,255,0.08)]"
+                    : "border-[var(--border-default)] bg-white"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium">点评 #{index + 1}</p>
+                  <div className="text-[11px] text-[var(--text-muted)]">
+                    {item.last_status === "error"
+                      ? "失败"
+                      : item.last_status === "pending"
+                        ? "处理中"
+                        : item.last_status === "done"
+                          ? "已采纳"
+                          : "已保存"}
+                  </div>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs text-[var(--text-muted)]">
+                  {item.selected_text}
+                </p>
+                <p className="mt-1 text-sm leading-5">{item.comment}</p>
+                {item.last_error ? (
+                  <p className="mt-1 text-xs text-red-600">{item.last_error}</p>
+                ) : null}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => focusFeedback(item)}>
+                    定位
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void rewriteFromFeedback(item)}
+                    disabled={feedbackBusyId === item.id || isApplyingRewrite}
+                  >
+                    {feedbackBusyId === item.id ? "生成中..." : "生成 diff"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => void launchPrismOptimizationFromFeedback(item)}
+                    disabled={
+                      feedbackBusyId === item.id ||
+                      isApplyingRewrite ||
+                      isChatSending ||
+                      optimizingFeedbackIds.has(item.id)
+                    }
+                  >
+                    {feedbackBusyId === item.id || optimizingFeedbackIds.has(item.id)
+                      ? "优化中..."
+                      : "Agent 优化"}
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => removeFeedback(item.id)}>
+                    删除
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderReviewInspector = () => (
+    <div ref={fileChangesRef} className="space-y-4">
+      <div>
+        <div className="flex items-center gap-2">
+          {fileChanges.length > 0 ? (
+            <AlertTriangle className="h-4 w-4 text-amber-700" />
+          ) : null}
+          <p className="text-sm font-medium">Prism 审阅</p>
+        </div>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          待确认写入会先预览 diff，再由你决定是否应用。
+        </p>
+      </div>
+      {fileChangeError ? (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
+          {fileChangeError}
+        </div>
+      ) : null}
+      {fileChanges.length > 0 ? (
+        <PrismReviewList
+          items={pendingReviewItems}
+          focusedItemId={focusedReviewItemId}
+          focusedLogicalKey={focusedLogicalKey}
+          renderActions={(item) => {
+            const change = fileChanges.find(
+              (entry) => entry.logical_key === item.logical_key,
+            );
+            if (!change) return null;
+            const preview = fileChangePreviews[change.logical_key] ?? null;
+            const isBusy = isSaving || busyFileChangeKey === change.logical_key;
+            return (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void previewProjectFileChange(change)}
+                  disabled={isBusy}
+                >
+                  <Eye className="mr-1.5 h-3.5 w-3.5" />
+                  {busyFileChangeKey === change.logical_key
+                    ? "处理中..."
+                    : preview
+                      ? "刷新 diff"
+                      : "预览 diff"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void discardPendingFileChange(change)}
+                  disabled={isBusy}
+                >
+                  忽略
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => void applyPendingFileChange(change)}
+                  disabled={isBusy}
+                >
+                  应用
+                </Button>
+              </>
+            );
+          }}
+          renderDetails={(item) => {
+            const preview = fileChangePreviews[item.logical_key] ?? null;
+            return preview ? (
+              <LatexFileChangeDiffPreview
+                preview={preview}
+                maxOps={8}
+                className="mt-3"
+              />
+            ) : null;
+          }}
+        />
+      ) : (
+        <div className="rounded-lg border border-dashed border-[var(--border-default)] bg-white px-3 py-6 text-center text-xs text-[var(--text-muted)]">
+          暂无待确认写入。
+        </div>
+      )}
+      {appliedFileChanges.length > 0 ? (
+        <div className="border-t border-[rgba(15,23,42,0.08)] pt-3">
+          <p className="mb-2 text-xs font-semibold text-[var(--text-muted)]">已写入变更</p>
+          <PrismReviewList
+            items={appliedReviewItems}
+            focusedItemId={focusedReviewItemId}
+            focusedLogicalKey={focusedLogicalKey}
+            renderActions={(item) => {
+              const change = appliedFileChanges.find(
+                (entry) => entry.logical_key === item.logical_key,
+              );
+              if (!change) return null;
+              const isBusy = isSaving || busyFileChangeKey === change.logical_key;
+              return (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void revertAppliedFileChange(change)}
+                  disabled={isBusy}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  {busyFileChangeKey === change.logical_key ? "撤回中..." : "撤回"}
+                </Button>
+              );
+            }}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderCompileInspector = () => (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium">编译状态</p>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">{engineHint}</p>
+      </div>
+      <div className="rounded-lg border border-[var(--border-default)] bg-white px-3 py-3 text-sm text-[var(--text-secondary)]">
+        {isCompiling
+          ? `正在编译：${engine} · ${project?.main_file || "main.tex"}`
+          : compileResult
+            ? `最近一次编译：${compileResult.ok ? "成功" : "失败"} · ${compileResult.engine} · ${compileResult.main_file}`
+            : "当前还没有编译记录。"}
+      </div>
+      <Button
+        variant="outline"
+        onClick={() => setIsCompileLogOpen(true)}
+        disabled={!canOpenCompileLog}
+        className="w-full"
+      >
+        查看后台详情
+      </Button>
+      {compileResult?.error ? (
+        <div className="rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-700">
+          {compileResult.error}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const renderAgentInspector = () => (
+    <div className="space-y-3">
+      <div>
+        <p className="text-sm font-medium">Agent 任务</p>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          Prism 内只展示轻量过程，完整运行记录在 Workbench。
+        </p>
+      </div>
+      {activePrismOptimizationJob ? (
+        <div className="rounded-lg border border-[var(--border-default)] bg-white p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium">
+              {prismJobStatusLabel(activePrismOptimizationJob.status)}
+            </p>
+            <span className="rounded-full bg-[rgba(124,92,255,0.1)] px-2 py-0.5 text-[11px] text-[var(--v2-accent-purple-700)]">
+              {activePrismOptimizationJob.scope === "section" ? "section" : "selection"}
+            </span>
+          </div>
+          <p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">
+            {trimSnippet(activePrismOptimizationJob.selectedText, 180)}
+          </p>
+          <Button
+            className="mt-3 w-full"
+            size="sm"
+            onClick={() => setIsPrismOptimizationTraceOpen(true)}
+          >
+            查看工作过程
+          </Button>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-dashed border-[var(--border-default)] bg-white px-3 py-6 text-center text-xs text-[var(--text-muted)]">
+          当前没有 Prism 内任务。
+        </div>
+      )}
+    </div>
+  );
+
+  const renderInspector = () => {
+    if (!isInspectorOpen || surfaceMode === "focus") {
+      return null;
+    }
+    return (
+      <aside className="fixed inset-x-3 bottom-3 z-30 flex max-h-[72vh] flex-col rounded-xl border border-[var(--wjn-line-strong)] bg-[var(--wjn-bg-rail)] shadow-2xl xl:static xl:inset-auto xl:z-auto xl:max-h-none xl:w-[360px] xl:shrink-0 xl:rounded-none xl:border-y-0 xl:border-r-0 xl:shadow-none">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--wjn-line)] px-3">
+          <div className="inline-flex rounded-[10px] border border-[var(--wjn-line)] bg-white p-0.5">
+            {inspectorTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveInspectorTab(tab.id)}
+                className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs ${
+                  activeInspectorTab === tab.id
+                    ? "bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text)]"
+                    : "text-[var(--wjn-text-muted)]"
+                }`}
+              >
+                {tab.label}
+                {tab.badge ? (
+                  <span className="rounded-full bg-white px-1.5 text-[10px]">{tab.badge}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setIsInspectorOpen(false)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-3">
+          {activeInspectorTab === "assist"
+            ? renderFeedbackInspector()
+            : activeInspectorTab === "review"
+              ? renderReviewInspector()
+              : activeInspectorTab === "compile"
+                ? renderCompileInspector()
+                : renderAgentInspector()}
+        </div>
+      </aside>
+    );
+  };
+
+  const renderPrismWorkspace = () => (
+    <div className="flex min-h-0 flex-1 overflow-hidden">
+      {surfaceMode !== "focus" ? renderResourceRail() : null}
+      {renderWritingSurface()}
+      {renderInspector()}
+    </div>
+  );
+
+  return (
+    <main className="wjn-shell-bg flex h-full min-h-0 flex-col overflow-hidden text-[var(--wjn-text)]">
+      {renderProjectBar()}
+      {error ? (
+        <div className="border-b border-red-500/20 bg-red-500/8 px-4 py-2 text-sm text-red-600">
+          {error}
+        </div>
+      ) : null}
+      {renderPrismWorkspace()}
+
+      {activePrismOptimizationJob ? (
+        <button
+          type="button"
+          onClick={() => setIsPrismOptimizationTraceOpen(true)}
+          className="fixed bottom-5 right-5 z-40 flex max-w-[320px] items-center gap-3 rounded-2xl border border-white/60 bg-white/90 px-4 py-3 text-left shadow-2xl shadow-[rgba(86,74,118,0.16)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(124,92,255,0.12)] text-[var(--v2-accent-purple-700)]">
+            {activePrismOptimizationJob.status === "launching" ||
+            activePrismOptimizationJob.status === "running" ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : activePrismOptimizationJob.status === "completed" ? (
+              <CheckCircle2 className="h-4 w-4" />
+            ) : (
+              <X className="h-4 w-4" />
+            )}
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-[var(--text-primary)]">
+              {prismJobStatusLabel(activePrismOptimizationJob.status)}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-[var(--text-muted)]">
+              {trimSnippet(activePrismOptimizationJob.selectedText, 72)}
+            </span>
+          </span>
+        </button>
+      ) : null}
+
+      <Dialog
+        open={isPrismOptimizationTraceOpen}
+        onOpenChange={setIsPrismOptimizationTraceOpen}
+      >
+        <DialogContent className="max-h-[84vh] max-w-2xl overflow-auto">
+          <DialogHeader>
+            <DialogTitle>Prism Agent 工作过程</DialogTitle>
+            <DialogDescription>
+              右侧 Lead Agent 异步处理划词优化，结果会进入 Prism 待确认写入。
+            </DialogDescription>
+          </DialogHeader>
+          {activePrismOptimizationJob ? (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-[var(--border-default)] bg-white/80 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-4 w-4 text-[var(--v2-accent-purple-700)]" />
+                    <p className="text-sm font-medium">
+                      {prismJobStatusLabel(activePrismOptimizationJob.status)}
+                    </p>
+                  </div>
+                  <span className="rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
+                    {activePrismOptimizationJob.scope === "section" ? "所在 section" : "仅选区"}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">
+                  文件：{activePrismOptimizationJob.filePath}
+                </p>
+                <p className="mt-2 rounded-lg bg-[rgba(19,34,53,0.04)] px-3 py-2 text-xs leading-5 text-[var(--text-secondary)]">
+                  {trimSnippet(activePrismOptimizationJob.selectedText, 240)}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">
+                  指令：{activePrismOptimizationJob.instruction}
+                </p>
+                {activePrismOptimizationJob.error ? (
+                  <p className="mt-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
+                    {activePrismOptimizationJob.error}
+                  </p>
+                ) : null}
+              </div>
+
+              {prismOptimizationJobs.length > 1 ? (
+                <div className="flex flex-wrap gap-2">
+                  {prismOptimizationJobs.map((job, index) => (
+                    <button
+                      key={job.id}
+                      type="button"
+                      onClick={() => setActivePrismOptimizationJobId(job.id)}
+                      className={`rounded-full border px-3 py-1 text-xs ${
+                        job.id === activePrismOptimizationJob.id
+                          ? "border-[var(--v2-accent-purple-300)] bg-[rgba(124,92,255,0.12)] text-[var(--v2-accent-purple-700)]"
+                          : "border-[var(--border-default)] bg-white text-[var(--text-muted)]"
+                      }`}
+                    >
+                      任务 {index + 1} · {prismJobStatusLabel(job.status)}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="rounded-xl border border-[var(--border-default)] bg-white/80 p-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-[var(--v2-accent-blue-700)]" />
+                  <p className="text-sm font-medium">执行节点</p>
+                </div>
+                {activePrismOptimizationRecord ? (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid gap-2 text-xs text-[var(--text-muted)] md:grid-cols-3">
+                      <span>执行：{activePrismOptimizationRecord.id.slice(0, 8)}</span>
+                      <span>状态：{activePrismOptimizationRecord.status}</span>
+                      <span>进度：{Math.round(activePrismOptimizationRecord.progress || 0)}%</span>
+                    </div>
+                    {activePrismOptimizationPhases.length > 0 ? (
+                      <div className="space-y-3">
+                        {activePrismOptimizationPhases.map((phase) => (
+                          <div key={`${phase.name}-${phase.index}`} className="rounded-lg border border-[var(--border-default)] bg-[rgba(19,34,53,0.025)] p-2">
+                            <p className="text-xs font-medium text-[var(--text-secondary)]">
+                              {phase.name}
+                            </p>
+                            <div className="mt-2 space-y-2">
+                              {phase.nodes.map((node) => {
+                                const nodeState = activePrismOptimizationRecord.node_states[node.id] || {};
+                                return (
+                                  <div key={node.id} className="rounded-md bg-white/80 px-3 py-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <p className="text-xs font-medium">
+                                        {node.label || node.task || node.id}
+                                      </p>
+                                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
+                                        <Clock3 className="h-3 w-3" />
+                                        {prismExecutionNodeLabel(nodeState.status)}
+                                      </span>
+                                    </div>
+                                    {nodeState.output_preview ? (
+                                      <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
+                                        {nodeState.output_preview}
+                                      </p>
+                                    ) : nodeState.thinking ? (
+                                      <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
+                                        {trimSnippet(nodeState.thinking, 180)}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
                       </div>
+                    ) : (
+                      <p className="text-xs text-[var(--text-muted)]">正在等待执行图回传。</p>
                     )}
                   </div>
                 ) : (
-                  <textarea
-                    ref={editorRef}
-                    value={activeFileContent}
-                    onChange={(event) => setActiveFileContent(event.target.value)}
-                    onSelect={(event) => {
-                      const target = event.currentTarget;
-                      const start = Math.min(target.selectionStart ?? 0, target.selectionEnd ?? 0);
-                      const end = Math.max(target.selectionStart ?? 0, target.selectionEnd ?? 0);
-                      setSelectionRange([start, end]);
-                    }}
-                    readOnly={!activeFilePath || !isTextFile(activeFilePath)}
-                    className="min-h-[680px] flex-1 resize-none rounded-md border border-[var(--border-default)] bg-[rgba(244,240,232,0.55)] p-4 font-mono text-[14px] leading-6 outline-none focus:border-[var(--v2-accent-purple-300)]"
-                  />
+                  <p className="mt-3 text-xs text-[var(--text-muted)]">
+                    {activePrismOptimizationJob.executionId
+                      ? "已启动，正在拉取执行过程。"
+                      : "正在等待 Agent 启动确认。"}
+                  </p>
                 )}
               </div>
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </section>
-          </ResizablePanel>
 
-          <ResizableHandle
-            withHandle
-            className="bg-white/50"
-          />
-
-          <ResizablePanel
-            id="prism-pdf-preview"
-            defaultSize={isWideSurface ? "28%" : "40%"}
-            minSize={isWideSurface ? "22%" : "30%"}
-            maxSize={isWideSurface ? "52%" : "65%"}
-          >
-          <section className="h-full space-y-3 xl:min-h-0 xl:overflow-auto">
-            <div className="rounded-lg border border-white/50 bg-white/80 p-3 shadow-sm">
-              <p className="text-xs font-semibold uppercase text-[var(--v2-text-secondary)]">
-                PDF 预览
-              </p>
-              <div className="mt-3 overflow-hidden rounded-md border border-[var(--border-default)] bg-white">
-                {compiledPdfUrl ? (
-                  <LatexPdfPreview
-                    pdfUrl={compiledPdfUrl}
-                    feedbacks={pdfHighlightFeedbacks}
-                    activeFeedbackId={activeFeedbackId}
-                    transientSelectionAnchor={transientPdfAnchor}
-                    transientSelectionText={selectionText}
-                    onSelection={handlePdfSelection}
-                    className="h-[calc(100vh-240px)] min-h-[520px] w-full"
-                  />
-                ) : isCompiling ? (
-                  <div className="flex h-[calc(100vh-240px)] min-h-[520px] flex-col items-center justify-center gap-3 px-6 text-center text-sm text-[var(--text-muted)]">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    正在使用 {engine} 编译当前项目...
-                  </div>
-                ) : compileResult && !compileResult.ok ? (
-                  <div className="flex h-[calc(100vh-240px)] min-h-[520px] flex-col items-center justify-center px-6 text-center">
-                    <p className="text-sm font-medium text-red-600">编译失败</p>
-                    <p className="mt-2 max-w-sm text-xs leading-6 text-[var(--text-muted)]">
-                      {compileResult.error || "没有生成 PDF。打开编译日志查看 LaTeX 输出。"}
-                    </p>
-                    <Button
-                      variant="outline"
-                      className="mt-4"
-                      onClick={() => setIsCompileLogOpen(true)}
-                    >
-                      查看编译日志
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex h-[calc(100vh-240px)] min-h-[520px] items-center justify-center px-6 text-center text-sm text-[var(--text-muted)]">
-                    还没有可预览的 PDF。先保存并编译当前项目。
-                  </div>
-                )}
-              </div>
-              <p className="mt-3 text-xs text-[var(--text-muted)]">
-                支持在 PDF 预览中直接划词，系统会自动尝试映射到当前 TeX 选区。
-              </p>
-              {compileResult?.error ? (
-                <p className="mt-3 text-sm text-red-600">{compileResult.error}</p>
-              ) : null}
-            </div>
-
-            <div className="rounded-lg border border-white/50 bg-white/75 p-3 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
-                  编译日志
-                </p>
+              <div className="flex flex-wrap justify-end gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => setIsCompileLogOpen(true)}
-                  disabled={!canOpenCompileLog}
+                  onClick={() => setIsPrismOptimizationTraceOpen(false)}
                 >
-                  查看后台详情
+                  关闭
+                </Button>
+                <Button
+                  onClick={() => {
+                    fileChangesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    setIsPrismOptimizationTraceOpen(false);
+                  }}
+                  disabled={fileChanges.length === 0}
+                >
+                  查看待确认写入
                 </Button>
               </div>
-              <p className="mt-3 text-sm text-[var(--text-muted)]">
-                {isCompiling
-                  ? `正在编译：${engine} · ${project?.main_file || "main.tex"}`
-                  : compileResult
-                  ? `最近一次编译：${compileResult.ok ? "成功" : "失败"} · ${compileResult.engine} · ${compileResult.main_file}`
-                  : "当前还没有编译记录。"}
-              </p>
             </div>
-          </section>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </section>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isCompileLogOpen} onOpenChange={setIsCompileLogOpen}>
         <DialogContent className="max-h-[85vh] max-w-5xl overflow-hidden">

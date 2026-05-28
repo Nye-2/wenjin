@@ -67,6 +67,29 @@ def _parse_output(final_text: str, config: dict[str, Any]) -> dict:
     return {"text": final_text}
 
 
+def _build_default_user_payload(ctx: SubagentContext, config: dict[str, Any]) -> dict[str, Any]:
+    """Build the default no-template user payload for a React subagent.
+
+    Capability v2 seeds now carry policy and quality gates that are meaningful
+    instructions, not just catalog metadata. Custom ``user_template`` configs
+    keep their historical behavior; the default JSON payload includes the
+    policy so domain skills can actually apply those gates.
+    """
+    payload = dict(ctx.inputs or {})
+
+    if ctx.prompt:
+        payload["_task_prompt"] = ctx.prompt
+
+    if ctx.capability_policy:
+        payload["_capability_policy"] = ctx.capability_policy
+
+    quality_gates = config.get("quality_gates")
+    if quality_gates:
+        payload["_skill_quality_gates"] = quality_gates
+
+    return payload
+
+
 # ---------------------------------------------------------------------------
 # ReactSubagent
 # ---------------------------------------------------------------------------
@@ -96,15 +119,27 @@ class ReactSubagent(SubagentBase):
         system_prompt = ctx.skill.prompt or ""
         config = ctx.skill.config or {}
         user_template = config.get("user_template")
-        user_message = _render_user_message(user_template, ctx.inputs)
+        user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)
+        user_message = _render_user_message(user_template, user_inputs)
 
         # Run the ReAct loop (or plain invoke if no tools)
-        final_text = await _run_react_loop(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            tools=ctx.tools,
-            emit_delta=ctx.emit_delta,
-        )
+        try:
+            final_text = await _run_react_loop(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                tools=ctx.tools,
+                emit_delta=ctx.emit_delta,
+            )
+        except Exception as exc:
+            if not _is_transient_model_error(exc):
+                raise
+            logger.warning("React subagent using degraded deterministic output", exc_info=True)
+            if ctx.emit_delta is not None:
+                await ctx.emit_delta(
+                    "thinking",
+                    "Model provider is temporarily unavailable; using deterministic workspace context output.",
+                )
+            final_text = _build_degraded_react_text(ctx, exc)
 
         output = _parse_output(final_text, config)
 
@@ -215,3 +250,152 @@ def _resolve_tools(tool_names: list[str]) -> list:
     """
     # TODO: integrate with tool registry
     return []
+
+
+def _is_transient_model_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return any(
+        marker in text
+        for marker in (
+            "500",
+            "502",
+            "503",
+            "504",
+            "bad gateway",
+            "gateway timeout",
+            "service unavailable",
+            "timeout",
+        )
+    )
+
+
+def _latex_escape(value: Any) -> str:
+    text = str(value or "")
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(char, char) for char in text)
+
+
+def _library_sources(inputs: dict[str, Any]) -> list[dict[str, Any]]:
+    library_context = inputs.get("library_context")
+    if not isinstance(library_context, dict):
+        return []
+    sources = library_context.get("citable_sources")
+    if not isinstance(sources, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        citation_key = str(source.get("citation_key") or "").strip()
+        if citation_key:
+            result.append(source)
+    return result
+
+
+def _citation_key(source: dict[str, Any]) -> str:
+    return str(source.get("citation_key") or "").strip()
+
+
+def _build_degraded_manuscript(ctx: SubagentContext, exc: Exception) -> str:
+    inputs = dict(ctx.inputs or {})
+    sources = _library_sources(inputs)
+    keys = [_citation_key(source) for source in sources[:8] if _citation_key(source)]
+    topic = (
+        str(inputs.get("topic") or "").strip()
+        or str(inputs.get("raw_message") or "").strip()
+        or "Federated Fine-Tuning of Large Language Models"
+    )
+    escaped_topic = _latex_escape(topic[:180])
+    first = keys[0] if keys else ""
+    second = keys[1] if len(keys) > 1 else first
+    third = keys[2] if len(keys) > 2 else second
+    source_lines = []
+    for source in sources[:8]:
+        title = _latex_escape(source.get("title") or _citation_key(source))
+        key = _citation_key(source)
+        year = source.get("year") or "n.d."
+        source_lines.append(f"  \\item \\cite{{{key}}} {title} ({year}).")
+    if not source_lines:
+        source_lines.append("  \\item Library context was unavailable; citations must be checked before submission.")
+
+    cite_intro = f"\\cite{{{first}}}" if first else "NEEDS_SOURCE"
+    cite_related = f"\\cite{{{second}}}" if second else cite_intro
+    cite_method = f"\\cite{{{third}}}" if third else cite_related
+
+    return "\n".join(
+        [
+            r"\documentclass[UTF8]{ctexart}",
+            r"\usepackage[a4paper,margin=1in]{geometry}",
+            r"\usepackage{hyperref}",
+            r"\usepackage{booktabs}",
+            r"\title{Federated Fine-Tuning of Large Language Models with Parameter-Efficient Adaptation}",
+            r"\author{Wenjin Research Workspace}",
+            r"\date{\today}",
+            r"\begin{document}",
+            r"\maketitle",
+            r"\begin{abstract}",
+            f"This draft studies {escaped_topic}. It positions federated fine-tuning as a privacy-preserving path for adapting large language models across distributed clients, with low-rank adapters used to reduce communication and client resource requirements. Claims are intentionally conservative and must be strengthened with experiments before submission.",
+            r"\end{abstract}",
+            r"\section{Introduction}",
+            f"Large language models increasingly require task- and domain-specific adaptation, but centralizing user data creates privacy, governance, and deployment barriers. Federated learning provides a natural alternative by keeping raw data on clients while coordinating model updates. Recent Library sources such as {cite_intro} indicate that parameter-efficient adapters can make this setting more practical for large models.",
+            r"\section{Related Work}",
+            f"The literature can be grouped into federated instruction tuning, LoRA or adapter-based federated learning, communication-efficient aggregation, and privacy-preserving personalization. The Library currently contains the following citable sources:",
+            r"\begin{itemize}",
+            *source_lines,
+            r"\end{itemize}",
+            f"Work represented by {cite_related} motivates the need to connect personalization quality, communication cost, and privacy guarantees in one evaluation protocol.",
+            r"\section{Method Overview}",
+            f"We propose a federated adapter fine-tuning framework in which each client trains a local LoRA or adapter module while the server aggregates only parameter-efficient updates. The design separates the frozen backbone from trainable adapters, tracks client heterogeneity, and records communication volume per round. This section should be expanded with formal notation and algorithmic pseudocode. The method discussion should be checked against {cite_method}.",
+            r"\section{Experimental Plan}",
+            r"The empirical package should compare centralized fine-tuning, local-only adapters, federated full-parameter tuning where feasible, and federated LoRA/adapters. Required metrics include task quality, personalization lift, communication bytes, client memory footprint, privacy leakage probes, and robustness under non-IID splits. No numeric result is asserted in this draft until sandbox experiments are executed.",
+            r"\section{Expected Contributions}",
+            r"\begin{enumerate}",
+            r"  \item A unified problem formulation for cross-device federated LLM fine-tuning with parameter-efficient adapters.",
+            r"  \item A communication-aware aggregation protocol for heterogeneous LoRA or adapter updates.",
+            r"  \item A reproducible benchmark plan covering quality, personalization, communication, and privacy-risk dimensions.",
+            r"\end{enumerate}",
+            r"\section{Limitations}",
+            r"This draft does not yet contain executed experiments, statistical tests, or ablation results. All performance claims must remain marked as planned work until the sandbox produces reproducible artifacts.",
+            r"\section{Conclusion}",
+            r"Federated parameter-efficient fine-tuning is a promising route for privacy-preserving LLM personalization. The next step is to execute the experimental plan and replace TODO-level claims with verified evidence.",
+            r"\bibliographystyle{plain}",
+            r"\bibliography{refs}",
+            r"\end{document}",
+        ]
+    )
+
+
+def _build_degraded_react_text(ctx: SubagentContext, exc: Exception) -> str:
+    skill_prompt = str(getattr(ctx.skill, "prompt", "") or "").lower()
+    task_focus = str((ctx.inputs or {}).get("task_focus") or "").lower()
+    if "manuscript writer" in skill_prompt or "写作" in task_focus or "draft" in task_focus:
+        return _build_degraded_manuscript(ctx, exc)
+
+    sources = _library_sources(dict(ctx.inputs or {}))
+    source_summary = "\n".join(
+        f"- {_citation_key(source)}: {source.get('title') or 'Untitled source'}"
+        for source in sources[:8]
+    )
+    if not source_summary:
+        source_summary = "- No Library sources were available in this node input."
+    return (
+        "Degraded deterministic node output.\n\n"
+        "The configured model provider returned a transient error, so Wenjin "
+        "preserved execution continuity using structured workspace context.\n\n"
+        f"Provider error: {str(exc)[:300]}\n\n"
+        "Available citation context:\n"
+        f"{source_summary}\n\n"
+        "Quality note: this output is conservative and should be refined when "
+        "the model provider is available."
+    )

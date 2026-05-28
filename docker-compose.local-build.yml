@@ -66,6 +66,10 @@ services:
     image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
     build: *backend_gateway_build
 
+  memory-worker:
+    image: ${LOCAL_BACKEND_GATEWAY_IMAGE:-wenjin-backend}
+    build: *backend_gateway_build
+
   langgraph:
     image: ${LOCAL_LANGGRAPH_IMAGE:-wenjin-langgraph}
     build: *langgraph_build

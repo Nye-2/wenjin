@@ -52,9 +52,9 @@ class RoomsDataDomainService:
         await self._finish()
         return decision_to_projection(record)
 
-    async def list_active_decisions(self, workspace_id: str) -> dict[str, str]:
+    async def list_active_decisions(self, workspace_id: str) -> list[DecisionProjection]:
         records = await self.repository.list_active_decisions(workspace_id)
-        return {record.key: record.value for record in records}
+        return [decision_to_projection(record) for record in records]
 
     async def delete_decision(self, decision_id: str) -> bool:
         record = await self.repository.get_decision_by_id(decision_id)

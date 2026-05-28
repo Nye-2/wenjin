@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  readItemsArray,
-  readOptionalActiveItem,
-} from "@/lib/api/v2/list-response";
+import { readItemsArray } from "@/lib/api/v2/list-response";
 
 describe("room list response helpers", () => {
   it("reads plain array payloads", () => {
@@ -16,13 +13,6 @@ describe("room list response helpers", () => {
     expect(
       readItemsArray({ items: [{ id: "a" }], count: 1 }, "documents"),
     ).toEqual([{ id: "a" }]);
-  });
-
-  it("reads optional active items", () => {
-    expect(readOptionalActiveItem({ active: { id: "d-1" } })).toEqual([
-      { id: "d-1" },
-    ]);
-    expect(readOptionalActiveItem({ active: null })).toEqual([]);
   });
 
   it("rejects malformed list payloads", () => {

@@ -50,6 +50,11 @@ export interface RunView {
   actions: RunPrimaryAction[];
 }
 
+type TaskReportProjection = Record<string, unknown> & {
+  errors?: Array<Record<string, unknown>>;
+  review_items?: unknown[];
+};
+
 export function isTerminalRunStatus(status: RunViewStatus | string): boolean {
   return ["completed", "failed_partial", "failed", "cancelled"].includes(status);
 }
@@ -244,16 +249,16 @@ function normalizeRunRecordStatus(status: string): RunViewStatus {
 
 function taskReportFromResult(
   result: Record<string, unknown> | null | undefined,
-): Record<string, any> | null {
+): TaskReportProjection | null {
   const candidate = result?.task_report;
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
-    return candidate as Record<string, any>;
+    return candidate as TaskReportProjection;
   }
   return null;
 }
 
 function reviewItemsFromTaskReport(
-  taskReport: Record<string, any> | null,
+  taskReport: TaskReportProjection | null,
 ): unknown[] {
   return Array.isArray(taskReport?.review_items) ? taskReport.review_items : [];
 }

@@ -9,6 +9,7 @@ import {
   type DocumentDetail,
 } from "@/lib/api/v2/documents";
 import { buildDocumentRoomPreview } from "@/lib/workspace-result-preview";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
 
 interface DocumentsDrawerProps {
@@ -66,6 +67,9 @@ export function DocumentsDrawer({
   const [detail, setDetail] = useState<DocumentDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const refreshCounter = useRoomRefreshStore(
+    (state) => state.countersByWorkspace[workspaceId]?.documents ?? 0,
+  );
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -96,7 +100,7 @@ export function DocumentsDrawer({
 
   useEffect(() => {
     if (open) fetchItems();
-  }, [open, fetchItems]);
+  }, [open, fetchItems, refreshCounter]);
 
   function handleClose() {
     setVisible(false);

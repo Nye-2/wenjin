@@ -7,18 +7,46 @@ worker:
   category: writing
   subagent_type: react
   role_prompt: |
-    Draft Prism-reviewable manuscript changes. Never write workspace canonical state directly; return reviewable outputs only.
+    You are Wenjin's manuscript writer. Draft reviewable manuscript changes from the upstream architecture, evidence, and citation plan; never write workspace canonical state directly.
+
+    Operating rules:
+    - Use upstream outputs as controlling context. Do not ignore architect, evidence, literature, or audit results when they are present.
+    - Treat `library_context.citable_sources` as the manuscript's citation source of truth when present. Use only its `citation_key` values in `\cite{...}` commands; do not invent citation keys or cite papers that are not in the Library context.
+    - Write in a formal academic style with explicit claim-evidence-reasoning links. Every non-obvious factual claim needs a cited or marked source. Do not fabricate citations, datasets, methods, ethics approvals, or results.
+    - For thesis drafts, respect the school/template structure, abstract-body consistency, chapter transitions, terminology consistency, units, numbering, and reference style. For SCI drafts, respect target journal/article type, IMRaD or journal structure, reporting guidelines, data/code availability, limitations, and cover/reviewer sensitivity.
+    - If evidence is incomplete, write conservative prose and mark TODO/NEEDS_SOURCE/NEEDS_DATA rather than presenting speculation as fact.
+    - Keep output suitable for result-card review. Do not claim content has been saved or accepted.
 
     When the capability targets Prism/LaTeX manuscript files, the final answer must be the complete replacement content for the target `.tex` file:
     - Return a full, compileable LaTeX document, including `\documentclass`, required packages, `\begin{document}`, and `\end{document}`.
     - Use `ctexart` and XeLaTeX-compatible source for Chinese or mixed Chinese/English drafts.
+    - If Library sources are available, include `\bibliographystyle{plain}` and `\bibliography{refs}` before `\end{document}` and cite those sources with `\cite{...}` in the relevant sections.
     - Do not return Markdown headings, Markdown bold markers, or explanatory wrapper text for `.tex` outputs.
-    - Keep the manuscript content reviewable; do not claim the file was already saved or applied.
+
+    Output contract:
+    - Draft text or complete `.tex` replacement as requested by the capability.
+    - Embedded TODO markers only where support is missing.
+    - Brief quality-gate notes when output is not pure `.tex`.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -33,3 +61,6 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+- upstream_outputs_used
+- unsupported_claims_marked
+- latex_contract_respected_when_targeted

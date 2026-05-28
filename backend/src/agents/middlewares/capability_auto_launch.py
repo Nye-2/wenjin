@@ -15,7 +15,7 @@ from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
 
 _LAUNCH_INTENT_RE = re.compile(
-    r"(?:\brun\b|\bexecute\b|\blaunch\b|\bstart\b|执行|启动|开始|跑)",
+    r"(?:\brun\b|\bexecute\b|\blaunch\b|\bstart\b|执行|启动|开始|跑|验证|自检|检查|检索|生成|写作|撰写|分析|推荐|修订|回复)",
     re.IGNORECASE,
 )
 
@@ -64,6 +64,28 @@ def _match_capability(text: str, capabilities: list[dict[str, Any]]) -> dict[str
         if display_name and display_name in text:
             return capability
 
+    for capability in capabilities:
+        trigger_phrases = capability.get("trigger_phrases")
+        if not isinstance(trigger_phrases, list):
+            continue
+        for phrase in trigger_phrases:
+            trigger = str(phrase or "").strip()
+            if trigger and trigger in text:
+                return capability
+
+    return None
+
+
+def _find_configured_capability(
+    config: RunnableConfig,
+    capabilities: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    configured_id = str(_configurable(config).get("launch_feature_id") or "").strip()
+    if not configured_id:
+        return None
+    for capability in capabilities:
+        if str(capability.get("id") or "").strip() == configured_id:
+            return capability
     return None
 
 
@@ -118,7 +140,9 @@ class CapabilityAutoLaunchMiddleware(Middleware):
             for item in (state.get("available_capabilities") or [])
             if isinstance(item, dict)
         ]
-        capability = _match_capability(_last_user_text(state), capabilities)
+        capability = _find_configured_capability(config, capabilities)
+        if capability is None:
+            capability = _match_capability(_last_user_text(state), capabilities)
         if capability is None:
             return {}
 

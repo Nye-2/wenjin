@@ -32,6 +32,53 @@ inputs:
         type: string
       deliverable:
         type: string
+      topic:
+        type: string
+        description: 核心主题、题目或技术方向。
+      query:
+        type: string
+        description: 检索关键词或需要展开的问题。
+      raw_message:
+        type: string
+        description: 用户原始请求文本。
+      target_format:
+        type: string
+        description: 学校、期刊、基金、软著或专利模板要求。
+      audience:
+        type: string
+        description: 目标读者、评审人或审查场景。
+      constraints:
+        type: string
+        description: 页数、语言、截止日期、格式和禁止事项。
+      existing_materials_summary:
+        type: string
+        description: 已有文献、数据、代码、草稿或证明材料摘要。
+      source_guidelines:
+        type: array
+        items:
+          type: string
+        description: 用户指定或系统识别的规范、指南、标准或官方来源。
+      funding_program:
+        type: string
+        description: 基金/项目类别、指南方向或申报渠道。
+      call_guideline:
+        type: string
+        description: 申报指南、评审标准和模板要求。
+      review_criteria:
+        type: string
+        description: 评审指标或打分点。
+      research_objectives:
+        type: string
+        description: 拟解决科学/技术问题与研究目标。
+      technical_route:
+        type: string
+        description: 已有或期望的技术路线。
+      budget_constraints:
+        type: string
+        description: 经费、周期、团队和资源限制。
+      team_basis:
+        type: string
+        description: 团队前期基础、论文、专利、平台或数据积累。
 context_policy:
   room_reads:
     library: summary
@@ -89,19 +136,44 @@ quality_gates:
 - no_direct_primary_document_write
 - provenance_required_for_claims
 - protected_sections_readonly
+- upstream_outputs_must_be_used
+- unsupported_claims_marked_for_user_decision
+- result_card_review_before_commit
+- objective_method_metric_alignment
+- review_criteria_explicitly_addressed
+- feasibility_risk_mitigation_included
+- milestones_and_deliverables_traceable
 graph_template:
   phases:
-  - name: mission_execution
+  - name: step_01_review_critic
     tasks:
     - name: review_critic
       subagent_type: react
       skill_id: review-critic
-      inputs: {}
+      inputs:
+        task_focus: 按真实评审人视角做高强度审查，输出分级问题和可执行修改清单。
+        capability_name: 评审导向润色
+        capability_goal: produce_or_update_primary_document
+        workspace_type: proposal
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_02_proposal_writer
+    depends_on:
+    - step_01_review_critic
+    tasks:
     - name: proposal_writer
       subagent_type: react
       skill_id: proposal-writer
-      inputs: {}
+      inputs:
+        task_focus: 按申报指南和评审标准生成申报书章节或方案包。
+        capability_name: 评审导向润色
+        capability_goal: produce_or_update_primary_document
+        workspace_type: proposal
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        upstream_outputs: '{{phases}}'
       outputs:
       - kind: document
         default_checked: true
@@ -109,4 +181,11 @@ graph_template:
           name: 申报书润色稿.md
           doc_kind: proposal_draft
           content: '{{output.text}}'
-extensions: {}
+      prompt_template: '{{raw_message}}'
+extensions:
+  content_strategy:
+    workflow_pattern: sequential_upstream_context
+    strategy: 'Funder-rubric planning: problem, objectives, work packages, methods, metrics, feasibility, risk, and impact.'
+    source_notes:
+    - NSF-style merit-review logic where no local funder rubric is provided
+    - User-provided call text remains authoritative

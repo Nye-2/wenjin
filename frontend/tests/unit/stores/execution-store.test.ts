@@ -115,4 +115,32 @@ describe("execution-store", () => {
     const record = useExecutionStore.getState().executions.get("exec-1");
     expect(record?.node_states["node-1"]?.status).toBe("completed");
   });
+
+  it("merges node input, output, tool calls, and timestamps from completed events", () => {
+    useExecutionStore.getState().upsertExecution(makeRecord());
+
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
+        type: "execution.node",
+        payload: {
+          node_id: "node-1",
+          status: "completed",
+          input_data: { query: "sandbox smoke" },
+          output_data: { exit_code: 0, stdout: "ok" },
+          tool_calls: [{ name: "sandbox.run_python", status: "completed" }],
+          started_at: "2026-01-01T00:00:01Z",
+          completed_at: "2026-01-01T00:00:03Z",
+        },
+      }),
+    );
+
+    const node = useExecutionStore.getState().executions.get("exec-1")
+      ?.node_states["node-1"];
+    expect(node?.input).toEqual({ query: "sandbox smoke" });
+    expect(node?.output).toEqual({ exit_code: 0, stdout: "ok" });
+    expect(node?.tool_calls).toEqual([
+      { name: "sandbox.run_python", status: "completed" },
+    ]);
+    expect(node?.completed_at).toBe("2026-01-01T00:00:03Z");
+  });
 });

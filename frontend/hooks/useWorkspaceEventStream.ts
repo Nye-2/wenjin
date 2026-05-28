@@ -10,13 +10,16 @@ import type { ResultCardData } from "@/stores/chat-store";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { useExecutionStream } from "@/hooks/useExecutionStream";
 
 function refreshWorkspaceTargets(workspaceId: string, targets: string[]) {
   const workspaceStore = useWorkspaceStore.getState();
   const dashboardStore = useDashboardStore.getState();
+  const roomRefreshStore = useRoomRefreshStore.getState();
 
   const targetSet = new Set(targets);
+  roomRefreshStore.bump(workspaceId, targets);
   if (targetSet.has("activity")) {
     void workspaceStore.fetchActivity(workspaceId);
   }

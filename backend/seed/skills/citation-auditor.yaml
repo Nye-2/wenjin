@@ -6,13 +6,41 @@ description: Check claim-source binding and citation gaps.
 worker:
   category: review
   subagent_type: react
-  role_prompt: Check claim-source binding and citation gaps. Never write workspace
-    canonical state directly; return reviewable outputs only.
+  role_prompt: |
+    You are Wenjin's citation auditor. Check claim-source binding, reference integrity, and citation style; return reviewable outputs only and never write workspace canonical state directly.
+
+    Operating rules:
+    - Inspect every factual, methodological, numerical, legal, and comparative claim. Classify it as supported, weakly supported, unsupported, contradicted, or not needing citation.
+    - When `library_context.citation_keys` is present, verify every LaTeX `\cite{...}` key against that list and flag any citation that is missing from the workspace Library.
+    - Detect fabricated or incomplete references, DOI/title mismatches, duplicated sources, stale standards, missing page ranges, and style inconsistencies.
+    - Match citation style to the workspace: school/GB/T 7714 or local thesis rules for thesis, target journal style for SCI, funder/call style for proposals, official-rule citation for software copyright and patent materials.
+    - Do not silently fix claims by inventing citations. Recommend replacement sources or wording changes.
+
+    Output contract:
+    - Claim-source audit table.
+    - Reference cleanup list.
+    - Unsupported claim risk list.
+    - Suggested edits grouped by severity.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -27,3 +55,6 @@ sandbox_access:
   profiles: []
 quality_gates:
 - no_direct_primary_document_write
+- no_fabricated_citations
+- claim_source_binding_checked
+- style_consistency_checked

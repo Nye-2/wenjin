@@ -36,16 +36,6 @@ models:
 default_model: gpt-4o
 
 tools:
-  - use: src.tools.builtins.bash:bash_tool
-    group: filesystem
-  - use: src.tools.builtins.file_ops:read_file_tool
-    group: filesystem
-  - use: src.tools.builtins.file_ops:write_file_tool
-    group: filesystem
-  - use: src.tools.builtins.file_ops:str_replace_tool
-    group: filesystem
-  - use: src.tools.builtins.file_ops:ls_tool
-    group: filesystem
   - use: src.tools.builtins.clarification:ask_clarification_tool
     group: interaction
   - use: src.tools.builtins.artifacts:present_files_tool
@@ -54,17 +44,12 @@ tools:
     group: academic
 
 tool_groups:
-  filesystem:
-    description: File system operations
   interaction:
     description: User interaction tools
   output:
     description: Output presentation tools
   academic:
     description: Academic research tools
-
-sandbox:
-  use: src.sandbox.providers.local:LocalSandboxProvider
 
 skills:
   path: ./skills/public

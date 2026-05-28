@@ -1,10 +1,10 @@
-"""Workspace Rooms Router — HTTP handlers for all 8 room types.
+"""Workspace Rooms Router — HTTP handlers for user-facing room types.
 
 All endpoints live under /workspaces/{ws_id}/<room> and enforce workspace
 ownership via ``_assert_workspace_owner``.
 
 Rooms covered (spec §5.3):
-  library | documents | decisions | memory | runs | tasks | settings | sandbox
+  library | documents | decisions | memory | runs | tasks | settings
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ from src.dataservice_client.contracts.rooms import (
     WorkspaceTaskCreatePayload,
     WorkspaceTaskUpdatePayload,
 )
-from src.dataservice_client.contracts.sandbox import SandboxEnvironmentCreatePayload
 from src.dataservice_client.contracts.source import SourceCreatePayload
 from src.dataservice_client.contracts.workspace import WorkspaceSettingsUpdatePayload
 from src.gateway.auth_dependencies import get_current_user
@@ -171,14 +170,6 @@ class WorkspaceSettingsUpdateRequest(BaseModel):
     auto_compact_threshold: float | None = None
     capability_overrides: dict[str, Any] | None = None
     metadata_json: dict[str, Any] | None = None
-
-
-# ── Sandbox ──────────────────────────────────────────────────────────────────
-
-
-class SandboxExecRequest(BaseModel):
-    command: str
-    timeout_seconds: int = 30
 
 
 # ---------------------------------------------------------------------------
@@ -702,8 +693,8 @@ async def list_decisions(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     await _assert_workspace_owner(ws_id, current_user, workspace_service)
-    active = await dataservice.list_room_decisions(ws_id)
-    return {"active": active}
+    decisions = await dataservice.list_room_decisions(ws_id)
+    return {"items": [_row_to_dict(item) for item in decisions], "count": len(decisions)}
 
 
 @router.post("/{ws_id}/decisions", status_code=status.HTTP_201_CREATED)
@@ -933,35 +924,3 @@ async def update_workspace_settings(
         WorkspaceSettingsUpdatePayload(**data),
     )
     return _row_to_dict(updated)
-
-
-# ===========================================================================
-# SANDBOX exec endpoint
-# ===========================================================================
-
-
-@router.post("/{ws_id}/sandbox/exec", status_code=status.HTTP_200_OK)
-async def sandbox_exec(
-    ws_id: str,
-    body: SandboxExecRequest,
-    current_user: User = Depends(get_current_user),
-    workspace_service: WorkspaceService = Depends(get_workspace_service),
-    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-) -> dict[str, Any]:
-    """Execute a command in the workspace sandbox.
-
-    V1: sandbox_dev_mode is always allowed (logs a warning per spec).
-    """
-    await _assert_workspace_owner(ws_id, current_user, workspace_service)
-
-    sandbox = await dataservice.get_or_create_sandbox_environment(
-        ws_id,
-        SandboxEnvironmentCreatePayload(workspace_id=ws_id, provider="local"),
-    )
-    return {
-        "sandbox_id": sandbox.sandbox_id,
-        "provider": sandbox.provider,
-        "command": body.command,
-        "status": "queued",
-        "note": "V1 stub — real execution wired in Phase 2",
-    }

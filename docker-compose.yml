@@ -202,7 +202,7 @@ services:
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
-    command: ["python", "-m", "src.task.worker"]
+    command: ["python", "-m", "src.task.worker", "1", "--queues", "long_running,default,priority"]
     volumes:
       - uploads:/app/uploads
       - ./backend/skills:/app/skills:ro
@@ -223,6 +223,45 @@ services:
         [
           "CMD-SHELL",
           "curl -fsS http://127.0.0.1:${PROMETHEUS_WORKER_PORT:-9153}/metrics >/dev/null",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - wenjin-network
+
+  memory-worker:
+    image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
+    container_name: wenjin-memory-worker
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
+      - REDIS_ENABLED=true
+      - REDIS_URL=redis://redis:6379/0
+      - REDIS_MAX_CONNECTIONS=${REDIS_MAX_CONNECTIONS:-50}
+      - REDIS_STREAM_MAX_CONNECTIONS=${REDIS_STREAM_MAX_CONNECTIONS:-200}
+      - CELERY_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
+      - PROMETHEUS_WORKER_PORT=${PROMETHEUS_MEMORY_WORKER_PORT:-9153}
+      - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-memory-worker
+      - DATASERVICE_URL=http://dataservice:8080
+      - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+    command: ["python", "-m", "src.task.worker", "1", "--queues", "memory"]
+    depends_on:
+      bootstrap-admin:
+        condition: service_completed_successfully
+      dataservice:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:${PROMETHEUS_MEMORY_WORKER_PORT:-9153}/metrics >/dev/null",
         ]
       interval: 30s
       timeout: 10s

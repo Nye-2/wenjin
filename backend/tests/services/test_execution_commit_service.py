@@ -63,6 +63,13 @@ def _make_service(
 
     dataservice = MagicMock()
     dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
+    dataservice.import_source = AsyncMock(
+        return_value=SimpleNamespace(
+            source=SimpleNamespace(id="lib-1"),
+            created=True,
+            external_ids=[],
+        )
+    )
     dataservice.register_asset = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
     dataservice.stage_and_apply_room_candidates = AsyncMock(
         return_value=SimpleNamespace(
@@ -152,7 +159,8 @@ async def test_commit_all_writes_all_kinds():
     assert result["committed"]["decisions"] == 1
     assert result["committed"]["tasks"] == 1
 
-    mocks["dataservice"].create_source.assert_called_once()
+    mocks["dataservice"].import_source.assert_called_once()
+    mocks["dataservice"].create_source.assert_not_called()
     mocks["dataservice"].register_asset.assert_called_once()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_called_once()
     mocks["dataservice"].append_execution_event.assert_called_once()
@@ -177,7 +185,8 @@ async def test_commit_some_only():
     assert result["committed"]["decisions"] == 0
     assert result["committed"]["tasks"] == 0
 
-    mocks["dataservice"].create_source.assert_called_once()
+    mocks["dataservice"].import_source.assert_called_once()
+    mocks["dataservice"].create_source.assert_not_called()
     mocks["dataservice"].register_asset.assert_called_once()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
     # run_history must still be called
@@ -231,9 +240,160 @@ async def test_commit_empty_still_writes_run_history():
 
     assert all(v == 0 for v in result["committed"].values())
     mocks["dataservice"].create_source.assert_not_called()
+    mocks["dataservice"].import_source.assert_not_called()
     mocks["dataservice"].register_asset.assert_not_called()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
     mocks["dataservice"].append_execution_event.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_commit_applies_output_overrides_before_room_writes():
+    """Edited staged outputs are materialized with the override data."""
+    outputs = [
+        LibraryItemOutput(
+            id="out-lib",
+            preview="A paper",
+            kind="library_item",
+            data=LibraryItemData(title="Paper A", authors=["Author 1"], year=2024),
+        ),
+        DocumentOutput(
+            id="out-doc",
+            preview="A doc",
+            kind="document",
+            data=DocumentData(
+                name="draft.md",
+                doc_kind="draft",
+                content="# Original",
+            ),
+        ),
+    ]
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    await svc.commit_outputs(
+        EXECUTION_ID,
+        accept_all=True,
+        output_overrides={
+            "out-lib": {
+                "data": {"title": "Edited Paper", "authors": ["Ada"], "year": 2026},
+                "preview": "Edited Paper",
+            },
+            "out-doc": {
+                "data": {"name": "edited.md", "doc_kind": "outline", "content": "# Edited"}
+            },
+        },
+    )
+
+    source_payload = mocks["dataservice"].import_source.call_args.args[0]
+    assert source_payload.title == "Edited Paper"
+    assert source_payload.authors_json == ["Ada"]
+    assert source_payload.year == 2026
+
+    asset_payload = mocks["dataservice"].register_asset.call_args.args[0]
+    assert asset_payload.name == "edited.md"
+    assert asset_payload.asset_kind == "outline"
+    assert asset_payload.metadata_json["content"] == "# Edited"
+
+
+@pytest.mark.asyncio
+async def test_commit_library_item_imports_verified_external_source():
+    """Execution-backed Library writes preserve external search provenance."""
+    outputs = [
+        LibraryItemOutput(
+            id="out-lib",
+            preview="A verified paper",
+            kind="library_item",
+            data=LibraryItemData(
+                title="Federated Fine-Tuning of Large Language Models",
+                authors=["Ada Lovelace", "Grace Hopper"],
+                year=2025,
+                doi="10.1145/example",
+                url="https://www.semanticscholar.org/paper/ss-paper-1",
+                abstract="Verified external metadata.",
+                venue="ICML",
+                citation_count=42,
+                source="semantic_scholar",
+                external_id="ss-paper-1",
+                metadata={"paperId": "ss-paper-1", "source": "semantic_scholar"},
+            ),
+        )
+    ]
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+
+    payload = mocks["dataservice"].import_source.call_args.args[0]
+    assert payload.ingest_kind == "semantic_scholar"
+    assert payload.evidence_level == "external_verified"
+    assert payload.verified_at is not None
+    assert payload.venue == "ICML"
+    assert payload.citation_count == 42
+    assert payload.external_ids[0].provider == "semantic_scholar"
+    assert payload.external_ids[0].external_id == "ss-paper-1"
+    mocks["dataservice"].create_source.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_commit_rejects_override_for_unaccepted_output():
+    """Overrides may only target outputs selected for this commit."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, _mocks = _make_service(execution)
+
+    with pytest.raises(ValueError, match="unaccepted output id"):
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accepted_ids=["out-lib"],
+            output_overrides={"out-doc": {"data": {"name": "edited.md"}}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_commit_rejects_unknown_override_output_id():
+    """Unknown output ids in output_overrides fail fast."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, _mocks = _make_service(execution)
+
+    with pytest.raises(ValueError, match="unknown output id"):
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            output_overrides={"missing": {"data": {"title": "Nope"}}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_commit_rejects_unsupported_override_fields():
+    """Only the first-version editable fields can be overridden."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, _mocks = _make_service(execution)
+
+    with pytest.raises(ValueError, match="unsupported field"):
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            output_overrides={"out-lib": {"data": {"library_status": "excluded"}}},
+        )
+
+
+@pytest.mark.asyncio
+async def test_commit_rejects_unknown_accepted_id():
+    """accepted_ids must refer to real staged outputs."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, _mocks = _make_service(execution)
+
+    with pytest.raises(ValueError, match="accepted_ids contains unknown"):
+        await svc.commit_outputs(EXECUTION_ID, accepted_ids=["missing"])
 
 
 @pytest.mark.asyncio
@@ -320,12 +480,16 @@ async def test_commit_publishes_refresh_event():
         {
             "refresh_targets": [
                 "activity",
-                        "artifacts",
-                        "dashboard",
-                        "memory",
-                        "decisions",
-                        "tasks",
-                        "references",
-                    ]
-                },
+                "artifacts",
+                "dashboard",
+                "documents",
+                "library",
+                "memory",
+                "decisions",
+                "tasks",
+                "runs",
+                "references",
+                "prism",
+            ]
+        },
     )

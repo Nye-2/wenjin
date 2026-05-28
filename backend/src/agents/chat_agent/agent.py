@@ -29,8 +29,6 @@ from src.agents.middlewares import (
     LLMErrorHandlingMiddleware,
     LoopDetectionMiddleware,
     MemoryMiddleware,
-    SandboxAuditMiddleware,
-    SandboxMiddleware,
     SummarizationMiddleware,
     ThreadDataMiddleware,
     TitleMiddleware,
@@ -49,7 +47,6 @@ from src.agents.thread_state import ThreadState, create_thread_state, merge_thre
 from src.config import get_default_model_id
 from src.config.config_loader import get_app_config
 from src.models import model_supports_vision
-from src.sandbox.runtime import get_sandbox_provider
 from src.services.references.boundaries import is_reference_library_bypass_tool
 
 logger = logging.getLogger(__name__)
@@ -544,34 +541,15 @@ def get_available_tools(
     # Import built-in tools
     from src.tools.builtins import (
         ask_clarification_tool,
-        bash_tool,
-        glob_tool,
-        grep_tool,
         launch_feature_tool,
         list_capabilities_tool,
         list_reference_library_tool,
         list_workspace_artifacts_tool,
-        ls_tool,
         present_files_tool,
-        read_file_tool,
         read_reference_outline_node_tool,
         search_reference_text_units_tool,
-        str_replace_tool,
         view_image_tool,
-        write_file_tool,
     )
-
-    # File system tools
-    tools.extend([
-        bash_tool,
-        read_file_tool,
-        write_file_tool,
-        str_replace_tool,
-        ls_tool,
-        glob_tool,
-        grep_tool,
-        view_image_tool,
-    ])
 
     # Interaction tools
     tools.append(ask_clarification_tool)
@@ -586,6 +564,7 @@ def get_available_tools(
 
     # Output tools
     tools.append(present_files_tool)
+    tools.append(view_image_tool)
 
     if include_execution:
         try:
@@ -693,7 +672,6 @@ def build_pipeline(
     index_service: Any | None = None,
     artifact_service: Any | None = None,
     reference_service: Any | None = None,
-    sandbox_provider: Any | None = None,
     memory_queue: Any | None = None,
     memory_capture_enabled: bool = True,
 ) -> list[Middleware]:
@@ -702,24 +680,22 @@ def build_pipeline(
     Order:
     1.  ThreadDataMiddleware       - Infrastructure
     2.  UploadsMiddleware          - Infrastructure
-    3.  SandboxMiddleware          - Infrastructure (new)
-    4.  ExecutionMiddleware        - Tool execution routing (conditional)
+    3.  ExecutionMiddleware        - Tool execution routing (conditional)
     5.  DanglingToolCallMiddleware - Fix
-    6.  SandboxAuditMiddleware     - Tool safety auditing
-    7.  ToolErrorHandlingMiddleware - Tool failure degradation
-    8.  LLMErrorHandlingMiddleware - LLM retry/fallback/circuit guard
-    9.  SummarizationMiddleware    - Context management (conditional)
-    10. MemoryMiddleware           - Context management (conditional)
-    11. WorkspaceContextMiddleware - Academic (conditional)
-    12. LiteratureContextMiddleware - Academic (conditional)
-    13. KnowledgeContextMiddleware - Academic (conditional)
-    14. DisciplineContextMiddleware - Academic
-    15. TodoListMiddleware         - Interaction (conditional)
-    16. ViewImageMiddleware        - Interaction
-    17. LoopDetectionMiddleware    - Control (loop break)
-    18. TitleMiddleware            - Post-processing
-    19. CitationContextMiddleware  - Post-processing (conditional)
-    20. ClarificationMiddleware    - Control (MUST BE LAST)
+    6.  ToolErrorHandlingMiddleware - Tool failure degradation
+    7.  LLMErrorHandlingMiddleware - LLM retry/fallback/circuit guard
+    8.  SummarizationMiddleware    - Context management (conditional)
+    9.  MemoryMiddleware           - Context management (conditional)
+    10. WorkspaceContextMiddleware - Academic (conditional)
+    11. LiteratureContextMiddleware - Academic (conditional)
+    12. KnowledgeContextMiddleware - Academic (conditional)
+    13. DisciplineContextMiddleware - Academic
+    14. TodoListMiddleware         - Interaction (conditional)
+    15. ViewImageMiddleware        - Interaction
+    16. LoopDetectionMiddleware    - Control (loop break)
+    17. TitleMiddleware            - Post-processing
+    18. CitationContextMiddleware  - Post-processing (conditional)
+    19. ClarificationMiddleware    - Control (MUST BE LAST)
     """
     config = _normalize_runtime_config(config)
     configurable = _coerce_json_object(config.get("configurable", {}))
@@ -750,13 +726,6 @@ def build_pipeline(
     pipeline.append(ThreadDataMiddleware())
     pipeline.append(UploadsMiddleware())
 
-    # Sandbox (3) - resolve default provider when sandboxing is configured
-    if sandbox_provider is None:
-        sandbox_provider = get_sandbox_provider()
-
-    if sandbox_provider:
-        pipeline.append(SandboxMiddleware(sandbox_provider))
-
     # Execution (4) - compile / render tools routed through ExecutionService
     try:
         from src.thesis.execution import get_execution_service
@@ -777,8 +746,7 @@ def build_pipeline(
     # --- Fix layer (5) ---
     pipeline.append(DanglingToolCallMiddleware())
 
-    # Tool safety and error degradation
-    pipeline.append(SandboxAuditMiddleware())
+    # Tool error degradation
     pipeline.append(ToolErrorHandlingMiddleware())
 
     # LLM resilience (retry/fallback/circuit-breaker)
@@ -922,7 +890,6 @@ def make_chat_agent(
     index_service: Any | None = None,
     artifact_service: Any | None = None,
     reference_service: Any | None = None,
-    sandbox_provider: Any | None = None,
     memory_queue: Any | None = None,
 ) -> "_MiddlewareWrappedAgent":
     """Factory: build the conversational chat agent for a workspace thread.
@@ -963,7 +930,6 @@ def make_chat_agent(
             index_service=index_service,
             artifact_service=artifact_service,
             reference_service=reference_service,
-            sandbox_provider=sandbox_provider,
             memory_queue=memory_queue,
         )
 

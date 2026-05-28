@@ -27,6 +27,7 @@ class SubagentContext:
     inputs: dict
     tools: list[str]
     workspace_data: dict = field(default_factory=dict)
+    capability_policy: dict = field(default_factory=dict)
     skill: Any | None = None
     emit_delta: Callable[[str, str], Awaitable[None]] | None = None
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { listDecisions, type Decision } from "@/lib/api/v2/decisions";
+import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 
 interface DecisionsViewerProps {
   workspaceId: string;
@@ -20,6 +21,9 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const refreshCounter = useRoomRefreshStore(
+    (state) => state.countersByWorkspace[workspaceId]?.decisions ?? 0,
+  );
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -38,7 +42,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
 
   useEffect(() => {
     fetchItems();
-  }, [fetchItems]);
+  }, [fetchItems, refreshCounter]);
 
   const filtered = search
     ? items.filter((item) =>

@@ -11,6 +11,7 @@ import logging
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 from src.agents.contracts.task_report import TaskReport
@@ -18,9 +19,13 @@ from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.execution import ExecutionEventCreatePayload
 from src.dataservice_client.contracts.rooms import RoomCandidatePayload
-from src.dataservice_client.contracts.source import SourceCreatePayload
+from src.dataservice_client.contracts.source import (
+    SourceExternalIdCreatePayload,
+    SourceImportPayload,
+)
 from src.dataservice_client.provider import dataservice_client
 from src.services.execution_service import ExecutionService
+from src.services.references import SourceBibliographyService
 from src.workspace_events import publish_workspace_event
 
 logger = logging.getLogger(__name__)
@@ -30,6 +35,13 @@ logger = logging.getLogger(__name__)
 # filesystem for generated markdown.
 _INLINE_DOC_PATH_PREFIX = "inline://"
 _CITATION_KEY_RE = re.compile(r"[^a-z0-9]+")
+_ALLOWED_OVERRIDE_FIELDS: dict[str, set[str]] = {
+    "document": {"content", "name", "doc_kind"},
+    "library_item": {"title", "authors", "year", "doi", "url", "abstract"},
+    "memory_fact": {"category", "content", "confidence"},
+    "decision": {"key", "value"},
+    "task": {"title", "description", "priority"},
+}
 
 
 class ExecutionCommitService:
@@ -69,6 +81,7 @@ class ExecutionCommitService:
         *,
         accept_all: bool = False,
         accepted_ids: list[str] | None = None,
+        output_overrides: dict[str, dict[str, Any]] | None = None,
         idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         """Commit accepted outputs to rooms and record run history.
@@ -77,6 +90,7 @@ class ExecutionCommitService:
             execution_id: The execution to commit outputs for.
             accept_all: If True, all outputs in the TaskReport are written.
             accepted_ids: Specific output IDs to write (ignored when accept_all=True).
+            output_overrides: Per-output staged edits applied before materializing rooms.
             idempotency_key: Optional key for idempotent repeat calls (24h cache).
 
         Returns:
@@ -102,13 +116,40 @@ class ExecutionCommitService:
         report = TaskReport.model_validate(execution.result["task_report"])
 
         # 3. Select outputs
+        output_by_id = {output.id: output for output in report.outputs}
         if accept_all:
             selected = list(report.outputs)
         elif accepted_ids is not None:
             id_set = set(accepted_ids)
+            missing_ids = sorted(id_set - set(output_by_id))
+            if missing_ids:
+                raise ValueError(
+                    "accepted_ids contains unknown output id(s): "
+                    + ", ".join(missing_ids)
+                )
             selected = [o for o in report.outputs if o.id in id_set]
         else:
             selected = []
+
+        overrides = output_overrides or {}
+        selected_ids = {output.id for output in selected}
+        unknown_override_ids = sorted(set(overrides) - set(output_by_id))
+        if unknown_override_ids:
+            raise ValueError(
+                "output_overrides contains unknown output id(s): "
+                + ", ".join(unknown_override_ids)
+            )
+        unaccepted_override_ids = sorted(set(overrides) - selected_ids)
+        if unaccepted_override_ids:
+            raise ValueError(
+                "output_overrides contains unaccepted output id(s): "
+                + ", ".join(unaccepted_override_ids)
+            )
+        if overrides:
+            selected = [
+                _apply_output_override(output, overrides.get(output.id))
+                for output in selected
+            ]
 
         counts: dict[str, int] = {
             "library": 0,
@@ -133,27 +174,16 @@ class ExecutionCommitService:
                 data = output.data.model_dump() if hasattr(output.data, "model_dump") else dict(output.data)
 
                 if kind == "library_item":
-                    item = await dataservice.create_source(
-                        SourceCreatePayload(
+                    import_result = await dataservice.import_source(
+                        _source_import_payload(
                             workspace_id=execution.workspace_id,
-                            source_kind="paper",
-                            title=data["title"],
-                            authors_json=list(data.get("authors") or []),
-                            year=data.get("year"),
-                            doi=data.get("doi"),
-                            url=data.get("url"),
-                            abstract=data.get("abstract"),
-                            ingest_kind="execution",
-                            ingest_label=f"execution:{execution_id}",
-                            ingest_execution_id=execution_id,
-                            library_status="included",
-                            citation_key=_citation_key(data),
-                            bibtex_fields_json=dict(data.get("metadata") or {}),
+                            execution_id=execution_id,
+                            data=data,
                         )
                     )
                     counts["library"] += 1
                     room_targets["library"].append(
-                        {"output_id": output.id, "item_id": item.id}
+                        {"output_id": output.id, "item_id": import_result.source.id}
                     )
 
                 elif kind == "document":
@@ -279,6 +309,12 @@ class ExecutionCommitService:
                             }
                         )
 
+            if counts["library"] > 0:
+                await self._sync_prism_bibliography(
+                    workspace_id=execution.workspace_id,
+                    dataservice=dataservice,
+                )
+
             # 5. Always write run_history
             capability_id = execution.feature_id or report.capability_id
             await dataservice.append_execution_event(
@@ -321,10 +357,14 @@ class ExecutionCommitService:
                         "activity",
                         "artifacts",
                         "dashboard",
+                        "documents",
+                        "library",
                         "memory",
                         "decisions",
                         "tasks",
+                        "runs",
                         "references",
+                        "prism",
                     ]
                 },
             )
@@ -371,6 +411,27 @@ class ExecutionCommitService:
             referral_svc = ReferralService(db)
             await referral_svc.fire_first_task_for_referrer(user_id)
 
+    async def _sync_prism_bibliography(
+        self,
+        *,
+        workspace_id: str,
+        dataservice: AsyncDataServiceClient,
+    ) -> None:
+        """Materialize accepted Library sources into Prism's refs.bib."""
+        db = getattr(self.execution, "db", None)
+        if db is None:
+            return
+        try:
+            await SourceBibliographyService(dataservice, db=db).sync_prism(
+                workspace_id=workspace_id,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to sync Prism bibliography after Library commit",
+                extra={"workspace_id": workspace_id},
+                exc_info=True,
+            )
+
 
 def _citation_key(data: dict[str, Any]) -> str:
     raw = str(data.get("citation_key") or data.get("title") or "source").lower()
@@ -379,3 +440,160 @@ def _citation_key(data: dict[str, Any]) -> str:
     if year and str(year) not in key:
         key = f"{key}_{year}"
     return key or "source"
+
+
+def _source_import_payload(
+    *,
+    workspace_id: str,
+    execution_id: str,
+    data: dict[str, Any],
+) -> SourceImportPayload:
+    metadata = dict(data.get("metadata") or {})
+    provider = _first_text(
+        data.get("source"),
+        metadata.get("source"),
+        metadata.get("provider"),
+    )
+    external_id = _first_text(
+        data.get("external_id"),
+        metadata.get("external_id"),
+        metadata.get("paperId"),
+        metadata.get("paper_id"),
+        metadata.get("corpusId"),
+    )
+    evidence_level = _source_evidence_level(data, metadata, provider, external_id)
+    verified_at = _verified_at(data, metadata, evidence_level)
+
+    if provider:
+        metadata.setdefault("source", provider)
+    if external_id:
+        metadata.setdefault("external_id", external_id)
+
+    external_ids = []
+    if provider and external_id:
+        external_ids.append(
+            SourceExternalIdCreatePayload(
+                provider=provider,
+                external_id=external_id,
+                url=_first_text(data.get("url"), metadata.get("url")),
+                metadata_json=metadata,
+            )
+        )
+
+    return SourceImportPayload(
+        workspace_id=workspace_id,
+        source_kind="paper",
+        title=data["title"],
+        authors_json=list(data.get("authors") or []),
+        year=_safe_int(data.get("year")),
+        venue=_first_text(data.get("venue"), metadata.get("venue")),
+        doi=_first_text(data.get("doi"), metadata.get("doi")),
+        url=_first_text(data.get("url"), metadata.get("url")),
+        abstract=_first_text(data.get("abstract"), metadata.get("abstract")),
+        citation_count=_safe_int(
+            data.get("citation_count")
+            or metadata.get("citation_count")
+            or metadata.get("citations_count")
+            or metadata.get("citations")
+        ),
+        ingest_kind=provider or "execution",
+        ingest_label=f"execution:{execution_id}",
+        ingest_execution_id=execution_id,
+        verified_at=verified_at,
+        library_status="included",
+        evidence_level=evidence_level,
+        citation_key=_citation_key(data),
+        bibtex_fields_json=metadata,
+        external_ids=external_ids,
+    )
+
+
+def _first_text(*values: Any) -> str | None:
+    for value in values:
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _safe_int(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _source_evidence_level(
+    data: dict[str, Any],
+    metadata: dict[str, Any],
+    provider: str | None,
+    external_id: str | None,
+) -> str:
+    raw_level = _first_text(data.get("evidence_level"), metadata.get("evidence_level"))
+    if raw_level in {"indexed_fulltext", "uploaded_fulltext", "external_verified"}:
+        return raw_level
+    if provider == "semantic_scholar" and external_id:
+        return "external_verified"
+    if raw_level == "semantic_scholar_metadata" and provider == "semantic_scholar":
+        return "external_verified"
+    return raw_level or "metadata_only"
+
+
+def _verified_at(
+    data: dict[str, Any],
+    metadata: dict[str, Any],
+    evidence_level: str,
+) -> datetime | None:
+    raw_value = data.get("verified_at") or metadata.get("verified_at")
+    if isinstance(raw_value, datetime):
+        return raw_value
+    if isinstance(raw_value, str) and raw_value.strip():
+        try:
+            return datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+        except ValueError:
+            logger.debug("Ignoring invalid source verified_at value: %s", raw_value)
+    if evidence_level != "metadata_only":
+        return datetime.now(UTC)
+    return None
+
+
+def _apply_output_override(output: Any, override: dict[str, Any] | None) -> Any:
+    """Overlay allowed staged edits onto a TaskReport output model."""
+    if not override:
+        return output
+
+    unknown_keys = sorted(set(override) - {"data", "preview"})
+    if unknown_keys:
+        raise ValueError(
+            f"output_overrides.{output.id} contains unsupported key(s): "
+            + ", ".join(unknown_keys)
+        )
+
+    payload = output.model_dump(mode="json")
+    data_override = override.get("data")
+    if data_override is not None:
+        if not isinstance(data_override, dict):
+            raise ValueError(f"output_overrides.{output.id}.data must be an object")
+        allowed = _ALLOWED_OVERRIDE_FIELDS.get(output.kind, set())
+        unknown_fields = sorted(set(data_override) - allowed)
+        if unknown_fields:
+            raise ValueError(
+                f"output_overrides.{output.id}.data contains unsupported field(s): "
+                + ", ".join(unknown_fields)
+            )
+        payload["data"] = {
+            **dict(payload.get("data") or {}),
+            **data_override,
+        }
+
+    if "preview" in override:
+        preview = override["preview"]
+        if not isinstance(preview, str) or not preview.strip():
+            raise ValueError(f"output_overrides.{output.id}.preview must be a non-empty string")
+        payload["preview"] = preview.strip()
+
+    return output.__class__.model_validate(payload)

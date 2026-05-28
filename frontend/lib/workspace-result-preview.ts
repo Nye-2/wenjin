@@ -22,6 +22,7 @@ export interface WorkspaceResultPreview {
   id: string;
   source: "staged_output" | "document_room" | "library_room";
   kind: PreviewKind;
+  data?: Record<string, unknown> | null;
   title: string;
   subtitle: string | null;
   badge: string | null;
@@ -122,6 +123,7 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             title: preview ?? "Memory fact",
             subtitle: readString(data?.category),
             badge: "Memory",
+            data,
             previewMode: "plain_text",
             previewText:
               readString(data?.content) ?? preview ?? JSON.stringify(data, null, 2),
@@ -140,6 +142,7 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             title: preview ?? readString(data?.key) ?? "Decision",
             subtitle: readString(data?.key),
             badge: "Decision",
+            data,
             previewMode: "plain_text",
             previewText:
               readString(data?.value) ?? preview ?? JSON.stringify(data, null, 2),
@@ -160,6 +163,7 @@ export function buildWorkspaceResultPreviewsFromOutputs(
               ? `Priority ${readString(data?.priority)}`
               : null,
             badge: "Task",
+            data,
             previewMode: "plain_text",
             previewText:
               readString(data?.description) ??
@@ -191,6 +195,7 @@ export function buildDocumentRoomPreview(
     title: readString(document.name) ?? "Untitled document",
     subtitle: docKind ? capitalize(docKind) : mimeType,
     badge: "Document",
+    data: document,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
     previewText: content,
     metadataLines: [mimeType, docKind ? capitalize(docKind) : null].filter(
@@ -219,6 +224,7 @@ export function buildLibraryRoomPreview(
     title: readString(item.title) ?? "Untitled reference",
     subtitle: authors.length > 0 ? authors.join(", ") : null,
     badge: "Reference",
+    data: item,
     previewMode: "citation",
     previewText: readString(item.abstract),
     metadataLines: [year, readString(item.doi), readString(item.url)].filter(
@@ -254,6 +260,7 @@ function buildDocumentPreview(options: {
     title: firstNonNull(preview, name, id) ?? "Document",
     subtitle: name && preview !== name ? name : docKind ? capitalize(docKind) : null,
     badge: "Document",
+    data,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
     previewText: firstNonNull(content, preview),
     metadataLines: [mimeType, docKind ? capitalize(docKind) : null].filter(
@@ -288,6 +295,7 @@ function buildLibraryPreview(options: {
     title,
     subtitle: authors.length > 0 ? authors.join(", ") : null,
     badge: "Reference",
+    data,
     previewMode: "citation",
     previewText: firstNonNull(abstract, preview, title),
     metadataLines: [year, readString(data?.doi), readString(data?.url)].filter(

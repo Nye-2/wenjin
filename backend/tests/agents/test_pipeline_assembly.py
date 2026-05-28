@@ -23,7 +23,6 @@ def _mock_app_config(
         )
     )
     mock_config.subagents = SimpleNamespace(enabled=True, max_concurrent=4)
-    mock_config.sandbox = None
     mock_config.memory = MemoryConfig(enabled=memory_enabled)
     return mock_config
 
@@ -45,9 +44,6 @@ class TestPipelineAssembly:
         config = _pipeline_config(workspace_id="ws-123")
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
@@ -68,9 +64,6 @@ class TestPipelineAssembly:
         config = _pipeline_config()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
@@ -90,9 +83,6 @@ class TestPipelineAssembly:
         config = _pipeline_config()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
@@ -108,9 +98,6 @@ class TestPipelineAssembly:
         config = _pipeline_config()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=True)), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
@@ -131,9 +118,6 @@ class TestPipelineAssembly:
                 summarization_model_name="utility-primary",
             ),
         ), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
@@ -153,9 +137,6 @@ class TestPipelineAssembly:
         config = _pipeline_config()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config(summarization_enabled=False)), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
@@ -164,23 +145,21 @@ class TestPipelineAssembly:
         type_names = [type(m).__name__ for m in pipeline]
         assert "SummarizationMiddleware" not in type_names
 
-    def test_sandbox_middleware_is_auto_included_when_provider_available(self):
+    def test_chat_pipeline_never_includes_sandbox_middleware(self):
         from src.agents.chat_agent.agent import build_pipeline
 
         config = _pipeline_config()
-        mock_provider = object()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=mock_provider,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
             pipeline = build_pipeline(config=config)
 
         type_names = [type(m).__name__ for m in pipeline]
-        assert "SandboxMiddleware" in type_names
+        assert "SandboxMiddleware" not in type_names
+        assert "SandboxAuditMiddleware" not in type_names
+        assert not any("SandboxSmoke" in type_name for type_name in type_names)
 
     def test_execution_middleware_is_included_when_execution_service_available(self):
         from src.agents.chat_agent.agent import build_pipeline
@@ -188,9 +167,6 @@ class TestPipelineAssembly:
         config = _pipeline_config()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             return_value=object(),
         ):
@@ -205,9 +181,6 @@ class TestPipelineAssembly:
         config = _pipeline_config()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):
@@ -224,9 +197,6 @@ class TestPipelineAssembly:
         with patch(
             "src.agents.chat_agent.agent.get_app_config",
             return_value=_mock_app_config(memory_enabled=True),
-        ), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
         ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
@@ -247,9 +217,6 @@ class TestPipelineAssembly:
         config = _pipeline_config()
 
         with patch("src.agents.chat_agent.agent.get_app_config", return_value=_mock_app_config()), patch(
-            "src.agents.chat_agent.agent.get_sandbox_provider",
-            return_value=None,
-        ), patch(
             "src.thesis.execution.get_execution_service",
             side_effect=RuntimeError("execution disabled"),
         ):

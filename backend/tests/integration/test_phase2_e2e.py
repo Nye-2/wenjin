@@ -304,6 +304,9 @@ async def test_commit_after_e2e_writes_rooms():
 
     dataservice = MagicMock()
     dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
+    dataservice.import_source = AsyncMock(
+        return_value=SimpleNamespace(source=SimpleNamespace(id="lib-1"))
+    )
     dataservice.register_asset = AsyncMock(return_value=SimpleNamespace(id="doc-1"))
     dataservice.append_execution_event = AsyncMock(return_value=SimpleNamespace(id="run-event-1"))
     dataservice.stage_and_apply_room_candidates = AsyncMock()
@@ -319,7 +322,8 @@ async def test_commit_after_e2e_writes_rooms():
 
     # 1 library item committed
     assert result["committed"]["library"] == 1
-    dataservice.create_source.assert_awaited_once()
+    dataservice.import_source.assert_awaited_once()
+    dataservice.create_source.assert_not_awaited()
 
     # run-history event always written regardless of outputs
     dataservice.append_execution_event.assert_awaited_once()
@@ -333,7 +337,14 @@ async def test_commit_after_e2e_writes_rooms():
                 "activity",
                 "artifacts",
                 "dashboard",
+                "documents",
+                "library",
+                "memory",
+                "decisions",
+                "tasks",
+                "runs",
                 "references",
+                "prism",
             ]
         },
     )

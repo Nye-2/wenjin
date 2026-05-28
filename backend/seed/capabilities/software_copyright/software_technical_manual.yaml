@@ -32,6 +32,59 @@ inputs:
         type: string
       deliverable:
         type: string
+      topic:
+        type: string
+        description: 核心主题、题目或技术方向。
+      query:
+        type: string
+        description: 检索关键词或需要展开的问题。
+      raw_message:
+        type: string
+        description: 用户原始请求文本。
+      target_format:
+        type: string
+        description: 学校、期刊、基金、软著或专利模板要求。
+      audience:
+        type: string
+        description: 目标读者、评审人或审查场景。
+      constraints:
+        type: string
+        description: 页数、语言、截止日期、格式和禁止事项。
+      existing_materials_summary:
+        type: string
+        description: 已有文献、数据、代码、草稿或证明材料摘要。
+      source_guidelines:
+        type: array
+        items:
+          type: string
+        description: 用户指定或系统识别的规范、指南、标准或官方来源。
+      software_name:
+        type: string
+        description: 软件全称。
+      software_short_name:
+        type: string
+        description: 软件简称，如有。
+      version:
+        type: string
+        description: 申请版本号。
+      completion_date:
+        type: string
+        description: 开发完成日期。
+      development_mode:
+        type: string
+        description: 独立开发、合作开发、委托开发或继受取得。
+      runtime_environment:
+        type: string
+        description: 硬件、操作系统、依赖环境和部署方式。
+      function_modules:
+        type: string
+        description: 已实现功能模块列表。
+      source_material_status:
+        type: string
+        description: 源程序、说明书、截图、申请表和证明文件准备状态。
+      manual_type:
+        type: string
+        description: 用户手册、操作手册、设计说明书或其他文档类型。
 context_policy:
   room_reads:
     library: summary
@@ -89,24 +142,61 @@ quality_gates:
 - no_direct_primary_document_write
 - provenance_required_for_claims
 - protected_sections_readonly
+- upstream_outputs_must_be_used
+- unsupported_claims_marked_for_user_decision
+- result_card_review_before_commit
+- application_form_source_manual_consistency
+- software_name_version_consistent
+- source_and_document_deposit_rules_checked
+- no_claims_about_unimplemented_features
 graph_template:
   phases:
-  - name: mission_execution
+  - name: step_01_software_structure_planner
     tasks:
     - name: software_structure_planner
       subagent_type: react
       skill_id: software-structure-planner
-      inputs: {}
+      inputs:
+        task_focus: 整理软著申请材料结构，建立软件名称/版本/模块/源码/文档一致性矩阵。
+        capability_name: 技术说明与用户手册
+        capability_goal: produce_or_update_primary_document
+        workspace_type: software_copyright
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_02_software_doc_drafter
+    depends_on:
+    - step_01_software_structure_planner
+    tasks:
     - name: software_doc_drafter
       subagent_type: react
       skill_id: software-doc-drafter
-      inputs: {}
+      inputs:
+        task_focus: 生成软著说明书、申请表填报素材、功能模块说明和材料清单。
+        capability_name: 技术说明与用户手册
+        capability_goal: produce_or_update_primary_document
+        workspace_type: software_copyright
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        upstream_outputs: '{{phases}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_03_figure_engineer
+    depends_on:
+    - step_02_software_doc_drafter
+    tasks:
     - name: figure_engineer
       subagent_type: react
       skill_id: figure-engineer
-      inputs: {}
+      inputs:
+        task_focus: 设计图表/流程图/架构图/附图说明，使其服务论证或申报材料一致性。
+        capability_name: 技术说明与用户手册
+        capability_goal: produce_or_update_primary_document
+        workspace_type: software_copyright
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        upstream_outputs: '{{phases}}'
       outputs:
       - kind: document
         default_checked: true
@@ -114,4 +204,10 @@ graph_template:
           name: 软件技术手册.md
           doc_kind: technical_manual
           content: '{{output.text}}'
-extensions: {}
+      prompt_template: '{{raw_message}}'
+extensions:
+  content_strategy:
+    workflow_pattern: sequential_upstream_context
+    strategy: 'China software copyright registration support for Chinese users: application form material, source/document identification material, manual and version consistency.'
+    source_notes:
+    - China Computer Software Copyright Registration Measures articles 9-11 and CPCC guide conventions

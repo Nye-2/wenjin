@@ -162,6 +162,7 @@ def _default_runner_factory(
             inputs=rendered_inputs,
             tools=task_spec.get("tools", []),
             workspace_data=state.get("workspace_data", {}),
+            capability_policy=state.get("capability_policy", {}),
             skill=task_spec.get("_skill"),
             emit_delta=emit_delta,
         )

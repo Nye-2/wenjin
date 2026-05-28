@@ -1,6 +1,13 @@
 "use client";
 
-import { use, useCallback, useEffect, useState } from "react";
+import {
+  use,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import { ChatPanel } from "./components/ChatPanel";
 import { LiveWorkflowPanel } from "./components/LiveWorkflowPanel";
@@ -15,16 +22,16 @@ import { SurfaceSwitch } from "./components/SurfaceSwitch";
 import { getWorkspace } from "@/lib/api/workspace";
 import { authorizedFetch } from "@/lib/api/client";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import type { WorkspaceCapability } from "@/lib/api/types";
 
 const SETTINGS_ROOMS = new Set<string>([
   "decisions",
   "memory",
-  "sandbox",
   "settings",
 ]);
 
-type SettingsTab = "memory" | "decisions" | "sandbox" | "settings";
+type SettingsTab = "memory" | "decisions" | "settings";
 
 export default function V2Page({
   params,
@@ -58,6 +65,15 @@ export default function V2Page({
     type: string;
   } | null>(null);
   const [features, setFeatures] = useState<WorkspaceCapability[]>([]);
+  const splitRatio = useWorkbenchLayoutStore((state) => state.splitRatio);
+  const isWorkbenchFullscreen = useWorkbenchLayoutStore(
+    (state) => state.isWorkbenchFullscreen,
+  );
+  const setSplitRatio = useWorkbenchLayoutStore((state) => state.setSplitRatio);
+  const resetSplitRatio = useWorkbenchLayoutStore(
+    (state) => state.resetSplitRatio,
+  );
+  const splitRootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +113,46 @@ export default function V2Page({
     ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
     : null;
 
+  const handleResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (isWorkbenchFullscreen) {
+        return;
+      }
+      event.preventDefault();
+      const root = splitRootRef.current;
+      if (!root) {
+        return;
+      }
+
+      const updateRatio = (clientX: number) => {
+        const rect = root.getBoundingClientRect();
+        if (rect.width <= 0) {
+          return;
+        }
+        setSplitRatio((clientX - rect.left) / rect.width);
+      };
+
+      const originalCursor = document.body.style.cursor;
+      const originalUserSelect = document.body.style.userSelect;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      updateRatio(event.clientX);
+
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        updateRatio(moveEvent.clientX);
+      };
+      const handlePointerUp = () => {
+        document.body.style.cursor = originalCursor;
+        document.body.style.userSelect = originalUserSelect;
+        window.removeEventListener("pointermove", handlePointerMove);
+        window.removeEventListener("pointerup", handlePointerUp);
+      };
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+    },
+    [isWorkbenchFullscreen, setSplitRatio],
+  );
+
   // Map topbar room selection to panels
   const settingsOpen = activeRoom != null && SETTINGS_ROOMS.has(activeRoom);
   const settingsTab: SettingsTab =
@@ -105,7 +161,7 @@ export default function V2Page({
       : "memory";
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="wjn-shell-bg flex h-full min-h-0 flex-col text-[var(--wjn-text)]">
       <SurfaceSwitch workspaceId={id} active="workbench" />
       <RoomsTopbar
         workspaceId={id}
@@ -113,22 +169,71 @@ export default function V2Page({
         activeRoom={activeRoom}
         onRoomSelect={setActiveRoom}
       />
-      <div className="flex flex-1 min-h-0 relative">
-        <ChatPanel
-          workspaceId={id}
-          workspaceName={workspace?.name}
-          typeConfig={typeConfig ?? undefined}
-          features={features}
-          className="w-[42%] border-r"
-          data-testid="chat-panel"
-        />
-        <LiveWorkflowPanel
-          workspaceId={id}
-          typeConfig={typeConfig ?? undefined}
-          features={features}
-          className="flex-1"
-          data-testid="workflow-panel"
-        />
+      <div
+        ref={splitRootRef}
+        className="relative flex min-h-0 flex-1"
+        data-testid="workbench-split-root"
+      >
+        {!isWorkbenchFullscreen ? (
+          <>
+            <div
+              data-testid="chat-region"
+              style={{
+                width: `${splitRatio * 100}%`,
+                minWidth: 320,
+                maxWidth: "72%",
+                height: "100%",
+                minHeight: 0,
+                borderRight: "1px solid var(--wjn-line)",
+              }}
+            >
+              <ChatPanel
+                workspaceId={id}
+                workspaceName={workspace?.name}
+                typeConfig={typeConfig ?? undefined}
+                features={features}
+                className="h-full"
+                data-testid="chat-panel"
+              />
+            </div>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="调整对话与工作台宽度"
+              data-testid="workbench-resizer"
+              onPointerDown={handleResizePointerDown}
+              onDoubleClick={resetSplitRatio}
+              title="拖拽调整宽度，双击恢复默认"
+              style={{
+                width: 8,
+                flex: "0 0 8px",
+                cursor: "col-resize",
+                background:
+                  "linear-gradient(90deg, rgba(15,23,42,0.02), rgba(15,23,42,0.075), rgba(15,23,42,0.02))",
+                borderLeft: "1px solid rgba(15, 23, 42, 0.045)",
+                borderRight: "1px solid rgba(15, 23, 42, 0.045)",
+                zIndex: 2,
+              }}
+            />
+          </>
+        ) : null}
+        <div
+          data-testid="workbench-region"
+          style={{
+            flex: 1,
+            minWidth: 0,
+            height: "100%",
+            minHeight: 0,
+          }}
+        >
+          <LiveWorkflowPanel
+            workspaceId={id}
+            typeConfig={typeConfig ?? undefined}
+            features={features}
+            className="h-full"
+            data-testid="workflow-panel"
+          />
+        </div>
 
         {/* Room drawers */}
         <LibraryDrawer
@@ -156,7 +261,7 @@ export default function V2Page({
           onClose={() => setActiveRoom(null)}
         />
 
-        {/* Settings page also covers decisions, memory, sandbox */}
+        {/* Settings page also covers decisions and memory */}
         <SettingsPage
           workspaceId={id}
           open={settingsOpen}
@@ -186,7 +291,6 @@ function readRequestedRoom(
     value === "memory" ||
     value === "runs" ||
     value === "tasks" ||
-    value === "sandbox" ||
     value === "settings"
   ) {
     return value;

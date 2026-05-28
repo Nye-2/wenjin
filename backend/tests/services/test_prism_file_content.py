@@ -49,3 +49,16 @@ def test_non_tex_file_change_keeps_plain_content():
     source = "# Markdown report"
 
     assert normalize_prism_file_change_content(source, path="report.md") == source
+
+
+def test_raw_tex_file_change_preserves_fragment_content():
+    source = "\\section{方法}\n只修改被选中的局部片段。"
+
+    assert (
+        normalize_prism_file_change_content(
+            source,
+            path="sections/method.tex",
+            content_format="raw",
+        )
+        == source
+    )

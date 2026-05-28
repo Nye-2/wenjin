@@ -1,7 +1,7 @@
 """Tests for ThreadState and academic extensions.
 
 Tests the AgentState-based ThreadState with:
-- shared runtime fields (sandbox, thread_data, title, artifacts, todos, uploaded_files, viewed_images)
+- shared runtime fields (thread_data, title, artifacts, todos, uploaded_files, viewed_images)
 - Academic fields (workspace_id, discipline, etc.) as NotRequired
 - Custom reducers (merge_artifacts, merge_cited_references, merge_viewed_images)
 - Dict-like access patterns (replacing Pydantic .attribute access)
@@ -9,7 +9,6 @@ Tests the AgentState-based ThreadState with:
 
 from src.agents.thread_state import (
     AgentState,
-    SandboxState,
     ThreadDataState,
     ThreadState,
     ViewedImageData,
@@ -88,14 +87,6 @@ class TestThreadStateInheritance:
 
 class TestSharedBaseFields:
     """Test shared infrastructure fields."""
-
-    def test_sandbox_field(self):
-        """Test sandbox field with SandboxState."""
-        state = ThreadState(
-            messages=[],
-            sandbox=SandboxState(sandbox_id="local"),
-        )
-        assert state["sandbox"]["sandbox_id"] == "local"
 
     def test_thread_data_field(self):
         """Test thread_data field with ThreadDataState."""
@@ -342,11 +333,6 @@ class TestMergeViewedImages:
 
 class TestSupportingTypes:
     """Test supporting TypedDict types."""
-
-    def test_sandbox_state(self):
-        """Test SandboxState creation."""
-        sandbox = SandboxState(sandbox_id="local")
-        assert sandbox["sandbox_id"] == "local"
 
     def test_thread_data_state(self):
         """Test ThreadDataState creation."""

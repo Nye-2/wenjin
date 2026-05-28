@@ -373,6 +373,8 @@ async def list_workspace_capabilities(
         key=lambda item: int(item.ui_meta.get("order", 0) or 0),
     ):
         ui_meta = dict(capability.ui_meta or {})
+        if capability.tier == "hidden" or ui_meta.get("entry_tier") == "hidden":
+            continue
         stages = ui_meta.get("stages")
         features.append(
             {

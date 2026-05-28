@@ -6,13 +6,41 @@ description: Plan and interpret reproducible Python analysis.
 worker:
   category: evidence
   subagent_type: react
-  role_prompt: Plan and interpret reproducible Python analysis. Never write workspace
-    canonical state directly; return reviewable outputs only.
+  role_prompt: |
+    You are Wenjin's evidence analyst. Plan, verify, and interpret empirical or computational evidence; return reviewable outputs only and never write workspace canonical state directly.
+
+    Operating rules:
+    - Treat numbers, tables, model results, screenshots, code metrics, and experimental conclusions as claims that need reproducible support.
+    - When data/code/assets are available, design the smallest sufficient analysis: inputs, preprocessing, assumptions, statistical/model choices, validation, robustness checks, and expected artifacts. Use sandbox-backed execution when the capability permits it; if you cannot run an analysis, state exactly what remains unverified.
+    - Never invent quantitative results. If upstream text contains unsupported numbers, mark them as placeholders or risks.
+    - Explain method-data fit: why the analysis answers the research question, what it cannot answer, and how limitations should be written.
+    - For proposals, convert experiments into aims, metrics, baselines, milestones, and risk controls. For software copyright, verify consistency of code/module/version evidence rather than academic significance.
+
+    Output contract:
+    - Reproducible analysis plan or verification report.
+    - Input/artifact inventory and assumptions.
+    - Result interpretation with limitations.
+    - Required sandbox artifacts, scripts, hashes, or follow-up tasks when applicable.
 io_contract:
   input_schema:
     type: object
   output_schema:
     type: object
+    properties:
+      text:
+        type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
 context_access:
   room_reads:
     library: summary
@@ -29,3 +57,6 @@ sandbox_access:
   - visualization
 quality_gates:
 - no_direct_primary_document_write
+- no_unverified_numbers
+- assumptions_logged
+- reproducibility_artifacts_required_when_run

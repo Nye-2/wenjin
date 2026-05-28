@@ -76,7 +76,7 @@ def _make_dataservice() -> MagicMock:
     dataservice.register_asset = AsyncMock()
     dataservice.update_asset = AsyncMock(return_value=None)
     dataservice.delete_asset = AsyncMock(return_value=None)
-    dataservice.list_room_decisions = AsyncMock(return_value={})
+    dataservice.list_room_decisions = AsyncMock(return_value=[])
     dataservice.set_room_decision = AsyncMock()
     dataservice.delete_room_decision = AsyncMock(return_value=False)
     dataservice.list_room_memory_facts = AsyncMock(return_value=[])
@@ -217,12 +217,25 @@ class TestDocumentsRoom:
 class TestDecisionsRoom:
     def test_list_decisions_happy(self) -> None:
         _app, client, dataservice = _make_app()
-        dataservice.list_room_decisions.return_value = {"citation_style": "IEEE"}
+        dataservice.list_room_decisions.return_value = [
+            _fake_row(
+                id="dec-1",
+                workspace_id=WS_ID,
+                key="citation_style",
+                value="IEEE",
+                confidence=1.0,
+                extracted_by="user",
+                created_at=None,
+            )
+        ]
 
         resp = client.get(f"/workspaces/{WS_ID}/decisions")
 
         assert resp.status_code == 200
-        assert resp.json()["active"]["citation_style"] == "IEEE"
+        assert resp.json()["count"] == 1
+        assert resp.json()["items"][0]["id"] == "dec-1"
+        assert resp.json()["items"][0]["key"] == "citation_style"
+        assert resp.json()["items"][0]["value"] == "IEEE"
 
     def test_set_decision_returns_201(self) -> None:
         _app, client, dataservice = _make_app()
@@ -405,27 +418,5 @@ class TestSettingsRoom:
         _app, client, _dataservice = _make_app(workspace_exists=False)
 
         resp = client.put(f"/workspaces/{WS_ID}/settings", json={"thinking_enabled": False})
-
-        assert resp.status_code == 404
-
-
-class TestSandboxExecRoom:
-    def test_exec_happy(self) -> None:
-        _app, client, dataservice = _make_app()
-        dataservice.get_or_create_sandbox_environment.return_value = _fake_row(
-            sandbox_id="sbx-1",
-            provider="local",
-            state="active",
-        )
-
-        resp = client.post(f"/workspaces/{WS_ID}/sandbox/exec", json={"command": "echo hello"})
-
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "queued"
-
-    def test_exec_workspace_not_found(self) -> None:
-        _app, client, _dataservice = _make_app(workspace_exists=False)
-
-        resp = client.post(f"/workspaces/{WS_ID}/sandbox/exec", json={"command": "ls"})
 
         assert resp.status_code == 404

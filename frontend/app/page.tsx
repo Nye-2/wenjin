@@ -14,7 +14,6 @@ import {
   Layers,
   GitMerge,
   Archive,
-  Send,
 } from "lucide-react";
 import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
 import { Header } from "@/components/layout/header";
@@ -58,21 +57,17 @@ function SmartRouteButton({
       href={path}
       onClick={handleClick}
       className={cn(
-        "inline-flex items-center gap-2 rounded-2xl font-semibold transition-shadow",
+        "inline-flex items-center gap-2 rounded-[var(--wjn-radius)] font-semibold transition-colors",
         compact ? "px-4 py-2.5 text-sm" : "px-7 py-4 text-base",
         variant === "primary"
-          ? "bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] text-white hover:shadow-xl hover:shadow-[var(--brand-navy)]/20"
-          : "border border-[var(--brand-line)] bg-white/72 text-[var(--brand-navy)] transition-colors hover:border-[var(--brand-teal)]/40 hover:bg-white",
+          ? "bg-[var(--wjn-accent)] text-white shadow-[var(--wjn-shadow-sm)] hover:bg-[var(--wjn-accent-strong)]"
+          : "border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] text-[var(--wjn-text)] hover:border-[var(--wjn-accent-line)] hover:bg-white",
       )}
       whileHover={{ scale: 1.02 }}
       whileTap={buttonTap}
     >
       <span>{label}</span>
-      {variant === "primary" ? (
-        <Send className="h-4 w-4 shrink-0" />
-      ) : (
-        <ArrowRight className="h-4 w-4 shrink-0" />
-      )}
+      <ArrowRight className="h-4 w-4 shrink-0" />
     </motion.a>
   );
 }
@@ -88,13 +83,13 @@ function SectionHeading({
 }) {
   return (
     <div className="max-w-2xl">
-      <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[var(--accent-secondary)]">
+      <p className="text-xs font-semibold text-[var(--wjn-evidence)]">
         {eyebrow}
       </p>
-      <h2 className="mt-4 text-3xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-4xl">
+      <h2 className="mt-4 text-3xl font-semibold text-[var(--wjn-text)] sm:text-4xl">
         {title}
       </h2>
-      <p className="mt-4 text-base leading-relaxed text-[var(--text-secondary)] sm:text-lg">
+      <p className="mt-4 text-base leading-relaxed text-[var(--wjn-text-secondary)] sm:text-lg">
         {subtitle}
       </p>
     </div>
@@ -110,21 +105,21 @@ const stageToneStyles: Record<
   { dot: string; badge: string; panel: string }
 > = {
   done: {
-    dot: "border-[var(--brand-teal)] bg-[var(--brand-teal)]",
+    dot: "border-[var(--wjn-evidence)] bg-[var(--wjn-evidence)]",
     badge:
-      "border-[var(--brand-teal)]/25 bg-[var(--brand-teal)]/10 text-[var(--brand-teal)]",
+      "border-[var(--wjn-evidence)]/25 bg-[var(--wjn-evidence-soft)] text-[var(--wjn-evidence)]",
     panel: "bg-white/72",
   },
   active: {
-    dot: "border-[var(--brand-brass)] bg-[var(--brand-brass)]",
+    dot: "border-[var(--wjn-review)] bg-[var(--wjn-review)]",
     badge:
-      "border-[var(--brand-brass)]/30 bg-[var(--brand-brass)]/12 text-[var(--brand-brass)]",
-    panel: "bg-[rgba(166,124,57,0.08)]",
+      "border-[var(--wjn-review)]/30 bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]",
+    panel: "bg-[var(--wjn-review-soft)]",
   },
   queued: {
-    dot: "border-[var(--brand-line)] bg-[var(--bg-elevated)]",
+    dot: "border-[var(--wjn-line-strong)] bg-[var(--wjn-surface)]",
     badge:
-      "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-muted)]",
+      "border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text-muted)]",
     panel: "bg-[rgba(255,255,255,0.52)]",
   },
 };
@@ -159,26 +154,26 @@ export default function HomePage() {
     {
       key: "conversation",
       icon: MessageSquare,
-      accent: "var(--brand-navy)",
-      accentBg: "rgba(31, 66, 99, 0.12)",
+      accent: "var(--wjn-accent)",
+      accentBg: "var(--wjn-accent-soft)",
     },
     {
       key: "stages",
       icon: Layers,
-      accent: "var(--brand-teal)",
-      accentBg: "rgba(46, 111, 109, 0.12)",
+      accent: "var(--wjn-evidence)",
+      accentBg: "var(--wjn-evidence-soft)",
     },
     {
       key: "singleThread",
       icon: GitMerge,
-      accent: "var(--brand-brass)",
-      accentBg: "rgba(166, 124, 57, 0.12)",
+      accent: "var(--wjn-review)",
+      accentBg: "var(--wjn-review-soft)",
     },
     {
       key: "artifacts",
       icon: Archive,
-      accent: "var(--brand-cyan)",
-      accentBg: "rgba(92, 151, 165, 0.14)",
+      accent: "var(--wjn-text-secondary)",
+      accentBg: "var(--wjn-surface-subtle)",
     },
   ] as const;
 
@@ -187,37 +182,37 @@ export default function HomePage() {
     {
       key: "thesis",
       icon: BookOpen,
-      accent: "var(--brand-cyan)",
-      accentBg: "rgba(92, 151, 165, 0.16)",
-      borderAccent: "rgba(92, 151, 165, 0.35)",
+      accent: "var(--wjn-evidence)",
+      accentBg: "var(--wjn-evidence-soft)",
+      borderAccent: "var(--wjn-accent-line)",
     },
     {
       key: "sci",
       icon: FileText,
-      accent: "var(--brand-navy)",
-      accentBg: "rgba(31, 66, 99, 0.14)",
-      borderAccent: "rgba(31, 66, 99, 0.30)",
+      accent: "var(--wjn-accent)",
+      accentBg: "var(--wjn-accent-soft)",
+      borderAccent: "var(--wjn-accent-line)",
     },
     {
       key: "proposal",
       icon: FlaskConical,
-      accent: "var(--brand-teal)",
-      accentBg: "rgba(46, 111, 109, 0.14)",
-      borderAccent: "rgba(46, 111, 109, 0.30)",
+      accent: "var(--wjn-evidence)",
+      accentBg: "var(--wjn-evidence-soft)",
+      borderAccent: "var(--wjn-line-strong)",
     },
     {
       key: "software_copyright",
       icon: Code2,
-      accent: "var(--text-secondary)",
-      accentBg: "rgba(120, 135, 139, 0.14)",
-      borderAccent: "rgba(120, 135, 139, 0.30)",
+      accent: "var(--wjn-text-secondary)",
+      accentBg: "var(--wjn-surface-subtle)",
+      borderAccent: "var(--wjn-line-strong)",
     },
     {
       key: "patent",
       icon: Lightbulb,
-      accent: "var(--brand-brass)",
-      accentBg: "rgba(166, 124, 57, 0.14)",
-      borderAccent: "rgba(166, 124, 57, 0.30)",
+      accent: "var(--wjn-review)",
+      accentBg: "var(--wjn-review-soft)",
+      borderAccent: "var(--wjn-line-strong)",
     },
   ] as const;
 
@@ -232,25 +227,23 @@ export default function HomePage() {
 
   /* ---- Section 5: Use cases ---- */
   const useCases = [
-    { key: "thesis", borderColor: "var(--brand-cyan)" },
-    { key: "sci", borderColor: "var(--brand-navy)" },
-    { key: "proposal", borderColor: "var(--brand-teal)" },
+    { key: "thesis", borderColor: "var(--wjn-evidence)" },
+    { key: "sci", borderColor: "var(--wjn-accent)" },
+    { key: "proposal", borderColor: "var(--wjn-review)" },
   ] as const;
 
   /* ---- Section 6: Stats ---- */
   const statKeys = ["skills", "types", "disciplines", "templates", "models"] as const;
 
   return (
-    <main className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
+    <main className="wjn-shell-bg min-h-screen text-[var(--wjn-text)]">
       <Header />
 
       {/* ============================================================ */}
       {/*  SECTION 1 — Hero                                            */}
       {/* ============================================================ */}
-      <section className="route-topography relative overflow-hidden px-6 pb-20 pt-28 sm:pt-32 lg:pb-24">
-        <div className="route-grid absolute inset-x-8 bottom-6 top-24 rounded-[2rem] opacity-40" />
-        <div className="absolute -left-16 top-24 h-72 w-72 rounded-full bg-[radial-gradient(circle,rgba(31,66,99,0.18),transparent_70%)] blur-3xl" />
-        <div className="absolute right-0 top-8 h-80 w-80 rounded-full bg-[radial-gradient(circle,rgba(46,111,109,0.18),transparent_72%)] blur-3xl" />
+      <section className="relative overflow-hidden px-6 pb-20 pt-28 sm:pt-32 lg:pb-24">
+        <div className="route-grid pointer-events-none absolute inset-x-8 bottom-6 top-24 rounded-[var(--wjn-radius-lg)] opacity-35" />
 
         <div className="relative mx-auto max-w-7xl">
           <div className="grid gap-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] lg:items-center">
@@ -262,33 +255,33 @@ export default function HomePage() {
               transition={{ ...defaultTransition, duration: 0.6 }}
               className="max-w-3xl"
             >
-              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-default)] bg-white/72 px-4 py-2 text-xs font-semibold uppercase tracking-[0.26em] text-[var(--accent-secondary)]">
-                <span className="h-2 w-2 rounded-full bg-[var(--brand-brass)]" />
+              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] px-4 py-2 text-xs font-semibold text-[var(--wjn-evidence)]">
+                <span className="h-2 w-2 rounded-full bg-[var(--wjn-review)]" />
                 {t("home.heroBadge")}
               </div>
 
               <div className="mt-8">
-                <h1 className="font-serif text-6xl font-semibold tracking-tight text-[var(--brand-ink)] sm:text-7xl lg:text-8xl">
-                  <span className="gradient-text-shimmer">{t("brand.cn")}</span>
+                <h1 className="text-6xl font-semibold text-[var(--wjn-text)] sm:text-7xl lg:text-8xl">
+                  <span>{t("brand.cn")}</span>
                 </h1>
-                <p className="mt-3 text-sm uppercase tracking-[0.44em] text-[var(--text-muted)] sm:text-base">
+                <p className="mt-3 text-sm text-[var(--wjn-text-muted)] sm:text-base">
                   {t("brand.en")}
                 </p>
               </div>
 
               <div className="mt-8 space-y-3">
-                <p className="font-serif text-2xl text-[var(--text-primary)] sm:text-3xl">
+                <p className="text-2xl font-semibold text-[var(--wjn-text)] sm:text-3xl">
                   {t("brand.motto")}
                 </p>
-                <p className="max-w-2xl text-lg font-medium leading-relaxed text-[var(--text-primary)] sm:text-xl">
+                <p className="max-w-2xl text-lg font-medium leading-relaxed text-[var(--wjn-text)] sm:text-xl">
                   {t("brand.tagline")}
                 </p>
-                <p className="text-sm uppercase tracking-[0.24em] text-[var(--text-muted)] sm:text-base">
+                <p className="text-sm text-[var(--wjn-text-muted)] sm:text-base">
                   {t("brand.english")}
                 </p>
               </div>
 
-              <p className="mt-8 max-w-2xl text-base leading-8 text-[var(--text-secondary)] sm:text-lg">
+              <p className="mt-8 max-w-2xl text-base leading-8 text-[var(--wjn-text-secondary)] sm:text-lg">
                 {t("home.subtitle")}
               </p>
 
@@ -296,7 +289,7 @@ export default function HomePage() {
                 {supportedTypes.map((type) => (
                   <span
                     key={type}
-                    className="rounded-full border border-[var(--border-default)] bg-white/78 px-4 py-2 text-sm text-[var(--text-secondary)]"
+                    className="rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] px-4 py-2 text-sm text-[var(--wjn-text-secondary)]"
                   >
                     {type}
                   </span>
@@ -318,34 +311,31 @@ export default function HomePage() {
             >
               <LiquidGlassCard
                 variant="elevated"
-                className="route-card relative overflow-hidden rounded-[2rem] p-6 sm:p-8"
+                className="wjn-hairline-panel relative overflow-hidden rounded-[var(--wjn-radius-lg)] p-6 sm:p-8"
               >
-                <div className="absolute inset-0 opacity-[0.18]">
-                  <div className="absolute inset-y-8 left-10 w-px bg-[linear-gradient(180deg,var(--brand-line),transparent)]" />
-                  <div className="absolute right-6 top-6 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(46,111,109,0.2),transparent_70%)]" />
-                </div>
+                <div className="absolute inset-y-8 left-10 w-px bg-[var(--wjn-line)]" />
 
                 <div className="relative">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-secondary)]">
+                      <p className="text-xs font-semibold text-[var(--wjn-evidence)]">
                         {t("home.pathCard.eyebrow")}
                       </p>
-                      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
+                      <h2 className="mt-3 text-2xl font-semibold text-[var(--wjn-text)]">
                         {t("home.pathCard.title")}
                       </h2>
                     </div>
-                    <div className="rounded-full border border-[var(--border-default)] bg-white/80 px-3 py-1 text-xs text-[var(--text-secondary)]">
+                    <div className="rounded-full border border-[var(--wjn-line)] bg-white px-3 py-1 text-xs text-[var(--wjn-text-secondary)]">
                       {t("home.pathCard.workspaceLabel")}
                     </div>
                   </div>
 
-                  <p className="mt-3 text-sm text-[var(--text-secondary)]">
+                  <p className="mt-3 text-sm text-[var(--wjn-text-secondary)]">
                     {t("home.pathCard.workspaceValue")}
                   </p>
 
                   <div className="relative mt-8">
-                    <div className="absolute bottom-3 left-[0.6rem] top-3 w-px bg-[linear-gradient(180deg,var(--brand-line),rgba(46,111,109,0.3),var(--brand-line))]" />
+                    <div className="absolute bottom-3 left-[0.6rem] top-3 w-px bg-[var(--wjn-line)]" />
                     <div className="space-y-4">
                       {pathStages.map((stage) => {
                         const tone = stageToneStyles[stage.tone];
@@ -353,7 +343,7 @@ export default function HomePage() {
                           <div
                             key={stage.key}
                             className={cn(
-                              "relative rounded-2xl border border-white/50 px-4 py-4 pl-10 shadow-[0_8px_24px_rgba(19,34,53,0.05)]",
+                              "relative rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] px-4 py-4 pl-10 shadow-[var(--wjn-shadow-sm)]",
                               tone.panel
                             )}
                           >
@@ -364,12 +354,12 @@ export default function HomePage() {
                               )}
                             >
                               {stage.tone === "active" && (
-                                <div className="h-2.5 w-2.5 rounded-full bg-[var(--brand-paper)]" />
+                                <div className="h-2.5 w-2.5 rounded-full bg-white" />
                               )}
                             </div>
 
                             <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-sm font-semibold text-[var(--text-primary)]">
+                              <p className="text-sm font-semibold text-[var(--wjn-text)]">
                                 {t(`home.stages.${stage.key}.title`)}
                               </p>
                               <span
@@ -381,10 +371,10 @@ export default function HomePage() {
                                 {t(`home.status.${stage.tone}`)}
                               </span>
                             </div>
-                            <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                            <p className="mt-2 text-sm text-[var(--wjn-text-secondary)]">
                               {t(`home.stages.${stage.key}.artifact`)}
                             </p>
-                            <p className="mt-1 text-xs text-[var(--text-muted)]">
+                            <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
                               {t(`home.stages.${stage.key}.update`)}
                             </p>
                           </div>
@@ -394,15 +384,15 @@ export default function HomePage() {
                   </div>
 
                   {/* Next-action panel (no CTA button) */}
-                  <div className="mt-6 rounded-2xl border border-[var(--border-default)] bg-white/78 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--text-muted)]">
+                  <div className="mt-6 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white p-4">
+                    <p className="text-xs font-semibold text-[var(--wjn-text-muted)]">
                       {t("home.pathCard.nextLabel")}
                     </p>
                     <div className="mt-2">
-                      <p className="text-sm font-medium text-[var(--text-primary)]">
+                      <p className="text-sm font-medium text-[var(--wjn-text)]">
                         {t("home.pathCard.nextAction")}
                       </p>
-                      <p className="mt-1 text-sm leading-6 text-[var(--text-secondary)]">
+                      <p className="mt-1 text-sm leading-6 text-[var(--wjn-text-secondary)]">
                         {t("home.pathCard.note")}
                       </p>
                     </div>
@@ -440,10 +430,10 @@ export default function HomePage() {
               >
                 <LiquidGlassCard
                   variant="elevated"
-                  className="group h-full rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-[rgba(251,248,242,0.84)] p-7 transition-shadow duration-300 hover:shadow-lg hover:shadow-[rgba(31,66,99,0.06)]"
+                  className="group h-full rounded-[var(--wjn-radius)] border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] p-7 transition-shadow duration-300 hover:shadow-[var(--wjn-shadow-md)]"
                 >
                   <div
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105"
+                    className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] transition-transform duration-300 group-hover:scale-105"
                     style={{ background: card.accentBg }}
                   >
                     <card.icon
@@ -451,10 +441,10 @@ export default function HomePage() {
                       style={{ color: card.accent }}
                     />
                   </div>
-                  <h3 className="mt-6 text-xl font-semibold text-[var(--text-primary)]">
+                  <h3 className="mt-6 text-xl font-semibold text-[var(--wjn-text)]">
                     {t(`home.philosophy.cards.${card.key}.title`)}
                   </h3>
-                  <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                  <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
                     {t(`home.philosophy.cards.${card.key}.description`)}
                   </p>
                 </LiquidGlassCard>
@@ -465,7 +455,7 @@ export default function HomePage() {
       </section>
 
       {/* ============================================================ */}
-      {/*  SECTION 2.5 — Vibe Writing / Vibe Rewriting                 */}
+      {/*  SECTION 2.5 — Workspace / Prism                             */}
       {/* ============================================================ */}
       <section className="px-6 py-28">
         <div className="mx-auto max-w-7xl">
@@ -476,7 +466,7 @@ export default function HomePage() {
           />
 
           <div className="mt-14 space-y-5">
-            {/* ── Vibe Writing ── */}
+            {/* ── Workspace ── */}
             <motion.div
               variants={fadeInUp}
               initial="initial"
@@ -484,24 +474,24 @@ export default function HomePage() {
               viewport={{ once: true }}
               transition={defaultTransition}
             >
-              <div className="route-card overflow-hidden rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10">
+              <div className="wjn-hairline-panel overflow-hidden rounded-[var(--wjn-radius-lg)] px-6 py-8 sm:px-10 sm:py-10">
                 <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                   <div className="max-w-2xl">
                     <div className="flex items-center gap-3">
-                      <span className="rounded-full border border-[var(--brand-teal)]/25 bg-[var(--brand-teal)]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-teal)]">
+                      <span className="rounded-full border border-[var(--wjn-evidence)]/25 bg-[var(--wjn-evidence-soft)] px-3 py-1 text-xs font-semibold text-[var(--wjn-evidence)]">
                         {t("home.modes.writing.badge")}
                       </span>
-                      <span className="text-sm font-medium text-[var(--text-muted)]">
+                      <span className="text-sm font-medium text-[var(--wjn-text-muted)]">
                         {t("home.modes.writing.product")}
                       </span>
                     </div>
-                    <h3 className="mt-5 text-2xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-3xl">
+                    <h3 className="mt-5 text-2xl font-semibold text-[var(--wjn-text)] sm:text-3xl">
                       {t("home.modes.writing.tagline")}
                     </h3>
-                    <p className="mt-4 text-base leading-8 text-[var(--text-secondary)]">
+                    <p className="mt-4 text-base leading-8 text-[var(--wjn-text-secondary)]">
                       {t("home.modes.writing.description")}
                     </p>
-                    <p className="mt-5 text-sm font-medium tracking-wide text-[var(--text-muted)]">
+                    <p className="mt-5 text-sm font-medium text-[var(--wjn-text-muted)]">
                       {t("home.modes.writing.keywords")}
                     </p>
                   </div>
@@ -512,7 +502,7 @@ export default function HomePage() {
               </div>
             </motion.div>
 
-            {/* ── Vibe Rewriting ── */}
+            {/* ── Prism ── */}
             <motion.div
               variants={fadeInUp}
               initial="initial"
@@ -520,24 +510,24 @@ export default function HomePage() {
               viewport={{ once: true }}
               transition={defaultTransition}
             >
-              <div className="overflow-hidden rounded-[2rem] border border-[var(--brand-brass)]/15 bg-[linear-gradient(135deg,rgba(251,248,242,0.95),rgba(166,124,57,0.06))] px-6 py-8 shadow-[0_20px_48px_rgba(19,34,53,0.08)] sm:px-10 sm:py-10">
+              <div className="wjn-hairline-panel overflow-hidden rounded-[var(--wjn-radius-lg)] px-6 py-8 sm:px-10 sm:py-10">
                 <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                   <div className="max-w-2xl">
                     <div className="flex items-center gap-3">
-                      <span className="rounded-full border border-[var(--brand-brass)]/30 bg-[var(--brand-brass)]/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--brand-brass)]">
+                      <span className="rounded-full border border-[var(--wjn-review)]/30 bg-[var(--wjn-review-soft)] px-3 py-1 text-xs font-semibold text-[var(--wjn-review)]">
                         {t("home.modes.rewriting.badge")}
                       </span>
-                      <span className="text-sm font-medium text-[var(--text-muted)]">
+                      <span className="text-sm font-medium text-[var(--wjn-text-muted)]">
                         {t("home.modes.rewriting.product")}
                       </span>
                     </div>
-                    <h3 className="mt-5 text-2xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-3xl">
+                    <h3 className="mt-5 text-2xl font-semibold text-[var(--wjn-text)] sm:text-3xl">
                       {t("home.modes.rewriting.tagline")}
                     </h3>
-                    <p className="mt-4 text-base leading-8 text-[var(--text-secondary)]">
+                    <p className="mt-4 text-base leading-8 text-[var(--wjn-text-secondary)]">
                       {t("home.modes.rewriting.description")}
                     </p>
-                    <p className="mt-5 text-sm font-medium tracking-wide text-[var(--text-muted)]">
+                    <p className="mt-5 text-sm font-medium text-[var(--wjn-text-muted)]">
                       {t("home.modes.rewriting.keywords")}
                     </p>
                   </div>
@@ -578,11 +568,11 @@ export default function HomePage() {
               >
                 <LiquidGlassCard
                   variant="floating"
-                  className="group h-full rounded-[1.75rem] bg-[rgba(251,248,242,0.82)] p-6"
+                  className="group h-full rounded-[var(--wjn-radius)] bg-[var(--wjn-surface-raised)] p-6"
                   style={{ borderColor: ws.borderAccent }}
                 >
                   <div
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105"
+                    className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] transition-transform duration-300 group-hover:scale-105"
                     style={{ background: ws.accentBg }}
                   >
                     <ws.icon
@@ -590,13 +580,13 @@ export default function HomePage() {
                       style={{ color: ws.accent }}
                     />
                   </div>
-                  <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
+                  <h3 className="mt-5 text-lg font-semibold text-[var(--wjn-text)]">
                     {t(`workspace.types.${ws.key}`)}
                   </h3>
-                  <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                  <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
                     {t(`home.workspaceTypes.${ws.key}.description`)}
                   </p>
-                  <p className="mt-3 text-xs leading-5 text-[var(--text-muted)]">
+                  <p className="mt-3 text-xs leading-5 text-[var(--wjn-text-muted)]">
                     {t(`home.workspaceTypes.${ws.key}.modules`)}
                   </p>
                 </LiquidGlassCard>
@@ -621,11 +611,11 @@ export default function HomePage() {
               >
                 <LiquidGlassCard
                   variant="floating"
-                  className="group h-full rounded-[1.75rem] bg-[rgba(251,248,242,0.82)] p-6"
+                  className="group h-full rounded-[var(--wjn-radius)] bg-[var(--wjn-surface-raised)] p-6"
                   style={{ borderColor: ws.borderAccent }}
                 >
                   <div
-                    className="flex h-12 w-12 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-105"
+                    className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] transition-transform duration-300 group-hover:scale-105"
                     style={{ background: ws.accentBg }}
                   >
                     <ws.icon
@@ -633,13 +623,13 @@ export default function HomePage() {
                       style={{ color: ws.accent }}
                     />
                   </div>
-                  <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
+                  <h3 className="mt-5 text-lg font-semibold text-[var(--wjn-text)]">
                     {t(`workspace.types.${ws.key}`)}
                   </h3>
-                  <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                  <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
                     {t(`home.workspaceTypes.${ws.key}.description`)}
                   </p>
-                  <p className="mt-3 text-xs leading-5 text-[var(--text-muted)]">
+                  <p className="mt-3 text-xs leading-5 text-[var(--wjn-text-muted)]">
                     {t(`home.workspaceTypes.${ws.key}.modules`)}
                   </p>
                 </LiquidGlassCard>
@@ -661,7 +651,7 @@ export default function HomePage() {
           />
 
           <div className="relative mt-12">
-            <div className="absolute left-6 right-6 top-8 hidden h-px bg-[linear-gradient(90deg,transparent,var(--brand-line),transparent)] lg:block" />
+            <div className="absolute left-6 right-6 top-8 hidden h-px bg-[var(--wjn-line)] lg:block" />
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
               {workflowSteps.map((step) => (
                 <motion.div
@@ -674,15 +664,15 @@ export default function HomePage() {
                 >
                   <LiquidGlassCard
                     variant="elevated"
-                    className="h-full rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-[rgba(251,248,242,0.84)] p-6"
+                    className="h-full rounded-[var(--wjn-radius)] border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] p-6"
                   >
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--brand-line)] bg-white/88 text-sm font-semibold text-[var(--brand-navy)]">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white text-sm font-semibold text-[var(--wjn-accent)]">
                       {step.index}
                     </div>
-                    <h3 className="mt-5 text-lg font-semibold text-[var(--text-primary)]">
+                    <h3 className="mt-5 text-lg font-semibold text-[var(--wjn-text)]">
                       {t(`home.workflow.${step.stepKey}.title`)}
                     </h3>
-                    <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                    <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
                       {t(`home.workflow.${step.stepKey}.description`)}
                     </p>
                   </LiquidGlassCard>
@@ -719,19 +709,18 @@ export default function HomePage() {
               >
                 <LiquidGlassCard
                   variant="floating"
-                  className="h-full rounded-[1.75rem] bg-[rgba(251,248,242,0.82)] p-0"
+                  className="h-full rounded-[var(--wjn-radius)] bg-[var(--wjn-surface-raised)] p-0"
                 >
                   <div className="flex h-full">
-                    {/* Colored left border accent */}
                     <div
-                      className="w-1 shrink-0 rounded-l-[1.75rem]"
+                      className="w-1 shrink-0 rounded-l-[var(--wjn-radius)]"
                       style={{ background: uc.borderColor }}
                     />
                     <div className="p-6">
-                      <h3 className="text-lg font-semibold text-[var(--text-primary)]">
+                      <h3 className="text-lg font-semibold text-[var(--wjn-text)]">
                         {t(`home.useCases.cases.${uc.key}.title`)}
                       </h3>
-                      <p className="mt-3 text-sm leading-7 text-[var(--text-secondary)]">
+                      <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
                         {t(`home.useCases.cases.${uc.key}.description`)}
                       </p>
                     </div>
@@ -760,7 +749,7 @@ export default function HomePage() {
                 key={key}
                 variants={fadeInUp}
                 transition={defaultTransition}
-                className="rounded-full border border-[var(--border-default)] bg-white/78 px-5 py-2.5 text-sm text-[var(--text-secondary)]"
+                className="rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] px-5 py-2.5 text-sm text-[var(--wjn-text-secondary)]"
               >
                 {t(`home.stats.${key}`)}
               </motion.span>
@@ -779,17 +768,17 @@ export default function HomePage() {
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={defaultTransition}
-            className="route-card overflow-hidden rounded-[2rem] px-6 py-8 sm:px-10 sm:py-10"
+            className="wjn-hairline-panel overflow-hidden rounded-[var(--wjn-radius-lg)] px-6 py-8 sm:px-10 sm:py-10"
           >
             <div className="grid gap-8 lg:grid-cols-[1.4fr_auto] lg:items-center">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-secondary)]">
+                <p className="text-xs font-semibold text-[var(--wjn-evidence)]">
                   {t("brand.cn")} / {t("brand.en")}
                 </p>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-4xl">
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold text-[var(--wjn-text)] sm:text-4xl">
                   {t("home.cta.title")}
                 </h2>
-                <p className="mt-4 max-w-2xl text-base leading-8 text-[var(--text-secondary)]">
+                <p className="mt-4 max-w-2xl text-base leading-8 text-[var(--wjn-text-secondary)]">
                   {t("home.cta.subtitle")}
                 </p>
               </div>
@@ -802,18 +791,18 @@ export default function HomePage() {
         </div>
       </section>
 
-      <footer className="border-t border-[var(--border-default)]/70 px-6 py-8">
+      <footer className="border-t border-[var(--wjn-line)] px-6 py-8">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-serif text-base text-[var(--text-primary)]">
+            <p className="text-base font-semibold text-[var(--wjn-text)]">
               {t("brand.cn")}{" "}
-              <span className="ml-1 font-sans text-xs uppercase tracking-[0.24em] text-[var(--text-muted)]">
+              <span className="ml-1 text-xs text-[var(--wjn-text-muted)]">
                 {t("brand.en")}
               </span>
             </p>
-            <p className="mt-1 text-sm text-[var(--text-secondary)]">{t("brand.tagline")}</p>
+            <p className="mt-1 text-sm text-[var(--wjn-text-secondary)]">{t("brand.tagline")}</p>
           </div>
-          <p className="text-sm text-[var(--text-muted)]">{t("brand.summary")}</p>
+          <p className="text-sm text-[var(--wjn-text-muted)]">{t("brand.summary")}</p>
         </div>
       </footer>
     </main>

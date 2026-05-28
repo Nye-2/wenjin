@@ -32,6 +32,50 @@ inputs:
         type: string
       deliverable:
         type: string
+      topic:
+        type: string
+        description: 核心主题、题目或技术方向。
+      query:
+        type: string
+        description: 检索关键词或需要展开的问题。
+      raw_message:
+        type: string
+        description: 用户原始请求文本。
+      target_format:
+        type: string
+        description: 学校、期刊、基金、软著或专利模板要求。
+      audience:
+        type: string
+        description: 目标读者、评审人或审查场景。
+      constraints:
+        type: string
+        description: 页数、语言、截止日期、格式和禁止事项。
+      existing_materials_summary:
+        type: string
+        description: 已有文献、数据、代码、草稿或证明材料摘要。
+      source_guidelines:
+        type: array
+        items:
+          type: string
+        description: 用户指定或系统识别的规范、指南、标准或官方来源。
+      degree_level:
+        type: string
+        description: 本科/硕士/博士或专业学位类型。
+      school_template:
+        type: string
+        description: 学校/学院论文模板或格式规范。
+      chapter_requirements:
+        type: string
+        description: 章节数量、摘要、创新点、致谢、附录等要求。
+      citation_style:
+        type: string
+        description: 参考文献格式，如 GB/T 7714 或学校要求。
+      methodology:
+        type: string
+        description: 研究方法、数据来源或实证设计。
+      data_assets:
+        type: string
+        description: 可用数据、代码、图表或访谈材料。
 context_policy:
   room_reads:
     library: summary
@@ -89,36 +133,77 @@ quality_gates:
 - no_direct_primary_document_write
 - provenance_required_for_claims
 - protected_sections_readonly
+- upstream_outputs_must_be_used
+- unsupported_claims_marked_for_user_decision
+- result_card_review_before_commit
+- thesis_structure_matches_school_template
+- chapter_claims_have_evidence
+- abstract_matches_body
+- references_follow_target_style
 graph_template:
   phases:
-  - name: mission_execution
+  - name: step_01_research_scout
     tasks:
     - name: research_scout
       subagent_type: searcher
       skill_id: research-scout
       inputs:
-        query: "{{topic}} {{query}} {{goal}} {{raw_message}}"
+        query: '{{topic}} {{query}} {{goal}} {{raw_message}}'
+        task_focus: 检索并筛选可支撑本任务的权威来源，输出可追溯来源表和缺口清单。
+        capability_name: 论文研究包
+        capability_goal: produce_workspace_review_package
+        workspace_type: thesis
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
       outputs:
       - kind: library_item
         iterate_on: output.papers
         default_checked: true
         mapping:
-          title: "{{item.title}}"
-          authors: "{{item.authors}}"
-          year: "{{item.year}}"
-          doi: "{{item.doi}}"
-          url: "{{item.url}}"
-          abstract: "{{item.abstract}}"
-          metadata: "{{item.raw}}"
+          title: '{{item.title}}'
+          authors: '{{item.authors}}'
+          year: '{{item.year}}'
+          venue: '{{item.venue}}'
+          doi: '{{item.doi}}'
+          url: '{{item.url}}'
+          abstract: '{{item.abstract}}'
+          citation_count: '{{item.citations}}'
+          source: '{{item.source}}'
+          external_id: '{{item.external_id}}'
+          metadata: '{{item.raw}}'
+      prompt_template: '{{raw_message}}'
+  - name: step_02_literature_synthesizer
+    depends_on:
+    - step_01_research_scout
+    tasks:
     - name: literature_synthesizer
       subagent_type: react
       skill_id: literature-synthesizer
-      inputs: {}
+      inputs:
+        task_focus: 把检索结果和材料综合为主题矩阵、gap、可引用论断和后续写作素材。
+        capability_name: 论文研究包
+        capability_goal: produce_workspace_review_package
+        workspace_type: thesis
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        upstream_outputs: '{{phases}}'
       outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_03_source_quality_auditor
+    depends_on:
+    - step_02_literature_synthesizer
+    tasks:
     - name: source_quality_auditor
       subagent_type: react
       skill_id: source-quality-auditor
-      inputs: {}
+      inputs:
+        task_focus: 审查来源权威性、元数据完整性、时效性和 claim-source 匹配风险。
+        capability_name: 论文研究包
+        capability_goal: produce_workspace_review_package
+        workspace_type: thesis
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        upstream_outputs: '{{phases}}'
       outputs:
       - kind: document
         default_checked: true
@@ -126,4 +211,11 @@ graph_template:
           name: 论文研究资料包.md
           doc_kind: research_pack
           content: '{{output.text}}'
-extensions: {}
+      prompt_template: '{{raw_message}}'
+extensions:
+  content_strategy:
+    workflow_pattern: sequential_upstream_context
+    strategy: GB/T 7713.1-style thesis structure plus school-template compliance, claim-evidence writing, and citation hygiene.
+    source_notes:
+    - GB/T 7713.1-2025 thesis writing-rule structure
+    - GB/T 7714-style reference discipline when requested

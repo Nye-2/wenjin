@@ -53,13 +53,13 @@ def test_get_available_tools_uses_canonical_runtime_tool_names():
     tools = get_available_tools(include_mcp=False)
 
     tool_names = {tool.name for tool in tools}
-    assert "bash" in tool_names
-    assert "read_file" in tool_names
-    assert "write_file" in tool_names
-    assert "str_replace" in tool_names
-    assert "ls" in tool_names
-    assert "glob" in tool_names
-    assert "grep" in tool_names
+    assert "bash" not in tool_names
+    assert "read_file" not in tool_names
+    assert "write_file" not in tool_names
+    assert "str_replace" not in tool_names
+    assert "ls" not in tool_names
+    assert "glob" not in tool_names
+    assert "grep" not in tool_names
     assert "view_image" in tool_names
     assert "ask_clarification" in tool_names
     assert "present_files" in tool_names
