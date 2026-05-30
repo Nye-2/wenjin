@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import LatexTemplateListResponse
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.core import get_dataservice_client
 from src.services.latex import LatexTemplateService
 

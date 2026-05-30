@@ -10,8 +10,7 @@ from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_admin
 from src.gateway.deps import get_dataservice_client
-from src.services.credit_grant_rule_service import CreditGrantRuleType
-from src.services.credit_grant_rule_service import CreditGrantRuleService
+from src.services.credit_grant_rule_service import CreditGrantRuleService, CreditGrantRuleType
 
 router = APIRouter(prefix="/admin/credit-rules", tags=["admin", "credits"])
 

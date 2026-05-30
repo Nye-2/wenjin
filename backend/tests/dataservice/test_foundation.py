@@ -77,11 +77,6 @@ from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeUpsertPayload,
 )
 from src.dataservice_client.contracts.provenance import ProvenanceLinkCreatePayload
-from src.dataservice_client.contracts.source import (
-    SourceAssetLinkPayload,
-    SourceEvidencePackCreatePayload,
-    SourceIndexReplacePayload,
-)
 from src.dataservice_client.contracts.task import (
     TaskRecordCompletedPayload,
     TaskRecordCreateGuardedPayload,

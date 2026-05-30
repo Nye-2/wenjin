@@ -36,6 +36,25 @@ beforeEach(() => {
 });
 
 describe("execution-store", () => {
+  it("applies the first stream event when creating a placeholder execution", () => {
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
+        type: "execution.graph_structure",
+        payload: {
+          graph_structure: {
+            mode: "team_kernel",
+            nodes: [{ id: "team", label: "执行团队" }],
+            edges: [],
+          },
+        },
+      }),
+    );
+
+    const record = useExecutionStore.getState().executions.get("exec-1");
+    expect(record?.graph_structure?.mode).toBe("team_kernel");
+    expect(record?.graph_structure?.nodes).toHaveLength(1);
+  });
+
   it("uses execution.completed payload status and keeps failed_partial terminal", () => {
     useExecutionStore.getState().upsertExecution(makeRecord());
 
@@ -114,6 +133,26 @@ describe("execution-store", () => {
 
     const record = useExecutionStore.getState().executions.get("exec-1");
     expect(record?.node_states["node-1"]?.status).toBe("completed");
+  });
+
+  it("applies cancelled execution.node status updates", () => {
+    useExecutionStore.getState().upsertExecution(makeRecord());
+
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
+        type: "execution.node",
+        payload: { node_id: "node-1", status: "running" },
+      }),
+    );
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
+        type: "execution.node",
+        payload: { node_id: "node-1", status: "cancelled" },
+      }),
+    );
+
+    const record = useExecutionStore.getState().executions.get("exec-1");
+    expect(record?.node_states["node-1"]?.status).toBe("cancelled");
   });
 
   it("merges node input, output, tool calls, and timestamps from completed events", () => {

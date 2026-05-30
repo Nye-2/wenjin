@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import (
     LatexCreateProjectRequest,
@@ -12,7 +13,6 @@ from src.gateway.contracts.latex import (
     LatexProjectResponse,
     LatexUpdateProjectRequest,
 )
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import _not_found
 from src.services.latex import LatexProjectService

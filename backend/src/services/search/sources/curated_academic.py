@@ -14,7 +14,6 @@ from typing import Any
 from src.services.search.base import SearchResult
 from src.services.search.registry import register_search_source
 
-
 _PAPERS: list[dict[str, Any]] = [
     {
         "title": "FederatedScope-LLM: A Comprehensive Package for Fine-tuning Large Language Models in Federated Learning",

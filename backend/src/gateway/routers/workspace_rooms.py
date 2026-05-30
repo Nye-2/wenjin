@@ -350,7 +350,7 @@ def _asset_to_document(asset: WorkspaceAssetPayload) -> dict[str, Any]:
     }
 
 
-def _asset_sort_value(asset: WorkspaceAssetProjection) -> float:
+def _asset_sort_value(asset: WorkspaceAssetPayload) -> float:
     stamp = asset.created_at or asset.updated_at
     return stamp.timestamp() if hasattr(stamp, "timestamp") else 0.0
 

@@ -18,7 +18,13 @@ const TERMINAL_EXECUTION_STATUSES = new Set<ExecutionStatus>([
   "cancelled",
 ]);
 
-const NODE_STATUSES = new Set(["pending", "running", "completed", "failed"]);
+const NODE_STATUSES = new Set([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+]);
 
 interface ExecutionState {
   /** Flat map of all known executions keyed by execution_id */
@@ -80,9 +86,9 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
   applyStreamEvent(event) {
     set((state) => {
       const record = state.executions.get(event.execution_id);
-      if (!record) {
-        // Stream event arrived before metadata — create a placeholder
-        const placeholder: ExecutionRecord = {
+      const updated: ExecutionRecord = record
+        ? deepCloneExecution(record)
+        : {
           id: event.execution_id,
           user_id: "",
           execution_type: "feature",
@@ -96,15 +102,6 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
           created_at: event.timestamp,
           updated_at: event.timestamp,
         };
-        const next = new Map(state.executions);
-        next.set(event.execution_id, placeholder);
-        return {
-          executions: next,
-          currentExecutionId: event.execution_id,
-        };
-      }
-
-      const updated = deepCloneExecution(record);
       updated.updated_at = event.timestamp;
 
       switch (event.type) {

@@ -88,6 +88,8 @@ class TeamKernelRuntime:
                 workspace_data=workspace_data,
                 blackboard=blackboard,
             )
+            if invocations and all(invocation.status == "cancelled" for invocation in invocations):
+                return self._cancelled_report(execution_id, brief, started_at)
             gates = self._run_quality_gates(team_policy.quality_pipeline, invocations)
             for gate in gates:
                 await self.publish_event(
@@ -98,15 +100,16 @@ class TeamKernelRuntime:
             duration = int((datetime.now(UTC) - started_at).total_seconds())
             outputs: list[ResultOutput] = list(self._outputs_from_invocations(invocations))
             outputs.extend(self.collect_policy_memory_outputs(capability, brief, outputs))
+            errors = self._errors_from_invocations(invocations)
             return TaskReport(
                 execution_id=execution_id,
                 capability_id=brief.capability_id,
-                status="completed",
+                status="failed_partial" if errors else "completed",
                 duration_seconds=duration,
                 token_usage=self._aggregate_token_usage(invocations),
                 narrative=self._build_narrative(capability, invocations, gates),
                 outputs=outputs,
-                errors=[],
+                errors=errors,
             )
         except TeamPolicyError as exc:
             return self._failed_report(execution_id, brief, started_at, str(exc))
@@ -217,29 +220,29 @@ class TeamKernelRuntime:
         try:
             if await self.abort_check(invocation.execution_id or ""):
                 invocation.status = "cancelled"
-                return
-            skill_records = await self._load_skills(invocation.effective_skills)
-            skill = skill_records.get(invocation.effective_skills[0]) if invocation.effective_skills else None
-            subagent_type = getattr(skill, "subagent_type", None) or "react"
-            subagent_cls = REGISTRY.get(subagent_type)
-            ctx = SubagentContext(
-                workspace_id=str(invocation.input_brief.get("workspace_id") or ""),
-                execution_id=invocation.execution_id or "",
-                prompt=template.persona_prompt,
-                inputs=invocation.input_brief,
-                tools=invocation.effective_tools,
-                workspace_data=workspace_data,
-                capability_policy=capability_policy,
-                skill=skill,
-                team_context=blackboard.model_dump(mode="json"),
-                invocation=invocation.model_dump(mode="json"),
-            )
-            result: SubagentResult = await subagent_cls().run(ctx)
-            invocation.status = "succeeded"
-            invocation.output_report = result.output
-            invocation.tool_calls = result.tool_calls or []
-            invocation.token_usage = result.token_usage
-            blackboard.latest_leader_summary = self._preview_output(result.output)
+            else:
+                skill_records = await self._load_skills(invocation.effective_skills)
+                skill = skill_records.get(invocation.effective_skills[0]) if invocation.effective_skills else None
+                subagent_type = getattr(skill, "subagent_type", None) or "react"
+                subagent_cls = REGISTRY.get(subagent_type)
+                ctx = SubagentContext(
+                    workspace_id=str(invocation.input_brief.get("workspace_id") or ""),
+                    execution_id=invocation.execution_id or "",
+                    prompt=template.persona_prompt,
+                    inputs=invocation.input_brief,
+                    tools=invocation.effective_tools,
+                    workspace_data=workspace_data,
+                    capability_policy=capability_policy,
+                    skill=skill,
+                    team_context=blackboard.model_dump(mode="json"),
+                    invocation=invocation.model_dump(mode="json"),
+                )
+                result: SubagentResult = await subagent_cls().run(ctx)
+                invocation.status = "succeeded"
+                invocation.output_report = result.output
+                invocation.tool_calls = result.tool_calls or []
+                invocation.token_usage = result.token_usage
+                blackboard.latest_leader_summary = self._preview_output(result.output)
         except Exception as exc:
             invocation.status = "failed"
             invocation.error = {"message": str(exc)}
@@ -289,15 +292,21 @@ class TeamKernelRuntime:
         invocations: list[AgentInvocation],
     ) -> list[QualityGateResult]:
         failed = [item for item in invocations if item.status == "failed"]
-        status = "warning" if failed else "pass"
+        cancelled = [item for item in invocations if item.status == "cancelled"]
+        interrupted = [*failed, *cancelled]
+        status = "warning" if interrupted else "pass"
         gates = quality_pipeline or ["team_output_available"]
+        finding_message = (
+            f"{len(failed)} team member invocation(s) failed; "
+            f"{len(cancelled)} cancelled"
+        )
         return [
             QualityGateResult(
                 gate_id=gate,
                 status=status,
-                severity="medium" if failed else "low",
-                findings=[{"message": f"{len(failed)} team member invocation(s) failed"}] if failed else [],
-                next_action="stop_with_warning" if failed else "finish",
+                severity="medium" if interrupted else "low",
+                findings=[{"message": finding_message}] if interrupted else [],
+                next_action="stop_with_warning" if interrupted else "finish",
             )
             for gate in gates
         ]
@@ -322,6 +331,25 @@ class TeamKernelRuntime:
                 )
             )
         return outputs
+
+    def _errors_from_invocations(self, invocations: list[AgentInvocation]) -> list[ResultError]:
+        errors: list[ResultError] = []
+        for invocation in invocations:
+            if invocation.status not in {"failed", "cancelled"}:
+                continue
+            message = (
+                invocation.error.get("message")
+                if isinstance(invocation.error, dict)
+                else None
+            )
+            errors.append(
+                ResultError(
+                    phase=invocation.assigned_role,
+                    task=invocation.template_id,
+                    error=message or f"team member {invocation.status}",
+                )
+            )
+        return errors
 
     def _build_narrative(
         self,
@@ -357,6 +385,22 @@ class TeamKernelRuntime:
             narrative=f"团队执行未能完成：{error}",
             outputs=[],
             errors=[ResultError(phase="team_kernel", task="team_kernel", error=error)],
+        )
+
+    def _cancelled_report(
+        self,
+        execution_id: str,
+        brief: TaskBrief,
+        started_at: datetime,
+    ) -> TaskReport:
+        return TaskReport(
+            execution_id=execution_id,
+            capability_id=brief.capability_id,
+            status="cancelled",
+            duration_seconds=int((datetime.now(UTC) - started_at).total_seconds()),
+            narrative="团队执行已取消。",
+            outputs=[],
+            errors=[],
         )
 
     @staticmethod

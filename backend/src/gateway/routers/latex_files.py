@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, Response
 
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.prism import PrismProtectedScopeUpsertPayload
 from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeAppliedPayload,
@@ -35,7 +36,6 @@ from src.gateway.contracts.latex import (
     LatexTreeResponse,
     LatexWriteFileRequest,
 )
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
     _compute_file_change_revert_signature,

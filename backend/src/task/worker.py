@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import logging
 import sys
 from collections.abc import Awaitable, Callable, Coroutine

@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import LatexCompileRequest, LatexCompileResponse
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import _not_found
 from src.services.latex import LatexCompileService, LatexProjectService

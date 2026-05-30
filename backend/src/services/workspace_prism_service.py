@@ -9,6 +9,7 @@ from typing import Any
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.latex import LatexProjectAttachWorkspacePayload
 from src.dataservice_client.contracts.prism import PrismPrimaryProjectPayload
+from src.dataservice_client.contracts.review import ReviewItemPayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.prism_review_projection import prism_review_item_projection
 from src.services.workspace_activity_contracts import (
@@ -506,7 +507,7 @@ class WorkspacePrismService:
         latex_project_id: str,
         statuses: tuple[str, ...],
         limit: int = 200,
-    ) -> list[ReviewItemProjection]:
+    ) -> list[ReviewItemPayload]:
         async with self._client() as client:
             items = await client.list_review_items(
                 workspace_id=workspace_id,

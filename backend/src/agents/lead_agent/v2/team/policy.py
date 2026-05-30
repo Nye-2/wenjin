@@ -59,8 +59,8 @@ def build_capability_team_policy(
         limits=raw_limits,
         budget=raw_budget,
         capability_tools=capability_tools,
-        workspace_tools=list(workspace_tools or capability_tools),
-        user_tools=list(user_tools or capability_tools),
+        workspace_tools=list(capability_tools if workspace_tools is None else workspace_tools),
+        user_tools=list(capability_tools if user_tools is None else user_tools),
         capability_skills=capability_skills,
     )
     known_ids = set(templates)
@@ -79,10 +79,8 @@ def resolve_effective_tools(template: AgentTemplate, policy: CapabilityTeamPolic
         *list(affinity.get("can_request") or []),
     ]
     allowed = set(policy.capability_tools or requested)
-    if policy.workspace_tools:
-        allowed &= set(policy.workspace_tools)
-    if policy.user_tools:
-        allowed &= set(policy.user_tools)
+    allowed &= set(policy.workspace_tools)
+    allowed &= set(policy.user_tools)
     result: list[str] = []
     for tool in requested:
         if tool in DIRECT_COMMIT_TOOLS:

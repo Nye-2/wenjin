@@ -8,6 +8,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import (
     LatexFeedbackAnchorPayload,
@@ -26,7 +27,6 @@ from src.gateway.contracts.latex import (
     LatexFeedbackSaveRequest,
     get_default_latex_engine,
 )
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
     _build_rewrite_candidate,

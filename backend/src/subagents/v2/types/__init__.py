@@ -3,8 +3,8 @@
 Importing this package triggers @subagent decorators.
 """
 
-from . import react as react  # noqa: F401
 from . import prism as prism  # noqa: F401
+from . import react as react  # noqa: F401
 from . import sandbox as sandbox  # noqa: F401
 from . import searcher as searcher  # noqa: F401
 from .prism import PrismSelectionOptimizerSubagent

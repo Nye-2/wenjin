@@ -29,7 +29,6 @@ from src.dataservice_client.contracts.source import (
     SourceAssetUpdatePayload,
     SourceBibliographyCreatePayload,
     SourceBibliographySnapshotCreatePayload,
-    SourceEvidencePackCreatePayload,
     SourceExternalIdCreatePayload,
     SourceImportPayload,
     SourceIndexReplacePayload,

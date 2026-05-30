@@ -27,12 +27,12 @@ from src.gateway.contracts.artifact import (
     ArtifactsListResponse,
     artifact_to_responses,
 )
-from src.gateway.deps.core import get_dataservice_client
 from src.gateway.deps import (
     get_artifact_service,
     get_thread_service,
     get_workspace_service,
 )
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.workspaces_runtime import get_owned_workspace
 from src.gateway.validators.artifact import (
     ArtifactCreatePayloadValidator,

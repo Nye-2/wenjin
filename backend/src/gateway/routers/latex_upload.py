@@ -7,9 +7,9 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import LatexUploadResponse
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
     _collect_archive_upload_payload,

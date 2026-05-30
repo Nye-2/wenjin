@@ -94,6 +94,27 @@ def test_effective_tools_keep_high_ceiling_but_block_direct_commit() -> None:
     assert "room_commit" not in effective
 
 
+def test_capability_team_policy_respects_empty_user_tool_allowlist() -> None:
+    cap = SimpleNamespace(
+        definition_json={
+            "team_policy": {
+                "core_templates": ["research_scholar.v1"],
+                "capability_tools": ["web_search", "library_read", "citation_parser"],
+            }
+        },
+        runtime={"mode": "team_kernel"},
+    )
+
+    policy = build_capability_team_policy(
+        cap,
+        templates={"research_scholar.v1": _template()},
+        user_tools=[],
+    )
+
+    assert policy.user_tools == []
+    assert resolve_effective_tools(_template(), policy) == []
+
+
 def test_invocation_assignment_names_duplicate_templates() -> None:
     assignment_a = build_invocation_assignment(
         template=_template("code_engineer.v1"),

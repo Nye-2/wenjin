@@ -28,6 +28,12 @@ class TeamFakeSubagent(SubagentBase):
         )
 
 
+@subagent("team_failing")
+class TeamFailingSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        raise RuntimeError(f"{ctx.invocation['display_name']} failed")
+
+
 def _team_capability() -> SimpleNamespace:
     return SimpleNamespace(
         id="team_research",
@@ -137,6 +143,33 @@ class FakeTeamCatalogClient:
         ]
 
 
+class FakeFailingTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            (
+                CapabilitySkillPayload(
+                    id=record.id,
+                    display_name=record.display_name,
+                    worker_type=record.worker_type,
+                    subagent_type="team_failing",
+                    prompt=record.prompt,
+                    config=record.config,
+                )
+                if record.id == "review-critic"
+                else record
+            )
+            for record in records
+        ]
+
+
+class FakeAbortRedis:
+    async def get(self, key: str) -> bytes:
+        return b"1"
+
+
 @pytest.mark.asyncio
 async def test_team_kernel_runtime_publishes_team_events_and_report(monkeypatch) -> None:
     published: list[tuple[str, str, dict]] = []
@@ -208,3 +241,72 @@ async def test_team_kernel_runtime_stops_when_template_policy_invalid(monkeypatc
     assert report.status == "failed_partial"
     assert report.errors
     assert "unknown agent template" in report.errors[0].error
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_records_cancelled_invocations(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+    node_events: list[dict] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+        redis=FakeAbortRedis(),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-cancelled", brief=_brief())
+
+    node_statuses = [event["status"] for event in node_events if event["node_type"] == "agent_invocation"]
+    invocation_statuses = [
+        payload["invocation"]["status"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+    ]
+    assert report.status == "cancelled"
+    assert "cancelled" in node_statuses
+    assert "cancelled" in invocation_statuses
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_marks_failed_member_as_partial(monkeypatch) -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeFailingTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-failed", brief=_brief())
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert any(event["status"] == "failed" for event in node_events)
