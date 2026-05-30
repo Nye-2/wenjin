@@ -516,6 +516,17 @@ def test_gateway_runtime_drops_session_based_owner_commit_compute_boundaries() -
             "owner_check_session_from_service",
             "require_workspace_owner_by_session",
         ),
+        SRC_ROOT / "gateway" / "deps" / "threads.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "ThreadService(db",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "academic.py": (
+            "WorkspaceService(db",
+        ),
+        SRC_ROOT / "application" / "handlers" / "thread_turn_handler.py": (
+            "from src.database import get_db_session",
+        ),
         SRC_ROOT / "gateway" / "routers" / "execution_commit.py": (
             "AsyncSession",
             "Depends(get_db)",

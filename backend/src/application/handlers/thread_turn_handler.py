@@ -33,7 +33,6 @@ from src.application.results import (
 from src.config import get_model_config
 from src.config.config_loader import get_app_config
 from src.config.llm_config import LLMSettings
-from src.database import get_db_session
 from src.models import model_supports_vision, route_chat_model
 from src.models.router import InvalidRequestedModelError
 from src.services import ThreadAccessError, ThreadService
