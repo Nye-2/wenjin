@@ -98,7 +98,7 @@
 12. Dashboard runtime dependencies 和 summary/dashboard facade 只能通过 DataService-backed construction，不能注入 request DB session 或保留 DB fallback 查询
 13. Workspace route/action context 和 WorkspaceContextMiddleware 只能通过 Workspace/Catalog/Template DataService-backed services，不能注入 `get_db` 或自行打开 `get_db_session`
 14. Admin capability / skill catalog runtime 只能通过 Catalog DataService client 读写和 seed load；router、service、validator、loader 均不得接受或保存 DB session
-15. Reference Library runtime 和 Prism `refs.bib` sync 只能通过 Source/Asset/Prism DataService client 读写；gateway references router 与 `SourceBibliographyService` 不接受 DB session
+15. Reference Library runtime 和 Prism `refs.bib` sync 只能通过 Source/Asset/Prism DataService client 读写；gateway references router 与 `SourceBibliographyService` 不接受 DB session，运行时 enum / request contract 从 `dataservice_client.contracts.source` 取得，不得导入 DB reference model contract
 16. DataService-backed runtime facades（ThreadService、TemplateService、WorkspaceActivityService、AdminAnalyticsService、workspace skill label helpers）不得保留可选 DB constructor 或 `self.db`
 17. Gateway 不再导出通用 `get_db` dependency；ExecutionService、TaskStore、SkillResolver、CapabilityResolver、WorkspaceService、GenerationService 不接受历史 DB/session constructor，运行时只允许通过 DataService client 边界访问持久化
 18. Workspace asset runtime projection 只读取 canonical metadata 字段（`kind`、`parent_id`、`version`、`artifact_type` 等），不得在 router/activity projection 层读取 `legacy_*` metadata
@@ -116,6 +116,7 @@
 30. DataService / DataService app / DataService client 源码不得保留 stale `legacy` / `compat` / `fallback` 命名；真正的容错必须用当前领域语义命名
 31. Chat Agent 与 workspace seed runtime 注释必须描述当前 DB-backed capability routing，不得保留已退役 resolver/prompt 路径描述
 32. Production source 中不得保留未限定的 `legacy` 标签；历史行为只允许出现在测试、迁移断言或文档追溯中
+33. `AuditService` 只能暴露 Audit DataService client 构造边界；不得接受或保存 `session_factory`、ORM model、`AsyncSession` 等 DB-shaped 参数
 
 ## 3. Execution-First Main Chain
 

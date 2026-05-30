@@ -7,14 +7,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, ValidationError
 
-from src.database import (
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.source import (
     ReferenceBibtexScope,
     ReferenceLibraryStatus,
     ReferenceReadStatus,
     ReferenceSourceType,
-)
-from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.source import (
     SourceEvidencePackCreatePayload,
     SourceUpdatePayload,
 )

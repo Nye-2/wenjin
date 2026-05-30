@@ -8,21 +8,19 @@ from collections.abc import Iterable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from src.academic.citation.bibtex.parser import BibTeXParser
 from src.academic.literature.search_service import LiteratureSearchService
-from src.database import (
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
+from src.dataservice_client.contracts.source import (
     ReferenceBibtexScope,
     ReferenceEvidenceLevel,
     ReferenceFulltextStatus,
     ReferenceLibraryStatus,
     ReferencePreprocessStatus,
     ReferenceSourceType,
-)
-from src.database.base import generate_uuid
-from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
-from src.dataservice_client.contracts.source import (
     SourceAssetLinkPayload,
     SourceAssetUpdatePayload,
     SourceBibliographyCreatePayload,
@@ -891,7 +889,7 @@ class SourcePreprocessService:
                 content = str(section.get("content") or "").strip()
                 if not content:
                     continue
-                node_id = generate_uuid()
+                node_id = str(uuid4())
                 title = str(section.get("title") or f"Section {sort_order + 1}").strip()
                 section_path = str(sort_order + 1)
                 outline_nodes.append(
@@ -914,7 +912,7 @@ class SourcePreprocessService:
                 )
                 text_units.append(
                     {
-                        "id": generate_uuid(),
+                        "id": str(uuid4()),
                         "workspace_id": workspace_id,
                         "source_id": source_id,
                         "outline_node_id": node_id,

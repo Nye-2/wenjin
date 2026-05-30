@@ -402,6 +402,60 @@ def test_auth_runtime_stays_on_account_dataservice_boundary() -> None:
     )
 
 
+def test_audit_service_stays_on_audit_dataservice_boundary() -> None:
+    """Audit runtime must expose only the Audit DataService client boundary."""
+
+    path = SRC_ROOT / "services" / "audit_service.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "session_factory",
+        "model=None",
+        "_session_factory",
+        "_model",
+        "AsyncSession",
+    )
+
+    violations = [
+        f"{path.relative_to(SRC_ROOT)} contains {token}"
+        for token in forbidden_tokens
+        if token in source
+    ]
+    assert not violations, (
+        "AuditService must not expose legacy DB-shaped constructor state:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_reference_library_runtime_uses_dataservice_contract_boundary() -> None:
+    """Reference Library runtime contracts must not import database model contracts."""
+
+    checked_files = [
+        SRC_ROOT / "gateway" / "routers" / "references.py",
+        SRC_ROOT / "services" / "references" / "service.py",
+    ]
+    forbidden_import_modules = {"src.database", "src.database.base"}
+
+    violations: list[str] = []
+    for path in checked_files:
+        relative = path.relative_to(SRC_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        for node in visitor.import_from_nodes:
+            module = node.module or ""
+            if module in forbidden_import_modules:
+                violations.append(f"{relative}:{node.lineno} imports {module}")
+        for node in visitor.import_nodes:
+            for alias in node.names:
+                if alias.name in forbidden_import_modules:
+                    violations.append(f"{relative}:{node.lineno} imports {alias.name}")
+
+    assert not violations, (
+        "Reference Library runtime must use DataService client contracts, not DB models:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_runtime_code_does_not_use_legacy_artifact_surface_names() -> None:
     """Runtime code must use canonical workspace artifact names."""
 

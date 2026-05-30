@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import textwrap
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -21,10 +20,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
-from tests.database.conftest import (
-    DbAuditLog,
-    _Base,
-)
+from tests.database.conftest import _Base
 
 # ---------------------------------------------------------------------------
 # Local SQLite session fixture (bypasses integration/conftest.py's version,
@@ -70,16 +66,6 @@ def _make_event_bus_mock():
 
     bus.subscribe = _subscribe
     return bus
-
-
-@asynccontextmanager
-async def _wrap_session(session):
-    """Expose an existing session as an async context manager."""
-    yield session
-
-
-def _session_factory(session):
-    return lambda: _wrap_session(session)
 
 
 class _FakeAuditDataServiceClient:
@@ -302,15 +288,11 @@ async def test_quota_consume_atomic_with_mock_redis():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_audit_log_and_query(db_session):
+async def test_audit_log_and_query():
     """AuditService logs events and can filter by workspace_id."""
     from src.services.audit_service import AuditService
 
-    svc = AuditService(
-        session_factory=_session_factory(db_session),
-        model=DbAuditLog,
-        dataservice=_FakeAuditDataServiceClient(),
-    )
+    svc = AuditService(dataservice=_FakeAuditDataServiceClient())
 
     ws_id = "ws-test-123"
     await svc.log("capability.resolved", workspace_id=ws_id, payload={"cap_id": "deep_research"})

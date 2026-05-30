@@ -13,25 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 class AuditService:
-    """Writes audit events to the audit_logs table.
+    """Writes audit events through the Audit DataService boundary.
 
     All methods are best-effort: failures are logged as warnings and never
     propagate to callers.
-
-    Args:
-        session_factory: Callable returning an async context manager that yields an AsyncSession.
-        dataservice: Optional DataService client override for tests.
     """
 
     def __init__(
         self,
-        session_factory,
-        model=None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self._session_factory = session_factory
-        self._model = model
         self._dataservice = dataservice
 
     async def log(

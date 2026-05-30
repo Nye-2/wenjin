@@ -153,9 +153,19 @@
   - Migration bootstrap constant 从 `LEGACY_BOOTSTRAP_STAMP_REVISION` 改为 `CREATE_ALL_BOOTSTRAP_STAMP_REVISION`。
   - Production source `legacy` scan 已无命中；测试和迁移断言仍可保留历史词用于证明退役路径。
   - Architecture guard 新增 `test_production_source_does_not_keep_unscoped_legacy_labels`。
+- Current audit/reference contract boundary follow-up
+  - `AuditService` 移除 `session_factory` / ORM model 构造参数，只通过 Audit DataService client 写入和查询审计记录。
+  - Reference Library router 和 `SourceBibliographyService` 的运行时 enum/request contract 收敛到 `dataservice_client.contracts.source`。
+  - `SourceBibliographyService` 移除对 `src.database.base.generate_uuid` 的依赖，内部临时 ID 生成使用标准库 `uuid4`。
+  - Architecture guard 新增 `test_audit_service_stays_on_audit_dataservice_boundary` 和 `test_reference_library_runtime_uses_dataservice_contract_boundary`，防止审计与 Reference Library 运行时回流到 DB-shaped contract。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_audit_service_stays_on_audit_dataservice_boundary tests/architecture/test_dataservice_boundaries.py::test_reference_library_runtime_uses_dataservice_contract_boundary -q` -> red first: 2 failed; after implementation: 2 passed.
+- `cd backend && .venv/bin/python -m ruff check src/services/audit_service.py src/gateway/routers/references.py src/services/references/service.py src/dataservice_client/contracts/source.py tests/database/test_audit_logs.py tests/integration/test_phase1_foundation.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_audit_service_stays_on_audit_dataservice_boundary tests/architecture/test_dataservice_boundaries.py::test_reference_library_runtime_uses_dataservice_contract_boundary tests/database/test_audit_logs.py tests/integration/test_phase1_foundation.py::test_audit_log_and_query tests/services/test_reference_usage_service.py tests/services/test_reference_writing_workflow_gate.py tests/services/test_reference_bibtex_service.py tests/services/test_reference_index_service.py tests/services/test_reference_import_service.py tests/tools/test_reference_builtins.py -q` -> 32 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 38 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2036 passed.
 - `cd backend && .venv/bin/python -m ruff check src/config/feature_flags.py src/agents/middlewares/literature_context.py src/database/migration_bootstrap.py src/database/models/execution.py src/services/thread_events.py tests/database/test_migration_bootstrap.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_production_source_does_not_keep_unscoped_legacy_labels tests/database/test_migration_bootstrap.py -q` -> 7 passed.
 - `rg -ni "legacy" backend/src frontend/app frontend/components frontend/hooks frontend/lib frontend/stores -g '*.{py,ts,tsx}'` -> no matches.
