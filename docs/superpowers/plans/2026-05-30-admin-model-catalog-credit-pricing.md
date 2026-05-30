@@ -829,7 +829,7 @@ git commit -m "feat: reserve and settle execution credits"
 - Test: `backend/tests/integration/test_capability_skill_seeds.py`
 - Test: `backend/tests/quality/test_release_gate_cli.py`
 
-- [ ] **Step 1: Locate release gate and seed patterns**
+- [x] **Step 1: Locate release gate and seed patterns**
 
 Run:
 
@@ -838,7 +838,7 @@ cd backend
 rg -n "release_gate|ReleaseGate|load_seeds|seed" src tests/quality tests/integration
 ```
 
-- [ ] **Step 2: Write tests**
+- [x] **Step 2: Write tests**
 
 Cover:
 
@@ -847,21 +847,23 @@ Cover:
 - release gate fails without enabled default model.
 - release gate fails when enabled model lacks pricing policy.
 
-- [ ] **Step 3: Implement seed import**
+- [x] **Step 3: Implement seed import**
 
 Read current `LLM_MODELS` / config only as seed input. After import, runtime source remains DataService.
 
-- [ ] **Step 4: Implement release gates**
+- [x] **Step 4: Implement release gates**
 
 Add gate checks listed in the spec.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run:
 
 ```bash
 cd backend
 .venv/bin/python -m pytest tests/integration/test_capability_skill_seeds.py tests/quality/test_release_gate_cli.py tests/quality/test_architecture_gate_configuration.py -v
+.venv/bin/python -m pytest tests/integration/test_capability_skill_seeds.py tests/integration/test_model_catalog_seed_loader.py tests/quality/test_release_gate_cli.py tests/quality/test_architecture_gate_configuration.py tests/quality/test_model_catalog_pricing_gate.py tests/services/test_release_gate_service.py -v
+.venv/bin/python -m ruff check src/dataservice/domains/model_catalog/seed_loader.py src/database/bootstrap_admin.py src/quality/model_catalog_pricing_gate.py src/quality/release_gate.py src/services/release_gate_service.py tests/integration/test_model_catalog_seed_loader.py tests/quality/test_model_catalog_pricing_gate.py tests/quality/test_architecture_gate_configuration.py tests/services/test_release_gate_service.py
 ```
 
 Commit:

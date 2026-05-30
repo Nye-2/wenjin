@@ -110,6 +110,26 @@ async def async_main() -> int:
                 name=admin_name,
             )
 
+            # Seed admin-managed model catalog once from legacy env config.
+            try:
+                from src.dataservice.domains.model_catalog.seed_loader import DataServiceModelCatalogSeedLoader
+                from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
+
+                model_service = DataServiceModelCatalogService(
+                    session,
+                    allow_private_network=True,
+                    require_https=False,
+                )
+                model_loader = DataServiceModelCatalogSeedLoader(
+                    model_service,
+                    admin_id=admin_email,
+                )
+                loaded_models = await model_loader.load_seeds_if_empty()
+                if loaded_models:
+                    print(f"[bootstrap-admin] Seeded {loaded_models} model catalog record(s)")
+            except Exception as model_exc:
+                print(f"[bootstrap-admin] WARN: model catalog seed failed: {model_exc}")
+
             # Seed skills before capabilities (capabilities reference skills)
             try:
                 from src.services.skill_loader import SkillLoader
