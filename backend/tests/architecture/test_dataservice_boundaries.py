@@ -1127,6 +1127,22 @@ def test_react_subagent_does_not_silently_ignore_requested_tools() -> None:
     )
 
 
+def test_catalog_skill_projection_does_not_synthesize_legacy_skill_json() -> None:
+    """Catalog skill rows must carry canonical skill_json from the seed/DB."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "catalog" / "projection.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "_legacy_skill_json",
+        "not skill_json",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Catalog skill projection still synthesizes legacy skill_json: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from src.dataservice.domains.catalog.projection import skill_to_record
 from src.dataservice.domains.catalog.seed_loader import DataServiceCatalogSeedLoader
 from src.dataservice.domains.catalog.service import DataServiceCatalogService
 
@@ -156,6 +157,28 @@ def _skill_v2_data() -> dict[str, Any]:
         "sandbox_access": {"mode": "none", "profiles": []},
         "quality_gates": ["no_direct_primary_document_write"],
     }
+
+
+def test_skill_projection_requires_canonical_skill_json() -> None:
+    skill = SimpleNamespace(
+        id="writer",
+        schema_version="capability_skill.v2",
+        enabled=True,
+        display_name="Writer",
+        description="",
+        worker_type="writer",
+        subagent_type="react",
+        prompt="write",
+        allowed_tools=[],
+        resources=[],
+        config={},
+        skill_json={},
+        checksum=None,
+        source_path=None,
+    )
+
+    with pytest.raises(ValueError, match="canonical skill_json"):
+        skill_to_record(skill)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
