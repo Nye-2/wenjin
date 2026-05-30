@@ -37,6 +37,24 @@ class CreditTransactionPayload(BaseModel):
     created_at: datetime | None = None
 
 
+class CreditReservationPayload(BaseModel):
+    id: str
+    user_id: str
+    workspace_id: str | None = None
+    execution_id: str | None = None
+    node_id: str | None = None
+    scope: str
+    status: str
+    reserved_credits: int
+    settled_credits: int = 0
+    transaction_id: str | None = None
+    idempotency_key: str
+    expires_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class CreditRedeemCodePayload(BaseModel):
     id: str
     code: str
@@ -120,6 +138,31 @@ class CreditConsumptionCreatePayload(BaseModel):
     workspace_id: str | None = None
     task_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreditReservationCreatePayload(BaseModel):
+    user_id: str
+    scope: str
+    reserved_credits: int
+    idempotency_key: str
+    workspace_id: str | None = None
+    execution_id: str | None = None
+    node_id: str | None = None
+    expires_at: datetime | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreditReservationSettlePayload(BaseModel):
+    settled_credits: int
+    description: str
+    transaction_type: str = "workflow_consume"
+    feature_id: str | None = None
+    task_id: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreditReservationReleasePayload(BaseModel):
+    reason: str | None = None
 
 
 class CreditRefundPayload(BaseModel):

@@ -11,6 +11,8 @@ from src.dataservice_client.contracts.credit import (
     CreditAdminAdjustPayload,
     CreditConsumptionCreatePayload,
     CreditRefundPayload,
+    CreditReservationCreatePayload,
+    CreditReservationSettlePayload,
 )
 from src.dataservice_client.provider import dataservice_client
 from src.services.billing_policy import (
@@ -822,6 +824,128 @@ class CreditService:
             balance_after=int(tx.balance_after),
             charged=recorded_charge > 0,
         )
+
+    async def reserve_for_feature_execution(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None,
+        execution_id: str,
+        estimated_credits: int,
+        expires_at: Any | None = None,
+        idempotency_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        """Reserve credits before launching a long-running feature execution."""
+        key = idempotency_key or f"feature_execution:{execution_id}"
+        async with self._client() as client:
+            return await client.create_credit_reservation(
+                CreditReservationCreatePayload(
+                    user_id=user_id,
+                    scope="feature_execution",
+                    reserved_credits=max(int(estimated_credits or 0), 0),
+                    idempotency_key=key,
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    metadata=dict(metadata or {}),
+                    expires_at=expires_at,
+                )
+            )
+
+    async def settle_feature_reservation(
+        self,
+        *,
+        reservation_id: str,
+        settled_credits: int,
+        feature_id: str,
+        task_id: str | None = None,
+        description: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[Any, Any | None]:
+        """Settle a feature execution reservation into the credit ledger."""
+        async with self._client() as client:
+            return await client.settle_credit_reservation(
+                reservation_id,
+                CreditReservationSettlePayload(
+                    settled_credits=max(int(settled_credits or 0), 0),
+                    description=description or f"{feature_id} 任务结算",
+                    transaction_type=CreditTransactionType.WORKFLOW_CONSUME.value,
+                    feature_id=feature_id,
+                    task_id=task_id,
+                    metadata=dict(metadata or {}),
+                ),
+            )
+
+    async def reserve_for_sandbox_operation(
+        self,
+        *,
+        user_id: str,
+        workspace_id: str | None,
+        execution_id: str,
+        node_id: str,
+        operation: str,
+        estimated_credits: int,
+        expires_at: Any | None = None,
+        idempotency_key: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        """Reserve credits before acquiring sandbox compute resources."""
+        normalized_operation = self._normalize_sandbox_operation(operation)
+        key = idempotency_key or (
+            f"sandbox_operation:{execution_id}:{node_id}:{normalized_operation}"
+        )
+        async with self._client() as client:
+            return await client.create_credit_reservation(
+                CreditReservationCreatePayload(
+                    user_id=user_id,
+                    scope="sandbox_operation",
+                    reserved_credits=max(int(estimated_credits or 0), 0),
+                    idempotency_key=key,
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    node_id=node_id,
+                    metadata={"operation": normalized_operation, **dict(metadata or {})},
+                    expires_at=expires_at,
+                )
+            )
+
+    async def settle_sandbox_reservation(
+        self,
+        *,
+        reservation_id: str,
+        settled_credits: int,
+        operation: str,
+        task_id: str | None = None,
+        description: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[Any, Any | None]:
+        """Settle a sandbox reservation after runtime usage is known."""
+        normalized_operation = self._normalize_sandbox_operation(operation)
+        async with self._client() as client:
+            return await client.settle_credit_reservation(
+                reservation_id,
+                CreditReservationSettlePayload(
+                    settled_credits=max(int(settled_credits or 0), 0),
+                    description=description or self._build_sandbox_operation_description(
+                        operation=normalized_operation,
+                        credits_charged=max(int(settled_credits or 0), 0),
+                    ),
+                    transaction_type=CreditTransactionType.WORKFLOW_CONSUME.value,
+                    feature_id=f"sandbox.{normalized_operation}",
+                    task_id=task_id,
+                    metadata={"operation": normalized_operation, **dict(metadata or {})},
+                ),
+            )
+
+    async def release_reservation(
+        self,
+        reservation_id: str,
+        *,
+        reason: str | None = None,
+    ) -> Any:
+        """Release a DataService credit reservation."""
+        async with self._client() as client:
+            return await client.release_credit_reservation(reservation_id, reason=reason)
 
     async def refund_failed_task(
         self,

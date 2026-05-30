@@ -690,7 +690,7 @@ git commit -m "feat: settle credits from pricing policies"
 - Test: `backend/tests/services/test_credit_concurrency.py`
 - Test: `backend/tests/services/test_credit_service.py`
 
-- [ ] **Step 1: Write reservation tests**
+- [x] **Step 1: Write reservation tests**
 
 Cover:
 
@@ -701,7 +701,7 @@ Cover:
 - concurrent reservations cannot exceed spendable balance.
 - expired reservations can be released by service method.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run:
 
@@ -710,7 +710,7 @@ cd backend
 .venv/bin/python -m pytest tests/dataservice/test_credit_domain.py tests/services/test_credit_concurrency.py tests/services/test_credit_service.py -v
 ```
 
-- [ ] **Step 3: Implement reservation repository/service**
+- [x] **Step 3: Implement reservation repository/service**
 
 Add DataService methods:
 
@@ -722,7 +722,7 @@ release_reservation(...)
 
 Use user row locks and idempotency keys.
 
-- [ ] **Step 4: Add internal endpoints and client methods**
+- [x] **Step 4: Add internal endpoints and client methods**
 
 Routes:
 
@@ -732,7 +732,7 @@ POST /internal/v1/credit/reservations/{reservation_id}/settle
 POST /internal/v1/credit/reservations/{reservation_id}/release
 ```
 
-- [ ] **Step 5: Add CreditService wrappers**
+- [x] **Step 5: Add CreditService wrappers**
 
 Expose:
 
@@ -744,7 +744,7 @@ settle_sandbox_reservation(...)
 release_reservation(...)
 ```
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 Run:
 

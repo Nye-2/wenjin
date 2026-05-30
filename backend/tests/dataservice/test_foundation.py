@@ -51,6 +51,8 @@ from src.dataservice_client.contracts.credit import (
     CreditRedeemPayload,
     CreditReferralCreatePayload,
     CreditRefundPayload,
+    CreditReservationCreatePayload,
+    CreditReservationSettlePayload,
 )
 from src.dataservice_client.contracts.execution import (
     ComputeSessionEnsurePayload,
@@ -937,6 +939,22 @@ async def test_dataservice_client_credit_contract_methods() -> None:
             "metadata": {},
         }
 
+    def reservation_payload() -> dict[str, Any]:
+        return {
+            "id": "reservation-1",
+            "user_id": "user-1",
+            "workspace_id": "ws-1",
+            "execution_id": "exec-1",
+            "node_id": None,
+            "scope": "feature_execution",
+            "status": "reserved",
+            "reserved_credits": 12,
+            "settled_credits": 0,
+            "transaction_id": None,
+            "idempotency_key": "feature_execution:exec-1",
+            "metadata": {},
+        }
+
     def code_payload() -> dict[str, Any]:
         return {
             "id": "code-1",
@@ -1014,6 +1032,20 @@ async def test_dataservice_client_credit_contract_methods() -> None:
                     "data": {"transaction": tx_payload(), "balance_before": 20},
                 },
             )
+        if path == "/internal/v1/credit/reservations":
+            return httpx.Response(200, json={"status": "ok", "data": reservation_payload()})
+        if path.endswith("/settle"):
+            settled = {**reservation_payload(), "status": "settled", "settled_credits": 8}
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "data": {"reservation": settled, "transaction": tx_payload()},
+                },
+            )
+        if path.endswith("/release"):
+            released = {**reservation_payload(), "status": "released"}
+            return httpx.Response(200, json={"status": "ok", "data": released})
         return httpx.Response(200, json={"status": "ok", "data": tx_payload()})
 
     transport = httpx.MockTransport(handler)
@@ -1052,6 +1084,29 @@ async def test_dataservice_client_credit_contract_methods() -> None:
                 amount=1,
                 description="consume",
             )
+        )
+        reservation = await client.create_credit_reservation(
+            CreditReservationCreatePayload(
+                user_id="user-1",
+                scope="feature_execution",
+                reserved_credits=12,
+                idempotency_key="feature_execution:exec-1",
+                workspace_id="ws-1",
+                execution_id="exec-1",
+            )
+        )
+        settled_reservation, settlement_tx = await client.settle_credit_reservation(
+            "reservation-1",
+            CreditReservationSettlePayload(
+                settled_credits=8,
+                description="settle",
+                feature_id="deep_research",
+                task_id="exec-1",
+            ),
+        )
+        released_reservation = await client.release_credit_reservation(
+            "reservation-1",
+            reason="platform failed",
         )
         refunded = await client.refund_credit_consumption(
             CreditRefundPayload(user_id="user-1", original_transaction_id="tx-1", reason="refund")
@@ -1094,10 +1149,13 @@ async def test_dataservice_client_credit_contract_methods() -> None:
     assert token_usage.total_tokens == 100
     assert stats.kpis["total_issued"] == 30
     assert consumed is not None and balance_before == 20
+    assert reservation.status == "reserved"
+    assert settled_reservation.status == "settled" and settlement_tx is not None
+    assert released_reservation.status == "released"
     assert refunded is not None and adjusted is not None and redeemed is not None
     assert code is not None and codes[0].id == "code-1" and disabled is not None
     assert referral is not None and found_referral is not None
-    assert len(seen) == 20
+    assert len(seen) == 23
 
 
 @pytest.mark.asyncio

@@ -20,13 +20,17 @@ from src.services.credit_service import CreditService
 class FakeCreditClient:
     def __init__(self) -> None:
         self.balances: dict[str, int] = {}
+        self.reserved_balances: dict[str, int] = {}
         self.transactions: list[SimpleNamespace] = []
+        self.reservations: dict[str, SimpleNamespace] = {}
         self._counter = 0
         self._refunded: set[str] = set()
         self._idempotency_index: dict[tuple[str, str, str], SimpleNamespace] = {}
+        self._reservation_idempotency_index: dict[tuple[str, str, str], SimpleNamespace] = {}
 
     def add_user(self, user_id: str = "user-1", *, credits: int = 10) -> None:
         self.balances[user_id] = credits
+        self.reserved_balances[user_id] = 0
 
     def seed_consumption(
         self,
@@ -183,6 +187,80 @@ class FakeCreditClient:
         )
         self.transactions.append(tx)
         return tx
+
+    async def create_credit_reservation(self, command):
+        before = self.balances.get(command.user_id)
+        if before is None:
+            raise ValueError("User not found")
+        idempotency_key = str(command.idempotency_key)
+        key = (command.user_id, command.scope, idempotency_key)
+        existing = self._reservation_idempotency_index.get(key)
+        if existing is not None:
+            return existing
+        spendable = before - self.reserved_balances.get(command.user_id, 0)
+        if command.reserved_credits > spendable:
+            raise ValueError("insufficient spendable credits")
+        self.reserved_balances[command.user_id] = (
+            self.reserved_balances.get(command.user_id, 0) + command.reserved_credits
+        )
+        self._counter += 1
+        reservation = SimpleNamespace(
+            id=f"reservation-{self._counter}",
+            user_id=command.user_id,
+            workspace_id=command.workspace_id,
+            execution_id=command.execution_id,
+            node_id=command.node_id,
+            scope=command.scope,
+            status="reserved",
+            reserved_credits=command.reserved_credits,
+            settled_credits=0,
+            transaction_id=None,
+            idempotency_key=command.idempotency_key,
+            expires_at=command.expires_at,
+            metadata=dict(command.metadata),
+            created_at=None,
+            updated_at=None,
+        )
+        self.reservations[reservation.id] = reservation
+        self._reservation_idempotency_index[key] = reservation
+        return reservation
+
+    async def settle_credit_reservation(self, reservation_id: str, command):
+        reservation = self.reservations[reservation_id]
+        if reservation.status != "reserved":
+            tx = next((tx for tx in self.transactions if tx.id == reservation.transaction_id), None)
+            return reservation, tx
+        charge = min(command.settled_credits, reservation.reserved_credits)
+        self.reserved_balances[reservation.user_id] -= reservation.reserved_credits
+        self.balances[reservation.user_id] -= charge
+        self._counter += 1
+        tx = SimpleNamespace(
+            id=f"tx-{self._counter}",
+            user_id=reservation.user_id,
+            transaction_type="workflow_consume",
+            amount=-charge,
+            balance_after=self.balances[reservation.user_id],
+            description=command.description,
+            feature_id=command.feature_id,
+            workspace_id=reservation.workspace_id,
+            task_id=command.task_id,
+            admin_id=None,
+            metadata={"reservation_id": reservation_id, **dict(command.metadata)},
+            created_at=None,
+        )
+        reservation.status = "settled"
+        reservation.settled_credits = charge
+        reservation.transaction_id = tx.id
+        self.transactions.append(tx)
+        return reservation, tx
+
+    async def release_credit_reservation(self, reservation_id: str, *, reason: str | None = None):
+        reservation = self.reservations[reservation_id]
+        if reservation.status == "reserved":
+            self.reserved_balances[reservation.user_id] -= reservation.reserved_credits
+            reservation.status = "released"
+            reservation.metadata["release_reason"] = reason
+        return reservation
 
 
 class PricingAwareFakeCreditClient(FakeCreditClient):
@@ -814,3 +892,79 @@ async def test_admin_deduct_keeps_direction_correct_for_negative_balances(
     assert tx.balance_after == -6
     assert tx.metadata["requested_amount"] == 5
     assert await credit_service.get_balance("user-1") == -6
+
+
+@pytest.mark.asyncio
+async def test_reserve_for_feature_execution_delegates_to_dataservice(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=20)
+
+    reservation = await credit_service.reserve_for_feature_execution(
+        user_id="user-1",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        estimated_credits=12,
+        metadata={"feature_id": "deep_research"},
+    )
+
+    assert reservation.reserved_credits == 12
+    assert reservation.status == "reserved"
+    assert fake_credit_client.reserved_balances["user-1"] == 12
+    assert fake_credit_client.balances["user-1"] == 20
+
+
+@pytest.mark.asyncio
+async def test_settle_feature_reservation_charges_and_releases_remainder(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=20)
+    reservation = await credit_service.reserve_for_feature_execution(
+        user_id="user-1",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        estimated_credits=12,
+    )
+
+    settled, tx = await credit_service.settle_feature_reservation(
+        reservation_id=reservation.id,
+        settled_credits=8,
+        feature_id="deep_research",
+        task_id="exec-1",
+        metadata={"actual_credits": 8},
+    )
+
+    assert settled.status == "settled"
+    assert settled.settled_credits == 8
+    assert settled.transaction_id == tx.id
+    assert tx.metadata["reservation_id"] == reservation.id
+    assert fake_credit_client.reserved_balances["user-1"] == 0
+    assert fake_credit_client.balances["user-1"] == 12
+
+
+@pytest.mark.asyncio
+async def test_release_reservation_delegates_to_dataservice(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=20)
+    reservation = await credit_service.reserve_for_sandbox_operation(
+        user_id="user-1",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="node-1",
+        operation="run_python",
+        estimated_credits=5,
+    )
+
+    released = await credit_service.release_reservation(
+        reservation.id,
+        reason="platform failed",
+    )
+
+    assert released.status == "released"
+    assert fake_credit_client.reserved_balances["user-1"] == 0
+    assert fake_credit_client.balances["user-1"] == 20
+    assert released.metadata["release_reason"] == "platform failed"

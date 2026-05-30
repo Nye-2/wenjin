@@ -68,6 +68,10 @@ from src.dataservice_client.contracts.credit import (
     CreditReferralCreatePayload,
     CreditReferralPayload,
     CreditRefundPayload,
+    CreditReservationCreatePayload,
+    CreditReservationPayload,
+    CreditReservationReleasePayload,
+    CreditReservationSettlePayload,
     CreditSummaryPayload,
     CreditTokenUsagePayload,
     CreditTransactionPayload,
@@ -93,13 +97,6 @@ from src.dataservice_client.contracts.knowledge import (
     KnowledgeMemoryPayload,
     KnowledgeMemoryUpdatePayload,
 )
-from src.dataservice_client.contracts.model_catalog import (
-    ModelCatalogCreatePayload,
-    ModelCatalogHealthPayload,
-    ModelCatalogPayload,
-    ModelCatalogUpdatePayload,
-    ModelRuntimeConfigPayload,
-)
 from src.dataservice_client.contracts.latex import (
     LatexCompileHistoryCreatePayload,
     LatexCompileHistoryPayload,
@@ -110,6 +107,19 @@ from src.dataservice_client.contracts.latex import (
     LatexProjectUpdatePayload,
     LatexTemplatePayload,
 )
+from src.dataservice_client.contracts.model_catalog import (
+    ModelCatalogCreatePayload,
+    ModelCatalogHealthPayload,
+    ModelCatalogPayload,
+    ModelCatalogUpdatePayload,
+    ModelRuntimeConfigPayload,
+)
+from src.dataservice_client.contracts.pricing import (
+    PricingPolicyCreatePayload,
+    PricingPolicyPayload,
+    PricingPolicyUpdatePayload,
+    PricingSimulationRequestPayload,
+)
 from src.dataservice_client.contracts.prism import (
     PrismFileVersionCreatePayload,
     PrismFileVersionPayload,
@@ -118,12 +128,6 @@ from src.dataservice_client.contracts.prism import (
     PrismProtectedScopePayload,
     PrismProtectedScopeUpsertPayload,
     PrismSurfacePayload,
-)
-from src.dataservice_client.contracts.pricing import (
-    PricingPolicyCreatePayload,
-    PricingPolicyPayload,
-    PricingPolicyUpdatePayload,
-    PricingSimulationRequestPayload,
 )
 from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeAppliedPayload,
@@ -1148,6 +1152,47 @@ class AsyncDataServiceClient:
             CreditTransactionPayload.model_validate(transaction) if transaction else None,
             int(data.get("balance_before", 0)),
         )
+
+    async def create_credit_reservation(
+        self,
+        command: CreditReservationCreatePayload,
+    ) -> CreditReservationPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/credit/reservations",
+            json=command.model_dump(mode="json"),
+        )
+        return CreditReservationPayload.model_validate(payload["data"])
+
+    async def settle_credit_reservation(
+        self,
+        reservation_id: str,
+        command: CreditReservationSettlePayload,
+    ) -> tuple[CreditReservationPayload, CreditTransactionPayload | None]:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/credit/reservations/{reservation_id}/settle",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload["data"]
+        transaction = data.get("transaction")
+        return (
+            CreditReservationPayload.model_validate(data["reservation"]),
+            CreditTransactionPayload.model_validate(transaction) if transaction else None,
+        )
+
+    async def release_credit_reservation(
+        self,
+        reservation_id: str,
+        *,
+        reason: str | None = None,
+    ) -> CreditReservationPayload:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/credit/reservations/{reservation_id}/release",
+            json=CreditReservationReleasePayload(reason=reason).model_dump(mode="json"),
+        )
+        return CreditReservationPayload.model_validate(payload["data"])
 
     async def refund_credit_consumption(
         self,

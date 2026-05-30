@@ -11,6 +11,7 @@ import ast
 import inspect
 import textwrap
 
+from src.dataservice.domains.credit.service import DataServiceCreditService
 from src.services.credit_service import CreditService
 
 
@@ -39,3 +40,11 @@ def test_can_start_feature_task_uses_dataservice_balance_projection() -> None:
 
 def test_credit_service_has_no_runtime_db_lock_helper() -> None:
     assert not hasattr(CreditService, "_get_user_for_update")
+
+
+def test_dataservice_reservation_creation_uses_user_row_lock() -> None:
+    source = inspect.getsource(DataServiceCreditService.create_reservation)
+    calls = _call_attrs(source)
+
+    assert "get_user_for_update" in calls
+    assert "reserved_credits" in source

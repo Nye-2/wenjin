@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import desc, func, select
@@ -11,6 +12,11 @@ from src.database.models.credit import CreditTransaction, CreditTransactionType
 from src.database.models.credit_grant_rule import CreditGrantRule, CreditGrantRuleType
 from src.database.models.credit_redeem_code import CreditRedeemCode
 from src.database.models.credit_redemption import CreditRedemption
+from src.database.models.credit_reservation import (
+    CreditReservation,
+    CreditReservationScope,
+    CreditReservationStatus,
+)
 from src.database.models.referral import Referral
 from src.database.models.user import User
 
@@ -90,6 +96,56 @@ class CreditRepository:
         tx = CreditTransaction(**values)
         self.session.add(tx)
         return tx
+
+    def create_credit_reservation(self, values: dict[str, Any]) -> CreditReservation:
+        reservation = CreditReservation(**values)
+        self.session.add(reservation)
+        return reservation
+
+    async def get_reservation_for_update(
+        self,
+        reservation_id: str,
+    ) -> CreditReservation | None:
+        result = await self.session.execute(
+            select(CreditReservation)
+            .where(CreditReservation.id == reservation_id)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def find_reservation_by_idempotency_key(
+        self,
+        *,
+        user_id: str,
+        scope: CreditReservationScope,
+        idempotency_key: str,
+    ) -> CreditReservation | None:
+        result = await self.session.execute(
+            select(CreditReservation)
+            .where(
+                CreditReservation.user_id == user_id,
+                CreditReservation.scope == scope,
+                CreditReservation.idempotency_key == idempotency_key,
+            )
+            .order_by(CreditReservation.created_at)
+        )
+        return result.scalars().first()
+
+    async def list_expired_reserved_reservations(
+        self,
+        *,
+        now: datetime,
+    ) -> list[CreditReservation]:
+        result = await self.session.execute(
+            select(CreditReservation)
+            .where(
+                CreditReservation.status == CreditReservationStatus.RESERVED,
+                CreditReservation.expires_at.is_not(None),
+                CreditReservation.expires_at <= now,
+            )
+            .with_for_update()
+        )
+        return list(result.scalars().all())
 
     async def get_admin_credit_summary(self) -> dict[str, int]:
         totals_result = await self.session.execute(
