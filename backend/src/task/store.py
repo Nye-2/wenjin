@@ -40,7 +40,7 @@ class TaskStore:
     def __init__(
         self,
         redis_client: Any,
-        db_session: AsyncSession,
+        db_session: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
@@ -49,8 +49,8 @@ class TaskStore:
         self._dataservice = dataservice
 
     @property
-    def db(self) -> AsyncSession:
-        """Expose the backing DB session for higher-level orchestration hooks."""
+    def db(self) -> AsyncSession | None:
+        """Expose the optional historical DB session for legacy callers."""
         return self._db
 
     @asynccontextmanager
@@ -235,7 +235,6 @@ class TaskStore:
             )
             if record and record.execution_id:
                 await ExecutionService(
-                    self._db,
                     dataservice=client,
                 ).apply_task_transition(
                     record.execution_id,
@@ -314,7 +313,6 @@ class TaskStore:
             )
             if record and record.execution_id and runtime_state is not None:
                 await ExecutionService(
-                    self._db,
                     dataservice=client,
                 ).apply_task_transition(
                     record.execution_id,
@@ -414,7 +412,6 @@ class TaskStore:
             )
             if record and record.execution_id:
                 await ExecutionService(
-                    self._db,
                     dataservice=client,
                 ).apply_task_transition(
                     record.execution_id,

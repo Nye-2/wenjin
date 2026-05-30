@@ -585,6 +585,17 @@ def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
             "session_factory=",
             "db=",
         ),
+        SRC_ROOT / "task" / "tasks" / "base.py": (
+            "get_db_session",
+            "reset_db_engine",
+            "ThreadService",
+            "TaskStore(redis_client, db",
+            "db=",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "tasks.py": (
+            "get_db_session",
+            "TaskStore(redis_client, db",
+        ),
     }
 
     violations: list[str] = []

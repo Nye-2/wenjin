@@ -377,8 +377,7 @@ class TestTaskStorePostgres:
         compute_touch = AsyncMock()
 
         class _FakeExecutionService:
-            def __init__(self, db, **kwargs) -> None:
-                self.db = db
+            def __init__(self, **kwargs) -> None:
                 self.kwargs = kwargs
 
             async def apply_task_transition(self, execution_id: str, **kwargs):
