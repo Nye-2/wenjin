@@ -141,7 +141,7 @@ async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
     """Load seed → resolver finds it → runtime invokes graph → completes."""
     # 1. Load seeds through the DataService catalog contract.
     dataservice = _FakeCatalogDataServiceClient()
-    loader = CapabilityLoader(session=db_session, dataservice=dataservice)
+    loader = CapabilityLoader(dataservice=dataservice)
     n = await loader.load_seeds_if_empty()
     assert n >= 5, f"Expected at least 5 seeds, got {n}"
 
@@ -150,7 +150,6 @@ async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
 
     bus = _make_event_bus_mock()
     resolver = CapabilityResolver(
-        session_factory=_session_factory(db_session),
         event_bus=bus,
         dataservice=dataservice,
     )

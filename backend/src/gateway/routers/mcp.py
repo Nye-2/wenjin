@@ -10,8 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from src.config import ExtensionsConfig, get_extensions_config, reload_extensions_config
-from src.database import User
-from src.gateway.routers.auth import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.mcp import MCPManager, activate_mcp_runtime
 
 logger = logging.getLogger(__name__)
@@ -19,7 +18,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _require_admin(current_user: User) -> None:
+def _require_admin(current_user: AccountAuthSubject) -> None:
     if not current_user.is_superuser:
         raise HTTPException(status_code=403, detail="Admin access required")
 
@@ -81,7 +80,7 @@ def _serialize_mcp_servers(config: ExtensionsConfig) -> dict[str, McpServerConfi
 
 @router.get("/mcp/config", response_model=McpConfigResponse)
 async def get_mcp_configuration(
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
 ) -> McpConfigResponse:
     """Return current MCP configuration."""
     _require_admin(current_user)
@@ -92,7 +91,7 @@ async def get_mcp_configuration(
 @router.put("/mcp/config", response_model=McpConfigResponse)
 async def update_mcp_configuration(
     request: McpConfigUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
 ) -> McpConfigResponse:
     """Persist MCP server configuration and refresh runtime state."""
     _require_admin(current_user)

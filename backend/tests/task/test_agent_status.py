@@ -28,15 +28,11 @@ class TestAgentStatusInSharedRunner:
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
             patch("src.config.redis_settings.enabled", True),
-            patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, return_value={"status": "ok"}),
             patch("src.task.tasks.base._append_task_thread_message", new_callable=AsyncMock),
         ):
-            mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
-
             from src.task.tasks.base import _execute_task_async
 
             fake_task = SimpleNamespace(
@@ -73,15 +69,11 @@ class TestAgentStatusInSharedRunner:
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
             patch("src.config.redis_settings.enabled", True),
-            patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, return_value={"status": "ok"}),
             patch("src.task.tasks.base._append_task_thread_message", new_callable=AsyncMock),
         ):
-            mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
-
             from src.task.tasks.base import _execute_task_async
 
             fake_task = SimpleNamespace(
@@ -112,15 +104,11 @@ class TestAgentStatusInSharedRunner:
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
             patch("src.config.redis_settings.enabled", True),
-            patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch("src.task.tasks.base._dispatch_task", new_callable=AsyncMock, side_effect=ValueError("boom")),
             patch("src.task.tasks.base._append_task_thread_message", new_callable=AsyncMock),
         ):
-            mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
-
             from src.task.tasks.base import _execute_task_async
 
             fake_task = SimpleNamespace(

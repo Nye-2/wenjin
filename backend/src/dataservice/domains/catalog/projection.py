@@ -47,8 +47,11 @@ def skill_to_record(skill: CapabilitySkill) -> CapabilitySkillRecord:
     """Project a canonical skill row."""
     worker_type = str(getattr(skill, "worker_type", None) or skill.subagent_type)
     skill_json = getattr(skill, "skill_json", None)
-    if not isinstance(skill_json, dict) or not skill_json:
-        skill_json = _legacy_skill_json(skill, worker_type=worker_type)
+    if not isinstance(skill_json, dict) or len(skill_json) == 0:
+        skill_id = getattr(skill, "id", "<unknown>")
+        raise ValueError(
+            f"Capability skill {skill_id} is missing canonical skill_json"
+        )
     return CapabilitySkillRecord(
         id=skill.id,
         schema_version=str(getattr(skill, "schema_version", None) or "capability_skill.v2"),
@@ -61,7 +64,7 @@ def skill_to_record(skill: CapabilitySkill) -> CapabilitySkillRecord:
         allowed_tools=list(skill.allowed_tools or []),
         resources=list(skill.resources or []),
         config=dict(skill.config or {}),
-        skill_json=skill_json,
+        skill_json=dict(skill_json),
         checksum=getattr(skill, "checksum", None),
         source_path=getattr(skill, "source_path", None),
     )
@@ -126,19 +129,3 @@ def admin_log_to_record(
             else None
         ),
     )
-
-
-def _legacy_skill_json(skill: CapabilitySkill, *, worker_type: str) -> dict[str, Any]:
-    return {
-        "schema_version": "capability_skill.v2",
-        "id": skill.id,
-        "enabled": skill.enabled,
-        "display_name": skill.display_name,
-        "description": skill.description or "",
-        "worker_type": worker_type,
-        "subagent_type": skill.subagent_type,
-        "prompt": skill.prompt or "",
-        "allowed_tools": list(skill.allowed_tools or []),
-        "resources": list(skill.resources or []),
-        "config": dict(skill.config or {}),
-    }

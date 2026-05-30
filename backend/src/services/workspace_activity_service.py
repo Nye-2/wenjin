@@ -4,8 +4,6 @@ from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.asset import WorkspaceAssetPayload
 from src.dataservice_client.contracts.conversation import (
@@ -57,11 +55,9 @@ class WorkspaceActivityService:
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager
@@ -81,7 +77,11 @@ class WorkspaceActivityService:
     ) -> dict[str, Any]:
         """Build a unified recent activity feed for a workspace."""
         per_source_limit = max(limit, 20)
-        workspace_type = await get_workspace_type(self.db, workspace_id)
+        async with self._client() as client:
+            workspace_type = await get_workspace_type(
+                workspace_id,
+                dataservice=client,
+            )
         threads = await self._get_recent_threads(workspace_id, limit=per_source_limit)
 
         items = [
@@ -354,7 +354,6 @@ class WorkspaceActivityService:
         metadata = _artifact_metadata(artifact)
         artifact_type = (
             metadata.get("artifact_type")
-            or metadata.get("legacy_kind")
             or getattr(artifact, "asset_kind", None)
             or getattr(artifact, "type", "artifact")
         )

@@ -5,12 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.artifact_service import ArtifactService
 from src.academic.services.workspace_service import WorkspaceService
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.deps.core import get_dataservice_client, get_db
+from src.gateway.deps.core import get_dataservice_client
 
 if TYPE_CHECKING:
     from src.services.template_service import TemplateService
@@ -27,11 +26,10 @@ class SourceIndexService:
 
 
 async def get_workspace_service(
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspaceService:
     """Get workspace service instance."""
-    return WorkspaceService(db, dataservice=dataservice)
+    return WorkspaceService(dataservice=dataservice)
 
 
 async def get_artifact_service(

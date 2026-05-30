@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.execution import (
     ExecutionCreatePayload,
@@ -84,13 +82,11 @@ class ExecutionService:
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
         redis: Any | None = None,
         publish_event: Any | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
         self.redis = redis
         self.publish_event = publish_event

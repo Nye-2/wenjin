@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.config.task_config import task_settings
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.task import (
@@ -40,18 +38,11 @@ class TaskStore:
     def __init__(
         self,
         redis_client: Any,
-        db_session: AsyncSession,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self._redis = redis_client
-        self._db = db_session
         self._dataservice = dataservice
-
-    @property
-    def db(self) -> AsyncSession:
-        """Expose the backing DB session for higher-level orchestration hooks."""
-        return self._db
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:
@@ -235,7 +226,6 @@ class TaskStore:
             )
             if record and record.execution_id:
                 await ExecutionService(
-                    self._db,
                     dataservice=client,
                 ).apply_task_transition(
                     record.execution_id,
@@ -256,7 +246,7 @@ class TaskStore:
         if record.execution_id:
             from src.compute.session_service import ComputeSessionService
 
-            await ComputeSessionService(self._db).touch_session_by_execution(
+            await ComputeSessionService().touch_session_by_execution(
                 record.execution_id
             )
 
@@ -314,7 +304,6 @@ class TaskStore:
             )
             if record and record.execution_id and runtime_state is not None:
                 await ExecutionService(
-                    self._db,
                     dataservice=client,
                 ).apply_task_transition(
                     record.execution_id,
@@ -330,7 +319,7 @@ class TaskStore:
         if record.execution_id and runtime_state is not None:
             from src.compute.session_service import ComputeSessionService
 
-            await ComputeSessionService(self._db).touch_session_by_execution(
+            await ComputeSessionService().touch_session_by_execution(
                 record.execution_id
             )
 
@@ -414,7 +403,6 @@ class TaskStore:
             )
             if record and record.execution_id:
                 await ExecutionService(
-                    self._db,
                     dataservice=client,
                 ).apply_task_transition(
                     record.execution_id,
@@ -449,7 +437,7 @@ class TaskStore:
         if record.execution_id:
             from src.compute.session_service import ComputeSessionService
 
-            await ComputeSessionService(self._db).touch_session_by_execution(
+            await ComputeSessionService().touch_session_by_execution(
                 record.execution_id
             )
 

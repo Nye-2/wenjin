@@ -8,12 +8,8 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from src.database import User
-from src.gateway.access_control import (
-    owner_check_session_from_service,
-    require_workspace_owner_by_session,
-)
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.access_control import require_workspace_owner_by_dataservice
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import get_thread_service
 from src.gateway.deps.runtime import get_run_manager
 from src.gateway.routers.thread_contracts import (
@@ -88,15 +84,10 @@ async def _require_owned_workspace_if_provided(
     workspace_id: str | None,
     *,
     user_id: str,
-    thread_service: ThreadService,
 ) -> None:
     if not workspace_id:
         return
-    owner_session = owner_check_session_from_service(thread_service)
-    if owner_session is None:
-        return
-    await require_workspace_owner_by_session(
-        owner_session,
+    await require_workspace_owner_by_dataservice(
         workspace_id=workspace_id,
         user_id=user_id,
     )
@@ -177,14 +168,13 @@ def _state_values(thread: Any, messages: list[dict[str, Any]]) -> dict[str, Any]
 @router.post("/threads", response_model=ThreadDetailResponse)
 async def create_thread(
     request: ThreadCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> ThreadDetailResponse:
     actor_id = str(current_user.id)
     await _require_owned_workspace_if_provided(
         request.workspace_id,
         user_id=actor_id,
-        thread_service=thread_service,
     )
     try:
         thread = await thread_service.create_thread(
@@ -206,14 +196,13 @@ async def ensure_workspace_thread(
     request: WorkspaceThreadEnsureRequest = Body(
         default_factory=WorkspaceThreadEnsureRequest
     ),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> ThreadDetailResponse:
     actor_id = str(current_user.id)
     await _require_owned_workspace_if_provided(
         workspace_id,
         user_id=actor_id,
-        thread_service=thread_service,
     )
     try:
         thread = await thread_service.get_or_create_thread(
@@ -233,7 +222,7 @@ async def ensure_workspace_thread(
 @router.get("/threads/{thread_id}", response_model=ThreadDetailResponse)
 async def get_thread_details(
     thread_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> ThreadDetailResponse:
     thread = await _get_owned_thread_or_404(
@@ -248,7 +237,7 @@ async def get_thread_details(
 @router.delete("/threads/{thread_id}")
 async def delete_thread(
     thread_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> dict[str, Any]:
     thread = await _get_owned_thread_or_404(
@@ -267,14 +256,13 @@ async def delete_thread(
 async def list_threads(
     workspace_id: str | None = None,
     limit: int = Query(default=20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> ThreadListResponse:
     actor_id = str(current_user.id)
     await _require_owned_workspace_if_provided(
         workspace_id,
         user_id=actor_id,
-        thread_service=thread_service,
     )
     threads = await thread_service.list_threads(
         user_id=actor_id,
@@ -290,7 +278,7 @@ async def list_threads(
 @router.post("/threads/search", response_model=list[PlatformThreadResponse])
 async def search_threads(
     body: ThreadSearchRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
 ) -> list[PlatformThreadResponse]:
@@ -331,7 +319,7 @@ async def search_threads(
 @router.get("/threads/{thread_id}/state", response_model=ThreadStateResponse)
 async def get_thread_state(
     thread_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
 ) -> ThreadStateResponse:
@@ -364,7 +352,7 @@ async def get_thread_state(
 async def get_thread_history(
     thread_id: str,
     body: ThreadHistoryRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
 ) -> list[HistoryEntry]:

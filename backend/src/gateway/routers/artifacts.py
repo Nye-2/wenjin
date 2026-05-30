@@ -19,9 +19,8 @@ from pydantic import BaseModel
 
 from src.academic.services import ArtifactService, WorkspaceService
 from src.agents.middlewares.thread_data import get_thread_data_root
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user, get_current_user_optional
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user, get_current_user_optional
 from src.gateway.contracts.artifact import (
     ArtifactResponse,
     ArtifactsListResponse,
@@ -118,7 +117,7 @@ async def _create_workspace_artifact(
     *,
     workspace_id: str,
     request: ArtifactCreatePayloadValidator,
-    current_user: User,
+    current_user: AccountAuthSubject,
     artifact_service: ArtifactService,
     workspace_service: WorkspaceService,
     dataservice: AsyncDataServiceClient,
@@ -160,7 +159,7 @@ async def _list_workspace_artifacts(
     *,
     workspace_id: str,
     artifact_type: str | None,
-    current_user: User,
+    current_user: AccountAuthSubject,
     artifact_service: ArtifactService,
     workspace_service: WorkspaceService,
 ) -> ArtifactsListResponse:
@@ -185,7 +184,7 @@ async def _get_workspace_artifact(
     *,
     workspace_id: str,
     artifact_id: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     artifact_service: ArtifactService,
     workspace_service: WorkspaceService,
 ) -> ArtifactResponse:
@@ -209,7 +208,7 @@ async def _update_workspace_artifact(
     workspace_id: str,
     artifact_id: str,
     request: UpdateArtifactValidator,
-    current_user: User,
+    current_user: AccountAuthSubject,
     artifact_service: ArtifactService,
     workspace_service: WorkspaceService,
 ) -> ArtifactResponse:
@@ -245,7 +244,7 @@ async def _delete_workspace_artifact(
     *,
     workspace_id: str,
     artifact_id: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     artifact_service: ArtifactService,
     workspace_service: WorkspaceService,
 ) -> dict[str, object]:
@@ -275,7 +274,7 @@ async def _get_workspace_artifact_lineage(
     *,
     workspace_id: str,
     artifact_id: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     artifact_service: ArtifactService,
     workspace_service: WorkspaceService,
 ) -> list[ArtifactResponse]:
@@ -302,7 +301,7 @@ async def _get_workspace_artifact_lineage(
 @router.post("/assets/sign", summary="Sign Protected Asset URL")
 async def sign_asset_url(
     payload: AssetSignRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, str]:
@@ -363,7 +362,7 @@ async def get_thread_artifact(
     thread_id: str,
     path: str,
     request: Request,
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: AccountAuthSubject | None = Depends(get_current_user_optional),
     thread_service: ThreadService = Depends(get_thread_service),
 ) -> Response:
     """Serve a thread-scoped sandbox file after ownership verification."""
@@ -416,7 +415,7 @@ async def get_workspace_file(
     workspace_id: str,
     path: str,
     request: Request,
-    current_user: User | None = Depends(get_current_user_optional),
+    current_user: AccountAuthSubject | None = Depends(get_current_user_optional),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> Response:
     """Serve a canonical workspace upload after ownership verification."""
@@ -475,7 +474,7 @@ async def get_workspace_file(
 async def create_workspace_artifact(
     workspace_id: str,
     request: WorkspaceArtifactCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
@@ -498,7 +497,7 @@ async def create_workspace_artifact(
 async def list_workspace_artifacts(
     workspace_id: str,
     type: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> ArtifactsListResponse:
@@ -519,7 +518,7 @@ async def list_workspace_artifacts(
 async def get_workspace_artifact(
     workspace_id: str,
     artifact_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> ArtifactResponse:
@@ -541,7 +540,7 @@ async def update_workspace_artifact(
     workspace_id: str,
     artifact_id: str,
     request: WorkspaceArtifactUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> ArtifactResponse:
@@ -560,7 +559,7 @@ async def update_workspace_artifact(
 async def delete_workspace_artifact(
     workspace_id: str,
     artifact_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, object]:
@@ -581,7 +580,7 @@ async def delete_workspace_artifact(
 async def get_workspace_artifact_lineage(
     workspace_id: str,
     artifact_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> list[ArtifactResponse]:

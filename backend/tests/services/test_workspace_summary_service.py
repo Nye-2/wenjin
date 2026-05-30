@@ -54,7 +54,7 @@ class _FakeSummaryDataService:
 
 
 @pytest.mark.asyncio
-async def test_summary_prioritizes_failed_mission_and_generates_risk(test_session):
+async def test_summary_prioritizes_failed_mission_and_generates_risk():
     capabilities = [
         _make_capability("idea_to_thesis_manuscript", "thesis", order=0, display_name="论文全文"),
         _make_capability("thesis_research_pack", "thesis", order=1, display_name="研究包"),
@@ -74,7 +74,6 @@ async def test_summary_prioritizes_failed_mission_and_generates_risk(test_sessio
     activity_service = AsyncMock()
     activity_service.get_activity = AsyncMock(return_value={"items": []})
     service = WorkspaceSummaryService(
-        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
         dataservice=_FakeSummaryDataService(capabilities),
@@ -89,7 +88,7 @@ async def test_summary_prioritizes_failed_mission_and_generates_risk(test_sessio
 
 
 @pytest.mark.asyncio
-async def test_summary_builds_progress_and_recommended_actions_for_missions(test_session):
+async def test_summary_builds_progress_and_recommended_actions_for_missions():
     capabilities = [
         _make_capability("sci_literature_positioning", "sci", order=0, display_name="文献定位"),
         _make_capability("sci_empirical_package", "sci", order=1, display_name="实证包"),
@@ -109,7 +108,6 @@ async def test_summary_builds_progress_and_recommended_actions_for_missions(test
     activity_service = AsyncMock()
     activity_service.get_activity = AsyncMock(return_value={"items": []})
     service = WorkspaceSummaryService(
-        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
         dataservice=_FakeSummaryDataService(capabilities),
@@ -130,7 +128,7 @@ async def test_summary_builds_progress_and_recommended_actions_for_missions(test
 
 
 @pytest.mark.asyncio
-async def test_summary_prefers_active_execution_session(test_session):
+async def test_summary_prefers_active_execution_session():
     capabilities = [
         _make_capability("sci_literature_positioning", "sci", order=0, display_name="文献定位"),
         _make_capability("research_question_to_paper", "sci", order=1, display_name="论文主稿"),
@@ -163,7 +161,6 @@ async def test_summary_prefers_active_execution_session(test_session):
         ]
     )
     service = WorkspaceSummaryService(
-        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
         execution_service=execution_service,
@@ -178,7 +175,7 @@ async def test_summary_prefers_active_execution_session(test_session):
 
 
 @pytest.mark.asyncio
-async def test_summary_adds_advisory_risk_for_awaiting_user_input(test_session):
+async def test_summary_adds_advisory_risk_for_awaiting_user_input():
     capabilities = [
         _make_capability("technical_route_package", "proposal", order=0, display_name="技术路线包"),
     ]
@@ -209,7 +206,6 @@ async def test_summary_adds_advisory_risk_for_awaiting_user_input(test_session):
         ]
     )
     service = WorkspaceSummaryService(
-        test_session,
         dashboard_service=dashboard_service,
         activity_service=activity_service,
         execution_service=execution_service,

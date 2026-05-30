@@ -210,6 +210,11 @@ def create_client(user_id: str, service: FakeThreadService) -> TestClient:
     async def override_get_thread_service():
         return service
 
+    async def allow_workspace_owner(*args, **kwargs):
+        workspace_id = kwargs.get("workspace_id")
+        return SimpleNamespace(id=workspace_id)
+
+    threads.require_workspace_owner_by_dataservice = allow_workspace_owner
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[threads.get_thread_service] = (
         override_get_thread_service
@@ -291,10 +296,7 @@ class TestThreadManagementRoutes:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.threads.owner_check_session_from_service",
-            return_value=object(),
-        ), patch(
-            "src.gateway.routers.threads.require_workspace_owner_by_session",
+            "src.gateway.routers.threads.require_workspace_owner_by_dataservice",
             AsyncMock(side_effect=HTTPException(status_code=403, detail="Access denied")),
         ):
             response = client.post(
@@ -422,10 +424,7 @@ class TestThreadManagementContinuation:
         client = create_client("user-1", service)
 
         with patch(
-            "src.gateway.routers.threads.owner_check_session_from_service",
-            return_value=object(),
-        ), patch(
-            "src.gateway.routers.threads.require_workspace_owner_by_session",
+            "src.gateway.routers.threads.require_workspace_owner_by_dataservice",
             AsyncMock(side_effect=HTTPException(status_code=403, detail="Access denied")),
         ):
             response = client.get("/threads?workspace_id=ws-foreign")

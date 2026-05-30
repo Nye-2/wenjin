@@ -43,7 +43,16 @@ MISSION_CAPABILITY_IDS: frozenset[str] = frozenset(
     }
 )
 
-_GOAL_KEYS = ("goal", "topic", "query", "paper_title", "software_name", "innovation_description")
+_GOAL_KEYS = (
+    "goal",
+    "topic",
+    "query",
+    "paper_title",
+    "software_name",
+    "innovation_description",
+    "description",
+    "keywords",
+)
 
 
 def resolve_feature_action_state(
@@ -73,7 +82,7 @@ def resolve_feature_action_state(
             unavailable_reason=f"未知 capability：{capability_id or 'empty'}",
         )
 
-    goal = _mission_goal(params, workspace)
+    goal = _mission_goal(params)
     route_params = dict(params)
     if goal:
         route_params.setdefault("goal", goal)
@@ -192,21 +201,12 @@ def _context_artifact_ids(
     ]
 
 
-def _mission_goal(params: Mapping[str, Any], workspace: Any | None) -> str:
+def _mission_goal(params: Mapping[str, Any]) -> str:
     for key in _GOAL_KEYS:
         value = params.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    return _workspace_fallback(workspace)
-
-
-def _workspace_fallback(workspace: Any | None) -> str:
-    if workspace is not None:
-        for attr in ("description", "name"):
-            value = getattr(workspace, attr, None)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-    return "未命名任务"
+    return ""
 
 
 def _rerun_params(params: Mapping[str, Any], goal: str) -> dict[str, Any] | None:

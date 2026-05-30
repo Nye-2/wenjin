@@ -73,18 +73,18 @@ async def test_add_with_parent_creates_document_asset_version() -> None:
     assert document["version"] == 3
 
 
-def test_legacy_document_asset_projection_preserves_document_semantics() -> None:
+def test_document_asset_projection_uses_canonical_metadata() -> None:
     view = _asset_to_document(
         _asset(
             source_kind="documents_v2",
             metadata_json={
-                "legacy_kind": "outline",
-                "legacy_version": 4,
-                "legacy_parent_id": "parent-legacy",
+                "kind": "outline",
+                "version": 4,
+                "parent_id": "parent-canonical",
             },
         )
     )
 
     assert view["kind"] == "outline"
     assert view["version"] == 4
-    assert view["parent_id"] == "parent-legacy"
+    assert view["parent_id"] == "parent-canonical"

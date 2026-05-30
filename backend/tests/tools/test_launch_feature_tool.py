@@ -49,7 +49,7 @@ class _FakeDataServiceClient:
         return None
 
     async def get_workspace(self, workspace_id: str):
-        return SimpleNamespace(id=workspace_id, type="thesis")
+        return SimpleNamespace(id=workspace_id, workspace_type="thesis")
 
     async def get_catalog_capability(
         self,

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from src.dataservice.domains.catalog.projection import skill_to_record
 from src.dataservice.domains.catalog.seed_loader import DataServiceCatalogSeedLoader
 from src.dataservice.domains.catalog.service import DataServiceCatalogService
 
@@ -158,30 +159,26 @@ def _skill_v2_data() -> dict[str, Any]:
     }
 
 
-def _agent_template_v1_data() -> dict[str, Any]:
-    return {
-        "schema_version": "agent_template.v1",
-        "id": "research_scholar.v1",
-        "enabled": True,
-        "display_role": "文献专家",
-        "category": "research",
-        "description": "检索、筛选、归纳文献，并检查引用与证据链质量。",
-        "persona_prompt": "You are a rigorous academic research specialist.",
-        "default_skills": ["literature_search.v1", "citation_screening.v1"],
-        "tool_affinity": {
-            "preferred": ["web_search", "library_read", "citation_parser"],
-            "can_request": ["document_read", "artifact_create"],
-        },
-        "risk_profile": {
-            "network": "normal",
-            "filesystem": "no_direct_write",
-            "code_execution": "not_needed",
-            "room_write": "staged_only",
-        },
-        "output_contracts": ["literature_evidence_report.v1"],
-        "quality_expectations": ["claims must map to source ids"],
-        "runtime_defaults": {"max_turns": 8, "timeout_seconds": 300},
-    }
+def test_skill_projection_requires_canonical_skill_json() -> None:
+    skill = SimpleNamespace(
+        id="writer",
+        schema_version="capability_skill.v2",
+        enabled=True,
+        display_name="Writer",
+        description="",
+        worker_type="writer",
+        subagent_type="react",
+        prompt="write",
+        allowed_tools=[],
+        resources=[],
+        config={},
+        skill_json={},
+        checksum=None,
+        source_path=None,
+    )
+
+    with pytest.raises(ValueError, match="canonical skill_json"):
+        skill_to_record(skill)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -216,45 +213,6 @@ async def test_upsert_skill_materializes_worker_type_and_skill_json() -> None:
     assert record.worker_type == "writing"
     assert record.skill_json["worker_type"] == "writing"
     assert repository.skill_values is not None
-    assert session.commit_count == 1
-
-
-@pytest.mark.asyncio
-async def test_upsert_agent_template_materializes_template_json() -> None:
-    service, repository, session = _service()
-    repository.agent_template_values = None
-
-    async def upsert_agent_template(
-        values: dict[str, Any],
-        *,
-        checksum: str | None = None,
-        source_path: str | None = None,
-    ):
-        if checksum is not None:
-            values = {**values, "checksum": checksum}
-        if source_path is not None:
-            values = {**values, "source_path": source_path}
-        repository.agent_template_values = values
-        return SimpleNamespace(created_at=None, updated_at=None, **values)
-
-    repository.upsert_agent_template = upsert_agent_template  # type: ignore[attr-defined]
-
-    record = await service.upsert_agent_template(
-        _agent_template_v1_data(),
-        checksum="template-checksum",
-        source_path="seed/agent_templates/research_scholar.yaml",
-    )
-
-    assert record.schema_version == "agent_template.v1"
-    assert record.id == "research_scholar.v1"
-    assert record.display_role == "文献专家"
-    assert record.template_json["tool_affinity"]["preferred"] == [
-        "web_search",
-        "library_read",
-        "citation_parser",
-    ]
-    assert record.checksum == "template-checksum"
-    assert repository.agent_template_values is not None
     assert session.commit_count == 1
 
 
@@ -308,50 +266,4 @@ async def test_seed_loader_applies_capability_revision_once(tmp_path) -> None:
     assert repository.capability_values is not None
     assert repository.capability_values["source_path"] == str(seed_file)
     assert repository.latest.metadata_json["schema_version"] == "capability.v2"
-    assert session.commit_count == 1
-
-
-@pytest.mark.asyncio
-async def test_seed_loader_applies_agent_template_revision_once(tmp_path) -> None:
-    service, repository, session = _service()
-    repository.agent_template_values = None
-
-    async def delete_all_agent_templates() -> None:
-        repository.agent_template_values = None
-
-    async def upsert_agent_template(
-        values: dict[str, Any],
-        *,
-        checksum: str | None = None,
-        source_path: str | None = None,
-    ):
-        if checksum is not None:
-            values = {**values, "checksum": checksum}
-        if source_path is not None:
-            values = {**values, "source_path": source_path}
-        repository.agent_template_values = values
-        return SimpleNamespace(created_at=None, updated_at=None, **values)
-
-    service.delete_all_agent_templates = delete_all_agent_templates  # type: ignore[method-assign]
-    service.upsert_agent_template = upsert_agent_template  # type: ignore[method-assign]
-
-    seed_dir = tmp_path / "agent_templates"
-    seed_dir.mkdir(parents=True)
-    seed_file = seed_dir / "research_scholar.yaml"
-    seed_file.write_text("id: research_scholar.v1\n", encoding="utf-8")
-
-    def validate(path, text):
-        assert path == seed_file
-        assert "research_scholar.v1" in text
-        return _agent_template_v1_data()
-
-    result = await DataServiceCatalogSeedLoader(service, seed_dir).load_agent_templates(
-        validate_yaml_text=validate,
-    )
-
-    assert result.loaded == 1
-    assert result.skipped is False
-    assert result.checksum
-    assert repository.agent_template_values is not None
-    assert repository.latest.metadata_json["schema_version"] == "agent_template.v1"
     assert session.commit_count == 1

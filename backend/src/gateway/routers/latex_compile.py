@@ -8,9 +8,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.contracts.latex import LatexCompileRequest, LatexCompileResponse
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import _not_found
@@ -24,7 +23,7 @@ router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 async def compile_project(
     project_id: str,
     request: LatexCompileRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexCompileResponse:
     project_service = LatexProjectService(dataservice=dataservice)
@@ -80,7 +79,7 @@ def _workspace_id_for_project(project: object) -> str | None:
 async def get_compiled_pdf(
     project_id: str,
     history_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> FileResponse:
     project_service = LatexProjectService(dataservice=dataservice)
@@ -111,7 +110,7 @@ async def get_compiled_pdf(
 async def get_compiled_synctex(
     project_id: str,
     history_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> FileResponse:
     project_service = LatexProjectService(dataservice=dataservice)

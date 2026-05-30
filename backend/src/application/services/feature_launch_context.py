@@ -188,18 +188,3 @@ def build_execution_launch_params(
             "workspace_id": workspace_id,
         }
     }
-
-
-def extract_feature_params(execution_params: Mapping[str, Any] | None) -> dict[str, Any]:
-    """Extract raw feature params from ExecutionRecord.params.
-
-    Accepts both the canonical wrapped ``{"brief": {...}}`` form and legacy
-    plain-param dicts produced during earlier migration steps.
-    """
-    params = dict(execution_params or {})
-    brief_payload = params.get("brief")
-    if isinstance(brief_payload, Mapping):
-        nested = brief_payload.get("brief")
-        if isinstance(nested, Mapping):
-            return dict(nested)
-    return params

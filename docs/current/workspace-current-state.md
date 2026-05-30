@@ -22,23 +22,25 @@
 4. Chat turn 本身通过 `/api/threads/{thread_id}/runs/stream` 运行；当 Chat Agent 调用 `launch_feature` 时，stream 会显式输出 `tool_invocation` 与 `tool_result`
 5. `launch_feature` 的 `tool_result.status == "launched"` 必须包含 canonical `execution_id`，前端据此建立 run receipt 与右侧 Current run 焦点
 6. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
+7. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
 
 ## 3. Capability 数据驱动
 
 1. Capability 定义在 YAML seed 文件（`backend/seed/capabilities/{workspace_type}/`），并由 DataService Catalog 持久化为 SSOT。
 2. 当前 capability schema 为 `capability.v2`；旧 workflow-step id 已删除，不提供 alias、fallback 或双读兼容层。
 3. Capability Skill 定义在 `backend/seed/skills/`，当前 schema 为 `capability_skill.v2`；skill 是 worker instruction pack，不是用户入口。
-4. 每个 capability 的 `mission` 定义产品目标、主 surface、document role 和允许交付物。
-5. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
-6. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
-7. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由 Lead runtime stage 到 DB-backed review item。
+4. Catalog skill DB row 必须包含完整 canonical `skill_json`；projection/preload 不从旧字段读时合成 skill pack，缺失时直接失败。
+5. 每个 capability 的 `mission` 定义产品目标、主 surface、document role 和允许交付物。
+6. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
+7. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
+8. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由 Lead runtime stage 到 DB-backed review item。
 
 ## 4. User-Facing Workspace Rooms
 
 1. **Library** — 文献条目（library_item outputs commit 到此）
 2. **Documents** — 文档（document outputs）
 3. **Decisions** — 决策记录（decision outputs）
-4. **Memory** — 事实和偏好（memory_fact outputs）
+4. **Memory** — 事实和偏好（memory_fact outputs）；长期记忆读取、提取写入和压缩通过 Knowledge DataService client 完成
 5. **Run History** — 执行历史记录
 6. **Tasks** — 后续任务（task outputs）
 7. **Settings** — 工作区设置
@@ -82,6 +84,28 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 9. `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
 10. DataService review batch/action log 是 Prism review 的事务边界；batch/items 先 flush，action log 后写入，保证独立 DataService + Postgres 部署下 FK 顺序稳定。
 11. Prism adapter routers 和 LaTeX/WorkspacePrism runtime services 通过 DataService client 访问 Latex/Prism/Review/Source facts，不再携带 runtime DB session。
+12. Long-term memory runtime、memory compaction、Celery memory capture 与 workspace-context upload memory note 通过 Knowledge DataService client 访问 persistence，不再携带 runtime DB session 或执行 request-time commit/rollback。
+13. DashboardService / WorkspaceSummaryService 和 gateway dashboard dependencies 通过 DataService-backed construction 访问 dashboard、summary 和 execution facts，不再携带 runtime DB session。
+14. Workspace capability action resolve 和 WorkspaceContextMiddleware 通过 Workspace/Catalog/Template DataService-backed services 访问 workspace/action/template facts，不再注入 `get_db` 或自行打开 `get_db_session`。
+15. Admin capability / skill catalog 的 router、service、validator 和 seed loader 通过 Catalog DataService client 访问 persistence，不再携带 runtime DB session；seed/admin/runtime 共用 `capability.v2` / `capability_skill.v2` schema。
+16. Reference Library、BibTeX export/validation 和 Prism `refs.bib` sync 通过 Source/Asset/Prism DataService client 访问 persistence，不再在 references router 或 `SourceBibliographyService` 中注入 DB session；运行时 enum / request contract 来自 `dataservice_client.contracts.source`，DB reference model 只属于持久化层。
+17. Source domain 的 Library reference projection 是当前契约；list/detail helper 不再以 `compat` 命名承载当前 API shape。
+18. Catalog skill projection 只读取完整 canonical `skill_json`；空缺或空对象直接失败，不再从旧列读时合成 skill pack。
+19. Thread、Template、WorkspaceActivity、AdminAnalytics 和 workspace skill label helper 均已收敛为 DataService-backed facade，不再保留可选 DB 构造参数。
+20. Gateway common deps 已移除通用 `get_db`；ExecutionService、TaskStore、SkillResolver、CapabilityResolver、WorkspaceService、GenerationService 均不再接受历史 DB/session 构造参数，workspace 运行链路只通过 DataService client 触达持久化。
+21. Documents room 和 workspace activity 的 asset projection 只读取 canonical metadata 字段，不再在运行时读取 `legacy_kind`、`legacy_parent_id`、`legacy_version`。
+22. Gateway routers 的 `current_user` / admin subject 均以 `AccountAuthSubject` 标注，不再导入 DB `User` model 作为运行时鉴权类型。
+23. Prism adapter metadata 在 DataService helper 和 runtime projection 中均只暴露 `source_metadata`，不再把 project metadata 放进 `legacy_metadata` 字段。
+24. Worker execution 解析 workspace type 时只读取 DataService workspace projection；workspace 或 type 缺失会显式失败，不再默认降级为 thesis。
+25. Feature execution params 只保留 canonical TaskBrief wrapper；旧 plain-param execution params 解析入口已移除。
+26. Artifact follow-up / rerun action state 只从显式 mission params 或来源 artifact 推导 goal；缺少上下文时返回不可重跑原因，前后端均不再用 workspace 描述、`fallbackTaskName` 或“未命名任务”兜底。
+27. Workspace upload stored path 只接受 workspace-relative path 或 workspace-root 内绝对路径；历史 cwd-relative 全根路径不再由运行时解析。
+28. Conversation block payload 只持久化 canonical `kind`，不再写入旧 kind 的 shadow 字段。
+29. React subagent 请求 tools 但没有解析到 callable 时显式失败；不会把工具型节点静默当作普通 LLM 节点执行。
+30. `AuditService` 只通过 Audit DataService client 写入和查询审计记录，不再暴露 `session_factory` / ORM model 构造入口。
+31. Execution commit 接受 Library outputs 后会通过同一个 Source/Prism DataService client 同步 Prism `refs.bib`，不依赖 execution service 上的 DB session。
+32. Gateway / Worker 进程生命周期不再初始化、重置或关闭 DB engine；Gateway readiness 检查 DataService `/readyz`，worker bootstrap 只处理 Sentry、Redis 和 MCP runtime。
+33. Thread / workspace runtime helper 的类型注解使用 DataService payload contract，不再引用 DB `Thread` / `Workspace` model。
 
 ## 7. 前端信息架构
 

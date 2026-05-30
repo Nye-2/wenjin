@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.contracts.latex import (
     LatexCreateProjectRequest,
     LatexProjectListResponse,
@@ -30,7 +29,7 @@ async def latex_health() -> dict[str, str]:
 @router.get("/projects", response_model=LatexProjectListResponse)
 async def list_projects(
     include_trashed: bool = Query(default=False),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectListResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -41,7 +40,7 @@ async def list_projects(
 @router.post("/projects", response_model=LatexProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     request: LatexCreateProjectRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -61,7 +60,7 @@ async def create_project(
 @router.get("/projects/{project_id}", response_model=LatexProjectResponse)
 async def get_project(
     project_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -75,7 +74,7 @@ async def get_project(
 async def update_project(
     project_id: str,
     request: LatexUpdateProjectRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -89,7 +88,7 @@ async def update_project(
 @router.delete("/projects/{project_id}")
 async def soft_delete_project(
     project_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     service = LatexProjectService(dataservice=dataservice)
@@ -103,7 +102,7 @@ async def soft_delete_project(
 @router.delete("/projects/{project_id}/permanent")
 async def permanent_delete_project(
     project_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     service = LatexProjectService(dataservice=dataservice)

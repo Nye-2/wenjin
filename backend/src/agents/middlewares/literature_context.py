@@ -61,8 +61,8 @@ class LiteratureContextMiddleware(Middleware):
         if not workspace_id:
             return {}
 
-        # Get TOC summary for workspace. Legacy index services expose ``db``
-        # for savepoints; DataService projections do not need that coupling.
+        # Session-backed index services expose ``db`` for savepoints;
+        # DataService projections do not need that coupling.
         try:
             begin_nested = getattr(getattr(self.index_service, "db", None), "begin_nested", None)
             if callable(begin_nested):

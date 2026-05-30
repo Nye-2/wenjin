@@ -85,6 +85,59 @@ class FixtureTaskRecord(TestBase):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class _TestTaskDataServiceClient:
+    def __init__(self, session: AsyncSession, record_model: type[FixtureTaskRecord]) -> None:
+        from src.dataservice.task_api import TaskDataService
+
+        self._service = TaskDataService(
+            session,
+            autocommit=True,
+            record_model=record_model,
+        )
+
+    async def create_task_record(self, command):
+        return await self._service.create_task_record(**command.model_dump())
+
+    async def create_task_record_guarded(self, command):
+        return await self._service.create_task_record_guarded(**command.model_dump())
+
+    async def get_task_record(self, task_id: str):
+        return await self._service.get_task_record(task_id)
+
+    async def update_task_record(self, task_id: str, command):
+        return await self._service.update_task_record(
+            task_id,
+            **command.model_dump(exclude_unset=True),
+        )
+
+    async def list_user_task_records(
+        self,
+        *,
+        user_id: str,
+        status=None,
+        task_type: str | None = None,
+        limit: int = 20,
+        workspace_id: str | None = None,
+        feature_id: str | None = None,
+        action: str | None = None,
+    ):
+        return await self._service.list_user_tasks(
+            user_id=user_id,
+            status=status,
+            task_type=task_type,
+            limit=limit,
+            workspace_id=workspace_id,
+            feature_id=feature_id,
+            action=action,
+        )
+
+    async def count_active_task_records(self, *, user_id: str, active_statuses: list[str]):
+        return await self._service.count_active_tasks(
+            user_id=user_id,
+            active_statuses=active_statuses,
+        )
+
+
 # ============ Mock Redis Client ============
 
 class MockRedisClient:
@@ -194,8 +247,8 @@ async def task_store(test_session, mock_redis):
     """Create TaskStore instance with test fixtures."""
     from src.task.store import TaskStore
 
-    # Patch the TaskStore to use our test model
-    store = TaskStore(mock_redis, test_session)
-    # Replace the model class for this test store
-    store._model = FixtureTaskRecord
+    store = TaskStore(
+        mock_redis,
+        dataservice=_TestTaskDataServiceClient(test_session, FixtureTaskRecord),
+    )
     yield store

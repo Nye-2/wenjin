@@ -5,8 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
+from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
 
 
@@ -31,8 +30,9 @@ def resolve_thread_workspace_type(thread: Any) -> str | None:
 
 
 async def list_workspace_types(
-    db: AsyncSession,
     workspace_ids: Iterable[str | None],
+    *,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> dict[str, str]:
     """Resolve workspace types for a batch of workspace IDs."""
     normalized_ids = sorted(
@@ -46,25 +46,32 @@ async def list_workspace_types(
         return {}
 
     resolved: dict[str, str] = {}
-    async with dataservice_client() as client:
+    if dataservice is not None:
         for workspace_id in normalized_ids:
-            workspace = await client.get_workspace(workspace_id)
+            workspace = await dataservice.get_workspace(workspace_id)
             if workspace is None:
                 continue
             normalized_type = normalize_workspace_type(getattr(workspace, "type", None))
             if normalized_type is not None:
                 resolved[workspace_id] = normalized_type
+        return resolved
+    async with dataservice_client() as client:
+        return await list_workspace_types(normalized_ids, dataservice=client)
     return resolved
 
 
 async def get_workspace_type(
-    db: AsyncSession,
     workspace_id: str | None,
+    *,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> str | None:
     """Resolve a single workspace type from storage."""
     normalized_workspace_id = (workspace_id or "").strip()
     if not normalized_workspace_id:
         return None
-    return (await list_workspace_types(db, [normalized_workspace_id])).get(
+    return (await list_workspace_types(
+        [normalized_workspace_id],
+        dataservice=dataservice,
+    )).get(
         normalized_workspace_id
     )

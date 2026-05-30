@@ -173,12 +173,22 @@ def _create_client(
         return shared_handler.thread_service
 
     import src.gateway.services.run_lifecycle as run_lifecycle_module
+    import src.gateway.services.run_launch as run_launch_module
     import src.task.tasks as task_module
+
+    async def _allow_workspace_owner(*args, **kwargs):
+        workspace_id = kwargs.get("workspace_id")
+        return SimpleNamespace(id=workspace_id)
 
     fake_execute_run = _FakeExecuteRunTask(
         run_manager=run_manager,
         bridge=stream_bridge,
         handler=shared_handler,
+    )
+    monkeypatch.setattr(
+        run_launch_module,
+        "require_workspace_owner_by_dataservice",
+        _allow_workspace_owner,
     )
     monkeypatch.setattr(run_lifecycle_module.celery_settings, "enabled", True)
     monkeypatch.setattr(run_lifecycle_module.redis_settings, "enabled", True)

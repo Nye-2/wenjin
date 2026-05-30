@@ -1,17 +1,8 @@
 """Round-trip tests for audit_logs table and AuditService."""
 
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
-
-from tests.database.conftest import DbAuditLog
-
-
-@asynccontextmanager
-async def _session_factory(session):
-    """Wrap an existing session as a context manager for AuditService."""
-    yield session
 
 
 class _FakeAuditDataServiceClient:
@@ -52,15 +43,11 @@ class _FakeAuditDataServiceClient:
 
 
 @pytest.mark.asyncio
-async def test_log_and_query(test_session):
+async def test_log_and_query():
     """Log an event, query by workspace_id, verify returned."""
     from src.services.audit_service import AuditService
 
-    svc = AuditService(
-        session_factory=lambda: _session_factory(test_session),
-        model=DbAuditLog,
-        dataservice=_FakeAuditDataServiceClient(),
-    )
+    svc = AuditService(dataservice=_FakeAuditDataServiceClient())
 
     await svc.log(
         "thread.create",
@@ -81,15 +68,11 @@ async def test_log_and_query(test_session):
 
 
 @pytest.mark.asyncio
-async def test_query_by_user(test_session):
+async def test_query_by_user():
     """Log 2 events for different users, query returns only matching."""
     from src.services.audit_service import AuditService
 
-    svc = AuditService(
-        session_factory=lambda: _session_factory(test_session),
-        model=DbAuditLog,
-        dataservice=_FakeAuditDataServiceClient(),
-    )
+    svc = AuditService(dataservice=_FakeAuditDataServiceClient())
 
     await svc.log("action.a", user_id="u-alpha", workspace_id="ws-1")
     await svc.log("action.b", user_id="u-beta", workspace_id="ws-1")

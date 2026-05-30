@@ -797,7 +797,7 @@ async def test_surface_projection_includes_review_provenance_and_protection(
         adapter_metadata_json={
             "latex_project_id": "latex-prism",
             "main_file": "main.tex",
-            "legacy_metadata": {"section_map": {"intro": "sections/intro.tex"}},
+            "source_metadata": {"section_map": {"intro": "sections/intro.tex"}},
         },
     )
     await db.execute(

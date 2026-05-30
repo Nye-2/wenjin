@@ -7,7 +7,6 @@ import logging
 from pathlib import Path
 
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import CatalogSeedItemPayload, CatalogSeedLoadPayload
@@ -23,21 +22,18 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEED_DIR = Path(__file__).resolve().parent.parent.parent / "seed" / "capabilities"
 
 class CapabilityLoader:
-    """Loads capability definitions from YAML seed files into the database.
+    """Loads capability definitions from YAML seed files through DataService.
 
     Args:
-        session: AsyncSession for database access.
         seed_dir: Path to the directory containing capability YAML seeds.
         dataservice: Optional DataService client override for tests.
     """
 
     def __init__(
         self,
-        session: AsyncSession,
         seed_dir: Path | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.session = session
         self.seed_dir = Path(seed_dir) if seed_dir is not None else DEFAULT_SEED_DIR
         self._dataservice = dataservice
 

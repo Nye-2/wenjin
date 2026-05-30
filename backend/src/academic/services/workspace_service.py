@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.workspace import (
     WorkspaceCreatePayload,
@@ -33,22 +31,16 @@ class WorkspaceService:
     This class provides CRUD operations for workspaces.
     Reference-library management is handled by dedicated reference services.
 
-    Attributes:
-        db: AsyncSession for database operations
+    DataService owns persistence; this facade only adapts workspace application
+    code to the DataService client contract.
     """
 
     def __init__(
         self,
-        db: AsyncSession,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        """Initialize WorkspaceService with database session.
-
-        Args:
-            db: AsyncSession for database operations
-        """
-        self.db: AsyncSession = db
+        """Initialize WorkspaceService."""
         self._dataservice = dataservice
 
     @staticmethod

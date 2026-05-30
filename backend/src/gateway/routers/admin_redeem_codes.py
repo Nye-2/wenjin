@@ -9,8 +9,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 
-from src.database import User
-from src.gateway.auth_dependencies import get_current_admin
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
 from src.services.credit_redeem_service import CreditRedeemService
 
 router = APIRouter(prefix="/admin/redeem-codes", tags=["admin", "credits"])
@@ -39,7 +38,7 @@ async def list_codes(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     service: CreditRedeemService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     codes = await service.list_by_filter(
         batch_id=batch_id, enabled=enabled, keyword=keyword,
@@ -52,7 +51,7 @@ async def list_codes(
 async def batch_generate(
     payload: dict = Body(...),
     service: CreditRedeemService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         expires_at_raw = payload.get("expires_at")
@@ -78,7 +77,7 @@ async def batch_generate(
 async def disable_code(
     code_id: str,
     service: CreditRedeemService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         code = await service.disable(code_id, admin_id=admin.id)
@@ -91,7 +90,7 @@ async def disable_code(
 async def export_csv(
     batch_id: str,
     service: CreditRedeemService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> Response:
     codes = await service.list_by_filter(batch_id=batch_id, limit=10000)
     buf = io.StringIO()

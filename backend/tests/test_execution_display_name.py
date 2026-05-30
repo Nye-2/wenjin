@@ -1,6 +1,5 @@
 """Test that execution records store and return display_name."""
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
@@ -23,9 +22,8 @@ class _FakeDataServiceClient:
 @pytest.mark.asyncio
 async def test_create_execution_stores_display_name():
     """create_execution persists display_name onto the record."""
-    db = AsyncMock()
     dataservice = _FakeDataServiceClient()
-    service = ExecutionService(db, dataservice=dataservice)
+    service = ExecutionService(dataservice=dataservice)
 
     record = await service.create_execution(
         execution_type="capability",

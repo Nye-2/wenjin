@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
-    get_db,
     get_task_service,
     get_thread_service,
     get_workspace_service,
@@ -44,7 +43,6 @@ def app(tmp_path):
     task_service = MagicMock()
     task_service.find_active_task_by_payload = AsyncMock(return_value=None)
     task_service.submit_task = AsyncMock(return_value="task-reference-preprocess-1")
-    db = AsyncMock()
 
     async def _get_current_user():
         return _mock_user()
@@ -58,9 +56,6 @@ def app(tmp_path):
     async def _get_artifact_service():
         return artifact_service
 
-    async def _get_db():
-        yield db
-
     async def _get_task_service():
         yield task_service
 
@@ -68,14 +63,12 @@ def app(tmp_path):
     app.dependency_overrides[get_thread_service] = _get_thread_service
     app.dependency_overrides[get_workspace_service] = _get_workspace_service
     app.dependency_overrides[get_artifact_service] = _get_artifact_service
-    app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_task_service] = _get_task_service
 
     app.state.thread_service = thread_service
     app.state.workspace_service = workspace_service
     app.state.artifact_service = artifact_service
     app.state.task_service = task_service
-    app.state.db = db
     app.state.temp_root = tmp_path
     return app
 
@@ -391,7 +384,6 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     assert "Opening Proposal" in knowledge_args[2]
     assert "内容摘要" in knowledge_args[2]
     assert "proposal" in knowledge_args[2]
-    client.app.state.db.commit.assert_awaited()
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",
         "workspace.refresh",
@@ -434,7 +426,6 @@ def test_workspace_context_upload_degrades_when_memory_write_fails(client):
     assert body["files"][0]["artifact_id"] == "artifact-1"
     client.app.state.artifact_service.create.assert_awaited_once()
     assert "created_by_skill" not in client.app.state.artifact_service.create.await_args.kwargs
-    client.app.state.db.rollback.assert_awaited_once()
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",
         "workspace.refresh",

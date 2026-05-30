@@ -10,17 +10,17 @@ from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User
 from src.gateway.access_control import require_workspace_owner
+from src.gateway.auth_dependencies import AccountAuthSubject
 
 if TYPE_CHECKING:
-    from src.database import Workspace
+    from src.dataservice_client.contracts.workspace import WorkspacePayload as Workspace
 
 
 async def get_owned_workspace(
     *,
     workspace_id: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     workspace_service: WorkspaceService,
 ) -> Workspace:
     """Load a workspace and assert the current user owns it."""

@@ -66,7 +66,7 @@ class FakeDashboardClient:
 
 
 @pytest.mark.asyncio
-async def test_get_dashboard_uses_catalog_missions_in_order(test_session):
+async def test_get_dashboard_uses_catalog_missions_in_order():
     fake_client = FakeDashboardClient(
         capabilities=[
             _make_capability("research_question_to_paper", "sci", order=20),
@@ -74,7 +74,7 @@ async def test_get_dashboard_uses_catalog_missions_in_order(test_session):
             _make_capability("idea_to_thesis_manuscript", "thesis", order=0),
         ]
     )
-    service = DashboardService(test_session, dataservice=fake_client)
+    service = DashboardService(dataservice=fake_client)
     service._get_recent_artifacts = AsyncMock(return_value=[])
 
     result = await service.get_dashboard("ws-1", workspace_type="sci")
@@ -88,7 +88,7 @@ async def test_get_dashboard_uses_catalog_missions_in_order(test_session):
 
 @pytest.mark.asyncio
 async def test_get_dashboard_raises_when_workspace_type_missing():
-    service = DashboardService(AsyncMock(), dataservice=FakeDashboardClient())
+    service = DashboardService(dataservice=FakeDashboardClient())
 
     with pytest.raises(ValueError, match="Workspace not found: missing-ws"):
         await service.get_dashboard("missing-ws")
@@ -96,7 +96,7 @@ async def test_get_dashboard_raises_when_workspace_type_missing():
 
 @pytest.mark.asyncio
 async def test_catalog_capability_status_prefers_running_execution():
-    service = DashboardService(AsyncMock())
+    service = DashboardService()
     service._count_running_feature_executions = AsyncMock(return_value=1)
     service._get_latest_feature_execution_status = AsyncMock(return_value="failed")
 
@@ -123,7 +123,7 @@ async def test_catalog_capability_status_prefers_running_execution():
     ],
 )
 async def test_catalog_capability_status_from_latest_execution(latest_status, expected):
-    service = DashboardService(AsyncMock())
+    service = DashboardService()
     service._count_running_feature_executions = AsyncMock(return_value=0)
     service._get_latest_feature_execution_status = AsyncMock(return_value=latest_status)
 
@@ -136,7 +136,7 @@ async def test_catalog_capability_status_from_latest_execution(latest_status, ex
 
 
 @pytest.mark.asyncio
-async def test_modules_skip_disabled_and_hidden_capabilities(test_session):
+async def test_modules_skip_disabled_and_hidden_capabilities():
     fake_client = FakeDashboardClient(
         capabilities=[
             _make_capability("idea_to_thesis_manuscript", "thesis", order=0),
@@ -144,7 +144,7 @@ async def test_modules_skip_disabled_and_hidden_capabilities(test_session):
             _make_capability("thesis_empirical_analysis", "thesis", order=2, hidden=True),
         ]
     )
-    service = DashboardService(test_session, dataservice=fake_client)
+    service = DashboardService(dataservice=fake_client)
 
     modules = await service._get_modules_for_workspace("ws-1", "thesis")
 
@@ -153,7 +153,7 @@ async def test_modules_skip_disabled_and_hidden_capabilities(test_session):
 
 @pytest.mark.asyncio
 async def test_status_from_count_and_running_keeps_shared_contract():
-    service = DashboardService(AsyncMock())
+    service = DashboardService()
 
     assert await service._status_from_count_and_running(
         count=0,

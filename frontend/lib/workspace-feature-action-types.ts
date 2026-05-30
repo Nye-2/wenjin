@@ -21,7 +21,6 @@ export interface FeatureActionResolverContext {
   workspace: Workspace | null;
   sourceArtifact: Artifact | null;
   orchestrationParams?: Record<string, unknown> | null;
-  fallbackTaskName: string;
   followUpPrompt: string;
 }
 

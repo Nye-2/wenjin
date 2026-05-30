@@ -52,7 +52,7 @@ from src.tools.builtins.artifacts import (
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from src.database import Thread
+    from src.dataservice_client.contracts.conversation import ConversationThreadPayload as Thread
 
 _THREAD_VIRTUAL_ROOT = "/mnt/user-data/"
 _THREAD_UPLOADS_VIRTUAL_ROOT = "/mnt/user-data/uploads/"

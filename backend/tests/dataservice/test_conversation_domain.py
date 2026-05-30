@@ -57,8 +57,7 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
     )
 
     assert [block["kind"] for block in blocks] == ["thinking", "status_line", "text"]
-    assert blocks[0]["legacy_kind"] == "reasoning"
-    assert blocks[2]["legacy_kind"] == "custom_legacy"
+    assert all("legacy_kind" not in block for block in blocks)
 
 
 @pytest.mark.asyncio

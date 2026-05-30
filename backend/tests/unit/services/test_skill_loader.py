@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.services.skill_loader import SkillLoader
 
@@ -52,13 +51,13 @@ def _skill_v2_payload(*, skill_id: str = "research-scout") -> dict:
 
 
 @pytest.mark.asyncio
-async def test_load_seeds_if_empty_inserts_all_yamls(db_session: AsyncSession, tmp_path: Path) -> None:
+async def test_load_seeds_if_empty_inserts_all_yamls(tmp_path: Path) -> None:
     skill_yaml = tmp_path / "scholar-searcher.yaml"
     skill_yaml.write_text(yaml.safe_dump(_skill_v2_payload(skill_id="research-scout")))
 
     dataservice = _SkillSeedCatalogFake(has_skills=False)
     dataservice.load_catalog_skill_seed_items.return_value.loaded = 1
-    loader = SkillLoader(db_session, seed_dir=tmp_path, dataservice=dataservice)
+    loader = SkillLoader(seed_dir=tmp_path, dataservice=dataservice)
     count = await loader.load_seeds_if_empty()
     assert count == 1
 
@@ -71,25 +70,25 @@ async def test_load_seeds_if_empty_inserts_all_yamls(db_session: AsyncSession, t
 
 
 @pytest.mark.asyncio
-async def test_load_seeds_if_empty_skips_when_populated(db_session: AsyncSession, tmp_path: Path) -> None:
+async def test_load_seeds_if_empty_skips_when_populated(tmp_path: Path) -> None:
     skill_yaml = tmp_path / "new.yaml"
     skill_yaml.write_text(yaml.safe_dump(_skill_v2_payload(skill_id="new")))
 
     dataservice = _SkillSeedCatalogFake(has_skills=True)
-    loader = SkillLoader(db_session, seed_dir=tmp_path, dataservice=dataservice)
+    loader = SkillLoader(seed_dir=tmp_path, dataservice=dataservice)
     count = await loader.load_seeds_if_empty()
     assert count == 0
     dataservice.load_catalog_skill_seed_items.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_dataservice_branch_loads_seed_items(db_session: AsyncSession, tmp_path: Path) -> None:
+async def test_dataservice_branch_loads_seed_items(tmp_path: Path) -> None:
     skill_yaml = tmp_path / "writer.yaml"
     skill_yaml.write_text(yaml.safe_dump(_skill_v2_payload(skill_id="writer")))
     dataservice = AsyncMock()
     dataservice.has_catalog_skills.return_value = False
     dataservice.load_catalog_skill_seed_items.return_value.loaded = 1
-    loader = SkillLoader(db_session, seed_dir=tmp_path, dataservice=dataservice)
+    loader = SkillLoader(seed_dir=tmp_path, dataservice=dataservice)
 
     count = await loader.load_seeds_if_empty()
 

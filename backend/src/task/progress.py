@@ -231,11 +231,11 @@ class ProgressTracker:
 
         # DB flush on stage transitions for tasks that still persist runtime state.
         if stage_transition:
-            from src.database import get_db_session
+            from src.dataservice_client.provider import dataservice_client
             from src.task.store import TaskStore
 
-            async with get_db_session() as db:
-                store = TaskStore(self._redis, db)
+            async with dataservice_client() as dataservice:
+                store = TaskStore(self._redis, dataservice=dataservice)
                 await store.update_task_record(
                     self._task_id,
                     status=TaskStatus.RUNNING.value,

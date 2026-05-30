@@ -2,7 +2,7 @@
 
 These models drive admin save-time validation. Cross-reference checks (skill_id
 existence, subagent_type in registry) live in the service layer because they
-require DB / registry lookups; this module is pure data validation.
+require DataService / registry lookups; this module is pure data validation.
 """
 
 from __future__ import annotations
@@ -427,15 +427,12 @@ class CapabilitySkillV2YamlModel(BaseModel):
 
 
 class CrossRefValidator:
-    """Validates cross-references that require DB / registry lookups.
+    """Validates cross-references that require DataService / registry lookups.
 
     Pure-data validation lives in the Pydantic models. This class adds:
     - skill_id references resolve to an existing capability_skill row
     - subagent_type values exist in the v2 subagent registry
     """
-
-    def __init__(self, db) -> None:
-        self.db = db
 
     async def validate_capability(
         self,
@@ -450,7 +447,7 @@ class CrossRefValidator:
             if t.skill_id is not None
         }
         if skill_ids:
-            existing = await self._existing_skill_ids(self.db, skill_ids)
+            existing = await self._existing_skill_ids(skill_ids)
             for sid in skill_ids - existing:
                 errors.append(f"skill_id '{sid}' not found in capability_skills table")
 
@@ -476,7 +473,7 @@ class CrossRefValidator:
         return errors
 
     @staticmethod
-    async def _existing_skill_ids(db, ids: set[str]) -> set[str]:
+    async def _existing_skill_ids(ids: set[str]) -> set[str]:
         from src.dataservice_client.provider import dataservice_client
 
         async with dataservice_client() as client:

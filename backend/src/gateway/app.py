@@ -30,10 +30,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(level="INFO")
     logger.info("Wenjin Gateway starting up...")
 
-    # Initialize database
-    from src.database import init_db
-    await init_db()
-
     # Connect Redis
     from src.academic.cache.redis_client import redis_client
     await redis_client.connect()
@@ -126,9 +122,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.warning("Failed to stop event loop watchdog", exc_info=True)
     await redis_client.disconnect()
-    from src.database import close_db
-
-    await close_db()
 
 
 # Create FastAPI application

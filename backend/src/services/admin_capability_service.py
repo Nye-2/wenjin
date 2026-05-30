@@ -8,7 +8,6 @@ from typing import Any
 
 import yaml
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import (
@@ -51,15 +50,13 @@ def _record_to_yaml_dict(cap: Any) -> dict[str, Any]:
 class AdminCapabilityService:
     def __init__(
         self,
-        db: AsyncSession,
         event_bus: EventBus,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self.event_bus = event_bus
         self._dataservice = dataservice
-        self.validator = CrossRefValidator(db)
+        self.validator = CrossRefValidator()
 
     async def _list_capabilities(self) -> list[Any]:
         if self._dataservice is not None:

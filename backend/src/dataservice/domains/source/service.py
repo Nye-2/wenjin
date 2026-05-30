@@ -151,7 +151,7 @@ class SourceDataDomainService:
         source = await self.get_source_for_workspace(workspace_id=workspace_id, source_id=source_id)
         if source is None:
             return None
-        serialized = self._serialize_reference_compat(source)
+        serialized = self._serialize_reference_projection(source)
         external_ids = await self.list_source_external_ids(workspace_id=workspace_id, source_id=source_id)
         assets = await self.list_source_assets(workspace_id=workspace_id, source_id=source_id)
         outline = await self.get_source_outline(workspace_id, source_id, limit=200)
@@ -491,7 +491,7 @@ class SourceDataDomainService:
         return {
             "items": [
                 {
-                    **self._serialize_reference_compat(item),
+                    **self._serialize_reference_projection(item),
                     "assets": await self.list_source_assets(
                         workspace_id=workspace_id,
                         source_id=item.id,
@@ -1028,7 +1028,7 @@ class SourceDataDomainService:
                 rendered_fields.append(f"  {key} = {{{value}}}")
         citation_key = SourceDataDomainService._clean_citation_key(
             getattr(record, "citation_key", None),
-            fallback=str(getattr(record, "id", "source")),
+            default_key=str(getattr(record, "id", "source")),
         )
         joined = ",\n".join(rendered_fields)
         return f"@{entry_type}{{{citation_key},\n{joined}\n}}"
@@ -1038,9 +1038,9 @@ class SourceDataDomainService:
         return str(value or "").replace("{", "").replace("}", "").strip()
 
     @staticmethod
-    def _clean_citation_key(value: object, *, fallback: str) -> str:
+    def _clean_citation_key(value: object, *, default_key: str) -> str:
         cleaned = str(value or "").strip().replace("{", "").replace("}", "")
-        return cleaned or fallback
+        return cleaned or default_key
 
     @staticmethod
     def _normalize_doi(value: object) -> str | None:
@@ -1054,7 +1054,7 @@ class SourceDataDomainService:
         return normalized.lower()
 
     @staticmethod
-    def _serialize_reference_compat(source: SourceProjection) -> dict[str, object]:
+    def _serialize_reference_projection(source: SourceProjection) -> dict[str, object]:
         return {
             "id": source.id,
             "workspace_id": source.workspace_id,

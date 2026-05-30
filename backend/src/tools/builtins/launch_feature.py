@@ -7,13 +7,13 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import IntegrityError
 
 from src.application.services.feature_launch_context import (
     build_execution_launch_params,
     build_missing_context_advisory,
     resolve_missing_context_fields,
 )
+from src.dataservice_client.errors import DataServiceClientError
 
 
 class LaunchFeatureInput(BaseModel):
@@ -80,28 +80,32 @@ async def launch_feature_tool(
     merged_params = dict(runtime_launch_params)
     merged_params.update(params or {})
 
-    from src.database import get_db_session
     from src.dataservice_client.provider import dataservice_client
     from src.services.execution_service import ExecutionService
-    from src.services.workspace_skill_labels import get_workspace_type
 
-    async with get_db_session() as db:
-        # Validate the capability exists for this workspace's type.
-        workspace_type = await get_workspace_type(db, workspace_id) or "thesis"
-        async with dataservice_client() as catalog:
-            cap = await catalog.get_catalog_capability(
-                capability_id=feature_id,
+    async with dataservice_client() as catalog:
+        workspace = await catalog.get_workspace(workspace_id)
+        if workspace is None:
+            return {
+                "status": "error",
+                "code": "unknown_workspace",
+                "feature_id": feature_id,
+                "detail": "当前工作区不存在，无法启动功能任务。",
+            }
+        workspace_type = workspace.workspace_type
+        cap = await catalog.get_catalog_capability(
+            capability_id=feature_id,
+            workspace_type=workspace_type,
+            enabled_only=True,
+        )
+        available = (
+            []
+            if cap is not None
+            else await catalog.list_catalog_capabilities(
                 workspace_type=workspace_type,
                 enabled_only=True,
             )
-            available = (
-                []
-                if cap is not None
-                else await catalog.list_catalog_capabilities(
-                    workspace_type=workspace_type,
-                    enabled_only=True,
-                )
-            )
+        )
         if cap is None:
             # Return the available list so the model can retry with a valid id.
             available_ids = [item.id for item in available]
@@ -126,7 +130,7 @@ async def launch_feature_tool(
                 ),
             }
 
-        execution_service = ExecutionService(db)
+        execution_service = ExecutionService(dataservice=catalog)
 
         # Lead-busy check
         all_active = await execution_service.list_executions(
@@ -259,8 +263,9 @@ async def launch_feature_tool(
                     params=execution_params,
                     commit=False,
                 )
-        except IntegrityError:
-            await db.rollback()
+        except DataServiceClientError as exc:
+            if exc.status_code != 409:
+                raise
             return {
                 "status": "advisory",
                 "code": "lead_busy",
@@ -283,11 +288,10 @@ async def launch_feature_tool(
         )
         worker_task_id = str(getattr(worker_task, "id", "") or "") or None
     except Exception:
-        from src.database import get_db_session
         from src.services.execution_service import ExecutionService
 
-        async with get_db_session() as db:
-            svc = ExecutionService(db)
+        async with dataservice_client() as catalog:
+            svc = ExecutionService(dataservice=catalog)
             await svc.complete_execution(
                 str(execution.id),
                 status="failed",
@@ -303,11 +307,10 @@ async def launch_feature_tool(
 
     if worker_task_id:
         try:
-            from src.database import get_db_session
             from src.services.execution_service import ExecutionService
 
-            async with get_db_session() as db:
-                svc = ExecutionService(db)
+            async with dataservice_client() as catalog:
+                svc = ExecutionService(dataservice=catalog)
                 await svc.update_execution(
                     str(execution.id),
                     dispatch_mode="celery_worker",

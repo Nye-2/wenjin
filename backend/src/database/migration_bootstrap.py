@@ -19,7 +19,7 @@ from enum import StrEnum
 
 import asyncpg
 
-LEGACY_BOOTSTRAP_STAMP_REVISION = "007_chat_thread_model_default"
+CREATE_ALL_BOOTSTRAP_STAMP_REVISION = "007_chat_thread_model_default"
 THREAD_BOOTSTRAP_STAMP_REVISION = "023_rename_chat_threads_table_to_threads"
 
 
@@ -51,7 +51,7 @@ def resolve_bootstrap_stamp_revision(table_names: set[str]) -> str:
     """Pick the safest bootstrap stamp revision for detected schema flavor."""
     if "threads" in table_names and "chat_threads" not in table_names:
         return THREAD_BOOTSTRAP_STAMP_REVISION
-    return LEGACY_BOOTSTRAP_STAMP_REVISION
+    return CREATE_ALL_BOOTSTRAP_STAMP_REVISION
 
 
 def _to_asyncpg_url(database_url: str) -> str:

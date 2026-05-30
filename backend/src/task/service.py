@@ -408,7 +408,7 @@ class TaskService:
             metadata=runtime_metadata,
         )
         if record.execution_id:
-            await ExecutionService(self._store.db).apply_task_transition(
+            await ExecutionService().apply_task_transition(
                 str(record.execution_id),
                 commit=True,
                 status=TaskStatus.CANCELLED.value,

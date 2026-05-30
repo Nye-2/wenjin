@@ -10,6 +10,8 @@ from collections import Counter
 from typing import Any, cast
 
 from src.dataservice_client.contracts.knowledge import normalize_knowledge_category
+from src.dataservice_client.provider import dataservice_client
+from src.services.knowledge_service import KnowledgeService
 
 logger = logging.getLogger(__name__)
 _SIMILARITY_TOKEN_RE = re.compile(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]")
@@ -271,9 +273,7 @@ async def load_user_memory(
     limit: int | None = None,
     min_confidence: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Load active user memory entries from DB."""
-    from src.database import get_db_session
-    from src.services.knowledge_service import KnowledgeService
+    """Load active user memory entries from Knowledge DataService."""
 
     config = _load_memory_config()
     effective_limit = limit if limit is not None else int(getattr(config, "max_facts", 20))
@@ -284,8 +284,8 @@ async def load_user_memory(
     )
 
     try:
-        async with get_db_session() as db:
-            service = KnowledgeService(db)
+        async with dataservice_client() as client:
+            service = KnowledgeService(dataservice=client)
             entries = await service.list_active(
                 user_id,
                 workspace_context=workspace_id,
@@ -347,8 +347,6 @@ async def _maybe_compact_memory(
     workspace_context: str | None = None,
 ) -> None:
     """Compact memory when active entries exceed the configured ceiling."""
-    from src.database import get_db_session
-    from src.services.knowledge_service import KnowledgeService
     from src.services.memory_compaction import compact_user_memory
 
     config = _load_memory_config()
@@ -357,8 +355,8 @@ async def _maybe_compact_memory(
         return
 
     try:
-        async with get_db_session() as db:
-            service = KnowledgeService(db)
+        async with dataservice_client() as client:
+            service = KnowledgeService(dataservice=client)
             active_count = await service.count_active(
                 user_id,
                 workspace_context=workspace_context,
@@ -378,9 +376,7 @@ async def extract_and_persist_knowledge(
     workspace_context: str | None = None,
     source: str | None = None,
 ) -> int:
-    """Extract knowledge from text via LLM and persist to DB."""
-    from src.database import get_db_session
-    from src.services.knowledge_service import KnowledgeService
+    """Extract knowledge from text via LLM and persist through Knowledge DataService."""
 
     config = _load_memory_config()
     if not getattr(config, "enabled", False):
@@ -409,8 +405,8 @@ async def extract_and_persist_knowledge(
 
         threshold = float(getattr(config, "fact_confidence_threshold", 0.7))
         count = 0
-        async with get_db_session() as db:
-            service = KnowledgeService(db)
+        async with dataservice_client() as client:
+            service = KnowledgeService(dataservice=client)
             for item in items:
                 if not isinstance(item, dict):
                     continue
@@ -432,7 +428,6 @@ async def extract_and_persist_knowledge(
                     workspace_context=workspace_context,
                 )
                 count += 1
-            await db.commit()
 
         if count > 0:
             await _maybe_compact_memory(

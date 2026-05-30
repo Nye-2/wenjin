@@ -95,7 +95,6 @@ async def test_resolve_from_dataservice_catalog():
 
     bus = _make_event_bus()
     resolver = CapabilityResolver(
-        session_factory=lambda: None,
         event_bus=bus,
         dataservice=_FakeCapabilityCatalog([_capability()]),
     )
@@ -114,7 +113,6 @@ async def test_resolve_uses_cache():
 
     bus = _make_event_bus()
     resolver = CapabilityResolver(
-        session_factory=lambda: None,
         event_bus=bus,
         dataservice=_FakeCapabilityCatalog([_capability()]),
     )
@@ -132,7 +130,6 @@ async def test_invalidate_clears_cache():
 
     bus = _make_event_bus()
     resolver = CapabilityResolver(
-        session_factory=lambda: None,
         event_bus=bus,
         dataservice=_FakeCapabilityCatalog([_capability()]),
     )

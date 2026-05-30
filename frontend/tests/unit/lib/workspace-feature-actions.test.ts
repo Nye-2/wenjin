@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const mockResolveFeatureAction = vi.fn();
 
@@ -60,5 +63,16 @@ describe("workspace-feature-actions", () => {
     expect(state.sourceArtifact?.id).toBe("artifact-2");
     expect(state.routeParams.source_artifact_id).toBe("artifact-2");
     expect(state.rerunParams).toEqual({ topic: "LLM planning" });
+  });
+
+  it("does not keep frontend fallback task name fields", () => {
+    const sourcePath = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      "../../../lib/workspace-feature-actions.ts"
+    );
+    const source = readFileSync(sourcePath, "utf8");
+
+    expect(source).not.toContain("fallbackTaskName");
+    expect(source).not.toContain("未命名任务");
   });
 });

@@ -1,8 +1,4 @@
-"""AdminAnalyticsService -- 4 aggregation methods for admin analytics panels.
-
-All queries operate on real-time SQL via SQLAlchemy async. Callers wrap with
-Redis cache decorator from admin_analytics_cache.
-"""
+"""AdminAnalyticsService -- 4 aggregation methods for admin analytics panels."""
 
 from __future__ import annotations
 
@@ -10,8 +6,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
@@ -24,11 +18,9 @@ class AdminAnalyticsService:
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager

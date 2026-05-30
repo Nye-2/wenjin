@@ -6,9 +6,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.contracts.latex import LatexUploadResponse
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
@@ -35,7 +34,7 @@ async def upload_project_files(
     files: list[UploadFile] | None = File(default=None),
     folders: list[str] | None = Form(default=None),
     base_path: str | None = Form(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexUploadResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -116,7 +115,7 @@ async def upload_project_archive(
     archive: UploadFile = File(...),
     base_path: str | None = Form(default=None),
     strip_root: bool = Form(default=True),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexUploadResponse:
     service = LatexProjectService(dataservice=dataservice)

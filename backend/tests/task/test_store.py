@@ -92,7 +92,6 @@ async def task_store(test_session, mock_redis):
 
     store = TaskStore(
         mock_redis,
-        test_session,
         dataservice=_TestTaskDataServiceClient(test_session, FixtureTaskRecord),
     )
     yield store
@@ -377,8 +376,7 @@ class TestTaskStorePostgres:
         compute_touch = AsyncMock()
 
         class _FakeExecutionService:
-            def __init__(self, db, **kwargs) -> None:
-                self.db = db
+            def __init__(self, **kwargs) -> None:
                 self.kwargs = kwargs
 
             async def apply_task_transition(self, execution_id: str, **kwargs):
@@ -387,8 +385,9 @@ class TestTaskStorePostgres:
                 return None
 
         class _FakeComputeSessionService:
-            def __init__(self, db) -> None:
-                self.db = db
+            def __init__(self, *args, **kwargs) -> None:
+                self.args = args
+                self.kwargs = kwargs
 
             async def touch_session_by_execution(self, execution_id: str):
                 await compute_touch(execution_id)

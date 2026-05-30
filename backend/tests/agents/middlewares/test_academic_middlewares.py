@@ -18,7 +18,12 @@ class TestWorkspaceContextWithDictState:
         mock_workspace.discipline = "computer_science"
         mock_workspace.config = {"paper_type": "sci"}
         mock_service.get.return_value = mock_workspace
-        mw = WorkspaceContextMiddleware(mock_service)
+        template_service = AsyncMock()
+        template_service.get_active.return_value = None
+        mw = WorkspaceContextMiddleware(
+            mock_service,
+            template_service=template_service,
+        )
         state = {"messages": [], "workspace_id": "ws-123", "workspace_config": None}
         config = {"configurable": {}}
         result = await mw.before_model(state, config)

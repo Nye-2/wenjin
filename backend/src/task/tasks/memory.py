@@ -8,10 +8,8 @@ from celery import Task, shared_task
 
 
 async def _capture_memory_async(payload: dict[str, Any]) -> dict[str, Any]:
-    from src.database import reset_db_engine
     from src.services.memory_capture_service import MemoryCaptureService
 
-    await reset_db_engine(dispose_current=False)
     count = await MemoryCaptureService().persist_conversation(
         user_id=str(payload.get("user_id") or "") or None,
         conversation_text=str(payload.get("conversation_text") or ""),

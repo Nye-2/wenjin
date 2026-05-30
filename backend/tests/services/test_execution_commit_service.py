@@ -386,6 +386,49 @@ async def test_commit_library_item_imports_verified_external_source():
 
 
 @pytest.mark.asyncio
+async def test_commit_library_item_syncs_prism_bibliography_without_db_session():
+    """Library commits sync refs.bib through DataService, not an execution DB session."""
+    outputs = [
+        LibraryItemOutput(
+            id="out-lib",
+            preview="A paper",
+            kind="library_item",
+            data=LibraryItemData(title="Paper A", authors=["Author 1"], year=2024),
+        )
+    ]
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+    sync_calls: list[dict[str, object]] = []
+
+    class _FakeSourceBibliographyService:
+        def __init__(self, dataservice=None, **kwargs):
+            sync_calls.append({"dataservice": dataservice, "kwargs": kwargs})
+
+        async def sync_prism(self, *, workspace_id: str):
+            sync_calls[-1]["workspace_id"] = workspace_id
+            return {"synced_file": "refs.bib"}
+
+    with patch(
+        "src.services.execution_commit_service.SourceBibliographyService",
+        _FakeSourceBibliographyService,
+    ):
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            actor_user_id="user-1",
+        )
+
+    assert sync_calls == [
+        {
+            "dataservice": mocks["dataservice"],
+            "kwargs": {},
+            "workspace_id": WORKSPACE_ID,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_commit_rejects_override_for_unaccepted_output():
     """Overrides may only target outputs selected for this commit."""
     outputs = _all_kinds_outputs()

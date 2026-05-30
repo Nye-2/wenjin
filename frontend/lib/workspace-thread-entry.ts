@@ -26,10 +26,9 @@ function readStringParam(
 }
 
 /**
- * Return the optional skill id encoded in the URL seed.  The legacy resolver
- * that mapped featureId → default skill via the in-process registry is gone;
- * capability/skill routing now happens server-side in the chat agent based on
- * the DB-backed capability catalog.
+ * Return the optional skill id encoded in the URL seed. Capability/skill
+ * routing happens server-side in the chat agent based on the DB-backed
+ * capability catalog.
  */
 export function resolveWorkspaceThreadEntrySkill(options: {
   seed: WorkspaceThreadEntrySeed | null | undefined;

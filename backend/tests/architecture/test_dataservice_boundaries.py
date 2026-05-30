@@ -402,6 +402,146 @@ def test_auth_runtime_stays_on_account_dataservice_boundary() -> None:
     )
 
 
+def test_gateway_process_stays_off_database_lifecycle() -> None:
+    """Gateway process lifecycle and readiness must depend on DataService, not DB engine."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "app.py": (
+            "from src.database import init_db",
+            "from src.database import close_db",
+            "await init_db()",
+            "await close_db()",
+        ),
+        SRC_ROOT / "gateway" / "health.py": (
+            "from src.database.session import engine",
+            "from sqlalchemy import text",
+            "engine.connect()",
+            "check_database",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Gateway must use DataService readiness instead of owning DB lifecycle:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_worker_process_stays_off_database_lifecycle() -> None:
+    """Worker process bootstrap must not own DB engine lifecycle after DataService migration."""
+
+    path = SRC_ROOT / "task" / "worker.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "from src.database import init_db",
+        "from src.database import close_db",
+        "reset_db_engine",
+        "await init_db()",
+        "await close_db()",
+    )
+
+    violations = [
+        f"{path.relative_to(SRC_ROOT)} contains {token}"
+        for token in forbidden_tokens
+        if token in source
+    ]
+    assert not violations, (
+        "Worker must use DataService client and avoid DB lifecycle ownership:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_runtime_type_hints_use_dataservice_contracts_not_database_models() -> None:
+    """Runtime helper type hints must reference DataService payload contracts."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "application" / "handlers" / "thread_turn_handler.py": (
+            "from src.database import Thread",
+        ),
+        SRC_ROOT / "services" / "thread_events.py": (
+            "from src.database import Thread",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "thread_serializers.py": (
+            "from src.database import Thread",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "workspaces_runtime.py": (
+            "from src.database import Workspace",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Runtime type hints must use DataService client contracts:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_audit_service_stays_on_audit_dataservice_boundary() -> None:
+    """Audit runtime must expose only the Audit DataService client boundary."""
+
+    path = SRC_ROOT / "services" / "audit_service.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "session_factory",
+        "model=None",
+        "_session_factory",
+        "_model",
+        "AsyncSession",
+    )
+
+    violations = [
+        f"{path.relative_to(SRC_ROOT)} contains {token}"
+        for token in forbidden_tokens
+        if token in source
+    ]
+    assert not violations, (
+        "AuditService must not expose legacy DB-shaped constructor state:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_reference_library_runtime_uses_dataservice_contract_boundary() -> None:
+    """Reference Library runtime contracts must not import database model contracts."""
+
+    checked_files = [
+        SRC_ROOT / "gateway" / "routers" / "references.py",
+        SRC_ROOT / "services" / "references" / "service.py",
+    ]
+    forbidden_import_modules = {"src.database", "src.database.base"}
+
+    violations: list[str] = []
+    for path in checked_files:
+        relative = path.relative_to(SRC_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        for node in visitor.import_from_nodes:
+            module = node.module or ""
+            if module in forbidden_import_modules:
+                violations.append(f"{relative}:{node.lineno} imports {module}")
+        for node in visitor.import_nodes:
+            for alias in node.names:
+                if alias.name in forbidden_import_modules:
+                    violations.append(f"{relative}:{node.lineno} imports {alias.name}")
+
+    assert not violations, (
+        "Reference Library runtime must use DataService client contracts, not DB models:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_runtime_code_does_not_use_legacy_artifact_surface_names() -> None:
     """Runtime code must use canonical workspace artifact names."""
 
@@ -496,6 +636,781 @@ def test_prism_latex_runtime_stays_on_dataservice_boundary() -> None:
 
     assert not violations, (
         "Prism LaTeX adapter runtime must use DataService only:\n" + "\n".join(violations)
+    )
+
+
+def test_gateway_runtime_drops_session_based_owner_commit_compute_boundaries() -> None:
+    """Thread launch, execution commit, and compute must not depend on request DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "access_control.py": (
+            "AsyncSession",
+            "owner_check_session_from_service",
+            "require_workspace_owner_by_session",
+        ),
+        SRC_ROOT / "gateway" / "services" / "run_launch.py": (
+            "owner_check_session_from_service",
+            "require_workspace_owner_by_session",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "threads.py": (
+            "owner_check_session_from_service",
+            "require_workspace_owner_by_session",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "threads.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "ThreadService(db",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "academic.py": (
+            "WorkspaceService(db",
+        ),
+        SRC_ROOT / "application" / "handlers" / "thread_turn_handler.py": (
+            "from src.database import get_db_session",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "execution_commit.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "ExecutionService(db",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "compute.py": (
+            "Depends(get_db)",
+            "ComputeSessionService(db",
+            "ComputeProjectionService(db",
+        ),
+        SRC_ROOT / "compute" / "session_service.py": (
+            "db: AsyncSession",
+            "self.db",
+        ),
+        SRC_ROOT / "compute" / "projection_service.py": (
+            "db: AsyncSession",
+            "self.db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Gateway runtime still depends on session-based helper boundaries:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
+    """Execution runtime entrypoints must not construct execution services from DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "executions.py": (
+            "get_db_session",
+            "ExecutionService(db",
+            "from src.database import",
+        ),
+        SRC_ROOT / "tools" / "builtins" / "launch_feature.py": (
+            "get_db_session",
+            "ExecutionService(db",
+            "from src.database import",
+            "get_workspace_type",
+            "IntegrityError",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "capabilities.py": (
+            "get_db_session",
+            "session_factory=",
+        ),
+        SRC_ROOT / "task" / "recovery.py": (
+            "get_db_session",
+            "ExecutionService(db",
+        ),
+        SRC_ROOT / "task" / "service.py": (
+            "ExecutionService(self._store.db",
+        ),
+        SRC_ROOT / "task" / "tasks" / "execution.py": (
+            "get_db_session",
+            "reset_db_engine",
+            "ExecutionService(db",
+            "ThreadService",
+            "session_factory=",
+            "db=",
+            "_resolve_ws_type_with_fallback",
+            'or "thesis"',
+        ),
+        SRC_ROOT / "task" / "tasks" / "base.py": (
+            "get_db_session",
+            "reset_db_engine",
+            "ThreadService",
+            "TaskStore(redis_client, db",
+            "db=",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "tasks.py": (
+            "get_db_session",
+            "TaskStore(redis_client, db",
+        ),
+        SRC_ROOT / "task" / "tasks" / "run.py": (
+            "get_db_session",
+            "reset_db_engine",
+            "from src.database import",
+            "ThreadService(db",
+            "WorkspaceService(db",
+        ),
+        SRC_ROOT / "task" / "progress.py": (
+            "get_db_session",
+            "from src.database import",
+            "TaskStore(self._redis, db",
+        ),
+        SRC_ROOT / "task" / "sse.py": (
+            "get_db_session",
+            "from src.database import",
+            "TaskStore(redis_client, db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Execution runtime must use DataService execution boundary:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_memory_runtime_uses_dataservice_knowledge_boundary() -> None:
+    """Long-term memory runtime must not reopen legacy DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "services" / "user_memory_service.py": (
+            "from src.database import",
+            "get_db_session",
+            "KnowledgeService(db",
+            "db.commit",
+        ),
+        SRC_ROOT / "services" / "memory_compaction.py": (
+            "from src.database import",
+            "get_db_session",
+            "KnowledgeService(db",
+        ),
+        SRC_ROOT / "services" / "knowledge_service.py": (
+            "AsyncSession",
+            "self.db",
+            "_db",
+        ),
+        SRC_ROOT / "task" / "tasks" / "memory.py": (
+            "from src.database import",
+            "reset_db_engine",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "uploads.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "KnowledgeService(db",
+            "db.commit",
+            "db.rollback",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Memory runtime must use DataService knowledge boundary:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_dashboard_runtime_uses_dataservice_boundary() -> None:
+    """Dashboard dependency construction must not require request DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "deps" / "dashboard.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "get_db",
+            "DashboardService(db",
+            "WorkspaceActivityService(db",
+            "WorkspaceSummaryService(db",
+        ),
+        SRC_ROOT / "services" / "dashboard_service.py": (
+            "AsyncSession",
+            "self.db",
+            "_db",
+            "db:",
+        ),
+        SRC_ROOT / "services" / "workspace_summary_service.py": (
+            "AsyncSession",
+            "self.db",
+            "DashboardService(\n            db",
+            "WorkspaceActivityService(db",
+            "ExecutionService(self.db",
+            "isinstance(self.db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Dashboard runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_workspace_runtime_uses_dataservice_boundary() -> None:
+    """Workspace route/action context must not reopen legacy DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "workspaces.py": (
+            "Depends(get_db)",
+            "get_db,",
+        ),
+        SRC_ROOT / "agents" / "middlewares" / "workspace_context.py": (
+            "from src.database import",
+            "get_db_session",
+            "TemplateService(template_db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Workspace runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_admin_catalog_runtime_uses_dataservice_boundary() -> None:
+    """Admin capability/skill catalog runtime must not accept DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "admin_capabilities.py": (
+            "from src.database import",
+            "get_db_session",
+            "Request",
+            "CapabilityLoader(session=",
+            "AdminCapabilityService(db",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "admin_skills.py": (
+            "from src.database import",
+            "get_db_session",
+            "Request",
+            "SkillLoader(db",
+            "AdminSkillService(db",
+        ),
+        SRC_ROOT / "services" / "admin_capability_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+            "CrossRefValidator(db",
+        ),
+        SRC_ROOT / "services" / "admin_skill_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+            "CrossRefValidator(db",
+        ),
+        SRC_ROOT / "services" / "capability_schema.py": (
+            "self.db",
+            "_existing_skill_ids(self.db",
+            "_existing_skill_ids(db",
+        ),
+        SRC_ROOT / "services" / "capability_loader.py": (
+            "AsyncSession",
+            "self.session",
+            "session: AsyncSession",
+        ),
+        SRC_ROOT / "services" / "skill_loader.py": (
+            "AsyncSession",
+            "self.session",
+            "session: AsyncSession",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Admin catalog runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_reference_library_runtime_uses_dataservice_boundary() -> None:
+    """Reference Library gateway and BibTeX sync must not accept DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "references.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "get_db",
+            "db: AsyncSession",
+            "SourceBibliographyService(dataservice, db=",
+        ),
+        SRC_ROOT / "services" / "execution_commit_service.py": (
+            "SourceBibliographyService(dataservice, db=",
+            "getattr(self.execution, \"db\", None)",
+        ),
+        SRC_ROOT / "services" / "references" / "service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+            "db=",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Reference Library runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_runtime_service_facades_do_not_keep_optional_db_sessions() -> None:
+    """DataService-backed service facades must not retain optional DB constructors."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "services" / "thread_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+            "ThreadService(None",
+            "list_workspace_types(self.db",
+        ),
+        SRC_ROOT / "services" / "template_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+        ),
+        SRC_ROOT / "services" / "workspace_activity_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+            "get_workspace_type(self.db",
+        ),
+        SRC_ROOT / "services" / "admin_analytics_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+        ),
+        SRC_ROOT / "services" / "workspace_skill_labels.py": (
+            "AsyncSession",
+            "db:",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "threads.py": (
+            "ThreadService(None",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Runtime service facades must not keep optional DB session boundaries:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_legacy_gateway_and_execution_helpers_do_not_keep_db_sessions() -> None:
+    """Retired helper/facade entrypoints must not expose DB session construction."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "deps" / "core.py": (
+            "AsyncSession",
+            "get_db_session",
+            "def get_db",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "__init__.py": (
+            '"get_db"',
+        ),
+        SRC_ROOT / "services" / "execution_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+        ),
+        SRC_ROOT / "task" / "store.py": (
+            "AsyncSession",
+            "db_session",
+            "self._db",
+            "def db",
+        ),
+        SRC_ROOT / "services" / "skill_resolver.py": (
+            "AsyncSession",
+            "session_factory",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Retired DB helper/session constructor boundaries are still present:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_catalog_and_academic_facades_do_not_keep_db_constructors() -> None:
+    """Catalog and academic facades must expose DataService-only constructors."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "services" / "capability_resolver.py": (
+            "session_factory",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "capabilities.py": (
+            "from src.database import User",
+            "current_user: User",
+        ),
+        SRC_ROOT / "academic" / "services" / "workspace_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+            "database session",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "academic.py": (
+            "WorkspaceService(None",
+        ),
+        SRC_ROOT / "task" / "tasks" / "run.py": (
+            "WorkspaceService(None",
+        ),
+        SRC_ROOT / "academic" / "services" / "generation_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Catalog/academic runtime facades still expose DB constructor boundaries:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_workspace_asset_runtime_projections_do_not_read_legacy_metadata_fields() -> None:
+    """Workspace asset projections must use canonical metadata fields only."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "workspace_rooms.py": (
+            "legacy_kind",
+            "legacy_parent_id",
+            "legacy_version",
+        ),
+        SRC_ROOT / "services" / "workspace_activity_service.py": (
+            "legacy_kind",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Workspace asset runtime projections still read legacy metadata fields:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_gateway_routers_do_not_type_auth_subjects_as_database_users() -> None:
+    """Gateway auth subjects must use AccountAuthSubject, not the DB User model."""
+
+    violations: list[str] = []
+    for path in sorted((SRC_ROOT / "gateway" / "routers").glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in (
+            "from src.database import User",
+            "current_user: User",
+            "_current_user: User",
+            "admin: User",
+            "_admin: User",
+            "user: User",
+            "current_user: User | None",
+        ):
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Gateway routers still type auth subjects as database User models:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_prism_adapter_metadata_uses_canonical_field_names() -> None:
+    """Workspace Prism adapter metadata must not expose legacy metadata fields."""
+
+    checked_files = [
+        SRC_ROOT / "services" / "workspace_prism_service.py",
+        SRC_ROOT / "dataservice" / "domains" / "prism" / "adapters" / "latex.py",
+    ]
+    violations: list[str] = []
+    for path in checked_files:
+        source = path.read_text(encoding="utf-8")
+        if "legacy_metadata" in source:
+            violations.append(f"{path.relative_to(SRC_ROOT)} contains legacy_metadata")
+    assert not violations, (
+        "Prism adapter metadata still exposes legacy fields:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_feature_launch_context_does_not_keep_plain_param_compatibility() -> None:
+    """Feature launch params must stay on the canonical TaskBrief wrapper shape."""
+
+    path = SRC_ROOT / "application" / "services" / "feature_launch_context.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "extract_feature_params",
+        "plain-param",
+        "legacy",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Feature launch context still accepts non-canonical execution params: "
+        + ", ".join(violations)
+    )
+
+
+def test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks() -> None:
+    """Follow-up/rerun state must require explicit mission params or source artifacts."""
+
+    path = SRC_ROOT / "services" / "feature_action_resolution_service.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "_workspace_fallback",
+        "未命名任务",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Feature action resolver still synthesizes implicit workspace goals: "
+        + ", ".join(violations)
+    )
+
+
+def test_workspace_uploads_do_not_accept_legacy_root_prefixed_relative_paths() -> None:
+    """Stored upload paths must be absolute-under-root or workspace-relative."""
+
+    path = SRC_ROOT / "services" / "workspace_uploads.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "Backward-compat",
+        "legacy_candidate",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Workspace upload resolver still accepts legacy root-prefixed relative paths: "
+        + ", ".join(violations)
+    )
+
+
+def test_react_subagent_does_not_silently_ignore_requested_tools() -> None:
+    """React subagents must fail when requested tool names cannot be resolved."""
+
+    path = SRC_ROOT / "subagents" / "v2" / "types" / "react.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "TODO:",
+        "plain model invoke is used when tools list is empty after resolution",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "React subagent still documents silent tool fallback: "
+        + ", ".join(violations)
+    )
+
+
+def test_catalog_skill_projection_does_not_synthesize_legacy_skill_json() -> None:
+    """Catalog skill rows must carry canonical skill_json from the seed/DB."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "catalog" / "projection.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "_legacy_skill_json",
+        "not skill_json",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Catalog skill projection still synthesizes legacy skill_json: "
+        + ", ".join(violations)
+    )
+
+
+def test_source_domain_does_not_name_current_reference_projection_as_compat() -> None:
+    """Source Library projections are current contracts, not compatibility helpers."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "source" / "service.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "_serialize_reference_compat",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Source domain still names current reference projection as compat: "
+        + ", ".join(violations)
+    )
+
+
+def test_conversation_block_payloads_do_not_persist_legacy_kind() -> None:
+    """Canonical conversation blocks must not preserve old kind shadow fields."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "conversation" / "block_protocol.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "legacy_kind",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Conversation block protocol still persists old kind shadow fields: "
+        + ", ".join(violations)
+    )
+
+
+def test_execution_generation_contracts_do_not_label_current_usage_projection_legacy() -> None:
+    """Generation usage contracts are current DataService projections."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "execution" / "contracts.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "legacy generation",
+        "legacy skill-generation",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Execution generation contracts still label current usage projection as legacy: "
+        + ", ".join(violations)
+    )
+
+
+def test_dataservice_internal_contracts_do_not_keep_legacy_or_fallback_naming() -> None:
+    """DataService internal names should describe current contracts directly."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "dataservice" / "domains" / "rooms" / "models.py": (
+            "legacy deletion/archive gate",
+        ),
+        SRC_ROOT / "dataservice" / "domains" / "source" / "service.py": (
+            "fallback=",
+            "fallback:",
+            "return cleaned or fallback",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "DataService internal contracts still use stale legacy/fallback naming:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_workspace_capability_runtime_comments_do_not_keep_legacy_guidance() -> None:
+    """Runtime comments should describe current capability routing directly."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "agents" / "chat_agent" / "agent.py": (
+            "legacy consumers",
+            "legacy per-skill guidance prompt",
+        ),
+        REPO_ROOT / "frontend" / "lib" / "workspace-thread-entry.ts": (
+            "legacy resolver",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(REPO_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Workspace capability runtime comments still describe removed legacy paths:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_production_source_does_not_keep_unscoped_legacy_labels() -> None:
+    """Production source should describe current contracts, not old paths."""
+
+    checked_roots = [
+        SRC_ROOT,
+        REPO_ROOT / "frontend" / "app",
+        REPO_ROOT / "frontend" / "components",
+        REPO_ROOT / "frontend" / "hooks",
+        REPO_ROOT / "frontend" / "lib",
+        REPO_ROOT / "frontend" / "stores",
+    ]
+    violations: list[str] = []
+    for root in checked_roots:
+        for path in _python_files(root) if root == SRC_ROOT else sorted(root.rglob("*")):
+            if path.is_dir() or "__pycache__" in path.parts:
+                continue
+            if path.suffix not in {".py", ".ts", ".tsx"}:
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "legacy" in source.lower():
+                violations.append(str(path.relative_to(REPO_ROOT)))
+
+    assert not violations, (
+        "Production source still contains unscoped legacy labels:\n"
+        + "\n".join(violations)
     )
 
 

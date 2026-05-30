@@ -249,30 +249,26 @@ def test_unknown_feature_id_returns_fallback() -> None:
     assert state["rerunUnavailableReason"] is not None
 
 
-def test_null_workspace_returns_fallback() -> None:
+def test_null_workspace_without_goal_is_not_rerunnable() -> None:
     state = _resolve_action_state(
         feature_id="thesis_research_pack",
         workspace=None,
         artifacts=[],
         orchestration_params=None,
     )
-    # When workspace is None and no orchestration params, fallback task name is used
-    rerun_params = state["rerunParams"]
-    assert isinstance(rerun_params, dict)
-    assert rerun_params.get("goal") == "未命名任务"
+    assert state["rerunParams"] is None
+    assert state["rerunUnavailableReason"] == "缺少可复用的 mission goal 或来源材料。"
 
 
-def test_null_orchestration_params_falls_back_to_workspace() -> None:
+def test_null_orchestration_params_without_source_is_not_rerunnable() -> None:
     state = _resolve_action_state(
         feature_id="thesis_research_pack",
         workspace=_workspace(workspace_type="thesis"),
         artifacts=[],
         orchestration_params=None,
     )
-    rerun_params = state["rerunParams"]
-    assert isinstance(rerun_params, dict)
-    # _workspace_fallback prefers description over name
-    assert rerun_params.get("goal") == "Research on agent planning and execution"
+    assert state["rerunParams"] is None
+    assert state["rerunUnavailableReason"] == "缺少可复用的 mission goal 或来源材料。"
 
 
 def test_explicit_source_artifact_id_takes_precedence() -> None:

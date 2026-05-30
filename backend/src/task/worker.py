@@ -56,9 +56,6 @@ def parse_worker_cli_args(argv: list[str]) -> argparse.Namespace:
 
 
 type InitSentryFn = Callable[[], None]
-type ResetDbEngineFn = Callable[..., Awaitable[None]]
-type InitDbFn = Callable[[], Awaitable[None]]
-type CloseDbFn = Callable[[], Awaitable[None]]
 type GetExtensionsConfigFn = Callable[[], "ExtensionsConfig"]
 type ActivateMcpRuntimeFn = Callable[
     ...,
@@ -77,8 +74,6 @@ async def _maybe_call_async_method(target: object, method_name: str, **kwargs: o
 
 def _load_worker_runtime_dependencies() -> tuple[
     InitSentryFn,
-    ResetDbEngineFn,
-    InitDbFn,
     RedisClient,
     GetExtensionsConfigFn,
     ActivateMcpRuntimeFn,
@@ -86,14 +81,11 @@ def _load_worker_runtime_dependencies() -> tuple[
     """Load bootstrap-time dependencies lazily to keep imports localized."""
     from src.academic.cache.redis_client import redis_client
     from src.config import get_extensions_config
-    from src.database import init_db, reset_db_engine
     from src.mcp import activate_mcp_runtime
     from src.observability.sentry import init_sentry
 
     return (
         init_sentry,
-        reset_db_engine,
-        init_db,
         redis_client,
         get_extensions_config,
         activate_mcp_runtime,
@@ -103,14 +95,12 @@ def _load_worker_runtime_dependencies() -> tuple[
 def _load_worker_shutdown_dependencies() -> tuple[
     ShutdownMcpRuntimeFn,
     RedisClient,
-    CloseDbFn,
 ]:
     """Load shutdown-time dependencies lazily."""
     from src.academic.cache.redis_client import redis_client
-    from src.database import close_db
     from src.mcp import shutdown_mcp_runtime
 
-    return shutdown_mcp_runtime, redis_client, close_db
+    return shutdown_mcp_runtime, redis_client
 
 
 def _get_worker_runner() -> asyncio.Runner:
@@ -135,22 +125,18 @@ async def _bootstrap_worker_runtime() -> None:
     """Initialize worker-process runtime dependencies before task execution."""
     (
         init_sentry,
-        reset_db_engine,
-        init_db,
         redis_client,
         get_extensions_config,
         activate_mcp_runtime,
     ) = _load_worker_runtime_dependencies()
 
     init_sentry()
-    await reset_db_engine(dispose_current=False)
     await redis_client.reset_client(close_current=False)
     await _maybe_call_async_method(
         redis_client,
         "reset_stream_client",
         close_current=False,
     )
-    await init_db()
     await redis_client.connect()
     await _maybe_call_async_method(redis_client, "connect_stream")
     manager, _ = await activate_mcp_runtime(
@@ -171,15 +157,12 @@ async def _bootstrap_worker_runtime() -> None:
 
 async def _shutdown_worker_runtime() -> None:
     """Release worker-process runtime dependencies."""
-    shutdown_mcp_runtime, redis_client, close_db = (
-        _load_worker_shutdown_dependencies()
-    )
+    shutdown_mcp_runtime, redis_client = _load_worker_shutdown_dependencies()
 
     try:
         await shutdown_mcp_runtime()
     finally:
         await redis_client.disconnect()
-        await close_db()
 
 
 def _run_async(coro: Coroutine[Any, Any, object]) -> None:

@@ -1,5 +1,6 @@
 """Tests for WorkspaceContextMiddleware."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -29,9 +30,19 @@ def workspace_service(mock_workspace):
 
 
 @pytest.fixture
+def template_service():
+    """Create a mock template service."""
+    service = MagicMock()
+    service.get_active = AsyncMock(return_value=None)
+    return service
+
+
+@pytest.fixture
 def middleware(workspace_service):
     """Create WorkspaceContextMiddleware with mocked service."""
-    return WorkspaceContextMiddleware(workspace_service)
+    template_service = MagicMock()
+    template_service.get_active = AsyncMock(return_value=None)
+    return WorkspaceContextMiddleware(workspace_service, template_service=template_service)
 
 
 class TestWorkspaceContextMiddleware:
@@ -53,6 +64,37 @@ class TestWorkspaceContextMiddleware:
         assert result["workspace_type"].value == "sci"
         assert result["discipline"] == "computer_science"
         assert result["workspace_config"] == {"citation_style": "APA", "language": "en"}
+        assert result["template_context"] is None
+
+    @pytest.mark.asyncio
+    async def test_loads_active_template_context(self, workspace_service):
+        """Test that middleware loads active template through TemplateService."""
+        template_service = MagicMock()
+        template_service.get_active = AsyncMock(
+            return_value=SimpleNamespace(
+                name="SCI Template",
+                structure={"sections": ["abstract"]},
+                format_spec={"style": "ieee"},
+                content_guidelines={"language": "en"},
+            )
+        )
+        middleware = WorkspaceContextMiddleware(
+            workspace_service,
+            template_service=template_service,
+        )
+
+        result = await middleware.before_model(
+            ThreadState(messages=[], workspace_id="ws-123"),
+            {"configurable": {}},
+        )
+
+        template_service.get_active.assert_awaited_once_with("ws-123")
+        assert result["template_context"] == {
+            "name": "SCI Template",
+            "structure": {"sections": ["abstract"]},
+            "format_spec": {"style": "ieee"},
+            "content_guidelines": {"language": "en"},
+        }
 
     @pytest.mark.asyncio
     async def test_skips_loading_when_no_workspace_id(self, middleware, workspace_service):
@@ -75,7 +117,12 @@ class TestWorkspaceContextMiddleware:
         """Test middleware handles workspace not found gracefully."""
         # Configure service to return None (workspace not found)
         workspace_service.get = AsyncMock(return_value=None)
-        middleware = WorkspaceContextMiddleware(workspace_service)
+        template_service = MagicMock()
+        template_service.get_active = AsyncMock(return_value=None)
+        middleware = WorkspaceContextMiddleware(
+            workspace_service,
+            template_service=template_service,
+        )
 
         state = ThreadState(messages=[], workspace_id="nonexistent-ws")
         config = {"configurable": {}}
@@ -154,7 +201,12 @@ class TestWorkspaceContextMiddleware:
         mock_workspace.config = {}
 
         workspace_service.get = AsyncMock(return_value=mock_workspace)
-        middleware = WorkspaceContextMiddleware(workspace_service)
+        template_service = MagicMock()
+        template_service.get_active = AsyncMock(return_value=None)
+        middleware = WorkspaceContextMiddleware(
+            workspace_service,
+            template_service=template_service,
+        )
 
         state = ThreadState(messages=[], workspace_id="ws-thesis")
         config = {"configurable": {}}

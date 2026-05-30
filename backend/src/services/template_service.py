@@ -8,8 +8,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.template import (
     WorkspaceTemplateCreatePayload,
@@ -58,11 +56,9 @@ TEMPLATE_PARSE_PROMPT = '''从以下模板文件中提取论文写作规范。�
 class TemplateService:
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager

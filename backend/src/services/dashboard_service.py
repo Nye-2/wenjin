@@ -4,8 +4,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
 from src.services.dashboard import DashboardStatusSharedMixin
@@ -16,11 +14,9 @@ class DashboardService(DashboardStatusSharedMixin):
 
     def __init__(
         self,
-        db: AsyncSession,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ):
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager

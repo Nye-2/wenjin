@@ -46,11 +46,8 @@ def normalize_block_payload(
     """Return a JSON payload with canonical ``kind`` while preserving raw fields."""
     payload = dict(block)
     kind = canonical_block_kind(payload)
-    previous_kind = payload.get("kind") or payload.get("type")
     payload["kind"] = kind
     payload.pop("type", None)
-    if previous_kind and str(previous_kind) != kind:
-        payload.setdefault("legacy_kind", str(previous_kind))
     if kind == ConversationBlockKind.TEXT.value and "content" not in payload and default_text:
         payload["content"] = default_text
     return payload

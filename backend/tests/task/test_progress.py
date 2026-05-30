@@ -1,8 +1,8 @@
 """Tests for ProgressTracker write-strategy optimization.
 
 Verifies:
-- update() writes only to Redis + Pub/Sub (no DB write)
-- update(stage_transition=True) writes Redis + Pub/Sub + DB
+- update() writes only to Redis + Pub/Sub (no persistence write)
+- update(stage_transition=True) writes Redis + Pub/Sub + DataService persistence
 - complete() writes only to Redis + Pub/Sub (no DB write)
 - fail() writes only to Redis + Pub/Sub (no DB write)
 - Pub/Sub events are published for all operations
@@ -14,6 +14,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.task.progress import ProgressTracker
+
+
+class _ClientContext:
+    def __init__(self, client: object) -> None:
+        self._client = client
+
+    async def __aenter__(self) -> object:
+        return self._client
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[no-untyped-def]
+        return False
 
 
 def _make_redis():
@@ -28,18 +39,17 @@ def _make_redis():
 
 
 class TestProgressUpdateWriteStrategy:
-    """update() should only write Redis + Pub/Sub, NOT DB."""
+    """update() should only write Redis + Pub/Sub unless explicitly flushed."""
 
     @pytest.mark.asyncio
-    async def test_update_does_not_write_db(self):
-        """Regular progress updates must NOT write to the database."""
+    async def test_update_does_not_open_dataservice_client(self):
+        """Regular progress updates must not persist through DataService."""
         redis = _make_redis()
         tracker = ProgressTracker(redis, "task-1")
 
-        # Patch at the source so the local import inside update() is intercepted
-        with patch("src.database.get_db_session") as mock_get_db:
+        with patch("src.dataservice_client.provider.dataservice_client") as mock_dataservice_client:
             await tracker.update(50, "halfway")
-            mock_get_db.assert_not_called()
+            mock_dataservice_client.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_writes_redis(self):
@@ -66,24 +76,23 @@ class TestProgressUpdateWriteStrategy:
         assert event["message"] == "halfway"
 
     @pytest.mark.asyncio
-    async def test_update_with_stage_transition_writes_db(self):
-        """update(stage_transition=True) must flush progress to DB."""
+    async def test_update_with_stage_transition_persists_via_dataservice(self):
+        """update(stage_transition=True) must flush progress through TaskStore/DataService."""
         redis = _make_redis()
         tracker = ProgressTracker(redis, "task-1")
 
-        mock_db = AsyncMock()
+        mock_dataservice = AsyncMock()
         mock_store = AsyncMock()
 
         with (
-            patch("src.database.get_db_session") as mock_get_db,
+            patch(
+                "src.dataservice_client.provider.dataservice_client",
+                return_value=_ClientContext(mock_dataservice),
+            ) as mock_dataservice_client,
             patch("src.task.store.TaskStore", return_value=mock_store),
         ):
-            ctx = AsyncMock()
-            ctx.__aenter__ = AsyncMock(return_value=mock_db)
-            ctx.__aexit__ = AsyncMock(return_value=False)
-            mock_get_db.return_value = ctx
-
             await tracker.update(50, "stage change", stage_transition=True)
+            mock_dataservice_client.assert_called_once()
             mock_store.update_task_record.assert_called_once_with(
                 "task-1",
                 status="running",
@@ -133,9 +142,8 @@ class TestProgressCompleteWriteStrategy:
         redis = _make_redis()
         tracker = ProgressTracker(redis, "task-1")
 
-        # complete() has no DB imports at all — just verify no error and Redis is written
+        # complete() does not persist directly; TaskStore.mark_task_completed owns persistence.
         await tracker.complete("done")
-        # If this reached here without importing get_db_session, DB is not touched
         redis.client.hset.assert_called_once()
 
     @pytest.mark.asyncio

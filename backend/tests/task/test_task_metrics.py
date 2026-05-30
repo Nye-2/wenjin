@@ -25,7 +25,6 @@ class TestTaskMetricsInSharedRunner:
 
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
-            patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch(
@@ -36,9 +35,6 @@ class TestTaskMetricsInSharedRunner:
             patch("src.observability.prometheus.track_task_start") as mock_start,
             patch("src.observability.prometheus.track_task_end") as mock_end,
         ):
-            mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
-
             from src.task.tasks.base import _execute_task_async
 
             fake_task = SimpleNamespace(
@@ -74,7 +70,6 @@ class TestTaskMetricsInSharedRunner:
 
         with (
             patch("src.academic.cache.redis_client.redis_client", mock_redis),
-            patch("src.database.get_db_session") as mock_db_ctx,
             patch("src.task.progress.ProgressTracker", return_value=mock_progress),
             patch("src.task.store.TaskStore", return_value=mock_store),
             patch(
@@ -85,9 +80,6 @@ class TestTaskMetricsInSharedRunner:
             patch("src.observability.prometheus.track_task_start") as mock_start,
             patch("src.observability.prometheus.track_task_end") as mock_end,
         ):
-            mock_db_ctx.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
-            mock_db_ctx.return_value.__aexit__ = AsyncMock(return_value=False)
-
             from src.task.tasks.base import _execute_task_async
 
             fake_task = SimpleNamespace(

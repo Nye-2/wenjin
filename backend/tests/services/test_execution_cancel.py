@@ -30,25 +30,14 @@ def _make_record(status: str) -> SimpleNamespace:
     return ns
 
 
-def _make_db_with_record(record) -> MagicMock:
-    """Return a mock AsyncSession that returns record from get_by_id's query."""
-    db = MagicMock()
-    db.commit = AsyncMock()
-    db.refresh = AsyncMock()
-    return db
-
-
 def _make_service(record, *, redis=None, publish_event=None):
     """Build an ExecutionService whose get_by_id is patched to return record."""
-    db = _make_db_with_record(record)
-    svc = ExecutionService(db, redis=redis, publish_event=publish_event)
+    svc = ExecutionService(redis=redis, publish_event=publish_event)
     svc.get_by_id = AsyncMock(return_value=record)
 
     async def _update_execution(_execution_id: str, **kwargs):
         if "status" in kwargs:
             record.status = kwargs["status"]
-        if kwargs.get("commit", True):
-            await db.commit()
         return record
 
     svc.update_execution = AsyncMock(side_effect=_update_execution)
@@ -70,7 +59,11 @@ async def test_cancel_sets_status_to_cancelling():
 
     assert result is record
     assert record.status == "cancelling"
-    svc.db.commit.assert_called_once()
+    svc.update_execution.assert_awaited_once_with(
+        EXECUTION_ID,
+        status="cancelling",
+        commit=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -116,16 +109,13 @@ async def test_cancel_returns_false_for_completed_execution():
     # Should return the record without changing it
     assert result is record
     assert record.status == "completed"
-    # No commit should have happened (status not in pending/running)
-    svc.db.commit.assert_not_called()
+    svc.update_execution.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_cancel_returns_none_for_missing_execution():
     """cancel_execution when execution not found → returns None."""
-    db = MagicMock()
-    db.commit = AsyncMock()
-    svc = ExecutionService(db)
+    svc = ExecutionService()
     svc.get_by_id = AsyncMock(return_value=None)
 
     result = await svc.cancel_execution("nonexistent-id")
@@ -172,12 +162,11 @@ async def test_cancel_flow_eventually_persists_cancelled_status():
         },
     )
 
-    db = _make_db_with_record(execution_record)
     redis_mock = MagicMock()
     redis_mock.set = AsyncMock()
     publish_event = AsyncMock()
 
-    execution_svc = ExecutionService(db, redis=redis_mock, publish_event=publish_event)
+    execution_svc = ExecutionService(redis=redis_mock, publish_event=publish_event)
     execution_svc.get_by_id = AsyncMock(side_effect=[execution_record, execution_record])
     async def _update_cancel_flow(_execution_id: str, **kwargs):
         execution_record.status = kwargs["status"]

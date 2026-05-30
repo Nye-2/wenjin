@@ -55,7 +55,7 @@ def _build_latex_adapter_metadata(
         "main_file": main_file,
         "template_id": template_id,
         "file_order": dict(file_order or {}),
-        "legacy_metadata": metadata,
+        "source_metadata": metadata,
     }
 
 

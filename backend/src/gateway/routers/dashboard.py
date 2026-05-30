@@ -1,12 +1,11 @@
-"""User/Admin dashboard router."""
+"""AccountAuthSubject/Admin dashboard router."""
 
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from src.database import User
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import (
     get_admin_dashboard_service,
     get_credit_service,
@@ -49,14 +48,14 @@ class UpdateUserRoleRequest(BaseModel):
     role: str = Field(pattern="^(user|admin)$")
 
 
-def _require_admin(current_user: User) -> None:
+def _require_admin(current_user: AccountAuthSubject) -> None:
     if not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
 
 
 @router.get("/dashboard/me")
 async def get_my_dashboard(
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dashboard_service: UserDashboardService = Depends(get_user_dashboard_service),
 ) -> dict[str, Any]:
     """Get user dashboard payload."""
@@ -68,7 +67,7 @@ async def get_my_credit_history(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     transaction_type: str | None = Query(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     credit_service: CreditService = Depends(get_credit_service),
 ) -> dict[str, Any]:
     """Get paginated credit transactions for current user."""
@@ -94,7 +93,7 @@ async def get_my_credit_history(
 
 @router.get("/dashboard/me/credits/costs")
 async def get_workflow_costs(
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Get configured workflow credit costs."""
     return {"costs": CreditService.get_public_workflow_costs()}
@@ -102,7 +101,7 @@ async def get_workflow_costs(
 
 @router.get("/dashboard/admin")
 async def get_admin_dashboard(
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dashboard_service: AdminDashboardService = Depends(get_admin_dashboard_service),
 ) -> dict[str, Any]:
     """Get admin dashboard payload."""
@@ -113,7 +112,7 @@ async def get_admin_dashboard(
 @router.get("/dashboard/admin/release-gate")
 async def get_admin_release_gate(
     include_extended: bool = Query(default=False),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     release_gate_service: ReleaseGateService = Depends(get_release_gate_service),
 ) -> dict[str, Any]:
     """Run release gate checks and return Go/No-Go report (admin only)."""
@@ -128,7 +127,7 @@ async def list_admin_users(
     keyword: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
     role: str | None = Query(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dashboard_service: AdminDashboardService = Depends(get_admin_dashboard_service),
 ) -> dict[str, Any]:
     """List users for admin table."""
@@ -159,7 +158,7 @@ async def update_user_status(
     user_id: str,
     request: UpdateUserStatusRequest,
     raw_request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dashboard_service: AdminDashboardService = Depends(get_admin_dashboard_service),
 ) -> dict[str, Any]:
     """Update user enabled/disabled status."""
@@ -192,7 +191,7 @@ async def update_user_role(
     user_id: str,
     request: UpdateUserRoleRequest,
     raw_request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dashboard_service: AdminDashboardService = Depends(get_admin_dashboard_service),
 ) -> dict[str, Any]:
     """Update user role (user/admin)."""
@@ -224,7 +223,7 @@ async def update_user_role(
 async def grant_credits(
     request: GrantCreditsRequest,
     raw_request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     credit_service: CreditService = Depends(get_credit_service),
     dashboard_service: AdminDashboardService = Depends(get_admin_dashboard_service),
 ) -> dict[str, Any]:
@@ -266,7 +265,7 @@ async def grant_credits(
 async def deduct_credits(
     request: DeductCreditsRequest,
     raw_request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     credit_service: CreditService = Depends(get_credit_service),
     dashboard_service: AdminDashboardService = Depends(get_admin_dashboard_service),
 ) -> dict[str, Any]:
@@ -311,7 +310,7 @@ async def get_admin_credit_history(
     page_size: int = Query(default=20, ge=1, le=100),
     user_id: str | None = Query(default=None),
     transaction_type: str | None = Query(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     credit_service: CreditService = Depends(get_credit_service),
 ) -> dict[str, Any]:
     """Get credit transaction history across users (admin)."""
@@ -343,7 +342,7 @@ async def get_admin_logs(
     page_size: int = Query(default=20, ge=1, le=100),
     action: str | None = Query(default=None),
     target_user_id: str | None = Query(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dashboard_service: AdminDashboardService = Depends(get_admin_dashboard_service),
 ) -> dict[str, Any]:
     """Get admin audit logs."""

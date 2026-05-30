@@ -120,8 +120,7 @@ class FakeActivityDataServiceClient:
 async def test_get_activity_merges_sources_and_sorts_descending(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    service = WorkspaceActivityService()
     monkeypatch.setattr(
         "src.services.workspace_activity_service.get_workspace_type",
         AsyncMock(return_value="thesis"),
@@ -233,9 +232,8 @@ def test_build_prism_review_activity_item_uses_canonical_shape() -> None:
 
 @pytest.mark.asyncio
 async def test_get_prism_review_activity_reads_persisted_items() -> None:
-    db = AsyncMock()
     fake_client = FakeActivityDataServiceClient()
-    service = WorkspaceActivityService(db, dataservice=fake_client)
+    service = WorkspaceActivityService(dataservice=fake_client)
     now = datetime.now(UTC)
     record = ReviewItemProjection(
         id="review-1",
@@ -280,9 +278,8 @@ async def test_get_prism_review_activity_reads_persisted_items() -> None:
 
 @pytest.mark.asyncio
 async def test_get_recent_threads_uses_conversation_dataservice() -> None:
-    db = AsyncMock()
     fake_client = FakeActivityDataServiceClient()
-    service = WorkspaceActivityService(db, dataservice=fake_client)
+    service = WorkspaceActivityService(dataservice=fake_client)
     thread = SimpleNamespace(
         id="thread-1",
         workspace_id="ws-1",
@@ -303,9 +300,8 @@ async def test_get_recent_threads_uses_conversation_dataservice() -> None:
 
 @pytest.mark.asyncio
 async def test_build_thread_activity_uses_latest_message_preview_and_skill():
-    db = AsyncMock()
     fake_client = FakeActivityDataServiceClient()
-    service = WorkspaceActivityService(db, dataservice=fake_client)
+    service = WorkspaceActivityService(dataservice=fake_client)
     thread = SimpleNamespace(
         id="thread-1",
         workspace_id="ws-1",
@@ -335,9 +331,8 @@ async def test_build_thread_activity_uses_latest_message_preview_and_skill():
 
 @pytest.mark.asyncio
 async def test_build_thread_activity_includes_token_usage_metadata():
-    db = AsyncMock()
     fake_client = FakeActivityDataServiceClient()
-    service = WorkspaceActivityService(db, dataservice=fake_client)
+    service = WorkspaceActivityService(dataservice=fake_client)
     thread = SimpleNamespace(
         id="thread-usage",
         workspace_id="ws-1",
@@ -524,8 +519,7 @@ def test_task_activity_derives_prism_review_action_for_pending_file_changes() ->
 
 
 def test_task_record_to_activity_includes_token_usage_metadata() -> None:
-    db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    service = WorkspaceActivityService()
     record = _execution_projection(
         id="task-usage",
         execution_type="workspace_feature",
@@ -591,8 +585,7 @@ def test_build_subagent_activity_item_uses_canonical_subagent_shape() -> None:
 
 
 def test_subagent_record_to_activity_includes_token_usage_metadata() -> None:
-    db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    service = WorkspaceActivityService()
     now = datetime.now(UTC)
     execution = _execution_projection(thread_id="thread-1")
     record = _node_projection(
@@ -643,8 +636,7 @@ def test_serialize_activity_item_normalizes_datetime_fields() -> None:
 
 
 def test_artifact_activity_uses_canonical_creator_skill_name() -> None:
-    db = AsyncMock()
-    service = WorkspaceActivityService(db)
+    service = WorkspaceActivityService()
     artifact = SimpleNamespace(
         id="artifact-1",
         workspace_id="ws-1",
@@ -666,9 +658,8 @@ def test_artifact_activity_uses_canonical_creator_skill_name() -> None:
 
 @pytest.mark.asyncio
 async def test_get_artifact_activity_reads_workspace_assets() -> None:
-    db = AsyncMock()
     fake_client = FakeActivityDataServiceClient()
-    service = WorkspaceActivityService(db, dataservice=fake_client)
+    service = WorkspaceActivityService(dataservice=fake_client)
     asset = _asset_projection(id="asset-1")
     fake_client.list_assets = AsyncMock(return_value=[asset])
 
@@ -688,9 +679,8 @@ async def test_get_artifact_activity_reads_workspace_assets() -> None:
 
 @pytest.mark.asyncio
 async def test_get_subagent_activity_reads_persisted_records() -> None:
-    db = AsyncMock()
     fake_client = FakeActivityDataServiceClient()
-    service = WorkspaceActivityService(db, dataservice=fake_client)
+    service = WorkspaceActivityService(dataservice=fake_client)
     now = datetime.now(UTC)
     created_at = now - timedelta(minutes=5)
     execution = _execution_projection(id="exec-1", thread_id="thread-1")

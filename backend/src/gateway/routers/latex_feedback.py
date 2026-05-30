@@ -7,9 +7,8 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.contracts.latex import (
     LatexFeedbackAnchorPayload,
     LatexFeedbackItemPayload,
@@ -59,7 +58,7 @@ router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 @router.get("/projects/{project_id}/feedback", response_model=LatexFeedbackListResponse)
 async def get_project_feedback(
     project_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackListResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -81,7 +80,7 @@ async def get_project_feedback(
 async def save_project_feedback(
     project_id: str,
     request: LatexFeedbackSaveRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     service = LatexProjectService(dataservice=dataservice)
@@ -100,7 +99,7 @@ async def save_project_feedback(
 async def preview_project_feedback_rewrite(
     project_id: str,
     request: LatexFeedbackRewriteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewritePreviewResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -149,7 +148,7 @@ async def preview_project_feedback_rewrite(
 async def apply_project_feedback_rewrite(
     project_id: str,
     request: LatexFeedbackRewriteApplyRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewriteApplyResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -355,7 +354,7 @@ async def apply_project_feedback_rewrite(
 async def revert_project_feedback_rewrite(
     project_id: str,
     request: LatexFeedbackRewriteRevertRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewriteRevertResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -455,7 +454,7 @@ async def revert_project_feedback_rewrite(
 async def rewrite_project_feedback(
     project_id: str,
     request: LatexFeedbackRewriteRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewriteResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -538,7 +537,7 @@ async def rewrite_project_feedback(
 async def map_project_feedback_selection(
     project_id: str,
     request: LatexFeedbackMapRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackMapResponse:
     service = LatexProjectService(dataservice=dataservice)

@@ -4,8 +4,7 @@ GET /capabilities?workspace_type=thesis
 GET /capabilities/{capability_id}?workspace_type=thesis
 
 The CapabilityResolver singleton is created lazily on first use and stored on
-``app.state``.  For V1 we don't seed capabilities at startup — that is a
-Phase 2 concern.  An empty list / 404 is returned when the DB has no rows.
+``app.state``.  An empty list / 404 is returned when the Catalog has no rows.
 """
 
 from __future__ import annotations
@@ -15,8 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
-from src.database import User
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 
 if TYPE_CHECKING:
     from src.services.capability_resolver import CapabilityResolver
@@ -41,14 +39,12 @@ async def _get_resolver(request: Request) -> CapabilityResolver:
 
     if not hasattr(request.app.state, "capability_resolver"):
         from src.academic.cache.redis_client import redis_client
-        from src.database import get_db_session
         from src.services.event_bus import EventBus
 
         if redis_client._client is None:
             await redis_client.connect()
 
         resolver = CapabilityResolver(
-            session_factory=get_db_session,
             event_bus=EventBus(redis_client.client),
         )
         request.app.state.capability_resolver = resolver
@@ -95,7 +91,7 @@ def _is_hidden_capability(cap: Any) -> bool:
 @router.get("")
 async def list_capabilities(
     workspace_type: str = Query(..., description="Workspace type, e.g. thesis"),
-    current_user: User = Depends(get_current_user),
+    _current_user: AccountAuthSubject = Depends(get_current_user),
     resolver: CapabilityResolver = Depends(_get_resolver),
 ) -> dict[str, Any]:
     """List all active capabilities for the given workspace type."""
@@ -108,7 +104,7 @@ async def list_capabilities(
 async def get_capability(
     capability_id: str,
     workspace_type: str = Query(..., description="Workspace type, e.g. thesis"),
-    current_user: User = Depends(get_current_user),
+    _current_user: AccountAuthSubject = Depends(get_current_user),
     resolver: CapabilityResolver = Depends(_get_resolver),
 ) -> dict[str, Any]:
     """Return full detail for a single capability."""

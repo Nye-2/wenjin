@@ -104,6 +104,24 @@ def _is_within_root(candidate: Path, root: Path) -> bool:
         return commonpath([str(candidate), str(root)]) == str(root)
 
 
+def _is_workspace_root_prefixed_relative_path(
+    candidate: Path,
+    *,
+    root: Path,
+    workspace_id: str,
+) -> bool:
+    if candidate.is_absolute():
+        return False
+    root_path = Path(root)
+    if root_path.is_absolute():
+        return False
+    try:
+        candidate.relative_to(root_path / normalize_thread_id(workspace_id))
+        return True
+    except ValueError:
+        return False
+
+
 def resolve_workspace_upload_relative_path(
     workspace_id: str,
     relative_path: str,
@@ -146,14 +164,13 @@ def resolve_workspace_upload_stored_path(
         ):
             candidate = (workspace_root / normalized_path.lstrip("/")).resolve()
     else:
-        # Backward-compat: many persisted rows store paths like
-        # ".wenjin/workspace_uploads/<ws>/bucket/file.ext" as cwd-relative.
-        # Keep honoring those if they already resolve under workspace_root.
-        legacy_candidate = raw_path.resolve()
-        if _is_within_root(legacy_candidate, workspace_root):
-            candidate = legacy_candidate
-        else:
-            candidate = (workspace_root / normalized_path.lstrip("/")).resolve()
+        if _is_workspace_root_prefixed_relative_path(
+            raw_path,
+            root=Path(root),
+            workspace_id=workspace_id,
+        ):
+            raise ValueError("Stored file path must be workspace-relative")
+        candidate = (workspace_root / normalized_path.lstrip("/")).resolve()
     if not _is_within_root(candidate, workspace_root):
         raise ValueError("File path escapes workspace uploads root")
     return candidate

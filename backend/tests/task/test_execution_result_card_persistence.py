@@ -7,6 +7,7 @@ import pytest
 
 from src.task.tasks.execution import (
     _persist_result_card_for_execution,
+    _resolve_execution_workspace_type,
     _result_card_data_from_task_report,
 )
 
@@ -63,17 +64,35 @@ def test_result_card_data_from_task_report_preserves_outputs_and_reviews() -> No
 
 
 @pytest.mark.asyncio
-async def test_persist_result_card_for_execution_appends_once(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    thread = SimpleNamespace(id="thread-1", user_id="user-1", workspace_id="ws-1", message_count=0)
-    service = SimpleNamespace(
-        get_by_id=AsyncMock(return_value=thread),
-        list_thread_messages=AsyncMock(return_value=[]),
-        add_message=AsyncMock(),
+async def test_resolve_execution_workspace_type_uses_dataservice_projection() -> None:
+    dataservice = SimpleNamespace(
+        get_workspace=AsyncMock(return_value=SimpleNamespace(workspace_type="sci")),
     )
 
-    monkeypatch.setattr("src.services.ThreadService", lambda db: service)
+    workspace_type = await _resolve_execution_workspace_type(dataservice, "ws-1")
+
+    assert workspace_type == "sci"
+    dataservice.get_workspace.assert_awaited_once_with("ws-1")
+
+
+@pytest.mark.asyncio
+async def test_resolve_execution_workspace_type_rejects_missing_type() -> None:
+    dataservice = SimpleNamespace(
+        get_workspace=AsyncMock(return_value=SimpleNamespace(workspace_type=None)),
+    )
+
+    with pytest.raises(ValueError, match="workspace type is not configured"):
+        await _resolve_execution_workspace_type(dataservice, "ws-1")
+
+
+@pytest.mark.asyncio
+async def test_persist_result_card_for_execution_appends_once() -> None:
+    thread = SimpleNamespace(id="thread-1", user_id="user-1", workspace_id="ws-1", message_count=0)
+    dataservice = SimpleNamespace(
+        get_conversation_thread=AsyncMock(return_value=thread),
+        list_conversation_messages=AsyncMock(return_value=[]),
+        append_conversation_message=AsyncMock(),
+    )
 
     execution = SimpleNamespace(
         id="exec-1",
@@ -96,17 +115,22 @@ async def test_persist_result_card_for_execution_appends_once(
         },
     )
 
-    await _persist_result_card_for_execution(object(), execution)
+    await _persist_result_card_for_execution(dataservice, execution)
 
-    service.add_message.assert_awaited_once()
-    kwargs = service.add_message.await_args.kwargs
-    assert kwargs["role"] == "assistant"
-    assert kwargs["content"] == "完成 文献定位与创新点，共执行 3 个节点。"
-    assert kwargs["metadata"] == {
+    dataservice.append_conversation_message.assert_awaited_once()
+    args = dataservice.append_conversation_message.await_args.args
+    assert args[0] == "thread-1"
+    command = args[1]
+    assert command.thread_id == "thread-1"
+    assert command.user_id == "user-1"
+    assert command.workspace_id == "ws-1"
+    assert command.role == "assistant"
+    assert command.content == "完成 文献定位与创新点，共执行 3 个节点。"
+    assert command.metadata == {
         "source": "execution_completion",
         "execution_id": "exec-1",
     }
-    assert kwargs["blocks"] == [
+    assert command.blocks == [
         {
             "kind": "result_card",
             "data": {
@@ -130,18 +154,20 @@ async def test_persist_result_card_for_execution_appends_once(
         }
     ]
 
-    service.list_thread_messages.return_value = [
-        {
-            "role": "assistant",
-            "blocks": [
-                {
-                    "kind": "result_card",
-                    "data": {"execution_id": "exec-1"},
-                }
+    dataservice.list_conversation_messages.return_value = [
+        SimpleNamespace(
+            role="assistant",
+            blocks=[
+                SimpleNamespace(
+                    payload_json={
+                        "kind": "result_card",
+                        "data": {"execution_id": "exec-1"},
+                    }
+                )
             ],
-        }
+        )
     ]
 
-    await _persist_result_card_for_execution(object(), execution)
+    await _persist_result_card_for_execution(dataservice, execution)
 
-    service.add_message.assert_awaited_once()
+    dataservice.append_conversation_message.assert_awaited_once()

@@ -15,6 +15,7 @@ from src.subagents.v2.types.react import (
     _build_degraded_react_text,
     _parse_output,
     _render_user_message,
+    _run_react_loop,
 )
 
 # ---------------------------------------------------------------------------
@@ -238,3 +239,20 @@ class TestMockLLM:
         assert result.output == {
             "markdown": "# 综述报告\n\n这是一篇关于量子计算的综述。"
         }
+
+    @pytest.mark.asyncio
+    async def test_requested_tools_without_registered_callables_fail_explicitly(self):
+        fake_model = MagicMock()
+
+        with patch(
+            "src.subagents.v2.types.react.create_chat_model",
+            return_value=fake_model,
+        ):
+            with pytest.raises(RuntimeError, match="React tools were requested"):
+                await _run_react_loop(
+                    system_prompt="system",
+                    user_message="user",
+                    tools=["sandbox_python"],
+                )
+
+        fake_model.astream.assert_not_called()

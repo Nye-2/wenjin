@@ -62,23 +62,17 @@ class CapabilityNotFound(Exception):
 
 
 class CapabilityResolver:
-    """Resolves capabilities from DB with in-memory caching.
+    """Resolves capabilities from the capability catalog with in-memory caching.
 
     Cache is invalidated via ``capability.invalidated`` events on the EventBus.
-
-    Args:
-        session_factory: Callable returning a new AsyncSession.
-        event_bus: EventBus instance for cache invalidation.
-        dataservice: Optional DataService client override for tests.
     """
 
     def __init__(
         self,
-        session_factory,
         event_bus: EventBus,
+        *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.session_factory = session_factory
         self.event_bus = event_bus
         self._dataservice = dataservice
         self._cache: dict[tuple[str, str], object] = {}

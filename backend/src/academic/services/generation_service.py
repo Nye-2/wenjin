@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.execution import (
     GenerationRecordCreatePayload,
@@ -20,11 +18,9 @@ class GenerationService:
 
     def __init__(
         self,
-        db: AsyncSession,
         *,
         dataservice: AsyncDataServiceClient | None = None,
-        ):
-        self.db = db
+    ) -> None:
         self._dataservice = dataservice
 
     async def create(
