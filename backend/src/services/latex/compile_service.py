@@ -14,8 +14,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.latex import LatexCompileHistoryCreatePayload
 from src.dataservice_client.provider import dataservice_client
@@ -76,11 +74,9 @@ class LatexCompileService:
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
         self._docker = DockerClient()
 
@@ -172,7 +168,7 @@ class LatexCompileService:
                 await self._best_effort_enforce_history_retention(project.id)
                 history_id = history.id
                 if success:
-                    pdf_endpoint = f"/api/latex/projects/{project.id}/compile/{history.id}/pdf"
+                    pdf_endpoint = f"/api/prism/latex-adapter/projects/{project.id}/compile/{history.id}/pdf"
 
             return {
                 "ok": success,

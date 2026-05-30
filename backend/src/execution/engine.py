@@ -12,8 +12,6 @@ from collections.abc import Mapping
 from inspect import isawaitable
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
@@ -155,31 +153,31 @@ class ExecutionEngineV2:
         if explicit_context is not None:
             return brief.model_copy(update={"manuscript_context": explicit_context})
 
-        db = getattr(self.execution_service, "db", None)
         workspace_id = str(brief.workspace_id or getattr(execution, "workspace_id", "") or "")
         user_id = str(getattr(execution, "user_id", "") or "")
-        if not isinstance(db, AsyncSession) or not workspace_id or not user_id:
+        if not workspace_id or not user_id:
             return brief
 
         prism_required = await self._requires_prism_surface(brief, execution)
-        prism_service = WorkspacePrismService(db)
-        try:
-            manuscript_context = await prism_service.get_launch_context_projection(
-                workspace_id,
-                user_id=user_id,
-            )
-        except ValueError:
-            if not prism_required:
-                return brief
-            await prism_service.ensure_primary_project(
-                workspace_id,
-                user_id=user_id,
-                project_name=await self._workspace_project_name(workspace_id),
-            )
-            manuscript_context = await prism_service.get_launch_context_projection(
-                workspace_id,
-                user_id=user_id,
-            )
+        async with dataservice_client() as client:
+            prism_service = WorkspacePrismService(dataservice=client)
+            try:
+                manuscript_context = await prism_service.get_launch_context_projection(
+                    workspace_id,
+                    user_id=user_id,
+                )
+            except ValueError:
+                if not prism_required:
+                    return brief
+                await prism_service.ensure_primary_project(
+                    workspace_id,
+                    user_id=user_id,
+                    project_name=await self._workspace_project_name(workspace_id),
+                )
+                manuscript_context = await prism_service.get_launch_context_projection(
+                    workspace_id,
+                    user_id=user_id,
+                )
 
         return brief.model_copy(update={"manuscript_context": manuscript_context})
 

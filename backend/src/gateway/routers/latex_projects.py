@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
@@ -13,12 +12,13 @@ from src.gateway.contracts.latex import (
     LatexProjectResponse,
     LatexUpdateProjectRequest,
 )
-from src.gateway.deps.core import get_db
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import _not_found
 from src.services.latex import LatexProjectService
 from src.services.latex.project_service import LatexTemplateError, LatexTemplateNotFoundError
 
-router = APIRouter(prefix="/latex", tags=["latex"])
+router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 
 
 @router.get("/health")
@@ -31,9 +31,9 @@ async def latex_health() -> dict[str, str]:
 async def list_projects(
     include_trashed: bool = Query(default=False),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectListResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     projects = await service.list_by_user(str(current_user.id), include_trashed=include_trashed)
     return LatexProjectListResponse(projects=projects)  # type: ignore[arg-type]
 
@@ -42,9 +42,9 @@ async def list_projects(
 async def create_project(
     request: LatexCreateProjectRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     try:
         project = await service.create(
             user_id=str(current_user.id),
@@ -62,9 +62,9 @@ async def create_project(
 async def get_project(
     project_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -76,9 +76,9 @@ async def update_project(
     project_id: str,
     request: LatexUpdateProjectRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProjectResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -90,9 +90,9 @@ async def update_project(
 async def soft_delete_project(
     project_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -104,9 +104,9 @@ async def soft_delete_project(
 async def permanent_delete_project(
     project_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()

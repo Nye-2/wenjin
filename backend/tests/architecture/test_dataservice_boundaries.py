@@ -5,7 +5,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_ROOT.parent
+SRC_ROOT = BACKEND_ROOT / "src"
 
 from src.dataservice.app_boundary import FORBIDDEN_DOMAIN_IMPORT_PREFIXES
 
@@ -417,6 +419,83 @@ def test_runtime_code_does_not_use_legacy_artifact_surface_names() -> None:
 
     assert not violations, (
         "Runtime code must use workspace artifact naming:\n" + "\n".join(violations)
+    )
+
+
+def test_prism_latex_adapter_has_no_public_latex_routes() -> None:
+    """Prism adapter is the only public manuscript route surface."""
+
+    checked_files = [
+        SRC_ROOT / "gateway" / "app.py",
+        *sorted((SRC_ROOT / "gateway" / "routers").glob("latex*.py")),
+    ]
+    forbidden_tokens = (
+        'prefix="/latex"',
+        "prefix='/latex'",
+        '"/latex/',
+        "'/latex/",
+        '"/api/latex/',
+        "'/api/latex/",
+    )
+    violations: list[str] = []
+    for path in checked_files:
+        relative = path.relative_to(SRC_ROOT)
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    frontend_api = REPO_ROOT / "frontend" / "lib" / "api" / "latex.ts"
+    source = frontend_api.read_text(encoding="utf-8")
+    for token in ('"/latex/', "'/latex/", '"/api/latex/', "'/api/latex/"):
+        if token in source:
+            violations.append(f"{frontend_api.relative_to(REPO_ROOT)} contains {token}")
+
+    assert not violations, (
+        "Public LaTeX routes must live under Prism adapter only:\n" + "\n".join(violations)
+    )
+
+
+def test_prism_latex_runtime_stays_on_dataservice_boundary() -> None:
+    """Prism LaTeX adapter runtime must not accept DB sessions."""
+
+    checked_files = [
+        SRC_ROOT / "services" / "latex" / "project_service.py",
+        SRC_ROOT / "services" / "latex" / "template_service.py",
+        SRC_ROOT / "services" / "latex" / "compile_service.py",
+        SRC_ROOT / "services" / "workspace_latex_projects.py",
+        SRC_ROOT / "services" / "workspace_prism_service.py",
+        *sorted((SRC_ROOT / "gateway" / "routers").glob("latex*.py")),
+    ]
+    forbidden_imports = {"sqlalchemy.ext.asyncio"}
+    forbidden_names_by_module = {"src.gateway.deps.core": {"get_db"}}
+    forbidden_source_tokens = ("self.db", "db: AsyncSession", "Depends(get_db)")
+
+    violations: list[str] = []
+    for path in checked_files:
+        relative = path.relative_to(SRC_ROOT)
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden_source_tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+        tree = ast.parse(source)
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        for node in visitor.import_from_nodes:
+            module = node.module or ""
+            if module in forbidden_imports:
+                violations.append(f"{relative}:{node.lineno} imports {module}")
+            forbidden_names = forbidden_names_by_module.get(module, set())
+            imported_forbidden_names = sorted(
+                alias.name for alias in node.names if alias.name in forbidden_names
+            )
+            if imported_forbidden_names:
+                violations.append(
+                    f"{relative}:{node.lineno} imports {module}.{', '.join(imported_forbidden_names)}"
+                )
+
+    assert not violations, (
+        "Prism LaTeX adapter runtime must use DataService only:\n" + "\n".join(violations)
     )
 
 

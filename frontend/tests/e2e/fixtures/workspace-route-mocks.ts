@@ -380,12 +380,12 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
-    if (pathname === `/api/latex/projects/${prismProjectId}`) {
+    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}`) {
       await route.fulfill(json(latexProjectPayload()));
       return;
     }
 
-    if (pathname === `/api/latex/projects/${prismProjectId}/tree`) {
+    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/tree`) {
       await route.fulfill(
         json({
           items: [{ path: prismPath, type: "file" }],
@@ -395,7 +395,7 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
-    if (pathname === `/api/latex/projects/${prismProjectId}/file`) {
+    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/file`) {
       await route.fulfill(
         json({
           content: prismContent,
@@ -404,13 +404,13 @@ export async function installWorkspaceRouteMocks(
       return;
     }
 
-    if (pathname === `/api/latex/projects/${prismProjectId}/feedback`) {
+    if (pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/feedback`) {
       await route.fulfill(json({ items: [] }));
       return;
     }
 
     if (
-      pathname === `/api/latex/projects/${prismProjectId}/file-changes/preview` &&
+      pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/file-changes/preview` &&
       request.method() === "POST"
     ) {
       await route.fulfill(
@@ -464,7 +464,7 @@ export async function installWorkspaceRouteMocks(
     }
 
     if (
-      pathname === `/api/latex/projects/${prismProjectId}/file-changes/apply` &&
+      pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/file-changes/apply` &&
       request.method() === "POST"
     ) {
       prismContent = prismPendingContent;
@@ -489,7 +489,7 @@ export async function installWorkspaceRouteMocks(
     }
 
     if (
-      pathname === `/api/latex/projects/${prismProjectId}/protected-sections` &&
+      pathname === `/api/prism/latex-adapter/projects/${prismProjectId}/protected-sections` &&
       request.method() === "POST"
     ) {
       prismProtected = true;

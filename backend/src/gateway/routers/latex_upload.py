@@ -5,12 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import LatexUploadResponse
-from src.gateway.deps.core import get_db
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
     _collect_archive_upload_payload,
     _is_reserved_upload_path,
@@ -21,7 +21,7 @@ from src.gateway.routers.latex_helpers import (
 )
 from src.services.latex import LatexProjectService
 
-router = APIRouter(prefix="/latex", tags=["latex"])
+router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 
 _MAX_UPLOAD_ARCHIVE_BYTES = 256 * 1024 * 1024
 _MAX_UPLOAD_FILES = 5000
@@ -36,9 +36,9 @@ async def upload_project_files(
     folders: list[str] | None = Form(default=None),
     base_path: str | None = Form(default=None),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexUploadResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -117,9 +117,9 @@ async def upload_project_archive(
     base_path: str | None = Form(default=None),
     strip_root: bool = Form(default=True),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexUploadResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()

@@ -214,9 +214,9 @@ class _FakeLatexRouterService:
     files: dict[str, str] = {}
     update_calls: list[dict[str, object]] = []
 
-    def __init__(self, db: object, *, autocommit: bool = True) -> None:
-        _ = db
-        _ = autocommit
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        _ = args
+        _ = kwargs
 
     async def get_owned(self, project_id: str, user_id: str) -> object | None:
         if project_id == "latex-1" and user_id == "user-1":
@@ -755,25 +755,16 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
 
     user = SimpleNamespace(id="user-1")
     db = _FakeDb()
-    with (
-        patch(
-            "src.gateway.routers.latex_files.LatexProjectService",
-            _FakeLatexRouterService,
-        ),
-            patch(
-                "src.gateway.routers.latex_files.dataservice_client",
-                lambda: _FakePrismReviewService(db),
-            ),
-            patch(
-                "src.gateway.routers.latex_helpers.dataservice_client",
-                lambda: _FakePrismReviewService(db),
-            ),
-        ):
+    dataservice = _FakePrismReviewService(db)
+    with patch(
+        "src.gateway.routers.latex_files.LatexProjectService",
+        _FakeLatexRouterService,
+    ):
         preview = await preview_project_file_change(
             "latex-1",
             LatexFileChangeActionRequest(logical_key="section:introduction"),
             current_user=user,
-            db=db,
+            dataservice=dataservice,
         )
         applied = await apply_project_file_change(
             "latex-1",
@@ -782,7 +773,7 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
                 change_signature=preview.change_signature,
             ),
             current_user=user,
-            db=db,
+            dataservice=dataservice,
         )
 
     assert applied.applied is True
@@ -820,9 +811,6 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
     with patch(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
-    ), patch(
-        "src.gateway.routers.latex_files.dataservice_client",
-        lambda: _FakePrismReviewService(object()),
     ):
         reverted = await revert_project_file_change(
             "latex-1",
@@ -831,7 +819,7 @@ async def test_prism_review_projection_preview_apply_usage_and_revert_workflow_g
                 revert_signature=applied.undo.revert_signature,
             ),
             current_user=user,
-            db=object(),
+            dataservice=_FakePrismReviewService(object()),
         )
 
     assert reverted.reverted is True
@@ -847,19 +835,17 @@ async def test_prism_review_discard_protects_user_content_and_clears_pending_pro
     _reset_router_state()
 
     user = SimpleNamespace(id="user-1")
+    dataservice = _FakePrismReviewService(_FakeCommitDb())
     with patch(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
-    ), patch(
-        "src.gateway.routers.latex_files.dataservice_client",
-        lambda: _FakePrismReviewService(_FakeCommitDb()),
     ):
         discarded = await discard_project_file_change(
-                "latex-1",
-                LatexFileChangeActionRequest(logical_key="section:introduction"),
-                current_user=user,
-                db=_FakeCommitDb(),
-            )
+            "latex-1",
+            LatexFileChangeActionRequest(logical_key="section:introduction"),
+            current_user=user,
+            dataservice=dataservice,
+        )
 
     assert discarded.discarded is True
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]
@@ -883,13 +869,11 @@ async def test_manual_prism_protection_uses_canonical_protected_section() -> Non
     _reset_router_state()
     user = SimpleNamespace(id="user-1")
     db = _FakeCommitDb()
+    dataservice = _FakePrismReviewService(db)
 
     with patch(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
-    ), patch(
-        "src.gateway.routers.latex_files.dataservice_client",
-        lambda: _FakePrismReviewService(db),
     ):
         response = await protect_project_section(
             "latex-1",
@@ -899,7 +883,7 @@ async def test_manual_prism_protection_uses_canonical_protected_section() -> Non
                 reason="user_manual_protect",
             ),
             current_user=user,
-            db=db,  # type: ignore[arg-type]
+            dataservice=dataservice,
         )
 
     assert response.protected is True

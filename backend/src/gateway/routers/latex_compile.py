@@ -7,17 +7,17 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import LatexCompileRequest, LatexCompileResponse
-from src.gateway.deps.core import get_db
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import _not_found
 from src.services.latex import LatexCompileService, LatexProjectService
 from src.services.references import SourceBibliographyService
 
-router = APIRouter(prefix="/latex", tags=["latex"])
+router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 
 
 @router.post("/projects/{project_id}/compile", response_model=LatexCompileResponse)
@@ -25,9 +25,9 @@ async def compile_project(
     project_id: str,
     request: LatexCompileRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexCompileResponse:
-    project_service = LatexProjectService(db)
+    project_service = LatexProjectService(dataservice=dataservice)
     project = await project_service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -38,7 +38,7 @@ async def compile_project(
             latex_content = project_service.read_text_file(project, main_file)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-        validation = await SourceBibliographyService(db=db).validate_citations(
+        validation = await SourceBibliographyService(dataservice=dataservice).validate_citations(
             workspace_id=workspace_id,
             latex_content=latex_content,
         )
@@ -50,7 +50,7 @@ async def compile_project(
                     **validation,
                 },
             )
-    compile_service = LatexCompileService(db)
+    compile_service = LatexCompileService(dataservice=dataservice)
     try:
         payload = await compile_service.compile_project(
             project,
@@ -81,14 +81,14 @@ async def get_compiled_pdf(
     project_id: str,
     history_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> FileResponse:
-    project_service = LatexProjectService(db)
+    project_service = LatexProjectService(dataservice=dataservice)
     project = await project_service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
 
-    compile_service = LatexCompileService(db)
+    compile_service = LatexCompileService(dataservice=dataservice)
     pdf_path = await compile_service.get_history_pdf(
         history_id=history_id,
         project_id=project_id,
@@ -112,14 +112,14 @@ async def get_compiled_synctex(
     project_id: str,
     history_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> FileResponse:
-    project_service = LatexProjectService(db)
+    project_service = LatexProjectService(dataservice=dataservice)
     project = await project_service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
 
-    compile_service = LatexCompileService(db)
+    compile_service = LatexCompileService(dataservice=dataservice)
     synctex_path = await compile_service.get_history_synctex(
         history_id=history_id,
         project_id=project_id,

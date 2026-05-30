@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import shlex
-from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -95,9 +94,9 @@ class _FakeLatexRouterService:
     )
     files = {"main.tex": "\\section{Current}\n"}
 
-    def __init__(self, db: object, *, autocommit: bool = True) -> None:
-        _ = db
-        _ = autocommit
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        _ = args
+        _ = kwargs
 
     async def get_owned(self, project_id: str, user_id: str) -> object | None:
         if project_id == "project-1" and user_id == "user-1":
@@ -374,15 +373,9 @@ def _reset_fake_router_service() -> None:
     _FakeLatexRouterService.files = {"main.tex": "\\section{Current}\n"}
 
 
-def _patch_latex_files_dataservice(monkeypatch: pytest.MonkeyPatch) -> None:
-    @asynccontextmanager
-    async def _fake_dataservice_client():
-        yield _FakePrismReviewService(object())
-
-    monkeypatch.setattr(
-        "src.gateway.routers.latex_files.dataservice_client",
-        _fake_dataservice_client,
-    )
+def _patch_latex_files_dataservice(monkeypatch: pytest.MonkeyPatch) -> _FakePrismReviewService:
+    _ = monkeypatch
+    return _FakePrismReviewService(object())
 
 
 def test_get_default_latex_engine_uses_env_value(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -564,7 +557,7 @@ def test_project_service_resolve_blob_file_returns_path_and_media_type(
     blob_file.parent.mkdir(parents=True, exist_ok=True)
     blob_file.write_bytes(b"\x89PNG\r\n\x1a\n")
 
-    service = LatexProjectService(AsyncMock())
+    service = LatexProjectService()
     resolved_path, media_type = service.resolve_blob_file(project, "figures/plot.png")
 
     assert resolved_path == blob_file.resolve()
@@ -579,7 +572,7 @@ def test_project_service_resolve_blob_file_raises_for_missing_file(
     project = SimpleNamespace(id="proj-blob-missing")
     (tmp_path / project.id).mkdir(parents=True, exist_ok=True)
 
-    service = LatexProjectService(AsyncMock())
+    service = LatexProjectService()
     with pytest.raises(FileNotFoundError, match="missing.pdf"):
         service.resolve_blob_file(project, "missing.pdf")
 
@@ -652,18 +645,13 @@ async def test_compile_project_can_skip_history_record(
         pdf_path = mounted_project_dir / "main.pdf"
         pdf_path.write_bytes(b"%PDF-1.4\n")
         return 0, "", "", pdf_path
-
-    db = AsyncMock()
-    service = LatexCompileService(db)
+    service = LatexCompileService()
     monkeypatch.setattr(LatexCompileService, "_run_compile_in_docker", _fake_compile)
 
     payload = await service.compile_project(project, engine="xelatex", record_history=False)
     assert payload["ok"] is True
     assert payload["history_id"] is None
     assert payload["pdf_endpoint"] is None
-    db.add.assert_not_called()
-    db.commit.assert_not_awaited()
-    db.refresh.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -692,7 +680,7 @@ async def test_compile_project_treats_nonzero_exit_as_failure_even_if_pdf_exists
         pdf_path.write_bytes(b"%PDF-1.4\npartial output")
         return 1, "Undefined control sequence", "", pdf_path
 
-    service = LatexCompileService(AsyncMock())
+    service = LatexCompileService()
     monkeypatch.setattr(LatexCompileService, "_run_compile_in_docker", _fake_compile)
 
     payload = await service.compile_project(project, engine="xelatex", record_history=False)
@@ -750,7 +738,7 @@ async def test_find_existing_project_scopes_by_workspace_and_owner() -> None:
             return matched_project
 
     client = _FakeLatexClient()
-    service = WorkspaceLatexProjectService(AsyncMock(), dataservice=client)  # type: ignore[arg-type]
+    service = WorkspaceLatexProjectService(dataservice=client)  # type: ignore[arg-type]
     found = await service._find_existing_project(
         "workspace-1",
         owner_user_id="user-1",
@@ -777,7 +765,7 @@ def test_latex_default_project_files_use_refs_bib(tmp_path) -> None:
 
 def test_workspace_main_tex_uses_refs_bibliography() -> None:
     """Workspace-generated manuscript templates point at refs.bib."""
-    service = WorkspaceLatexProjectService(AsyncMock())
+    service = WorkspaceLatexProjectService()
 
     main_tex = service._build_sci_main_tex(
         paper_title="Federated LLM Fine-Tuning",
@@ -794,11 +782,8 @@ async def test_bridge_write_records_managed_change_as_feature_proposal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _FakePrismReviewService.reset()
-    service = WorkspaceLatexProjectService(
-        AsyncMock(),
-        dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
+    service = WorkspaceLatexProjectService(dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
     )
-    service.db.flush = AsyncMock()
     fake_files = _FakeLatexProjectFiles({"main.tex": "old"})
     service.project_service = fake_files  # type: ignore[assignment]
     metadata = {
@@ -844,11 +829,8 @@ async def test_bridge_write_seeds_missing_file_and_clears_stale_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _FakePrismReviewService.reset()
-    service = WorkspaceLatexProjectService(
-        AsyncMock(),
-        dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
+    service = WorkspaceLatexProjectService(dataservice=_FakePrismReviewService(object()),  # type: ignore[arg-type]
     )
-    service.db.flush = AsyncMock()
     fake_files = _FakeLatexProjectFiles({})
     service.project_service = fake_files  # type: ignore[assignment]
     metadata = {
@@ -883,14 +865,14 @@ async def test_file_change_preview_and_apply_use_signature_guard(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    _patch_latex_files_dataservice(monkeypatch)
+    dataservice = _patch_latex_files_dataservice(monkeypatch)
     user = SimpleNamespace(id="user-1")
 
     preview = await preview_project_file_change(
         "project-1",
         LatexFileChangeActionRequest(logical_key="project:main"),
         current_user=user,
-        db=object(),
+        dataservice=dataservice,
     )
 
     assert preview.path == "main.tex"
@@ -904,7 +886,7 @@ async def test_file_change_preview_and_apply_use_signature_guard(
             change_signature=preview.change_signature,
         ),
         current_user=user,
-        db=object(),
+        dataservice=dataservice,
     )
 
     assert applied.path == "main.tex"
@@ -926,14 +908,14 @@ async def test_file_change_apply_rejects_stale_preview_signature(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    _patch_latex_files_dataservice(monkeypatch)
+    dataservice = _patch_latex_files_dataservice(monkeypatch)
     user = SimpleNamespace(id="user-1")
 
     preview = await preview_project_file_change(
         "project-1",
         LatexFileChangeActionRequest(logical_key="project:main"),
         current_user=user,
-        db=object(),
+        dataservice=dataservice,
     )
     _FakeLatexRouterService.files["main.tex"] = "\\section{User edit}\n"
 
@@ -945,7 +927,7 @@ async def test_file_change_apply_rejects_stale_preview_signature(
                 change_signature=preview.change_signature,
             ),
             current_user=user,
-            db=object(),
+            dataservice=dataservice,
         )
 
     assert exc_info.value.status_code == 409
@@ -961,13 +943,13 @@ async def test_file_change_discard_protects_current_content(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    _patch_latex_files_dataservice(monkeypatch)
+    dataservice = _patch_latex_files_dataservice(monkeypatch)
 
     response = await discard_project_file_change(
         "project-1",
         LatexFileChangeActionRequest(logical_key="project:main"),
         current_user=SimpleNamespace(id="user-1"),
-        db=AsyncMock(),
+        dataservice=dataservice,
     )
 
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]
@@ -992,13 +974,13 @@ async def test_file_change_revert_restores_previous_content(
         "src.gateway.routers.latex_files.LatexProjectService",
         _FakeLatexRouterService,
     )
-    _patch_latex_files_dataservice(monkeypatch)
+    dataservice = _patch_latex_files_dataservice(monkeypatch)
     user = SimpleNamespace(id="user-1")
     preview = await preview_project_file_change(
         "project-1",
         LatexFileChangeActionRequest(logical_key="project:main"),
         current_user=user,
-        db=object(),
+        dataservice=dataservice,
     )
     applied = await apply_project_file_change(
         "project-1",
@@ -1007,7 +989,7 @@ async def test_file_change_revert_restores_previous_content(
             change_signature=preview.change_signature,
         ),
         current_user=user,
-        db=object(),
+        dataservice=dataservice,
     )
 
     response = await revert_project_file_change(
@@ -1017,7 +999,7 @@ async def test_file_change_revert_restores_previous_content(
             revert_signature=applied.undo.revert_signature,
         ),
         current_user=user,
-        db=object(),
+        dataservice=dataservice,
     )
 
     metadata = _FakeLatexRouterService.project.llm_config["metadata"]

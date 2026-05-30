@@ -11,14 +11,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps.core import get_db
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex import router
 
 
 class _FakeLatexProjectService:
     save_uploads_calls = 0
 
-    def __init__(self, _db) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         pass
 
     async def get_owned(self, project_id: str, user_id: str):
@@ -39,11 +39,11 @@ def app():
     async def _get_current_user():
         return SimpleNamespace(id="user-1")
 
-    async def _get_db():
-        yield AsyncMock()
+    async def _get_dataservice_client():
+        return AsyncMock()
 
     app.dependency_overrides[get_current_user] = _get_current_user
-    app.dependency_overrides[get_db] = _get_db
+    app.dependency_overrides[get_dataservice_client] = _get_dataservice_client
     return app
 
 
@@ -59,7 +59,7 @@ def test_latex_upload_rejects_too_many_files(client):
         2,
     ):
         response = client.post(
-            "/api/latex/projects/proj-1/upload",
+            "/api/prism/latex-adapter/projects/proj-1/upload",
             files=[
                 ("files", ("a.tex", io.BytesIO(b"a"), "text/plain")),
                 ("files", ("b.tex", io.BytesIO(b"b"), "text/plain")),
@@ -82,7 +82,7 @@ def test_latex_upload_rejects_oversized_total_batch(client):
         8,
     ):
         response = client.post(
-            "/api/latex/projects/proj-1/upload",
+            "/api/prism/latex-adapter/projects/proj-1/upload",
             files=[
                 ("files", ("a.tex", io.BytesIO(b"12345"), "text/plain")),
                 ("files", ("b.tex", io.BytesIO(b"6789"), "text/plain")),
@@ -101,7 +101,7 @@ def test_latex_upload_rejects_single_file_over_limit(client):
         4,
     ):
         response = client.post(
-            "/api/latex/projects/proj-1/upload",
+            "/api/prism/latex-adapter/projects/proj-1/upload",
             files=[
                 ("files", ("a.tex", io.BytesIO(b"12345"), "text/plain")),
             ],

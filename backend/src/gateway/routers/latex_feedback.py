@@ -6,7 +6,6 @@ import hmac
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.gateway.auth_dependencies import get_current_user
@@ -27,7 +26,8 @@ from src.gateway.contracts.latex import (
     LatexFeedbackSaveRequest,
     get_default_latex_engine,
 )
-from src.gateway.deps.core import get_db
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
     _build_rewrite_candidate,
     _compute_candidate_signature,
@@ -53,16 +53,16 @@ from src.services.latex.rewrite_guard import (
     validate_rewrite_segment,
 )
 
-router = APIRouter(prefix="/latex", tags=["latex"])
+router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 
 
 @router.get("/projects/{project_id}/feedback", response_model=LatexFeedbackListResponse)
 async def get_project_feedback(
     project_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackListResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -82,9 +82,9 @@ async def save_project_feedback(
     project_id: str,
     request: LatexFeedbackSaveRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -101,9 +101,9 @@ async def preview_project_feedback_rewrite(
     project_id: str,
     request: LatexFeedbackRewriteRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewritePreviewResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -150,9 +150,9 @@ async def apply_project_feedback_rewrite(
     project_id: str,
     request: LatexFeedbackRewriteApplyRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewriteApplyResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -259,7 +259,7 @@ async def apply_project_feedback_rewrite(
 
     compile_error: str | None = None
     if _rewrite_compile_guard_enabled():
-        compile_service = LatexCompileService(db)
+        compile_service = LatexCompileService(dataservice=dataservice)
         compile_errors: list[str] = []
         ordered_engines: list[str] = [get_default_latex_engine()]
         for engine in get_supported_latex_engines():
@@ -356,9 +356,9 @@ async def revert_project_feedback_rewrite(
     project_id: str,
     request: LatexFeedbackRewriteRevertRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewriteRevertResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -456,9 +456,9 @@ async def rewrite_project_feedback(
     project_id: str,
     request: LatexFeedbackRewriteRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackRewriteResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -539,9 +539,9 @@ async def map_project_feedback_selection(
     project_id: str,
     request: LatexFeedbackMapRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFeedbackMapResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -564,7 +564,7 @@ async def map_project_feedback_selection(
             x = float(first_rect.get("x") or 0.0) + width / 2.0
             y = float(first_rect.get("y") or 0.0) + height / 2.0
             try:
-                compile_service = LatexCompileService(db)
+                compile_service = LatexCompileService(dataservice=dataservice)
                 mapped = await compile_service.map_pdf_point_to_source(
                     history_id=request.history_id,
                     project_id=project_id,
@@ -649,7 +649,7 @@ async def map_project_feedback_selection(
                 source_content,
                 resolved.start,
             )
-            compile_service = LatexCompileService(db)
+            compile_service = LatexCompileService(dataservice=dataservice)
             mapped_pdf = await compile_service.map_source_line_to_pdf(
                 history_id=request.history_id,
                 project_id=project_id,

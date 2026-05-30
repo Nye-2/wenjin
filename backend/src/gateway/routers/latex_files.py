@@ -7,7 +7,6 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, Response
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import User
 from src.dataservice_client.contracts.prism import PrismProtectedScopeUpsertPayload
@@ -16,7 +15,6 @@ from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeRejectedPayload,
 )
 from src.dataservice_client.contracts.review import ReviewItemPayload
-from src.dataservice_client.provider import dataservice_client
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.contracts.latex import (
     LatexCreateFolderRequest,
@@ -37,7 +35,8 @@ from src.gateway.contracts.latex import (
     LatexTreeResponse,
     LatexWriteFileRequest,
 )
-from src.gateway.deps.core import get_db
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
     _compute_file_change_revert_signature,
     _compute_file_change_signature,
@@ -50,7 +49,7 @@ from src.gateway.routers.latex_helpers import (
 from src.services.latex import LatexProjectService
 from src.services.latex.rewrite_diff import compute_content_hash
 
-router = APIRouter(prefix="/latex", tags=["latex"])
+router = APIRouter(prefix="/prism/latex-adapter", tags=["latex"])
 
 PENDING_PRISM_FILE_CHANGE_STATUSES = ("pending", "accepted")
 APPLIED_PRISM_FILE_CHANGE_STATUSES = ("applied",)
@@ -91,21 +90,19 @@ def _review_item_path(item: object, payload: dict[str, object]) -> str:
 
 
 async def _get_prism_file_change_or_404(
-    db: AsyncSession,
+    dataservice: AsyncDataServiceClient,
     project: object,
     *,
     logical_key: str,
     statuses: tuple[str, ...],
     not_found_detail: str = "File change not found",
 ) -> ReviewItemPayload:
-    _ = db
-    async with dataservice_client() as client:
-        review_item = await client.find_prism_file_change(
-            workspace_id=_project_workspace_id(project),
-            latex_project_id=str(project.id),
-            logical_key=logical_key,
-            statuses=list(statuses),
-        )
+    review_item = await dataservice.find_prism_file_change(
+        workspace_id=_project_workspace_id(project),
+        latex_project_id=str(project.id),
+        logical_key=logical_key,
+        statuses=list(statuses),
+    )
     if review_item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=not_found_detail)
     return review_item
@@ -115,9 +112,9 @@ async def _get_prism_file_change_or_404(
 async def get_project_tree(
     project_id: str,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexTreeResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -136,9 +133,9 @@ async def read_project_file(
     project_id: str,
     path: str = Query(...),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileContentResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -156,9 +153,9 @@ async def write_project_file(
     project_id: str,
     request: LatexWriteFileRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -174,9 +171,9 @@ async def save_project_file_order(
     project_id: str,
     request: LatexFileOrderRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -192,15 +189,15 @@ async def preview_project_file_change(
     project_id: str,
     request: LatexFileChangeActionRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangePreviewResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
 
     review_item = await _get_prism_file_change_or_404(
-        db,
+        dataservice,
         project,
         logical_key=request.logical_key,
         statuses=PENDING_PRISM_FILE_CHANGE_STATUSES,
@@ -234,15 +231,15 @@ async def apply_project_file_change(
     project_id: str,
     request: LatexFileChangeApplyRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangeApplyResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
 
     review_item = await _get_prism_file_change_or_404(
-        db,
+        dataservice,
         project,
         logical_key=request.logical_key,
         statuses=PENDING_PRISM_FILE_CHANGE_STATUSES,
@@ -300,18 +297,17 @@ async def apply_project_file_change(
     )
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
-    async with dataservice_client() as client:
-        await client.mark_prism_file_change_applied(
-            review_item.id,
-            PrismFileChangeAppliedPayload(
-                previous_content=current_content,
-                previous_hash=previous_hash,
-                applied_hash=applied_hash,
-                revert_signature=revert_signature,
-            ),
-        )
+    await dataservice.mark_prism_file_change_applied(
+        review_item.id,
+        PrismFileChangeAppliedPayload(
+            previous_content=current_content,
+            previous_hash=previous_hash,
+            applied_hash=applied_hash,
+            revert_signature=revert_signature,
+        ),
+    )
     await _record_latex_reference_usage(
-        db,
+        dataservice,
         workspace_id=str(llm_config.get("workspace_id") or ""),
         latex_project_id=str(project.id),
         path=path,
@@ -343,15 +339,15 @@ async def discard_project_file_change(
     project_id: str,
     request: LatexFileChangeActionRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangeDiscardResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
 
     review_item = await _get_prism_file_change_or_404(
-        db,
+        dataservice,
         project,
         logical_key=request.logical_key,
         statuses=PENDING_PRISM_FILE_CHANGE_STATUSES,
@@ -376,22 +372,21 @@ async def discard_project_file_change(
     }
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
-    async with dataservice_client() as client:
-        await client.mark_prism_file_change_rejected(
-            review_item.id,
-            PrismFileChangeRejectedPayload(reason="user_protected"),
+    await dataservice.mark_prism_file_change_rejected(
+        review_item.id,
+        PrismFileChangeRejectedPayload(reason="user_protected"),
+    )
+    protected = await dataservice.upsert_latex_prism_protected_scope(
+        PrismProtectedScopeUpsertPayload(
+            workspace_id=_project_workspace_id(project),
+            latex_project_id=str(project.id),
+            file_path=path,
+            section_key=request.logical_key,
+            scope="section",
+            reason="user_protected",
+            source="review_reject",
         )
-        protected = await client.upsert_latex_prism_protected_scope(
-            PrismProtectedScopeUpsertPayload(
-                workspace_id=_project_workspace_id(project),
-                latex_project_id=str(project.id),
-                file_path=path,
-                section_key=request.logical_key,
-                scope="section",
-                reason="user_protected",
-                source="review_reject",
-            )
-        )
+    )
     if protected is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -413,15 +408,15 @@ async def revert_project_file_change(
     project_id: str,
     request: LatexFileChangeRevertRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangeRevertResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
 
     review_item = await _get_prism_file_change_or_404(
-        db,
+        dataservice,
         project,
         logical_key=request.logical_key,
         statuses=APPLIED_PRISM_FILE_CHANGE_STATUSES,
@@ -482,8 +477,7 @@ async def revert_project_file_change(
     }
     llm_config["metadata"] = metadata
     await service.update_llm_config(project, llm_config)
-    async with dataservice_client() as client:
-        await client.mark_prism_file_change_reverted(review_item.id)
+    await dataservice.mark_prism_file_change_reverted(review_item.id)
     return LatexFileChangeRevertResponse(
         ok=True,
         reverted=True,
@@ -501,9 +495,9 @@ async def protect_project_section(
     project_id: str,
     request: LatexProtectedSectionRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProtectedSectionResponse:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -524,18 +518,17 @@ async def protect_project_section(
 
     section_key = str(request.section_key or "").strip()
     reason = request.reason or "user_manual_protect"
-    async with dataservice_client() as client:
-        protected = await client.upsert_latex_prism_protected_scope(
-            PrismProtectedScopeUpsertPayload(
-                workspace_id=workspace_id,
-                latex_project_id=str(project.id),
-                file_path=request.path,
-                section_key=section_key,
-                scope=request.scope,
-                reason=reason,
-                source="manual_edit",
-            )
+    protected = await dataservice.upsert_latex_prism_protected_scope(
+        PrismProtectedScopeUpsertPayload(
+            workspace_id=workspace_id,
+            latex_project_id=str(project.id),
+            file_path=request.path,
+            section_key=section_key,
+            scope=request.scope,
+            reason=reason,
+            source="manual_edit",
         )
+    )
     if protected is None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -556,9 +549,9 @@ async def create_project_folder(
     project_id: str,
     request: LatexCreateFolderRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -574,9 +567,9 @@ async def rename_project_path(
     project_id: str,
     request: LatexRenamePathRequest,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -600,9 +593,9 @@ async def delete_project_path(
     project_id: str,
     path: str = Query(...),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()
@@ -620,9 +613,9 @@ async def read_project_blob(
     project_id: str,
     path: str = Query(...),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> Response:
-    service = LatexProjectService(db)
+    service = LatexProjectService(dataservice=dataservice)
     project = await service.get_owned(project_id, str(current_user.id))
     if project is None:
         raise _not_found()

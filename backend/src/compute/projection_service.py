@@ -818,7 +818,6 @@ class ComputeProjectionService:
 
             try:
                 surface = await WorkspacePrismService(
-                    self.db,
                     dataservice=client,
                 ).get_surface_projection(
                     str(execution.workspace_id),

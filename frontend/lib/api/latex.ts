@@ -101,19 +101,19 @@ function collectFolderHintsFromEntries(entries: Array<{ relativePath: string }>)
 export async function listLatexProjects(params?: {
   include_trashed?: boolean;
 }): Promise<{ projects: LatexProject[] }> {
-  const response = await apiClient.get("/latex/projects", { params });
+  const response = await apiClient.get("/prism/latex-adapter/projects", { params });
   return response.data;
 }
 
 export async function createLatexProject(
   payload: LatexProjectCreate,
 ): Promise<LatexProject> {
-  const response = await apiClient.post("/latex/projects", payload);
+  const response = await apiClient.post("/prism/latex-adapter/projects", payload);
   return response.data;
 }
 
 export async function getLatexProject(projectId: string): Promise<LatexProject> {
-  const response = await apiClient.get(`/latex/projects/${projectId}`);
+  const response = await apiClient.get(`/prism/latex-adapter/projects/${projectId}`);
   return response.data;
 }
 
@@ -127,22 +127,22 @@ export async function updateLatexProject(
     file_order?: Record<string, string[]>;
   },
 ): Promise<LatexProject> {
-  const response = await apiClient.patch(`/latex/projects/${projectId}`, payload);
+  const response = await apiClient.patch(`/prism/latex-adapter/projects/${projectId}`, payload);
   return response.data;
 }
 
 export async function deleteLatexProject(projectId: string): Promise<void> {
-  await apiClient.delete(`/latex/projects/${projectId}`);
+  await apiClient.delete(`/prism/latex-adapter/projects/${projectId}`);
 }
 
 export async function permanentlyDeleteLatexProject(projectId: string): Promise<void> {
-  await apiClient.delete(`/latex/projects/${projectId}/permanent`);
+  await apiClient.delete(`/prism/latex-adapter/projects/${projectId}/permanent`);
 }
 
 export async function getLatexProjectTree(
   projectId: string,
 ): Promise<{ items: LatexFileItem[]; file_order: Record<string, string[]> }> {
-  const response = await apiClient.get(`/latex/projects/${projectId}/tree`);
+  const response = await apiClient.get(`/prism/latex-adapter/projects/${projectId}/tree`);
   return response.data;
 }
 
@@ -150,7 +150,7 @@ export async function readLatexFile(
   projectId: string,
   path: string,
 ): Promise<{ content: string }> {
-  const response = await apiClient.get(`/latex/projects/${projectId}/file`, {
+  const response = await apiClient.get(`/prism/latex-adapter/projects/${projectId}/file`, {
     params: { path },
   });
   return response.data;
@@ -161,14 +161,14 @@ export async function writeLatexFile(
   path: string,
   content: string,
 ): Promise<void> {
-  await apiClient.put(`/latex/projects/${projectId}/file`, { path, content });
+  await apiClient.put(`/prism/latex-adapter/projects/${projectId}/file`, { path, content });
 }
 
 export async function createLatexFolder(
   projectId: string,
   path: string,
 ): Promise<{ ok: boolean; path: string }> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/folder`, { path });
+  const response = await apiClient.post(`/prism/latex-adapter/projects/${projectId}/folder`, { path });
   return response.data;
 }
 
@@ -177,7 +177,7 @@ export async function renameLatexPath(
   fromPath: string,
   toPath: string,
 ): Promise<{ ok: boolean; path: string }> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/rename`, {
+  const response = await apiClient.post(`/prism/latex-adapter/projects/${projectId}/rename`, {
     from: fromPath,
     to: toPath,
   });
@@ -188,7 +188,7 @@ export async function deleteLatexPath(
   projectId: string,
   path: string,
 ): Promise<{ ok: boolean; path: string }> {
-  const response = await apiClient.delete(`/latex/projects/${projectId}/path`, {
+  const response = await apiClient.delete(`/prism/latex-adapter/projects/${projectId}/path`, {
     params: { path },
   });
   return response.data;
@@ -199,7 +199,7 @@ export async function saveLatexFileOrder(
   folder: string,
   order: string[],
 ): Promise<void> {
-  await apiClient.post(`/latex/projects/${projectId}/file-order`, {
+  await apiClient.post(`/prism/latex-adapter/projects/${projectId}/file-order`, {
     folder,
     order,
   });
@@ -226,7 +226,7 @@ export async function uploadLatexFiles(
     }
   }
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/upload`,
+    `/prism/latex-adapter/projects/${projectId}/upload`,
     form,
     {
       headers: { "Content-Type": "multipart/form-data" },
@@ -247,7 +247,7 @@ export async function uploadLatexArchive(
   }
   form.append("strip_root", "true");
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/upload-archive`,
+    `/prism/latex-adapter/projects/${projectId}/upload-archive`,
     form,
     {
       headers: { "Content-Type": "multipart/form-data" },
@@ -263,7 +263,7 @@ export async function compileLatexProject(
     engine: LatexCompileEngine;
   },
 ): Promise<LatexCompileResult> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/compile`, payload);
+  const response = await apiClient.post(`/prism/latex-adapter/projects/${projectId}/compile`, payload);
   return response.data;
 }
 
@@ -272,7 +272,7 @@ export async function fetchLatexCompiledPdfBlob(
   historyId: string,
 ): Promise<Blob> {
   const response = await authorizedFetch(
-    `/api/latex/projects/${projectId}/compile/${historyId}/pdf`,
+    `/api/prism/latex-adapter/projects/${projectId}/compile/${historyId}/pdf`,
   );
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "Failed to load compiled PDF"));
@@ -285,7 +285,7 @@ export async function fetchLatexCompiledSynctexBlob(
   historyId: string,
 ): Promise<Blob> {
   const response = await authorizedFetch(
-    `/api/latex/projects/${projectId}/compile/${historyId}/synctex`,
+    `/api/prism/latex-adapter/projects/${projectId}/compile/${historyId}/synctex`,
   );
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "Failed to load synctex file"));
@@ -298,7 +298,7 @@ export async function fetchLatexProjectBlob(
   path: string,
 ): Promise<Blob> {
   const response = await authorizedFetch(
-    `/api/latex/projects/${projectId}/blob?path=${encodeURIComponent(path)}`,
+    `/api/prism/latex-adapter/projects/${projectId}/blob?path=${encodeURIComponent(path)}`,
   );
   if (!response.ok) {
     throw new Error(await readErrorMessage(response, "Failed to load project blob"));
@@ -307,7 +307,7 @@ export async function fetchLatexProjectBlob(
 }
 
 export async function listLatexTemplates(): Promise<{ templates: LatexTemplate[] }> {
-  const response = await apiClient.get("/latex/templates");
+  const response = await apiClient.get("/prism/latex-adapter/templates");
   return response.data;
 }
 
@@ -318,7 +318,7 @@ export async function previewLatexFileChange(
   },
 ): Promise<LatexFileChangePreviewResponse> {
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/file-changes/preview`,
+    `/prism/latex-adapter/projects/${projectId}/file-changes/preview`,
     payload,
   );
   return response.data;
@@ -332,7 +332,7 @@ export async function applyLatexFileChange(
   },
 ): Promise<LatexFileChangeApplyResponse> {
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/file-changes/apply`,
+    `/prism/latex-adapter/projects/${projectId}/file-changes/apply`,
     payload,
   );
   return response.data;
@@ -345,7 +345,7 @@ export async function discardLatexFileChange(
   },
 ): Promise<LatexFileChangeDiscardResponse> {
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/file-changes/discard`,
+    `/prism/latex-adapter/projects/${projectId}/file-changes/discard`,
     payload,
   );
   return response.data;
@@ -359,7 +359,7 @@ export async function revertLatexFileChange(
   },
 ): Promise<LatexFileChangeRevertResponse> {
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/file-changes/revert`,
+    `/prism/latex-adapter/projects/${projectId}/file-changes/revert`,
     payload,
   );
   return response.data;
@@ -375,7 +375,7 @@ export async function protectLatexSection(
   },
 ): Promise<LatexProtectedSectionResponse> {
   const response = await apiClient.post(
-    `/latex/projects/${projectId}/protected-sections`,
+    `/prism/latex-adapter/projects/${projectId}/protected-sections`,
     payload,
   );
   return response.data;
@@ -384,7 +384,7 @@ export async function protectLatexSection(
 export async function getLatexProjectFeedback(
   projectId: string,
 ): Promise<{ ok: boolean; items: LatexFeedbackItem[] }> {
-  const response = await apiClient.get(`/latex/projects/${projectId}/feedback`);
+  const response = await apiClient.get(`/prism/latex-adapter/projects/${projectId}/feedback`);
   return response.data;
 }
 
@@ -392,7 +392,7 @@ export async function saveLatexProjectFeedback(
   projectId: string,
   items: LatexFeedbackItem[],
 ): Promise<{ ok: boolean }> {
-  const response = await apiClient.put(`/latex/projects/${projectId}/feedback`, { items });
+  const response = await apiClient.put(`/prism/latex-adapter/projects/${projectId}/feedback`, { items });
   return response.data;
 }
 
@@ -417,7 +417,7 @@ export async function previewLatexFeedbackRewrite(
     file_content?: string | null;
   },
 ): Promise<LatexFeedbackRewritePreviewResponse> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/rewrite/preview`, payload);
+  const response = await apiClient.post(`/prism/latex-adapter/projects/${projectId}/feedback/rewrite/preview`, payload);
   return response.data;
 }
 
@@ -434,7 +434,7 @@ export async function applyLatexFeedbackRewrite(
     base_range_hash: string;
   },
 ): Promise<LatexFeedbackRewriteApplyResponse> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/rewrite/apply`, payload);
+  const response = await apiClient.post(`/prism/latex-adapter/projects/${projectId}/feedback/rewrite/apply`, payload);
   return response.data;
 }
 
@@ -451,7 +451,7 @@ export async function revertLatexFeedbackRewrite(
     revert_signature: string;
   },
 ): Promise<LatexFeedbackRewriteRevertResponse> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/rewrite/revert`, payload);
+  const response = await apiClient.post(`/prism/latex-adapter/projects/${projectId}/feedback/rewrite/revert`, payload);
   return response.data;
 }
 
@@ -480,6 +480,6 @@ export async function mapLatexFeedbackSelection(
     source?: "tex" | "pdf";
   },
 ): Promise<LatexFeedbackMapResponse> {
-  const response = await apiClient.post(`/latex/projects/${projectId}/feedback/map`, payload);
+  const response = await apiClient.post(`/prism/latex-adapter/projects/${projectId}/feedback/map`, payload);
   return response.data;
 }

@@ -140,7 +140,7 @@ async def ensure_workspace_prism_project(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: Any = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspacePrismEnsureResponse:
     """Ensure a workspace-linked WenjinPrism project exists."""
     workspace = await get_owned_workspace(
@@ -148,7 +148,7 @@ async def ensure_workspace_prism_project(
         current_user=current_user,
         workspace_service=workspace_service,
     )
-    linked_project = await WorkspacePrismService(db).ensure_primary_project(
+    linked_project = await WorkspacePrismService(dataservice=dataservice).ensure_primary_project(
         workspace_id=workspace_id,
         user_id=str(current_user.id),
         project_name=str(workspace.name or ""),
@@ -169,7 +169,7 @@ async def get_workspace_prism_surface(
     workspace_id: str,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: Any = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspacePrismSurfaceResponse:
     """Return the workspace-owned WenjinPrism surface projection."""
     await get_owned_workspace(
@@ -178,7 +178,7 @@ async def get_workspace_prism_surface(
         workspace_service=workspace_service,
     )
     try:
-        projection = await WorkspacePrismService(db).get_surface_projection(
+        projection = await WorkspacePrismService(dataservice=dataservice).get_surface_projection(
             workspace_id,
             user_id=str(current_user.id),
         )

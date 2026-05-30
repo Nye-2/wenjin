@@ -533,7 +533,7 @@ async def test_get_primary_project_prefers_explicit_workspace_binding(
     )
     await db.commit()
 
-    project = await WorkspacePrismService(db, dataservice=_DbBackedDataServiceClient(db)).get_primary_project(
+    project = await WorkspacePrismService(dataservice=_DbBackedDataServiceClient(db)).get_primary_project(
         "ws-1",
         user_id=user.id,
     )
@@ -558,7 +558,7 @@ async def test_get_primary_project_ignores_legacy_llm_config_binding(
     db.add(legacy)
     await db.commit()
 
-    project = await WorkspacePrismService(db, dataservice=_DbBackedDataServiceClient(db)).get_primary_project(
+    project = await WorkspacePrismService(dataservice=_DbBackedDataServiceClient(db)).get_primary_project(
         "ws-2",
         user_id=user.id,
     )
@@ -583,7 +583,7 @@ async def test_ensure_primary_project_creates_explicit_binding_without_promoting
     db.add(legacy)
     await db.commit()
 
-    project = await WorkspacePrismService(db, dataservice=_DbBackedDataServiceClient(db)).ensure_primary_project(
+    project = await WorkspacePrismService(dataservice=_DbBackedDataServiceClient(db)).ensure_primary_project(
         workspace.id,
         user_id=user.id,
         project_name="Workspace 1",
@@ -617,7 +617,7 @@ async def test_workspace_latex_project_service_finds_explicit_binding_without_le
     db.add(explicit)
     await db.commit()
 
-    service = WorkspaceLatexProjectService(db, dataservice=_DbBackedDataServiceClient(db))
+    service = WorkspaceLatexProjectService(dataservice=_DbBackedDataServiceClient(db))
     service.sync_project = AsyncMock(side_effect=AssertionError("unexpected sync"))  # type: ignore[method-assign]
 
     project = await service.ensure_workspace_project(workspace_id=workspace.id)
@@ -914,7 +914,7 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     )
     await db.commit()
 
-    projection = await WorkspacePrismService(db, dataservice=_DbBackedDataServiceClient(db)).get_surface_projection(
+    projection = await WorkspacePrismService(dataservice=_DbBackedDataServiceClient(db)).get_surface_projection(
         workspace.id,
         user_id=user.id,
     )
@@ -952,7 +952,7 @@ async def test_surface_projection_includes_review_provenance_and_protection(
         "recent_activity_count": 2,
     }
 
-    launch_context = await WorkspacePrismService(db, dataservice=_DbBackedDataServiceClient(db)).get_launch_context_projection(
+    launch_context = await WorkspacePrismService(dataservice=_DbBackedDataServiceClient(db)).get_launch_context_projection(
         workspace.id,
         user_id=user.id,
     )
@@ -1024,7 +1024,7 @@ async def test_binding_integrity_report_flags_missing_and_duplicate_primary_proj
     )
     await db.commit()
 
-    report = await WorkspacePrismService(db, dataservice=_DbBackedDataServiceClient(db)).get_binding_integrity_report(
+    report = await WorkspacePrismService(dataservice=_DbBackedDataServiceClient(db)).get_binding_integrity_report(
         user_id=user.id,
     )
 

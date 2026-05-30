@@ -1108,20 +1108,19 @@ class SourceBibliographyService:
         bibtex = await self.build_bibtex(workspace_id=workspace_id, scope=scope)
         async with _managed_dataservice_client(self._dataservice) as client:
             workspace = await client.get_workspace(workspace_id)
-        if workspace is None:
-            raise ValueError(f"Workspace not found: {workspace_id}")
-        if self.db is None:
-            raise ValueError("LaTeX bibliography sync requires a request database session until LaTeX is migrated.")
+            if workspace is None:
+                raise ValueError(f"Workspace not found: {workspace_id}")
 
-        project = await WorkspaceLatexProjectService(self.db).ensure_workspace_project(
-            workspace_id=workspace_id,
-            project_name=workspace.name,
-        )
-        project_service = LatexProjectService(self.db)
-        await project_service.write_text_file(project, "refs.bib", bibtex["content"])
-        await self._ensure_main_tex_bibliography(project_service, project)
+            project = await WorkspaceLatexProjectService(
+                dataservice=client,
+            ).ensure_workspace_project(
+                workspace_id=workspace_id,
+                project_name=workspace.name,
+            )
+            project_service = LatexProjectService(dataservice=client)
+            await project_service.write_text_file(project, "refs.bib", bibtex["content"])
+            await self._ensure_main_tex_bibliography(project_service, project)
 
-        async with _managed_dataservice_client(self._dataservice) as client:
             await client.create_source_bibliography_snapshot(
                 SourceBibliographySnapshotCreatePayload(
                     workspace_id=workspace_id,

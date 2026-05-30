@@ -339,7 +339,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
             "section_file": "sections/introduction.tex",
             "section_map": {"introduction": "sections/introduction.tex"},
             "compile_status": "success",
-            "pdf_endpoint": "/api/latex/projects/latex-project-1/compile/history-1/pdf",
+            "pdf_endpoint": "/api/prism/latex-adapter/projects/latex-project-1/compile/history-1/pdf",
             "page_count": 8,
             "file_changes": [
                 {

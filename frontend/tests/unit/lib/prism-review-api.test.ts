@@ -33,7 +33,7 @@ describe("prism review file-change api wrappers", () => {
     });
 
     expect(mockPost).toHaveBeenCalledWith(
-      "/latex/projects/latex-1/file-changes/preview",
+      "/prism/latex-adapter/projects/latex-1/file-changes/preview",
       { logical_key: "section:introduction" }
     );
   });
@@ -49,7 +49,7 @@ describe("prism review file-change api wrappers", () => {
     });
 
     expect(mockPost).toHaveBeenCalledWith(
-      "/latex/projects/latex-1/file-changes/apply",
+      "/prism/latex-adapter/projects/latex-1/file-changes/apply",
       {
         logical_key: "section:introduction",
         change_signature: "a".repeat(64),
@@ -67,7 +67,7 @@ describe("prism review file-change api wrappers", () => {
     });
 
     expect(mockPost).toHaveBeenCalledWith(
-      "/latex/projects/latex-1/file-changes/discard",
+      "/prism/latex-adapter/projects/latex-1/file-changes/discard",
       { logical_key: "section:introduction" }
     );
   });
@@ -83,7 +83,7 @@ describe("prism review file-change api wrappers", () => {
     });
 
     expect(mockPost).toHaveBeenCalledWith(
-      "/latex/projects/latex-1/file-changes/revert",
+      "/prism/latex-adapter/projects/latex-1/file-changes/revert",
       {
         logical_key: "section:introduction",
         revert_signature: "b".repeat(64),
@@ -103,7 +103,7 @@ describe("prism review file-change api wrappers", () => {
     });
 
     expect(mockPost).toHaveBeenCalledWith(
-      "/latex/projects/latex-1/protected-sections",
+      "/prism/latex-adapter/projects/latex-1/protected-sections",
       {
         path: "sections/introduction.tex",
         scope: "file",

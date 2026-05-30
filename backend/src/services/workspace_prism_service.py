@@ -6,8 +6,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.latex import LatexProjectAttachWorkspacePayload
 from src.dataservice_client.contracts.prism import PrismPrimaryProjectPayload
@@ -319,13 +317,11 @@ class WorkspacePrismService:
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
-        self.bridge = WorkspaceLatexProjectService(db, dataservice=dataservice)
+        self.bridge = WorkspaceLatexProjectService(dataservice=dataservice)
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:

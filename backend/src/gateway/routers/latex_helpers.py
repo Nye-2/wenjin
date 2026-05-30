@@ -18,8 +18,8 @@ from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
 
+from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.source import SourceCitationUsageCreatePayload
-from src.dataservice_client.provider import dataservice_client
 from src.gateway.contracts.latex import (
     _MAX_REWRITE_CANDIDATES,
     _REWRITE_CANDIDATE_TIMEOUT_SECONDS,
@@ -351,14 +351,13 @@ def _read_project_metadata(project: Any) -> tuple[dict[str, Any], dict[str, Any]
 
 
 async def _record_latex_reference_usage(
-    db: object,
+    dataservice: AsyncDataServiceClient,
     *,
     workspace_id: str | None,
     latex_project_id: str,
     path: str,
     content: str,
 ) -> None:
-    _ = db
     normalized_workspace_id = str(workspace_id or "").strip()
     if not normalized_workspace_id:
         return
@@ -366,20 +365,19 @@ async def _record_latex_reference_usage(
     if not citation_keys:
         return
     try:
-        async with dataservice_client() as client:
-            await client.record_source_citation_usage(
-                SourceCitationUsageCreatePayload(
-                    workspace_id=normalized_workspace_id,
-                    citation_keys=citation_keys,
-                    latex_project_id=latex_project_id,
-                    target_id=latex_project_id,
-                    target_section=path,
-                    target_ref_json={"file_path": path},
-                    generated_text=content[:4000],
-                    usage_type="citation_only",
-                    accepted_status="accepted",
-                )
+        await dataservice.record_source_citation_usage(
+            SourceCitationUsageCreatePayload(
+                workspace_id=normalized_workspace_id,
+                citation_keys=citation_keys,
+                latex_project_id=latex_project_id,
+                target_id=latex_project_id,
+                target_section=path,
+                target_ref_json={"file_path": path},
+                generated_text=content[:4000],
+                usage_type="citation_only",
+                accepted_status="accepted",
             )
+        )
     except Exception:
         logger.warning(
             "Failed to record LaTeX reference usage for project=%s workspace=%s",
