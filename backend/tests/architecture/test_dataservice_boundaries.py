@@ -687,6 +687,48 @@ def test_memory_runtime_uses_dataservice_knowledge_boundary() -> None:
     )
 
 
+def test_dashboard_runtime_uses_dataservice_boundary() -> None:
+    """Dashboard dependency construction must not require request DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "deps" / "dashboard.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "get_db",
+            "DashboardService(db",
+            "WorkspaceActivityService(db",
+            "WorkspaceSummaryService(db",
+        ),
+        SRC_ROOT / "services" / "dashboard_service.py": (
+            "AsyncSession",
+            "self.db",
+            "_db",
+            "db:",
+        ),
+        SRC_ROOT / "services" / "workspace_summary_service.py": (
+            "AsyncSession",
+            "self.db",
+            "DashboardService(\n            db",
+            "WorkspaceActivityService(db",
+            "ExecutionService(self.db",
+            "isinstance(self.db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Dashboard runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

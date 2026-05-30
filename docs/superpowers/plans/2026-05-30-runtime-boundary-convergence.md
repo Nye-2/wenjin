@@ -45,6 +45,11 @@
   - `KnowledgeService` 构造器移除 DB/session 参数，不再保存 `db/self.db/_db`。
   - Workspace context 上传写入长期记忆时复用请求注入的 DataService client，不再为 memory note 注入 DB、commit 或 rollback。
   - Architecture guard 新增 `test_memory_runtime_uses_dataservice_knowledge_boundary`，防止 memory runtime、uploads memory note 和 KnowledgeService facade 回流到 session-based persistence。
+- Current dashboard runtime boundary follow-up
+  - Gateway dashboard dependencies 不再注入 `get_db` 或 `AsyncSession`；DashboardService、WorkspaceActivityService、WorkspaceSummaryService 均以 DataService-backed construction 进入 runtime。
+  - `DashboardService` 构造器移除 DB/session 参数。
+  - `WorkspaceSummaryService` 构造器移除 DB/session 参数，默认通过 `ExecutionService(dataservice=...)` 获取 execution history，不再以 DB fallback 构造 execution service。
+  - Architecture guard 新增 `test_dashboard_runtime_uses_dataservice_boundary`，防止 dashboard deps 和 summary/dashboard facade 回流到 request DB session。
 
 已验证：
 
@@ -61,6 +66,9 @@
 - `cd backend && .venv/bin/python -m ruff check src/services/user_memory_service.py src/services/memory_compaction.py src/services/knowledge_service.py src/task/tasks/memory.py src/gateway/routers/uploads.py tests/services/test_memory_compaction.py tests/agents/memory/test_llm_updates.py tests/agents/middleware/test_memory.py tests/gateway/routers/test_uploads.py tests/services/test_knowledge_service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 15 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2008 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_dashboard_service.py tests/services/test_workspace_summary_service.py tests/gateway/routers/test_dashboard.py tests/gateway/routers/test_dashboard_center.py tests/architecture/test_dataservice_boundaries.py -q` -> 43 passed.
+- `cd backend && .venv/bin/python -m ruff check src/gateway/deps/dashboard.py src/services/dashboard_service.py src/services/workspace_summary_service.py tests/services/test_dashboard_service.py tests/services/test_workspace_summary_service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2009 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.

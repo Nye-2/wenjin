@@ -5,8 +5,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, cast
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
 from src.services.dashboard_service import DashboardService
@@ -33,21 +31,22 @@ class WorkspaceSummaryService:
 
     def __init__(
         self,
-        db: AsyncSession,
         *,
         dashboard_service: DashboardService | None = None,
         activity_service: WorkspaceActivityService | None = None,
         execution_service: ExecutionService | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
         self._dashboard_service = dashboard_service or DashboardService(
-            db,
             dataservice=dataservice,
         )
-        self._activity_service = activity_service or WorkspaceActivityService(db)
-        self._execution_service = execution_service
+        self._activity_service = activity_service or WorkspaceActivityService(
+            dataservice=dataservice,
+        )
+        self._execution_service = execution_service or ExecutionService(
+            dataservice=dataservice,
+        )
 
     async def _list_catalog_capabilities(
         self,
@@ -185,10 +184,6 @@ class WorkspaceSummaryService:
         if not user_id:
             return []
         service = self._execution_service
-        if service is None:
-            if not isinstance(self.db, AsyncSession):
-                return []
-            service = ExecutionService(self.db)
         try:
             executions = await service.list_executions(
                 workspace_id=workspace_id,

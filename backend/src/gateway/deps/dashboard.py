@@ -1,10 +1,9 @@
 """Dashboard-domain dependency factories."""
 
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.deps.core import get_dataservice_client, get_db
+from src.gateway.deps.core import get_dataservice_client
 from src.services.admin_dashboard_service import AdminDashboardService
 from src.services.credit_service import CreditService
 from src.services.dashboard_service import DashboardService
@@ -15,10 +14,10 @@ from src.services.workspace_summary_service import WorkspaceSummaryService
 
 
 async def get_dashboard_service(
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> DashboardService:
     """Get dashboard service instance."""
-    return DashboardService(db)
+    return DashboardService(dataservice=dataservice)
 
 
 async def get_credit_service(
@@ -47,15 +46,14 @@ async def get_release_gate_service() -> ReleaseGateService:
 
 
 async def get_workspace_activity_service(
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspaceActivityService:
     """Get workspace activity service instance."""
-    return WorkspaceActivityService(db, dataservice=dataservice)
+    return WorkspaceActivityService(dataservice=dataservice)
 
 
 async def get_workspace_summary_service(
-    db: AsyncSession = Depends(get_db),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspaceSummaryService:
     """Get workspace summary service instance."""
-    return WorkspaceSummaryService(db)
+    return WorkspaceSummaryService(dataservice=dataservice)
