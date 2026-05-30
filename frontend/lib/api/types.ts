@@ -1572,6 +1572,8 @@ export type ExecutionStreamEventType =
   | "execution.graph_structure"
   | "execution.node"
   | "execution.node.delta"
+  | "execution.team.invocation"
+  | "execution.team.quality_gate"
   | "execution.status"
   | "execution.completed"
   | "execution.error"

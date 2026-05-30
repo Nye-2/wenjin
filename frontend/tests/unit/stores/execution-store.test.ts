@@ -143,4 +143,72 @@ describe("execution-store", () => {
     ]);
     expect(node?.completed_at).toBe("2026-01-01T00:00:03Z");
   });
+
+  it("applies team invocation and quality gate stream events", () => {
+    useExecutionStore.getState().upsertExecution(
+      makeRecord({
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [],
+          edges: [],
+        },
+      }),
+    );
+
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
+        type: "execution.team.invocation",
+        payload: {
+          invocation: {
+            id: "team.1.research_scholar_v1.1",
+            template_id: "research_scholar.v1",
+            display_name: "文献专家",
+            assigned_role: "文献专家",
+            recruitment_reason: "core team member",
+            status: "running",
+            effective_tools: ["web_search", "library_read"],
+            effective_skills: ["research-scout"],
+            input_brief: { topic: "LLM evidence" },
+          },
+        },
+      }),
+    );
+    useExecutionStore.getState().applyStreamEvent(
+      makeEvent({
+        type: "execution.team.quality_gate",
+        payload: {
+          quality_gate: {
+            gate_id: "evidence_traceability",
+            status: "warning",
+            severity: "medium",
+            next_action: "revise_existing",
+          },
+        },
+      }),
+    );
+
+    const record = useExecutionStore.getState().executions.get("exec-1");
+    expect(record?.graph_structure?.mode).toBe("team_kernel");
+    expect(record?.node_states["team.1.research_scholar_v1.1"]).toMatchObject({
+      status: "running",
+      node_type: "agent_invocation",
+      label: "文献专家",
+      input: { topic: "LLM evidence" },
+      node_metadata: {
+        team: true,
+        template_id: "research_scholar.v1",
+        display_name: "文献专家",
+        effective_tools: ["web_search", "library_read"],
+        effective_skills: ["research-scout"],
+      },
+    });
+    expect(record?.runtime_state?.quality_gates).toEqual([
+      {
+        gate_id: "evidence_traceability",
+        status: "warning",
+        severity: "medium",
+        next_action: "revise_existing",
+      },
+    ]);
+  });
 });

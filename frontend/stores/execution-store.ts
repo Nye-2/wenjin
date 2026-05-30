@@ -46,11 +46,13 @@ function deepCloneExecution(record: ExecutionRecord): ExecutionRecord {
     params: { ...record.params },
     result: record.result ? { ...record.result } : record.result,
     node_states: { ...record.node_states },
+    runtime_state: record.runtime_state ? { ...record.runtime_state } : record.runtime_state,
     artifact_ids: [...record.artifact_ids],
     next_actions: record.next_actions.map((a) => ({ ...a })),
     child_execution_ids: [...record.child_execution_ids],
     graph_structure: record.graph_structure
       ? {
+          ...record.graph_structure,
           nodes: record.graph_structure.nodes.map((n) => ({ ...n })),
           edges: record.graph_structure.edges.map((e) => ({ ...e })),
         }
@@ -166,6 +168,18 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
             if (Array.isArray(event.payload.tool_calls)) {
               nodeState.tool_calls = event.payload.tool_calls as Record<string, unknown>[];
             }
+            if (typeof event.payload.node_type === "string") {
+              nodeState.node_type = event.payload.node_type;
+            }
+            if (typeof event.payload.label === "string") {
+              nodeState.label = event.payload.label;
+            }
+            if (isRecord(event.payload.node_metadata)) {
+              nodeState.node_metadata = event.payload.node_metadata;
+            }
+            if (typeof event.payload.error === "string") {
+              nodeState.error = event.payload.error;
+            }
             if (typeof event.payload.started_at === "string") {
               nodeState.started_at = event.payload.started_at;
             }
@@ -173,6 +187,60 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
               nodeState.completed_at = event.payload.completed_at;
             }
             updated.node_states[nodeId] = nodeState;
+          }
+          break;
+        }
+
+        case "execution.team.invocation": {
+          const invocation = isRecord(event.payload.invocation)
+            ? event.payload.invocation
+            : null;
+          const nodeId = stringValue(invocation?.id);
+          if (invocation && nodeId) {
+            const nodeState: ExecutionNodeState = {
+              ...(updated.node_states[nodeId] || {}),
+              status: teamInvocationStatus(invocation.status),
+              node_type: "agent_invocation",
+              label: stringValue(invocation.display_name),
+              node_metadata: {
+                team: true,
+                template_id: stringValue(invocation.template_id),
+                display_name: stringValue(invocation.display_name),
+                assigned_role: stringValue(invocation.assigned_role),
+                recruitment_reason: stringValue(invocation.recruitment_reason),
+                effective_tools: stringListValue(invocation.effective_tools),
+                effective_skills: stringListValue(invocation.effective_skills),
+              },
+            };
+            if (isRecord(invocation.input_brief)) {
+              nodeState.input = invocation.input_brief;
+            }
+            if (isRecord(invocation.output_report)) {
+              nodeState.output = invocation.output_report;
+            }
+            if (Array.isArray(invocation.tool_calls)) {
+              nodeState.tool_calls = invocation.tool_calls as Record<string, unknown>[];
+            }
+            if (isRecord(invocation.token_usage)) {
+              nodeState.token_usage = invocation.token_usage as Record<string, number>;
+            }
+            if (isRecord(invocation.error)) {
+              nodeState.error = stringValue(invocation.error.message);
+            }
+            updated.node_states[nodeId] = nodeState;
+          }
+          break;
+        }
+
+        case "execution.team.quality_gate": {
+          const gate = isRecord(event.payload.quality_gate)
+            ? event.payload.quality_gate
+            : null;
+          if (gate) {
+            updated.runtime_state = upsertQualityGate(
+              updated.runtime_state,
+              gate,
+            );
           }
           break;
         }
@@ -282,3 +350,50 @@ export const useExecutionStore = create<ExecutionState>((set) => ({
     });
   },
 }));
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function stringListValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+    : [];
+}
+
+function teamInvocationStatus(value: unknown): string {
+  if (value === "succeeded") return "completed";
+  if (value === "queued") return "pending";
+  if (typeof value === "string" && value) return value;
+  return "running";
+}
+
+function upsertQualityGate(
+  runtimeState: Record<string, unknown> | null | undefined,
+  gate: Record<string, unknown>,
+): Record<string, unknown> {
+  const gateId = stringValue(gate.gate_id) ?? stringValue(gate.id);
+  const nextRuntimeState = { ...(runtimeState ?? {}) };
+  const current = Array.isArray(nextRuntimeState.quality_gates)
+    ? [...nextRuntimeState.quality_gates]
+    : [];
+  if (!gateId) {
+    nextRuntimeState.quality_gates = [...current, gate];
+    return nextRuntimeState;
+  }
+  const index = current.findIndex((item) => {
+    if (!isRecord(item)) return false;
+    return stringValue(item.gate_id) === gateId || stringValue(item.id) === gateId;
+  });
+  if (index >= 0) {
+    current[index] = gate;
+  } else {
+    current.push(gate);
+  }
+  nextRuntimeState.quality_gates = current;
+  return nextRuntimeState;
+}
