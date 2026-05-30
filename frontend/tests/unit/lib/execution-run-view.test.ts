@@ -105,6 +105,84 @@ describe("execution run view projection", () => {
     expect(view.actions).toContain("preview_results");
   });
 
+  it("projects dynamic team members from agent invocation node metadata", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [],
+          edges: [],
+        } as ExecutionRecord["graph_structure"],
+        node_states: {
+          "research_scholar.v1__1": {
+            status: "completed",
+            node_type: "agent_invocation",
+            label: "文献专家",
+            node_metadata: {
+              team: true,
+              template_id: "research_scholar.v1",
+              display_name: "文献专家",
+              effective_tools: ["web_search", "library_read"],
+              effective_skills: ["literature_search.v1"],
+            },
+          },
+          "critical_reviewer.v1__1": {
+            status: "running",
+            node_type: "agent_invocation",
+            label: "质量审稿人",
+            node_metadata: {
+              team: true,
+              template_id: "critical_reviewer.v1",
+              display_name: "质量审稿人",
+              effective_tools: ["library_read"],
+              effective_skills: ["critical_review.v1"],
+            },
+          },
+        } as ExecutionRecord["node_states"],
+        runtime_state: {
+          quality_gates: [
+            {
+              gate_id: "evidence_traceability",
+              status: "warning",
+              severity: "medium",
+              next_action: "revise_evidence_map",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(view.team).toEqual({
+      mode: "team_kernel",
+      members: [
+        {
+          id: "research_scholar.v1__1",
+          templateId: "research_scholar.v1",
+          displayName: "文献专家",
+          status: "completed",
+          effectiveTools: ["web_search", "library_read"],
+          effectiveSkills: ["literature_search.v1"],
+        },
+        {
+          id: "critical_reviewer.v1__1",
+          templateId: "critical_reviewer.v1",
+          displayName: "质量审稿人",
+          status: "running",
+          effectiveTools: ["library_read"],
+          effectiveSkills: ["critical_review.v1"],
+        },
+      ],
+      qualityGates: [
+        {
+          id: "evidence_traceability",
+          status: "warning",
+          severity: "medium",
+          nextAction: "revise_evidence_map",
+        },
+      ],
+    });
+  });
+
   it("projects historical run records", () => {
     const view = runViewFromRunRecord(
       {

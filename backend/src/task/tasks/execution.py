@@ -209,6 +209,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
                     thinking=kw.get("thinking"),
                     tool_calls=kw.get("tool_calls"),
                     token_usage=kw.get("token_usage"),
+                    node_metadata=kw.get("node_metadata"),
                     started_at=kw.get("started_at"),
                     completed_at=kw.get("completed_at"),
                 )
@@ -216,11 +217,15 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
                     execution_id=kw["execution_id"],
                     node_id=kw["node_id"],
                     status=kw.get("status"),
+                    node_type=kw.get("node_type") or "subagent",
+                    label=kw.get("label"),
                     input_data=kw.get("input_data"),
                     output_data=kw.get("output_data"),
                     thinking=kw.get("thinking"),
                     tool_calls=kw.get("tool_calls"),
                     token_usage=kw.get("token_usage"),
+                    node_metadata=kw.get("node_metadata"),
+                    error=kw.get("error"),
                     started_at=kw.get("started_at"),
                     completed_at=kw.get("completed_at"),
                 )
@@ -238,6 +243,8 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
                         "thinking": kw.get("thinking"),
                         "tool_calls": kw.get("tool_calls"),
                         "token_usage": kw.get("token_usage"),
+                        "node_metadata": kw.get("node_metadata"),
+                        "error": kw.get("error"),
                     },
                 )
             except Exception:

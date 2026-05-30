@@ -1509,6 +1509,7 @@ export interface ExecutionRecord {
 }
 
 export interface ExecutionGraphStructure {
+  mode?: "static_graph" | "team_kernel" | (string & {});
   nodes: ExecutionGraphNode[];
   edges: ExecutionGraphEdge[];
 }
@@ -1531,6 +1532,8 @@ export interface ExecutionGraphEdge {
 
 export interface ExecutionNodeState {
   status?: string;
+  node_type?: string | null;
+  label?: string | null;
   output_preview?: string | null;
   token_usage?: Record<string, number> | null;
   thinking?: string | null;
@@ -1539,6 +1542,8 @@ export interface ExecutionNodeState {
   completed_at?: string | null;
   input?: Record<string, unknown> | null;
   output?: Record<string, unknown> | null;
+  node_metadata?: Record<string, unknown> | null;
+  error?: string | null;
 }
 
 export interface ExecutionNodeRecord {

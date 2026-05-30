@@ -27,6 +27,28 @@ export type RunPrimaryAction =
   | "retry"
   | "continue_chat";
 
+export interface RunViewTeamMember {
+  id: string;
+  templateId?: string | null;
+  displayName: string;
+  status: string;
+  effectiveTools: string[];
+  effectiveSkills: string[];
+}
+
+export interface RunViewQualityGate {
+  id: string;
+  status: "pass" | "warning" | "fail";
+  severity?: "low" | "medium" | "high";
+  nextAction?: string | null;
+}
+
+export interface RunViewTeam {
+  mode: "team_kernel";
+  members: RunViewTeamMember[];
+  qualityGates: RunViewQualityGate[];
+}
+
 export interface RunView {
   id: string;
   workspaceId: string;
@@ -47,6 +69,7 @@ export interface RunView {
   hasPrismChanges: boolean;
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
+  team?: RunViewTeam | null;
   actions: RunPrimaryAction[];
 }
 
@@ -80,6 +103,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     null;
   const failureCategory =
     failureCategoryFromRecord(record, failedNodeCount, failureMessage);
+  const team = teamViewFromExecution(record);
 
   return {
     id: record.id,
@@ -110,6 +134,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     hasPrismChanges: prismReviewCount > 0,
     failureCategory,
     failureMessage,
+    team,
     actions: actionsForRun({
       status,
       hasPrismChanges: prismReviewCount > 0,
@@ -226,6 +251,7 @@ export function mergeRunViews(
     hasPrismChanges: live.hasPrismChanges || historical.hasPrismChanges,
     failureCategory: live.failureCategory ?? historical.failureCategory,
     failureMessage: live.failureMessage ?? historical.failureMessage,
+    team: live.team ?? historical.team,
     actions: Array.from(new Set([...live.actions, ...historical.actions])),
   };
 }
@@ -307,6 +333,83 @@ function countNodesByStatus(record: ExecutionRecord, status: string): number {
   return Object.values(record.node_states ?? {}).filter((node) => node.status === status).length;
 }
 
+function teamViewFromExecution(record: ExecutionRecord): RunViewTeam | null {
+  const isTeamMode = record.graph_structure?.mode === "team_kernel";
+  const members = teamMembersFromNodeStates(record.node_states);
+  const qualityGates = teamQualityGatesFromRuntimeState(record.runtime_state);
+  if (!isTeamMode && members.length === 0 && qualityGates.length === 0) {
+    return null;
+  }
+  return {
+    mode: "team_kernel",
+    members,
+    qualityGates,
+  };
+}
+
+function teamMembersFromNodeStates(
+  nodes: ExecutionRecord["node_states"],
+): RunViewTeamMember[] {
+  const members: RunViewTeamMember[] = [];
+  for (const [id, rawNode] of Object.entries(nodes ?? {})) {
+    const node = rawNode as Record<string, unknown>;
+    const metadata = objectValue(node.node_metadata);
+    const nodeType = stringValue(node.node_type);
+    if (nodeType !== "agent_invocation" && metadata?.team !== true) {
+      continue;
+    }
+    const templateId = stringValue(metadata?.template_id);
+    const displayName =
+      stringValue(metadata?.display_name) ??
+      stringValue(node.label) ??
+      templateId ??
+      id;
+    members.push({
+      id,
+      templateId,
+      displayName,
+      status: stringValue(node.status) ?? "pending",
+      effectiveTools: stringArrayValue(metadata?.effective_tools),
+      effectiveSkills: stringArrayValue(metadata?.effective_skills),
+    });
+  }
+  return members;
+}
+
+function teamQualityGatesFromRuntimeState(
+  runtimeState: Record<string, unknown> | null | undefined,
+): RunViewQualityGate[] {
+  const direct = arrayValue(runtimeState?.quality_gates);
+  const nested = arrayValue(objectValue(runtimeState?.team)?.quality_gates);
+  const qualityGates: RunViewQualityGate[] = [];
+  for (const rawGate of [...direct, ...nested]) {
+    const gate = objectValue(rawGate);
+    if (!gate) continue;
+    const id = stringValue(gate.gate_id) ?? stringValue(gate.id);
+    if (!id) continue;
+    const severity = normalizeQualityGateSeverity(gate.severity);
+    qualityGates.push({
+      id,
+      status: normalizeQualityGateStatus(gate.status),
+      ...(severity ? { severity } : {}),
+      nextAction: stringValue(gate.next_action) ?? stringValue(gate.nextAction),
+    });
+  }
+  return qualityGates;
+}
+
+function normalizeQualityGateStatus(value: unknown): RunViewQualityGate["status"] {
+  if (value === "pass" || value === "warning" || value === "fail") return value;
+  return "warning";
+}
+
+function normalizeQualityGateSeverity(
+  value: unknown,
+): RunViewQualityGate["severity"] {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  return undefined;
+}
+
 function failureCategoryFromRecord(
   record: ExecutionRecord,
   failedNodeCount: number,
@@ -383,4 +486,19 @@ function formatSeconds(seconds: number): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function arrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return arrayValue(value)
+    .map((item) => stringValue(item))
+    .filter((item): item is string => Boolean(item));
 }

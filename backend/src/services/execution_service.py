@@ -358,12 +358,16 @@ class ExecutionService:
         node_id: str,
         *,
         status: str | None = None,
+        node_type: str | None = None,
+        label: str | None = None,
         input_data: dict[str, Any] | None = None,
         output_data: dict[str, Any] | None = None,
         output_preview: str | None = None,
         token_usage: dict[str, Any] | None = None,
         thinking: str | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
+        node_metadata: dict[str, Any] | None = None,
+        error: str | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
         commit: bool = True,
@@ -377,6 +381,10 @@ class ExecutionService:
 
         if status is not None:
             node_state["status"] = status
+        if node_type is not None:
+            node_state["node_type"] = node_type
+        if label is not None:
+            node_state["label"] = label
         # Full input / output payloads — keys mirror what the
         # ``GET /executions/{id}/nodes/{node_id}`` endpoint returns to the FE.
         if input_data is not None:
@@ -391,6 +399,10 @@ class ExecutionService:
             node_state["thinking"] = thinking
         if tool_calls is not None:
             node_state["tool_calls"] = tool_calls
+        if node_metadata is not None:
+            node_state["node_metadata"] = node_metadata
+        if error is not None:
+            node_state["error"] = error
         if started_at is not None:
             node_state["started_at"] = started_at.isoformat()
         if completed_at is not None:
@@ -578,6 +590,7 @@ class ExecutionService:
         thinking: str | None = None,
         tool_calls: list[dict[str, Any]] | None = None,
         token_usage: dict[str, Any] | None = None,
+        node_metadata: dict[str, Any] | None = None,
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
     ):
@@ -599,6 +612,7 @@ class ExecutionService:
                     thinking=thinking,
                     tool_calls=tool_calls,
                     token_usage=token_usage,
+                    node_metadata=node_metadata,
                     started_at=started_at,
                     completed_at=completed_at,
                 ),
