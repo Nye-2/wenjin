@@ -336,12 +336,12 @@ def _asset_to_document(asset: WorkspaceAssetPayload) -> dict[str, Any]:
         "id": asset.id,
         "workspace_id": asset.workspace_id,
         "name": asset.name,
-        "kind": str(metadata.get("kind") or metadata.get("legacy_kind") or asset.asset_kind or "document"),
+        "kind": str(metadata.get("kind") or asset.asset_kind or "document"),
         "mime_type": asset.mime_type,
         "storage_path": asset.storage_path,
         "size_bytes": asset.size_bytes,
-        "parent_id": asset.parent_asset_id or metadata.get("parent_id") or metadata.get("legacy_parent_id"),
-        "version": int(metadata.get("version") or metadata.get("legacy_version") or 1),
+        "parent_id": asset.parent_asset_id or metadata.get("parent_id"),
+        "version": int(metadata.get("version") or 1),
         "metadata_json": metadata,
         "added_by": asset.created_by,
         "created_at": asset.created_at,
@@ -350,7 +350,7 @@ def _asset_to_document(asset: WorkspaceAssetPayload) -> dict[str, Any]:
     }
 
 
-def _asset_sort_value(asset: WorkspaceAssetProjection) -> float:
+def _asset_sort_value(asset: WorkspaceAssetPayload) -> float:
     stamp = asset.created_at or asset.updated_at
     return stamp.timestamp() if hasattr(stamp, "timestamp") else 0.0
 

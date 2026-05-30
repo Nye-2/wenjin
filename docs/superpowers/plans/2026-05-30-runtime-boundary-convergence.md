@@ -79,6 +79,10 @@
   - `WorkspaceService`、`GenerationService` 移除 DB/session 构造参数和 `self.db` 保存点。
   - Gateway academic dependency 与 thread run worker 不再传 `WorkspaceService(None, ...)`。
   - Architecture guard 新增 `test_catalog_and_academic_facades_do_not_keep_db_constructors`，防止 Catalog/academic facade 回流到 DB constructor。
+- Current workspace asset metadata boundary follow-up
+  - Documents room asset projection 移除 `legacy_kind`、`legacy_parent_id`、`legacy_version` 读取，只使用 canonical `kind`、`parent_id`、`version` 和 DataService asset fields。
+  - Workspace activity artifact projection 移除 `legacy_kind` 读取，只使用 canonical `artifact_type` / `asset_kind`。
+  - Architecture guard 新增 `test_workspace_asset_runtime_projections_do_not_read_legacy_metadata_fields`，防止 router/activity projection 重新读取 legacy metadata。
 
 已验证：
 
@@ -121,6 +125,10 @@
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_capability_resolver.py tests/gateway/test_capabilities_router.py tests/gateway/routers/test_capabilities_router.py tests/integration/test_phase1_foundation.py::test_capability_load_resolve_invalidate tests/integration/test_phase2_e2e.py::test_lead_agent_runtime_with_seeded_capability_completes tests/academic/services/test_workspace_service.py tests/academic/services/test_generation_service.py tests/gateway/routers/test_threads.py tests/task/test_thread_writeback.py tests/architecture/test_dataservice_boundaries.py::test_catalog_and_academic_facades_do_not_keep_db_constructors -q` -> 45 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 22 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2014 passed.
+- `cd backend && .venv/bin/python -m ruff check src/gateway/routers/workspace_rooms.py src/services/workspace_activity_service.py tests/gateway/routers/test_workspace_room_document_assets.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_workspace_room_document_assets.py tests/gateway/routers/test_workspace_rooms_router.py tests/services/test_workspace_activity_service.py tests/architecture/test_dataservice_boundaries.py::test_workspace_asset_runtime_projections_do_not_read_legacy_metadata_fields -q` -> 41 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 23 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2015 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.

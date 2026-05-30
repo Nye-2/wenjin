@@ -989,6 +989,34 @@ def test_catalog_and_academic_facades_do_not_keep_db_constructors() -> None:
     )
 
 
+def test_workspace_asset_runtime_projections_do_not_read_legacy_metadata_fields() -> None:
+    """Workspace asset projections must use canonical metadata fields only."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "workspace_rooms.py": (
+            "legacy_kind",
+            "legacy_parent_id",
+            "legacy_version",
+        ),
+        SRC_ROOT / "services" / "workspace_activity_service.py": (
+            "legacy_kind",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Workspace asset runtime projections still read legacy metadata fields:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

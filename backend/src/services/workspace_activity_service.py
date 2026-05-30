@@ -354,7 +354,6 @@ class WorkspaceActivityService:
         metadata = _artifact_metadata(artifact)
         artifact_type = (
             metadata.get("artifact_type")
-            or metadata.get("legacy_kind")
             or getattr(artifact, "asset_kind", None)
             or getattr(artifact, "type", "artifact")
         )
