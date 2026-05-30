@@ -473,7 +473,7 @@ git commit -m "feat: expose admin model catalog api"
 - Test: `backend/tests/models/test_router.py`
 - Test: `backend/tests/models/test_factory.py`
 
-- [ ] **Step 1: Write cache/factory tests**
+- [x] **Step 1: Write cache/factory tests**
 
 Cover:
 
@@ -484,7 +484,7 @@ Cover:
 - `create_chat_model` uses decrypted runtime config.
 - execution-safe model snapshot excludes key.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run:
 
@@ -493,7 +493,7 @@ cd backend
 .venv/bin/python -m pytest tests/services/test_model_catalog_cache.py tests/models/test_router.py tests/models/test_factory.py -v
 ```
 
-- [ ] **Step 3: Implement cache**
+- [x] **Step 3: Implement cache**
 
 Use an immutable snapshot object:
 
@@ -516,11 +516,11 @@ class RuntimeModelConfig:
 
 Provide sync reads over last snapshot and async refresh at request/task boundaries.
 
-- [ ] **Step 4: Replace env-backed resolver source**
+- [x] **Step 4: Replace env-backed resolver source**
 
 Keep `llm_config.py` function names (`get_llm_models`, `get_model_config`, `get_model_full_config`, `get_default_model_id`) but redirect to cache snapshot. For tests that still monkeypatch env models, add explicit test helpers rather than production fallback.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run:
 
