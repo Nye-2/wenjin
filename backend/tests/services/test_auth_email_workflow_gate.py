@@ -2,20 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config import app_config
-from src.database.models.credit import CreditTransaction
-from src.database.models.user import User
 from src.gateway.routers import auth as auth_router
 from src.services import email_service as email_service_module
 from src.services.email_service import EmailService
@@ -92,41 +87,14 @@ class _FakeAccountDataService:
         return user
 
 
-@pytest_asyncio.fixture
-async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(User.__table__.create)
-        await conn.run_sync(CreditTransaction.__table__.create)
-
-    session_factory = async_sessionmaker(
-        engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
-    async with session_factory() as session:
-        yield session
-
-    async with engine.begin() as conn:
-        await conn.run_sync(CreditTransaction.__table__.drop)
-        await conn.run_sync(User.__table__.drop)
-    await engine.dispose()
-
-
 @pytest.fixture
-def client(db_session: AsyncSession) -> TestClient:
+def client() -> TestClient:
     app = FastAPI()
     dataservice = _FakeAccountDataService()
 
-    async def get_db_override() -> AsyncGenerator[AsyncSession, None]:
-        yield db_session
-
-    async def get_dataservice_override() -> AsyncGenerator[_FakeAccountDataService, None]:
+    async def get_dataservice_override():
         yield dataservice
 
-    app.dependency_overrides[auth_router.get_db] = get_db_override
     app.dependency_overrides[auth_router.get_dataservice_client] = get_dataservice_override
     app.include_router(auth_router.router)
     return TestClient(app)

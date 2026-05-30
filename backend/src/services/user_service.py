@@ -11,8 +11,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.account import AccountUserCreatePayload
 from src.dataservice_client.provider import dataservice_client
@@ -20,27 +18,14 @@ from src.services.auth import hash_password, verify_password
 
 
 class UserService:
-    """Service for managing users.
-
-    This class provides CRUD operations and authentication for users.
-    It requires an AsyncSession for database operations.
-
-    Attributes:
-        db: AsyncSession for database operations
-    """
+    """Service for managing users through Account DataService."""
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ):
-        """Initialize UserService with database session.
-
-        Args:
-            db: AsyncSession for database operations
-        """
-        self.db = db
+        """Initialize UserService with an optional injected DataService client."""
         self._dataservice = dataservice
 
     @asynccontextmanager

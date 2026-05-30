@@ -13,16 +13,15 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import (
+    AccountAuthSubject,
     get_current_user,
     get_current_user_optional,
     security,
 )
-from src.gateway.deps.core import get_dataservice_client, get_db
+from src.gateway.deps.core import get_dataservice_client
 from src.services.auth import (
     create_and_persist_tokens,
     verify_refresh_token_recorded,
@@ -35,7 +34,6 @@ router = APIRouter()
 __all__ = [
     "get_current_user",
     "get_current_user_optional",
-    "get_db",
     "router",
     "security",
 ]
@@ -145,7 +143,6 @@ async def send_verification_code(
 @router.post("/auth/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 async def register(
     request: RegisterRequest,
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TokenResponse:
     """Register a new user.
@@ -155,8 +152,6 @@ async def register(
 
     Args:
         request: Registration request with email, password, optional name, and verification code
-        db: Database session
-
     Returns:
         TokenResponse with access and refresh tokens
 
@@ -213,7 +208,6 @@ async def register(
         # Handle referral invite code if provided
         if request.invite_code:
             referrer = await _resolve_invite_code(
-                db,
                 request.invite_code,
                 dataservice=dataservice,
             )
@@ -231,7 +225,6 @@ async def register(
 
         # Generate tokens
         tokens = await create_and_persist_tokens(
-            db,
             user_id=str(user.id),
             email=user.email,
             role="admin" if user.is_superuser else "user",
@@ -256,7 +249,6 @@ async def register(
 @router.post("/auth/login", response_model=TokenResponse)
 async def login(
     request: LoginRequest,
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TokenResponse:
     """Login with email and password.
@@ -265,8 +257,6 @@ async def login(
 
     Args:
         request: Login request with email and password
-        db: Database session
-
     Returns:
         TokenResponse with access and refresh tokens
 
@@ -290,7 +280,6 @@ async def login(
 
     # Generate tokens
     tokens = await create_and_persist_tokens(
-        db,
         user_id=str(user.id),
         email=user.email,
         role="admin" if user.is_superuser else "user",
@@ -309,7 +298,6 @@ async def login(
 @router.post("/auth/refresh", response_model=TokenResponse)
 async def refresh_token(
     request: RefreshRequest,
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> TokenResponse:
     """Refresh access token using refresh token.
@@ -318,8 +306,6 @@ async def refresh_token(
 
     Args:
         request: Refresh request with refresh token
-        db: Database session
-
     Returns:
         TokenResponse with new access and refresh tokens
 
@@ -328,7 +314,6 @@ async def refresh_token(
     """
     # Verify refresh token
     user = await verify_refresh_token_recorded(
-        db,
         request.refresh_token,
         dataservice=dataservice,
     )
@@ -349,7 +334,6 @@ async def refresh_token(
 
     # Generate new tokens
     tokens = await create_and_persist_tokens(
-        db,
         user_id=str(user.id),
         email=user.email,
         role="admin" if user.is_superuser else "user",
@@ -367,7 +351,7 @@ async def refresh_token(
 
 @router.get("/auth/me", response_model=UserResponse)
 async def get_me(
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
 ) -> UserResponse:
     """Get current authenticated user info.
 
@@ -400,7 +384,6 @@ def _invite_code_to_user_id(code: str) -> str:
 
 
 async def _resolve_invite_code(
-    db: AsyncSession,
     code: str,
     *,
     dataservice: AsyncDataServiceClient,
@@ -409,4 +392,4 @@ async def _resolve_invite_code(
     user_id = _invite_code_to_user_id(code)
     if not user_id:
         return None
-    return await UserService(db, dataservice=dataservice).get_by_id(user_id)
+    return await UserService(dataservice=dataservice).get_by_id(user_id)

@@ -7,32 +7,24 @@ This module tests the auth endpoints including:
 - Current user retrieval
 """
 
-from collections.abc import AsyncGenerator
 from datetime import datetime
 from unittest.mock import AsyncMock
 
 import pytest
-import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from src.database.models.credit import CreditTransaction
-from src.database.models.user import User
 from src.dataservice_client.contracts.account import (
     AccountRefreshTokenPayload,
     AccountUserCreatePayload,
     AccountUserPayload,
 )
 from src.gateway.deps.core import get_dataservice_client
-from src.gateway.routers.auth import get_db, router
+from src.gateway.routers.auth import router
 from src.services import credit_grant_rule_service as _cgr_module
 from src.services import referral_service as _referral_module
 from src.services.auth import create_tokens
 from src.services.user_service import UserService
-
-# Use in-memory SQLite for testing
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
 class FakeAccountClient:
@@ -98,45 +90,13 @@ class FakeAccountClient:
         return updated
 
 
-@pytest_asyncio.fixture
-async def async_engine():
-    """Create async engine for tests."""
-    engine = create_async_engine(
-        TEST_DATABASE_URL,
-        echo=False,
-    )
-    # Create required tables for auth + registration bonus.
-    async with engine.begin() as conn:
-        await conn.run_sync(User.__table__.create)
-        await conn.run_sync(CreditTransaction.__table__.create)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(CreditTransaction.__table__.drop)
-        await conn.run_sync(User.__table__.drop)
-    await engine.dispose()
-
-
-@pytest_asyncio.fixture
-async def db_session(async_engine):
-    """Create database session for tests."""
-    async_session_maker = async_sessionmaker(
-        async_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autocommit=False,
-        autoflush=False,
-    )
-    async with async_session_maker() as session:
-        yield session
-
-
 @pytest.fixture
 def fake_account_client() -> FakeAccountClient:
     return FakeAccountClient()
 
 
 @pytest.fixture
-def app(db_session, monkeypatch, fake_account_client):
+def app(monkeypatch, fake_account_client):
     """Create FastAPI app with auth router."""
     monkeypatch.setattr(
         _cgr_module.CreditGrantRuleService,
@@ -146,14 +106,9 @@ def app(db_session, monkeypatch, fake_account_client):
 
     app = FastAPI()
 
-    # Override the db dependency
-    async def get_db_override() -> AsyncGenerator[AsyncSession, None]:
-        yield db_session
-
     async def get_dataservice_client_override():
         yield fake_account_client
 
-    app.dependency_overrides[get_db] = get_db_override
     app.dependency_overrides[get_dataservice_client] = get_dataservice_client_override
     app.include_router(router)
 
@@ -493,7 +448,7 @@ class TestAuthIntegration:
     """Integration tests for auth endpoints."""
 
     @pytest.mark.asyncio
-    async def test_full_auth_flow(self, async_engine, db_session, fake_account_client):
+    async def test_full_auth_flow(self, fake_account_client):
         """Test complete authentication flow: register -> login -> refresh -> me."""
         # This test demonstrates the full flow but uses the services directly
         user_service = UserService(dataservice=fake_account_client)
@@ -527,7 +482,7 @@ class TestAuthIntegration:
         assert user_id == str(user.id)
 
     @pytest.mark.asyncio
-    async def test_login_updates_last_login(self, db_session, fake_account_client):
+    async def test_login_updates_last_login(self, fake_account_client):
         """Test that login updates last_login timestamp."""
         user_service = UserService(dataservice=fake_account_client)
 
@@ -544,7 +499,7 @@ class TestAuthIntegration:
         assert isinstance(updated.last_login, datetime)
 
     @pytest.mark.asyncio
-    async def test_inactive_user_cannot_authenticate(self, db_session, fake_account_client):
+    async def test_inactive_user_cannot_authenticate(self, fake_account_client):
         """Test that inactive users cannot authenticate."""
         user_service = UserService(dataservice=fake_account_client)
 
@@ -562,7 +517,7 @@ class TestAuthIntegration:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_case_insensitive_email_login(self, db_session, fake_account_client):
+    async def test_case_insensitive_email_login(self, fake_account_client):
         """Test that email login is case-insensitive."""
         user_service = UserService(dataservice=fake_account_client)
 

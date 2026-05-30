@@ -356,6 +356,50 @@ def test_credit_runtime_stays_on_dataservice_client_boundary() -> None:
     )
 
 
+def test_auth_runtime_stays_on_account_dataservice_boundary() -> None:
+    """Auth runtime must not reopen DB sessions after Account DataService migration."""
+
+    checked_files = [
+        SRC_ROOT / "gateway" / "auth_dependencies.py",
+        SRC_ROOT / "gateway" / "routers" / "auth.py",
+        SRC_ROOT / "services" / "auth.py",
+        SRC_ROOT / "services" / "user_service.py",
+    ]
+    forbidden_imports = {"sqlalchemy.ext.asyncio"}
+    forbidden_names_by_module = {
+        "src.database": {"User", "get_db_session"},
+        "src.gateway.deps.core": {"get_db"},
+    }
+
+    violations: list[str] = []
+    for path in checked_files:
+        relative = path.relative_to(SRC_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        for node in visitor.import_from_nodes:
+            module = node.module or ""
+            if module in forbidden_imports:
+                violations.append(f"{relative}:{node.lineno} imports {module}")
+            forbidden_names = forbidden_names_by_module.get(module, set())
+            imported_forbidden_names = sorted(
+                alias.name for alias in node.names if alias.name in forbidden_names
+            )
+            if imported_forbidden_names:
+                imported_names = ", ".join(imported_forbidden_names)
+                violations.append(
+                    f"{relative}:{node.lineno} imports {module}.{imported_names}"
+                )
+        for node in visitor.import_nodes:
+            for alias in node.names:
+                if alias.name in forbidden_imports:
+                    violations.append(f"{relative}:{node.lineno} imports {alias.name}")
+
+    assert not violations, (
+        "Auth runtime must use Account DataService only:\n" + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
