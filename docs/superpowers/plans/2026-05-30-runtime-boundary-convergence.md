@@ -98,9 +98,17 @@
   - Workspace type 只从 DataService workspace projection 读取，支持 `workspace_type` / `type` projection shape。
   - workspace 不存在或 type 为空时显式抛错并由 execution engine 标记 failed，不再默认使用 thesis。
   - Architecture guard 扩展 `test_execution_runtime_uses_dataservice_execution_boundary`，防止恢复 fallback resolver 或 `or "thesis"`。
+- Current feature launch params boundary follow-up
+  - `extract_feature_params` 旧 plain-param parser 已删除。
+  - Feature execution launch params 只通过 `build_execution_launch_params` 生成 canonical TaskBrief wrapper。
+  - Architecture guard 新增 `test_feature_launch_context_does_not_keep_plain_param_compatibility`，防止恢复旧执行参数兼容入口。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/application/services/feature_launch_context.py tests/application/services/test_feature_launch_context.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/application/services/test_feature_launch_context.py tests/tools/test_launch_feature_tool.py tests/integration/test_chat_to_feature_launch.py tests/architecture/test_dataservice_boundaries.py::test_feature_launch_context_does_not_keep_plain_param_compatibility -q` -> 18 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 26 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2020 passed.
 - `cd backend && .venv/bin/python -m ruff check src/task/tasks/execution.py tests/task/test_execution_result_card_persistence.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_execution_result_card_persistence.py tests/task/test_thread_writeback.py tests/services/test_execution_cancel.py tests/execution/test_engine.py tests/agents/lead_agent/v2/test_runtime.py tests/agents/lead_agent/v2/test_failure_handling.py tests/architecture/test_dataservice_boundaries.py::test_execution_runtime_uses_dataservice_execution_boundary -q` -> 49 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 25 passed.

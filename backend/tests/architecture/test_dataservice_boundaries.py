@@ -1052,6 +1052,23 @@ def test_prism_adapter_metadata_uses_canonical_field_names() -> None:
     assert "legacy_metadata" not in source
 
 
+def test_feature_launch_context_does_not_keep_plain_param_compatibility() -> None:
+    """Feature launch params must stay on the canonical TaskBrief wrapper shape."""
+
+    path = SRC_ROOT / "application" / "services" / "feature_launch_context.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "extract_feature_params",
+        "plain-param",
+        "legacy",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Feature launch context still accepts non-canonical execution params: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
