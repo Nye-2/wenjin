@@ -31,7 +31,7 @@ class _FakeDataService:
                 name="Model standard",
                 enabled=True,
                 version=1,
-                config={"tokens_per_credit": 1000},
+                config={"credits_per_1k_weighted_tokens": 6},
             )
         ]
 
@@ -56,7 +56,7 @@ class _FakeDataService:
             name=command.name or "Model standard",
             enabled=True,
             version=2,
-            config=command.config or {"tokens_per_credit": 1000},
+            config=command.config or {"credits_per_1k_weighted_tokens": 6},
         )
 
     async def disable_pricing_policy(self, policy_id_or_key: str, *, admin_id: str | None = None):
@@ -68,7 +68,7 @@ class _FakeDataService:
             name="Model standard",
             enabled=False,
             version=2,
-            config={"tokens_per_credit": 1000},
+            config={"credits_per_1k_weighted_tokens": 6},
         )
 
     async def simulate_pricing(self, command):
@@ -109,7 +109,7 @@ async def test_gateway_pricing_service_delegates_crud() -> None:
             policy_key="model-standard",
             policy_kind="model_usage",
             name="Model standard",
-            config={"tokens_per_credit": 1000},
+            config={"credits_per_1k_weighted_tokens": 6},
         ),
         admin_id="admin-1",
     )

@@ -5,10 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class GlobalCreditPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     credits_per_cny: float = Field(gt=0)
     usd_to_cny: float = Field(default=7.3, gt=0)
     target_margin_floor: float = Field(default=0.9, ge=0)
@@ -16,6 +18,8 @@ class GlobalCreditPolicyConfig(BaseModel):
 
 
 class ModelRawCostPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     input_usd_per_1m: float = Field(default=0.0, ge=0)
     cached_input_usd_per_1m: float = Field(default=0.0, ge=0)
     output_usd_per_1m: float = Field(default=0.0, ge=0)
@@ -23,6 +27,8 @@ class ModelRawCostPolicyConfig(BaseModel):
 
 
 class ModelUsagePolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     input_weight: float = Field(default=0.3, ge=0)
     cached_input_weight: float = Field(default=0.05, ge=0)
     output_weight: float = Field(default=1.0, ge=0)
@@ -35,17 +41,10 @@ class ModelUsagePolicyConfig(BaseModel):
     free_tokens: int = Field(default=0, ge=0)
     max_overdraft_credits: int = Field(default=100, ge=0)
 
-    # Compatibility fields are accepted while seed/tests migrate to value pricing.
-    tokens_per_credit: int | None = Field(default=None, gt=0)
-    prompt_token_weight: float | None = Field(default=None, ge=0)
-    completion_token_weight: float | None = Field(default=None, ge=0)
-    minimum_credits: int | None = Field(default=None, ge=0)
-    input_cny_per_1k_tokens: float | None = Field(default=None, ge=0)
-    output_cny_per_1k_tokens: float | None = Field(default=None, ge=0)
-    raw_cost_markup: float | None = Field(default=None, ge=1.0)
-
 
 class CapabilityPricingPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     workspace_type: str | None = None
     capability_id: str | None = None
     base_fee_credits: int = Field(default=0, ge=0)
@@ -64,11 +63,15 @@ class CapabilityPricingPolicyConfig(BaseModel):
 
 
 class ToolPricingPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     tool_key: str
     base_credits: int = Field(ge=0)
 
 
 class SandboxPricingPolicyConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     tiers: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @model_validator(mode="after")

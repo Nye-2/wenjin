@@ -36,7 +36,7 @@ class _FakePricingService:
                 name="Model standard",
                 enabled=True,
                 version=1,
-                config={"tokens_per_credit": 1000},
+                config={"credits_per_1k_weighted_tokens": 6},
             )
         ]
 
@@ -61,7 +61,7 @@ class _FakePricingService:
             name=command.name or "Model standard",
             enabled=True,
             version=2,
-            config=command.config or {"tokens_per_credit": 1000},
+            config=command.config or {"credits_per_1k_weighted_tokens": 6},
         )
 
     async def disable_policy(self, policy_id_or_key: str, *, admin_id: str):
@@ -73,7 +73,7 @@ class _FakePricingService:
             name="Model standard",
             enabled=False,
             version=2,
-            config={"tokens_per_credit": 1000},
+            config={"credits_per_1k_weighted_tokens": 6},
         )
 
     async def simulate(self, command):
@@ -118,7 +118,7 @@ def test_admin_pricing_policy_crud_routes() -> None:
             "policy_key": "model-standard",
             "policy_kind": "model_usage",
             "name": "Model standard",
-            "config": {"tokens_per_credit": 1000},
+            "config": {"credits_per_1k_weighted_tokens": 6},
         },
     )
     update_response = client.patch("/admin/pricing-policies/model-standard", json={"name": "Model v2"})

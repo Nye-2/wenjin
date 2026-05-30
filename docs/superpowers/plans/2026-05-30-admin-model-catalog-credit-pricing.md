@@ -100,7 +100,7 @@ Expected current result: exit code `0`.
 - Modify `backend/src/models/factory.py`
   - Use decrypted runtime config and include custom headers in `get_model_full_config`.
 - Modify `backend/src/services/billing_policy.py`
-  - Replace fixed `TokenBillingPolicy` as runtime source with pricing policy facade while keeping compatibility tests passing during transition.
+  - Replace fixed token-rate model usage pricing with policy-driven value pricing. Existing token helpers remain only for free-quota/admission accounting.
 - Modify `backend/src/services/credit_service.py`
   - Add policy-based charge calculation and reservation wrappers.
 - Modify execution/sandbox call sites after locating exact settlement hooks:

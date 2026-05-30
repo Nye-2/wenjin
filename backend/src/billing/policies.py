@@ -178,19 +178,13 @@ def calculate_weighted_tokens(
     model_policy: Any,
     token_usage: dict[str, Any],
 ) -> float:
-    """Calculate weighted model tokens under current or compatibility policy fields."""
+    """Calculate weighted model tokens under the current value-pricing schema."""
     policy = _policy_config(model_policy)
     usage = _normalize_usage_dict(token_usage)
-    if _is_compat_model_policy(policy):
-        input_weight = _float_policy_value(policy, "prompt_token_weight", default=1.0)
-        output_weight = _float_policy_value(policy, "completion_token_weight", default=1.0)
-        cached_input_weight = input_weight
-        reasoning_weight = output_weight
-    else:
-        input_weight = _float_policy_value(policy, "input_weight", default=0.3)
-        cached_input_weight = _float_policy_value(policy, "cached_input_weight", default=0.05)
-        output_weight = _float_policy_value(policy, "output_weight", default=1.0)
-        reasoning_weight = _float_policy_value(policy, "reasoning_weight", default=1.0)
+    input_weight = _float_policy_value(policy, "input_weight", default=0.3)
+    cached_input_weight = _float_policy_value(policy, "cached_input_weight", default=0.05)
+    output_weight = _float_policy_value(policy, "output_weight", default=1.0)
+    reasoning_weight = _float_policy_value(policy, "reasoning_weight", default=1.0)
 
     return (
         usage["input_tokens"] * input_weight
@@ -229,32 +223,17 @@ def calculate_model_usage_credits(
         )
 
     weighted_tokens = calculate_weighted_tokens(policy, billable_usage)
-    if _is_compat_model_policy(policy):
-        weighted_credits = math.ceil(
-            weighted_tokens
-            / max(_int_policy_value(policy, "tokens_per_credit", default=1000), 1)
-        )
-        raw_cost_cny = _compat_raw_cost_cny(policy, billable_usage)
-        raw_cost_usd = (
-            raw_cost_cny / global_credit_policy.usd_to_cny
-            if global_credit_policy.usd_to_cny > 0
-            else 0
-        )
-        raw_cost_credits = raw_cost_cny * global_credit_policy.credits_per_cny
-        multiplier = _float_policy_value(policy, "raw_cost_markup", default=1.5)
-        minimum_credits = _int_policy_value(policy, "minimum_credits", default=1)
-    else:
-        credits_per_1k = _float_policy_value(
-            policy,
-            "credits_per_1k_weighted_tokens",
-            default=6.0,
-        )
-        weighted_credits = math.ceil(weighted_tokens / 1000 * credits_per_1k)
-        raw_cost_usd = _raw_cost_usd(policy, billable_usage)
-        raw_cost_cny = raw_cost_usd * global_credit_policy.usd_to_cny
-        raw_cost_credits = raw_cost_cny * global_credit_policy.credits_per_cny
-        multiplier = _float_policy_value(policy, "cost_guard_multiplier", default=20.0)
-        minimum_credits = _surface_minimum(policy, surface)
+    credits_per_1k = _float_policy_value(
+        policy,
+        "credits_per_1k_weighted_tokens",
+        default=6.0,
+    )
+    weighted_credits = math.ceil(weighted_tokens / 1000 * credits_per_1k)
+    raw_cost_usd = _raw_cost_usd(policy, billable_usage)
+    raw_cost_cny = raw_cost_usd * global_credit_policy.usd_to_cny
+    raw_cost_credits = raw_cost_cny * global_credit_policy.credits_per_cny
+    multiplier = _float_policy_value(policy, "cost_guard_multiplier", default=20.0)
+    minimum_credits = _surface_minimum(policy, surface)
 
     raw_cost_guard_credits = math.ceil(raw_cost_credits * multiplier)
     credits_to_charge = max(minimum_credits, weighted_credits, raw_cost_guard_credits)
@@ -428,19 +407,6 @@ def _billable_usage_slice(usage: dict[str, int], billable_tokens: int | None) ->
     return sliced
 
 
-def _is_compat_model_policy(policy: dict[str, Any]) -> bool:
-    return any(
-        policy.get(key) is not None
-        for key in (
-            "tokens_per_credit",
-            "prompt_token_weight",
-            "completion_token_weight",
-            "input_cny_per_1k_tokens",
-            "output_cny_per_1k_tokens",
-        )
-    )
-
-
 def _surface_minimum(policy: dict[str, Any], surface: str) -> int:
     normalized_surface = str(surface or "").strip()
     if normalized_surface in {"feature", "workflow", "capability"}:
@@ -457,13 +423,6 @@ def _raw_cost_usd(policy: dict[str, Any], usage: dict[str, int]) -> float:
         + usage["cached_input_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("cached_input_usd_per_1m"), default=0)
         + usage["output_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("output_usd_per_1m"), default=0)
         + usage["reasoning_tokens"] / 1_000_000 * _coerce_float(raw_cost.get("reasoning_usd_per_1m"), default=0)
-    )
-
-
-def _compat_raw_cost_cny(policy: dict[str, Any], usage: dict[str, int]) -> float:
-    return (
-        usage["input_tokens"] / 1000 * _float_policy_value(policy, "input_cny_per_1k_tokens", default=0)
-        + usage["output_tokens"] / 1000 * _float_policy_value(policy, "output_cny_per_1k_tokens", default=0)
     )
 
 
@@ -513,4 +472,3 @@ def _coerce_float(value: Any, *, default: float) -> float:
         return max(float(value if value is not None else default), 0)
     except (TypeError, ValueError):
         return max(float(default), 0)
-

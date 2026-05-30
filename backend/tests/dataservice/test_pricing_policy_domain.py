@@ -77,7 +77,12 @@ def test_global_credit_policy_accepts_positive_exchange_rate() -> None:
 
 def test_model_usage_policy_calculates_weighted_tokens() -> None:
     service = DataServicePricingPolicyService(None, autocommit=False)  # type: ignore[arg-type]
-    policy = ModelUsagePolicyConfig(tokens_per_credit=1000, prompt_token_weight=1, completion_token_weight=4)
+    policy = ModelUsagePolicyConfig(
+        input_weight=1,
+        output_weight=4,
+        credits_per_1k_weighted_tokens=1,
+        min_chat_credits=0,
+    )
 
     result = service.simulate(
         PricingSimulationRequest(
@@ -96,18 +101,21 @@ def test_model_usage_policy_calculates_weighted_tokens() -> None:
 def test_raw_cost_guard_can_dominate_weighted_token_price() -> None:
     service = DataServicePricingPolicyService(None, autocommit=False)  # type: ignore[arg-type]
     policy = ModelUsagePolicyConfig(
-        tokens_per_credit=1000000,
-        prompt_token_weight=1,
-        completion_token_weight=1,
-        input_cny_per_1k_tokens=1.0,
-        output_cny_per_1k_tokens=9.0,
-        raw_cost_markup=2.0,
+        input_weight=1,
+        output_weight=1,
+        credits_per_1k_weighted_tokens=0.1,
+        min_chat_credits=0,
+        cost_guard_multiplier=2.0,
+        raw_cost={
+            "input_usd_per_1m": 1000.0,
+            "output_usd_per_1m": 9000.0,
+        },
     )
 
     result = service.simulate(
         PricingSimulationRequest(
             policy_kind="model_usage",
-            global_policy=GlobalCreditPolicyConfig(credits_per_cny=10),
+            global_policy=GlobalCreditPolicyConfig(credits_per_cny=10, usd_to_cny=1),
             model_usage_policy=policy,
             prompt_tokens=1000,
             completion_tokens=1000,
@@ -146,7 +154,12 @@ def test_invalid_negative_rates_are_rejected() -> None:
     with pytest.raises(ValidationError):
         GlobalCreditPolicyConfig(credits_per_cny=-1)
     with pytest.raises(ValidationError):
-        ModelUsagePolicyConfig(tokens_per_credit=-100)
+        ModelUsagePolicyConfig(input_weight=-1)
+
+
+def test_model_usage_policy_rejects_legacy_schema_fields() -> None:
+    with pytest.raises(ValidationError):
+        ModelUsagePolicyConfig(tokens_per_credit=1000)
 
 
 def test_capability_policy_requires_max_charge_not_below_estimate() -> None:
@@ -169,9 +182,9 @@ async def test_create_pricing_policy_validates_config_and_returns_record() -> No
             policy_kind=PricingPolicyKind.MODEL_USAGE,
             name="Standard model usage",
             config={
-                "tokens_per_credit": 1000,
-                "prompt_token_weight": 1,
-                "completion_token_weight": 4,
+                "input_weight": 1,
+                "output_weight": 4,
+                "credits_per_1k_weighted_tokens": 1,
             },
         ),
         admin_id="admin-1",
@@ -179,7 +192,7 @@ async def test_create_pricing_policy_validates_config_and_returns_record() -> No
 
     assert record.policy_key == "model-standard"
     assert record.policy_kind == "model_usage"
-    assert record.config["tokens_per_credit"] == 1000
+    assert record.config["credits_per_1k_weighted_tokens"] == 1
     assert repository.rows["model-standard"].created_by_admin_id == "admin-1"
     assert session.commit_count == 1
 
@@ -217,7 +230,12 @@ async def test_list_pricing_policies_filters_enabled_and_kind() -> None:
         PricingPolicyCreateCommand(policy_key="global", policy_kind="global_credit", name="Global", config={"credits_per_cny": 10})
     )
     await service.create_policy(
-        PricingPolicyCreateCommand(policy_key="model", policy_kind="model_usage", name="Model", config={"tokens_per_credit": 1000})
+        PricingPolicyCreateCommand(
+            policy_key="model",
+            policy_kind="model_usage",
+            name="Model",
+            config={"credits_per_1k_weighted_tokens": 6},
+        )
     )
     await service.disable_policy("model", admin_id="admin-1")
 
