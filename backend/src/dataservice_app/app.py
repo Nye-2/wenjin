@@ -83,6 +83,7 @@ from .routers import (  # noqa: E402
     health,
     knowledge,
     latex,
+    model_catalog,
     prism,
     prism_review,
     provenance,
@@ -105,6 +106,7 @@ app.include_router(execution.router)
 app.include_router(health.router)
 app.include_router(knowledge.router)
 app.include_router(latex.router)
+app.include_router(model_catalog.router)
 app.include_router(prism.router)
 app.include_router(prism_review.router)
 app.include_router(provenance.router)

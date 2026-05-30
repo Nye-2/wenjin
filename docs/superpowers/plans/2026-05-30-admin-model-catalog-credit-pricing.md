@@ -321,7 +321,7 @@ git commit -m "feat: add model catalog secret protection"
 - Modify: `backend/src/dataservice_client/client.py`
 - Test: `backend/tests/dataservice/test_model_catalog_domain.py`
 
-- [ ] **Step 1: Extend tests for CRUD and invariants**
+- [x] **Step 1: Extend tests for CRUD and invariants**
 
 Add tests for:
 
@@ -333,7 +333,7 @@ Add tests for:
 - update without `api_key` preserves old encrypted key.
 - health update stores redacted error.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run:
 
@@ -344,7 +344,7 @@ cd backend
 
 Expected: fail on missing domain/service methods.
 
-- [ ] **Step 3: Implement contracts**
+- [x] **Step 3: Implement contracts**
 
 Define Pydantic models:
 
@@ -357,26 +357,24 @@ Define Pydantic models:
 
 Never include plaintext API key in `ModelCatalogRecord`.
 
-- [ ] **Step 4: Implement repository and service**
+- [x] **Step 4: Implement repository and service**
 
 Keep repository SQL-only and service invariant-heavy. Service owns encryption, default selection, disable rules, version increments, and runtime config assembly.
 
-- [ ] **Step 5: Add DataService internal router and client methods**
+- [x] **Step 5: Add DataService internal router and client methods**
 
 Internal endpoints:
 
 ```text
-GET    /internal/v1/model-catalog
-POST   /internal/v1/model-catalog
-GET    /internal/v1/model-catalog/runtime
-GET    /internal/v1/model-catalog/version
-PATCH  /internal/v1/model-catalog/{model_id}
-POST   /internal/v1/model-catalog/{model_id}/disable
-POST   /internal/v1/model-catalog/{model_id}/set-default
-POST   /internal/v1/model-catalog/{model_id}/health
+GET    /internal/v1/model-catalog/models
+POST   /internal/v1/model-catalog/models
+GET    /internal/v1/model-catalog/models/runtime
+PATCH  /internal/v1/model-catalog/models/{model_id}
+POST   /internal/v1/model-catalog/models/{model_id}/default
+POST   /internal/v1/model-catalog/models/{model_id}/health
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -387,7 +385,7 @@ cd backend
 
 Expected: pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/src/dataservice/domains/model_catalog backend/src/dataservice_app backend/src/dataservice_client backend/tests/dataservice/test_model_catalog_domain.py

@@ -70,6 +70,11 @@ from src.dataservice_client.contracts.latex import (
     LatexProjectTouchPayload,
     LatexProjectUpdatePayload,
 )
+from src.dataservice_client.contracts.model_catalog import (
+    ModelCatalogCreatePayload,
+    ModelCatalogHealthPayload,
+    ModelCatalogUpdatePayload,
+)
 from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeAppliedPayload,
     PrismFileChangeClearPayload,
@@ -153,6 +158,15 @@ def test_internal_auth_uses_stable_error_envelope(monkeypatch: pytest.MonkeyPatc
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "UNAUTHENTICATED_INTERNAL_CALL"
+
+
+def test_dataservice_app_includes_model_catalog_router() -> None:
+    from src.dataservice_app.app import app
+
+    paths = {getattr(route, "path", "") for route in app.routes}
+
+    assert "/internal/v1/model-catalog/models" in paths
+    assert "/internal/v1/model-catalog/models/runtime" in paths
 
 
 @pytest.mark.asyncio
@@ -776,6 +790,126 @@ async def test_dataservice_client_catalog_contract_methods() -> None:
     assert admin_total == 1
     assert seen[0][1] == "/internal/v1/catalog/capabilities"
     assert seen[-1][1] == "/internal/v1/catalog/admin-logs"
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_model_catalog_contract_methods() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def model_payload(model_id: str = "deepseek-v3") -> dict[str, Any]:
+        return {
+            "id": "row-1",
+            "model_id": model_id,
+            "display_name": "DeepSeek V3",
+            "provider_protocol": "openai_compatible",
+            "provider_name": "QnAIGC",
+            "category": "llm",
+            "model_name": "deepseek/deepseek-v3",
+            "base_url": "https://api.example.com/v1",
+            "api_key_redacted": "sk-****abcd",
+            "enabled": True,
+            "is_default": True,
+            "supports_streaming": True,
+            "supports_tools": True,
+            "supports_json_mode": True,
+            "supports_json_schema": False,
+            "supports_vision": False,
+            "supports_reasoning_effort": False,
+            "max_tokens": 4096,
+            "temperature": 0.7,
+            "timeout_seconds": None,
+            "max_retries": None,
+            "trust_level": "custom",
+            "pricing_policy_id": None,
+            "config_version": 1,
+            "health_status": "unknown",
+            "last_tested_at": None,
+            "last_test_error": None,
+            "default_headers": {},
+            "created_by_admin_id": None,
+            "updated_by_admin_id": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+
+    def runtime_payload() -> dict[str, Any]:
+        return {
+            "model_id": "deepseek-v3",
+            "display_name": "DeepSeek V3",
+            "provider_protocol": "openai_compatible",
+            "provider_name": "QnAIGC",
+            "category": "llm",
+            "model_name": "deepseek/deepseek-v3",
+            "base_url": "https://api.example.com/v1",
+            "api_key": "sk-live-1234abcd",
+            "is_default": True,
+            "supports_streaming": True,
+            "supports_tools": True,
+            "supports_json_mode": True,
+            "supports_json_schema": False,
+            "supports_vision": False,
+            "supports_reasoning_effort": False,
+            "max_tokens": 4096,
+            "temperature": 0.7,
+            "timeout_seconds": None,
+            "max_retries": None,
+            "trust_level": "custom",
+            "pricing_policy_id": None,
+            "config_version": 1,
+            "default_headers": {},
+        }
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode()) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        path = request.url.path
+        if path.endswith("/runtime"):
+            return httpx.Response(200, json={"status": "ok", "data": [runtime_payload()]})
+        if request.method == "GET" and path.endswith("/models"):
+            return httpx.Response(200, json={"status": "ok", "data": [model_payload()]})
+        return httpx.Response(200, json={"status": "ok", "data": model_payload()})
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        models = await client.list_model_catalog_models(category="llm", enabled_only=True)
+        model = await client.get_model_catalog_model("deepseek-v3")
+        created = await client.create_model_catalog_model(
+            ModelCatalogCreatePayload(
+                model_id="deepseek-v3",
+                display_name="DeepSeek V3",
+                provider_protocol="openai_compatible",
+                provider_name="QnAIGC",
+                category="llm",
+                model_name="deepseek/deepseek-v3",
+                base_url="https://api.example.com/v1",
+                api_key="sk-live-1234abcd",
+                is_default=True,
+            )
+        )
+        updated = await client.update_model_catalog_model(
+            "deepseek-v3",
+            ModelCatalogUpdatePayload(display_name="DeepSeek V3.1"),
+        )
+        default_model = await client.set_model_catalog_default("deepseek-v3")
+        health = await client.update_model_catalog_health(
+            "deepseek-v3",
+            ModelCatalogHealthPayload(status="healthy"),
+        )
+        runtime_models = await client.list_model_catalog_runtime_models(category="llm")
+
+    assert models[0].api_key_redacted == "sk-****abcd"
+    assert model is not None and model.model_id == "deepseek-v3"
+    assert created.is_default is True
+    assert updated is not None and updated.display_name == "DeepSeek V3"
+    assert default_model is not None and default_model.model_id == "deepseek-v3"
+    assert health is not None and health.health_status == "unknown"
+    assert runtime_models[0].api_key == "sk-live-1234abcd"
+    assert seen[0][1] == "/internal/v1/model-catalog/models"
+    assert seen[-1][1] == "/internal/v1/model-catalog/models/runtime"
 
 
 @pytest.mark.asyncio

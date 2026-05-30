@@ -11,8 +11,10 @@ from .security import (
     redact_api_key,
     validate_model_base_url,
 )
+from .service import DataServiceModelCatalogService
 
 __all__ = [
+    "DataServiceModelCatalogService",
     "ModelApiKeyCipher",
     "ModelCatalogSecurityError",
     "api_key_fingerprint",

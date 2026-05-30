@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import base64
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
+from src.database.models.model_catalog import ModelCategory, ModelHealthStatus
+from src.dataservice.common.errors import DataServiceConflictError, DataServiceValidationError
 from src.dataservice.domains.model_catalog.security import (
     ModelApiKeyCipher,
     ModelCatalogSecurityError,
@@ -16,10 +20,101 @@ from src.dataservice.domains.model_catalog.security import (
     redact_api_key,
     validate_model_base_url,
 )
+from src.dataservice.domains.model_catalog.service import DataServiceModelCatalogService
+
+
+class _FakeSession:
+    def __init__(self) -> None:
+        self.commit_count = 0
+        self.flush_count = 0
+
+    async def commit(self) -> None:
+        self.commit_count += 1
+
+    async def flush(self) -> None:
+        self.flush_count += 1
+
+
+class _FakeModelCatalogRepository:
+    def __init__(self) -> None:
+        self.rows: dict[str, SimpleNamespace] = {}
+
+    async def create_model(self, values: dict[str, Any]) -> SimpleNamespace:
+        row = SimpleNamespace(
+            id=f"row-{len(self.rows) + 1}",
+            created_at=None,
+            updated_at=None,
+            last_tested_at=None,
+            last_test_error=None,
+            **values,
+        )
+        self.rows[row.model_id] = row
+        return row
+
+    async def get_model(self, model_id: str) -> SimpleNamespace | None:
+        return self.rows.get(model_id)
+
+    async def list_models(
+        self,
+        *,
+        category: str | None = None,
+        enabled_only: bool = False,
+    ) -> list[SimpleNamespace]:
+        rows = list(self.rows.values())
+        if category is not None:
+            rows = [row for row in rows if _enum_value(row.category) == category]
+        if enabled_only:
+            rows = [row for row in rows if row.enabled]
+        return rows
+
+    async def unset_default_models(self, *, category: str, except_model_id: str | None = None) -> None:
+        for row in self.rows.values():
+            if _enum_value(row.category) == category and row.model_id != except_model_id:
+                row.is_default = False
+
+    async def count_enabled_models(self, *, category: str) -> int:
+        return len([row for row in self.rows.values() if _enum_value(row.category) == category and row.enabled])
+
+
+def _enum_value(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
 
 
 def _test_key() -> str:
     return "base64:" + base64.urlsafe_b64encode(b"0" * 32).decode("ascii")
+
+
+def _model_catalog_service() -> tuple[DataServiceModelCatalogService, _FakeModelCatalogRepository, _FakeSession]:
+    session = _FakeSession()
+    service = DataServiceModelCatalogService(
+        session,  # type: ignore[arg-type]
+        master_key=b"0" * 32,
+        autocommit=True,
+    )
+    repository = _FakeModelCatalogRepository()
+    service.repository = repository  # type: ignore[assignment]
+    return service, repository, session
+
+
+def _model_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model_id": "deepseek-v3",
+        "display_name": "DeepSeek V3",
+        "provider_protocol": "openai_compatible",
+        "provider_name": "QnAIGC",
+        "category": "llm",
+        "model_name": "deepseek/deepseek-v3",
+        "base_url": "https://api.example.com/v1",
+        "api_key": "sk-live-1234abcd",
+        "enabled": True,
+        "is_default": True,
+        "supports_streaming": True,
+        "supports_tools": True,
+        "supports_vision": False,
+        "default_headers": {"X-Provider": "qnaigc"},
+    }
+    payload.update(overrides)
+    return payload
 
 
 def test_model_api_key_cipher_round_trips_with_authenticated_context() -> None:
@@ -103,3 +198,93 @@ def test_validate_model_base_url_can_allow_local_development_targets_explicitly(
         )
         == "http://localhost:8000/v1"
     )
+
+
+@pytest.mark.asyncio
+async def test_create_model_encrypts_key_and_returns_redacted_record() -> None:
+    service, repository, session = _model_catalog_service()
+
+    record = await service.create_model(_model_payload(), admin_id="admin-1")
+
+    stored = repository.rows["deepseek-v3"]
+    assert record.model_id == "deepseek-v3"
+    assert record.api_key_redacted == "sk-****abcd"
+    assert "api_key" not in record.model_dump(mode="json")
+    assert stored.encrypted_api_key.startswith("v1:")
+    assert stored.encrypted_api_key != "sk-live-1234abcd"
+    assert stored.api_key_last4 == "abcd"
+    assert stored.created_by_admin_id == "admin-1"
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_models_decrypt_keys_only_for_internal_payload() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+
+    runtime_models = await service.list_runtime_models(category=ModelCategory.LLM)
+
+    assert len(runtime_models) == 1
+    runtime = runtime_models[0]
+    assert runtime.model_id == "deepseek-v3"
+    assert runtime.api_key == "sk-live-1234abcd"
+    assert runtime.base_url == "https://api.example.com/v1"
+    assert runtime.default_headers == {"X-Provider": "qnaigc"}
+
+
+@pytest.mark.asyncio
+async def test_setting_new_default_unsets_previous_default() -> None:
+    service, repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload(model_id="deepseek-v3", is_default=True))
+    await service.create_model(_model_payload(model_id="qwen-max", model_name="qwen-max", is_default=True))
+
+    assert repository.rows["deepseek-v3"].is_default is False
+    assert repository.rows["qwen-max"].is_default is True
+
+
+@pytest.mark.asyncio
+async def test_cannot_disable_only_enabled_default_model() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+
+    with pytest.raises(DataServiceConflictError, match="default"):
+        await service.update_model("deepseek-v3", {"enabled": False})
+
+
+@pytest.mark.asyncio
+async def test_model_id_is_immutable_on_update() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+
+    with pytest.raises(DataServiceValidationError, match="model_id"):
+        await service.update_model("deepseek-v3", {"model_id": "qwen-max"})
+
+
+@pytest.mark.asyncio
+async def test_update_without_api_key_preserves_existing_encrypted_key() -> None:
+    service, repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+    encrypted_before = repository.rows["deepseek-v3"].encrypted_api_key
+
+    record = await service.update_model("deepseek-v3", {"display_name": "DeepSeek V3.1"})
+
+    assert record is not None
+    assert record.display_name == "DeepSeek V3.1"
+    assert repository.rows["deepseek-v3"].encrypted_api_key == encrypted_before
+    assert repository.rows["deepseek-v3"].api_key_last4 == "abcd"
+
+
+@pytest.mark.asyncio
+async def test_health_update_stores_redacted_error() -> None:
+    service, repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+
+    record = await service.update_health(
+        "deepseek-v3",
+        status=ModelHealthStatus.FAILED,
+        error_message="provider rejected sk-live-1234abcd",
+    )
+
+    assert record is not None
+    assert repository.rows["deepseek-v3"].health_status == ModelHealthStatus.FAILED
+    assert repository.rows["deepseek-v3"].last_test_error == "provider rejected sk-****abcd"
