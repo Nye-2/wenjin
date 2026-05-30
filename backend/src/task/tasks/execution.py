@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from celery import shared_task
 
 from src.config.app_config import redis_settings
+from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.contracts.conversation import ConversationMessageCreatePayload
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,10 @@ def _result_card_data_from_task_report(execution_id: str, task_report: dict[str,
     }
 
 
-async def _persist_result_card_for_execution(db: Any, execution: Any) -> None:
+async def _persist_result_card_for_execution(
+    dataservice: AsyncDataServiceClient,
+    execution: Any,
+) -> None:
     """Persist a result_card block so completed executions survive reloads."""
     result = getattr(execution, "result", None)
     task_report = result.get("task_report") if isinstance(result, dict) else None
@@ -85,10 +91,7 @@ async def _persist_result_card_for_execution(db: Any, execution: Any) -> None:
     if not thread_id:
         return
 
-    from src.services import ThreadService
-
-    thread_service = ThreadService(db)
-    thread = await thread_service.get_by_id(thread_id)
+    thread = await dataservice.get_conversation_thread(thread_id)
     if thread is None:
         return
 
@@ -96,28 +99,36 @@ async def _persist_result_card_for_execution(db: Any, execution: Any) -> None:
     if not execution_id:
         return
 
-    messages = await thread_service.list_thread_messages(thread)
+    messages = await dataservice.list_conversation_messages(thread_id)
     for message in messages:
-        for block in message.get("blocks") or []:
-            if not isinstance(block, dict) or block.get("kind") != "result_card":
+        for block in getattr(message, "blocks", None) or []:
+            payload = getattr(block, "payload_json", None)
+            if not isinstance(payload, dict) or payload.get("kind") != "result_card":
                 continue
-            data = block.get("data")
+            data = payload.get("data")
             if isinstance(data, dict) and str(data.get("execution_id") or "") == execution_id:
                 return
 
     result_card_data = _result_card_data_from_task_report(execution_id, task_report)
-    await thread_service.add_message(
-        thread,
-        role="assistant",
-        content=str(task_report.get("narrative") or "执行已完成。"),
-        blocks=[{"kind": "result_card", "data": result_card_data}],
-        metadata={"source": "execution_completion", "execution_id": execution_id},
+    await dataservice.append_conversation_message(
+        thread_id,
+        ConversationMessageCreatePayload(
+            thread_id=thread_id,
+            user_id=str(thread.user_id),
+            workspace_id=thread.workspace_id,
+            role="assistant",
+            content=str(task_report.get("narrative") or "执行已完成。"),
+            sequence_index=int(getattr(thread, "message_count", 0) or len(messages)),
+            timestamp=datetime.now(UTC),
+            blocks=[{"kind": "result_card", "data": result_card_data}],
+            metadata={"source": "execution_completion", "execution_id": execution_id},
+        ),
     )
 
 
 async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
     from src.academic.cache.redis_client import redis_client
-    from src.database import get_db_session, reset_db_engine
+    from src.dataservice_client.provider import dataservice_client
     from src.services.capability_resolver import CapabilityResolver
     from src.services.event_bus import EventBus
     from src.services.execution_event_publisher import (
@@ -129,14 +140,13 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
     if not redis_settings.enabled:
         raise RuntimeError("execute_execution requires REDIS_ENABLED=true")
 
-    await reset_db_engine(dispose_current=False)
     await redis_client.reset_client(close_current=False)
     await redis_client.reset_stream_client(close_current=False)
     await redis_client.connect()
     await redis_client.connect_stream()
 
-    async with get_db_session() as db:
-        execution_service = ExecutionService(redis=redis_client.client)
+    async with dataservice_client() as dataservice:
+        execution_service = ExecutionService(dataservice=dataservice, redis=redis_client.client)
         record = await execution_service.get_by_id(execution_id)
         if record is None:
             return {"ok": False, "reason": "execution_not_found", "execution_id": execution_id}
@@ -163,8 +173,8 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         # Build deps
         event_bus = EventBus(redis_client.client)
         resolver = CapabilityResolver(
-            session_factory=get_db_session,
             event_bus=event_bus,
+            dataservice=dataservice,
         )
 
         # Wire publish_event for LeadAgentRuntime
@@ -183,13 +193,10 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         # Build runtime + engine
         from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
         from src.execution.engine import ExecutionEngineV2
-        from src.services.workspace_skill_labels import get_workspace_type as _resolve_ws_type
 
         async def _resolve_ws_type_with_fallback(ws_id: str) -> str:
-            # ``get_workspace_type`` is async; wrap so the ``or "thesis"``
-            # fallback actually evaluates against the awaited result instead
-            # of against a (truthy) coroutine object.
-            return (await _resolve_ws_type(db, ws_id)) or "thesis"
+            workspace = await dataservice.get_workspace(ws_id)
+            return str(getattr(workspace, "workspace_type", None) or "thesis")
 
         async def _record_node_event(**kw: Any) -> None:
             # Persist per-node lifecycle into ``executions.node_states`` so the
@@ -248,7 +255,6 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             publish_event=_publish_fn,
             get_workspace_type=_resolve_ws_type_with_fallback,
             redis=redis_client.client,
-            db=db,
             record_node_event=_record_node_event,
         )
         engine = ExecutionEngineV2(
@@ -261,7 +267,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             final = await execution_service.get_by_id(execution_id)
             if final is not None and final.status in {"completed", "failed_partial", "cancelled"}:
                 try:
-                    await _persist_result_card_for_execution(db, final)
+                    await _persist_result_card_for_execution(dataservice, final)
                 except Exception:
                     logger.warning("persist result_card failed", exc_info=True)
         finally:

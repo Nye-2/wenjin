@@ -566,6 +566,10 @@ def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
             "get_workspace_type",
             "IntegrityError",
         ),
+        SRC_ROOT / "gateway" / "routers" / "capabilities.py": (
+            "get_db_session",
+            "session_factory=",
+        ),
         SRC_ROOT / "task" / "recovery.py": (
             "get_db_session",
             "ExecutionService(db",
@@ -574,7 +578,12 @@ def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
             "ExecutionService(self._store.db",
         ),
         SRC_ROOT / "task" / "tasks" / "execution.py": (
+            "get_db_session",
+            "reset_db_engine",
             "ExecutionService(db",
+            "ThreadService",
+            "session_factory=",
+            "db=",
         ),
     }
 

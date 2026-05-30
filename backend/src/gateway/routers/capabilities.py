@@ -41,14 +41,12 @@ async def _get_resolver(request: Request) -> CapabilityResolver:
 
     if not hasattr(request.app.state, "capability_resolver"):
         from src.academic.cache.redis_client import redis_client
-        from src.database import get_db_session
         from src.services.event_bus import EventBus
 
         if redis_client._client is None:
             await redis_client.connect()
 
         resolver = CapabilityResolver(
-            session_factory=get_db_session,
             event_bus=EventBus(redis_client.client),
         )
         request.app.state.capability_resolver = resolver

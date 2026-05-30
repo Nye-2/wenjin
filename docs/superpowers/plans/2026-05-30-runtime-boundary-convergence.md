@@ -32,10 +32,14 @@
 - Current execution runtime boundary follow-up
   - `/executions/*` runtime API、`launch_feature`、task recovery/cancel 和 worker execution lifecycle 不再以 DB session 构造 `ExecutionService`。
   - `launch_feature` 直接从 Workspace/Catalog DataService 解析 workspace type 和 capability，并通过 Execution DataService 创建/恢复/标记 dispatch metadata。
+  - Worker `execute_execution` 运行时不再打开 DB session、不再 reset DB engine、不再通过 `ThreadService(db)` 写回 result_card。
+  - `LeadAgentRuntime` 不再接收或保存 DB session；Prism BibTeX 同步通过 Reference/DataService service 自己的 canonical client 边界执行。
+  - `CapabilityResolver` 运行时解析只依赖 Catalog DataService client，`session_factory` 仅保留为历史测试调用兼容参数且不参与运行路径。
 
 已验证：
 
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_execution_result_card_persistence.py tests/task/test_thread_writeback.py tests/services/test_capability_resolver.py tests/gateway/routers/test_capabilities_router.py tests/gateway/test_capabilities_router.py tests/agents/lead_agent/v2/test_runtime.py tests/agents/lead_agent/v2/test_cancel_flow.py tests/agents/lead_agent/v2/test_failure_handling.py tests/architecture/test_dataservice_boundaries.py -q` -> 59 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.

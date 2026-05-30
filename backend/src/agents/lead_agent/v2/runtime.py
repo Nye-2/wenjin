@@ -10,8 +10,6 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Annotated, Any, TypedDict
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import (
     MemoryFactData,
@@ -151,7 +149,6 @@ class LeadAgentRuntime:
         publish_event: Callable | None = None,
         get_workspace_type: Callable | None = None,
         redis: Any | None = None,
-        db: AsyncSession | None = None,
         set_graph_structure: Callable | None = None,
         record_node_event: Callable | None = None,
     ) -> None:
@@ -186,7 +183,6 @@ class LeadAgentRuntime:
         self.publish_event = publish_event or _noop_publish
         self.get_workspace_type = get_workspace_type or _stub_get_ws_type
         self.redis = redis
-        self.db = db
         self.set_graph_structure = set_graph_structure
         self.record_node_event = record_node_event or _noop_record_node
 
@@ -984,8 +980,6 @@ class LeadAgentRuntime:
         state: dict,
     ) -> None:
         """Keep workspace Library BibTeX materialized in Prism after manuscript runs."""
-        if self.db is None:
-            return
         workspace_data = state.get("workspace_data") if isinstance(state, dict) else {}
         library_context = (
             workspace_data.get("library_context")
@@ -997,7 +991,7 @@ class LeadAgentRuntime:
         try:
             from src.services.references import SourceBibliographyService
 
-            await SourceBibliographyService(db=self.db).sync_prism(
+            await SourceBibliographyService().sync_prism(
                 workspace_id=brief.workspace_id,
             )
         except Exception:
