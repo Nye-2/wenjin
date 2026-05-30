@@ -236,6 +236,14 @@ def test_needs_library_context_when_citation_policy_uses_workspace_library():
     )
 
 
+def test_runtime_mode_ignores_definition_json_runtime_mode():
+    cap = _make_fake_capability(
+        definition_json={"runtime_mode": "team_kernel"},
+    )
+
+    assert LeadAgentRuntime._runtime_mode(cap) == "static_graph"
+
+
 @pytest.mark.asyncio
 async def test_stage_prism_review_items_from_writer_output():
     graph_template = {

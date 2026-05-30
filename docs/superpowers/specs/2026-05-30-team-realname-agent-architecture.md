@@ -61,10 +61,11 @@ This keeps LangGraph stable and checkpointable while allowing the user-visible t
 
 ## Runtime Modes
 
-`runtime_mode` becomes a first-class capability field:
+`runtime.mode` is the first-class capability runtime selector:
 
 ```yaml
-runtime_mode: static_graph | team_kernel
+runtime:
+  mode: static_graph | team_kernel
 ```
 
 - `static_graph`: existing deterministic capability graph. It remains for capabilities that are not migrated yet.
@@ -225,7 +226,8 @@ Important distinction:
 `team_policy` defines which members the Lead Agent may recruit for a capability and how aggressively it may iterate.
 
 ```yaml
-runtime_mode: team_kernel
+runtime:
+  mode: team_kernel
 
 team_policy:
   core_templates:
@@ -659,7 +661,7 @@ This should be a clean staged migration:
 
 1. Add team-kernel contracts and persistence behind DataService.
 2. Add agent template seeds and validation.
-3. Add `runtime_mode` validation to capability loading.
+3. Add `runtime.mode` validation to capability loading.
 4. Implement team kernel for one narrow but valuable capability, preferably literature-heavy because it demonstrates expert team UX and citation quality.
 5. Add frontend projection for team invocations and quality gates.
 6. Migrate additional capabilities one by one.

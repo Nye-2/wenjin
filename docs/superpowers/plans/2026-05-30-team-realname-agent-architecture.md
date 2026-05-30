@@ -4,7 +4,7 @@
 
 **Goal:** Build the first production-ready B+ team-kernel vertical slice: DataService-backed agent templates, capability team policies, dynamic Lead Agent recruitment, execution facts for team members, and frontend projection of the active team.
 
-**Architecture:** Keep Wenjin's existing Chat Agent -> Lead Agent -> ExecutionRecord -> result_card -> Rooms flow. Add `runtime_mode: team_kernel` as an explicit capability mode; dynamicity lives in structured `AgentInvocation` facts recorded through execution nodes/events, while LangGraph remains a stable control loop. Agent capability stays high-ceiling through broad tool affinity and sandbox-backed risk gates, not low-permission worker prompts.
+**Architecture:** Keep Wenjin's existing Chat Agent -> Lead Agent -> ExecutionRecord -> result_card -> Rooms flow. Add `runtime.mode: team_kernel` as an explicit capability mode; dynamicity lives in structured `AgentInvocation` facts recorded through execution nodes/events, while LangGraph remains a stable control loop. Agent capability stays high-ceiling through broad tool affinity and sandbox-backed risk gates, not low-permission worker prompts.
 
 **Tech Stack:** Python 3.13, FastAPI, SQLAlchemy async, Pydantic v2, LangGraph, DataService internal API/client, Next.js 16, React 19, TypeScript, Zustand, Vitest.
 
@@ -1713,8 +1713,8 @@ class TeamKernelRuntime:
 Modify `backend/src/agents/lead_agent/v2/runtime.py` after resolving `cap` and before static graph publication:
 
 ```python
-        runtime_mode = self._runtime_mode(cap)
-        if runtime_mode == "team_kernel":
+        runtime_kind = self._runtime_mode(cap)
+        if runtime_kind == "team_kernel":
             graph_structure = self._to_team_panel_graph(cap)
             await self.publish_event(
                 execution_id,
@@ -1757,9 +1757,6 @@ Add helpers to `LeadAgentRuntime`:
     def _runtime_mode(cap: Any) -> str:
         runtime = getattr(cap, "runtime", None)
         if isinstance(runtime, dict) and runtime.get("mode") == "team_kernel":
-            return "team_kernel"
-        definition = getattr(cap, "definition_json", None)
-        if isinstance(definition, dict) and definition.get("runtime_mode") == "team_kernel":
             return "team_kernel"
         return "static_graph"
 
@@ -2416,7 +2413,7 @@ Add to `backend/tests/architecture/test_super_agent_capability_cutover.py`:
 ```python
 def test_team_kernel_does_not_fallback_to_static_graph_runtime():
     runtime_source = Path("src/agents/lead_agent/v2/runtime.py").read_text(encoding="utf-8")
-    assert "runtime_mode == \"team_kernel\"" in runtime_source
+    assert "runtime.get(\"mode\") == \"team_kernel\"" in runtime_source
     assert "fallback" not in runtime_source.lower()
 ```
 

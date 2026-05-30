@@ -210,8 +210,8 @@ class LeadAgentRuntime:
         ws_type = await self.get_workspace_type(brief.workspace_id)
         cap = await self.resolver.resolve(brief.capability_id, ws_type)
 
-        runtime_mode = self._runtime_mode(cap)
-        if runtime_mode == "team_kernel":
+        runtime_kind = self._runtime_mode(cap)
+        if runtime_kind == "team_kernel":
             graph_structure = self._to_team_panel_graph(cap)
             await self.publish_event(
                 execution_id,
@@ -411,9 +411,6 @@ class LeadAgentRuntime:
     def _runtime_mode(cap: Any) -> str:
         runtime = getattr(cap, "runtime", None)
         if isinstance(runtime, dict) and runtime.get("mode") == "team_kernel":
-            return "team_kernel"
-        definition = getattr(cap, "definition_json", None)
-        if isinstance(definition, dict) and definition.get("runtime_mode") == "team_kernel":
             return "team_kernel"
         return "static_graph"
 
