@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.config.task_config import task_settings
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.task import (
@@ -40,18 +38,11 @@ class TaskStore:
     def __init__(
         self,
         redis_client: Any,
-        db_session: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
         self._redis = redis_client
-        self._db = db_session
         self._dataservice = dataservice
-
-    @property
-    def db(self) -> AsyncSession | None:
-        """Expose the optional historical DB session for legacy callers."""
-        return self._db
 
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[AsyncDataServiceClient]:

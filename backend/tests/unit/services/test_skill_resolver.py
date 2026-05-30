@@ -39,7 +39,6 @@ def _skill(skill_id: str, *, enabled: bool = True):
 @pytest.mark.asyncio
 async def test_resolve_returns_cached_skill() -> None:
     resolver = SkillResolver(
-        session_factory=lambda: None,
         dataservice=_FakeSkillCatalog([_skill("literature-reviewer")]),
     )
 
@@ -54,7 +53,6 @@ async def test_resolve_returns_cached_skill() -> None:
 @pytest.mark.asyncio
 async def test_resolve_returns_none_for_unknown() -> None:
     resolver = SkillResolver(
-        session_factory=lambda: None,
         dataservice=_FakeSkillCatalog([]),
     )
     result = await resolver.resolve("does-not-exist")
@@ -64,7 +62,6 @@ async def test_resolve_returns_none_for_unknown() -> None:
 @pytest.mark.asyncio
 async def test_list_all_enabled() -> None:
     resolver = SkillResolver(
-        session_factory=lambda: None,
         dataservice=_FakeSkillCatalog([
             _skill("a"),
             _skill("b", enabled=False),
@@ -77,7 +74,6 @@ async def test_list_all_enabled() -> None:
 @pytest.mark.asyncio
 async def test_on_invalidate_clears_cache() -> None:
     resolver = SkillResolver(
-        session_factory=lambda: None,
         dataservice=_FakeSkillCatalog([_skill("x")]),
     )
     skill = await resolver.resolve("x")

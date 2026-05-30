@@ -92,7 +92,6 @@ async def task_store(test_session, mock_redis):
 
     store = TaskStore(
         mock_redis,
-        test_session,
         dataservice=_TestTaskDataServiceClient(test_session, FixtureTaskRecord),
     )
     yield store

@@ -69,6 +69,11 @@
   - `workspace_skill_labels` 移除 `db` 参数，workspace type lookup 通过传入的 DataService client 或 canonical DataService provider 完成。
   - Gateway/thread worker service construction 不再传 `ThreadService(None, ...)`；测试 fixtures 同步为 DataService-only construction。
   - Architecture guard 新增 `test_runtime_service_facades_do_not_keep_optional_db_sessions`，防止 runtime facade 重新引入可选 DB constructor。
+- Current legacy helper boundary follow-up
+  - Gateway common deps 移除通用 `get_db` dependency export，只保留 DataService client 和 domain service factories。
+  - `ExecutionService`、`TaskStore`、`SkillResolver` 移除历史 DB/session 构造参数和 `self.db`/`_db` 保存点。
+  - Upload、execution cancel/display、engine、task store/service、skill resolver 单测同步到 DataService-only construction。
+  - Architecture guard 新增 `test_legacy_gateway_and_execution_helpers_do_not_keep_db_sessions`，防止已退役 helper/facade 重新暴露 DB session。
 
 已验证：
 
@@ -102,6 +107,10 @@
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_thread_service.py tests/services/test_template_service.py tests/services/test_workspace_activity_service.py tests/services/test_admin_analytics_service.py tests/gateway/routers/test_threads.py tests/gateway/routers/test_threads_router.py tests/gateway/routers/test_thread_runs.py tests/gateway/routers/test_dashboard.py tests/gateway/routers/test_dashboard_center.py tests/architecture/test_dataservice_boundaries.py::test_runtime_service_facades_do_not_keep_optional_db_sessions -q` -> 101 passed.
 - `cd backend && .venv/bin/python -m ruff check src/services/thread_service.py src/services/template_service.py src/services/workspace_activity_service.py src/services/admin_analytics_service.py src/services/workspace_skill_labels.py src/gateway/deps/threads.py src/task/tasks/run.py tests/services/test_thread_service.py tests/services/test_workspace_activity_service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 20 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2014 passed.
+- `cd backend && .venv/bin/python -m ruff check src/gateway/deps/core.py src/gateway/deps/__init__.py src/services/execution_service.py src/task/store.py src/services/skill_resolver.py tests/gateway/routers/test_uploads.py tests/services/test_execution_cancel.py tests/test_execution_display_name.py tests/execution/test_engine.py tests/task/conftest.py tests/task/test_store.py tests/task/test_service.py tests/unit/services/test_skill_resolver.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_execution_cancel.py tests/test_execution_display_name.py tests/execution/test_engine.py tests/task/test_store.py tests/task/test_service.py tests/task/test_task_metrics.py tests/unit/services/test_skill_resolver.py tests/gateway/routers/test_uploads.py tests/architecture/test_dataservice_boundaries.py::test_legacy_gateway_and_execution_helpers_do_not_keep_db_sessions -q` -> 66 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 21 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2014 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.

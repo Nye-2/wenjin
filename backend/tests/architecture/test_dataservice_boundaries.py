@@ -902,6 +902,49 @@ def test_runtime_service_facades_do_not_keep_optional_db_sessions() -> None:
     )
 
 
+def test_legacy_gateway_and_execution_helpers_do_not_keep_db_sessions() -> None:
+    """Retired helper/facade entrypoints must not expose DB session construction."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "deps" / "core.py": (
+            "AsyncSession",
+            "get_db_session",
+            "def get_db",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "__init__.py": (
+            '"get_db"',
+        ),
+        SRC_ROOT / "services" / "execution_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+        ),
+        SRC_ROOT / "task" / "store.py": (
+            "AsyncSession",
+            "db_session",
+            "self._db",
+            "def db",
+        ),
+        SRC_ROOT / "services" / "skill_resolver.py": (
+            "AsyncSession",
+            "session_factory",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Retired DB helper/session constructor boundaries are still present:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

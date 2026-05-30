@@ -4,7 +4,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.contracts.task_report import TaskReport
 from src.execution.engine import ExecutionEngineV2
@@ -146,7 +145,6 @@ async def test_engine_settles_feature_token_billing_before_marking_complete():
     credit_service.consume_for_feature_usage = AsyncMock(return_value=billing)
 
     execution_svc = _make_execution_service(record=record)
-    execution_svc.db = object()
     runtime = _make_runtime(report=report)
 
     with patch("src.services.credit_service.CreditService", return_value=credit_service):
@@ -186,7 +184,6 @@ async def test_engine_skips_feature_billing_without_token_usage():
     credit_service.consume_for_feature_usage = AsyncMock()
 
     execution_svc = _make_execution_service(record=record)
-    execution_svc.db = object()
     runtime = _make_runtime(report=report)
 
     with patch("src.services.credit_service.CreditService", return_value=credit_service):
@@ -220,7 +217,6 @@ async def test_engine_refunds_feature_billing_when_completion_persist_fails():
     credit_service.refund_consumption = AsyncMock()
 
     execution_svc = _make_execution_service(record=record)
-    execution_svc.db = object()
     execution_svc.complete_execution = AsyncMock(
         side_effect=[RuntimeError("execution store down"), None]
     )
@@ -278,7 +274,6 @@ async def test_engine_injects_lightweight_manuscript_context(monkeypatch: pytest
     record.params["brief"]["capability_id"] = "research_question_to_paper"
     report = _make_task_report()
     execution_svc = _make_execution_service(record=record)
-    execution_svc.db = object.__new__(AsyncSession)
     runtime = _make_runtime(report=report)
     prism_service = MagicMock()
     prism_service.get_launch_context_projection = AsyncMock(
@@ -349,7 +344,6 @@ async def test_engine_ensures_prism_surface_for_prism_capability(
     record.params["brief"]["capability_id"] = "research_question_to_paper"
     report = _make_task_report(capability_id="research_question_to_paper")
     execution_svc = _make_execution_service(record=record)
-    execution_svc.db = object.__new__(AsyncSession)
     runtime = _make_runtime(report=report)
 
     prism_service = MagicMock()

@@ -1,12 +1,9 @@
-"""SkillResolver — runtime DB lookup with in-memory cache and EventBus invalidation."""
+"""SkillResolver — DataService catalog lookup with in-memory cache and invalidation."""
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 from typing import Any
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
@@ -26,11 +23,9 @@ class SkillResolver:
     def __init__(
         self,
         *,
-        session_factory: Callable[[], AsyncSession],
         event_bus: Any | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.session_factory = session_factory
         self._dataservice = dataservice
         self._cache: dict[str, object] = {}
         if event_bus is not None:
