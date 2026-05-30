@@ -85,11 +85,7 @@ export function ModelDialog({ open, model, onClose }: Props) {
     try {
       const payload = buildPayload(form);
       if (isEdit) {
-        const { api_key: apiKey, ...payloadWithoutKey } = payload;
-        await updateAdminModel(
-          model.model_id,
-          (apiKey ? payload : payloadWithoutKey) as AdminModelUpdatePayload,
-        );
+        await updateAdminModel(model.model_id, buildUpdatePayload(payload));
       } else {
         await createAdminModel(payload as AdminModelCreatePayload);
       }
@@ -131,7 +127,7 @@ export function ModelDialog({ open, model, onClose }: Props) {
             />
           </Field>
           <Field label="类别" htmlFor="category">
-            <Select value={form.category} onValueChange={(value) => update("category", value)}>
+            <Select value={form.category} onValueChange={(value) => update("category", value)} disabled={isEdit}>
               <SelectTrigger id="category"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="llm">LLM</SelectItem>
@@ -196,16 +192,20 @@ export function ModelDialog({ open, model, onClose }: Props) {
             ["supports_vision", "Vision"],
             ["supports_reasoning_effort", "Reasoning effort"],
             ["is_default", "设为默认"],
-          ].map(([key, label]) => (
-            <label key={key} className="flex items-center gap-2 text-[var(--text-secondary)]">
-              <input
-                type="checkbox"
-                checked={Boolean(form[key as keyof typeof form])}
-                onChange={(event) => update(key as keyof typeof form, event.target.checked)}
-              />
-              {label}
-            </label>
-          ))}
+          ].map(([key, label]) => {
+            const disabled = key === "is_default" && isEdit && (model?.is_default || !model?.enabled);
+            return (
+              <label key={key} className="flex items-center gap-2 text-[var(--text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={Boolean(form[key as keyof typeof form])}
+                  disabled={disabled}
+                  onChange={(event) => update(key as keyof typeof form, event.target.checked)}
+                />
+                {label}
+              </label>
+            );
+          })}
         </div>
 
         {error && <div className="text-sm text-rose-600">{error}</div>}
@@ -255,4 +255,16 @@ function buildPayload(form: ModelFormState) {
     pricing_policy_id: form.pricing_policy_id.trim() || null,
     default_headers: {},
   };
+}
+
+function buildUpdatePayload(payload: ReturnType<typeof buildPayload>): AdminModelUpdatePayload {
+  const updatePayload: AdminModelUpdatePayload = { ...payload };
+  delete updatePayload.api_key;
+  delete updatePayload.model_id;
+  delete updatePayload.category;
+  delete updatePayload.enabled;
+  if (payload.api_key) {
+    updatePayload.api_key = payload.api_key;
+  }
+  return updatePayload;
 }

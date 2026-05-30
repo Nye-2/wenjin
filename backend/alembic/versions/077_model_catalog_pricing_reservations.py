@@ -79,7 +79,7 @@ def upgrade() -> None:
         sa.Column("provider_name", sa.String(length=100), server_default="Custom", nullable=False),
         sa.Column(
             "category",
-            sa.Enum("llm", name="model_category"),
+            sa.Enum("llm", "image", name="model_category"),
             server_default="llm",
             nullable=False,
         ),

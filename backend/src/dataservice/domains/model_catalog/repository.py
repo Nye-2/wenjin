@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.model_catalog import ModelCatalogEntry
@@ -49,14 +49,3 @@ class ModelCatalogRepository:
             if except_model_id is not None and row.model_id == except_model_id:
                 continue
             row.is_default = False
-
-    async def count_enabled_models(self, *, category: str) -> int:
-        result = await self.session.execute(
-            select(func.count())
-            .select_from(ModelCatalogEntry)
-            .where(
-                ModelCatalogEntry.category == category,
-                ModelCatalogEntry.enabled.is_(True),
-            )
-        )
-        return int(result.scalar() or 0)

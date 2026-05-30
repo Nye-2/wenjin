@@ -72,9 +72,6 @@ class _FakeModelCatalogRepository:
             if _enum_value(row.category) == category and row.model_id != except_model_id:
                 row.is_default = False
 
-    async def count_enabled_models(self, *, category: str) -> int:
-        return len([row for row in self.rows.values() if _enum_value(row.category) == category and row.enabled])
-
 
 def _enum_value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
@@ -233,6 +230,34 @@ async def test_runtime_models_decrypt_keys_only_for_internal_payload() -> None:
 
 
 @pytest.mark.asyncio
+async def test_image_model_category_is_supported() -> None:
+    service, _repository, _session = _model_catalog_service()
+
+    await service.create_model(
+        _model_payload(
+            model_id="image-gen",
+            model_name="image-gen-v1",
+            category="image",
+            is_default=False,
+        )
+    )
+
+    runtime_models = await service.list_runtime_models(category=ModelCategory.IMAGE)
+
+    assert len(runtime_models) == 1
+    assert runtime_models[0].model_id == "image-gen"
+    assert runtime_models[0].category == "image"
+
+
+@pytest.mark.asyncio
+async def test_default_model_must_be_enabled_on_create() -> None:
+    service, _repository, _session = _model_catalog_service()
+
+    with pytest.raises(DataServiceValidationError, match="default model must be enabled"):
+        await service.create_model(_model_payload(enabled=False, is_default=True))
+
+
+@pytest.mark.asyncio
 async def test_setting_new_default_unsets_previous_default() -> None:
     service, repository, _session = _model_catalog_service()
     await service.create_model(_model_payload(model_id="deepseek-v3", is_default=True))
@@ -258,6 +283,51 @@ async def test_model_id_is_immutable_on_update() -> None:
 
     with pytest.raises(DataServiceValidationError, match="model_id"):
         await service.update_model("deepseek-v3", {"model_id": "qwen-max"})
+
+
+@pytest.mark.asyncio
+async def test_category_is_immutable_on_update() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+
+    with pytest.raises(DataServiceValidationError, match="category"):
+        await service.update_model("deepseek-v3", {"category": "image"})
+
+
+@pytest.mark.asyncio
+async def test_default_model_must_remain_enabled_on_update() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+    await service.create_model(_model_payload(model_id="qwen-max", model_name="qwen-max", is_default=False))
+
+    with pytest.raises(DataServiceConflictError, match="default model must be enabled"):
+        await service.update_model("deepseek-v3", {"enabled": False})
+
+
+@pytest.mark.asyncio
+async def test_default_model_cannot_be_unset_directly() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+
+    with pytest.raises(DataServiceConflictError, match="cannot be unset"):
+        await service.update_model("deepseek-v3", {"is_default": False})
+
+
+@pytest.mark.asyncio
+async def test_disabled_model_cannot_be_made_default_on_update() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload())
+    await service.create_model(
+        _model_payload(
+            model_id="qwen-max",
+            model_name="qwen-max",
+            enabled=False,
+            is_default=False,
+        )
+    )
+
+    with pytest.raises(DataServiceConflictError, match="default model must be enabled"):
+        await service.update_model("qwen-max", {"is_default": True})
 
 
 @pytest.mark.asyncio

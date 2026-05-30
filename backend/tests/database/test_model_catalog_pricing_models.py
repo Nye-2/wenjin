@@ -20,6 +20,7 @@ def test_model_catalog_entry_contract() -> None:
     assert ModelCatalogEntry.__tablename__ == "model_catalog_entries"
     assert ModelProviderProtocol.OPENAI_COMPATIBLE.value == "openai_compatible"
     assert ModelCategory.LLM.value == "llm"
+    assert ModelCategory.IMAGE.value == "image"
     assert ModelTrustLevel.CUSTOM.value == "custom"
     assert ModelHealthStatus.UNKNOWN.value == "unknown"
 

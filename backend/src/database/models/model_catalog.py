@@ -24,6 +24,7 @@ class ModelCategory(StrEnum):
     """Model catalog categories exposed to routing."""
 
     LLM = "llm"
+    IMAGE = "image"
 
 
 class ModelTrustLevel(StrEnum):

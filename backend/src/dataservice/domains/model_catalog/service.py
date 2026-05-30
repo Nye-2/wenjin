@@ -98,12 +98,16 @@ class DataServiceModelCatalogService:
         requested_model_id = data.get("model_id")
         if requested_model_id is not None and requested_model_id != model_id:
             raise DataServiceValidationError("model_id is immutable")
+        requested_category = data.get("category")
+        if requested_category is not None and _coerce_enum(ModelCategory, requested_category) != row.category:
+            raise DataServiceValidationError("category is immutable")
 
-        enabled = data.get("enabled")
-        if enabled is False and bool(row.is_default):
-            enabled_count = await self.repository.count_enabled_models(category=_enum_value(row.category))
-            if enabled_count <= 1:
-                raise DataServiceConflictError("Cannot disable the only enabled default model")
+        if data.get("is_default") is False and bool(row.is_default):
+            raise DataServiceConflictError("default model cannot be unset directly")
+        effective_enabled = bool(row.enabled) if data.get("enabled") is None else bool(data["enabled"])
+        effective_default = bool(row.is_default) if data.get("is_default") is None else bool(data["is_default"])
+        if effective_default and not effective_enabled:
+            raise DataServiceConflictError("default model must be enabled")
 
         update_values = self._update_values(row, data, admin_id=admin_id)
         if update_values.get("is_default") is True:
@@ -216,6 +220,10 @@ class DataServiceModelCatalogService:
         model_id = _required_string(data, "model_id")
         api_key = _required_string(data, "api_key")
         category = _coerce_enum(ModelCategory, data.get("category", ModelCategory.LLM.value))
+        enabled = bool(data.get("enabled", True))
+        is_default = bool(data.get("is_default", False))
+        if is_default and not enabled:
+            raise DataServiceValidationError("default model must be enabled")
         return {
             "model_id": model_id,
             "display_name": _required_string(data, "display_name"),
@@ -231,8 +239,8 @@ class DataServiceModelCatalogService:
             "encrypted_api_key": encrypt_api_key(api_key, model_id=model_id, master_key=self.master_key),
             "api_key_last4": api_key_last4(api_key),
             "api_key_fingerprint": api_key_fingerprint(api_key, master_key=self.master_key),
-            "enabled": bool(data.get("enabled", True)),
-            "is_default": bool(data.get("is_default", False)),
+            "enabled": enabled,
+            "is_default": is_default,
             "supports_streaming": bool(data.get("supports_streaming", True)),
             "supports_tools": bool(data.get("supports_tools", False)),
             "supports_json_mode": bool(data.get("supports_json_mode", True)),

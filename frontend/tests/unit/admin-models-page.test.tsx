@@ -78,7 +78,11 @@ describe("AdminModelsPage", () => {
     await waitFor(() => expect(updateAdminModel).toHaveBeenCalled());
     expect(updateAdminModel).toHaveBeenCalledWith(
       "deepseek-chat",
-      expect.not.objectContaining({ api_key: expect.anything() }),
+      expect.not.objectContaining({
+        api_key: expect.anything(),
+        category: expect.anything(),
+        enabled: expect.anything(),
+      }),
     );
   });
 

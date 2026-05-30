@@ -56,6 +56,10 @@ export default function AdminModelsPage() {
 
   const handleDefault = async (model: AdminModelCatalogItem) => {
     setError(null);
+    if (!model.enabled) {
+      setError("停用模型不能设为默认，请先新增启用状态模型。");
+      return;
+    }
     await setDefaultAdminModel(model.model_id);
     refresh();
   };
@@ -161,7 +165,7 @@ export default function AdminModelsPage() {
                     >
                       编辑
                     </button>
-                    {!model.is_default && (
+                    {!model.is_default && model.enabled && (
                       <button
                         type="button"
                         aria-label={`设为默认 ${model.model_id}`}
