@@ -729,6 +729,35 @@ def test_dashboard_runtime_uses_dataservice_boundary() -> None:
     )
 
 
+def test_workspace_runtime_uses_dataservice_boundary() -> None:
+    """Workspace route/action context must not reopen legacy DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "workspaces.py": (
+            "Depends(get_db)",
+            "get_db,",
+        ),
+        SRC_ROOT / "agents" / "middlewares" / "workspace_context.py": (
+            "from src.database import",
+            "get_db_session",
+            "TemplateService(template_db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Workspace runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

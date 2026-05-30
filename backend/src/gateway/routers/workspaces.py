@@ -12,7 +12,6 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
     get_dataservice_client,
-    get_db,
     get_workspace_activity_service,
     get_workspace_service,
     get_workspace_summary_service,
@@ -304,7 +303,6 @@ async def resolve_workspace_capability_action(
     request: ResolveCapabilityActionRequest,
     current_user: User = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-    db: Any = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ResolveCapabilityActionResponse:
     """Resolve canonical follow-up / rerun action state for a capability card."""

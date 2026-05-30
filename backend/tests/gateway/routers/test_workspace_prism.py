@@ -38,12 +38,8 @@ def _create_client(*, user_id: str, workspace_owner_id: str) -> TestClient:
     async def override_get_workspace_service():
         return workspace_service
 
-    async def override_get_db():
-        return object()
-
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[workspaces.get_workspace_service] = override_get_workspace_service
-    app.dependency_overrides[workspaces.get_db] = override_get_db
     app.include_router(workspaces.router)
     return TestClient(app)
 

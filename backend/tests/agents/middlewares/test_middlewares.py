@@ -21,7 +21,12 @@ def workspace_middleware():
         discipline="computer_science",
         config={"style": "APA"},
     ))
-    return WorkspaceContextMiddleware(workspace_service)
+    template_service = MagicMock()
+    template_service.get_active = AsyncMock(return_value=None)
+    return WorkspaceContextMiddleware(
+        workspace_service,
+        template_service=template_service,
+    )
 
 
 @pytest.mark.asyncio

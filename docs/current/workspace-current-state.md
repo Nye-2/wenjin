@@ -84,6 +84,7 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 11. Prism adapter routers 和 LaTeX/WorkspacePrism runtime services 通过 DataService client 访问 Latex/Prism/Review/Source facts，不再携带 runtime DB session。
 12. Long-term memory runtime、memory compaction、Celery memory capture 与 workspace-context upload memory note 通过 Knowledge DataService client 访问 persistence，不再携带 runtime DB session 或执行 request-time commit/rollback。
 13. DashboardService / WorkspaceSummaryService 和 gateway dashboard dependencies 通过 DataService-backed construction 访问 dashboard、summary 和 execution facts，不再携带 runtime DB session。
+14. Workspace capability action resolve 和 WorkspaceContextMiddleware 通过 Workspace/Catalog/Template DataService-backed services 访问 workspace/action/template facts，不再注入 `get_db` 或自行打开 `get_db_session`。
 
 ## 7. 前端信息架构
 
