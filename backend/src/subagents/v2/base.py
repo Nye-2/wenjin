@@ -29,6 +29,8 @@ class SubagentContext:
     workspace_data: dict = field(default_factory=dict)
     capability_policy: dict = field(default_factory=dict)
     skill: Any | None = None
+    team_context: dict[str, Any] = field(default_factory=dict)
+    invocation: dict[str, Any] | None = None
     emit_delta: Callable[[str, str], Awaitable[None]] | None = None
 
     async def emit(self, event_type: str, content: str) -> None:
