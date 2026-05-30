@@ -11,6 +11,11 @@ from .credit import CreditTransaction, CreditTransactionType
 from .credit_grant_rule import CreditGrantRule, CreditGrantRuleType
 from .credit_redeem_code import CreditRedeemCode
 from .credit_redemption import CreditRedemption
+from .credit_reservation import (
+    CreditReservation,
+    CreditReservationScope,
+    CreditReservationStatus,
+)
 from .decision import Decision
 from .document_v2 import DocumentV2
 from .execution import ExecutionRecord
@@ -22,6 +27,14 @@ from .latex_project import LatexProject
 from .latex_template import LatexTemplate
 from .library_item import LibraryItem
 from .memory_fact import MemoryFact
+from .model_catalog import (
+    ModelCatalogEntry,
+    ModelCategory,
+    ModelHealthStatus,
+    ModelProviderProtocol,
+    ModelTrustLevel,
+)
+from .pricing_policy import PricingPolicy, PricingPolicyKind
 from .reference import (
     ReferenceAcceptedStatus,
     ReferenceAssetType,
@@ -75,6 +88,9 @@ __all__ = [
     "CreditGrantRule",
     "CreditGrantRuleType",
     "CreditRedeemCode",
+    "CreditReservation",
+    "CreditReservationScope",
+    "CreditReservationStatus",
     "CreditRedemption",
     "ComputeSessionRecord",
     # Admin Audit
@@ -86,6 +102,13 @@ __all__ = [
     "Capability",
     "CapabilitySkill",
     "AgentTemplate",
+    "ModelCatalogEntry",
+    "ModelProviderProtocol",
+    "ModelCategory",
+    "ModelTrustLevel",
+    "ModelHealthStatus",
+    "PricingPolicy",
+    "PricingPolicyKind",
     # Thread
     "Thread",
     # Knowledge

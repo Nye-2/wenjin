@@ -163,7 +163,7 @@ Expected current result: exit code `0`.
 - Create: `backend/alembic/versions/077_model_catalog_pricing_reservations.py`
 - Test: `backend/tests/database/test_model_catalog_pricing_models.py`
 
-- [ ] **Step 1: Write ORM contract tests**
+- [x] **Step 1: Write ORM contract tests**
 
 Add tests that instantiate the three new ORM models and assert table names, enum values, secret fields, default flags, and `User.reserved_credits`.
 
@@ -197,7 +197,7 @@ def test_model_catalog_entry_contract() -> None:
     assert entry.enabled is None or entry.enabled is True
 ```
 
-- [ ] **Step 2: Run the database model tests and verify they fail**
+- [x] **Step 2: Run the database model tests and verify they fail**
 
 Run:
 
@@ -208,11 +208,11 @@ cd backend
 
 Expected: fail with missing modules/classes.
 
-- [ ] **Step 3: Add ORM models**
+- [x] **Step 3: Add ORM models**
 
 Implement focused ORM models with SQLAlchemy enums using `values_callable`, JSONB-with-JSON fallback, timestamps, and indexes matching the spec. Keep fields string-compatible with existing UUID string patterns.
 
-- [ ] **Step 4: Add Alembic migration**
+- [x] **Step 4: Add Alembic migration**
 
 Create revision `077_model_catalog_pricing_reservations` with `down_revision = "076_agent_templates"`. Include:
 
@@ -226,7 +226,7 @@ Create revision `077_model_catalog_pricing_reservations` with `down_revision = "
   - `uq_pricing_policy_key`
   - `uq_credit_reservation_idempotency`
 
-- [ ] **Step 5: Export models and run tests**
+- [x] **Step 5: Export models and run tests**
 
 Run:
 
@@ -237,7 +237,7 @@ cd backend
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/database/models backend/alembic/versions/077_model_catalog_pricing_reservations.py backend/tests/database/test_model_catalog_pricing_models.py
