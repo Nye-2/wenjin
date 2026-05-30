@@ -210,6 +210,43 @@ class LeadAgentRuntime:
         ws_type = await self.get_workspace_type(brief.workspace_id)
         cap = await self.resolver.resolve(brief.capability_id, ws_type)
 
+        runtime_mode = self._runtime_mode(cap)
+        if runtime_mode == "team_kernel":
+            graph_structure = self._to_team_panel_graph(cap)
+            await self.publish_event(
+                execution_id,
+                "execution.graph_structure",
+                {"graph_structure": graph_structure},
+            )
+            if self.set_graph_structure is not None:
+                try:
+                    await self.set_graph_structure(graph_structure)
+                except Exception:
+                    logger.warning("Failed to persist team graph_structure", exc_info=True)
+
+            from src.agents.lead_agent.v2.team.kernel import TeamKernelRuntime
+
+            report = await TeamKernelRuntime(
+                publish_event=self.publish_event,
+                record_node_event=self.record_node_event,
+                abort_check=self._check_abort,
+                load_workspace_data=self._load_workspace_data,
+                needs_library_context=self._needs_library_context,
+                capability_policy_builder=self._capability_policy,
+                collect_policy_memory_outputs=self._collect_policy_memory_outputs,
+            ).run(
+                execution_id=execution_id,
+                brief=brief,
+                capability=cap,
+                started_at=started_at,
+            )
+            await self.publish_event(
+                execution_id,
+                "execution.completed",
+                report.model_dump(mode="json"),
+            )
+            return report
+
         # Publish graph structure for the frontend panel
         graph_structure = self._to_panel_graph(cap.graph_template)
         await self.publish_event(
@@ -369,6 +406,16 @@ class LeadAgentRuntime:
             citation_policy.get("source_scope") == "workspace_library"
             or bool(citation_policy.get("required_for_prism_manuscript"))
         )
+
+    @staticmethod
+    def _runtime_mode(cap: Any) -> str:
+        runtime = getattr(cap, "runtime", None)
+        if isinstance(runtime, dict) and runtime.get("mode") == "team_kernel":
+            return "team_kernel"
+        definition = getattr(cap, "definition_json", None)
+        if isinstance(definition, dict) and definition.get("runtime_mode") == "team_kernel":
+            return "team_kernel"
+        return "static_graph"
 
     async def _load_workspace_data(self, workspace_id: str) -> dict[str, Any]:
         """Load lightweight room data that subagents can safely consume."""
@@ -715,6 +762,69 @@ class LeadAgentRuntime:
                         )
 
         return {"nodes": nodes, "edges": edges}
+
+    def _to_team_panel_graph(self, cap: Any) -> dict[str, Any]:
+        """Return the stable team-kernel graph projection for the panel."""
+        definition = getattr(cap, "definition_json", None)
+        if not isinstance(definition, dict):
+            definition = {}
+        policy = definition.get("team_policy") if isinstance(definition.get("team_policy"), dict) else {}
+        nodes: list[dict[str, Any]] = [
+            {
+                "id": "team_prepare",
+                "phase": "team_kernel",
+                "task": "prepare_context",
+                "subagent_type": "leader",
+                "label": "准备上下文",
+            },
+            {
+                "id": "team_recruit",
+                "phase": "team_kernel",
+                "task": "recruit_members",
+                "subagent_type": "leader",
+                "label": "组建团队",
+            },
+            {
+                "id": "team_dispatch",
+                "phase": "team_kernel",
+                "task": "dispatch_invocations",
+                "subagent_type": "team",
+                "label": "成员执行",
+            },
+            {
+                "id": "team_quality_gate",
+                "phase": "team_kernel",
+                "task": "quality_gate",
+                "subagent_type": "quality_gate",
+                "label": "质量闭环",
+            },
+            {
+                "id": "team_finish",
+                "phase": "team_kernel",
+                "task": "finish",
+                "subagent_type": "leader",
+                "label": "整理结果",
+            },
+        ]
+        core_templates = list(policy.get("core_templates") or [])
+        for index, template_id in enumerate(core_templates):
+            nodes.append(
+                {
+                    "id": f"team_template_{index + 1}",
+                    "phase": "team_members",
+                    "task": template_id,
+                    "subagent_type": "agent_template",
+                    "label": template_id,
+                    "team": {"template_id": template_id, "core": True},
+                }
+            )
+        edges = [
+            {"from": "team_prepare", "to": "team_recruit"},
+            {"from": "team_recruit", "to": "team_dispatch"},
+            {"from": "team_dispatch", "to": "team_quality_gate"},
+            {"from": "team_quality_gate", "to": "team_finish"},
+        ]
+        return {"mode": "team_kernel", "nodes": nodes, "edges": edges}
 
     def _distribute_brief(
         self,

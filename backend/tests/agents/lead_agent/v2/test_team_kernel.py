@@ -1,0 +1,210 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+import src.subagents.v2.types  # noqa: F401
+from src.agents.contracts.task_brief import TaskBrief
+from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
+from src.subagents.v2.registry import subagent
+
+
+@subagent("team_fake")
+class TeamFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        return SubagentResult(
+            output={
+                "summary": f"{ctx.invocation['display_name']} handled {ctx.inputs['topic']}",
+                "team_role": ctx.inputs["team_role"],
+            },
+            tool_calls=[
+                {
+                    "name": "team_fake.run",
+                    "status": "completed",
+                }
+            ],
+            token_usage={"input": 3, "output": 5},
+        )
+
+
+def _team_capability() -> SimpleNamespace:
+    return SimpleNamespace(
+        id="team_research",
+        workspace_type="thesis",
+        display_name="团队调研",
+        runtime={
+            "mode": "team_kernel",
+            "allowed_tools": ["web_search", "library_read", "citation_parser"],
+        },
+        graph_template={},
+        definition_json={
+            "mission": {"primary_surface": "rooms"},
+            "team_policy": {
+                "core_templates": ["research_scholar.v1", "critical_reviewer.v1"],
+                "optional_templates": ["generalist_assistant.v1"],
+                "capability_tools": ["web_search", "library_read", "citation_parser"],
+                "capability_skills": ["research-scout", "citation-auditor", "review-critic"],
+                "quality_pipeline": ["evidence_traceability", "critical_review"],
+                "limits": {
+                    "max_iterations": 2,
+                    "max_parallel_invocations": 2,
+                    "max_invocations_total": 4,
+                },
+            },
+        },
+    )
+
+
+def _brief() -> TaskBrief:
+    return TaskBrief(
+        capability_id="team_research",
+        raw_message="调研 transformer 在医学影像中的应用",
+        workspace_id="ws-team",
+        user_id="user-1",
+        brief={"topic": "transformer medical imaging"},
+    )
+
+
+class FakeTeamCatalogClient:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import AgentTemplatePayload
+
+        return [
+            AgentTemplatePayload(
+                id="research_scholar.v1",
+                display_role="文献专家",
+                category="research",
+                default_skills=["research-scout", "citation-auditor"],
+                tool_affinity={
+                    "preferred": ["web_search", "library_read"],
+                    "can_request": ["citation_parser"],
+                },
+                risk_profile={"room_write": "staged_only"},
+            ),
+            AgentTemplatePayload(
+                id="critical_reviewer.v1",
+                display_role="质量审稿人",
+                category="review",
+                default_skills=["review-critic"],
+                tool_affinity={"preferred": ["library_read"], "can_request": []},
+                risk_profile={"room_write": "staged_only"},
+            ),
+            AgentTemplatePayload(
+                id="generalist_assistant.v1",
+                display_role="综合助理",
+                category="generalist",
+                default_skills=["review-critic"],
+                tool_affinity={"preferred": [], "can_request": []},
+                risk_profile={"room_write": "staged_only"},
+            ),
+        ]
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        return [
+            CapabilitySkillPayload(
+                id="research-scout",
+                display_name="Research Scout",
+                worker_type="research",
+                subagent_type="team_fake",
+                prompt="Summarize research evidence as JSON.",
+                config={"output_kind": "json"},
+            ),
+            CapabilitySkillPayload(
+                id="citation-auditor",
+                display_name="Citation Auditor",
+                worker_type="research",
+                subagent_type="team_fake",
+                prompt="Audit citations.",
+                config={"output_kind": "json"},
+            ),
+            CapabilitySkillPayload(
+                id="review-critic",
+                display_name="Review Critic",
+                worker_type="review",
+                subagent_type="team_fake",
+                prompt="Review risks.",
+                config={"output_kind": "json"},
+            ),
+        ]
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_publishes_team_events_and_report(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+    node_events: list[dict] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team", brief=_brief())
+
+    event_names = [event_name for _, event_name, _ in published]
+    assert event_names[0] == "execution.graph_structure"
+    assert "execution.team.invocation" in event_names
+    assert "execution.team.quality_gate" in event_names
+    assert event_names[-1] == "execution.completed"
+    assert report.status == "completed"
+    assert "团队调研" in report.narrative
+    assert report.token_usage == {"input": 6, "output": 10}
+    assert any(event["node_type"] == "agent_invocation" for event in node_events)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_stops_when_template_policy_invalid(monkeypatch) -> None:
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["core_templates"] = ["missing_template.v1"]
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+
+    class EmptyTeamCatalogClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def list_agent_templates(self, *, enabled_only: bool = True):
+            return []
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: EmptyTeamCatalogClient(),
+    )
+
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-invalid", brief=_brief())
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert "unknown agent template" in report.errors[0].error
