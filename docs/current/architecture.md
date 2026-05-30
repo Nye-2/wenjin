@@ -106,7 +106,7 @@
 20. Prism adapter metadata 只能暴露 canonical `source_metadata`，不得把历史 project metadata 以 `legacy_metadata` 形式带入运行时 surface
 21. Execution runtime 解析 workspace type 必须来自 DataService workspace projection；workspace 或 type 缺失时失败，不得默认降级到 thesis
 22. Feature execution params 只能使用 canonical TaskBrief wrapper shape；不得保留 plain-param parser 或旧执行参数兼容入口
-23. Feature action rerun/follow-up state 只能从显式 mission params 或 source artifact 推导 goal；不得从 workspace description/name 或“未命名任务”合成 goal
+23. Feature action rerun/follow-up state 只能从显式 mission params 或 source artifact 推导 goal；前后端不得从 workspace description/name、`fallbackTaskName` 或“未命名任务”合成 goal
 24. Workspace upload stored path 只允许 workspace-relative path 或 workspace-root 内绝对路径；不得接受 cwd-relative workspace-root-prefixed 历史路径
 25. React subagent 若声明 tools 但无法解析到 callable，必须显式失败；不得静默降级为 plain model invoke
 

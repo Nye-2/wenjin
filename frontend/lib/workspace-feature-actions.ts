@@ -1,40 +1,11 @@
 import type { Artifact, Workspace } from "@/stores/workspace";
 import { resolveFeatureAction } from "@/lib/api/workspace";
-import type {
-  FeatureActionState,
-  FeatureActionResolverContext,
-} from "@/lib/workspace-feature-action-types";
-
-function createResolverContext(options: {
-  featureId: string;
-  feature?: { id: string; followUpPrompt?: string | null } | null;
-  workspace: Workspace | null;
-  orchestrationParams?: Record<string, unknown> | null;
-}): FeatureActionResolverContext {
-  const { featureId, feature, workspace, orchestrationParams } = options;
-
-  return {
-    featureId,
-    workspace,
-    sourceArtifact: null,
-    orchestrationParams,
-    fallbackTaskName: workspaceFallback(workspace),
-    followUpPrompt: getFeatureFollowUpPrompt(feature ?? { id: featureId }),
-  };
-}
+import type { FeatureActionState } from "@/lib/workspace-feature-action-types";
 
 export function getFeatureFollowUpPrompt(
   feature: { id: string; followUpPrompt?: string | null }
 ): string {
   return feature.followUpPrompt ?? "";
-}
-
-function workspaceFallback(workspace: Workspace | null | undefined): string {
-  return (
-    (workspace?.description || undefined) ??
-    (workspace?.name || undefined) ??
-    "未命名任务"
-  );
 }
 
 export async function resolveFeatureActionState(options: {
@@ -47,10 +18,9 @@ export async function resolveFeatureActionState(options: {
   const { featureId, workspace, orchestrationParams } = options;
 
   if (!workspace) {
-    const context = createResolverContext(options);
     return {
       sourceArtifact: null,
-      followUpPrompt: context.followUpPrompt,
+      followUpPrompt: getFeatureFollowUpPrompt(options.feature ?? { id: featureId }),
       routeParams: {},
       rerunParams: null,
       rerunUnavailableReason: "当前卡片没有可复用的 artifact 执行上下文。",

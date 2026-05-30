@@ -107,6 +107,10 @@
   - Rerun/follow-up state 只从显式 mission params 或 source artifact title/content 推导。
   - `_GOAL_KEYS` 补齐 `description`、`keywords`，确保已有显式参数仍可生成 canonical goal。
   - Architecture guard 新增 `test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks`。
+- Current frontend feature action boundary follow-up
+  - `workspace-feature-actions.ts` 删除 `fallbackTaskName` / `workspaceFallback`。
+  - `FeatureActionResolverContext` 不再包含 fallback task name 字段。
+  - Frontend follow-up / rerun state 只消费 backend SSOT 返回的 route/rerun params。
 - Current workspace upload path boundary follow-up
   - `resolve_workspace_upload_stored_path` 删除 cwd-relative workspace-root-prefixed 历史路径解析分支。
   - Stored path 只接受 workspace-relative path、root-prefixed virtual relative path（显式 `allow_root_prefixed_relative=True`）或 workspace-root 内绝对路径。
@@ -130,6 +134,8 @@
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_workspace_feature_actions_runtime.py tests/gateway/routers/test_workspace_activity.py tests/architecture/test_dataservice_boundaries.py::test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks -q` -> 36 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 27 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2021 passed.
+- `cd frontend && npm run test -- tests/unit/lib/workspace-feature-actions.test.ts tests/unit/lib/workspace-feature-action-context.test.ts` -> 4 passed.
+- `cd frontend && npm run typecheck` -> passed.
 - `cd backend && .venv/bin/python -m ruff check src/application/services/feature_launch_context.py tests/application/services/test_feature_launch_context.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/application/services/test_feature_launch_context.py tests/tools/test_launch_feature_tool.py tests/integration/test_chat_to_feature_launch.py tests/architecture/test_dataservice_boundaries.py::test_feature_launch_context_does_not_keep_plain_param_compatibility -q` -> 18 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 26 passed.
