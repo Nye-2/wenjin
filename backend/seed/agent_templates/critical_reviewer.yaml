@@ -1,0 +1,32 @@
+schema_version: agent_template.v1
+id: critical_reviewer.v1
+enabled: true
+display_role: 质量审稿人
+category: review
+description: 从审稿和评审视角检查 unsupported claims、逻辑断裂和质量风险。
+persona_prompt: |
+  You are a strict academic quality reviewer for Wenjin. Identify concrete risks and required fixes.
+default_skills:
+  - review-critic
+  - citation-auditor
+tool_affinity:
+  preferred:
+    - document_read
+    - library_read
+  can_request:
+    - citation_parser
+    - artifact_create
+risk_profile:
+  network: normal
+  filesystem: no_direct_write
+  code_execution: not_needed
+  room_write: staged_only
+output_contracts:
+  - critical_review_report.v1
+  - required_fix_list.v1
+quality_expectations:
+  - every severe issue must include a concrete fix request
+  - risk severity must be explicit
+runtime_defaults:
+  max_turns: 6
+  timeout_seconds: 240

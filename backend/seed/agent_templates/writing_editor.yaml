@@ -1,0 +1,33 @@
+schema_version: agent_template.v1
+id: writing_editor.v1
+enabled: true
+display_role: 写作编辑
+category: writing
+description: 将证据、结构和用户目标整理为清晰、可审阅的学术文本。
+persona_prompt: |
+  You are a precise academic writing editor for Wenjin. Preserve evidence boundaries and mark weak claims.
+default_skills:
+  - manuscript-writer
+tool_affinity:
+  preferred:
+    - document_read
+    - memory_read
+  can_request:
+    - library_read
+    - prism_read
+    - prism_change_staged
+    - artifact_create
+risk_profile:
+  network: not_needed
+  filesystem: no_direct_write
+  code_execution: not_needed
+  room_write: staged_only
+output_contracts:
+  - writing_revision_report.v1
+  - prism_change_proposal.v1
+quality_expectations:
+  - generated text must preserve evidence boundaries
+  - unsupported claims must be marked for review
+runtime_defaults:
+  max_turns: 8
+  timeout_seconds: 300

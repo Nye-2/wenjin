@@ -35,6 +35,7 @@ from src.dataservice_client.contracts.catalog import (
     AdminLogPayload as CatalogAdminLogPayload,
 )
 from src.dataservice_client.contracts.catalog import (
+    AgentTemplatePayload,
     CapabilityDefinitionPayload,
     CapabilitySkillPayload,
     CatalogEnabledPayload,
@@ -162,9 +163,9 @@ from src.dataservice_client.contracts.source import (
     SourceCitationUsageCreatePayload,
     SourceCitationUsagePayload,
     SourceCreatePayload,
-    SourceExternalIdCreatePayload,
     SourceEvidencePackCreatePayload,
     SourceEvidencePackPayload,
+    SourceExternalIdCreatePayload,
     SourceImportPayload,
     SourceImportResultPayload,
     SourceIndexReplacePayload,
@@ -1535,6 +1536,61 @@ class AsyncDataServiceClient:
         payload = await self._request(
             "POST",
             "/internal/v1/catalog/skills/seed-load",
+            json=command.model_dump(mode="json"),
+        )
+        return CatalogSeedLoadResultPayload.model_validate(payload["data"])
+
+    async def list_agent_templates(self, *, enabled_only: bool = False) -> list[AgentTemplatePayload]:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/catalog/agent-templates",
+            params={"enabled_only": enabled_only},
+        )
+        return [AgentTemplatePayload.model_validate(item) for item in payload["data"]]
+
+    async def has_agent_templates(self) -> bool:
+        payload = await self._request("GET", "/internal/v1/catalog/agent-templates/exists")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("exists")) if isinstance(data, dict) else False
+
+    async def get_agent_template(
+        self,
+        template_id: str,
+        *,
+        enabled_only: bool = False,
+    ) -> AgentTemplatePayload | None:
+        payload = await self._request(
+            "GET",
+            f"/internal/v1/catalog/agent-templates/{template_id}",
+            params={"enabled_only": enabled_only},
+        )
+        data = payload.get("data")
+        return AgentTemplatePayload.model_validate(data) if data is not None else None
+
+    async def upsert_agent_template(
+        self,
+        template_id: str,
+        command: CatalogUpsertPayload,
+    ) -> AgentTemplatePayload:
+        payload = await self._request(
+            "PUT",
+            f"/internal/v1/catalog/agent-templates/{template_id}",
+            json=command.model_dump(mode="json"),
+        )
+        return AgentTemplatePayload.model_validate(payload["data"])
+
+    async def delete_agent_template(self, template_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/catalog/agent-templates/{template_id}")
+        data = payload.get("data") if isinstance(payload, dict) else None
+        return bool(data.get("deleted")) if isinstance(data, dict) else False
+
+    async def load_agent_template_seed_items(
+        self,
+        command: CatalogSeedLoadPayload,
+    ) -> CatalogSeedLoadResultPayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/catalog/agent-templates/seed-load",
             json=command.model_dump(mode="json"),
         )
         return CatalogSeedLoadResultPayload.model_validate(payload["data"])

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.database.models.agent_template import AgentTemplate
 from src.database.models.capability_skill import CapabilitySkill
 from src.dataservice.domains.catalog.contracts import (
     AdminLogRecord,
+    AgentTemplateRecord,
     CapabilityDefinitionRecord,
     CapabilitySkillRecord,
 )
@@ -62,6 +64,30 @@ def skill_to_record(skill: CapabilitySkill) -> CapabilitySkillRecord:
         skill_json=skill_json,
         checksum=getattr(skill, "checksum", None),
         source_path=getattr(skill, "source_path", None),
+    )
+
+
+def agent_template_to_record(template: AgentTemplate) -> AgentTemplateRecord:
+    """Project a canonical agent template row."""
+    return AgentTemplateRecord(
+        id=template.id,
+        schema_version=str(template.schema_version or "agent_template.v1"),
+        enabled=bool(template.enabled),
+        display_role=template.display_role,
+        category=template.category,
+        description=template.description or "",
+        persona_prompt=template.persona_prompt or "",
+        default_skills=list(template.default_skills or []),
+        tool_affinity=dict(template.tool_affinity or {}),
+        risk_profile=dict(template.risk_profile or {}),
+        output_contracts=list(template.output_contracts or []),
+        quality_expectations=list(template.quality_expectations or []),
+        runtime_defaults=dict(template.runtime_defaults or {}),
+        template_json=dict(template.template_json or {}),
+        checksum=template.checksum,
+        source_path=template.source_path,
+        created_at=template.created_at,
+        updated_at=template.updated_at,
     )
 
 

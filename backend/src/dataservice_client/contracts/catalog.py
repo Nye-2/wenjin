@@ -50,6 +50,25 @@ class CapabilitySkillPayload(BaseModel):
     source_path: str | None = None
 
 
+class AgentTemplatePayload(BaseModel):
+    id: str
+    schema_version: str = "agent_template.v1"
+    enabled: bool = True
+    display_role: str
+    category: str
+    description: str = ""
+    persona_prompt: str = ""
+    default_skills: list[str] = Field(default_factory=list)
+    tool_affinity: dict[str, Any] = Field(default_factory=dict)
+    risk_profile: dict[str, Any] = Field(default_factory=dict)
+    output_contracts: list[str] = Field(default_factory=list)
+    quality_expectations: list[str] = Field(default_factory=list)
+    runtime_defaults: dict[str, Any] = Field(default_factory=dict)
+    template_json: dict[str, Any] = Field(default_factory=dict)
+    checksum: str | None = None
+    source_path: str | None = None
+
+
 class CatalogUpsertPayload(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
     checksum: str | None = None

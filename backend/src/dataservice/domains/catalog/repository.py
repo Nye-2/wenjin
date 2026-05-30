@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from src.database.models.admin_log import AdminLog
+from src.database.models.agent_template import AgentTemplate
 from src.database.models.capability_skill import CapabilitySkill
 from src.database.models.user import User
 from src.dataservice.domains.catalog.models import CapabilityDefinition, CapabilitySeedRevision
@@ -31,6 +32,9 @@ class CatalogRepository:
 
     async def has_skills(self) -> bool:
         return (await self.session.execute(select(CapabilitySkill).limit(1))).first() is not None
+
+    async def has_agent_templates(self) -> bool:
+        return (await self.session.execute(select(AgentTemplate).limit(1))).first() is not None
 
     async def list_capabilities(
         self,
@@ -119,6 +123,38 @@ class CatalogRepository:
 
     async def delete_skill(self, skill_id: str) -> bool:
         result = await self.session.execute(delete(CapabilitySkill).where(CapabilitySkill.id == skill_id))
+        return bool(result.rowcount)
+
+    async def list_agent_templates(self, *, enabled_only: bool = False) -> list[AgentTemplate]:
+        query = select(AgentTemplate)
+        if enabled_only:
+            query = query.where(AgentTemplate.enabled.is_(True))
+        result = await self.session.execute(query.order_by(AgentTemplate.category, AgentTemplate.id))
+        return list(result.scalars().all())
+
+    async def get_agent_template(self, template_id: str, *, enabled_only: bool = False) -> AgentTemplate | None:
+        query = select(AgentTemplate).where(AgentTemplate.id == template_id)
+        if enabled_only:
+            query = query.where(AgentTemplate.enabled.is_(True))
+        return (await self.session.execute(query)).scalar_one_or_none()
+
+    async def upsert_agent_template(self, values: dict[str, Any]) -> AgentTemplate:
+        record = await self.get_agent_template(str(values["id"]))
+        if record is None:
+            record = AgentTemplate(**values)
+            self.session.add(record)
+            return record
+        for key, value in values.items():
+            setattr(record, key, value)
+        return record
+
+    async def delete_all_agent_templates(self) -> None:
+        await self.session.execute(delete(AgentTemplate))
+
+    async def delete_agent_template(self, template_id: str) -> bool:
+        result = await self.session.execute(
+            delete(AgentTemplate).where(AgentTemplate.id == template_id)
+        )
         return bool(result.rowcount)
 
     async def latest_seed_revision(

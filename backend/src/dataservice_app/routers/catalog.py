@@ -216,6 +216,80 @@ async def load_skill_seed_items(
     return envelope_ok(result.model_dump(mode="json"))
 
 
+@router.get("/agent-templates")
+async def list_agent_templates(
+    enabled_only: bool = Query(default=False),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    records = await service.list_agent_templates(enabled_only=enabled_only)
+    return envelope_ok([record.model_dump(mode="json") for record in records])
+
+
+@router.get("/agent-templates/exists")
+async def has_agent_templates(
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    return envelope_ok({"exists": await service.has_agent_templates()})
+
+
+@router.get("/agent-templates/{template_id}")
+async def get_agent_template(
+    template_id: str,
+    enabled_only: bool = Query(default=False),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    record = await service.get_agent_template(template_id, enabled_only=enabled_only)
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.put("/agent-templates/{template_id}")
+async def upsert_agent_template(
+    template_id: str,
+    payload: CatalogUpsertPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    data = dict(payload.data)
+    data["id"] = template_id
+    record = await service.upsert_agent_template(
+        data,
+        checksum=payload.checksum,
+        source_path=payload.source_path,
+    )
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.delete("/agent-templates/{template_id}")
+async def delete_agent_template(
+    template_id: str,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    deleted = await service.delete_agent_template(template_id)
+    await uow.commit()
+    return envelope_ok({"deleted": deleted})
+
+
+@router.post("/agent-templates/seed-load")
+async def load_agent_template_seed_items(
+    payload: CatalogSeedLoadPayload,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceCatalogService(uow.required_session, autocommit=False)
+    loader = DataServiceCatalogSeedLoader(service, payload.seed_root)
+    result = await loader.load_agent_template_items(
+        seed_root=payload.seed_root,
+        seed_items=[item.model_dump(mode="json") for item in payload.items],
+        overwrite=payload.overwrite,
+    )
+    await uow.commit()
+    return envelope_ok(result.model_dump(mode="json"))
+
+
 @router.post("/admin-logs")
 async def record_admin_log(
     payload: AdminLogCreatePayload,

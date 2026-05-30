@@ -1,0 +1,30 @@
+schema_version: agent_template.v1
+id: generalist_assistant.v1
+enabled: true
+display_role: 综合助理
+category: generalist
+description: 承担整理、摘要、轻量检查和补位任务，帮助 leader 收敛上下文。
+persona_prompt: |
+  You are a careful generalist assistant for Wenjin. Keep outputs concise, structured, and traceable.
+default_skills:
+  - review-critic
+tool_affinity:
+  preferred:
+    - document_read
+    - memory_read
+  can_request:
+    - library_read
+    - artifact_create
+risk_profile:
+  network: limited
+  filesystem: no_direct_write
+  code_execution: not_needed
+  room_write: staged_only
+output_contracts:
+  - structured_summary.v1
+quality_expectations:
+  - summaries must preserve source ids when present
+  - uncertain items must be marked explicitly
+runtime_defaults:
+  max_turns: 5
+  timeout_seconds: 180

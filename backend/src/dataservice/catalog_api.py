@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.catalog.contracts import (
     AdminLogRecord,
+    AgentTemplateRecord,
     CapabilityDefinitionRecord,
     CapabilitySkillRecord,
     SeedLoadResult,
@@ -42,6 +43,9 @@ class CatalogDataService:
     async def has_skills(self) -> bool:
         return await self._domain.has_skills()
 
+    async def has_agent_templates(self) -> bool:
+        return await self._domain.has_agent_templates()
+
     async def list_capabilities(
         self,
         *,
@@ -72,6 +76,12 @@ class CatalogDataService:
     async def get_skill(self, skill_id: str, *, enabled_only: bool = False) -> CapabilitySkillRecord | None:
         return await self._domain.get_skill(skill_id, enabled_only=enabled_only)
 
+    async def list_agent_templates(self, *, enabled_only: bool = False) -> list[AgentTemplateRecord]:
+        return await self._domain.list_agent_templates(enabled_only=enabled_only)
+
+    async def get_agent_template(self, template_id: str, *, enabled_only: bool = False) -> AgentTemplateRecord | None:
+        return await self._domain.get_agent_template(template_id, enabled_only=enabled_only)
+
     async def upsert_capability(
         self,
         data: dict[str, Any],
@@ -98,11 +108,27 @@ class CatalogDataService:
             source_path=source_path,
         )
 
+    async def upsert_agent_template(
+        self,
+        data: dict[str, Any],
+        *,
+        checksum: str | None = None,
+        source_path: str | None = None,
+    ) -> AgentTemplateRecord:
+        return await self._domain.upsert_agent_template(
+            data,
+            checksum=checksum,
+            source_path=source_path,
+        )
+
     async def delete_all_capabilities(self) -> None:
         await self._domain.delete_all_capabilities()
 
     async def delete_all_skills(self) -> None:
         await self._domain.delete_all_skills()
+
+    async def delete_all_agent_templates(self) -> None:
+        await self._domain.delete_all_agent_templates()
 
     async def delete_capability(self, *, capability_id: str, workspace_type: str) -> bool:
         return await self._domain.delete_capability(
@@ -112,6 +138,9 @@ class CatalogDataService:
 
     async def delete_skill(self, skill_id: str) -> bool:
         return await self._domain.delete_skill(skill_id)
+
+    async def delete_agent_template(self, template_id: str) -> bool:
+        return await self._domain.delete_agent_template(template_id)
 
     async def set_capability_enabled(
         self,
@@ -215,6 +244,19 @@ class CatalogDataService:
     ) -> SeedLoadResult:
         loader = DataServiceCatalogSeedLoader(self._domain, seed_dir)
         return await loader.load_skills(
+            validate_yaml_text=validate_yaml_text,
+            overwrite=overwrite,
+        )
+
+    async def load_agent_template_seed_dir(
+        self,
+        seed_dir: Path,
+        *,
+        validate_yaml_text: SeedValidator,
+        overwrite: bool = False,
+    ) -> SeedLoadResult:
+        loader = DataServiceCatalogSeedLoader(self._domain, seed_dir)
+        return await loader.load_agent_templates(
             validate_yaml_text=validate_yaml_text,
             overwrite=overwrite,
         )

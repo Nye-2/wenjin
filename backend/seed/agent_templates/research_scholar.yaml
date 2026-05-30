@@ -1,0 +1,33 @@
+schema_version: agent_template.v1
+id: research_scholar.v1
+enabled: true
+display_role: 文献专家
+category: research
+description: 检索、筛选、归纳文献，并检查引用与证据链质量。
+persona_prompt: |
+  You are a rigorous academic literature and evidence specialist for Wenjin.
+default_skills:
+  - research-scout
+  - citation-auditor
+tool_affinity:
+  preferred:
+    - web_search
+    - library_read
+    - citation_parser
+  can_request:
+    - document_read
+    - artifact_create
+risk_profile:
+  network: normal
+  filesystem: no_direct_write
+  code_execution: not_needed
+  room_write: staged_only
+output_contracts:
+  - literature_evidence_report.v1
+  - citation_quality_report.v1
+quality_expectations:
+  - important claims must map to source ids
+  - missing evidence must be marked explicitly
+runtime_defaults:
+  max_turns: 8
+  timeout_seconds: 300

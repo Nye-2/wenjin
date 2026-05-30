@@ -1,6 +1,7 @@
 """Database models package - exports all ORM models."""
 
 from .admin_log import AdminActionType, AdminLog
+from .agent_template import AgentTemplate
 from .artifact import Artifact, ArtifactType
 from .audit_log import AuditLog
 from .capability import Capability
@@ -84,6 +85,7 @@ __all__ = [
     # Capability
     "Capability",
     "CapabilitySkill",
+    "AgentTemplate",
     # Thread
     "Thread",
     # Knowledge

@@ -71,6 +71,22 @@ class DataServiceCatalogSeedLoader:
             upsert=self._upsert_skill,
         )
 
+    async def load_agent_templates(
+        self,
+        *,
+        validate_yaml_text: SeedValidator,
+        overwrite: bool = False,
+    ) -> SeedLoadResult:
+        return await self._load(
+            catalog_kind="agent_templates",
+            schema_version="agent_template.v1",
+            glob_pattern="*.yaml",
+            validate_yaml_text=validate_yaml_text,
+            overwrite=overwrite,
+            delete_all=self.service.delete_all_agent_templates,
+            upsert=self._upsert_agent_template,
+        )
+
     async def load_skill_items(
         self,
         *,
@@ -86,6 +102,23 @@ class DataServiceCatalogSeedLoader:
             overwrite=overwrite,
             delete_all=self.service.delete_all_skills,
             upsert=self._upsert_skill,
+        )
+
+    async def load_agent_template_items(
+        self,
+        *,
+        seed_root: str,
+        seed_items: list[SeedItem],
+        overwrite: bool = False,
+    ) -> SeedLoadResult:
+        return await self._load_items(
+            catalog_kind="agent_templates",
+            schema_version="agent_template.v1",
+            seed_root=seed_root,
+            seed_items=seed_items,
+            overwrite=overwrite,
+            delete_all=self.service.delete_all_agent_templates,
+            upsert=self._upsert_agent_template,
         )
 
     async def _load(
@@ -191,6 +224,13 @@ class DataServiceCatalogSeedLoader:
 
     async def _upsert_skill(self, data: dict[str, Any], checksum: str, source_path: str) -> Any:
         return await self.service.upsert_skill(
+            data,
+            checksum=checksum,
+            source_path=source_path,
+        )
+
+    async def _upsert_agent_template(self, data: dict[str, Any], checksum: str, source_path: str) -> Any:
+        return await self.service.upsert_agent_template(
             data,
             checksum=checksum,
             source_path=source_path,

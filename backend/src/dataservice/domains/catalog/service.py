@@ -9,12 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.catalog.contracts import (
     AdminLogRecord,
+    AgentTemplateRecord,
     CapabilityDefinitionRecord,
     CapabilitySkillRecord,
     SeedLoadResult,
 )
 from src.dataservice.domains.catalog.projection import (
     admin_log_to_record,
+    agent_template_to_record,
     capability_to_record,
     skill_to_record,
 )
@@ -40,6 +42,9 @@ class DataServiceCatalogService:
 
     async def has_skills(self) -> bool:
         return await self.repository.has_skills()
+
+    async def has_agent_templates(self) -> bool:
+        return await self.repository.has_agent_templates()
 
     async def list_capabilities(
         self,
@@ -79,6 +84,16 @@ class DataServiceCatalogService:
         item = await self.repository.get_skill(skill_id, enabled_only=enabled_only)
         return skill_to_record(item) if item is not None else None
 
+    async def list_agent_templates(self, *, enabled_only: bool = False) -> list[AgentTemplateRecord]:
+        return [
+            agent_template_to_record(item)
+            for item in await self.repository.list_agent_templates(enabled_only=enabled_only)
+        ]
+
+    async def get_agent_template(self, template_id: str, *, enabled_only: bool = False) -> AgentTemplateRecord | None:
+        item = await self.repository.get_agent_template(template_id, enabled_only=enabled_only)
+        return agent_template_to_record(item) if item is not None else None
+
     async def upsert_capability(
         self,
         data: dict[str, Any],
@@ -105,6 +120,19 @@ class DataServiceCatalogService:
         await self._refresh_if_supported(record)
         return skill_to_record(record)
 
+    async def upsert_agent_template(
+        self,
+        data: dict[str, Any],
+        *,
+        checksum: str | None = None,
+        source_path: str | None = None,
+    ) -> AgentTemplateRecord:
+        values = self.agent_template_values(data, checksum=checksum, source_path=source_path)
+        record = await self.repository.upsert_agent_template(values)
+        await self._finish()
+        await self._refresh_if_supported(record)
+        return agent_template_to_record(record)
+
     async def replace_capabilities(self, items: list[dict[str, Any]]) -> list[CapabilityDefinitionRecord]:
         await self.repository.delete_all_capabilities()
         records = [
@@ -122,6 +150,10 @@ class DataServiceCatalogService:
         await self.repository.delete_all_skills()
         await self._finish()
 
+    async def delete_all_agent_templates(self) -> None:
+        await self.repository.delete_all_agent_templates()
+        await self._finish()
+
     async def delete_capability(self, *, capability_id: str, workspace_type: str) -> bool:
         deleted = await self.repository.delete_capability(
             capability_id=capability_id,
@@ -132,6 +164,11 @@ class DataServiceCatalogService:
 
     async def delete_skill(self, skill_id: str) -> bool:
         deleted = await self.repository.delete_skill(skill_id)
+        await self._finish()
+        return deleted
+
+    async def delete_agent_template(self, template_id: str) -> bool:
+        deleted = await self.repository.delete_agent_template(template_id)
         await self._finish()
         return deleted
 
@@ -331,6 +368,50 @@ class DataServiceCatalogService:
             "resources": list(data.get("resources") or []),
             "config": dict(data.get("config") or {}),
             "skill_json": skill_json,
+            "checksum": checksum,
+            "source_path": source_path,
+        }
+
+    @staticmethod
+    def agent_template_values(
+        data: dict[str, Any],
+        *,
+        checksum: str | None = None,
+        source_path: str | None = None,
+    ) -> dict[str, Any]:
+        schema_version = str(data.get("schema_version") or "")
+        if schema_version != "agent_template.v1":
+            raise ValueError("Agent template records must use schema_version agent_template.v1")
+        template_id = str(data.get("id") or "").strip()
+        display_role = str(data.get("display_role") or "").strip()
+        category = str(data.get("category") or "").strip()
+        if not template_id:
+            raise ValueError("Agent template records require id")
+        if not display_role:
+            raise ValueError("Agent template records require display_role")
+        if not category:
+            raise ValueError("Agent template records require category")
+        tool_affinity = data.get("tool_affinity")
+        risk_profile = data.get("risk_profile")
+        if not isinstance(tool_affinity, dict):
+            raise ValueError("Agent template records require tool_affinity object")
+        if not isinstance(risk_profile, dict):
+            raise ValueError("Agent template records require risk_profile object")
+        return {
+            "id": template_id,
+            "schema_version": schema_version,
+            "enabled": bool(data.get("enabled", True)),
+            "display_role": display_role,
+            "category": category,
+            "description": str(data.get("description") or ""),
+            "persona_prompt": str(data.get("persona_prompt") or ""),
+            "default_skills": list(data.get("default_skills") or []),
+            "tool_affinity": tool_affinity,
+            "risk_profile": risk_profile,
+            "output_contracts": list(data.get("output_contracts") or []),
+            "quality_expectations": list(data.get("quality_expectations") or []),
+            "runtime_defaults": dict(data.get("runtime_defaults") or {}),
+            "template_json": dict(data),
             "checksum": checksum,
             "source_path": source_path,
         }
