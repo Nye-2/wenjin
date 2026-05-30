@@ -6,9 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import (
     get_dashboard_service,
     get_dataservice_client,
@@ -52,7 +51,7 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 @router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
 async def create_workspace(
     request: CreateWorkspaceRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceResponse:
     """Create a new workspace.
@@ -87,7 +86,7 @@ async def create_workspace(
 
 @router.get("", response_model=WorkspacesListResponse)
 async def list_workspaces(
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspacesListResponse:
     """List workspaces for current user.
@@ -108,7 +107,7 @@ async def list_workspaces(
 @router.get("/{workspace_id}", response_model=WorkspaceResponse)
 async def get_workspace(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceResponse:
     """Get workspace by ID.
@@ -137,7 +136,7 @@ async def get_workspace(
 )
 async def ensure_workspace_prism_project(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspacePrismEnsureResponse:
@@ -166,7 +165,7 @@ async def ensure_workspace_prism_project(
 )
 async def get_workspace_prism_surface(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspacePrismSurfaceResponse:
@@ -193,7 +192,7 @@ async def get_workspace_prism_surface(
 async def update_workspace(
     workspace_id: str,
     request: UpdateWorkspaceRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceResponse:
     """Update workspace.
@@ -228,7 +227,7 @@ async def update_workspace(
 @router.delete("/{workspace_id}")
 async def delete_workspace(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, bool]:
     """Delete workspace.
@@ -261,7 +260,7 @@ async def delete_workspace(
 @router.get("/{workspace_id}/dashboard")
 async def get_workspace_dashboard(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dashboard_service: DashboardService = Depends(get_dashboard_service),
 ) -> dict[str, Any]:
@@ -301,7 +300,7 @@ async def resolve_workspace_capability_action(
     workspace_id: str,
     capability_id: str,
     request: ResolveCapabilityActionRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ResolveCapabilityActionResponse:
@@ -347,7 +346,7 @@ async def resolve_workspace_capability_action(
 @router.get("/{workspace_id}/capabilities")
 async def list_workspace_capabilities(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -392,7 +391,7 @@ async def list_workspace_capabilities(
 @router.get("/{workspace_id}/summary", response_model=WorkspaceSummaryResponse)
 async def get_workspace_summary(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     summary_service: WorkspaceSummaryService = Depends(get_workspace_summary_service),
 ) -> WorkspaceSummaryResponse:
@@ -418,7 +417,7 @@ async def get_workspace_summary(
 async def get_workspace_activity(
     workspace_id: str,
     limit: int = 40,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     activity_service: WorkspaceActivityService = Depends(get_workspace_activity_service),
 ) -> WorkspaceActivityResponse:
@@ -447,7 +446,7 @@ async def get_workspace_activity(
 async def list_workspace_executions(
     workspace_id: str,
     limit: int = 20,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspaceExecutionsResponse:
@@ -485,7 +484,7 @@ async def list_workspace_executions(
 @router.get("/{workspace_id}/events")
 async def subscribe_workspace_events(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> StreamingResponse:
     """Subscribe to workspace-scoped live events via SSE."""

@@ -7,8 +7,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
-from src.database import User
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import get_thread_service, get_thread_turn_handler
 from src.gateway.deps.runtime import get_run_manager, get_stream_bridge
 from src.gateway.routers.run_contracts import (
@@ -64,7 +63,7 @@ async def _require_owned_run(
 async def stream_run(
     body: RunCreateRequest,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     handler: Any = Depends(get_thread_turn_handler),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
@@ -89,7 +88,7 @@ async def stream_run(
 @router.post("/wait", response_model=RunWaitResponse)
 async def wait_run(
     body: RunCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     handler: Any = Depends(get_thread_turn_handler),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
@@ -120,7 +119,7 @@ async def stream_existing_run(
     request: Request,
     action: Literal["interrupt", "rollback"] | None = Query(default=None),
     wait: bool = Query(default=False),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
     bridge: StreamBridge = Depends(get_stream_bridge),
@@ -153,7 +152,7 @@ async def stream_existing_run(
 @router.get("/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
 ) -> RunResponse:
@@ -171,7 +170,7 @@ async def cancel_run(
     run_id: str,
     wait: bool = Query(default=False),
     action: Literal["interrupt", "rollback"] = Query(default="interrupt"),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
 ) -> Response:
@@ -192,7 +191,7 @@ async def cancel_run(
 @router.delete("/{run_id}", status_code=204)
 async def delete_run(
     run_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     run_manager: RunManager = Depends(get_run_manager),
 ) -> Response:

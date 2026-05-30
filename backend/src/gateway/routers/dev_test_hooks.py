@@ -22,9 +22,9 @@ from pydantic import BaseModel
 
 from src.academic.services.workspace_service import WorkspaceService
 from src.agents.chat_agent.blocks import AgentMessage
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.academic import get_workspace_service
 from src.gateway.deps.core import get_dataservice_client
-from src.dataservice_client import AsyncDataServiceClient
 from src.services.user_service import UserService
 
 router = APIRouter(prefix="/__test__", tags=["dev"])

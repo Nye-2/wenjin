@@ -16,7 +16,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.asset import (
     WorkspaceAssetCreatePayload,
@@ -31,7 +30,7 @@ from src.dataservice_client.contracts.rooms import (
 )
 from src.dataservice_client.contracts.source import SourceCreatePayload
 from src.dataservice_client.contracts.workspace import WorkspaceSettingsUpdatePayload
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import get_dataservice_client, get_workspace_service
 
 router = APIRouter(prefix="/workspaces", tags=["workspace_rooms"])
@@ -48,7 +47,7 @@ _DOCUMENT_SOURCE_KINDS = {_DOCUMENT_SOURCE_KIND, _MIGRATED_DOCUMENT_SOURCE_KIND}
 
 async def _assert_workspace_owner(
     ws_id: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     workspace_service: WorkspaceService,
 ) -> None:
     """Raise 404 if workspace doesn't belong to user."""
@@ -512,7 +511,7 @@ async def _update_document_asset(
 async def list_library_items(
     ws_id: str,
     limit: int = Query(100, ge=1, le=500),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -530,7 +529,7 @@ async def list_library_items(
 async def create_library_item(
     ws_id: str,
     body: LibraryItemCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -543,7 +542,7 @@ async def create_library_item(
 async def get_library_item(
     ws_id: str,
     item_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -561,7 +560,7 @@ async def get_library_item(
 async def delete_library_item(
     ws_id: str,
     item_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
@@ -583,7 +582,7 @@ async def delete_library_item(
 async def list_documents(
     ws_id: str,
     limit: int = Query(100, ge=1, le=500),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -596,7 +595,7 @@ async def list_documents(
 async def create_document(
     ws_id: str,
     body: DocumentCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -613,7 +612,7 @@ async def create_document(
 async def get_document(
     ws_id: str,
     doc_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -632,7 +631,7 @@ async def update_document(
     ws_id: str,
     doc_id: str,
     body: DocumentUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -669,7 +668,7 @@ async def update_document(
 async def delete_document(
     ws_id: str,
     doc_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
@@ -688,7 +687,7 @@ async def delete_document(
 @router.get("/{ws_id}/decisions")
 async def list_decisions(
     ws_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -701,7 +700,7 @@ async def list_decisions(
 async def set_decision(
     ws_id: str,
     body: DecisionCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -722,7 +721,7 @@ async def set_decision(
 async def delete_decision(
     ws_id: str,
     decision_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
@@ -742,7 +741,7 @@ async def list_memory(
     ws_id: str,
     k: int = Query(15, ge=1, le=200),
     category: str | None = Query(None),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -759,7 +758,7 @@ async def list_memory(
 async def add_memory_facts(
     ws_id: str,
     body: MemoryBulkAddRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -781,7 +780,7 @@ async def add_memory_facts(
 async def delete_memory_fact(
     ws_id: str,
     fact_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
@@ -800,7 +799,7 @@ async def delete_memory_fact(
 async def list_runs(
     ws_id: str,
     limit: int = Query(50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -813,7 +812,7 @@ async def list_runs(
 async def get_run(
     ws_id: str,
     run_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -833,7 +832,7 @@ async def get_run(
 async def list_workspace_tasks(
     ws_id: str,
     task_status: str | None = Query(None, alias="status"),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -846,7 +845,7 @@ async def list_workspace_tasks(
 async def create_workspace_task(
     ws_id: str,
     body: WorkspaceTaskCreateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -862,7 +861,7 @@ async def update_workspace_task(
     ws_id: str,
     task_id: str,
     body: WorkspaceTaskUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -882,7 +881,7 @@ async def update_workspace_task(
 async def delete_workspace_task(
     ws_id: str,
     task_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> None:
@@ -900,7 +899,7 @@ async def delete_workspace_task(
 @router.get("/{ws_id}/settings")
 async def get_workspace_settings(
     ws_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -913,7 +912,7 @@ async def get_workspace_settings(
 async def update_workspace_settings(
     ws_id: str,
     body: WorkspaceSettingsUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:

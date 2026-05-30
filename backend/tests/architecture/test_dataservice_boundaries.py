@@ -1017,6 +1017,31 @@ def test_workspace_asset_runtime_projections_do_not_read_legacy_metadata_fields(
     )
 
 
+def test_gateway_routers_do_not_type_auth_subjects_as_database_users() -> None:
+    """Gateway auth subjects must use AccountAuthSubject, not the DB User model."""
+
+    violations: list[str] = []
+    for path in sorted((SRC_ROOT / "gateway" / "routers").glob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in (
+            "from src.database import User",
+            "current_user: User",
+            "_current_user: User",
+            "admin: User",
+            "_admin: User",
+            "user: User",
+            "current_user: User | None",
+        ):
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Gateway routers still type auth subjects as database User models:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

@@ -11,9 +11,8 @@ from pydantic import BaseModel
 
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.artifacts import ArtifactType
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import (
     get_artifact_service,
     get_dataservice_client,
@@ -276,7 +275,7 @@ async def upload_thread_files(
     files: list[UploadFile] = File(...),
     kind: ThreadUploadKind = Form(...),
     workspace_id: str | None = Form(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     thread_service: ThreadService = Depends(get_thread_service),
     workspace_service: Any = Depends(get_workspace_service),
     artifact_service: Any = Depends(get_artifact_service),

@@ -6,8 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from src.config.config_loader import MemoryConfig, get_app_config
-from src.database import User
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.services.user_memory_service import build_memory_context, load_user_memory
 
 router = APIRouter()
@@ -74,7 +73,7 @@ def _memory_config_response() -> MemoryConfigResponse:
 @router.get("/memory", response_model=MemoryResponse)
 async def get_memory(
     workspace_id: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
 ) -> MemoryResponse:
     """Return the current user's long-term memory snapshot."""
     items = await load_user_memory(str(current_user.id), workspace_id)
@@ -95,7 +94,7 @@ async def get_memory_config() -> MemoryConfigResponse:
 @router.get("/memory/status", response_model=MemoryStatusResponse)
 async def get_memory_status(
     workspace_id: str | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
 ) -> MemoryStatusResponse:
     """Return memory config together with the current user's memory snapshot."""
     return MemoryStatusResponse(

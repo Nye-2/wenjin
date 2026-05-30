@@ -83,6 +83,11 @@
   - Documents room asset projection 移除 `legacy_kind`、`legacy_parent_id`、`legacy_version` 读取，只使用 canonical `kind`、`parent_id`、`version` 和 DataService asset fields。
   - Workspace activity artifact projection 移除 `legacy_kind` 读取，只使用 canonical `artifact_type` / `asset_kind`。
   - Architecture guard 新增 `test_workspace_asset_runtime_projections_do_not_read_legacy_metadata_fields`，防止 router/activity projection 重新读取 legacy metadata。
+- Current gateway auth subject boundary follow-up
+  - Gateway routers 不再导入 DB `User` model 作为 `current_user` / admin subject 类型。
+  - 所有 router auth 注解统一为 `AccountAuthSubject`，`get_current_user_optional` 对应 `AccountAuthSubject | None`。
+  - MCP router 从 canonical `auth_dependencies` 导入 `get_current_user`，不再从 auth router 反向取依赖。
+  - Architecture guard 新增 `test_gateway_routers_do_not_type_auth_subjects_as_database_users`，防止 router 层重新引入 DB `User` auth subject。
 
 已验证：
 
@@ -129,6 +134,10 @@
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_workspace_room_document_assets.py tests/gateway/routers/test_workspace_rooms_router.py tests/services/test_workspace_activity_service.py tests/architecture/test_dataservice_boundaries.py::test_workspace_asset_runtime_projections_do_not_read_legacy_metadata_fields -q` -> 41 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 23 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2015 passed.
+- `cd backend && .venv/bin/python -m ruff check src/gateway/routers tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers tests/architecture/test_dataservice_boundaries.py::test_gateway_routers_do_not_type_auth_subjects_as_database_users -q` -> 210 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 24 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2016 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.

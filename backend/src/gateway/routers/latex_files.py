@@ -8,14 +8,14 @@ from typing import Literal, cast
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse, Response
 
-from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.prism import PrismProtectedScopeUpsertPayload
 from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeAppliedPayload,
     PrismFileChangeRejectedPayload,
 )
 from src.dataservice_client.contracts.review import ReviewItemPayload
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.contracts.latex import (
     LatexCreateFolderRequest,
     LatexFileChangeActionRequest,
@@ -35,7 +35,6 @@ from src.gateway.contracts.latex import (
     LatexTreeResponse,
     LatexWriteFileRequest,
 )
-from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.latex_helpers import (
     _compute_file_change_revert_signature,
@@ -111,7 +110,7 @@ async def _get_prism_file_change_or_404(
 @router.get("/projects/{project_id}/tree", response_model=LatexTreeResponse)
 async def get_project_tree(
     project_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexTreeResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -132,7 +131,7 @@ async def get_project_tree(
 async def read_project_file(
     project_id: str,
     path: str = Query(...),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileContentResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -152,7 +151,7 @@ async def read_project_file(
 async def write_project_file(
     project_id: str,
     request: LatexWriteFileRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     service = LatexProjectService(dataservice=dataservice)
@@ -170,7 +169,7 @@ async def write_project_file(
 async def save_project_file_order(
     project_id: str,
     request: LatexFileOrderRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
     service = LatexProjectService(dataservice=dataservice)
@@ -188,7 +187,7 @@ async def save_project_file_order(
 async def preview_project_file_change(
     project_id: str,
     request: LatexFileChangeActionRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangePreviewResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -230,7 +229,7 @@ async def preview_project_file_change(
 async def apply_project_file_change(
     project_id: str,
     request: LatexFileChangeApplyRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangeApplyResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -338,7 +337,7 @@ async def apply_project_file_change(
 async def discard_project_file_change(
     project_id: str,
     request: LatexFileChangeActionRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangeDiscardResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -407,7 +406,7 @@ async def discard_project_file_change(
 async def revert_project_file_change(
     project_id: str,
     request: LatexFileChangeRevertRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexFileChangeRevertResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -494,7 +493,7 @@ async def revert_project_file_change(
 async def protect_project_section(
     project_id: str,
     request: LatexProtectedSectionRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> LatexProtectedSectionResponse:
     service = LatexProjectService(dataservice=dataservice)
@@ -548,7 +547,7 @@ async def protect_project_section(
 async def create_project_folder(
     project_id: str,
     request: LatexCreateFolderRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
     service = LatexProjectService(dataservice=dataservice)
@@ -566,7 +565,7 @@ async def create_project_folder(
 async def rename_project_path(
     project_id: str,
     request: LatexRenamePathRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
     service = LatexProjectService(dataservice=dataservice)
@@ -592,7 +591,7 @@ async def rename_project_path(
 async def delete_project_path(
     project_id: str,
     path: str = Query(...),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, object]:
     service = LatexProjectService(dataservice=dataservice)
@@ -612,7 +611,7 @@ async def delete_project_path(
 async def read_project_blob(
     project_id: str,
     path: str = Query(...),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> Response:
     service = LatexProjectService(dataservice=dataservice)

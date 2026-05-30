@@ -6,9 +6,8 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_admin
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
 from src.gateway.deps.core import get_dataservice_client
 from src.services.admin_analytics_cache import cached
 from src.services.admin_analytics_service import AdminAnalyticsService
@@ -41,7 +40,7 @@ async def user_growth(
     granularity: Granularity = Query("day"),
     cache_bust: bool = Query(False),
     service: AdminAnalyticsService = Depends(_get_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     days = _parse_range(range)
     return await cached(
@@ -57,7 +56,7 @@ async def execution_stats(
     granularity: Granularity = Query("day"),
     cache_bust: bool = Query(False),
     service: AdminAnalyticsService = Depends(_get_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     days = _parse_range(range)
     return await cached(
@@ -75,7 +74,7 @@ async def credit_consumption(
     granularity: Granularity = Query("day"),
     cache_bust: bool = Query(False),
     service: AdminAnalyticsService = Depends(_get_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     days = _parse_range(range)
     return await cached(
@@ -91,7 +90,7 @@ async def credit_consumption(
 async def workspace_adoption(
     cache_bust: bool = Query(False),
     service: AdminAnalyticsService = Depends(_get_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     return await cached(
         cache_key="analytics:workspace-adoption",

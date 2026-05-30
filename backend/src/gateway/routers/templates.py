@@ -8,8 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import get_template_service, get_workspace_service
 from src.services.template_service import TemplateService, parse_template_content
 from src.services.workspace_uploads import (
@@ -59,7 +58,7 @@ def _to_response(t: Any) -> TemplateResponse:
 async def _require_workspace_access(
     *,
     workspace_id: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     workspace_service: WorkspaceService,
 ) -> Any:
     workspace = await workspace_service.get(workspace_id)
@@ -76,7 +75,7 @@ async def _require_workspace_access(
 @router.get("/workspaces/{workspace_id}/templates", response_model=TemplatesListResponse)
 async def list_templates(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplatesListResponse:
@@ -92,7 +91,7 @@ async def list_templates(
 @router.get("/workspaces/{workspace_id}/templates/active")
 async def get_active_template(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplateResponse | None:
@@ -109,7 +108,7 @@ async def get_active_template(
 async def upload_template(
     workspace_id: str,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplateResponse:
@@ -195,7 +194,7 @@ async def upload_template(
 async def activate_template(
     workspace_id: str,
     template_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> TemplateResponse:
@@ -214,7 +213,7 @@ async def activate_template(
 async def delete_template(
     workspace_id: str,
     template_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     template_service: TemplateService = Depends(get_template_service),
 ) -> dict[str, str]:

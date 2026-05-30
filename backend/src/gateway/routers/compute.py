@@ -13,9 +13,8 @@ from src.compute.models import (
 )
 from src.compute.projection_service import ComputeProjectionService
 from src.compute.session_service import ComputeSessionService
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import get_workspace_service
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.workspaces_runtime import get_owned_workspace
@@ -30,7 +29,7 @@ router = APIRouter(tags=["compute"])
 async def list_workspace_compute_sessions(
     workspace_id: str,
     limit: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ComputeSessionListResponse:
@@ -60,7 +59,7 @@ async def list_workspace_compute_sessions(
 )
 async def get_compute_session(
     compute_session_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ComputeSessionResponse:
     """Get one compute session shell."""
@@ -76,7 +75,7 @@ async def get_compute_session(
 )
 async def get_compute_projection(
     compute_session_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ComputeProjectionResponse:
     """Get the current Compute Stage projection for one session."""
