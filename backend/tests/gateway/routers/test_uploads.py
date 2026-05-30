@@ -391,7 +391,7 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     assert "Opening Proposal" in knowledge_args[2]
     assert "内容摘要" in knowledge_args[2]
     assert "proposal" in knowledge_args[2]
-    client.app.state.db.commit.assert_awaited()
+    client.app.state.db.commit.assert_not_awaited()
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",
         "workspace.refresh",
@@ -434,7 +434,7 @@ def test_workspace_context_upload_degrades_when_memory_write_fails(client):
     assert body["files"][0]["artifact_id"] == "artifact-1"
     client.app.state.artifact_service.create.assert_awaited_once()
     assert "created_by_skill" not in client.app.state.artifact_service.create.await_args.kwargs
-    client.app.state.db.rollback.assert_awaited_once()
+    client.app.state.db.rollback.assert_not_awaited()
     publish_workspace_event.assert_awaited_once_with(
         "ws-1",
         "workspace.refresh",

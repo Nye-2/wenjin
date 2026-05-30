@@ -1,4 +1,4 @@
-"""Memory middleware for the canonical DB-backed memory flow."""
+"""Memory middleware for the canonical DataService-backed memory flow."""
 
 from __future__ import annotations
 

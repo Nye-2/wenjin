@@ -38,7 +38,7 @@
 1. **Library** — 文献条目（library_item outputs commit 到此）
 2. **Documents** — 文档（document outputs）
 3. **Decisions** — 决策记录（decision outputs）
-4. **Memory** — 事实和偏好（memory_fact outputs）
+4. **Memory** — 事实和偏好（memory_fact outputs）；长期记忆读取、提取写入和压缩通过 Knowledge DataService client 完成
 5. **Run History** — 执行历史记录
 6. **Tasks** — 后续任务（task outputs）
 7. **Settings** — 工作区设置
@@ -82,6 +82,7 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 9. `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
 10. DataService review batch/action log 是 Prism review 的事务边界；batch/items 先 flush，action log 后写入，保证独立 DataService + Postgres 部署下 FK 顺序稳定。
 11. Prism adapter routers 和 LaTeX/WorkspacePrism runtime services 通过 DataService client 访问 Latex/Prism/Review/Source facts，不再携带 runtime DB session。
+12. Long-term memory runtime、memory compaction、Celery memory capture 与 workspace-context upload memory note 通过 Knowledge DataService client 访问 persistence，不再携带 runtime DB session 或执行 request-time commit/rollback。
 
 ## 7. 前端信息架构
 

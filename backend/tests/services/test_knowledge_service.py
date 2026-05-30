@@ -11,21 +11,16 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
-def mock_db():
-    return AsyncMock()
-
-
-@pytest.fixture
 def dataservice():
     return AsyncMock()
 
 
 @pytest.fixture
-def service(mock_db, dataservice):
-    return KnowledgeService(mock_db, dataservice=dataservice)
+def service(dataservice):
+    return KnowledgeService(dataservice=dataservice)
 
 
-async def test_create_uses_dataservice_payload(service, dataservice, mock_db):
+async def test_create_uses_dataservice_payload(service, dataservice):
     dataservice.create_knowledge_memory.return_value = {"id": "k-1"}
 
     result = await service.create(
@@ -42,7 +37,6 @@ async def test_create_uses_dataservice_payload(service, dataservice, mock_db):
     assert command.category == "context"
     assert command.content == "test content"
     assert command.workspace_context == "ws-1"
-    mock_db.commit.assert_not_awaited()
 
 
 async def test_list_by_user_normalizes_category(service, dataservice):
@@ -64,7 +58,7 @@ async def test_list_by_user_normalizes_category(service, dataservice):
     )
 
 
-async def test_update_delegates_without_gateway_commit(service, dataservice, mock_db):
+async def test_update_delegates_without_gateway_commit(service, dataservice):
     dataservice.update_knowledge_memory.return_value = {"id": "k-1", "content": "new"}
 
     result = await service.update("k-1", content="new", confidence=0.9, is_active=False)
@@ -74,7 +68,6 @@ async def test_update_delegates_without_gateway_commit(service, dataservice, moc
     assert command.content == "new"
     assert command.confidence == 0.9
     assert command.is_active is False
-    mock_db.commit.assert_not_awaited()
 
 
 async def test_delete_and_deactivate_delegate_to_dataservice(service, dataservice):

@@ -39,6 +39,12 @@
   - Gateway `get_task_service` 不再为 TaskService 创建 request-time DB session，TaskStore 只需要 Redis runtime cache 与 DataService client。
   - Thread run worker、ProgressTracker stage transition flush、Task SSE initial snapshot 不再打开 DB session；统一通过 Run/Task/Conversation DataService client 访问运行态持久化。
   - Gateway `get_thread_service` / `get_workspace_service` 不再依赖 request DB session；ThreadTurnHandler 清理遗留 `get_db_session` import，线程/工作区运行时依赖改为 DataService-only service construction。
+- Current memory runtime boundary follow-up
+  - `user_memory_service`、`memory_compaction` 和 Celery `capture_memory` 不再打开 DB session 或 reset DB engine。
+  - 长期记忆读取、提取写入、压缩归档统一通过 `KnowledgeService(dataservice=...)` 和 Knowledge DataService client 执行。
+  - `KnowledgeService` 构造器移除 DB/session 参数，不再保存 `db/self.db/_db`。
+  - Workspace context 上传写入长期记忆时复用请求注入的 DataService client，不再为 memory note 注入 DB、commit 或 rollback。
+  - Architecture guard 新增 `test_memory_runtime_uses_dataservice_knowledge_boundary`，防止 memory runtime、uploads memory note 和 KnowledgeService facade 回流到 session-based persistence。
 
 已验证：
 
@@ -51,6 +57,10 @@
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_threads.py tests/gateway/routers/test_threads_router.py tests/gateway/routers/test_thread_runs.py tests/gateway/routers/test_uploads.py tests/gateway/routers/test_artifacts.py tests/gateway/test_run_lifecycle_dispatch.py tests/task tests/architecture/test_dataservice_boundaries.py -q` -> 223 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_memory_compaction.py tests/services/test_memory_capture_service.py tests/agents/memory/test_capture.py tests/agents/memory/test_llm_updates.py tests/agents/middleware/test_memory.py tests/gateway/routers/test_memory.py tests/services/test_knowledge_service.py tests/gateway/routers/test_uploads.py tests/architecture/test_dataservice_boundaries.py::test_memory_runtime_uses_dataservice_knowledge_boundary -q` -> 52 passed.
+- `cd backend && .venv/bin/python -m ruff check src/services/user_memory_service.py src/services/memory_compaction.py src/services/knowledge_service.py src/task/tasks/memory.py src/gateway/routers/uploads.py tests/services/test_memory_compaction.py tests/agents/memory/test_llm_updates.py tests/agents/middleware/test_memory.py tests/gateway/routers/test_uploads.py tests/services/test_knowledge_service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 15 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2008 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.

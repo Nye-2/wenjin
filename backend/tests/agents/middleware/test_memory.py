@@ -17,6 +17,14 @@ from src.agents.middlewares.memory import (
 )
 
 
+def _dataservice_context() -> tuple[MagicMock, AsyncMock]:
+    dataservice = AsyncMock()
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=dataservice)
+    context.__aexit__ = AsyncMock(return_value=False)
+    return context, dataservice
+
+
 class TestFormatKnowledgeForPrompt:
     def test_empty_returns_empty_string(self):
         assert format_knowledge_for_prompt([]) == ""
@@ -132,9 +140,9 @@ class TestMessageSerialization:
 
 class TestLoadUserMemory:
     @pytest.mark.asyncio
-    @patch("src.database.get_db_session")
-    async def test_returns_empty_on_error(self, mock_session):
-        mock_session.side_effect = Exception("DB error")
+    @patch("src.services.user_memory_service.dataservice_client")
+    async def test_returns_empty_on_error(self, mock_dataservice_client):
+        mock_dataservice_client.side_effect = Exception("DataService error")
         result = await load_user_memory("user1")
         assert result == []
 
@@ -143,10 +151,8 @@ class TestExtractAndPersistKnowledge:
     @pytest.mark.asyncio
     @patch("src.models.factory.create_chat_model")
     @patch("src.models.router.route_model", return_value="default")
-    @patch("src.database.get_db_session")
     async def test_returns_zero_on_llm_failure(
         self,
-        mock_session,
         _mock_route_model,
         mock_model,
     ):
@@ -155,20 +161,15 @@ class TestExtractAndPersistKnowledge:
         assert count == 0
 
     @pytest.mark.asyncio
-    @patch("src.services.knowledge_service.KnowledgeService")
+    @patch("src.services.user_memory_service.KnowledgeService")
     @patch("src.models.factory.create_chat_model")
     @patch("src.models.router.route_model", return_value="default")
-    @patch("src.database.get_db_session")
     async def test_invalid_confidence_does_not_abort_all_items(
         self,
-        mock_session,
         _mock_route_model,
         mock_model,
         mock_knowledge_service,
     ):
-        mock_db = mock_session.return_value.__aenter__.return_value
-        mock_db.commit = AsyncMock()
-
         model = mock_model.return_value
         model.ainvoke = AsyncMock(
             return_value=SimpleNamespace(
@@ -181,6 +182,7 @@ class TestExtractAndPersistKnowledge:
 
         service = mock_knowledge_service.return_value
         service.upsert = AsyncMock()
+        context, _dataservice = _dataservice_context()
 
         with patch(
             "src.services.user_memory_service._load_memory_config",
@@ -189,6 +191,9 @@ class TestExtractAndPersistKnowledge:
                 fact_confidence_threshold=0.7,
                 max_facts=100,
             ),
+        ), patch(
+            "src.services.user_memory_service.dataservice_client",
+            return_value=context,
         ):
             count = await extract_and_persist_knowledge("user1", "conversation")
 

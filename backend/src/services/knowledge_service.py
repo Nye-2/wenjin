@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.knowledge import (
     KnowledgeArchiveLowConfidencePayload,
@@ -21,12 +19,9 @@ class KnowledgeService:
 
     def __init__(
         self,
-        db: AsyncSession,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self._db = db
-        self.db = db
         self._dataservice = dataservice
 
     @staticmethod

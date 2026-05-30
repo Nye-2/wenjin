@@ -1,12 +1,20 @@
 """Tests for memory compaction."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.database.models.knowledge import KnowledgeCategory
 from src.services.memory_compaction import _parse_compact_result, compact_user_memory
+
+
+def _dataservice_context() -> tuple[MagicMock, AsyncMock]:
+    dataservice = AsyncMock()
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=dataservice)
+    context.__aexit__ = AsyncMock(return_value=False)
+    return context, dataservice
 
 
 class TestParseCompactResult:
@@ -29,26 +37,24 @@ class TestParseCompactResult:
 
 class TestCompactUserMemory:
     @pytest.mark.asyncio
-    @patch("src.database.get_db_session")
-    async def test_skips_when_few_entries(self, mock_session):
-        mock_db = AsyncMock()
-        mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+    async def test_skips_when_few_entries(self):
+        context, _dataservice = _dataservice_context()
 
-        with patch("src.services.knowledge_service.KnowledgeService") as MockService:
+        with patch("src.services.memory_compaction.dataservice_client", return_value=context), patch(
+            "src.services.memory_compaction.KnowledgeService"
+        ) as MockService:
             mock_svc = MockService.return_value
             mock_svc.list_active = AsyncMock(return_value=[])
             result = await compact_user_memory("user1")
             assert result["compacted_count"] == 0
 
     @pytest.mark.asyncio
-    @patch("src.database.get_db_session")
-    async def test_uses_exact_workspace_scope(self, mock_session):
-        mock_db = AsyncMock()
-        mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
+    async def test_uses_exact_workspace_scope(self):
+        context, _dataservice = _dataservice_context()
 
-        with patch("src.services.knowledge_service.KnowledgeService") as MockService:
+        with patch("src.services.memory_compaction.dataservice_client", return_value=context), patch(
+            "src.services.memory_compaction.KnowledgeService"
+        ) as MockService:
             mock_svc = MockService.return_value
             mock_svc.list_active = AsyncMock(return_value=[])
 
@@ -62,21 +68,14 @@ class TestCompactUserMemory:
     @pytest.mark.asyncio
     @patch("src.models.factory.create_chat_model")
     @patch("src.models.router.route_model", return_value="utility-primary")
-    @patch("src.database.get_db_session")
     async def test_llm_failure_does_not_archive_entries(
         self,
-        mock_session,
         _mock_route_model,
         mock_create_chat_model,
     ):
-        mock_db = AsyncMock()
-        mock_db.flush = AsyncMock()
-        mock_db.commit = AsyncMock()
-        mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
         mock_model = mock_create_chat_model.return_value
         mock_model.ainvoke = AsyncMock(side_effect=RuntimeError("llm down"))
+        context, _dataservice = _dataservice_context()
 
         entries = [
             SimpleNamespace(
@@ -89,7 +88,9 @@ class TestCompactUserMemory:
             for index in range(10)
         ]
 
-        with patch("src.services.knowledge_service.KnowledgeService") as MockService:
+        with patch("src.services.memory_compaction.dataservice_client", return_value=context), patch(
+            "src.services.memory_compaction.KnowledgeService"
+        ) as MockService:
             mock_svc = MockService.return_value
             mock_svc.list_active = AsyncMock(return_value=entries)
             mock_svc.archive_low_confidence = AsyncMock()
@@ -98,29 +99,20 @@ class TestCompactUserMemory:
                 await compact_user_memory("user1")
 
         mock_svc.archive_low_confidence.assert_not_awaited()
-        mock_db.flush.assert_not_awaited()
-        mock_db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
     @patch("src.models.factory.create_chat_model")
     @patch("src.models.router.route_model", return_value="utility-primary")
-    @patch("src.database.get_db_session")
     async def test_empty_compaction_result_does_not_archive_entries(
         self,
-        mock_session,
         _mock_route_model,
         mock_create_chat_model,
     ):
-        mock_db = AsyncMock()
-        mock_db.flush = AsyncMock()
-        mock_db.commit = AsyncMock()
-        mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
         mock_model = mock_create_chat_model.return_value
         mock_model.ainvoke = AsyncMock(
             return_value=SimpleNamespace(content='{"compacted": [], "summary": ""}')
         )
+        context, _dataservice = _dataservice_context()
         entries = [
             SimpleNamespace(
                 id=f"k-{index}",
@@ -132,7 +124,9 @@ class TestCompactUserMemory:
             for index in range(10)
         ]
 
-        with patch("src.services.knowledge_service.KnowledgeService") as MockService:
+        with patch("src.services.memory_compaction.dataservice_client", return_value=context), patch(
+            "src.services.memory_compaction.KnowledgeService"
+        ) as MockService:
             mock_svc = MockService.return_value
             mock_svc.list_active = AsyncMock(return_value=entries)
             mock_svc.upsert = AsyncMock()
@@ -142,25 +136,15 @@ class TestCompactUserMemory:
         assert result["skipped_reason"] == "empty_compaction_result"
         assert all(entry.is_active for entry in entries)
         mock_svc.upsert.assert_not_awaited()
-        mock_db.flush.assert_not_awaited()
-        mock_db.commit.assert_not_awaited()
 
     @pytest.mark.asyncio
     @patch("src.models.factory.create_chat_model")
     @patch("src.models.router.route_model", return_value="utility-primary")
-    @patch("src.database.get_db_session")
     async def test_preserves_preferences_when_llm_omits_them(
         self,
-        mock_session,
         _mock_route_model,
         mock_create_chat_model,
     ):
-        mock_db = AsyncMock()
-        mock_db.flush = AsyncMock()
-        mock_db.commit = AsyncMock()
-        mock_session.return_value.__aenter__ = AsyncMock(return_value=mock_db)
-        mock_session.return_value.__aexit__ = AsyncMock(return_value=False)
-
         mock_model = mock_create_chat_model.return_value
         mock_model.ainvoke = AsyncMock(
             return_value=SimpleNamespace(
@@ -171,6 +155,7 @@ class TestCompactUserMemory:
                 )
             )
         )
+        context, _dataservice = _dataservice_context()
         entries = [
             SimpleNamespace(
                 id="k-pref",
@@ -191,7 +176,9 @@ class TestCompactUserMemory:
             ],
         ]
 
-        with patch("src.services.knowledge_service.KnowledgeService") as MockService:
+        with patch("src.services.memory_compaction.dataservice_client", return_value=context), patch(
+            "src.services.memory_compaction.KnowledgeService"
+        ) as MockService:
             mock_svc = MockService.return_value
             mock_svc.list_active = AsyncMock(return_value=entries)
             mock_svc.update = AsyncMock()

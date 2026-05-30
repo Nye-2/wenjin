@@ -640,6 +640,53 @@ def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
     )
 
 
+def test_memory_runtime_uses_dataservice_knowledge_boundary() -> None:
+    """Long-term memory runtime must not reopen legacy DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "services" / "user_memory_service.py": (
+            "from src.database import",
+            "get_db_session",
+            "KnowledgeService(db",
+            "db.commit",
+        ),
+        SRC_ROOT / "services" / "memory_compaction.py": (
+            "from src.database import",
+            "get_db_session",
+            "KnowledgeService(db",
+        ),
+        SRC_ROOT / "services" / "knowledge_service.py": (
+            "AsyncSession",
+            "self.db",
+            "_db",
+        ),
+        SRC_ROOT / "task" / "tasks" / "memory.py": (
+            "from src.database import",
+            "reset_db_engine",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "uploads.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "KnowledgeService(db",
+            "db.commit",
+            "db.rollback",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Memory runtime must use DataService knowledge boundary:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

@@ -11,6 +11,8 @@ from src.dataservice_client.contracts.knowledge import (
     KNOWLEDGE_CATEGORY_PREFERENCE,
     normalize_knowledge_category,
 )
+from src.dataservice_client.provider import dataservice_client
+from src.services.knowledge_service import KnowledgeService
 
 logger = logging.getLogger(__name__)
 
@@ -128,15 +130,12 @@ async def compact_user_memory(
     Returns:
         {"compacted_count": int, "archived_count": int, "summary": str}
     """
-    from src.database import get_db_session
-    from src.services.knowledge_service import KnowledgeService
-
     config = _load_memory_config()
     max_facts = max(10, int(getattr(config, "max_facts", 100) or 100))
     read_limit = max(100, max_facts * 2)
 
-    async with get_db_session() as db:
-        service = KnowledgeService(db)
+    async with dataservice_client() as client:
+        service = KnowledgeService(dataservice=client)
         entries = await service.list_active(
             user_id,
             workspace_context=workspace_context,

@@ -8,7 +8,6 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.artifacts import ArtifactType
@@ -18,7 +17,6 @@ from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_artifact_service,
     get_dataservice_client,
-    get_db,
     get_task_service,
     get_thread_service,
     get_upload_preprocessor,
@@ -285,7 +283,6 @@ async def upload_thread_files(
     task_service: Any = Depends(get_task_service),
     upload_preprocessor: UploadPreprocessor = Depends(get_upload_preprocessor),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-    db: AsyncSession = Depends(get_db),
 ) -> ThreadUploadResponse:
     """Upload one or more files into a thread-scoped sandbox uploads directory."""
     if not files:
@@ -322,7 +319,7 @@ async def upload_thread_files(
         )
 
     uploads_dir = _thread_upload_dir(thread_id)
-    knowledge_service = KnowledgeService(db)
+    knowledge_service = KnowledgeService(dataservice=dataservice)
     stored_files: list[ThreadAttachment] = []
     refresh_targets: set[str] = set()
 
@@ -534,9 +531,7 @@ async def upload_thread_files(
                     source="thread_upload.workspace_context",
                     workspace_context=resolved_workspace_id,
                 )
-                await db.commit()
             except Exception:
-                await db.rollback()
                 logger.warning(
                     "Failed to persist workspace-context upload memory for workspace %s",
                     resolved_workspace_id,

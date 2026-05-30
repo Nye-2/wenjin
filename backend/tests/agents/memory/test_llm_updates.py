@@ -1,7 +1,7 @@
 """Tests for canonical LLM-driven user-memory persistence."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,6 +10,14 @@ from src.services.user_memory_service import (
     KNOWLEDGE_EXTRACTION_PROMPT,
     extract_and_persist_knowledge,
 )
+
+
+def _dataservice_context() -> tuple[MagicMock, AsyncMock]:
+    dataservice = AsyncMock()
+    context = MagicMock()
+    context.__aenter__ = AsyncMock(return_value=dataservice)
+    context.__aexit__ = AsyncMock(return_value=False)
+    return context, dataservice
 
 
 class TestKnowledgeExtractionPrompt:
@@ -43,9 +51,10 @@ class TestLLMKnowledgeUpdates:
         ), patch(
             "src.models.factory.create_chat_model",
         ) as mock_model_factory, patch(
-            "src.database.get_db_session",
-        ) as mock_session, patch(
-            "src.services.knowledge_service.KnowledgeService",
+            "src.services.user_memory_service.dataservice_client",
+            return_value=_dataservice_context()[0],
+        ), patch(
+            "src.services.user_memory_service.KnowledgeService",
         ) as mock_knowledge_service, patch(
             "src.services.user_memory_service._maybe_compact_memory",
             AsyncMock(),
@@ -64,8 +73,6 @@ class TestLLMKnowledgeUpdates:
                 )
             )
 
-            mock_db = mock_session.return_value.__aenter__.return_value
-            mock_db.commit = AsyncMock()
             service = mock_knowledge_service.return_value
             service.upsert = AsyncMock()
 
@@ -81,7 +88,6 @@ class TestLLMKnowledgeUpdates:
         persisted_contents = [call.args[2] for call in service.upsert.await_args_list]
         assert "偏好 APA" in persisted_contents
         assert "完成论文终稿" in persisted_contents
-        mock_db.commit.assert_awaited_once()
         mock_compact.assert_awaited_once_with("user-1", workspace_context="ws-1")
 
     @pytest.mark.asyncio
