@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ExecutionRecord } from "@/lib/api/types";
@@ -84,6 +84,56 @@ function makeRunningRecord(): ExecutionRecord {
     progress: 35,
     completed_at: null,
     result: null,
+  };
+}
+
+function makeTeamRunningRecord(): ExecutionRecord {
+  return {
+    ...makeRunningRecord(),
+    id: "exec-team",
+    feature_id: "team_research",
+    display_name: "团队调研",
+    graph_structure: {
+      mode: "team_kernel",
+      nodes: [],
+      edges: [],
+    },
+    node_states: {
+      "research_scholar.v1__1": {
+        status: "completed",
+        node_type: "agent_invocation",
+        label: "文献专家",
+        node_metadata: {
+          team: true,
+          template_id: "research_scholar.v1",
+          display_name: "文献专家",
+          effective_tools: ["web_search", "library_read"],
+          effective_skills: ["literature_search.v1"],
+        },
+      },
+      "critical_reviewer.v1__1": {
+        status: "running",
+        node_type: "agent_invocation",
+        label: "质量审稿人",
+        node_metadata: {
+          team: true,
+          template_id: "critical_reviewer.v1",
+          display_name: "质量审稿人",
+          effective_tools: ["library_read"],
+          effective_skills: ["critical_review.v1"],
+        },
+      },
+    },
+    runtime_state: {
+      quality_gates: [
+        {
+          gate_id: "evidence_traceability",
+          status: "warning",
+          severity: "medium",
+          next_action: "revise_evidence_map",
+        },
+      ],
+    },
   };
 }
 
@@ -244,6 +294,21 @@ describe("LiveWorkflowPanel", () => {
     await waitFor(() =>
       expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review"),
     );
+  });
+
+  it("renders实名团队成员和质量门摘要 for team-kernel runs", () => {
+    useExecutionStore.getState().upsertExecution(makeTeamRunningRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-team");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    const teamRegion = screen.getByRole("region", { name: "执行团队" });
+    expect(within(teamRegion).getByText("文献专家")).toBeInTheDocument();
+    expect(within(teamRegion).getByText("质量审稿人")).toBeInTheDocument();
+    expect(within(teamRegion).getByText("web_search")).toBeInTheDocument();
+    expect(within(teamRegion).getByText("evidence_traceability")).toBeInTheDocument();
+    expect(within(teamRegion).getByText("提醒")).toBeInTheDocument();
   });
 
   it("asks for a concrete topic before direct capability launch can run broad research", async () => {

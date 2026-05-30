@@ -24,6 +24,7 @@ import {
   PlayCircle,
   Search,
   ShieldCheck,
+  Users,
   XCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -46,6 +47,7 @@ import { groupExecutionPhases } from "@/lib/execution-phases";
 import {
   isTerminalRunStatus,
   runViewFromExecution,
+  type RunViewTeam,
   type RunViewStatus,
 } from "@/lib/execution-run-view";
 import {
@@ -965,6 +967,8 @@ function RunView({
             </button>
           </div>
 
+          {view.team ? <TeamRoster team={view.team} /> : null}
+
           <div style={styles.timelinePanel}>
             <div style={styles.sectionHeaderCompact}>
               <div>
@@ -1017,6 +1021,69 @@ function RunView({
         <NodeInspector node={activeNode} state={activeNodeState} />
       </aside>
     </div>
+  );
+}
+
+function TeamRoster({ team }: { team: RunViewTeam }) {
+  if (team.members.length === 0 && team.qualityGates.length === 0) {
+    return null;
+  }
+  return (
+    <section role="region" aria-label="执行团队" style={styles.teamPanel}>
+      <div style={styles.sectionHeaderCompact}>
+        <div style={{ minWidth: 0 }}>
+          <div style={styles.teamTitleLine}>
+            <Users size={15} />
+            <span style={styles.sectionTitle}>执行团队</span>
+          </div>
+          <div style={styles.sectionSubtitle}>
+            {team.members.length} 位成员 · {team.qualityGates.length} 个质量门
+          </div>
+        </div>
+      </div>
+      {team.members.length > 0 ? (
+        <div style={styles.teamRows}>
+          {team.members.map((member) => (
+            <div key={member.id} style={styles.teamRow}>
+              <div style={styles.teamMemberMain}>
+                <NodeStatusDot status={member.status} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={styles.teamMemberName}>{member.displayName}</div>
+                  <div style={styles.teamMemberMeta}>
+                    {member.templateId ?? member.id}
+                  </div>
+                </div>
+              </div>
+              <div style={styles.teamChipWrap}>
+                {[...member.effectiveTools, ...member.effectiveSkills].slice(0, 5).map((item) => (
+                  <span key={`${member.id}:${item}`} style={styles.teamChip}>
+                    {item}
+                  </span>
+                ))}
+              </div>
+              <StatusPill status={member.status} />
+            </div>
+          ))}
+        </div>
+      ) : null}
+      {team.qualityGates.length > 0 ? (
+        <div style={styles.gateStrip}>
+          {team.qualityGates.map((gate) => (
+            <span key={gate.id} style={styles.gateItem}>
+              <span style={styles.gateName}>{gate.id}</span>
+              <span
+                style={{
+                  ...styles.gateBadge,
+                  ...qualityGateTone(gate.status),
+                }}
+              >
+                {qualityGateLabel(gate.status)}
+              </span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1884,6 +1951,22 @@ function statusLabel(status: string): string {
   return status || "未知";
 }
 
+function qualityGateLabel(status: string): string {
+  if (status === "pass") return "通过";
+  if (status === "fail") return "失败";
+  return "提醒";
+}
+
+function qualityGateTone(status: string): CSSProperties {
+  if (status === "pass") {
+    return { background: "rgba(34, 197, 94, 0.12)", color: "var(--v2-status-success-deep)" };
+  }
+  if (status === "fail") {
+    return { background: "rgba(220, 38, 38, 0.1)", color: "var(--v2-status-error)" };
+  }
+  return { background: "rgba(245, 158, 11, 0.13)", color: "#92400E" };
+}
+
 function statusTone(status: string): CSSProperties {
   if (status === "completed") {
     return { background: "rgba(34, 197, 94, 0.12)", color: "var(--v2-status-success-deep)" };
@@ -2324,6 +2407,109 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: "wrap",
     gap: 8,
     marginTop: 12,
+  },
+  teamPanel: {
+    display: "grid",
+    gap: 10,
+    paddingTop: 13,
+    borderTop: "1px solid rgba(20,20,30,0.08)",
+  },
+  teamTitleLine: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 7,
+    minWidth: 0,
+    color: "var(--v2-text-primary)",
+  },
+  teamRows: {
+    display: "grid",
+    gap: 0,
+    borderTop: "1px solid rgba(20,20,30,0.06)",
+  },
+  teamRow: {
+    display: "grid",
+    gridTemplateColumns: "minmax(150px, 1fr) minmax(0, 1.2fr) auto",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 46,
+    padding: "8px 0",
+    borderBottom: "1px solid rgba(20,20,30,0.06)",
+  },
+  teamMemberMain: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    minWidth: 0,
+  },
+  teamMemberName: {
+    color: "var(--v2-text-primary)",
+    fontSize: 13,
+    fontWeight: 750,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  teamMemberMeta: {
+    marginTop: 2,
+    color: "var(--v2-text-tertiary)",
+    fontSize: 11.5,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  teamChipWrap: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 5,
+    minWidth: 0,
+  },
+  teamChip: {
+    maxWidth: 150,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    borderRadius: 8,
+    border: "1px solid rgba(37, 99, 235, 0.14)",
+    background: "rgba(37, 99, 235, 0.07)",
+    color: "#1D4ED8",
+    padding: "3px 6px",
+    fontSize: 11,
+    fontWeight: 650,
+  },
+  gateStrip: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  gateItem: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 26,
+    padding: "3px 4px 3px 8px",
+    borderRadius: 8,
+    border: "1px solid rgba(20,20,30,0.08)",
+    background: "rgba(255,255,255,0.62)",
+  },
+  gateName: {
+    maxWidth: 190,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "var(--v2-text-secondary)",
+    fontSize: 11.5,
+    fontWeight: 650,
+  },
+  gateBadge: {
+    display: "inline-flex",
+    alignItems: "center",
+    height: 20,
+    padding: "0 7px",
+    borderRadius: 8,
+    fontSize: 11,
+    fontWeight: 750,
   },
   timelinePanel: {
     paddingTop: 13,
