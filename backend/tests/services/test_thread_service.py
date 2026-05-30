@@ -380,6 +380,8 @@ class TestThreadService:
 
         assert message["role"] == "user"
         assert message["content"] == "Hello"
+        assert message["id"] == "msg-0"
+        assert message["sequence_index"] == 0
         assert thread.message_count == 1
         assert thread.last_message_role == "user"
         assert thread.last_message_preview == "Hello"

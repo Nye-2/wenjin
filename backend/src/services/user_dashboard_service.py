@@ -8,10 +8,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
-from src.dataservice_client.contracts.execution import ExecutionNodePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.credit_service import CreditService
-from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
 
 class UserDashboardService:
@@ -49,10 +47,6 @@ class UserDashboardService:
             credit_service=credit_service,
             current_balance=int(user.credits),
         )
-        token_usage = await self._get_token_usage_stats(
-            user_id=user_id,
-            thread_credit_status=thread_credit_status,
-        )
 
         return {
             "profile": {
@@ -68,12 +62,11 @@ class UserDashboardService:
                 "balance": int(user.credits),
                 "total_earned": int(user.total_credits_earned),
                 "total_spent": int(user.total_credits_spent),
-                "costs": CreditService.get_workflow_costs(),
+                "costs": CreditService.get_public_workflow_costs(),
                 "thread": thread_credit_status,
             },
             "workspaces": workspace_stats,
             "tasks": task_stats,
-            "token_usage": token_usage,
             "recent_tasks": recent_tasks,
             "updated_at": datetime.now(UTC).isoformat(),
         }
@@ -134,7 +127,6 @@ class UserDashboardService:
         """Build thread-specific credit status for dashboard display."""
         policy = credit_service.get_thread_billing_policy()
         consumed_tokens = await credit_service.get_consumed_thread_tokens(user_id)
-        remaining_free_tokens = max(policy.free_tokens - consumed_tokens, 0)
         can_start_thread = (
             (not policy.enabled)
             or consumed_tokens < policy.free_tokens
@@ -143,99 +135,8 @@ class UserDashboardService:
 
         return {
             "enabled": policy.enabled,
-            "free_tokens": policy.free_tokens,
-            "tokens_per_credit": policy.tokens_per_credit,
-            "consumed_tokens": consumed_tokens,
-            "remaining_free_tokens": remaining_free_tokens,
             "can_start_thread": can_start_thread,
             "overdraft_credits": max(-current_balance, 0),
+            "billing_unit": "credits",
+            "pricing": "usage_based",
         }
-
-    async def _get_token_usage_stats(
-        self,
-        *,
-        user_id: str,
-        thread_credit_status: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Build token usage aggregates for thread, feature tasks, and subagents."""
-        async with self._client() as client:
-            executions = await client.list_executions(user_id=user_id, limit=10000)
-        feature_usages = []
-        for execution in executions:
-            usage = None
-            result = execution.result_json
-            if isinstance(result, dict):
-                usage = normalize_token_usage(result.get("token_usage"))
-            if usage is not None:
-                feature_usages.append(usage)
-        feature_usage_total = combine_token_usage(feature_usages)
-
-        async with self._client() as client:
-            nodes = await client.list_execution_nodes_by_execution_ids(
-                [execution.id for execution in executions]
-            )
-        subagent_usages = []
-        for node in nodes:
-            usage = self._node_token_usage(node)
-            if usage is not None:
-                subagent_usages.append(usage)
-        subagent_usage_total = combine_token_usage(subagent_usages)
-
-        consumed_thread_tokens = max(
-            int(thread_credit_status.get("consumed_tokens", 0) or 0),
-            0,
-        )
-        free_thread_tokens = max(
-            int(thread_credit_status.get("free_tokens", 0) or 0),
-            0,
-        )
-
-        return {
-            "thread": {
-                "total_tokens": consumed_thread_tokens,
-                "free_tokens": free_thread_tokens,
-                "billable_tokens": max(consumed_thread_tokens - free_thread_tokens, 0),
-                "remaining_free_tokens": max(
-                    int(thread_credit_status.get("remaining_free_tokens", 0) or 0),
-                    0,
-                ),
-            },
-            "feature_tasks": {
-                "input_tokens": (
-                    feature_usage_total.input_tokens if feature_usage_total is not None else 0
-                ),
-                "output_tokens": (
-                    feature_usage_total.output_tokens if feature_usage_total is not None else 0
-                ),
-                "total_tokens": (
-                    feature_usage_total.total_tokens if feature_usage_total is not None else 0
-                ),
-                "records": len(executions),
-                "records_with_usage": len(feature_usages),
-            },
-            "subagents": {
-                "input_tokens": (
-                    subagent_usage_total.input_tokens if subagent_usage_total is not None else 0
-                ),
-                "output_tokens": (
-                    subagent_usage_total.output_tokens if subagent_usage_total is not None else 0
-                ),
-                "total_tokens": (
-                    subagent_usage_total.total_tokens if subagent_usage_total is not None else 0
-                ),
-                "records": len(nodes),
-                "records_with_usage": len(subagent_usages),
-            },
-        }
-
-    @staticmethod
-    def _node_token_usage(record: ExecutionNodePayload) -> Any | None:
-        usage = normalize_token_usage(record.token_usage)
-        if usage is not None:
-            return usage
-        metadata = record.node_metadata if isinstance(record.node_metadata, dict) else {}
-        usage = normalize_token_usage(metadata.get("token_usage"))
-        if usage is not None:
-            return usage
-        output_data = record.output_data if isinstance(record.output_data, dict) else {}
-        return normalize_token_usage(output_data.get("token_usage"))

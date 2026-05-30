@@ -15,10 +15,16 @@ function getNumericValue(value: unknown): number | null {
 
 export function formatCreditCostLabel(key: string): string {
   switch (key) {
+    case "thread":
     case "thread_token_billing":
       return "主线对话";
+    case "feature":
     case "feature_token_billing":
       return "功能任务";
+    case "sandbox_run_python":
+      return "Sandbox Python";
+    case "sandbox_operation_billing":
+      return "Sandbox";
     default:
       return key;
   }
@@ -45,10 +51,14 @@ export function formatCreditTransactionType(type: string): string {
 
 export function renderCostValue(value: CreditCostValue): string {
   if (typeof value === "number") return `${value}`;
-  const parts = Object.entries(value).map(([k, v]) =>
-    `${k}: ${typeof v === "boolean" ? (v ? "on" : "off") : v}`
-  );
-  return parts.join(" | ");
+  if (value.enabled === false) return "未启用";
+  if (value.unit === "credits" && typeof value.credits === "number") {
+    return `${value.credits} 积分/次`;
+  }
+  if (value.unit === "credits" && value.pricing === "usage_based") {
+    return "按实际使用折算积分";
+  }
+  return "按积分结算";
 }
 
 export function getThreadCreditStatus(
@@ -58,73 +68,64 @@ export function getThreadCreditStatus(
   if (!isRecord(candidate)) return null;
 
   const enabled = candidate.enabled;
-  const freeTokens = getNumericValue(candidate.free_tokens);
-  const tokensPerCredit = getNumericValue(candidate.tokens_per_credit);
-  const consumedTokens = getNumericValue(candidate.consumed_tokens);
-  const remainingFreeTokens = getNumericValue(candidate.remaining_free_tokens);
   const canStartThread = candidate.can_start_thread;
   const overdraftCredits = getNumericValue(candidate.overdraft_credits);
+  const billingUnit = candidate.billing_unit;
+  const pricing = candidate.pricing;
 
   if (
     typeof enabled !== "boolean" ||
-    freeTokens === null ||
-    tokensPerCredit === null ||
-    consumedTokens === null ||
-    remainingFreeTokens === null ||
     typeof canStartThread !== "boolean" ||
-    overdraftCredits === null
+    overdraftCredits === null ||
+    billingUnit !== "credits" ||
+    pricing !== "usage_based"
   ) {
     return null;
   }
 
   return {
     enabled,
-    free_tokens: freeTokens,
-    tokens_per_credit: tokensPerCredit,
-    consumed_tokens: consumedTokens,
-    remaining_free_tokens: remainingFreeTokens,
     can_start_thread: canStartThread,
     overdraft_credits: overdraftCredits,
+    billing_unit: billingUnit,
+    pricing,
   };
 }
 
 export function summarizeCreditTransaction(item: CreditTransactionItem): string {
   const base = item.description?.trim() || "";
-  const isTokenBilling =
+  const isSettledBilling =
     item.type === "thread_token_consume" ||
     (item.type === "workflow_consume" &&
       isRecord(item.metadata) &&
-      item.metadata.type === "feature_token_billing");
-  if (!isTokenBilling || !isRecord(item.metadata)) {
+      (item.metadata.type === "feature_token_billing" ||
+        item.metadata.type === "sandbox_operation_billing"));
+  if (!isSettledBilling || !isRecord(item.metadata)) {
     return base || "-";
   }
 
   const parts: string[] = [];
-  const tokenUsage = isRecord(item.metadata.token_usage) ? item.metadata.token_usage : null;
-  const totalTokens = tokenUsage ? getNumericValue(tokenUsage.total_tokens) : null;
-  const freeTokensApplied = getNumericValue(item.metadata.free_tokens_applied);
-  const billableTokens = getNumericValue(item.metadata.billable_tokens);
+  const creditsCharged =
+    getNumericValue(item.metadata.credits_charged) ?? Math.abs(item.amount);
   const overdraftCredits = getNumericValue(item.metadata.overdraft_credits);
   const modelName = typeof item.metadata.model_name === "string" ? item.metadata.model_name : null;
+  const operation = typeof item.metadata.operation === "string" ? item.metadata.operation : null;
 
-  if (totalTokens && totalTokens > 0) {
-    parts.push(`${totalTokens.toLocaleString()} tokens`);
-  }
-  if (freeTokensApplied && freeTokensApplied > 0) {
-    parts.push(`免费抵扣 ${freeTokensApplied.toLocaleString()}`);
-  }
-  if (billableTokens && billableTokens > 0) {
-    parts.push(`计费 ${billableTokens.toLocaleString()} tokens`);
+  if (creditsCharged > 0) {
+    parts.push(`扣费 ${creditsCharged} 积分`);
+  } else {
+    parts.push("未扣积分");
   }
   if (overdraftCredits && overdraftCredits > 0) {
     parts.push(`透支 ${overdraftCredits} 积分`);
+  }
+  if (operation) {
+    parts.push(formatCreditCostLabel(`sandbox_${operation}`));
   }
   if (modelName) {
     parts.push(modelName);
   }
 
   const details = parts.join(" | ");
-  if (!base) return details || "-";
-  if (!details) return base;
-  return `${base} | ${details}`;
+  return details || base || "-";
 }

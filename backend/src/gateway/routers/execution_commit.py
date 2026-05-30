@@ -8,10 +8,15 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_db
 from src.gateway.deps.core import get_dataservice_client
-from src.services.execution_commit_service import ExecutionCommitService
+from src.services.execution_commit_service import (
+    ExecutionCommitNotFoundError,
+    ExecutionCommitService,
+)
 from src.services.execution_service import ExecutionService
 
 router = APIRouter(prefix="/api/executions", tags=["executions"])
@@ -60,6 +65,7 @@ async def commit_execution_outputs(
     execution_id: str,
     body: CommitRequest,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    current_user: User = Depends(get_current_user),
     commit_service: ExecutionCommitService = Depends(_get_commit_service),
 ) -> dict[str, Any]:
     """Commit selected execution outputs to rooms.
@@ -76,6 +82,9 @@ async def commit_execution_outputs(
             accepted_ids=body.accepted_ids,
             output_overrides=body.output_overrides,
             idempotency_key=idempotency_key,
+            actor_user_id=str(current_user.id),
         )
+    except ExecutionCommitNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Execution not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

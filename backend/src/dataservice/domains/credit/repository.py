@@ -239,6 +239,25 @@ class CreditRepository:
         )
         return result.scalar_one_or_none()
 
+    async def find_consumption_by_idempotency_key(
+        self,
+        *,
+        user_id: str,
+        transaction_type: CreditTransactionType,
+        idempotency_key: str,
+    ) -> CreditTransaction | None:
+        result = await self.session.execute(
+            select(CreditTransaction)
+            .where(
+                CreditTransaction.user_id == user_id,
+                CreditTransaction.transaction_type == transaction_type,
+                CreditTransaction.tx_metadata["idempotency_key"].as_string()
+                == idempotency_key,
+            )
+            .order_by(CreditTransaction.created_at)
+        )
+        return result.scalars().first()
+
     def create_redeem_code(self, values: dict[str, Any]) -> CreditRedeemCode:
         code = CreditRedeemCode(**values)
         self.session.add(code)

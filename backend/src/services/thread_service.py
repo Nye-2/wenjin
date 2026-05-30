@@ -347,6 +347,9 @@ class ThreadService:
         else:
             async with dataservice_client() as client:
                 persisted = await client.append_conversation_message(str(thread.id), command)
+        if persisted is not None:
+            message["id"] = str(persisted.id)
+            message["sequence_index"] = int(persisted.sequence_index)
         normalized_role = str(role).strip()
         thread.message_count = (persisted.sequence_index + 1) if persisted is not None else sequence_index + 1
         thread.last_message_role = normalized_role or None

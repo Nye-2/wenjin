@@ -69,8 +69,11 @@ class TestConfigLoader:
         assert config.billing.feature.free_tokens == 0
         assert config.billing.feature.tokens_per_credit == 10000
         assert config.billing.feature.max_overdraft_credits == 100
+        assert config.billing.sandbox.enabled is True
+        assert config.billing.sandbox.run_python_credits == 1
+        assert config.billing.sandbox.max_overdraft_credits == 100
 
-    def test_load_token_billing_config(self, tmp_path):
+    def test_load_billing_config(self, tmp_path):
         cfg_path = self._write_config(tmp_path, {
             "models": [],
             "billing": {
@@ -85,6 +88,11 @@ class TestConfigLoader:
                     "free_tokens": 128,
                     "tokens_per_credit": 256,
                     "max_overdraft_credits": 20,
+                },
+                "sandbox": {
+                    "enabled": True,
+                    "run_python_credits": 3,
+                    "max_overdraft_credits": 30,
                 }
             },
         })
@@ -97,6 +105,9 @@ class TestConfigLoader:
         assert config.billing.feature.free_tokens == 128
         assert config.billing.feature.tokens_per_credit == 256
         assert config.billing.feature.max_overdraft_credits == 20
+        assert config.billing.sandbox.enabled is True
+        assert config.billing.sandbox.run_python_credits == 3
+        assert config.billing.sandbox.max_overdraft_credits == 30
 
 
 class TestModelConfig:

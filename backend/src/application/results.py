@@ -76,6 +76,7 @@ class GeneratedThreadReply:
 class PreparedThreadTurn:
     request: ThreadTurnRequest
     thread: Any
+    user_message_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

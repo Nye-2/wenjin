@@ -155,11 +155,20 @@ class FeatureBillingConfig(BaseModel):
     max_overdraft_credits: int = 100
 
 
+class SandboxBillingConfig(BaseModel):
+    """Sandbox operation credit billing configuration."""
+
+    enabled: bool = True
+    run_python_credits: int = 1
+    max_overdraft_credits: int = 100
+
+
 class BillingConfig(BaseModel):
     """Billing configuration."""
 
     thread: ThreadBillingConfig = Field(default_factory=ThreadBillingConfig)
     feature: FeatureBillingConfig = Field(default_factory=FeatureBillingConfig)
+    sandbox: SandboxBillingConfig = Field(default_factory=SandboxBillingConfig)
 
 
 class AppConfig(BaseModel):

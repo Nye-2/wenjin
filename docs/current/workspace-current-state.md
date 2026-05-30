@@ -90,6 +90,14 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 5. Room drawers（顶部 toolbar）：Library / Documents / Tasks / Runs 等；Runs drawer 是执行历史与审计面，不是第二套运行状态源
 6. Settings page：Memory / Decisions / Settings 管理；Sandbox 不在 Settings 或顶栏 room 中暴露为用户操作台
 
+### 7.1 全站 UIUX 收敛原则
+
+1. Workbench、Prism、rooms、admin、settings 统一遵守“自动适配 + 信息分层”原则。
+2. 页面应根据 viewport、当前 run、完成态和选中项自动调整展示面；不得要求用户理解或手动恢复内部 focus/lock 状态。
+3. 窄区域默认 list-first；点击条目后进入详情面或 fullscreen split view。宽屏才并列展示列表与详情。
+4. 二级导航、筛选和次级操作应轻量化：icon-only + tooltip、compact segmented controls、pills 优先，避免重复文字按钮和大卡片堆叠。
+5. 列表中的长标题、作者、文件名、URL 和 run 名必须截断；完整内容只在详情区展示。
+
 ## 8. 线程模型
 
 1. single-thread-per-workspace 的主体验模型

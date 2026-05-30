@@ -116,6 +116,26 @@ describe("ChatPanel v2", () => {
     expect(screen.getByText(/success/)).toBeInTheDocument();
   });
 
+  it("renders launch_feature lead-busy advisory as the busy state", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_result",
+      data: {
+        status: "advisory",
+        code: "lead_busy",
+        detail: "Lead Agent 正在执行",
+      },
+    });
+
+    render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
+    expect(screen.getByText(/Lead Agent 仍在执行/)).toBeInTheDocument();
+    expect(screen.queryByText("✓ advisory")).not.toBeInTheDocument();
+  });
+
   it("renders question card blocks", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({

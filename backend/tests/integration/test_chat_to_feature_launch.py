@@ -51,11 +51,27 @@ class _FakeLaunchDataServiceClient:
             SimpleNamespace(id="sci_literature_positioning", workspace_type=workspace_type, schema_version="capability.v2", display_name="文献定位与创新点"),
         ]
 
+    async def get_credit_consumed_tokens(
+        self,
+        *,
+        user_id: str,
+        consume_type: str,
+        metadata_type: str | None = None,
+    ) -> int:
+        return 0
+
+    async def get_credit_balance(self, user_id: str) -> int | None:
+        return 10
+
 
 @pytest.fixture(autouse=True)
 def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         "src.dataservice_client.provider.dataservice_client",
+        lambda: _FakeLaunchDataServiceClient(),
+    )
+    monkeypatch.setattr(
+        "src.services.credit_service.dataservice_client",
         lambda: _FakeLaunchDataServiceClient(),
     )
 

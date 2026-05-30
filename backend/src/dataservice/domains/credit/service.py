@@ -10,7 +10,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.credit import CreditTransactionType
 from src.database.models.credit_grant_rule import CreditGrantRuleType
+from src.dataservice.common.errors import CreditOverdraftLimitError
 from src.dataservice.domains.credit.repository import CreditRepository
+
+
+def _max_overdraft_credits(metadata: dict[str, Any] | None) -> int:
+    """Read the enforced overdraft floor from billing metadata."""
+    if not isinstance(metadata, dict):
+        return 0
+    policy = metadata.get("policy")
+    if not isinstance(policy, dict):
+        return 0
+    try:
+        return max(int(policy.get("max_overdraft_credits", 0) or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _idempotency_key(metadata: dict[str, Any] | None) -> str | None:
+    if not isinstance(metadata, dict):
+        return None
+    value = str(metadata.get("idempotency_key") or "").strip()
+    return value or None
 
 
 class DataServiceCreditService:
@@ -335,7 +356,21 @@ class DataServiceCreditService:
         if user is None:
             raise ValueError("User not found")
         balance_before = int(user.credits)
+        idempotency_key = _idempotency_key(metadata)
+        if idempotency_key:
+            existing_tx = await self.repository.find_consumption_by_idempotency_key(
+                user_id=user_id,
+                transaction_type=transaction_type,
+                idempotency_key=idempotency_key,
+            )
+            if existing_tx is not None:
+                return existing_tx, balance_before
         credits_to_charge = max(int(amount), 0)
+        if credits_to_charge > 0:
+            projected_balance = balance_before - credits_to_charge
+            overdraft_floor = -_max_overdraft_credits(metadata)
+            if projected_balance < overdraft_floor:
+                raise CreditOverdraftLimitError("credit overdraft limit exceeded")
         if credits_to_charge > 0:
             user.credits -= credits_to_charge
             user.total_credits_spent += credits_to_charge

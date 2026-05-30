@@ -154,6 +154,10 @@ def _default_runner_factory(
                 rendered_inputs = dict(brief)
         else:
             rendered_inputs = dict(brief)
+        if isinstance(rendered_inputs, dict):
+            user_id = str(state.get("user_id") or "").strip()
+            if user_id:
+                rendered_inputs.setdefault("user_id", user_id)
 
         ctx = SubagentContext(
             workspace_id=state.get("workspace_id", ""),

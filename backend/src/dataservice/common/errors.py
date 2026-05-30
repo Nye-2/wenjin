@@ -44,3 +44,8 @@ class DataServiceConflictError(DataServiceError):
 
 class DataServiceIdempotencyConflictError(DataServiceConflictError):
     code = "IDEMPOTENCY_CONFLICT"
+
+
+class CreditOverdraftLimitError(DataServiceError):
+    code = "CREDIT_OVERDRAFT_LIMIT_EXCEEDED"
+    http_status = 402

@@ -314,7 +314,6 @@ function AgentResultCard({
       >
         <span>{formatDuration(block.stats.duration_ms)}</span>
         <span>{block.stats.subagents} 个子代理</span>
-        <span>{block.stats.tokens} tokens</span>
       </div>
       <div
         style={{
@@ -350,6 +349,7 @@ function ToolResultBlock({
   workspaceId?: string;
 }) {
   const status = String(data.status || "");
+  const code = typeof data.code === "string" ? data.code.trim() : "";
   const executionId =
     typeof data.execution_id === "string" ? data.execution_id.trim() : "";
   const featureId =
@@ -441,7 +441,7 @@ function ToolResultBlock({
     );
   }
 
-  if (status === "lead_busy") {
+  if (status === "lead_busy" || code === "lead_busy") {
     return (
       <div
         style={{

@@ -19,16 +19,12 @@ describe("workbench-layout-store", () => {
     expect(useWorkbenchLayoutStore.getState().splitRatio).toBe(0.42);
   });
 
-  it("tracks fullscreen and manual tab lock", () => {
+  it("tracks fullscreen and lets automatic tab updates follow context", () => {
     useWorkbenchLayoutStore.getState().setWorkbenchFullscreen(true);
-    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence", true);
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("evidence");
     useWorkbenchLayoutStore.getState().setAutoWorkbenchTab("run");
 
     expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
-    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("evidence");
-
-    useWorkbenchLayoutStore.getState().releaseTabLock();
-    useWorkbenchLayoutStore.getState().setAutoWorkbenchTab("run");
     expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run");
   });
 });

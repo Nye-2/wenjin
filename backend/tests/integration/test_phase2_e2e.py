@@ -318,7 +318,11 @@ async def test_commit_after_e2e_writes_rooms():
     )
 
     with patch("src.services.execution_commit_service.publish_workspace_event", new=AsyncMock()) as publish_refresh:
-        result = await commit_service.commit_outputs("e-1", accept_all=True)
+        result = await commit_service.commit_outputs(
+            "e-1",
+            accept_all=True,
+            actor_user_id="u-1",
+        )
 
     # 1 library item committed
     assert result["committed"]["library"] == 1

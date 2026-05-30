@@ -16,10 +16,15 @@ from src.dataservice_client.contracts.credit import (
 )
 from src.dataservice_client.provider import dataservice_client
 from src.services.billing_policy import (
+    OperationBillingPolicy,
     TokenBillingPolicy,
     calculate_token_billing_charge,
     get_feature_token_billing_policy,
+    get_sandbox_operation_billing_policy,
     get_thread_token_billing_policy,
+)
+from src.services.billing_policy import (
+    get_public_workflow_costs as get_public_billing_workflow_costs,
 )
 from src.services.billing_policy import (
     get_workflow_costs as get_billing_workflow_costs,
@@ -105,6 +110,28 @@ class FeatureCreditConsumption:
         }
 
 
+@dataclass(slots=True)
+class SandboxOperationCreditConsumption:
+    """Result of settling one fixed-credit sandbox operation."""
+
+    operation: str
+    credits_charged: int
+    transaction_id: str | None
+    balance_after: int | None
+    charged: bool
+
+    def as_metadata(self) -> dict[str, Any]:
+        """Return persisted billing metadata for sandbox tool output."""
+        return {
+            "type": "sandbox_operation_billing",
+            "operation": self.operation,
+            "credits_charged": self.credits_charged,
+            "transaction_id": self.transaction_id,
+            "balance_after": self.balance_after,
+            "charged": self.charged,
+        }
+
+
 class CreditService:
     """Credit accounting service."""
 
@@ -135,10 +162,20 @@ class CreditService:
         """Return the configured workspace feature token billing policy."""
         return get_feature_token_billing_policy()
 
+    @staticmethod
+    def get_sandbox_billing_policy() -> OperationBillingPolicy:
+        """Return the configured sandbox operation billing policy."""
+        return get_sandbox_operation_billing_policy()
+
     @classmethod
     def get_workflow_costs(cls) -> dict[str, Any]:
-        """Expose workflow and thread billing configuration."""
+        """Expose internal workflow and thread billing configuration."""
         return get_billing_workflow_costs()
+
+    @classmethod
+    def get_public_workflow_costs(cls) -> dict[str, Any]:
+        """Expose user-facing credit costs without internal token policy details."""
+        return get_public_billing_workflow_costs()
 
     async def get_balance(self, user_id: str) -> int:
         """Get user current credit balance."""
@@ -173,7 +210,7 @@ class CreditService:
                 limit=limit,
                 offset=offset,
             )
-        return [self._to_dict(tx) for tx in history.transactions], int(history.total)
+        return [self._to_public_dict(tx) for tx in history.transactions], int(history.total)
 
     async def get_all_history(
         self,
@@ -246,6 +283,14 @@ class CreditService:
 
         return await self.get_balance(user_id) > 0
 
+    async def can_start_sandbox_operation(self, user_id: str, operation: str) -> bool:
+        """Return whether the user can start a fixed-credit sandbox operation."""
+        policy = self.get_sandbox_billing_policy()
+        credits_to_charge = self._sandbox_operation_credits(policy, operation)
+        if not policy.enabled or credits_to_charge <= 0:
+            return True
+        return await self.get_balance(user_id) > 0
+
     @staticmethod
     def _normalize_usage_dict(token_usage: TokenUsage | dict[str, int]) -> dict[str, int]:
         if isinstance(token_usage, TokenUsage):
@@ -263,6 +308,25 @@ class CreditService:
             "output_tokens": output_tokens,
             "total_tokens": total_tokens,
         }
+
+    @staticmethod
+    def _transaction_metadata(tx: Any) -> dict[str, Any]:
+        metadata = getattr(tx, "metadata", None)
+        return dict(metadata) if isinstance(metadata, dict) else {}
+
+    @staticmethod
+    def _metadata_int(metadata: dict[str, Any], key: str, default: int) -> int:
+        try:
+            return int(metadata.get(key, default) or 0)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _transaction_charge(tx: Any, default: int) -> int:
+        try:
+            return abs(int(getattr(tx, "amount", default) or 0))
+        except (TypeError, ValueError):
+            return default
 
     async def consume_for_thread_usage(
         self,
@@ -304,6 +368,7 @@ class CreditService:
         credits_to_charge = charge.credits_to_charge
 
         tx_metadata = {
+            "type": "thread_token_billing",
             "token_usage": normalized_usage,
             "thread_id": thread_id,
             "policy": policy.as_dict(),
@@ -311,6 +376,7 @@ class CreditService:
             "historical_tokens_after": historical_tokens_after,
             "free_tokens_applied": charge.free_tokens_applied,
             "billable_tokens": charge.billable_tokens,
+            "credits_charged": credits_to_charge,
             "model_name": model_name,
         }
         if metadata:
@@ -335,17 +401,38 @@ class CreditService:
             )
         if tx is None:
             raise ValueError("Credit transaction was not recorded")
+        recorded_metadata = self._transaction_metadata(tx)
+        recorded_usage = self._normalize_usage_dict(
+            recorded_metadata.get("token_usage", normalized_usage)
+        )
+        recorded_charge = self._transaction_charge(tx, credits_to_charge)
         return ThreadCreditConsumption(
-            token_usage=normalized_usage,
+            token_usage=recorded_usage,
             model_name=model_name,
-            free_tokens_applied=charge.free_tokens_applied,
-            billable_tokens=charge.billable_tokens,
-            credits_charged=credits_to_charge,
-            historical_tokens_before=historical_tokens_before,
-            historical_tokens_after=historical_tokens_after,
+            free_tokens_applied=self._metadata_int(
+                recorded_metadata,
+                "free_tokens_applied",
+                charge.free_tokens_applied,
+            ),
+            billable_tokens=self._metadata_int(
+                recorded_metadata,
+                "billable_tokens",
+                charge.billable_tokens,
+            ),
+            credits_charged=recorded_charge,
+            historical_tokens_before=self._metadata_int(
+                recorded_metadata,
+                "historical_tokens_before",
+                historical_tokens_before,
+            ),
+            historical_tokens_after=self._metadata_int(
+                recorded_metadata,
+                "historical_tokens_after",
+                historical_tokens_after,
+            ),
             transaction_id=str(tx.id),
             balance_after=int(tx.balance_after),
-            charged=credits_to_charge > 0,
+            charged=recorded_charge > 0,
         )
 
     async def consume_for_feature_usage(
@@ -394,9 +481,12 @@ class CreditService:
             "historical_tokens_after": historical_tokens_after,
             "free_tokens_applied": charge.free_tokens_applied,
             "billable_tokens": charge.billable_tokens,
+            "credits_charged": credits_to_charge,
         }
         if metadata:
             tx_metadata.update(metadata)
+        if task_id:
+            tx_metadata["idempotency_key"] = f"feature_token_billing:{task_id}"
 
         async with self._client() as client:
             tx, balance_before = await client.record_credit_consumption(
@@ -418,16 +508,108 @@ class CreditService:
             )
         if tx is None:
             raise ValueError("Credit transaction was not recorded")
+        recorded_metadata = self._transaction_metadata(tx)
+        recorded_usage = self._normalize_usage_dict(
+            recorded_metadata.get("token_usage", normalized_usage)
+        )
+        recorded_charge = self._transaction_charge(tx, credits_to_charge)
         return FeatureCreditConsumption(
-            token_usage=normalized_usage,
-            free_tokens_applied=charge.free_tokens_applied,
-            billable_tokens=charge.billable_tokens,
-            credits_charged=credits_to_charge,
-            historical_tokens_before=historical_tokens_before,
-            historical_tokens_after=historical_tokens_after,
+            token_usage=recorded_usage,
+            free_tokens_applied=self._metadata_int(
+                recorded_metadata,
+                "free_tokens_applied",
+                charge.free_tokens_applied,
+            ),
+            billable_tokens=self._metadata_int(
+                recorded_metadata,
+                "billable_tokens",
+                charge.billable_tokens,
+            ),
+            credits_charged=recorded_charge,
+            historical_tokens_before=self._metadata_int(
+                recorded_metadata,
+                "historical_tokens_before",
+                historical_tokens_before,
+            ),
+            historical_tokens_after=self._metadata_int(
+                recorded_metadata,
+                "historical_tokens_after",
+                historical_tokens_after,
+            ),
             transaction_id=str(tx.id),
             balance_after=int(tx.balance_after),
-            charged=credits_to_charge > 0,
+            charged=recorded_charge > 0,
+        )
+
+    async def consume_for_sandbox_operation(
+        self,
+        *,
+        user_id: str,
+        operation: str,
+        workspace_id: str | None = None,
+        task_id: str | None = None,
+        node_id: str | None = None,
+        description: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> SandboxOperationCreditConsumption:
+        """Consume credits for a fixed-cost sandbox operation before execution."""
+        normalized_operation = self._normalize_sandbox_operation(operation)
+        policy = self.get_sandbox_billing_policy()
+        credits_to_charge = self._sandbox_operation_credits(policy, normalized_operation)
+        if not policy.enabled or credits_to_charge <= 0:
+            return SandboxOperationCreditConsumption(
+                operation=normalized_operation,
+                credits_charged=0,
+                transaction_id=None,
+                balance_after=None,
+                charged=False,
+            )
+
+        tx_metadata: dict[str, Any] = {
+            "type": "sandbox_operation_billing",
+            "operation": normalized_operation,
+            "credits_charged": credits_to_charge,
+            "policy": policy.as_dict(),
+        }
+        if node_id:
+            tx_metadata["node_id"] = node_id
+        if metadata:
+            tx_metadata.update(metadata)
+        if task_id and node_id:
+            tx_metadata["idempotency_key"] = (
+                f"sandbox_operation_billing:{task_id}:{node_id}:{normalized_operation}"
+            )
+        elif task_id:
+            tx_metadata["idempotency_key"] = (
+                f"sandbox_operation_billing:{task_id}:{normalized_operation}"
+            )
+
+        async with self._client() as client:
+            tx, balance_before = await client.record_credit_consumption(
+                CreditConsumptionCreatePayload(
+                    user_id=user_id,
+                    transaction_type=CreditTransactionType.WORKFLOW_CONSUME.value,
+                    amount=credits_to_charge,
+                    description=description or self._build_sandbox_operation_description(
+                        operation=normalized_operation,
+                        credits_charged=credits_to_charge,
+                    ),
+                    feature_id=f"sandbox.{normalized_operation}",
+                    workspace_id=workspace_id,
+                    task_id=task_id,
+                    metadata=tx_metadata,
+                )
+            )
+        if tx is None:
+            raise ValueError("Credit transaction was not recorded")
+        recorded_metadata = self._transaction_metadata(tx)
+        recorded_charge = self._transaction_charge(tx, credits_to_charge)
+        return SandboxOperationCreditConsumption(
+            operation=str(recorded_metadata.get("operation") or normalized_operation),
+            credits_charged=recorded_charge,
+            transaction_id=str(tx.id),
+            balance_after=int(tx.balance_after),
+            charged=recorded_charge > 0,
         )
 
     async def refund_failed_task(
@@ -558,9 +740,9 @@ class CreditService:
     ) -> str:
         if credits_charged <= 0:
             if free_tokens_applied > 0:
-                return f"{feature_id} token 用量记录（{total_tokens} tokens，免费额度内）"
-            return f"{feature_id} token 用量记录（{total_tokens} tokens）"
-        return f"{feature_id} token 扣费（{total_tokens} tokens）"
+                return f"{feature_id} 用量记录（免费额度内）"
+            return f"{feature_id} 用量记录"
+        return f"{feature_id} 扣费 {credits_charged} 积分"
 
     def _build_thread_description(
         self,
@@ -571,9 +753,36 @@ class CreditService:
     ) -> str:
         if credits_charged <= 0:
             if free_tokens_applied > 0:
-                return f"Thread token 用量记录（{total_tokens} tokens，免费额度内）"
-            return f"Thread token 用量记录（{total_tokens} tokens）"
-        return f"Thread token 扣费（{total_tokens} tokens）"
+                return "主线对话用量记录（免费额度内）"
+            return "主线对话用量记录"
+        return f"主线对话扣费 {credits_charged} 积分"
+
+    def _build_sandbox_operation_description(
+        self,
+        *,
+        operation: str,
+        credits_charged: int,
+    ) -> str:
+        label = "Sandbox Python" if operation == "run_python" else f"Sandbox {operation}"
+        return f"{label} 扣费 {credits_charged} 积分"
+
+    @staticmethod
+    def _normalize_sandbox_operation(operation: str) -> str:
+        normalized = str(operation or "").strip()
+        if normalized != "run_python":
+            raise ValueError(f"Unsupported sandbox billing operation: {operation}")
+        return normalized
+
+    @classmethod
+    def _sandbox_operation_credits(
+        cls,
+        policy: OperationBillingPolicy,
+        operation: str,
+    ) -> int:
+        normalized_operation = cls._normalize_sandbox_operation(operation)
+        if normalized_operation == "run_python":
+            return max(int(policy.run_python_credits or 0), 0)
+        raise ValueError(f"Unsupported sandbox billing operation: {operation}")
 
     def _to_dict(self, tx: Any) -> dict[str, Any]:
         return {
@@ -590,3 +799,31 @@ class CreditService:
             "metadata": getattr(tx, "tx_metadata", None) or getattr(tx, "metadata", None) or {},
             "created_at": tx.created_at.isoformat() if tx.created_at else None,
         }
+
+    def _to_public_dict(self, tx: Any) -> dict[str, Any]:
+        item = self._to_dict(tx)
+        item["metadata"] = self._public_metadata(item.get("metadata"))
+        return item
+
+    @staticmethod
+    def _public_metadata(metadata: Any) -> dict[str, Any]:
+        if not isinstance(metadata, dict):
+            return {}
+        metadata_type = metadata.get("type")
+        public: dict[str, Any] = {}
+        if isinstance(metadata_type, str):
+            public["type"] = metadata_type
+        for key in (
+            "credits_charged",
+            "operation",
+            "model_name",
+            "source",
+            "workspace_type",
+            "execution_id",
+            "user_message_id",
+            "node_id",
+        ):
+            value = metadata.get(key)
+            if value is not None:
+                public[key] = value
+        return public

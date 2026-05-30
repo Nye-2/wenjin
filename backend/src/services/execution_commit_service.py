@@ -12,7 +12,7 @@ import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from src.agents.contracts.task_report import TaskReport
 from src.dataservice_client import AsyncDataServiceClient
@@ -43,6 +43,10 @@ _ALLOWED_OVERRIDE_FIELDS: dict[str, set[str]] = {
     "decision": {"key", "value"},
     "task": {"title", "description", "priority"},
 }
+
+
+class ExecutionCommitNotFoundError(LookupError):
+    """Raised when a commit target is missing or hidden from this actor."""
 
 
 class ExecutionCommitService:
@@ -80,6 +84,7 @@ class ExecutionCommitService:
         self,
         execution_id: str,
         *,
+        actor_user_id: str,
         accept_all: bool = False,
         accepted_ids: list[str] | None = None,
         output_overrides: dict[str, dict[str, Any]] | None = None,
@@ -89,6 +94,7 @@ class ExecutionCommitService:
 
         Args:
             execution_id: The execution to commit outputs for.
+            actor_user_id: Authenticated user attempting the writeback.
             accept_all: If True, all outputs in the TaskReport are written.
             accepted_ids: Specific output IDs to write (ignored when accept_all=True).
             output_overrides: Per-output staged edits applied before materializing rooms.
@@ -98,25 +104,30 @@ class ExecutionCommitService:
             dict with key "committed" containing per-room write counts.
 
         Raises:
-            ValueError: If execution not found or has no task_report.
+            ExecutionCommitNotFoundError: If execution is missing or hidden.
+            ValueError: If execution has no task_report or commit input is invalid.
         """
-        # 1. Idempotency cache check
+        # 1. Fetch execution and enforce ownership before any write or cache read.
+        execution = await self.execution.get_by_id(execution_id)
+        if execution is None:
+            raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+        if str(execution.user_id) != str(actor_user_id):
+            raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+
+        # 2. Idempotency cache check
         if idempotency_key and self.redis:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
             cached = await self.redis.get(cache_key)
             if cached:
-                return json.loads(cached)
+                return cast(dict[str, Any], json.loads(cached))
 
-        # 2. Fetch execution + report
-        execution = await self.execution.get_by_id(execution_id)
-        if execution is None:
-            raise ValueError(f"execution {execution_id} not found")
+        # 3. Validate report
         if not execution.result or "task_report" not in execution.result:
             raise ValueError(f"execution {execution_id} has no task_report")
 
         report = TaskReport.model_validate(execution.result["task_report"])
 
-        # 3. Select outputs
+        # 4. Select outputs
         output_by_id = {output.id: output for output in report.outputs}
         if accept_all:
             selected = list(report.outputs)
@@ -168,7 +179,7 @@ class ExecutionCommitService:
         }
         room_candidates: list[RoomCandidatePayload] = []
 
-        # 4. Write to rooms
+        # 5. Write to rooms
         async with self._client() as dataservice:
             for output in selected:
                 kind = output.kind
@@ -207,9 +218,10 @@ class ExecutionCommitService:
                         size_bytes = int(data.get("size_bytes", 0))
                         metadata_extra: dict[str, Any] = {}
                     else:
+                        inline_content_text = str(inline_content)
                         storage_path = f"{_INLINE_DOC_PATH_PREFIX}{output.id}"
-                        size_bytes = len(inline_content.encode("utf-8"))
-                        metadata_extra = {"content": inline_content}
+                        size_bytes = len(inline_content_text.encode("utf-8"))
+                        metadata_extra = {"content": inline_content_text}
 
                     payload = {
                         "workspace_id": execution.workspace_id,
@@ -316,7 +328,7 @@ class ExecutionCommitService:
                     dataservice=dataservice,
                 )
 
-            # 5. Always write run_history
+            # 6. Always write run_history
             capability_id = execution.feature_id or report.capability_id
             await dataservice.append_execution_event(
                 execution_id,
@@ -343,12 +355,12 @@ class ExecutionCommitService:
             result["review_batch_id"] = room_review_result.review_batch_id
             result["room_review_results"] = room_review_result.item_results
 
-        # 6. Cache idempotent result
+        # 7. Cache idempotent result
         if idempotency_key and self.redis:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
             await self.redis.set(cache_key, json.dumps(result), ex=86400)  # 24h
 
-        # 7. Publish canonical workspace refresh event
+        # 8. Publish canonical workspace refresh event
         try:
             await publish_workspace_event(
                 execution.workspace_id,
@@ -372,7 +384,7 @@ class ExecutionCommitService:
         except Exception:
             logger.exception("workspace.refresh publish failed")
 
-        # 8. Audit
+        # 9. Audit
         if self.audit:
             try:
                 await self.audit.log(

@@ -14,7 +14,6 @@ import {
   ClipboardList,
   Database,
   Edit3,
-  Expand,
   ExternalLink,
   FileText,
   FlaskConical,
@@ -49,6 +48,10 @@ import {
   runViewFromExecution,
   type RunViewStatus,
 } from "@/lib/execution-run-view";
+import {
+  getWorkspaceResultKindMeta,
+  groupWorkspaceResultPreviews,
+} from "@/lib/workspace-result-kind";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
   buildWorkspaceResultPreviewsFromOutputs,
@@ -139,7 +142,6 @@ export function LiveWorkflowPanel({
   const activeWorkbenchTab = useWorkbenchLayoutStore(
     (state) => state.activeWorkbenchTab,
   );
-  const manualTabLock = useWorkbenchLayoutStore((state) => state.manualTabLock);
   const selectedRunId = useWorkbenchLayoutStore((state) => state.selectedRunId);
   const selectedNodeId = useWorkbenchLayoutStore((state) => state.selectedNodeId);
   const draftEdits = useWorkbenchLayoutStore((state) => state.draftEdits);
@@ -152,7 +154,6 @@ export function LiveWorkflowPanel({
   const setAutoWorkbenchTab = useWorkbenchLayoutStore(
     (state) => state.setAutoWorkbenchTab,
   );
-  const releaseTabLock = useWorkbenchLayoutStore((state) => state.releaseTabLock);
   const selectRun = useWorkbenchLayoutStore((state) => state.selectRun);
   const selectNode = useWorkbenchLayoutStore((state) => state.selectNode);
   const setWorkbenchFullscreen = useWorkbenchLayoutStore(
@@ -274,7 +275,7 @@ export function LiveWorkflowPanel({
   useEffect(() => {
     if (activeRunId) {
       selectRun(activeRunId);
-      setActiveWorkbenchTab("run", false);
+      setActiveWorkbenchTab("run");
     }
   }, [activeRunId, selectRun, setActiveWorkbenchTab]);
 
@@ -554,7 +555,6 @@ export function LiveWorkflowPanel({
     >
       <WorkbenchHeader
         activeTab={activeWorkbenchTab}
-        manualTabLock={manualTabLock}
         status={selectedRecord ? runViewFromExecution(selectedRecord).status : null}
         pendingReviewCount={pendingReviewCount}
         evidenceCount={evidenceItems.length}
@@ -563,8 +563,7 @@ export function LiveWorkflowPanel({
         canInterrupt={Boolean(runningRecord)}
         interventionOpen={interventionOpen}
         interventionStatus={interventionState.status}
-        onTabChange={(tab) => setActiveWorkbenchTab(tab, true)}
-        onReleaseTabLock={releaseTabLock}
+        onTabChange={setActiveWorkbenchTab}
         onToggleFullscreen={() => setWorkbenchFullscreen(!isFullscreen)}
         onToggleIntervention={() => setInterventionOpen((current) => !current)}
       />
@@ -592,7 +591,7 @@ export function LiveWorkflowPanel({
             onLaunchFeature={(feature) => void handleLaunchFeature(feature)}
             onOpenRun={(runId) => {
               selectRun(runId);
-              setActiveWorkbenchTab("run", true);
+              setActiveWorkbenchTab("run");
             }}
           />
         ) : null}
@@ -601,8 +600,8 @@ export function LiveWorkflowPanel({
             record={selectedRecord}
             selectedNodeId={selectedNodeId}
             onSelectNode={selectNode}
-            onOpenReview={() => setActiveWorkbenchTab("review", true)}
-            onOpenEvidence={() => setActiveWorkbenchTab("evidence", true)}
+            onOpenReview={() => setActiveWorkbenchTab("review")}
+            onOpenEvidence={() => setActiveWorkbenchTab("evidence")}
             onOpenIntervention={() => setInterventionOpen(true)}
           />
         ) : null}
@@ -637,7 +636,9 @@ export function LiveWorkflowPanel({
             commitLinks={commitState.links}
             commitError={commitState.error}
             reviewItems={reviewItems}
+            isFullscreen={isFullscreen}
             onSelectPreview={setSelectedPreviewId}
+            onEnterDetailMode={() => setWorkbenchFullscreen(true)}
             onToggleChecked={(id) => toggleChecked(setCheckedIds, id)}
             onPatchDraft={patchDraftData}
             onSetDraft={setDraftEdit}
@@ -653,7 +654,6 @@ export function LiveWorkflowPanel({
 
 function WorkbenchHeader({
   activeTab,
-  manualTabLock,
   status,
   pendingReviewCount,
   evidenceCount,
@@ -663,12 +663,10 @@ function WorkbenchHeader({
   interventionOpen,
   interventionStatus,
   onTabChange,
-  onReleaseTabLock,
   onToggleFullscreen,
   onToggleIntervention,
 }: {
   activeTab: WorkbenchTab;
-  manualTabLock: boolean;
   status: RunViewStatus | null;
   pendingReviewCount: number;
   evidenceCount: number;
@@ -678,7 +676,6 @@ function WorkbenchHeader({
   interventionOpen: boolean;
   interventionStatus: string | null;
   onTabChange: (tab: WorkbenchTab) => void;
-  onReleaseTabLock: () => void;
   onToggleFullscreen: () => void;
   onToggleIntervention: () => void;
 }) {
@@ -703,14 +700,17 @@ function WorkbenchHeader({
             <button
               key={tab.key}
               type="button"
+              aria-label={tab.label}
+              title={tab.label}
               onClick={() => onTabChange(tab.key)}
               style={{
                 ...styles.tabButton,
                 ...(activeTab === tab.key ? styles.tabButtonActive : null),
+                ...(activeTab === tab.key ? styles.tabButtonExpanded : styles.tabButtonIconOnly),
               }}
             >
               <Icon size={14} />
-              <span>{tab.label}</span>
+              {activeTab === tab.key ? <span>{tab.label}</span> : null}
               {count > 0 ? <span style={styles.tabBadge}>{Math.min(count, 99)}</span> : null}
             </button>
           );
@@ -718,23 +718,22 @@ function WorkbenchHeader({
       </div>
       <div style={styles.headerActions}>
         {status ? <StatusPill status={status} /> : null}
-        {manualTabLock ? (
-          <button type="button" onClick={onReleaseTabLock} style={styles.iconTextButton}>
-            <Expand size={14} />
-            自动聚焦
-          </button>
-        ) : null}
         <button
           type="button"
+          aria-label={interventionOpen ? "收起介入" : "中断并补充"}
+          title={interventionOpen ? "收起介入" : "中断并补充"}
           onClick={onToggleIntervention}
           disabled={!canInterrupt}
           style={{
             ...styles.iconTextButton,
+            ...(!canInterrupt && !interventionOpen ? styles.iconButtonCompact : null),
             opacity: canInterrupt ? 1 : 0.45,
           }}
         >
           <PauseCircle size={14} />
-          {interventionOpen ? "收起介入" : "中断并补充"}
+          {canInterrupt || interventionOpen ? (
+            <span>{interventionOpen ? "收起介入" : "中断并补充"}</span>
+          ) : null}
         </button>
         <button
           type="button"
@@ -934,7 +933,7 @@ function RunView({
   return (
     <div style={styles.runGrid}>
       <div style={styles.runMain}>
-        <section style={styles.section}>
+        <section style={{ ...styles.section, ...styles.runPrimarySection }}>
           <div style={styles.cockpitHeader}>
             <div style={{ minWidth: 0 }}>
               <div style={styles.sectionTitle}>{view.title}</div>
@@ -954,7 +953,6 @@ function RunView({
           <div style={styles.progressMeta}>
             <span>{view.completedNodeCount ?? 0}/{view.nodeCount ?? 0} 节点完成</span>
             <span>{view.durationLabel ?? "计时中"}</span>
-            {view.tokenUsage ? <span>Token {view.tokenUsage.input}/{view.tokenUsage.output}</span> : null}
           </div>
           <div style={styles.quickActions}>
             <button type="button" onClick={onOpenEvidence} style={styles.secondaryButton}>
@@ -966,46 +964,52 @@ function RunView({
               进入审阅
             </button>
           </div>
-        </section>
 
-        <section style={styles.section}>
-          <div style={styles.sectionHeader}>
-            <div>
-              <div style={styles.sectionTitle}>节点时间线</div>
-              <div style={styles.sectionSubtitle}>只展示可验证摘要、输入输出预览和工具调用。</div>
-            </div>
-          </div>
-          {phases.length > 0 ? (
-            <div style={styles.timeline}>
-              {phases.map((phase) => (
-                <div key={phase.name} style={styles.phaseBlock}>
-                  <div style={styles.phaseTitle}>{phase.name}</div>
-                  <div style={styles.nodeGrid}>
-                    {phase.nodes.map((node) => {
-                      const state = record.node_states[node.id];
-                      const status = state?.status ?? "pending";
-                      return (
-                        <button
-                          key={node.id}
-                          type="button"
-                          onClick={() => onSelectNode(node.id)}
-                          style={{
-                            ...styles.nodeButton,
-                            ...(node.id === activeNodeId ? styles.nodeButtonActive : null),
-                          }}
-                        >
-                          <NodeStatusDot status={status} />
-                          <span style={styles.nodeButtonText}>{node.label ?? node.task ?? node.id}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+          <div style={styles.timelinePanel}>
+            <div style={styles.sectionHeaderCompact}>
+              <div>
+                <div style={styles.sectionTitle}>节点时间线</div>
+                <div style={styles.sectionSubtitle}>
+                  可验证摘要、输入输出预览和工具调用。
                 </div>
-              ))}
+              </div>
             </div>
-          ) : (
-            <EmptyState title="等待执行图谱" detail="图谱初始化后会自动显示节点。" compact />
-          )}
+            {phases.length > 0 ? (
+              <div style={styles.timeline}>
+                {phases.map((phase) => (
+                  <div key={phase.name} style={styles.phaseBlock}>
+                    <div style={styles.phaseTitle}>{phase.name}</div>
+                    <div style={styles.nodeGrid}>
+                      {phase.nodes.map((node) => {
+                        const state = record.node_states[node.id];
+                        const status = state?.status ?? "pending";
+                        return (
+                          <button
+                            key={node.id}
+                            type="button"
+                            onClick={() => onSelectNode(node.id)}
+                            style={{
+                              ...styles.nodeButton,
+                              ...(node.id === activeNodeId
+                                ? styles.nodeButtonActive
+                                : null),
+                            }}
+                          >
+                            <NodeStatusDot status={status} />
+                            <span style={styles.nodeButtonText}>
+                              {node.label ?? node.task ?? node.id}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState title="等待执行图谱" detail="图谱初始化后会自动显示节点。" compact />
+            )}
+          </div>
         </section>
       </div>
 
@@ -1134,7 +1138,9 @@ function EvidenceView({
                           <span style={styles.readOnlyMark}>只读</span>
                         )}
                       </td>
-                      <td style={styles.td}>{kindLabel(item.kind)}</td>
+                      <td style={styles.td}>
+                        <ResultKindBadge kind={item.kind} />
+                      </td>
                       <td style={styles.tdStrong}>{item.title}</td>
                       <td style={styles.tdMuted}>{truncate(item.summary, 140)}</td>
                     </tr>
@@ -1183,7 +1189,9 @@ function ReviewView({
   commitLinks,
   commitError,
   reviewItems,
+  isFullscreen,
   onSelectPreview,
+  onEnterDetailMode,
   onToggleChecked,
   onPatchDraft,
   onSetDraft,
@@ -1203,7 +1211,9 @@ function ReviewView({
   commitLinks: CommittedRoomLink[];
   commitError: string | null;
   reviewItems: WorkspacePrismReviewItem[];
+  isFullscreen: boolean;
   onSelectPreview: (id: string) => void;
+  onEnterDetailMode: () => void;
   onToggleChecked: (id: string) => void;
   onPatchDraft: (outputId: string, field: string, value: unknown) => void;
   onSetDraft: (outputId: string, edit: WorkbenchDraftEdit | null) => void;
@@ -1211,53 +1221,177 @@ function ReviewView({
   onAcceptSelected: () => void;
   onDiscard: () => void;
 }) {
+  const previewGroups = useMemo(
+    () => groupWorkspaceResultPreviews(previews),
+    [previews],
+  );
+  const [activeKind, setActiveKind] = useState<string>("all");
+  const effectiveKind =
+    activeKind === "all" || previewGroups.some((group) => group.kind === activeKind)
+      ? activeKind
+      : "all";
+  const visibleGroups = useMemo(() => {
+    return effectiveKind === "all"
+      ? previewGroups
+      : previewGroups.filter((group) => group.kind === effectiveKind);
+  }, [effectiveKind, previewGroups]);
+
+  function activateFilter(kind: string) {
+    setActiveKind(kind);
+    if (kind === "all") {
+      return;
+    }
+    const firstItem = previewGroups.find((group) => group.kind === kind)?.items[0];
+    if (firstItem && firstItem.id !== selectedPreview?.id) {
+      onSelectPreview(firstItem.id);
+    }
+  }
+
+  function activatePreview(previewId: string) {
+    onSelectPreview(previewId);
+    if (!isFullscreen) {
+      onEnterDetailMode();
+    }
+  }
+
   if (!record) {
     return <EmptyState title="暂无可审阅结果" detail="完成运行后，候选文档、文献、记忆、决策和任务会进入这里。" />;
   }
 
   return (
-    <div style={styles.reviewGrid}>
-      <section style={styles.reviewInbox}>
+    <div
+      style={{
+        ...styles.reviewGrid,
+        ...(!isFullscreen ? styles.reviewGridSingle : null),
+      }}
+    >
+      <section
+        role="region"
+        aria-label="候选结果列表"
+        style={styles.reviewInbox}
+      >
         <div style={styles.sectionHeader}>
           <div>
-            <div style={styles.sectionTitle}>Review Inbox</div>
-            <div style={styles.sectionSubtitle}>候选结果默认勾选，可编辑字段后再写入工作区。</div>
+            <div style={styles.sectionTitle}>候选结果</div>
+            <div style={styles.sectionSubtitle}>按类型筛选，点选后在右侧查看详情。</div>
           </div>
           <span style={styles.countBadge}>{previews.length} 项</span>
         </div>
+        <div style={styles.reviewFilterBar} aria-label="候选结果筛选">
+          <button
+            type="button"
+            aria-label="筛选全部结果"
+            title="全部"
+            onClick={() => activateFilter("all")}
+            style={{
+              ...styles.reviewFilterButton,
+              ...(effectiveKind === "all" ? styles.reviewFilterButtonActive : null),
+            }}
+          >
+            全部
+            <span style={styles.filterCount}>{previews.length}</span>
+          </button>
+          {previewGroups.map((group) => (
+            <button
+              key={group.kind}
+              type="button"
+              aria-label={`筛选${group.meta.groupLabel}`}
+              title={group.meta.groupLabel}
+              onClick={() => activateFilter(group.kind)}
+              style={{
+                ...styles.reviewFilterButton,
+                ...(effectiveKind === group.kind
+                  ? {
+                      ...styles.reviewFilterButtonActive,
+                      color: group.meta.accent,
+                      borderColor: group.meta.border,
+                      background: group.meta.tint,
+                    }
+                  : null),
+              }}
+            >
+              {group.meta.shortLabel}
+              <span style={styles.filterCount}>{group.items.length}</span>
+            </button>
+          ))}
+        </div>
         {previews.length > 0 ? (
           <div style={styles.previewList}>
-            {previews.map((preview) => {
-              const selected = selectedPreview?.id === preview.id;
-              return (
-                <div
-                  key={preview.id}
-                  style={{
-                    ...styles.previewListItem,
-                    ...(selected ? styles.previewListItemActive : null),
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={checkedIds.has(preview.id)}
-                    disabled={committed}
-                    onChange={() => onToggleChecked(preview.id)}
-                    style={styles.checkbox}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onSelectPreview(preview.id)}
-                    style={styles.previewListButton}
+            {visibleGroups.map((group) => (
+              <section key={group.kind} style={styles.previewGroupCompact}>
+                <div style={styles.previewGroupHeader}>
+                  <span
+                    style={{
+                      ...styles.previewGroupTitle,
+                      color: group.meta.accent,
+                    }}
                   >
-                    <span style={styles.previewTitle}>{preview.title}</span>
-                    <span style={styles.previewMeta}>
-                      {kindLabel(preview.kind)}{preview.subtitle ? ` · ${preview.subtitle}` : ""}
-                    </span>
-                  </button>
-                  {draftEdits[preview.id] ? <Edit3 size={13} color="var(--v2-accent-purple-700)" /> : null}
+                    {group.meta.groupLabel}
+                  </span>
+                  <span
+                    style={{
+                      ...styles.previewGroupCount,
+                      background: group.meta.tint,
+                      borderColor: group.meta.border,
+                      color: group.meta.accent,
+                    }}
+                  >
+                    {group.items.length}
+                  </span>
                 </div>
-              );
-            })}
+                <div style={styles.previewGroupList}>
+                  {group.items.map((preview) => {
+                    const selected = selectedPreview?.id === preview.id;
+                    return (
+                      <div
+                        key={preview.id}
+                        onClick={() => activatePreview(preview.id)}
+                        style={{
+                          ...styles.previewListItem,
+                          ...(selected ? styles.previewListItemActive : null),
+                          ...(selected
+                            ? {
+                                borderColor: group.meta.border,
+                                background: group.meta.tint,
+                              }
+                            : null),
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checkedIds.has(preview.id)}
+                          disabled={committed}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={() => onToggleChecked(preview.id)}
+                          style={styles.checkbox}
+                        />
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            activatePreview(preview.id);
+                          }}
+                          style={styles.previewListButton}
+                        >
+                          <span style={styles.previewTitle}>{preview.title}</span>
+                          <span style={styles.previewMeta}>
+                            <ResultKindBadge kind={preview.kind} />
+                            {preview.subtitle ? (
+                              <span style={styles.previewSubtitleInline}>
+                                {preview.subtitle}
+                              </span>
+                            ) : null}
+                          </span>
+                        </button>
+                        {draftEdits[preview.id] ? (
+                          <Edit3 size={13} color="var(--v2-accent-purple-700)" />
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
           </div>
         ) : (
           <EmptyState title="没有 staged outputs" detail="如果是 Prism 文件级修改，请从下方入口进入 Prism 精修。" compact />
@@ -1302,22 +1436,28 @@ function ReviewView({
         ) : null}
       </section>
 
-      <section style={styles.reviewDetail}>
-        {selectedPreview ? (
-          <>
-            <ResultPreviewDetail preview={selectedPreview} />
-            <ResultEditor
-              preview={selectedPreview}
-              draft={selectedDraft}
-              disabled={committed}
-              onPatchDraft={onPatchDraft}
-              onSetDraft={onSetDraft}
-            />
-          </>
-        ) : (
-          <EmptyState title="选择一个候选结果" detail="右侧会显示预览和可编辑字段。" compact />
-        )}
-      </section>
+      {isFullscreen ? (
+        <section
+          role="region"
+          aria-label="候选结果详情"
+          style={styles.reviewDetail}
+        >
+          {selectedPreview ? (
+            <>
+              <ResultPreviewDetail preview={selectedPreview} />
+              <ResultEditor
+                preview={selectedPreview}
+                draft={selectedDraft}
+                disabled={committed}
+                onPatchDraft={onPatchDraft}
+                onSetDraft={onSetDraft}
+              />
+            </>
+          ) : (
+            <EmptyState title="选择一个候选结果" detail="右侧会显示预览和可编辑字段。" compact />
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -1507,6 +1647,22 @@ function InspectorBlock({
       </div>
       <div>{children}</div>
     </div>
+  );
+}
+
+function ResultKindBadge({ kind }: { kind: string }) {
+  const meta = getWorkspaceResultKindMeta(kind);
+  return (
+    <span
+      style={{
+        ...styles.kindBadge,
+        color: meta.accent,
+        background: meta.tint,
+        borderColor: meta.border,
+      }}
+    >
+      {kindLabel(kind)}
+    </span>
   );
 }
 
@@ -1742,13 +1898,8 @@ function statusTone(status: string): CSSProperties {
 }
 
 function kindLabel(kind: string): string {
-  if (kind === "document") return "文档";
-  if (kind === "library_item") return "文献";
-  if (kind === "memory_fact") return "记忆";
-  if (kind === "decision") return "决策";
-  if (kind === "task") return "任务";
-  if (kind === "sandbox") return "Sandbox";
-  return kind;
+  const meta = getWorkspaceResultKindMeta(kind);
+  return meta.order === 900 ? kind : meta.label;
 }
 
 function fieldLabel(kind: string, field: string): string {
@@ -1812,25 +1963,25 @@ function formatDateTime(value: string): string {
 
 const styles: Record<string, CSSProperties> = {
   header: {
-    height: 64,
+    height: 58,
     flexShrink: 0,
     display: "grid",
-    gridTemplateColumns: "minmax(160px, 220px) minmax(280px, 1fr) auto",
+    gridTemplateColumns: "minmax(140px, 190px) minmax(220px, 1fr) auto",
     alignItems: "center",
-    gap: 12,
-    padding: "10px 16px",
+    gap: 10,
+    padding: "9px 14px",
     borderBottom: "1px solid var(--wjn-line)",
     background: "rgba(255, 255, 255, 0.82)",
     backdropFilter: "blur(18px)",
     WebkitBackdropFilter: "blur(18px)",
   },
   eyebrow: {
-    fontSize: 11,
+    fontSize: 10.5,
     color: "var(--wjn-text-muted)",
     fontWeight: 650,
   },
   headerTitle: {
-    fontSize: 16,
+    fontSize: 15,
     lineHeight: 1.3,
     fontWeight: 750,
     color: "var(--wjn-text)",
@@ -1842,22 +1993,21 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 5,
     minWidth: 0,
   },
   headerActions: {
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8,
+    gap: 6,
     minWidth: 0,
   },
   tabButton: {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    height: 34,
-    padding: "0 11px",
+    height: 32,
     borderRadius: 8,
     border: "1px solid transparent",
     background: "transparent",
@@ -1871,6 +2021,15 @@ const styles: Record<string, CSSProperties> = {
     border: "1px solid var(--wjn-accent-line)",
     background: "var(--wjn-accent-soft)",
     color: "var(--wjn-accent-strong)",
+  },
+  tabButtonExpanded: {
+    minWidth: 72,
+    padding: "0 10px",
+  },
+  tabButtonIconOnly: {
+    width: 34,
+    padding: 0,
+    justifyContent: "center",
   },
   tabBadge: {
     minWidth: 16,
@@ -1907,6 +2066,10 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 650,
     cursor: "pointer",
     whiteSpace: "nowrap",
+  },
+  iconButtonCompact: {
+    width: 32,
+    padding: 0,
   },
   iconButton: {
     width: 32,
@@ -2118,6 +2281,10 @@ const styles: Record<string, CSSProperties> = {
     gap: 14,
     minWidth: 0,
   },
+  runPrimarySection: {
+    display: "grid",
+    gap: 14,
+  },
   cockpitHeader: {
     display: "flex",
     alignItems: "flex-start",
@@ -2157,6 +2324,10 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: "wrap",
     gap: 8,
     marginTop: 12,
+  },
+  timelinePanel: {
+    paddingTop: 13,
+    borderTop: "1px solid rgba(20,20,30,0.08)",
   },
   timeline: {
     display: "grid",
@@ -2248,7 +2419,7 @@ const styles: Record<string, CSSProperties> = {
   },
   pre: {
     margin: 0,
-    maxHeight: 260,
+    maxHeight: 180,
     overflow: "auto",
     whiteSpace: "pre-wrap",
     wordBreak: "break-word",
@@ -2398,24 +2569,100 @@ const styles: Record<string, CSSProperties> = {
   },
   reviewGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 320px), 1fr))",
+    gridTemplateColumns: "minmax(280px, 0.86fr) minmax(420px, 1.14fr)",
     gap: 14,
     minHeight: "100%",
+    alignItems: "start",
+    overflowX: "auto",
+  },
+  reviewGridSingle: {
+    gridTemplateColumns: "minmax(0, 1fr)",
+    overflowX: "hidden",
   },
   reviewInbox: {
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
     background: "rgba(255,255,255,0.78)",
-    padding: 14,
+    padding: 12,
     minWidth: 0,
+    maxHeight: "calc(100vh - 150px)",
+    overflow: "auto",
   },
   reviewDetail: {
     display: "flex",
     flexDirection: "column",
     gap: 12,
     minWidth: 0,
+    position: "sticky",
+    top: 0,
+    maxHeight: "calc(100vh - 150px)",
+    overflow: "auto",
   },
   previewList: {
+    display: "grid",
+    gap: 10,
+  },
+  reviewFilterBar: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "7px 0 10px",
+    overflowX: "auto",
+  },
+  reviewFilterButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    height: 26,
+    padding: "0 9px",
+    borderRadius: 999,
+    border: "1px solid rgba(20,20,30,0.08)",
+    background: "rgba(255,255,255,0.66)",
+    color: "var(--v2-text-secondary)",
+    fontSize: 11.5,
+    fontWeight: 750,
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+  },
+  reviewFilterButtonActive: {
+    borderColor: "rgba(124, 58, 237, 0.22)",
+    background: "rgba(124, 58, 237, 0.08)",
+    color: "var(--v2-accent-purple-700)",
+  },
+  filterCount: {
+    fontSize: 10.5,
+    fontVariantNumeric: "tabular-nums",
+    opacity: 0.72,
+  },
+  previewGroupCompact: {
+    display: "grid",
+    gap: 7,
+  },
+  previewGroupHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    minHeight: 22,
+    padding: "0 2px",
+  },
+  previewGroupTitle: {
+    fontSize: 12,
+    fontWeight: 750,
+  },
+  previewGroupCount: {
+    minWidth: 22,
+    height: 20,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 999,
+    border: "1px solid",
+    fontSize: 11,
+    fontWeight: 750,
+    fontVariantNumeric: "tabular-nums",
+  },
+  previewGroupList: {
     display: "grid",
     gap: 8,
   },
@@ -2423,6 +2670,8 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "flex-start",
     gap: 9,
+    minWidth: 0,
+    overflow: "hidden",
     padding: 10,
     borderRadius: 8,
     border: "1px solid rgba(20,20,30,0.08)",
@@ -2435,6 +2684,7 @@ const styles: Record<string, CSSProperties> = {
   previewListButton: {
     flex: 1,
     minWidth: 0,
+    overflow: "hidden",
     border: "none",
     padding: 0,
     background: "transparent",
@@ -2451,10 +2701,35 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 750,
   },
   previewMeta: {
-    display: "block",
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "nowrap",
+    gap: 6,
+    minWidth: 0,
+    overflow: "hidden",
     marginTop: 4,
     color: "var(--v2-text-tertiary)",
     fontSize: 11.5,
+  },
+  previewSubtitleInline: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  kindBadge: {
+    height: 20,
+    minWidth: 48,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 7px",
+    borderRadius: 999,
+    border: "1px solid",
+    fontSize: 11,
+    fontWeight: 750,
+    lineHeight: 1,
+    whiteSpace: "nowrap",
   },
   commitBox: {
     marginTop: 12,

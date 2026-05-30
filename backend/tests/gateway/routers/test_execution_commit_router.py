@@ -7,10 +7,22 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.gateway.auth_dependencies import (
+    get_current_user,
+)
+from src.gateway.auth_dependencies import (
+    get_dataservice_client as auth_get_dataservice_client,
+)
+from src.gateway.auth_dependencies import (
+    get_db as auth_get_db,
+)
 from src.gateway.routers.execution_commit import (
-    ExecutionCommitService,
     _get_commit_service,
     router,
+)
+from src.services.execution_commit_service import (
+    ExecutionCommitNotFoundError,
+    ExecutionCommitService,
 )
 
 # ---------------------------------------------------------------------------
@@ -18,14 +30,32 @@ from src.gateway.routers.execution_commit import (
 # ---------------------------------------------------------------------------
 
 
-def _make_app(commit_service: ExecutionCommitService) -> TestClient:
+class _FakeUser:
+    id = "user-1"
+
+
+def _make_app(
+    commit_service: ExecutionCommitService,
+    *,
+    authenticated: bool = True,
+) -> TestClient:
     """Create a minimal test app with the commit service overridden."""
     app = FastAPI()
 
     async def override_commit_service() -> ExecutionCommitService:
         return commit_service
 
+    async def override_db():
+        yield MagicMock()
+
+    async def override_dataservice():
+        yield MagicMock()
+
     app.dependency_overrides[_get_commit_service] = override_commit_service
+    app.dependency_overrides[auth_get_db] = override_db
+    app.dependency_overrides[auth_get_dataservice_client] = override_dataservice
+    if authenticated:
+        app.dependency_overrides[get_current_user] = lambda: _FakeUser()
     app.include_router(router)
     return TestClient(app)
 
@@ -61,12 +91,15 @@ def test_post_commit_returns_counts():
         accepted_ids=None,
         output_overrides=None,
         idempotency_key=None,
+        actor_user_id="user-1",
     )
 
 
-def test_post_commit_400_on_missing_execution():
-    """Service raises ValueError → 400 response."""
-    svc = _make_mock_service(side_effect=ValueError("execution exec-X not found"))
+def test_post_commit_404_on_missing_execution():
+    """Missing executions should use the same hidden/not-found contract as non-owners."""
+    svc = _make_mock_service(
+        side_effect=ExecutionCommitNotFoundError("execution exec-X not found")
+    )
     client = _make_app(svc)
 
     resp = client.post(
@@ -74,8 +107,8 @@ def test_post_commit_400_on_missing_execution():
         json={"accept_all": False, "accepted_ids": ["out-1"]},
     )
 
-    assert resp.status_code == 400
-    assert "not found" in resp.json()["detail"]
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Execution not found"
 
 
 def test_post_commit_passes_idempotency_key_header():
@@ -97,6 +130,7 @@ def test_post_commit_passes_idempotency_key_header():
         accepted_ids=["out-mem"],
         output_overrides=None,
         idempotency_key="idem-key-xyz",
+        actor_user_id="user-1",
     )
 
 
@@ -141,4 +175,35 @@ def test_post_commit_passes_output_overrides():
             "out-doc": {"data": {"name": "edited.md"}, "preview": "Edited doc"}
         },
         idempotency_key=None,
+        actor_user_id="user-1",
     )
+
+
+def test_post_commit_requires_authenticated_user():
+    """Commit is a writeback operation and must reject anonymous callers."""
+    svc = _make_mock_service(return_value={"committed": {}})
+    client = _make_app(svc, authenticated=False)
+
+    resp = client.post(
+        "/api/executions/exec-1/commit",
+        json={"accept_all": True},
+    )
+
+    assert resp.status_code == 401
+    svc.commit_outputs.assert_not_called()
+
+
+def test_post_commit_hides_execution_for_non_owner():
+    """A commit rejected by ownership checks is surfaced as not found."""
+    svc = _make_mock_service(
+        side_effect=ExecutionCommitNotFoundError("execution exec-1 not found")
+    )
+    client = _make_app(svc)
+
+    resp = client.post(
+        "/api/executions/exec-1/commit",
+        json={"accept_all": True},
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Execution not found"

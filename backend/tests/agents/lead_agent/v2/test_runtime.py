@@ -10,6 +10,7 @@ import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.services.token_usage_collector import record_token_usage
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -164,6 +165,38 @@ async def test_run_session_returns_task_report():
     assert report.status == "completed"
     assert report.duration_seconds >= 0
     assert report.narrative  # non-empty string
+
+
+@pytest.mark.asyncio
+async def test_run_session_includes_collected_provider_token_usage():
+    """Provider usage collected during node execution should reach TaskReport billing."""
+    cap = _make_fake_capability()
+    resolver = _make_resolver(cap)
+
+    class _FakeGraph:
+        async def ainvoke(self, state):
+            record_token_usage({"input_tokens": 1200, "output_tokens": 300})
+            return {
+                **state,
+                "node_results": {
+                    "make_outline": {
+                        "output": {"text": "ok"},
+                    }
+                },
+            }
+
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    with patch(
+        "src.agents.lead_agent.v2.runtime.compile_graph",
+        return_value=_FakeGraph(),
+    ):
+        report = await runtime.run_session(execution_id="exec-usage", brief=_make_brief())
+
+    assert report.token_usage == {"input": 1200, "output": 300}
 
 
 def test_distribute_brief_includes_manuscript_context():

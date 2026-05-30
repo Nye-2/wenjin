@@ -140,6 +140,17 @@
 7. Runs drawer 必须合并 live execution store 与 `/api/workspaces/{workspace_id}/runs`，不得成为第二套执行状态系统。
 8. LiveWorkflowPanel 必须 pin 当前 active/focused run；从 running 到 completed 的状态切换必须来自 execution store / Runs projection，不来自本地计时假设。
 
+### 4.1 全站 UIUX 收敛约束
+
+这些约束适用于 Workbench、Prism、room drawers、admin 和 settings：
+
+1. 自动适配是默认行为。viewport、运行状态、选中项和完成态应驱动布局与焦点；不得把 `manual lock`、`focused id`、hydration 等内部状态暴露成用户必须点击的恢复按钮。
+2. 信息密度必须分层处理。主界面展示摘要、当前状态和下一步决策；详情、编辑、trace、diff、BibTeX、日志进入二级导航、detail pane、drawer、fullscreen 或 Prism。
+3. 当横向空间不足时，导航和次级操作先折叠为 icon-only + tooltip；内容区不能被重复文字按钮挤压。
+4. 列表项必须约束长文本宽度。标题、作者、文件名、URL 和 run 名称在列表中 ellipsis / line-clamp，完整内容只在详情区展示。
+5. 列表与详情不能在窄面板中硬挤两栏。窄面板默认 list-first；点击条目后进入更宽详情面或 fullscreen split view。
+6. 用户可见文案必须是产品语言：运行中、待审阅、已保存、已完成、需要补充。不得出现 projection、hydration、focus lock、retry internals 等工程语言。
+
 ## 5. Refresh Targets Contract
 
 任务成功后，前端按 execution / result card 提供的 `refresh_targets` 刷新资源:

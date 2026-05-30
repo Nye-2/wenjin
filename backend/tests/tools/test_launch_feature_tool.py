@@ -67,6 +67,18 @@ class _FakeDataServiceClient:
     async def list_catalog_capabilities(self, *, workspace_type: str, enabled_only: bool = True):
         return [_capability("idea_to_thesis_manuscript"), _capability("thesis_research_pack")]
 
+    async def get_credit_consumed_tokens(
+        self,
+        *,
+        user_id: str,
+        consume_type: str,
+        metadata_type: str | None = None,
+    ) -> int:
+        return 0
+
+    async def get_credit_balance(self, user_id: str) -> int | None:
+        return 10
+
 
 @pytest.fixture(autouse=True)
 def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
@@ -74,6 +86,7 @@ def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
         return _FakeDataServiceClient()
 
     monkeypatch.setattr("src.dataservice_client.provider.dataservice_client", _factory)
+    monkeypatch.setattr("src.services.credit_service.dataservice_client", _factory)
     monkeypatch.setattr("src.services.workspace_skill_labels.dataservice_client", _factory)
 
 
@@ -383,6 +396,43 @@ async def test_launch_feature_returns_error_when_celery_disabled():
     assert result["status"] == "error"
     assert result["code"] == "execution_backend_unavailable"
     fake_service.create_execution.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_blocks_when_feature_credits_are_exhausted():
+    """Feature launches should not enqueue compute once feature billing denies admission."""
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock()
+    fake_credit_service = MagicMock()
+    fake_credit_service.can_start_feature_task = AsyncMock(return_value=False)
+    fake_credit_service.get_feature_billing_policy.return_value = SimpleNamespace(
+        free_tokens=0,
+        tokens_per_credit=10000,
+    )
+    fake_celery = MagicMock(enabled=True)
+    fake_celery_app = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", return_value=fake_credit_service), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {"feature_id": "idea_to_thesis_manuscript", "params": {}},
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "advisory"
+    assert result["code"] == "feature_credits_required"
+    fake_service.create_execution.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
 
 
 @pytest.mark.asyncio

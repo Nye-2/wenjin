@@ -16,6 +16,8 @@
     "workspaces": "工作空间",
     "userDashboard": "账户概览",
     "adminDashboard": "管理总览",
+    "creditBalance": "当前积分",
+    "creditDashboard": "查看积分后台",
     "settings": "设置",
     "logout": "退出登录",
     "productTagline": "证据驱动的研究导航系统"

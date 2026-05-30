@@ -7,8 +7,8 @@ sandbox directly.
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import re
 from collections.abc import Mapping
@@ -57,7 +57,8 @@ def _sandbox_key(*, execution_id: str, node_id: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "-", raw)[:120]
 
 
-def _require_run_python(policy: Mapping[str, Any]) -> None:
+def require_run_python_allowed(policy: Mapping[str, Any]) -> None:
+    """Raise when the capability policy does not allow Python sandbox execution."""
     mode = str(policy.get("mode") or "none")
     allowed = {str(item) for item in policy.get("allowed_operations") or []}
     if mode not in {"required", "optional", "conditional"} or "run_python" not in allowed:
@@ -88,7 +89,7 @@ async def run_python_smoke_check(
 ) -> dict[str, Any]:
     """Run the controlled Python smoke calculation in a Docker sandbox."""
 
-    _require_run_python(sandbox_policy)
+    require_run_python_allowed(sandbox_policy)
     limits = _resource_limits(sandbox_policy)
     timeout_seconds = int(limits.get("timeout_seconds") or 120)
     sandbox_timeout = max(1, min(timeout_seconds, 120))
@@ -158,7 +159,7 @@ async def run_python_script(
 ) -> dict[str, Any]:
     """Run a capability-declared Python script in the Docker sandbox."""
 
-    _require_run_python(sandbox_policy)
+    require_run_python_allowed(sandbox_policy)
     if not isinstance(script, str) or not script.strip():
         raise ValueError("sandbox_python python_script requires a non-empty script")
     script_bytes = script.encode("utf-8")

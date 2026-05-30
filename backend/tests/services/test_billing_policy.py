@@ -2,8 +2,11 @@
 
 from src.services.billing_policy import (
     BILLABLE_FEATURE_TASK_TYPES,
+    OperationBillingPolicy,
     TokenBillingPolicy,
     calculate_token_billing_charge,
+    get_public_workflow_costs,
+    get_sandbox_operation_billing_policy,
     get_workflow_costs,
 )
 
@@ -40,6 +43,40 @@ def test_calculate_token_billing_charge_applies_free_quota() -> None:
 def test_get_workflow_costs_exposes_token_policies_only() -> None:
     costs = get_workflow_costs()
 
-    assert set(costs) == {"thread_token_billing", "feature_token_billing"}
+    assert set(costs) == {
+        "thread_token_billing",
+        "feature_token_billing",
+        "sandbox_operation_billing",
+    }
     assert costs["thread_token_billing"]["tokens_per_credit"] > 0
     assert costs["feature_token_billing"]["tokens_per_credit"] > 0
+    assert costs["sandbox_operation_billing"]["run_python_credits"] > 0
+
+
+def test_get_public_workflow_costs_hides_token_policy_details() -> None:
+    costs = get_public_workflow_costs()
+
+    assert set(costs) == {"thread", "feature", "sandbox_run_python"}
+    assert costs["thread"] == {
+        "enabled": True,
+        "unit": "credits",
+        "pricing": "usage_based",
+    }
+    assert costs["feature"] == {
+        "enabled": True,
+        "unit": "credits",
+        "pricing": "usage_based",
+    }
+    assert costs["sandbox_run_python"]["unit"] == "credits"
+    assert costs["sandbox_run_python"]["credits"] == 1
+    assert "tokens_per_credit" not in costs["thread"]
+    assert "free_tokens" not in costs["feature"]
+
+
+def test_sandbox_operation_policy_uses_fixed_credit_unit() -> None:
+    policy = get_sandbox_operation_billing_policy()
+
+    assert isinstance(policy, OperationBillingPolicy)
+    assert policy.enabled is True
+    assert policy.run_python_credits == 1
+    assert policy.max_overdraft_credits == 100

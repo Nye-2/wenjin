@@ -1172,16 +1172,14 @@ export interface CreditTransactionItem {
   created_at: string;
 }
 
-export type CreditCostValue = number | Record<string, number | boolean>;
+export type CreditCostValue = number | Record<string, number | boolean | string>;
 
 export interface ThreadCreditStatus {
   enabled: boolean;
-  free_tokens: number;
-  tokens_per_credit: number;
-  consumed_tokens: number;
-  remaining_free_tokens: number;
   can_start_thread: boolean;
   overdraft_credits: number;
+  billing_unit: "credits";
+  pricing: "usage_based";
 }
 
 export interface DashboardTokenUsageSection {
@@ -1190,17 +1188,6 @@ export interface DashboardTokenUsageSection {
   total_tokens: number;
   records: number;
   records_with_usage: number;
-}
-
-export interface UserDashboardTokenUsage {
-  thread: {
-    total_tokens: number;
-    free_tokens: number;
-    billable_tokens: number;
-    remaining_free_tokens: number;
-  };
-  feature_tasks: DashboardTokenUsageSection;
-  subagents: DashboardTokenUsageSection;
 }
 
 export interface UserDashboardData {
@@ -1234,7 +1221,6 @@ export interface UserDashboardData {
     cancelled: number;
     completion_rate: number;
   };
-  token_usage: UserDashboardTokenUsage;
   recent_tasks: Array<{
     id: string;
     task_type: string;

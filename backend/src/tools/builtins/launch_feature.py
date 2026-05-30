@@ -145,6 +145,21 @@ async def launch_feature_tool(
                 "detail": f"正在执行「{feature_label}」({progress}%)，请稍候。",
             }
 
+        from src.services.credit_service import CreditService
+
+        credit_service = CreditService(db)
+        if not await credit_service.can_start_feature_task(user_id):
+            policy = credit_service.get_feature_billing_policy()
+            return {
+                "status": "advisory",
+                "code": "feature_credits_required",
+                "feature_id": feature_id,
+                "detail": (
+                    f"功能任务积分不足。当前策略为前 {policy.free_tokens} tokens 免费，"
+                    f"之后每 {policy.tokens_per_credit} tokens 扣 1 积分，请先补充积分。"
+                ),
+            }
+
         from src.config.app_config import celery_settings
 
         if not celery_settings.enabled:

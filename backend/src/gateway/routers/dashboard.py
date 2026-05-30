@@ -97,7 +97,7 @@ async def get_workflow_costs(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Get configured workflow credit costs."""
-    return {"costs": CreditService.get_workflow_costs()}
+    return {"costs": CreditService.get_public_workflow_costs()}
 
 
 @router.get("/dashboard/admin")

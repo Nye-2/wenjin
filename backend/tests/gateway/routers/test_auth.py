@@ -27,6 +27,7 @@ from src.dataservice_client.contracts.account import (
 from src.gateway.deps.core import get_dataservice_client
 from src.gateway.routers.auth import get_db, router
 from src.services import credit_grant_rule_service as _cgr_module
+from src.services import referral_service as _referral_module
 from src.services.auth import create_tokens
 from src.services.user_service import UserService
 
@@ -248,6 +249,53 @@ class TestRegister:
         )
 
         assert response.status_code == 422  # Validation error
+
+    def test_register_with_invite_code_records_referral(
+        self,
+        client,
+        fake_account_client,
+        monkeypatch,
+    ):
+        """A user-id invite code should resolve the referrer and create referral records."""
+        fake_account_client.users["user-ref"] = AccountUserPayload(
+            id="user-ref",
+            email="referrer@example.com",
+            name="Referrer",
+            role="user",
+            is_active=True,
+            is_superuser=False,
+            credits=0,
+            total_credits_earned=0,
+            total_credits_spent=0,
+            hashed_password="hashed",
+            last_login=None,
+        )
+        fake_account_client.by_email["referrer@example.com"] = "user-ref"
+        record_referral = AsyncMock()
+        fire_referee_on_signup = AsyncMock()
+        monkeypatch.setattr(_referral_module.ReferralService, "record", record_referral)
+        monkeypatch.setattr(
+            _referral_module.ReferralService,
+            "fire_referee_on_signup",
+            fire_referee_on_signup,
+        )
+
+        response = client.post(
+            "/auth/register",
+            json={
+                "email": "invited@example.com",
+                "password": "securepassword123",
+                "name": "Invited User",
+                "invite_code": "USER-user-ref",
+            },
+        )
+
+        assert response.status_code == 201
+        record_referral.assert_awaited_once_with(
+            referrer_user_id="user-ref",
+            referee_user_id="user-1",
+        )
+        fire_referee_on_signup.assert_awaited_once_with("user-1")
 
 
 class TestLogin:

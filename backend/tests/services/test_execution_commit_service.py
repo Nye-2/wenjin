@@ -20,7 +20,10 @@ from src.agents.contracts.task_report import (
     TaskOutput,
     TaskReport,
 )
-from src.services.execution_commit_service import ExecutionCommitService
+from src.services.execution_commit_service import (
+    ExecutionCommitNotFoundError,
+    ExecutionCommitService,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -151,7 +154,11 @@ async def test_commit_all_writes_all_kinds():
     execution = _make_execution(report)
     svc, mocks = _make_service(execution)
 
-    result = await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accept_all=True,
+        actor_user_id="user-1",
+    )
 
     assert result["committed"]["library"] == 1
     assert result["committed"]["documents"] == 1
@@ -177,6 +184,7 @@ async def test_commit_some_only():
     result = await svc.commit_outputs(
         EXECUTION_ID,
         accepted_ids=["out-lib", "out-doc"],
+        actor_user_id="user-1",
     )
 
     assert result["committed"]["library"] == 1
@@ -204,6 +212,7 @@ async def test_commit_returns_room_targets_for_committed_items():
     result = await svc.commit_outputs(
         EXECUTION_ID,
         accepted_ids=["out-lib", "out-doc"],
+        actor_user_id="user-1",
     )
 
     assert result["room_targets"]["documents"] == [{"output_id": "out-doc", "item_id": "doc-1"}]
@@ -229,7 +238,11 @@ async def test_commit_document_writes_to_documents_room_source():
     execution = _make_execution(report)
     svc, mocks = _make_service(execution)
 
-    await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+    await svc.commit_outputs(
+        EXECUTION_ID,
+        accept_all=True,
+        actor_user_id="user-1",
+    )
 
     asset_payload = mocks["dataservice"].register_asset.call_args.args[0]
     assert asset_payload.source_kind == "documents_room"
@@ -246,6 +259,7 @@ async def test_commit_returns_room_targets_for_room_candidates():
     result = await svc.commit_outputs(
         EXECUTION_ID,
         accepted_ids=["out-mem", "out-dec", "out-task"],
+        actor_user_id="user-1",
     )
 
     assert result["room_targets"]["memory"] == [{"output_id": "out-mem", "item_id": "fact-1"}]
@@ -261,7 +275,12 @@ async def test_commit_empty_still_writes_run_history():
     execution = _make_execution(report)
     svc, mocks = _make_service(execution)
 
-    result = await svc.commit_outputs(EXECUTION_ID, accept_all=False, accepted_ids=[])
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accept_all=False,
+        accepted_ids=[],
+        actor_user_id="user-1",
+    )
 
     assert all(v == 0 for v in result["committed"].values())
     mocks["dataservice"].create_source.assert_not_called()
@@ -299,6 +318,7 @@ async def test_commit_applies_output_overrides_before_room_writes():
     await svc.commit_outputs(
         EXECUTION_ID,
         accept_all=True,
+        actor_user_id="user-1",
         output_overrides={
             "out-lib": {
                 "data": {"title": "Edited Paper", "authors": ["Ada"], "year": 2026},
@@ -348,7 +368,11 @@ async def test_commit_library_item_imports_verified_external_source():
     execution = _make_execution(report)
     svc, mocks = _make_service(execution)
 
-    await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+    await svc.commit_outputs(
+        EXECUTION_ID,
+        accept_all=True,
+        actor_user_id="user-1",
+    )
 
     payload = mocks["dataservice"].import_source.call_args.args[0]
     assert payload.ingest_kind == "semantic_scholar"
@@ -373,6 +397,7 @@ async def test_commit_rejects_override_for_unaccepted_output():
         await svc.commit_outputs(
             EXECUTION_ID,
             accepted_ids=["out-lib"],
+            actor_user_id="user-1",
             output_overrides={"out-doc": {"data": {"name": "edited.md"}}},
         )
 
@@ -389,6 +414,7 @@ async def test_commit_rejects_unknown_override_output_id():
         await svc.commit_outputs(
             EXECUTION_ID,
             accept_all=True,
+            actor_user_id="user-1",
             output_overrides={"missing": {"data": {"title": "Nope"}}},
         )
 
@@ -405,6 +431,7 @@ async def test_commit_rejects_unsupported_override_fields():
         await svc.commit_outputs(
             EXECUTION_ID,
             accept_all=True,
+            actor_user_id="user-1",
             output_overrides={"out-lib": {"data": {"library_status": "excluded"}}},
         )
 
@@ -418,7 +445,11 @@ async def test_commit_rejects_unknown_accepted_id():
     svc, _mocks = _make_service(execution)
 
     with pytest.raises(ValueError, match="accepted_ids contains unknown"):
-        await svc.commit_outputs(EXECUTION_ID, accepted_ids=["missing"])
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accepted_ids=["missing"],
+            actor_user_id="user-1",
+        )
 
 
 @pytest.mark.asyncio
@@ -449,6 +480,7 @@ async def test_commit_idempotent_with_key():
         EXECUTION_ID,
         accept_all=True,
         idempotency_key="key-abc",
+        actor_user_id="user-1",
     )
     assert mocks["dataservice"].append_execution_event.call_count == 1
 
@@ -457,6 +489,7 @@ async def test_commit_idempotent_with_key():
         EXECUTION_ID,
         accept_all=True,
         idempotency_key="key-abc",
+        actor_user_id="user-1",
     )
     # Run-history event should still only have been called once (second call short-circuits)
     assert mocks["dataservice"].append_execution_event.call_count == 1
@@ -464,12 +497,36 @@ async def test_commit_idempotent_with_key():
 
 
 @pytest.mark.asyncio
-async def test_commit_raises_on_missing_execution():
-    """execution_service.get_by_id returns None → ValueError raised."""
+async def test_commit_raises_not_found_on_missing_execution():
+    """Missing executions use the explicit hidden/not-found contract."""
     svc, mocks = _make_service(execution=None)
 
-    with pytest.raises(ValueError, match="not found"):
-        await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+    with pytest.raises(ExecutionCommitNotFoundError, match="not found"):
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            actor_user_id="user-1",
+        )
+
+
+@pytest.mark.asyncio
+async def test_commit_rejects_non_owner_before_room_writes():
+    """Commit writeback must be scoped to the execution owner."""
+    report = _make_report(_all_kinds_outputs())
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    with pytest.raises(ExecutionCommitNotFoundError, match="not found"):
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            actor_user_id="other-user",
+        )
+
+    mocks["dataservice"].import_source.assert_not_called()
+    mocks["dataservice"].register_asset.assert_not_called()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
+    mocks["dataservice"].append_execution_event.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -486,7 +543,11 @@ async def test_commit_raises_on_no_task_report():
     svc, mocks = _make_service(execution)
 
     with pytest.raises(ValueError, match="no task_report"):
-        await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            actor_user_id="user-1",
+        )
 
 
 @pytest.mark.asyncio
@@ -497,7 +558,11 @@ async def test_commit_publishes_refresh_event():
     svc, mocks = _make_service(execution)
 
     with patch("src.services.execution_commit_service.publish_workspace_event", new=AsyncMock()) as publish_refresh:
-        await svc.commit_outputs(EXECUTION_ID, accept_all=True)
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            actor_user_id="user-1",
+        )
 
     publish_refresh.assert_awaited_once_with(
         WORKSPACE_ID,

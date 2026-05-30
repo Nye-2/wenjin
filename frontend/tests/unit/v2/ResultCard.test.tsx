@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResultCard } from "@/app/(workbench)/workspaces/[id]/components/ResultCard";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -20,6 +21,8 @@ beforeEach(() => {
         },
       }),
   });
+  localStorage.clear();
+  useWorkbenchLayoutStore.getState().reset();
 });
 
 const SAMPLE_DATA = {
@@ -79,36 +82,32 @@ const SAMPLE_DATA = {
 };
 
 describe("ResultCard", () => {
-  it("starts as a lightweight receipt and expands previews on demand", () => {
+  it("renders a compact result package instead of a long in-chat list", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
 
     expect(screen.getByText(/找到 15 篇相关文献/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "查看结果" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "查看详情" })).toBeInTheDocument();
+    expect(screen.getByText("文献资料")).toBeInTheDocument();
+    expect(screen.getByText("文档产物")).toBeInTheDocument();
+    expect(screen.getByText("记忆片段")).toBeInTheDocument();
+    expect(screen.getByText("Deep Learning")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
-
-    expect(screen.getAllByText("Deep Learning")).toHaveLength(2);
-    expect(screen.getByText("Transformers")).toBeInTheDocument();
-    expect(screen.getByText("综述初稿")).toBeInTheDocument();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(4);
     expect(screen.getByText("保存到工作区")).toBeInTheDocument();
   });
 
-  it("renders document detail preview when expanded", () => {
+  it("opens the workbench review surface for detailed result review", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
-    fireEvent.click(screen.getByText("综述初稿"));
+    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
 
-    expect(screen.getByText("综述")).toBeInTheDocument();
-    expect(screen.getByText("研究背景")).toBeInTheDocument();
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review");
+    expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
   });
 
   it("calls commit with accept_all on '保存到工作区'", async () => {
     render(<ResultCard data={SAMPLE_DATA} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
     fireEvent.click(screen.getByText("保存到工作区"));
 
     expect(mockFetch).toHaveBeenCalledWith(
@@ -125,7 +124,6 @@ describe("ResultCard", () => {
   it("shows room links for saved outputs after commit", async () => {
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
     fireEvent.click(screen.getByText("保存到工作区"));
 
     const docLink = await screen.findByRole("link", {
@@ -199,32 +197,15 @@ describe("ResultCard", () => {
 
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
     fireEvent.click(screen.getByText("保存到工作区"));
 
     expect(await screen.findByText("Save failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
   });
 
-  it("calls commit with selected ids on '仅保存勾选项'", () => {
-    render(<ResultCard data={SAMPLE_DATA} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
-    fireEvent.click(screen.getByText("仅保存勾选项"));
-
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/executions/exec-1/commit",
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ accepted_ids: ["o1", "o2", "o4"] }),
-      }),
-    );
-  });
-
   it("calls commit with empty array on '暂不保存'", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
     fireEvent.click(screen.getByText("暂不保存"));
 
     expect(mockFetch).toHaveBeenCalledWith(
@@ -234,31 +215,5 @@ describe("ResultCard", () => {
         body: JSON.stringify({ accepted_ids: [] }),
       }),
     );
-  });
-
-  it("allows toggling checkboxes before commit", () => {
-    render(<ResultCard data={SAMPLE_DATA} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
-    const checkboxes = screen.getAllByRole("checkbox");
-
-    fireEvent.click(checkboxes[0]);
-    expect(checkboxes[0]).not.toBeChecked();
-
-    fireEvent.click(checkboxes[2]);
-    expect(checkboxes[2]).toBeChecked();
-  });
-
-  it("sends only manually checked ids after toggling", () => {
-    render(<ResultCard data={SAMPLE_DATA} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "查看结果" }));
-    const checkboxes = screen.getAllByRole("checkbox");
-    fireEvent.click(checkboxes[0]);
-    fireEvent.click(checkboxes[2]);
-    fireEvent.click(screen.getByText("仅保存勾选项"));
-
-    const body = JSON.parse(mockFetch.mock.calls[0]?.[1]?.body as string);
-    expect([...body.accepted_ids].sort()).toEqual(["o2", "o3", "o4"]);
   });
 });

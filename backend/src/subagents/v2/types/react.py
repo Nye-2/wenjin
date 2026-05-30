@@ -12,6 +12,8 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.models import create_chat_model
+from src.services.thread_billing import extract_message_usage
+from src.services.token_usage_collector import record_token_usage
 
 from ..base import SubagentBase, SubagentContext, SubagentResult
 from ..registry import subagent
@@ -188,6 +190,8 @@ async def _run_react_loop(
             msgs = result.get("messages", [])
             for msg in reversed(msgs):
                 if hasattr(msg, "content") and msg.content:
+                    for usage_message in msgs:
+                        record_token_usage(usage_message)
                     return msg.content
             return ""
 
@@ -195,8 +199,11 @@ async def _run_react_loop(
     collected_content: list[str] = []
     thinking_buf = ""
     last_flush = 0.0
+    latest_stream_usage = None
 
     async for chunk in model.astream(messages):
+        latest_stream_usage = extract_message_usage(chunk) or latest_stream_usage
+
         # --- Thinking chunk detection ---
         is_thinking = False
         thinking_text = ""
@@ -239,6 +246,9 @@ async def _run_react_loop(
     # Final flush of remaining thinking buffer
     if thinking_buf and emit_delta is not None:
         await emit_delta("thinking", thinking_buf)
+
+    if latest_stream_usage is not None:
+        record_token_usage(latest_stream_usage)
 
     return "".join(collected_content)
 
@@ -350,7 +360,7 @@ def _build_degraded_manuscript(ctx: SubagentContext, exc: Exception) -> str:
             r"\section{Introduction}",
             f"Large language models increasingly require task- and domain-specific adaptation, but centralizing user data creates privacy, governance, and deployment barriers. Federated learning provides a natural alternative by keeping raw data on clients while coordinating model updates. Recent Library sources such as {cite_intro} indicate that parameter-efficient adapters can make this setting more practical for large models.",
             r"\section{Related Work}",
-            f"The literature can be grouped into federated instruction tuning, LoRA or adapter-based federated learning, communication-efficient aggregation, and privacy-preserving personalization. The Library currently contains the following citable sources:",
+            "The literature can be grouped into federated instruction tuning, LoRA or adapter-based federated learning, communication-efficient aggregation, and privacy-preserving personalization. The Library currently contains the following citable sources:",
             r"\begin{itemize}",
             *source_lines,
             r"\end{itemize}",

@@ -34,6 +34,7 @@ class TestTaskBrief:
         assert brief.capability_id == "scholar_search"
         assert brief.raw_message == "Search for papers on transformers"
         assert brief.workspace_id == "ws-001"
+        assert brief.user_id == ""
         assert brief.brief == {}
         assert brief.decisions == {}
 
@@ -79,6 +80,7 @@ class TestTaskBrief:
         brief = TaskBrief(
             capability_id="cap",
             raw_message="msg",
+            user_id="user-1",
             decisions={"k": "v"},
         )
         restored = TaskBrief.model_validate(brief.model_dump())

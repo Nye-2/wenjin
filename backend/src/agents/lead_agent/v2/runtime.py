@@ -30,6 +30,12 @@ from src.dataservice_client.provider import dataservice_client
 from src.services.capability_resolver import CapabilityResolver
 from src.services.prism_file_content import normalize_prism_file_change_content
 from src.services.references.utils import extract_citation_keys_from_text
+from src.services.thread_billing import TokenUsage
+from src.services.token_usage_collector import (
+    bind_token_usage_collector,
+    get_collected_token_usage,
+    reset_token_usage_collector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +124,7 @@ class ExecutionState(TypedDict, total=False):
     """LangGraph state threaded through all subagent nodes."""
 
     workspace_id: str
+    user_id: str
     execution_id: str
     inputs_for_tasks: dict
     workspace_data: dict
@@ -228,6 +235,7 @@ class LeadAgentRuntime:
         # Assemble initial state
         initial_state: ExecutionState = {
             "workspace_id": brief.workspace_id,
+            "user_id": brief.user_id,
             "execution_id": execution_id,
             "inputs_for_tasks": self._distribute_brief(
                 brief,
@@ -239,39 +247,45 @@ class LeadAgentRuntime:
             "capability_policy": capability_policy,
         }
 
-        # Compile + Execute — both are wrapped so unknown subagent_type is also caught
+        collected_token_usage: TokenUsage | None = None
+        collector_token = bind_token_usage_collector()
         try:
-            # Pre-load skills referenced by tasks
-            skills = await self._load_skills_for_template(cap.graph_template)
+            # Compile + Execute — both are wrapped so unknown subagent_type is also caught
+            try:
+                # Pre-load skills referenced by tasks
+                skills = await self._load_skills_for_template(cap.graph_template)
 
-            # Check abort before starting (covers cancel-before-run race)
-            if await self._check_abort(execution_id):
-                raise ExecutionAborted(f"execution {execution_id} was cancelled before start")
-            graph = compile_graph(
-                cap.graph_template,
-                state_class=ExecutionState,
-                runner_factory=self._build_persisting_runner_factory(
-                    execution_id, cap.graph_template,
-                ),
-                abort_check=lambda: self._check_abort(execution_id),
-                skills=skills,
-            )
-            final_state = await graph.ainvoke(initial_state)
-            errors: list[ResultError] = []
-            status = "completed"
-        except ExecutionAborted:
-            logger.info("execution %s was cancelled", execution_id)
-            final_state = initial_state
-            errors = []
-            status = "cancelled"
-        except Exception as exc:
-            logger.exception(
-                "graph execution failed",
-                extra={"execution_id": execution_id},
-            )
-            final_state = initial_state
-            errors = [ResultError(phase="-", task="-", error=str(exc))]
-            status = "failed_partial"
+                # Check abort before starting (covers cancel-before-run race)
+                if await self._check_abort(execution_id):
+                    raise ExecutionAborted(f"execution {execution_id} was cancelled before start")
+                graph = compile_graph(
+                    cap.graph_template,
+                    state_class=ExecutionState,
+                    runner_factory=self._build_persisting_runner_factory(
+                        execution_id, cap.graph_template,
+                    ),
+                    abort_check=lambda: self._check_abort(execution_id),
+                    skills=skills,
+                )
+                final_state = await graph.ainvoke(initial_state)
+                errors: list[ResultError] = []
+                status = "completed"
+            except ExecutionAborted:
+                logger.info("execution %s was cancelled", execution_id)
+                final_state = initial_state
+                errors = []
+                status = "cancelled"
+            except Exception as exc:
+                logger.exception(
+                    "graph execution failed",
+                    extra={"execution_id": execution_id},
+                )
+                final_state = initial_state
+                errors = [ResultError(phase="-", task="-", error=str(exc))]
+                status = "failed_partial"
+        finally:
+            collected_token_usage = get_collected_token_usage()
+            reset_token_usage_collector(collector_token)
 
         # Scan node_results for per-node errors (Task 2.12 failure handling)
         if status == "completed":
@@ -284,7 +298,10 @@ class LeadAgentRuntime:
         duration = int((datetime.now(UTC) - started_at).total_seconds())
         outputs = self._collect_outputs(final_state, cap, brief=brief)
         narrative = self._build_narrative(cap, final_state)
-        token_usage = self._aggregate_token_usage(final_state)
+        token_usage = self._aggregate_token_usage(
+            final_state,
+            collected_token_usage=collected_token_usage,
+        )
         if status == "completed":
             await self._stage_prism_review_items(
                 final_state,
@@ -721,6 +738,8 @@ class LeadAgentRuntime:
                     }
                 task_inputs.setdefault("raw_message", brief.raw_message)
                 task_inputs.setdefault("workspace_id", brief.workspace_id)
+                if brief.user_id:
+                    task_inputs.setdefault("user_id", brief.user_id)
                 task_inputs.setdefault("capability_id", brief.capability_id)
                 if brief.manuscript_context:
                     task_inputs["manuscript_context"] = brief.manuscript_context
@@ -1071,12 +1090,20 @@ class LeadAgentRuntime:
         n_nodes = len(state.get("node_results", {}))
         return f"完成 {cap.display_name}，共执行 {n_nodes} 个节点。"
 
-    def _aggregate_token_usage(self, state: dict) -> dict[str, int] | None:
+    def _aggregate_token_usage(
+        self,
+        state: dict,
+        *,
+        collected_token_usage: TokenUsage | None = None,
+    ) -> dict[str, int] | None:
         usage: dict[str, int] = {"input": 0, "output": 0}
         for node_result in state.get("node_results", {}).values():
             tu = node_result.get("token_usage") or {}
             usage["input"] += tu.get("input", 0)
             usage["output"] += tu.get("output", 0)
+        if collected_token_usage is not None:
+            usage["input"] += collected_token_usage.input_tokens
+            usage["output"] += collected_token_usage.output_tokens
         return usage if (usage["input"] or usage["output"]) else None
 
 

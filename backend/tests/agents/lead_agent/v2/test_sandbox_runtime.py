@@ -1,4 +1,5 @@
 import json
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -145,12 +146,35 @@ async def test_sandbox_python_subagent_runs_through_lead_runtime_context(monkeyp
         "src.subagents.v2.types.sandbox.run_python_smoke_check",
         _fake_run_python_smoke_check,
     )
+    billing_calls: list[dict] = []
+
+    class _FakeCreditService:
+        async def consume_for_sandbox_operation(self, **kwargs):
+            billing_calls.append(kwargs)
+            return type(
+                "Billing",
+                (),
+                {
+                    "as_metadata": lambda self: {
+                        "type": "sandbox_operation_billing",
+                        "operation": kwargs["operation"],
+                        "credits_charged": 1,
+                        "transaction_id": "credit-tx-1",
+                        "charged": True,
+                    }
+                },
+            )()
+
+    monkeypatch.setattr(
+        "src.subagents.v2.types.sandbox.CreditService",
+        lambda: _FakeCreditService(),
+    )
 
     ctx = SubagentContext(
         workspace_id="ws-1",
         execution_id="exec-1",
         prompt="",
-        inputs={"operation": "smoke_check", "node_id": "phase__node"},
+        inputs={"operation": "smoke_check", "node_id": "phase__node", "user_id": "user-1"},
         tools=[],
         capability_policy={"sandbox_policy": _policy()},
     )
@@ -162,7 +186,31 @@ async def test_sandbox_python_subagent_runs_through_lead_runtime_context(monkeyp
     assert calls[0]["node_id"] == "phase__node"
     assert calls[0]["sandbox_policy"] == _policy()
     assert result.output["status"] == "completed"
+    assert result.output["billing"]["transaction_id"] == "credit-tx-1"
+    assert billing_calls[0] == {
+        "user_id": "user-1",
+        "operation": "run_python",
+        "workspace_id": "ws-1",
+        "task_id": "exec-1",
+        "node_id": "phase__node",
+    }
     assert result.tool_calls and result.tool_calls[0]["name"] == "sandbox.run_python"
+    assert result.tool_calls[0]["billing"]["credits_charged"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sandbox_python_subagent_requires_user_id_for_billing() -> None:
+    ctx = SubagentContext(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        prompt="",
+        inputs={"operation": "smoke_check", "node_id": "phase__node"},
+        tools=[],
+        capability_policy={"sandbox_policy": _policy()},
+    )
+
+    with pytest.raises(ValueError, match="sandbox billing requires user_id"):
+        await SandboxPythonSubagent().run(ctx)
 
 
 @pytest.mark.asyncio
@@ -186,6 +234,30 @@ async def test_sandbox_python_subagent_runs_declared_python_script(monkeypatch) 
         "src.subagents.v2.types.sandbox.run_python_script",
         _fake_run_python_script,
     )
+    monkeypatch.setattr(
+        "src.subagents.v2.types.sandbox.CreditService",
+        lambda: type(
+            "CreditServiceStub",
+            (),
+            {
+                "consume_for_sandbox_operation": AsyncMock(
+                    return_value=type(
+                        "Billing",
+                        (),
+                        {
+                            "as_metadata": lambda self: {
+                                "type": "sandbox_operation_billing",
+                                "operation": "run_python",
+                                "credits_charged": 1,
+                                "transaction_id": "credit-tx-2",
+                                "charged": True,
+                            }
+                        },
+                    )()
+                )
+            },
+        )(),
+    )
 
     ctx = SubagentContext(
         workspace_id="ws-1",
@@ -194,6 +266,7 @@ async def test_sandbox_python_subagent_runs_declared_python_script(monkeypatch) 
         inputs={
             "operation": "python_script",
             "node_id": "phase__probe",
+            "user_id": "user-1",
             "script": "print('ok')",
             "script_name": "probe.py",
         },

@@ -31,12 +31,6 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
 
   const content = getTabContent();
 
-  // Token usage bar
-  const tokenUsage = state.token_usage;
-  const totalTokens = tokenUsage
-    ? Object.values(tokenUsage).reduce((sum, v) => sum + v, 0)
-    : 0;
-
   return (
     <div
       style={{
@@ -126,61 +120,6 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
         )}
       </div>
 
-      {/* Token usage bar */}
-      {tokenUsage && totalTokens > 0 && (
-        <div
-          style={{
-            padding: "6px 12px",
-            borderTop: "1px solid var(--v2-border-soft)",
-            background: "rgba(255, 255, 255, 0.4)",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 500,
-              color: "var(--v2-text-secondary)",
-              fontFamily: "var(--v2-font-sans)",
-              flexShrink: 0,
-            }}
-          >
-            Tokens
-          </span>
-          <div
-            style={{
-              flex: 1,
-              height: 4,
-              borderRadius: 2,
-              background: "var(--v2-border-default)",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                height: "100%",
-                borderRadius: 2,
-                background:
-                  "linear-gradient(90deg, var(--v2-accent-purple-500), var(--v2-accent-purple-700))",
-                width: `${Math.min(100, (totalTokens / 100000) * 100)}%`,
-                transition: "width var(--v2-duration-medium) var(--v2-ease-standard)",
-              }}
-            />
-          </div>
-          <span
-            style={{
-              fontSize: 10,
-              fontFamily: "var(--v2-font-mono)",
-              color: "var(--v2-text-secondary)",
-              flexShrink: 0,
-            }}
-          >
-            {totalTokens.toLocaleString()}
-          </span>
-        </div>
-      )}
     </div>
   );
 }

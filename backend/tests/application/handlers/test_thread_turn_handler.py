@@ -361,6 +361,29 @@ class TestThreadTurnHandlerCancellation:
         thread_service.add_message.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_prepare_turn_carries_user_message_id_for_billing_idempotency(self):
+        thread = SimpleNamespace(
+            id="thread-1",
+            workspace_id="ws-1",
+            workspace_type="sci",
+            skill=None,
+            messages=[],
+        )
+        thread_service = MagicMock()
+        thread_service.get_or_create_thread = AsyncMock(return_value=thread)
+        thread_service.add_message = AsyncMock(return_value={"id": "msg-1"})
+        handler = ThreadTurnHandler(thread_service=thread_service)
+        request = ThreadTurnRequest(message="解释一下研究空白", workspace_id="ws-1")
+
+        with (
+            patch("src.application.handlers.thread_turn_handler.ensure_thread_turn_budget", new=AsyncMock()),
+            patch("src.application.handlers.thread_turn_handler.set_thread_status", new=AsyncMock()),
+        ):
+            prepared = await handler.prepare_turn(request, actor_id="user-1")
+
+        assert prepared.user_message_id == "msg-1"
+
+    @pytest.mark.asyncio
     async def test_handle_run_interruption_rolls_back_user_message(self):
         thread_service = MagicMock()
         thread_service.list_thread_messages = AsyncMock(
@@ -671,6 +694,139 @@ class TestThreadTurnHandlerCancellation:
             assert reply.blocks[0]["kind"] == "tool_invocation"
             assert reply.blocks[1]["kind"] == "tool_result"
             assert reply.blocks[1]["data"]["execution_id"] == "exec-1"
+
+    @pytest.mark.asyncio
+    async def test_generate_thread_response_passes_execution_id_to_runtime(self):
+        """Resume turns must seed launch_feature through the runtime config."""
+        fake_runtime = SimpleNamespace(
+            workspace_id="ws-1",
+            effective_skill=None,
+            effective_model="test-model",
+            config={"configurable": {}},
+            initial_state={},
+            middlewares=[],
+        )
+        fake_agent = MagicMock()
+        fake_agent.ainvoke = AsyncMock(
+            return_value={
+                "messages": [SimpleNamespace(content="继续执行。")],
+                "response_blocks": [],
+                "response_metadata": {},
+            }
+        )
+
+        with (
+            patch(
+                "src.application.handlers.thread_turn_handler._build_thread_agent_runtime",
+                return_value=fake_runtime,
+            ) as build_runtime,
+            patch(
+                "src.agents.chat_agent.agent.make_chat_agent",
+                return_value=fake_agent,
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.extract_usage_from_agent_result",
+                return_value=None,
+            ),
+        ):
+            from src.application.handlers.thread_turn_handler import generate_thread_response
+
+            request = ThreadTurnRequest(
+                message="继续执行",
+                metadata={"orchestration": {"execution_id": "exec-1"}},
+            )
+            thread = SimpleNamespace(
+                id="thread-1",
+                skill=None,
+                model=None,
+                workspace_id="ws-1",
+                messages=[],
+            )
+
+            await generate_thread_response(
+                request,
+                thread,
+                actor_id="user-1",
+                execution_id="exec-1",
+                budget_checked=True,
+            )
+
+        assert build_runtime.call_args.kwargs["execution_id"] == "exec-1"
+
+    @pytest.mark.asyncio
+    async def test_stream_thread_response_passes_execution_id_to_runtime(self):
+        """Streaming resume turns use the same runtime config as non-streaming turns."""
+        fake_runtime = SimpleNamespace(
+            workspace_id="ws-1",
+            effective_skill=None,
+            effective_model="test-model",
+            config={"configurable": {}},
+            initial_state={},
+            middlewares=[],
+        )
+        stream_result = {
+            "messages": [SimpleNamespace(content="继续执行。")],
+            "response_blocks": [],
+            "response_metadata": {},
+        }
+
+        class _FakeAgentStreamRun:
+            async def _iterate(self):
+                yield ("values", stream_result)
+
+            def __aiter__(self):
+                return self._iterate()
+
+            async def result(self):
+                return stream_result
+
+        class _FakeStreamingAgent:
+            def astream_with_result(self, *args, **kwargs):
+                return _FakeAgentStreamRun()
+
+        with (
+            patch(
+                "src.application.handlers.thread_turn_handler._build_thread_agent_runtime",
+                return_value=fake_runtime,
+            ) as build_runtime,
+            patch(
+                "src.agents.chat_agent.agent.make_chat_agent",
+                return_value=_FakeStreamingAgent(),
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.get_model_config",
+                return_value=SimpleNamespace(model="test-model", supports_streaming=True),
+            ),
+            patch(
+                "src.application.handlers.thread_turn_handler.extract_usage_from_agent_result",
+                return_value=None,
+            ),
+        ):
+            from src.application.handlers.thread_turn_handler import stream_thread_response
+
+            request = ThreadTurnRequest(
+                message="继续执行",
+                metadata={"orchestration": {"execution_id": "exec-1"}},
+            )
+            thread = SimpleNamespace(
+                id="thread-1",
+                skill=None,
+                model=None,
+                workspace_id="ws-1",
+                messages=[],
+            )
+
+            stream = stream_thread_response(
+                request,
+                thread,
+                actor_id="user-1",
+                execution_id="exec-1",
+                budget_checked=True,
+            )
+            _ = [chunk async for chunk in stream]
+            await stream.wait_reply()
+
+        assert build_runtime.call_args.kwargs["execution_id"] == "exec-1"
 
     def test_reply_from_agent_result_blocks_unbacked_launch_receipt(self):
         reply = _reply_from_agent_result(

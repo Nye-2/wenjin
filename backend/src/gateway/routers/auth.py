@@ -9,6 +9,7 @@ This module provides REST endpoints for:
 """
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
@@ -211,7 +212,11 @@ async def register(
 
         # Handle referral invite code if provided
         if request.invite_code:
-            referrer = await _resolve_invite_code(db, request.invite_code)
+            referrer = await _resolve_invite_code(
+                db,
+                request.invite_code,
+                dataservice=dataservice,
+            )
             if referrer:
                 from src.services.referral_service import ReferralService
                 referral_svc = ReferralService(db)
@@ -385,12 +390,23 @@ async def get_me(
     )
 
 
-async def _resolve_invite_code(db: AsyncSession, code: str) -> User | None:
-    """Stub for user-side invite code system.
+def _invite_code_to_user_id(code: str) -> str:
+    normalized = str(code or "").strip()
+    upper = normalized.upper()
+    for prefix in ("USER-", "USER_", "INVITE-", "INVITE_"):
+        if upper.startswith(prefix):
+            return normalized[len(prefix):].strip()
+    return normalized
 
-    Out of scope for this Phase. Returns None for now;
-    user-side UI / invite-code system will be wired in a follow-up.
-    """
-    _ = db
-    _ = code
-    return None
+
+async def _resolve_invite_code(
+    db: AsyncSession,
+    code: str,
+    *,
+    dataservice: AsyncDataServiceClient,
+) -> Any | None:
+    """Resolve the current user-id based invite-code format."""
+    user_id = _invite_code_to_user_id(code)
+    if not user_id:
+        return None
+    return await UserService(db, dataservice=dataservice).get_by_id(user_id)

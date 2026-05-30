@@ -1,810 +1,628 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { useRouter } from "next/navigation";
-import type { MouseEvent } from "react";
-import {
-  ArrowRight,
-  BookOpen,
-  FileText,
-  FlaskConical,
-  Code2,
-  Lightbulb,
-  MessageSquare,
-  Layers,
-  GitMerge,
-  Archive,
-} from "lucide-react";
-import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
-import { Header } from "@/components/layout/header";
-import {
-  buttonTap,
-  defaultTransition,
-  fadeInUp,
-  staggerContainer,
-} from "@/lib/animations";
-import { useI18n } from "@/components/i18n-provider";
-import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AuthModal } from "@/components/auth/auth-modal";
+import { UserDropdown } from "@/components/auth/user-dropdown";
 import { useAuthStore } from "@/stores/auth";
+import { useLocaleStore, type Locale } from "@/stores/locale";
 
-type StageTone = "done" | "active" | "queued";
+type AuthMode = "login" | "register";
+type WorkspaceType =
+  | "sci"
+  | "thesis"
+  | "proposal"
+  | "patent"
+  | "software_copyright";
 
-/* ------------------------------------------------------------------ */
-/*  Helper components                                                  */
-/* ------------------------------------------------------------------ */
-
-function SmartRouteButton({
-  label,
-  path,
-  variant = "primary",
-  compact = false,
-}: {
-  label: string;
-  path: string;
-  variant?: "primary" | "secondary";
-  compact?: boolean;
-}) {
-  const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
-
-  const handleClick = (e: MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    router.push(isAuthenticated ? path : "/login");
+interface LandingCopy {
+  nav: {
+    product: string;
+    docs: string;
+    login: string;
+    register: string;
+    enter: string;
+    quickStart: string;
+    pricing: string;
   };
-
-  return (
-    <motion.a
-      href={path}
-      onClick={handleClick}
-      className={cn(
-        "inline-flex items-center gap-2 rounded-[var(--wjn-radius)] font-semibold transition-colors",
-        compact ? "px-4 py-2.5 text-sm" : "px-7 py-4 text-base",
-        variant === "primary"
-          ? "bg-[var(--wjn-accent)] text-white shadow-[var(--wjn-shadow-sm)] hover:bg-[var(--wjn-accent-strong)]"
-          : "border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] text-[var(--wjn-text)] hover:border-[var(--wjn-accent-line)] hover:bg-white",
-      )}
-      whileHover={{ scale: 1.02 }}
-      whileTap={buttonTap}
-    >
-      <span>{label}</span>
-      <ArrowRight className="h-4 w-4 shrink-0" />
-    </motion.a>
-  );
+  hero: {
+    eyebrow: string;
+    title: string;
+    accent: string;
+    subtitle: string;
+    demoLabel: string;
+    demoTitle: string;
+    demoHint: string;
+    caption: string;
+  };
+  positioning: {
+    eyebrow: string;
+    title: string;
+    body: string;
+    ordinaryLabel: string;
+    ordinaryTitle: string;
+    ordinaryBody: string;
+    wenjinLabel: string;
+    wenjinTitle: string;
+    wenjinBody: string;
+  };
+  loop: {
+    eyebrow: string;
+    title: string;
+    body: string;
+    steps: Array<{ index: string; title: string; body: string }>;
+  };
+  scenes: {
+    eyebrow: string;
+    title: string;
+  };
+  final: {
+    eyebrow: string;
+    title: string;
+    body: string;
+  };
+  quickStartItems: Record<WorkspaceType, string>;
 }
 
-function SectionHeading({
-  eyebrow,
-  title,
-  subtitle,
-}: {
-  eyebrow: string;
-  title: string;
-  subtitle: string;
-}) {
+const COPY: Record<Locale, LandingCopy> = {
+  cn: {
+    nav: {
+      product: "产品",
+      docs: "文档",
+      login: "登录",
+      register: "注册",
+      enter: "进入工作台",
+      quickStart: "快速开始",
+      pricing: "定价",
+    },
+    hero: {
+      eyebrow: "Research OS",
+      title: "科研工作流的",
+      accent: "Super Agent Harness",
+      subtitle:
+        "一站式科研工作台，让 Agent 从想法开始组织文献、证据、实验与稿件，把研究真正跑起来。",
+      demoLabel: "Live product demo",
+      demoTitle: "看 Wenjin 如何从选题推进到 Prism 成稿",
+      demoHint: "点击播放产品演示",
+      caption: "点击右侧演示视频，查看完整科研链路。",
+    },
+    positioning: {
+      eyebrow: "Positioning",
+      title: "不是聊天框，也不是模板库。它是研究任务的执行环境。",
+      body:
+        "Wenjin 的价值不是生成一段文字，而是让研究上下文持续沉淀：文献、证据、记忆、实验材料和稿件审阅都在同一个 workspace 里推进。",
+      ordinaryLabel: "普通 AI 写作",
+      ordinaryTitle: "回答结束后，工作流也断了。",
+      ordinaryBody:
+        "用户还要自己搬运文献、引用、实验、图表和正文。结果能看，但很难变成稳定的研究过程。",
+      wenjinLabel: "Wenjin",
+      wenjinTitle: "Agent 带着 workspace 上下文持续工作。",
+      wenjinBody:
+        "每次执行都沉淀到 Library、Memory、Documents 和 Prism，形成能被审阅、复用和继续推进的研究链路。",
+    },
+    loop: {
+      eyebrow: "Operating Loop",
+      title: "用户掌方向，Agent 跑链路。",
+      body:
+        "系统自动推进文献、证据、实验、写作和审阅；关键节点回到用户确认。它不是把人排除在外，而是把人的判断放在最重要的位置。",
+      steps: [
+        {
+          index: "01",
+          title: "确定研究意图",
+          body: "把模糊想法变成清晰目标、约束和交付物。",
+        },
+        {
+          index: "02",
+          title: "自动组织上下文",
+          body: "文献、记忆、引用和材料进入同一个 workspace。",
+        },
+        {
+          index: "03",
+          title: "审阅成为稿件",
+          body: "最终产出进入 Prism，由用户确认修改和引用。",
+        },
+      ],
+    },
+    scenes: {
+      eyebrow: "Use Cases",
+      title: "为长流程研究与写作任务设计。",
+    },
+    final: {
+      eyebrow: "Deliver",
+      title: "把科研从临时问答推进到可持续交付。",
+      body:
+        "从一个想法开始，进入 workspace，让 Agent 组织上下文、推进任务，并在 Prism 中完成最终审阅。",
+    },
+    quickStartItems: {
+      sci: "SCI",
+      thesis: "学位论文",
+      proposal: "项目书",
+      patent: "专利",
+      software_copyright: "软著",
+    },
+  },
+  en: {
+    nav: {
+      product: "Product",
+      docs: "Docs",
+      login: "Log in",
+      register: "Sign up",
+      enter: "Enter Workbench",
+      quickStart: "Quick Start",
+      pricing: "Pricing",
+    },
+    hero: {
+      eyebrow: "Research OS",
+      title: "Super Agent Harness",
+      accent: "for research workflows",
+      subtitle:
+        "A one-stop research workbench where agents organize literature, evidence, experiments, and manuscripts from the first idea.",
+      demoLabel: "Live product demo",
+      demoTitle: "See Wenjin move from research question to Prism manuscript",
+      demoHint: "Click to play the product demo",
+      caption: "Watch the demo to see the full research loop.",
+    },
+    positioning: {
+      eyebrow: "Positioning",
+      title: "Not a chat box or a template library. A runtime for research work.",
+      body:
+        "Wenjin is not built to generate one isolated answer. It keeps literature, evidence, memory, experiments, and manuscript review moving inside one workspace.",
+      ordinaryLabel: "Ordinary AI writing",
+      ordinaryTitle: "Once the answer ends, the workflow breaks.",
+      ordinaryBody:
+        "Researchers still have to move references, citations, charts, and drafts across tools. The output may be usable, but the process is fragile.",
+      wenjinLabel: "Wenjin",
+      wenjinTitle: "Agents keep working with workspace context.",
+      wenjinBody:
+        "Runs write back into Library, Memory, Documents, and Prism, creating a research loop that can be reviewed, reused, and continued.",
+    },
+    loop: {
+      eyebrow: "Operating Loop",
+      title: "You steer. Agents run the research loop.",
+      body:
+        "Wenjin advances literature, evidence, experiments, writing, and review automatically while returning critical decisions to the user.",
+      steps: [
+        {
+          index: "01",
+          title: "Frame intent",
+          body: "Turn a rough idea into goals, constraints, and deliverables.",
+        },
+        {
+          index: "02",
+          title: "Organize context",
+          body: "Literature, memory, citations, and materials stay in one workspace.",
+        },
+        {
+          index: "03",
+          title: "Review into manuscript",
+          body: "Final outputs enter Prism for user-confirmed edits and citations.",
+        },
+      ],
+    },
+    scenes: {
+      eyebrow: "Use Cases",
+      title: "Built for long-form research and writing work.",
+    },
+    final: {
+      eyebrow: "Deliver",
+      title: "Move research from one-off answers to sustained delivery.",
+      body:
+        "Start from an idea, enter a workspace, let agents organize context and progress the work, then review the manuscript in Prism.",
+    },
+    quickStartItems: {
+      sci: "SCI",
+      thesis: "Thesis",
+      proposal: "Proposal",
+      patent: "Patent",
+      software_copyright: "Software copyright",
+    },
+  },
+};
+
+const QUICK_START_ORDER: WorkspaceType[] = [
+  "sci",
+  "thesis",
+  "proposal",
+  "patent",
+  "software_copyright",
+];
+
+function quickStartHref(type: WorkspaceType): string {
+  return `/workspaces?create=${type}`;
+}
+
+function LandingLanguageToggle() {
+  const { locale, setLocale } = useLocaleStore();
+
   return (
-    <div className="max-w-2xl">
-      <p className="text-xs font-semibold text-[var(--wjn-evidence)]">
-        {eyebrow}
-      </p>
-      <h2 className="mt-4 text-3xl font-semibold text-[var(--wjn-text)] sm:text-4xl">
-        {title}
-      </h2>
-      <p className="mt-4 text-base leading-relaxed text-[var(--wjn-text-secondary)] sm:text-lg">
-        {subtitle}
-      </p>
+    <div
+      aria-label="Language"
+      className="hidden min-h-10 items-center rounded-full border border-[rgba(16,24,40,0.1)] bg-white p-1 text-xs font-semibold text-[#475467] shadow-[0_10px_28px_rgba(16,24,40,0.06)] sm:inline-flex"
+    >
+      <button
+        type="button"
+        onClick={() => setLocale("cn")}
+        className={`rounded-full px-3 py-1.5 transition ${
+          locale === "cn" ? "bg-[#101828] text-white" : "hover:bg-[#f2f4f7]"
+        }`}
+      >
+        中
+      </button>
+      <button
+        type="button"
+        onClick={() => setLocale("en")}
+        className={`rounded-full px-3 py-1.5 transition ${
+          locale === "en" ? "bg-[#101828] text-white" : "hover:bg-[#f2f4f7]"
+        }`}
+      >
+        EN
+      </button>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Stage preview card data                                            */
-/* ------------------------------------------------------------------ */
+function QuickStartMenu({ copy }: { copy: LandingCopy }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-const stageToneStyles: Record<
-  StageTone,
-  { dot: string; badge: string; panel: string }
-> = {
-  done: {
-    dot: "border-[var(--wjn-evidence)] bg-[var(--wjn-evidence)]",
-    badge:
-      "border-[var(--wjn-evidence)]/25 bg-[var(--wjn-evidence-soft)] text-[var(--wjn-evidence)]",
-    panel: "bg-white/72",
-  },
-  active: {
-    dot: "border-[var(--wjn-review)] bg-[var(--wjn-review)]",
-    badge:
-      "border-[var(--wjn-review)]/30 bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]",
-    panel: "bg-[var(--wjn-review-soft)]",
-  },
-  queued: {
-    dot: "border-[var(--wjn-line-strong)] bg-[var(--wjn-surface)]",
-    badge:
-      "border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text-muted)]",
-    panel: "bg-[rgba(255,255,255,0.52)]",
-  },
-};
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
 
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setIsOpen(false);
+      }
+    }
 
-export default function HomePage() {
-  const { t } = useI18n();
-
-  /* ---- Hero type badges ---- */
-  const supportedTypes = [
-    t("workspace.types.thesis"),
-    t("workspace.types.sci"),
-    t("workspace.types.proposal"),
-    t("workspace.types.patent"),
-    t("workspace.types.software_copyright"),
-  ];
-
-  /* ---- Stage preview ---- */
-  const pathStages: Array<{ key: string; tone: StageTone }> = [
-    { key: "stage1", tone: "done" },
-    { key: "stage2", tone: "active" },
-    { key: "stage3", tone: "queued" },
-    { key: "stage4", tone: "queued" },
-    { key: "stage5", tone: "queued" },
-  ];
-
-  /* ---- Section 2: Philosophy cards ---- */
-  const philosophyCards = [
-    {
-      key: "conversation",
-      icon: MessageSquare,
-      accent: "var(--wjn-accent)",
-      accentBg: "var(--wjn-accent-soft)",
-    },
-    {
-      key: "stages",
-      icon: Layers,
-      accent: "var(--wjn-evidence)",
-      accentBg: "var(--wjn-evidence-soft)",
-    },
-    {
-      key: "singleThread",
-      icon: GitMerge,
-      accent: "var(--wjn-review)",
-      accentBg: "var(--wjn-review-soft)",
-    },
-    {
-      key: "artifacts",
-      icon: Archive,
-      accent: "var(--wjn-text-secondary)",
-      accentBg: "var(--wjn-surface-subtle)",
-    },
-  ] as const;
-
-  /* ---- Section 3: Workspace types ---- */
-  const workspaceTypes = [
-    {
-      key: "thesis",
-      icon: BookOpen,
-      accent: "var(--wjn-evidence)",
-      accentBg: "var(--wjn-evidence-soft)",
-      borderAccent: "var(--wjn-accent-line)",
-    },
-    {
-      key: "sci",
-      icon: FileText,
-      accent: "var(--wjn-accent)",
-      accentBg: "var(--wjn-accent-soft)",
-      borderAccent: "var(--wjn-accent-line)",
-    },
-    {
-      key: "proposal",
-      icon: FlaskConical,
-      accent: "var(--wjn-evidence)",
-      accentBg: "var(--wjn-evidence-soft)",
-      borderAccent: "var(--wjn-line-strong)",
-    },
-    {
-      key: "software_copyright",
-      icon: Code2,
-      accent: "var(--wjn-text-secondary)",
-      accentBg: "var(--wjn-surface-subtle)",
-      borderAccent: "var(--wjn-line-strong)",
-    },
-    {
-      key: "patent",
-      icon: Lightbulb,
-      accent: "var(--wjn-review)",
-      accentBg: "var(--wjn-review-soft)",
-      borderAccent: "var(--wjn-line-strong)",
-    },
-  ] as const;
-
-  /* ---- Section 4: Workflow steps ---- */
-  const workflowSteps = [
-    { index: "01", stepKey: "step1" },
-    { index: "02", stepKey: "step2" },
-    { index: "03", stepKey: "step3" },
-    { index: "04", stepKey: "step4" },
-    { index: "05", stepKey: "step5" },
-  ];
-
-  /* ---- Section 5: Use cases ---- */
-  const useCases = [
-    { key: "thesis", borderColor: "var(--wjn-evidence)" },
-    { key: "sci", borderColor: "var(--wjn-accent)" },
-    { key: "proposal", borderColor: "var(--wjn-review)" },
-  ] as const;
-
-  /* ---- Section 6: Stats ---- */
-  const statKeys = ["skills", "types", "disciplines", "templates", "models"] as const;
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   return (
-    <main className="wjn-shell-bg min-h-screen text-[var(--wjn-text)]">
-      <Header />
+    <div ref={menuRef} className="relative">
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        onClick={() => setIsOpen((current) => !current)}
+        className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#f2f4f7] px-4 text-sm font-bold text-[#101828] transition hover:bg-[#e8ebf0]"
+      >
+        {copy.nav.quickStart}
+        <span aria-hidden="true" className="ml-1 text-[#667085]">
+          ▾
+        </span>
+      </button>
 
-      {/* ============================================================ */}
-      {/*  SECTION 1 — Hero                                            */}
-      {/* ============================================================ */}
-      <section className="relative overflow-hidden px-6 pb-20 pt-28 sm:pt-32 lg:pb-24">
-        <div className="route-grid pointer-events-none absolute inset-x-8 bottom-6 top-24 rounded-[var(--wjn-radius-lg)] opacity-35" />
-
-        <div className="relative mx-auto max-w-7xl">
-          <div className="grid gap-12 lg:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] lg:items-center">
-            {/* Left — copy */}
-            <motion.div
-              variants={fadeInUp}
-              initial="initial"
-              animate="animate"
-              transition={{ ...defaultTransition, duration: 0.6 }}
-              className="max-w-3xl"
+      {isOpen ? (
+        <div
+          role="menu"
+          className="absolute right-0 top-14 z-50 w-56 rounded-3xl border border-[rgba(16,24,40,0.1)] bg-white p-2 shadow-[0_24px_70px_rgba(16,24,40,0.16)]"
+        >
+          {QUICK_START_ORDER.map((type) => (
+            <Link
+              key={type}
+              role="menuitem"
+              href={quickStartHref(type)}
+              className="flex min-h-11 items-center rounded-2xl px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f2f4f7]"
             >
-              <div className="inline-flex items-center gap-2 rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] px-4 py-2 text-xs font-semibold text-[var(--wjn-evidence)]">
-                <span className="h-2 w-2 rounded-full bg-[var(--wjn-review)]" />
-                {t("home.heroBadge")}
-              </div>
-
-              <div className="mt-8">
-                <h1 className="text-6xl font-semibold text-[var(--wjn-text)] sm:text-7xl lg:text-8xl">
-                  <span>{t("brand.cn")}</span>
-                </h1>
-                <p className="mt-3 text-sm text-[var(--wjn-text-muted)] sm:text-base">
-                  {t("brand.en")}
-                </p>
-              </div>
-
-              <div className="mt-8 space-y-3">
-                <p className="text-2xl font-semibold text-[var(--wjn-text)] sm:text-3xl">
-                  {t("brand.motto")}
-                </p>
-                <p className="max-w-2xl text-lg font-medium leading-relaxed text-[var(--wjn-text)] sm:text-xl">
-                  {t("brand.tagline")}
-                </p>
-                <p className="text-sm text-[var(--wjn-text-muted)] sm:text-base">
-                  {t("brand.english")}
-                </p>
-              </div>
-
-              <p className="mt-8 max-w-2xl text-base leading-8 text-[var(--wjn-text-secondary)] sm:text-lg">
-                {t("home.subtitle")}
-              </p>
-
-              <div className="mt-8 flex flex-wrap gap-3">
-                {supportedTypes.map((type) => (
-                  <span
-                    key={type}
-                    className="rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] px-4 py-2 text-sm text-[var(--wjn-text-secondary)]"
-                  >
-                    {type}
-                  </span>
-                ))}
-              </div>
-
-              <div className="mt-10 flex flex-wrap items-center gap-4">
-                <SmartRouteButton label={t("home.getStarted")} path="/workspaces" />
-                <SmartRouteButton label={t("home.openPrism")} path="/workspaces" variant="secondary" />
-              </div>
-            </motion.div>
-
-            {/* Right — stage preview card */}
-            <motion.div
-              variants={fadeInUp}
-              initial="initial"
-              animate="animate"
-              transition={{ ...defaultTransition, delay: 0.15, duration: 0.6 }}
-            >
-              <LiquidGlassCard
-                variant="elevated"
-                className="wjn-hairline-panel relative overflow-hidden rounded-[var(--wjn-radius-lg)] p-6 sm:p-8"
-              >
-                <div className="absolute inset-y-8 left-10 w-px bg-[var(--wjn-line)]" />
-
-                <div className="relative">
-                  <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-semibold text-[var(--wjn-evidence)]">
-                        {t("home.pathCard.eyebrow")}
-                      </p>
-                      <h2 className="mt-3 text-2xl font-semibold text-[var(--wjn-text)]">
-                        {t("home.pathCard.title")}
-                      </h2>
-                    </div>
-                    <div className="rounded-full border border-[var(--wjn-line)] bg-white px-3 py-1 text-xs text-[var(--wjn-text-secondary)]">
-                      {t("home.pathCard.workspaceLabel")}
-                    </div>
-                  </div>
-
-                  <p className="mt-3 text-sm text-[var(--wjn-text-secondary)]">
-                    {t("home.pathCard.workspaceValue")}
-                  </p>
-
-                  <div className="relative mt-8">
-                    <div className="absolute bottom-3 left-[0.6rem] top-3 w-px bg-[var(--wjn-line)]" />
-                    <div className="space-y-4">
-                      {pathStages.map((stage) => {
-                        const tone = stageToneStyles[stage.tone];
-                        return (
-                          <div
-                            key={stage.key}
-                            className={cn(
-                              "relative rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] px-4 py-4 pl-10 shadow-[var(--wjn-shadow-sm)]",
-                              tone.panel
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                "absolute left-0 top-6 flex h-5 w-5 items-center justify-center rounded-full border-2",
-                                tone.dot
-                              )}
-                            >
-                              {stage.tone === "active" && (
-                                <div className="h-2.5 w-2.5 rounded-full bg-white" />
-                              )}
-                            </div>
-
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="text-sm font-semibold text-[var(--wjn-text)]">
-                                {t(`home.stages.${stage.key}.title`)}
-                              </p>
-                              <span
-                                className={cn(
-                                  "rounded-full border px-2.5 py-1 text-[11px] font-medium",
-                                  tone.badge
-                                )}
-                              >
-                                {t(`home.status.${stage.tone}`)}
-                              </span>
-                            </div>
-                            <p className="mt-2 text-sm text-[var(--wjn-text-secondary)]">
-                              {t(`home.stages.${stage.key}.artifact`)}
-                            </p>
-                            <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
-                              {t(`home.stages.${stage.key}.update`)}
-                            </p>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Next-action panel (no CTA button) */}
-                  <div className="mt-6 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white p-4">
-                    <p className="text-xs font-semibold text-[var(--wjn-text-muted)]">
-                      {t("home.pathCard.nextLabel")}
-                    </p>
-                    <div className="mt-2">
-                      <p className="text-sm font-medium text-[var(--wjn-text)]">
-                        {t("home.pathCard.nextAction")}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-[var(--wjn-text-secondary)]">
-                        {t("home.pathCard.note")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </LiquidGlassCard>
-            </motion.div>
-          </div>
+              {copy.quickStartItems[type]}
+            </Link>
+          ))}
         </div>
-      </section>
+      ) : null}
+    </div>
+  );
+}
 
-      {/* ============================================================ */}
-      {/*  SECTION 2 — Design Philosophy                               */}
-      {/* ============================================================ */}
-      <section id="philosophy" className="px-6 py-28">
-        <div className="mx-auto max-w-7xl">
-          <SectionHeading
-            eyebrow={t("home.philosophy.eyebrow")}
-            title={t("home.philosophy.title")}
-            subtitle={t("home.philosophy.subtitle")}
-          />
+function LandingNav({
+  copy,
+  onAuth,
+}: {
+  copy: LandingCopy;
+  onAuth: (mode: AuthMode) => void;
+}) {
+  const { isAuthenticated } = useAuthStore();
 
-          <motion.div
-            className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2"
-            variants={staggerContainer}
-            initial="initial"
-            whileInView="animate"
-            viewport={{ once: true }}
+  return (
+    <header className="fixed left-0 right-0 top-0 z-50 border-b border-[rgba(16,24,40,0.08)] bg-[rgba(251,252,254,0.9)] backdrop-blur-xl">
+      <nav className="mx-auto grid h-20 max-w-7xl grid-cols-[auto_1fr_auto] items-center gap-6 px-4 sm:px-6">
+        <Link href="/" className="flex items-center gap-3 text-base font-bold text-[#101828]">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#101828] text-sm font-black text-white">
+            问
+          </span>
+          <span>问津 Wenjin</span>
+        </Link>
+
+        <div className="hidden items-center justify-center gap-1 md:flex">
+          <a
+            href="#product"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
           >
-            {philosophyCards.map((card) => (
-              <motion.div
-                key={card.key}
-                variants={fadeInUp}
-                transition={defaultTransition}
-              >
-                <LiquidGlassCard
-                  variant="elevated"
-                  className="group h-full rounded-[var(--wjn-radius)] border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] p-7 transition-shadow duration-300 hover:shadow-[var(--wjn-shadow-md)]"
-                >
-                  <div
-                    className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] transition-transform duration-300 group-hover:scale-105"
-                    style={{ background: card.accentBg }}
-                  >
-                    <card.icon
-                      className="h-5 w-5"
-                      style={{ color: card.accent }}
-                    />
-                  </div>
-                  <h3 className="mt-6 text-xl font-semibold text-[var(--wjn-text)]">
-                    {t(`home.philosophy.cards.${card.key}.title`)}
-                  </h3>
-                  <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
-                    {t(`home.philosophy.cards.${card.key}.description`)}
-                  </p>
-                </LiquidGlassCard>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  SECTION 2.5 — Workspace / Prism                             */}
-      {/* ============================================================ */}
-      <section className="px-6 py-28">
-        <div className="mx-auto max-w-7xl">
-          <SectionHeading
-            eyebrow={t("home.modes.eyebrow")}
-            title={t("home.modes.title")}
-            subtitle=""
-          />
-
-          <div className="mt-14 space-y-5">
-            {/* ── Workspace ── */}
-            <motion.div
-              variants={fadeInUp}
-              initial="initial"
-              whileInView="animate"
-              viewport={{ once: true }}
-              transition={defaultTransition}
-            >
-              <div className="wjn-hairline-panel overflow-hidden rounded-[var(--wjn-radius-lg)] px-6 py-8 sm:px-10 sm:py-10">
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="max-w-2xl">
-                    <div className="flex items-center gap-3">
-                      <span className="rounded-full border border-[var(--wjn-evidence)]/25 bg-[var(--wjn-evidence-soft)] px-3 py-1 text-xs font-semibold text-[var(--wjn-evidence)]">
-                        {t("home.modes.writing.badge")}
-                      </span>
-                      <span className="text-sm font-medium text-[var(--wjn-text-muted)]">
-                        {t("home.modes.writing.product")}
-                      </span>
-                    </div>
-                    <h3 className="mt-5 text-2xl font-semibold text-[var(--wjn-text)] sm:text-3xl">
-                      {t("home.modes.writing.tagline")}
-                    </h3>
-                    <p className="mt-4 text-base leading-8 text-[var(--wjn-text-secondary)]">
-                      {t("home.modes.writing.description")}
-                    </p>
-                    <p className="mt-5 text-sm font-medium text-[var(--wjn-text-muted)]">
-                      {t("home.modes.writing.keywords")}
-                    </p>
-                  </div>
-                  <div className="shrink-0">
-                    <SmartRouteButton label={t("home.getStarted")} path="/workspaces" />
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-
-            {/* ── Prism ── */}
-            <motion.div
-              variants={fadeInUp}
-              initial="initial"
-              whileInView="animate"
-              viewport={{ once: true }}
-              transition={defaultTransition}
-            >
-              <div className="wjn-hairline-panel overflow-hidden rounded-[var(--wjn-radius-lg)] px-6 py-8 sm:px-10 sm:py-10">
-                <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="max-w-2xl">
-                    <div className="flex items-center gap-3">
-                      <span className="rounded-full border border-[var(--wjn-review)]/30 bg-[var(--wjn-review-soft)] px-3 py-1 text-xs font-semibold text-[var(--wjn-review)]">
-                        {t("home.modes.rewriting.badge")}
-                      </span>
-                      <span className="text-sm font-medium text-[var(--wjn-text-muted)]">
-                        {t("home.modes.rewriting.product")}
-                      </span>
-                    </div>
-                    <h3 className="mt-5 text-2xl font-semibold text-[var(--wjn-text)] sm:text-3xl">
-                      {t("home.modes.rewriting.tagline")}
-                    </h3>
-                    <p className="mt-4 text-base leading-8 text-[var(--wjn-text-secondary)]">
-                      {t("home.modes.rewriting.description")}
-                    </p>
-                    <p className="mt-5 text-sm font-medium text-[var(--wjn-text-muted)]">
-                      {t("home.modes.rewriting.keywords")}
-                    </p>
-                  </div>
-                  <div className="shrink-0">
-                    <SmartRouteButton label={t("home.openPrism")} path="/workspaces" variant="secondary" />
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  SECTION 3 — Five Workspace Types                            */}
-      {/* ============================================================ */}
-      <section className="px-6 py-28">
-        <div className="mx-auto max-w-7xl">
-          <SectionHeading
-            eyebrow={t("home.workspaceTypes.eyebrow")}
-            title={t("home.workspaceTypes.title")}
-            subtitle={t("home.workspaceTypes.subtitle")}
-          />
-
-          {/* First row: 3 cards */}
-          <motion.div
-            className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3"
-            variants={staggerContainer}
-            initial="initial"
-            whileInView="animate"
-            viewport={{ once: true }}
+            {copy.nav.product}
+          </a>
+          <Link
+            href="/docs"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
           >
-            {workspaceTypes.slice(0, 3).map((ws) => (
-              <motion.div
-                key={ws.key}
-                variants={fadeInUp}
-                transition={defaultTransition}
-              >
-                <LiquidGlassCard
-                  variant="floating"
-                  className="group h-full rounded-[var(--wjn-radius)] bg-[var(--wjn-surface-raised)] p-6"
-                  style={{ borderColor: ws.borderAccent }}
-                >
-                  <div
-                    className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] transition-transform duration-300 group-hover:scale-105"
-                    style={{ background: ws.accentBg }}
-                  >
-                    <ws.icon
-                      className="h-5 w-5"
-                      style={{ color: ws.accent }}
-                    />
-                  </div>
-                  <h3 className="mt-5 text-lg font-semibold text-[var(--wjn-text)]">
-                    {t(`workspace.types.${ws.key}`)}
-                  </h3>
-                  <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
-                    {t(`home.workspaceTypes.${ws.key}.description`)}
-                  </p>
-                  <p className="mt-3 text-xs leading-5 text-[var(--wjn-text-muted)]">
-                    {t(`home.workspaceTypes.${ws.key}.modules`)}
-                  </p>
-                </LiquidGlassCard>
-              </motion.div>
-            ))}
-          </motion.div>
-
-          {/* Second row: 2 cards, centered */}
-          <motion.div
-            className="mt-5 flex flex-col items-stretch justify-center gap-5 md:flex-row md:items-stretch lg:mx-auto lg:max-w-[calc(66.666%+0.625rem)]"
-            variants={staggerContainer}
-            initial="initial"
-            whileInView="animate"
-            viewport={{ once: true }}
+            {copy.nav.docs}
+          </Link>
+          <Link
+            href="/pricing"
+            className="inline-flex min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
           >
-            {workspaceTypes.slice(3).map((ws) => (
-              <motion.div
-                key={ws.key}
-                variants={fadeInUp}
-                transition={defaultTransition}
-                className="flex-1"
-              >
-                <LiquidGlassCard
-                  variant="floating"
-                  className="group h-full rounded-[var(--wjn-radius)] bg-[var(--wjn-surface-raised)] p-6"
-                  style={{ borderColor: ws.borderAccent }}
-                >
-                  <div
-                    className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] transition-transform duration-300 group-hover:scale-105"
-                    style={{ background: ws.accentBg }}
-                  >
-                    <ws.icon
-                      className="h-5 w-5"
-                      style={{ color: ws.accent }}
-                    />
-                  </div>
-                  <h3 className="mt-5 text-lg font-semibold text-[var(--wjn-text)]">
-                    {t(`workspace.types.${ws.key}`)}
-                  </h3>
-                  <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
-                    {t(`home.workspaceTypes.${ws.key}.description`)}
-                  </p>
-                  <p className="mt-3 text-xs leading-5 text-[var(--wjn-text-muted)]">
-                    {t(`home.workspaceTypes.${ws.key}.modules`)}
-                  </p>
-                </LiquidGlassCard>
-              </motion.div>
-            ))}
-          </motion.div>
+            {copy.nav.pricing}
+          </Link>
         </div>
-      </section>
 
-      {/* ============================================================ */}
-      {/*  SECTION 4 — How It Works (kept as-is)                       */}
-      {/* ============================================================ */}
-      <section className="px-6 pb-28">
-        <div className="mx-auto max-w-7xl">
-          <SectionHeading
-            eyebrow={t("brand.en")}
-            title={t("home.workflow.title")}
-            subtitle={t("home.workflow.subtitle")}
-          />
+        <div className="flex items-center justify-end gap-2">
+          <LandingLanguageToggle />
 
-          <div className="relative mt-12">
-            <div className="absolute left-6 right-6 top-8 hidden h-px bg-[var(--wjn-line)] lg:block" />
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-5">
-              {workflowSteps.map((step) => (
-                <motion.div
-                  key={step.index}
-                  variants={fadeInUp}
-                  initial="initial"
-                  whileInView="animate"
-                  viewport={{ once: true }}
-                  transition={defaultTransition}
-                >
-                  <LiquidGlassCard
-                    variant="elevated"
-                    className="h-full rounded-[var(--wjn-radius)] border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] p-6"
-                  >
-                    <div className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white text-sm font-semibold text-[var(--wjn-accent)]">
-                      {step.index}
-                    </div>
-                    <h3 className="mt-5 text-lg font-semibold text-[var(--wjn-text)]">
-                      {t(`home.workflow.${step.stepKey}.title`)}
-                    </h3>
-                    <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
-                      {t(`home.workflow.${step.stepKey}.description`)}
-                    </p>
-                  </LiquidGlassCard>
-                </motion.div>
-              ))}
+          {isAuthenticated ? (
+            <div className="hidden sm:block">
+              <UserDropdown />
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  SECTION 5 — Use Cases                                       */}
-      {/* ============================================================ */}
-      <section className="px-6 py-28">
-        <div className="mx-auto max-w-7xl">
-          <SectionHeading
-            eyebrow={t("home.useCases.eyebrow")}
-            title={t("home.useCases.title")}
-            subtitle={t("home.useCases.subtitle")}
-          />
-
-          <motion.div
-            className="mt-14 grid grid-cols-1 gap-5 md:grid-cols-3"
-            variants={staggerContainer}
-            initial="initial"
-            whileInView="animate"
-            viewport={{ once: true }}
-          >
-            {useCases.map((uc) => (
-              <motion.div
-                key={uc.key}
-                variants={fadeInUp}
-                transition={defaultTransition}
+          ) : (
+            <div className="hidden items-center gap-1 sm:flex">
+              <button
+                type="button"
+                onClick={() => onAuth("login")}
+                className="inline-flex min-h-10 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7]"
               >
-                <LiquidGlassCard
-                  variant="floating"
-                  className="h-full rounded-[var(--wjn-radius)] bg-[var(--wjn-surface-raised)] p-0"
-                >
-                  <div className="flex h-full">
-                    <div
-                      className="w-1 shrink-0 rounded-l-[var(--wjn-radius)]"
-                      style={{ background: uc.borderColor }}
-                    />
-                    <div className="p-6">
-                      <h3 className="text-lg font-semibold text-[var(--wjn-text)]">
-                        {t(`home.useCases.cases.${uc.key}.title`)}
-                      </h3>
-                      <p className="mt-3 text-sm leading-7 text-[var(--wjn-text-secondary)]">
-                        {t(`home.useCases.cases.${uc.key}.description`)}
-                      </p>
-                    </div>
-                  </div>
-                </LiquidGlassCard>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  SECTION 6 — Technical Stats                                 */}
-      {/* ============================================================ */}
-      <section className="px-6 py-16">
-        <div className="mx-auto max-w-7xl">
-          <motion.div
-            className="flex flex-wrap justify-center gap-4"
-            variants={staggerContainer}
-            initial="initial"
-            whileInView="animate"
-            viewport={{ once: true }}
-          >
-            {statKeys.map((key) => (
-              <motion.span
-                key={key}
-                variants={fadeInUp}
-                transition={defaultTransition}
-                className="rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface-raised)] px-5 py-2.5 text-sm text-[var(--wjn-text-secondary)]"
+                {copy.nav.login}
+              </button>
+              <button
+                type="button"
+                onClick={() => onAuth("register")}
+                className="inline-flex min-h-10 items-center rounded-full border border-[rgba(16,24,40,0.12)] bg-white px-4 text-sm font-bold text-[#101828] transition hover:bg-[#f9fafb]"
               >
-                {t(`home.stats.${key}`)}
-              </motion.span>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ============================================================ */}
-      {/*  SECTION 7 — CTA + Footer (kept as-is)                      */}
-      {/* ============================================================ */}
-      <section className="px-6 pb-24">
-        <div className="mx-auto max-w-7xl">
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={defaultTransition}
-            className="wjn-hairline-panel overflow-hidden rounded-[var(--wjn-radius-lg)] px-6 py-8 sm:px-10 sm:py-10"
-          >
-            <div className="grid gap-8 lg:grid-cols-[1.4fr_auto] lg:items-center">
-              <div>
-                <p className="text-xs font-semibold text-[var(--wjn-evidence)]">
-                  {t("brand.cn")} / {t("brand.en")}
-                </p>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold text-[var(--wjn-text)] sm:text-4xl">
-                  {t("home.cta.title")}
-                </h2>
-                <p className="mt-4 max-w-2xl text-base leading-8 text-[var(--wjn-text-secondary)]">
-                  {t("home.cta.subtitle")}
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-4">
-                <SmartRouteButton label={t("home.cta.button")} path="/workspaces" />
-              </div>
+                {copy.nav.register}
+              </button>
             </div>
-          </motion.div>
-        </div>
-      </section>
+          )}
 
-      <footer className="border-t border-[var(--wjn-line)] px-6 py-8">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <Link
+            href="/workspaces"
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#101828] px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
+          >
+            {copy.nav.enter}
+          </Link>
+
+          <QuickStartMenu copy={copy} />
+        </div>
+      </nav>
+    </header>
+  );
+}
+
+function VideoPreview({ copy }: { copy: LandingCopy }) {
+  return (
+    <button
+      type="button"
+      aria-label={copy.hero.demoTitle}
+      className="group relative min-h-[34rem] w-full overflow-hidden rounded-[1.875rem] bg-[#111827] text-white shadow-[0_32px_100px_rgba(16,24,40,0.24)]"
+    >
+      <span
+        aria-hidden="true"
+        className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:34px_34px] [mask-image:linear-gradient(180deg,rgba(0,0,0,0.62),transparent_78%)]"
+      />
+      <span className="absolute left-6 right-6 top-6 z-10 flex items-center justify-between text-xs font-semibold text-white/65">
+        <span className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
+          <span className="h-2.5 w-2.5 rounded-full bg-[#22c55e]" />
+        </span>
+        <span>{copy.hero.demoLabel}</span>
+      </span>
+
+      <span className="absolute inset-0 z-10 grid place-items-center px-8 text-center">
+        <span>
+          <span className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-white text-4xl font-black text-[#4f46e5] shadow-[0_24px_60px_rgba(0,0,0,0.28)] transition group-hover:scale-105">
+            ▶
+          </span>
+          <strong className="mt-6 block text-lg font-bold leading-snug">
+            {copy.hero.demoTitle}
+          </strong>
+          <span className="mt-2 block text-sm text-white/60">
+            {copy.hero.demoHint}
+          </span>
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  body,
+}: {
+  eyebrow: string;
+  title: string;
+  body?: string;
+}) {
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#344054]">
+        {eyebrow}
+      </p>
+      <h2 className="mt-4 max-w-4xl text-4xl font-bold leading-[1.04] text-[#101828] sm:text-5xl lg:text-6xl">
+        {title}
+      </h2>
+      {body ? (
+        <p className="mt-5 max-w-3xl text-base leading-8 text-[#667085] sm:text-lg">
+          {body}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export default function HomePage() {
+  const { locale } = useLocaleStore();
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const copy = COPY[locale];
+
+  const openAuth = useCallback((mode: AuthMode) => {
+    setAuthMode(mode);
+    setIsAuthOpen(true);
+  }, []);
+
+  return (
+    <main className="min-h-screen bg-[#fbfcfe] text-[#101828]">
+      <LandingNav copy={copy} onAuth={openAuth} />
+
+      <section className="grid min-h-[112vh] items-center px-4 pb-20 pt-36 sm:px-6 lg:pt-40">
+        <div className="mx-auto grid w-full max-w-7xl items-center gap-14 lg:grid-cols-[0.9fr_1.1fr]">
           <div>
-            <p className="text-base font-semibold text-[var(--wjn-text)]">
-              {t("brand.cn")}{" "}
-              <span className="ml-1 text-xs text-[var(--wjn-text-muted)]">
-                {t("brand.en")}
-              </span>
+            <p className="inline-flex items-center gap-3 text-xs font-bold uppercase tracking-[0.08em] text-[#344054] before:h-px before:w-7 before:bg-[#101828]">
+              {copy.hero.eyebrow}
             </p>
-            <p className="mt-1 text-sm text-[var(--wjn-text-secondary)]">{t("brand.tagline")}</p>
+            <h1 className="mt-6 max-w-3xl text-6xl font-black leading-none text-[#101828] sm:text-7xl lg:text-8xl">
+              {copy.hero.title}{" "}
+              <span className="relative inline-block after:absolute after:bottom-1 after:left-1 after:right-0 after:-z-10 after:h-3 after:rounded-full after:bg-[#4f46e5]/15">
+                {copy.hero.accent}
+              </span>
+            </h1>
+            <p className="mt-7 max-w-2xl text-lg leading-8 text-[#667085]">
+              {copy.hero.subtitle}
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-4">
+              <Link
+                href="/workspaces"
+                className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#101828] px-6 text-sm font-bold text-white shadow-[0_16px_44px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
+              >
+                {copy.nav.enter}
+              </Link>
+              <span className="text-sm font-semibold leading-6 text-[#667085]">
+                {copy.hero.caption}
+              </span>
+            </div>
           </div>
-          <p className="text-sm text-[var(--wjn-text-muted)]">{t("brand.summary")}</p>
+
+          <div className="rounded-[2.375rem] border border-[rgba(16,24,40,0.08)] bg-white/70 p-3 shadow-[0_32px_100px_rgba(16,24,40,0.12)]">
+            <VideoPreview copy={copy} />
+          </div>
         </div>
-      </footer>
+      </section>
+
+      <section id="product" className="px-4 py-24 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <SectionHeader
+            eyebrow={copy.positioning.eyebrow}
+            title={copy.positioning.title}
+            body={copy.positioning.body}
+          />
+
+          <div className="mt-11 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
+            <article className="min-h-80 rounded-[1.875rem] border border-[rgba(16,24,40,0.08)] bg-white p-8 shadow-[0_22px_80px_rgba(16,24,40,0.07)]">
+              <span className="inline-flex rounded-full bg-[#f2f4f7] px-3 py-2 text-xs font-bold text-[#475467]">
+                {copy.positioning.ordinaryLabel}
+              </span>
+              <h3 className="mt-7 max-w-lg text-3xl font-bold leading-tight text-[#101828]">
+                {copy.positioning.ordinaryTitle}
+              </h3>
+              <p className="mt-4 max-w-xl text-base leading-8 text-[#667085]">
+                {copy.positioning.ordinaryBody}
+              </p>
+            </article>
+
+            <article className="min-h-80 rounded-[1.875rem] bg-[#101828] p-8 text-white shadow-[0_22px_80px_rgba(16,24,40,0.14)]">
+              <span className="inline-flex rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-white/70">
+                {copy.positioning.wenjinLabel}
+              </span>
+              <h3 className="mt-7 max-w-lg text-3xl font-bold leading-tight">
+                {copy.positioning.wenjinTitle}
+              </h3>
+              <p className="mt-4 max-w-xl text-base leading-8 text-white/65">
+                {copy.positioning.wenjinBody}
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-24 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <SectionHeader
+            eyebrow={copy.loop.eyebrow}
+            title={copy.loop.title}
+            body={copy.loop.body}
+          />
+
+          <div className="mt-11 grid gap-4 lg:grid-cols-3">
+            {copy.loop.steps.map((step, index) => (
+              <article
+                key={step.index}
+                className={`min-h-60 rounded-[1.75rem] border bg-white p-7 shadow-[0_18px_60px_rgba(16,24,40,0.06)] ${
+                  index === 1
+                    ? "border-[#4f46e5]/20 shadow-[0_22px_80px_rgba(79,70,229,0.12)]"
+                    : "border-[rgba(16,24,40,0.08)]"
+                }`}
+              >
+                <span className="text-xs font-bold text-[#98a2b3]">{step.index}</span>
+                <h3 className="mt-16 text-2xl font-bold leading-tight text-[#101828]">
+                  {step.title}
+                </h3>
+                <p className="mt-4 text-sm leading-7 text-[#667085]">{step.body}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 py-24 sm:px-6">
+        <div className="mx-auto max-w-6xl">
+          <SectionHeader eyebrow={copy.scenes.eyebrow} title={copy.scenes.title} />
+          <div className="mt-9 flex flex-wrap gap-3">
+            {QUICK_START_ORDER.map((type) => (
+              <Link
+                key={type}
+                href={quickStartHref(type)}
+                className="inline-flex min-h-11 items-center rounded-full border border-[rgba(16,24,40,0.1)] bg-white px-5 text-sm font-bold text-[#344054] shadow-[0_12px_34px_rgba(16,24,40,0.05)] transition hover:bg-[#f9fafb]"
+              >
+                {copy.quickStartItems[type]}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="px-4 pb-28 pt-24 sm:px-6">
+        <div className="mx-auto grid min-h-96 max-w-6xl items-end gap-8 rounded-[2.125rem] bg-[#101828] p-8 text-white shadow-[0_32px_100px_rgba(16,24,40,0.16)] lg:grid-cols-[1fr_auto] lg:p-11">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.08em] text-white/55">
+              {copy.final.eyebrow}
+            </p>
+            <h2 className="mt-4 max-w-4xl text-4xl font-bold leading-[1.04] sm:text-5xl lg:text-6xl">
+              {copy.final.title}
+            </h2>
+            <p className="mt-5 max-w-3xl text-base leading-8 text-white/65">
+              {copy.final.body}
+            </p>
+          </div>
+          <Link
+            href="/workspaces"
+            className="inline-flex min-h-12 items-center justify-center rounded-full bg-white px-6 text-sm font-bold text-[#101828] transition hover:bg-[#f2f4f7]"
+          >
+            {copy.nav.enter}
+          </Link>
+        </div>
+      </section>
+
+      <AuthModal
+        isOpen={isAuthOpen}
+        initialMode={authMode}
+        onClose={() => setIsAuthOpen(false)}
+      />
     </main>
   );
 }

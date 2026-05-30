@@ -2,7 +2,15 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Settings, LogOut, FolderOpen, ChevronDown, LayoutDashboard, Shield } from "lucide-react";
+import {
+  Settings,
+  LogOut,
+  FolderOpen,
+  ChevronDown,
+  LayoutDashboard,
+  Shield,
+  Coins,
+} from "lucide-react";
 import { useI18n } from "@/components/i18n-provider";
 import { useAuthStore } from "@/stores/auth";
 import { useRouter } from "next/navigation";
@@ -18,6 +26,7 @@ export function UserDropdown() {
   // Get display name - prefer name, fallback to email username part
   const displayName = user?.name || user?.email?.split("@")[0] || "User";
   const userInitial = displayName.charAt(0).toUpperCase();
+  const credits = typeof user?.credits === "number" ? user.credits : 0;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -112,6 +121,32 @@ export function UserDropdown() {
             <div className="px-4 py-3 border-b border-[var(--border-default)]">
               <p className="font-medium text-[var(--text-primary)] truncate">{displayName}</p>
               <p className="text-sm text-[var(--text-muted)] truncate">{user?.email}</p>
+            </div>
+
+            <div className="border-b border-[var(--border-default)] bg-[var(--bg-surface)]/60 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--wjn-accent-soft)] text-[var(--accent-primary)]">
+                    <Coins className="h-4 w-4" />
+                  </span>
+                  <span className="text-sm font-medium text-[var(--text-secondary)]">
+                    {t("nav.creditBalance")}
+                  </span>
+                </div>
+                <span className="text-lg font-semibold tabular-nums text-[var(--text-primary)]">
+                  {credits.toLocaleString()}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  router.push("/dashboard/me");
+                  setIsOpen(false);
+                }}
+                className="mt-3 w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-surface)]"
+              >
+                {t("nav.creditDashboard")}
+              </button>
             </div>
 
             {/* Menu Items */}

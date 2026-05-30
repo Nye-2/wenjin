@@ -16,8 +16,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
-from src.dataservice_client.provider import dataservice_client
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.dataservice_client.provider import dataservice_client
+from src.services.thread_billing import normalize_token_usage
 from src.services.workspace_prism_service import WorkspacePrismService
 
 logger = logging.getLogger(__name__)
@@ -83,13 +84,28 @@ class ExecutionEngineV2:
 
         try:
             brief = TaskBrief.model_validate(execution.params["brief"])
+            if not brief.user_id and getattr(execution, "user_id", None):
+                brief = brief.model_copy(update={"user_id": str(execution.user_id)})
             brief = await self._attach_manuscript_context(brief, execution)
             report = await self.runtime.run_session(
                 execution_id=execution_id,
                 brief=brief,
             )
 
-            await self._mark_complete(execution_id, report)
+            billing_metadata = await self._settle_feature_billing(execution, report)
+            try:
+                await self._mark_complete(
+                    execution_id,
+                    report,
+                    billing_metadata=billing_metadata,
+                )
+            except Exception:
+                await self._refund_feature_billing(
+                    execution,
+                    billing_metadata=billing_metadata,
+                    reason="执行结果持久化失败退款",
+                )
+                raise
             await self._append_execution_event(
                 execution_id,
                 "execution.status",
@@ -252,12 +268,76 @@ class ExecutionEngineV2:
             return "Workspace Manuscript"
         return str(workspace.name or "Workspace Manuscript")
 
-    async def _mark_complete(self, execution_id: str, report: TaskReport) -> None:
+    async def _settle_feature_billing(
+        self,
+        execution: Any,
+        report: TaskReport,
+    ) -> dict[str, Any] | None:
+        """Settle completed feature executions against measured token usage."""
+        if report.status != "completed" or not report.token_usage:
+            return None
+
+        from src.services.credit_service import CreditService
+
+        credit_service = CreditService(getattr(self.execution_service, "db", None))
+        billing = await credit_service.consume_for_feature_usage(
+            user_id=str(execution.user_id),
+            feature_id=str(execution.feature_id or report.capability_id),
+            token_usage=report.token_usage,
+            workspace_id=str(execution.workspace_id) if execution.workspace_id else None,
+            task_id=str(execution.id),
+            metadata={
+                "execution_id": str(execution.id),
+                "workspace_type": getattr(execution, "workspace_type", None),
+                "source": "execution_engine",
+            },
+        )
+        billing_metadata: dict[str, Any] = dict(billing.as_metadata())
+        return billing_metadata
+
+    async def _refund_feature_billing(
+        self,
+        execution: Any,
+        *,
+        billing_metadata: dict[str, Any] | None,
+        reason: str,
+    ) -> None:
+        transaction_id = (
+            str(billing_metadata.get("transaction_id"))
+            if isinstance(billing_metadata, dict) and billing_metadata.get("transaction_id")
+            else None
+        )
+        if not transaction_id:
+            return
+
+        from src.services.credit_service import CreditService
+
+        credit_service = CreditService(getattr(self.execution_service, "db", None))
+        await credit_service.refund_consumption(
+            user_id=str(execution.user_id),
+            original_transaction_id=transaction_id,
+            reason=reason,
+            task_id=str(execution.id),
+        )
+
+    async def _mark_complete(
+        self,
+        execution_id: str,
+        report: TaskReport,
+        *,
+        billing_metadata: dict[str, Any] | None = None,
+    ) -> None:
         # complete_execution signature: (execution_id, *, status, result, error, result_summary, commit)
+        result_payload: dict[str, Any] = {"task_report": report.model_dump(mode="json")}
+        normalized_usage = normalize_token_usage(report.token_usage)
+        if normalized_usage is not None:
+            result_payload["token_usage"] = normalized_usage.as_dict()
+        if billing_metadata is not None:
+            result_payload["billing"] = dict(billing_metadata)
         await self.execution_service.complete_execution(
             execution_id,
             status=report.status,
-            result={"task_report": report.model_dump(mode="json")},
+            result=result_payload,
             result_summary=report.narrative[:200] if report.narrative else None,
         )
 
@@ -274,7 +354,7 @@ class ExecutionEngineV2:
         event_type: str,
         *,
         workspace_id: str | None,
-        payload_json: dict,
+        payload_json: dict[str, Any],
         node_id: str | None = None,
     ) -> None:
         append_event = getattr(self.execution_service, "append_execution_event", None)

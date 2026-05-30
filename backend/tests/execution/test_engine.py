@@ -1,7 +1,7 @@
 """Tests for ExecutionEngineV2 (Task 2.6)."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ def _make_task_report(
     execution_id: str = "exec-001",
     capability_id: str = "test_cap",
     status: str = "completed",
+    token_usage: dict[str, int] | None = None,
 ) -> TaskReport:
     return TaskReport(
         execution_id=execution_id,
@@ -26,7 +27,7 @@ def _make_task_report(
         narrative="完成 Test Capability，共执行 1 个节点。",
         outputs=[],
         errors=[],
-        token_usage=None,
+        token_usage=token_usage,
     )
 
 
@@ -99,6 +100,7 @@ async def test_engine_runs_lead_agent_and_marks_complete():
     runtime.run_session.assert_called_once()
     call_kwargs = runtime.run_session.call_args.kwargs
     assert call_kwargs["execution_id"] == "exec-001"
+    assert call_kwargs["brief"].user_id == "user-001"
 
     # Execution was marked running
     execution_svc.start_execution.assert_called_once_with("exec-001")
@@ -125,6 +127,120 @@ async def test_engine_runs_lead_agent_and_marks_complete():
             "artifact_count": 0,
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_engine_settles_feature_token_billing_before_marking_complete():
+    """Completed feature executions should settle measured token usage into credits."""
+    record = _make_execution_record(user_id="user-001", workspace_id="ws-001")
+    report = _make_task_report(token_usage={"input": 12000, "output": 3000})
+    billing = SimpleNamespace(
+        as_metadata=lambda: {
+            "type": "feature_token_billing",
+            "credits_charged": 2,
+            "transaction_id": "credit-tx-1",
+            "token_usage": {"input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000},
+        }
+    )
+    credit_service = MagicMock()
+    credit_service.consume_for_feature_usage = AsyncMock(return_value=billing)
+
+    execution_svc = _make_execution_service(record=record)
+    execution_svc.db = object()
+    runtime = _make_runtime(report=report)
+
+    with patch("src.services.credit_service.CreditService", return_value=credit_service):
+        engine = ExecutionEngineV2(
+            runtime=runtime,
+            execution_service=execution_svc,
+        )
+        await engine.run("exec-001")
+
+    credit_service.consume_for_feature_usage.assert_awaited_once_with(
+        user_id="user-001",
+        feature_id="test_cap",
+        token_usage={"input": 12000, "output": 3000},
+        workspace_id="ws-001",
+        task_id="exec-001",
+        metadata={
+            "execution_id": "exec-001",
+            "workspace_type": None,
+            "source": "execution_engine",
+        },
+    )
+    complete_result = execution_svc.complete_execution.await_args.kwargs["result"]
+    assert complete_result["billing"]["transaction_id"] == "credit-tx-1"
+    assert complete_result["token_usage"] == {
+        "input_tokens": 12000,
+        "output_tokens": 3000,
+        "total_tokens": 15000,
+    }
+
+
+@pytest.mark.asyncio
+async def test_engine_skips_feature_billing_without_token_usage():
+    """Executions without measured token usage should not write zero-charge billing noise."""
+    record = _make_execution_record(user_id="user-001", workspace_id="ws-001")
+    report = _make_task_report(token_usage=None)
+    credit_service = MagicMock()
+    credit_service.consume_for_feature_usage = AsyncMock()
+
+    execution_svc = _make_execution_service(record=record)
+    execution_svc.db = object()
+    runtime = _make_runtime(report=report)
+
+    with patch("src.services.credit_service.CreditService", return_value=credit_service):
+        engine = ExecutionEngineV2(
+            runtime=runtime,
+            execution_service=execution_svc,
+        )
+        await engine.run("exec-001")
+
+    credit_service.consume_for_feature_usage.assert_not_awaited()
+    complete_result = execution_svc.complete_execution.await_args.kwargs["result"]
+    assert "billing" not in complete_result
+    assert "token_usage" not in complete_result
+
+
+@pytest.mark.asyncio
+async def test_engine_refunds_feature_billing_when_completion_persist_fails():
+    """If billing succeeds but completion persistence fails, the ledger must be compensated."""
+    record = _make_execution_record(user_id="user-001", workspace_id="ws-001")
+    report = _make_task_report(token_usage={"input": 12000, "output": 3000})
+    billing = SimpleNamespace(
+        as_metadata=lambda: {
+            "type": "feature_token_billing",
+            "credits_charged": 2,
+            "transaction_id": "credit-tx-1",
+            "token_usage": {"input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000},
+        }
+    )
+    credit_service = MagicMock()
+    credit_service.consume_for_feature_usage = AsyncMock(return_value=billing)
+    credit_service.refund_consumption = AsyncMock()
+
+    execution_svc = _make_execution_service(record=record)
+    execution_svc.db = object()
+    execution_svc.complete_execution = AsyncMock(
+        side_effect=[RuntimeError("execution store down"), None]
+    )
+    runtime = _make_runtime(report=report)
+
+    with patch("src.services.credit_service.CreditService", return_value=credit_service):
+        engine = ExecutionEngineV2(
+            runtime=runtime,
+            execution_service=execution_svc,
+        )
+        with pytest.raises(RuntimeError, match="execution store down"):
+            await engine.run("exec-001")
+
+    credit_service.refund_consumption.assert_awaited_once_with(
+        user_id="user-001",
+        original_transaction_id="credit-tx-1",
+        reason="执行结果持久化失败退款",
+        task_id="exec-001",
+    )
+    assert execution_svc.complete_execution.await_args_list[1].kwargs["status"] == "failed"
 
 
 @pytest.mark.asyncio

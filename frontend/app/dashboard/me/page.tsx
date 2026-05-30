@@ -94,7 +94,6 @@ export default function MyDashboardPage() {
   const threadCredit = getThreadCreditStatus(dashboard?.credits);
   const completionRate = ((dashboard?.tasks.completion_rate ?? 0) * 100).toFixed(1);
   const recentTasks = dashboard?.recent_tasks ?? [];
-  const tokenUsage = dashboard?.token_usage;
 
   return (
     <div className="min-h-screen bg-[var(--bg-base)]">
@@ -196,54 +195,17 @@ export default function MyDashboardPage() {
 
           <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-secondary)]">Token 用量</span>
+              <span className="text-sm text-[var(--text-secondary)]">主线状态</span>
               <Gauge className="w-5 h-5 text-[var(--accent-primary)]" />
             </div>
             <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
-              {tokenUsage
-                ? tokenUsage.thread.total_tokens.toLocaleString()
-                : 0}
+              {threadCredit?.can_start_thread ? "可用" : "暂停"}
             </div>
             <div className="mt-1 text-xs text-[var(--text-muted)]">
-              thread tokens（累计）
+              按实际使用折算积分
             </div>
           </div>
         </div>
-
-        {tokenUsage ? (
-          <section className="route-card rounded-2xl border p-5">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Token 用量概览</h2>
-            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">主线对话</div>
-                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
-                  {tokenUsage.thread.total_tokens.toLocaleString()}
-                </div>
-                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
-                  计费 tokens {tokenUsage.thread.billable_tokens.toLocaleString()}
-                </div>
-              </div>
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">功能执行（task）</div>
-                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
-                  {tokenUsage.feature_tasks.total_tokens.toLocaleString()}
-                </div>
-                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
-                  记录 {tokenUsage.feature_tasks.records_with_usage}/{tokenUsage.feature_tasks.records}
-                </div>
-              </div>
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">子代理</div>
-                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
-                  {tokenUsage.subagents.total_tokens.toLocaleString()}
-                </div>
-                <div className="mt-1 text-[11px] text-[var(--text-muted)]">
-                  记录 {tokenUsage.subagents.records_with_usage}/{tokenUsage.subagents.records}
-                </div>
-              </div>
-            </div>
-          </section>
-        ) : null}
 
         {threadCredit?.enabled ? (
           <section
@@ -257,8 +219,7 @@ export default function MyDashboardPage() {
               <div>
                 <h2 className="text-lg font-semibold text-[var(--text-primary)]">主线对话计费状态</h2>
                 <p className="mt-1 text-sm text-[var(--text-secondary)]">
-                  前 {threadCredit.free_tokens.toLocaleString()} tokens 免费，之后每{" "}
-                  {threadCredit.tokens_per_credit.toLocaleString()} tokens 扣 1 积分。
+                  主线对话按实际使用自动折算为积分，账单只展示积分扣减。
                 </p>
               </div>
               <div
@@ -273,15 +234,15 @@ export default function MyDashboardPage() {
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
               <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">免费额度已用</div>
+                <div className="text-xs text-[var(--text-muted)]">计费单位</div>
                 <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
-                  {threadCredit.consumed_tokens.toLocaleString()} / {threadCredit.free_tokens.toLocaleString()}
+                  积分
                 </div>
               </div>
               <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">剩余免费额度</div>
+                <div className="text-xs text-[var(--text-muted)]">扣费方式</div>
                 <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
-                  {threadCredit.remaining_free_tokens.toLocaleString()} tokens
+                  自动折算
                 </div>
               </div>
               <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">

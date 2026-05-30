@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   buildCommittedRoomLinks,
   commitExecutionOutputs,
   type CommittedRoomLink,
 } from "@/lib/execution-commit";
+import { groupWorkspaceResultPreviews } from "@/lib/workspace-result-kind";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import {
   PrismReviewList,
   prismReviewItemHref,
 } from "@/components/prism/PrismReviewList";
 import type { ResultCardData } from "@/stores/chat-store";
-import { CommitActionBar } from "./result-preview/CommitActionBar";
-import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
+import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
 
 function generateUUID(): string {
@@ -47,51 +47,23 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     () => buildWorkspaceResultPreviewsFromOutputs(outputs),
     [outputs],
   );
-  const [expanded, setExpanded] = useState(false);
-  const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
+  const previewGroups = useMemo(
+    () => groupWorkspaceResultPreviews(previews),
+    [previews],
+  );
+  const representativePreviews = useMemo(() => previews.slice(0, 3), [previews]);
+  const selectRun = useWorkbenchLayoutStore((state) => state.selectRun);
+  const setActiveWorkbenchTab = useWorkbenchLayoutStore(
+    (state) => state.setActiveWorkbenchTab,
+  );
+  const setWorkbenchFullscreen = useWorkbenchLayoutStore(
+    (state) => state.setWorkbenchFullscreen,
+  );
   const [idempotencyKey] = useState(() => generateUUID());
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => {
-    const ids = new Set<string>();
-    for (const preview of previews) {
-      if (preview.defaultChecked) {
-        ids.add(preview.id);
-      }
-    }
-    return ids;
-  });
   const [committed, setCommitted] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [commitLinks, setCommitLinks] = useState<CommittedRoomLink[]>([]);
   const [commitError, setCommitError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (previews.length === 0) {
-      setSelectedPreviewId(null);
-      return;
-    }
-    setSelectedPreviewId((current) =>
-      current && previews.some((preview) => preview.id === current)
-        ? current
-        : previews[0].id,
-    );
-  }, [previews]);
-
-  const selectedPreview =
-    previews.find((preview) => preview.id === selectedPreviewId) ??
-    previews[0] ??
-    null;
-
-  function toggleChecked(id: string) {
-    setCheckedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  }
 
   async function commit(body: object) {
     if (committed || committing) {
@@ -122,6 +94,12 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     } finally {
       setCommitting(false);
     }
+  }
+
+  function openReviewSurface() {
+    selectRun(execution_id);
+    setActiveWorkbenchTab("review");
+    setWorkbenchFullscreen(true);
   }
 
   const statusLabel =
@@ -160,78 +138,90 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
         </div>
       ) : null}
 
-      <div style={styles.receiptRow}>
-        <div style={styles.receiptMeta}>
-          <span>{previews.length} 项结果待处理</span>
-        </div>
-        {previews.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            style={styles.toggleButton}
-          >
-            {expanded ? "收起结果" : "查看结果"}
-          </button>
-        ) : null}
-      </div>
-
-      {expanded ? (
-        <div style={styles.expandedShell}>
-          <div style={styles.previewList}>
-            {previews.map((preview) => {
-              const isSelected = preview.id === selectedPreview?.id;
-              return (
-                <label
-                  key={preview.id}
+      {previews.length > 0 ? (
+        <div style={styles.packageShell}>
+          <div style={styles.packageHeader}>
+            <div style={styles.receiptMeta}>
+              <span>{previews.length} 项结果待处理</span>
+            </div>
+            <div style={styles.groupStats}>
+              {previewGroups.map((group) => (
+                <span
+                  key={group.kind}
                   style={{
-                    ...styles.previewRow,
-                    ...(isSelected ? styles.previewRowSelected : {}),
+                    ...styles.groupStat,
+                    color: group.meta.accent,
+                    background: group.meta.tint,
+                    borderColor: group.meta.border,
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={checkedIds.has(preview.id)}
-                    onChange={() => toggleChecked(preview.id)}
-                    onClick={(event) => event.stopPropagation()}
-                    disabled={committed}
-                    style={styles.checkbox}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setSelectedPreviewId(preview.id)}
-                    style={styles.previewSelectButton}
-                  >
-                    <div style={styles.previewTitle}>{preview.title}</div>
-                    {preview.subtitle ? (
-                      <div style={styles.previewSubtitle}>{preview.subtitle}</div>
-                    ) : null}
-                    {preview.previewText ? (
-                      <div style={styles.previewSnippet}>
-                        {summarize(preview.previewText)}
-                      </div>
-                    ) : null}
-                  </button>
-                </label>
-              );
-            })}
+                  {group.meta.groupLabel}
+                  <strong style={styles.groupStatCount}>{group.items.length}</strong>
+                </span>
+              ))}
+            </div>
           </div>
 
-          <ResultPreviewDetail preview={selectedPreview} />
+          {representativePreviews.length > 0 ? (
+            <div style={styles.representativeList}>
+              {representativePreviews.map((preview) => {
+                const groupMeta = previewGroups.find(
+                  (group) => group.kind === preview.kind,
+                )?.meta;
+                return (
+                  <div key={preview.id} style={styles.representativeItem}>
+                    <span
+                      style={{
+                        ...styles.previewKindBadge,
+                        color: groupMeta?.accent ?? "var(--v2-text-secondary)",
+                        background: groupMeta?.tint ?? "rgba(20,20,30,0.06)",
+                        borderColor: groupMeta?.border ?? "rgba(20,20,30,0.1)",
+                      }}
+                    >
+                      {groupMeta?.shortLabel ?? "输出"}
+                    </span>
+                    <div style={styles.representativeText}>
+                      <div style={styles.previewTitle}>{preview.title}</div>
+                      {preview.subtitle ? (
+                        <div style={styles.previewSubtitle}>{preview.subtitle}</div>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
 
-          <div style={styles.commitBar}>
-            <CommitActionBar
-              committed={committed}
-              committing={committing}
-              onAcceptAll={() => commit({ accept_all: true })}
-              onAcceptSelected={() =>
-                commit({ accepted_ids: Array.from(checkedIds) })
-              }
-              onDiscard={() => commit({ accepted_ids: [] })}
-              acceptAllLabel="保存到工作区"
-              acceptSelectedLabel="仅保存勾选项"
-              discardLabel="暂不保存"
-              committedLabel="已保存到工作区"
-            />
+          <div style={styles.actionRow}>
+            <button
+              type="button"
+              onClick={() => commit({ accept_all: true })}
+              disabled={committed || committing}
+              style={{
+                ...styles.primaryButton,
+                ...(committed || committing ? styles.buttonDisabled : null),
+              }}
+            >
+              {committed ? "已保存到工作区" : committing ? "保存中..." : "保存到工作区"}
+            </button>
+            <button
+              type="button"
+              onClick={openReviewSurface}
+              style={styles.secondaryButton}
+            >
+              查看详情
+            </button>
+            <button
+              type="button"
+              onClick={() => commit({ accepted_ids: [] })}
+              disabled={committed || committing}
+              style={{
+                ...styles.ghostButton,
+                ...(committed || committing ? styles.buttonDisabled : null),
+              }}
+            >
+              暂不保存
+            </button>
           </div>
           {commitError ? (
             <div style={styles.commitError}>{commitError}</div>
@@ -253,14 +243,6 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       ) : null}
     </div>
   );
-}
-
-function summarize(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 92) {
-    return normalized;
-  }
-  return `${normalized.slice(0, 89)}...`;
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -313,61 +295,107 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 650,
     color: "var(--v2-accent-purple-700)",
   },
-  receiptRow: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
+  packageShell: {
+    display: "grid",
     gap: 12,
+  },
+  packageHeader: {
+    display: "grid",
+    gap: 8,
   },
   receiptMeta: {
     fontSize: 12,
     color: "var(--v2-text-tertiary)",
   },
-  toggleButton: {
+  groupStats: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 7,
+  },
+  groupStat: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    height: 24,
+    padding: "0 9px",
+    borderRadius: "var(--v2-radius-pill)",
+    border: "1px solid",
+    fontSize: 11.5,
+    fontWeight: 750,
+  },
+  groupStatCount: {
+    fontSize: 11,
+    fontWeight: 800,
+    fontVariantNumeric: "tabular-nums",
+  },
+  representativeList: {
+    display: "grid",
+    gap: 7,
+  },
+  representativeItem: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 9,
+    padding: "8px 9px",
+    borderRadius: "var(--v2-radius-md)",
+    border: "1px solid rgba(20,20,30,0.06)",
+    background: "rgba(255,255,255,0.62)",
+  },
+  representativeText: {
+    minWidth: 0,
+  },
+  actionRow: {
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  primaryButton: {
+    border: "1px solid var(--v2-accent-purple-700)",
+    background: "var(--v2-accent-purple-700)",
+    color: "#fff",
+    borderRadius: "var(--v2-radius-pill)",
+    padding: "7px 12px",
+    fontSize: 12.5,
+    fontWeight: 650,
+    cursor: "pointer",
+  },
+  secondaryButton: {
     border: "1px solid rgba(124, 58, 237, 0.18)",
     background: "rgba(124, 58, 237, 0.08)",
     color: "var(--v2-accent-purple-700)",
     borderRadius: "var(--v2-radius-pill)",
-    padding: "6px 12px",
+    padding: "7px 12px",
     fontSize: 12.5,
-    fontWeight: 600,
+    fontWeight: 650,
     cursor: "pointer",
   },
-  expandedShell: {
-    marginTop: "var(--v2-space-4)",
-    display: "grid",
-    gap: 12,
-  },
-  previewList: {
-    display: "grid",
-    gap: 8,
-  },
-  previewRow: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 10,
-    padding: "10px 12px",
-    borderRadius: "var(--v2-radius-md)",
+  ghostButton: {
     border: "1px solid rgba(20, 20, 30, 0.08)",
     background: "rgba(255, 255, 255, 0.72)",
-  },
-  previewRowSelected: {
-    border: "1px solid rgba(124, 58, 237, 0.24)",
-    background: "rgba(124, 58, 237, 0.06)",
-    boxShadow: "0 0 0 3px rgba(124, 58, 237, 0.08)",
-  },
-  checkbox: {
-    marginTop: 3,
-    accentColor: "var(--v2-accent-purple-700)",
+    color: "var(--v2-text-secondary)",
+    borderRadius: "var(--v2-radius-pill)",
+    padding: "7px 12px",
+    fontSize: 12.5,
+    fontWeight: 550,
     cursor: "pointer",
   },
-  previewSelectButton: {
-    flex: 1,
-    border: "none",
-    background: "transparent",
-    padding: 0,
-    textAlign: "left",
-    cursor: "pointer",
+  buttonDisabled: {
+    opacity: 0.58,
+    cursor: "default",
+  },
+  previewKindBadge: {
+    width: 38,
+    height: 22,
+    flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: "var(--v2-radius-pill)",
+    border: "1px solid",
+    fontSize: 11,
+    fontWeight: 750,
+    lineHeight: 1,
   },
   previewTitle: {
     fontSize: 13,
@@ -379,14 +407,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: "var(--v2-text-tertiary)",
     marginBottom: 4,
-  },
-  previewSnippet: {
-    fontSize: 12.5,
-    lineHeight: 1.5,
-    color: "var(--v2-text-secondary)",
-  },
-  commitBar: {
-    paddingTop: 2,
   },
   commitError: {
     padding: "8px 10px",

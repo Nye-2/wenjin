@@ -12,7 +12,6 @@ interface WorkbenchLayoutState {
   splitRatio: number;
   isWorkbenchFullscreen: boolean;
   activeWorkbenchTab: WorkbenchTab;
-  manualTabLock: boolean;
   selectedRunId: string | null;
   selectedNodeId: string | null;
   draftEdits: Record<string, WorkbenchDraftEdit>;
@@ -20,9 +19,8 @@ interface WorkbenchLayoutState {
   resetSplitRatio: () => void;
   setWorkbenchFullscreen: (fullscreen: boolean) => void;
   toggleWorkbenchFullscreen: () => void;
-  setActiveWorkbenchTab: (tab: WorkbenchTab, manual?: boolean) => void;
+  setActiveWorkbenchTab: (tab: WorkbenchTab) => void;
   setAutoWorkbenchTab: (tab: WorkbenchTab) => void;
-  releaseTabLock: () => void;
   selectRun: (runId: string | null) => void;
   selectNode: (nodeId: string | null) => void;
   setDraftEdit: (outputId: string, edit: WorkbenchDraftEdit | null) => void;
@@ -48,7 +46,6 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
       splitRatio: DEFAULT_SPLIT_RATIO,
       isWorkbenchFullscreen: false,
       activeWorkbenchTab: "overview",
-      manualTabLock: false,
       selectedRunId: null,
       selectedNodeId: null,
       draftEdits: {},
@@ -71,18 +68,12 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
         }));
       },
 
-      setActiveWorkbenchTab(tab, manual = true) {
-        set({ activeWorkbenchTab: tab, manualTabLock: manual });
+      setActiveWorkbenchTab(tab) {
+        set({ activeWorkbenchTab: tab });
       },
 
       setAutoWorkbenchTab(tab) {
-        set((state) =>
-          state.manualTabLock ? state : { activeWorkbenchTab: tab },
-        );
-      },
-
-      releaseTabLock() {
-        set({ manualTabLock: false });
+        set({ activeWorkbenchTab: tab });
       },
 
       selectRun(runId) {
@@ -138,7 +129,6 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
           splitRatio: DEFAULT_SPLIT_RATIO,
           isWorkbenchFullscreen: false,
           activeWorkbenchTab: "overview",
-          manualTabLock: false,
           selectedRunId: null,
           selectedNodeId: null,
           draftEdits: {},
@@ -152,7 +142,6 @@ export const useWorkbenchLayoutStore = create<WorkbenchLayoutState>()(
         splitRatio: state.splitRatio,
         isWorkbenchFullscreen: state.isWorkbenchFullscreen,
         activeWorkbenchTab: state.activeWorkbenchTab,
-        manualTabLock: state.manualTabLock,
         selectedRunId: state.selectedRunId,
         selectedNodeId: state.selectedNodeId,
         draftEdits: state.draftEdits,

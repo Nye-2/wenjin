@@ -365,11 +365,6 @@ export function RunsDrawer({
                     {formatDuration(item.startedAt || "", item.completedAt)}
                   </span>
                 )}
-                {item.tokenUsage && (
-                  <span>
-                    {item.tokenUsage.input + item.tokenUsage.output} tokens
-                  </span>
-                )}
               </div>
               <div
                 style={{

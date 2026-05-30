@@ -13,7 +13,7 @@ from src.dataservice_client.contracts.credit import (
     CreditRefundPayload,
     CreditSummaryPayload,
 )
-from src.services.billing_policy import TokenBillingPolicy
+from src.services.billing_policy import OperationBillingPolicy, TokenBillingPolicy
 from src.services.credit_service import CreditService
 
 
@@ -23,6 +23,7 @@ class FakeCreditClient:
         self.transactions: list[SimpleNamespace] = []
         self._counter = 0
         self._refunded: set[str] = set()
+        self._idempotency_index: dict[tuple[str, str, str], SimpleNamespace] = {}
 
     def add_user(self, user_id: str = "user-1", *, credits: int = 10) -> None:
         self.balances[user_id] = credits
@@ -105,6 +106,13 @@ class FakeCreditClient:
         before = self.balances.get(command.user_id)
         if before is None:
             raise ValueError("User not found")
+        idempotency_key = str(command.metadata.get("idempotency_key") or "").strip()
+        if idempotency_key:
+            existing = self._idempotency_index.get(
+                (command.user_id, command.transaction_type, idempotency_key)
+            )
+            if existing is not None:
+                return existing, before
         after = before - command.amount
         self.balances[command.user_id] = after
         self._counter += 1
@@ -112,7 +120,7 @@ class FakeCreditClient:
             id=f"tx-{self._counter}",
             user_id=command.user_id,
             transaction_type=command.transaction_type,
-            amount=command.amount,
+            amount=-command.amount,
             balance_after=after,
             description=command.description,
             feature_id=command.feature_id,
@@ -123,18 +131,23 @@ class FakeCreditClient:
             created_at=None,
         )
         self.transactions.append(tx)
+        if idempotency_key:
+            self._idempotency_index[
+                (command.user_id, command.transaction_type, idempotency_key)
+            ] = tx
         return tx, before
 
     async def refund_credit_consumption(self, command: CreditRefundPayload):
         original = next(tx for tx in self.transactions if tx.id == command.original_transaction_id)
+        refund_amount = abs(int(original.amount))
         self._refunded.add(original.id)
-        self.balances[command.user_id] = self.balances.get(command.user_id, 0) + int(original.amount)
+        self.balances[command.user_id] = self.balances.get(command.user_id, 0) + refund_amount
         self._counter += 1
         tx = SimpleNamespace(
             id=f"refund-{self._counter}",
             user_id=command.user_id,
             transaction_type="refund",
-            amount=int(original.amount),
+            amount=refund_amount,
             balance_after=self.balances[command.user_id],
             description=command.reason,
             feature_id=original.feature_id,
@@ -271,6 +284,137 @@ async def test_can_start_feature_task_allows_free_feature_quota(
 
 
 @pytest.mark.asyncio
+async def test_can_start_sandbox_operation_blocks_when_balance_empty(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=0)
+
+    assert await credit_service.can_start_sandbox_operation("user-1", "run_python") is False
+
+
+@pytest.mark.asyncio
+async def test_consume_for_sandbox_operation_charges_fixed_credits(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=10)
+
+    result = await credit_service.consume_for_sandbox_operation(
+        user_id="user-1",
+        operation="run_python",
+        workspace_id="ws-1",
+        task_id="exec-1",
+        node_id="phase__sandbox",
+    )
+
+    assert result.operation == "run_python"
+    assert result.credits_charged == 1
+    assert result.charged is True
+    assert result.balance_after == 9
+    assert await credit_service.get_balance("user-1") == 9
+
+    tx = next(tx for tx in fake_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.transaction_type == "workflow_consume"
+    assert tx.feature_id == "sandbox.run_python"
+    assert tx.workspace_id == "ws-1"
+    assert tx.task_id == "exec-1"
+    assert tx.metadata["type"] == "sandbox_operation_billing"
+    assert tx.metadata["operation"] == "run_python"
+    assert tx.metadata["credits_charged"] == 1
+    assert tx.metadata["policy"]["max_overdraft_credits"] == 100
+    assert tx.metadata["idempotency_key"] == "sandbox_operation_billing:exec-1:phase__sandbox:run_python"
+
+
+@pytest.mark.asyncio
+async def test_sandbox_operation_consumption_replays_by_execution_node_idempotency(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=10)
+
+    first = await credit_service.consume_for_sandbox_operation(
+        user_id="user-1",
+        operation="run_python",
+        workspace_id="ws-1",
+        task_id="exec-1",
+        node_id="phase__sandbox",
+    )
+    second = await credit_service.consume_for_sandbox_operation(
+        user_id="user-1",
+        operation="run_python",
+        workspace_id="ws-1",
+        task_id="exec-1",
+        node_id="phase__sandbox",
+    )
+
+    workflow_transactions = [
+        tx for tx in fake_credit_client.transactions
+        if tx.transaction_type == "workflow_consume"
+    ]
+    assert second.transaction_id == first.transaction_id
+    assert second.balance_after == first.balance_after
+    assert len(workflow_transactions) == 1
+    assert await credit_service.get_balance("user-1") == 9
+
+
+@pytest.mark.asyncio
+async def test_sandbox_operation_billing_disabled_records_no_transaction(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_credit_client.add_user(credits=0)
+    monkeypatch.setattr(
+        CreditService,
+        "get_sandbox_billing_policy",
+        staticmethod(
+            lambda: OperationBillingPolicy(
+                enabled=False,
+                run_python_credits=1,
+                max_overdraft_credits=100,
+            )
+        ),
+    )
+
+    assert await credit_service.can_start_sandbox_operation("user-1", "run_python") is True
+    result = await credit_service.consume_for_sandbox_operation(
+        user_id="user-1",
+        operation="run_python",
+        task_id="exec-1",
+        node_id="phase__sandbox",
+    )
+
+    assert result.charged is False
+    assert result.credits_charged == 0
+    assert fake_credit_client.transactions == []
+
+
+@pytest.mark.asyncio
+async def test_user_credit_history_sanitizes_internal_token_metadata(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=10)
+    await credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"total_tokens": 15000},
+        task_id="exec-1",
+    )
+
+    items, total = await credit_service.get_history(user_id="user-1")
+
+    assert total == 1
+    assert items[0]["metadata"]["type"] == "feature_token_billing"
+    assert items[0]["metadata"]["credits_charged"] == 2
+    assert "token_usage" not in items[0]["metadata"]
+    assert "billable_tokens" not in items[0]["metadata"]
+    assert "policy" not in items[0]["metadata"]
+    assert "idempotency_key" not in items[0]["metadata"]
+
+
+@pytest.mark.asyncio
 async def test_refund_consumption_releases_free_chat_tokens(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
@@ -329,6 +473,43 @@ async def test_consume_for_thread_usage_allows_dataservice_atomic_overdraft(
 
 
 @pytest.mark.asyncio
+async def test_thread_usage_consumption_sends_overdraft_policy(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=1)
+
+    result = await credit_service.consume_for_thread_usage(
+        user_id="user-1",
+        token_usage={"total_tokens": 120000},
+        model_name="gpt-4o",
+        thread_id="thread-1",
+    )
+
+    tx = next(tx for tx in fake_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.metadata["policy"]["max_overdraft_credits"] == 100
+
+
+@pytest.mark.asyncio
+async def test_thread_usage_consumption_preserves_idempotency_key(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=10)
+
+    result = await credit_service.consume_for_thread_usage(
+        user_id="user-1",
+        token_usage={"total_tokens": 120000},
+        model_name="gpt-4o",
+        thread_id="thread-1",
+        metadata={"idempotency_key": "thread_token_billing:msg-1"},
+    )
+
+    tx = next(tx for tx in fake_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.metadata["idempotency_key"] == "thread_token_billing:msg-1"
+
+
+@pytest.mark.asyncio
 async def test_consume_for_feature_usage_charges_by_tokens(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
@@ -349,6 +530,56 @@ async def test_consume_for_feature_usage_charges_by_tokens(
     assert result.charged is True
     assert await credit_service.get_balance("user-1") == 8
     assert await credit_service.get_consumed_feature_tokens("user-1") == 15000
+
+
+@pytest.mark.asyncio
+async def test_feature_usage_consumption_sends_overdraft_policy(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=1)
+
+    result = await credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"total_tokens": 15000},
+        task_id="task-1",
+    )
+
+    tx = next(tx for tx in fake_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.metadata["policy"]["max_overdraft_credits"] == 100
+
+
+@pytest.mark.asyncio
+async def test_feature_usage_consumption_replays_by_task_id_idempotency(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=10)
+
+    first = await credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"total_tokens": 15000},
+        task_id="exec-1",
+    )
+    second = await credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"total_tokens": 15000},
+        task_id="exec-1",
+    )
+
+    workflow_transactions = [
+        tx for tx in fake_credit_client.transactions
+        if tx.transaction_type == "workflow_consume"
+    ]
+    assert second.transaction_id == first.transaction_id
+    assert second.historical_tokens_before == first.historical_tokens_before
+    assert len(workflow_transactions) == 1
+    assert await credit_service.get_balance("user-1") == 8
+    assert await credit_service.get_consumed_feature_tokens("user-1") == 15000
+    assert workflow_transactions[0].metadata["idempotency_key"] == "feature_token_billing:exec-1"
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,8 @@
     "workspaces": "Workspaces",
     "userDashboard": "Account Overview",
     "adminDashboard": "Admin Overview",
+    "creditBalance": "Current credits",
+    "creditDashboard": "Open credits dashboard",
     "settings": "Settings",
     "logout": "Logout",
     "productTagline": "Evidence-backed research navigation"

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import ast
+import asyncio
 import base64
 import inspect
 import json
@@ -1007,7 +1007,7 @@ class ThreadTurnHandler:
                 for attachment in request.attachments
             ]
 
-        await self.thread_service.add_message(
+        user_message = await self.thread_service.add_message(
             thread,
             role="user",
             content=request.message,
@@ -1020,7 +1020,16 @@ class ThreadTurnHandler:
             skill=thread.skill,
             skill_name=None,
         )
-        return PreparedThreadTurn(request=request, thread=thread)
+        user_message_id = (
+            str(user_message.get("id") or "").strip()
+            if isinstance(user_message, Mapping)
+            else ""
+        )
+        return PreparedThreadTurn(
+            request=request,
+            thread=thread,
+            user_message_id=user_message_id or None,
+        )
 
     @staticmethod
     def _requires_thread_turn_budget(request: ThreadTurnRequest, thread: Thread) -> bool:
@@ -1221,6 +1230,7 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
         thread: Thread,
+        user_message_id: str | None = None,
     ) -> dict[str, Any] | None:
         raw_usage = (
             reply.metadata.get("usage")
@@ -1236,6 +1246,17 @@ class ThreadTurnHandler:
         if normalized_usage is None:
             return None
 
+        billing_context = {
+            "source": (
+                usage_metadata.get("source", "thread")
+                if usage_metadata is not None
+                else "thread"
+            )
+        }
+        if user_message_id:
+            billing_context["user_message_id"] = user_message_id
+            billing_context["idempotency_key"] = f"thread_token_billing:{user_message_id}"
+
         async with get_db_session() as db:
             credit_service = CreditService(db)
             billing = await credit_service.consume_for_thread_usage(
@@ -1244,13 +1265,7 @@ class ThreadTurnHandler:
                 model_name=usage_metadata.get("model_name") if usage_metadata else None,
                 workspace_id=thread.workspace_id,
                 thread_id=thread.id,
-                metadata={
-                    "source": (
-                        usage_metadata.get("source", "thread")
-                        if usage_metadata is not None
-                        else "thread"
-                    )
-                },
+                metadata=billing_context,
             )
 
         reply.metadata = dict(reply.metadata or {})
@@ -1273,6 +1288,7 @@ class ThreadTurnHandler:
                 reply,
                 actor_id=actor_id,
                 thread=thread,
+                user_message_id=prepared.user_message_id,
             )
             assistant_message = await self._persist_thread_reply(
                 thread=thread,
@@ -1464,10 +1480,8 @@ async def ensure_thread_turn_budget(actor_id: str) -> None:
         allowed = await credit_service.can_start_thread_turn(actor_id)
         if allowed:
             return
-        policy = credit_service.get_thread_billing_policy()
         raise PaymentRequiredError(
-            f"Thread 免费额度已用尽。当前策略为前 {policy.free_tokens} tokens 免费，"
-            "后续按 token 扣积分，请先补充积分。"
+            "主线对话积分额度不足，请先补充积分后继续。"
         )
 
 
@@ -1552,6 +1566,7 @@ async def generate_thread_response(
         request,
         thread,
         actor_id=actor_id,
+        execution_id=execution_id,
         workspace_service=workspace_service,
         index_service=index_service,
         artifact_service=artifact_service,
@@ -1622,6 +1637,7 @@ def stream_thread_response(
                 request,
                 thread,
                 actor_id=actor_id,
+                execution_id=execution_id,
                 workspace_service=workspace_service,
                 index_service=index_service,
                 artifact_service=artifact_service,
