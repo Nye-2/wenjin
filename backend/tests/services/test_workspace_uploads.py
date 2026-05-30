@@ -54,3 +54,18 @@ def test_resolve_workspace_upload_stored_path_rejects_root_prefixed_relative_by_
             "/references/_preprocessed/paper/doc_0.md",
             root=root,
         )
+
+
+def test_resolve_workspace_upload_stored_path_rejects_workspace_root_prefixed_relative(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.chdir(tmp_path)
+    root = Path("workspace_uploads")
+
+    with pytest.raises(ValueError, match="workspace-relative"):
+        resolve_workspace_upload_stored_path(
+            "ws-1",
+            "workspace_uploads/ws-1/context/paper.pdf",
+            root=root,
+        )

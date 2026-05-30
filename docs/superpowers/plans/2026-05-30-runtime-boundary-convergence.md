@@ -107,9 +107,17 @@
   - Rerun/follow-up state 只从显式 mission params 或 source artifact title/content 推导。
   - `_GOAL_KEYS` 补齐 `description`、`keywords`，确保已有显式参数仍可生成 canonical goal。
   - Architecture guard 新增 `test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks`。
+- Current workspace upload path boundary follow-up
+  - `resolve_workspace_upload_stored_path` 删除 cwd-relative workspace-root-prefixed 历史路径解析分支。
+  - Stored path 只接受 workspace-relative path、root-prefixed virtual relative path（显式 `allow_root_prefixed_relative=True`）或 workspace-root 内绝对路径。
+  - Architecture guard 新增 `test_workspace_uploads_do_not_accept_legacy_root_prefixed_relative_paths`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/services/workspace_uploads.py tests/services/test_workspace_uploads.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_workspace_uploads.py tests/services/test_template_service.py tests/services/test_reference_import_service.py tests/agents/middlewares/test_uploads_middleware.py tests/task/test_document_preprocess_handler.py tests/gateway/routers/test_uploads.py tests/architecture/test_dataservice_boundaries.py::test_workspace_uploads_do_not_accept_legacy_root_prefixed_relative_paths -q` -> 28 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 28 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2023 passed.
 - `cd backend && .venv/bin/python -m ruff check src/services/feature_action_resolution_service.py tests/task/test_workspace_feature_actions_runtime.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_workspace_feature_actions_runtime.py tests/gateway/routers/test_workspace_activity.py tests/architecture/test_dataservice_boundaries.py::test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks -q` -> 36 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 27 passed.

@@ -1085,6 +1085,22 @@ def test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks(
     )
 
 
+def test_workspace_uploads_do_not_accept_legacy_root_prefixed_relative_paths() -> None:
+    """Stored upload paths must be absolute-under-root or workspace-relative."""
+
+    path = SRC_ROOT / "services" / "workspace_uploads.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "Backward-compat",
+        "legacy_candidate",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Workspace upload resolver still accepts legacy root-prefixed relative paths: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
