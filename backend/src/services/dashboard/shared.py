@@ -25,7 +25,7 @@ class DashboardStatusSharedMixin:
             if isinstance(skill_id, str) and skill_id.strip()
         ]
         async with self._client() as client:
-            return await client.count_legacy_artifacts(
+            return await client.count_workspace_artifacts(
                 workspace_id=workspace_id,
                 artifact_type=artifact_type,
                 created_by_skill=created_by_skill,
@@ -46,7 +46,7 @@ class DashboardStatusSharedMixin:
             if isinstance(skill_id, str) and skill_id.strip()
         ]
         async with self._client() as client:
-            artifacts = await client.list_legacy_artifacts(
+            artifacts = await client.list_workspace_artifacts(
                 workspace_id=workspace_id,
                 artifact_type=artifact_type,
                 created_by_skill=created_by_skill,
@@ -76,7 +76,7 @@ class DashboardStatusSharedMixin:
         if not normalized_artifact_types:
             return []
         async with self._client() as client:
-            return await client.list_legacy_artifacts(
+            return await client.list_workspace_artifacts(
                 workspace_id=workspace_id,
                 artifact_types=normalized_artifact_types,
                 created_by_skills=normalized_creator_skills or None,

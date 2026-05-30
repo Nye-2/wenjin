@@ -44,7 +44,7 @@ class FakeDashboardClient:
             workspace_type="thesis",
         )
         self.capabilities = list(capabilities or [])
-        self.list_legacy_artifacts = AsyncMock(return_value=[])
+        self.list_workspace_artifacts = AsyncMock(return_value=[])
         self.count_running_feature_executions = AsyncMock(return_value=0)
         self.get_latest_feature_execution_status = AsyncMock(return_value=None)
 

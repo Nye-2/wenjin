@@ -20,28 +20,18 @@ from pydantic import BaseModel
 from src.academic.services import ArtifactService, WorkspaceService
 from src.agents.middlewares.thread_data import get_thread_data_root
 from src.database import User
-from src.gateway.access_control import (
-    owner_check_session_from_service as _owner_check_session_from_service,
-)
-from src.gateway.access_control import (
-    require_workspace_owner_by_session as _require_workspace_owner,
-)
+from src.dataservice_client import AsyncDataServiceClient
 from src.gateway.auth_dependencies import get_current_user, get_current_user_optional
 from src.gateway.contracts.artifact import (
     ArtifactResponse,
     ArtifactsListResponse,
     artifact_to_responses,
 )
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.deps import (
     get_artifact_service,
     get_thread_service,
     get_workspace_service,
-)
-from src.gateway.resource_access import (
-    ensure_workspace_owner_for_service as _ensure_workspace_owner_for_artifact_service,
-)
-from src.gateway.resource_access import (
-    get_workspace_artifact_or_404 as _get_workspace_artifact_or_404,
 )
 from src.gateway.routers.workspaces_runtime import get_owned_workspace
 from src.gateway.validators.artifact import (
@@ -131,14 +121,13 @@ async def _create_workspace_artifact(
     current_user: User,
     artifact_service: ArtifactService,
     workspace_service: WorkspaceService,
+    dataservice: AsyncDataServiceClient,
 ) -> ArtifactResponse:
     """Create an artifact within a workspace-scoped canonical route."""
-    await _ensure_workspace_owner_for_artifact_service(
-        artifact_service,
+    await get_owned_workspace(
         workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        owner_session_resolver=_owner_check_session_from_service,
-        require_workspace_owner=_require_workspace_owner,
+        current_user=current_user,
+        workspace_service=workspace_service,
     )
     # ``created_by_skill`` is accepted verbatim — capability/skill validity is
     # enforced by ``launch_feature`` against the DB capability catalog, not
@@ -155,7 +144,7 @@ async def _create_workspace_artifact(
 
     # Associate newly-created artifact with the canonical ExecutionRecord.
     if request.execution_id:
-        execution_service = ExecutionService(artifact_service.db)
+        execution_service = ExecutionService(dataservice=dataservice)
         execution = await execution_service.get_by_id(request.execution_id)
         if execution is not None:
             await execution_service.append_artifact_id(
@@ -173,14 +162,13 @@ async def _list_workspace_artifacts(
     artifact_type: str | None,
     current_user: User,
     artifact_service: ArtifactService,
+    workspace_service: WorkspaceService,
 ) -> ArtifactsListResponse:
     """List artifacts within a workspace-scoped canonical route."""
-    await _ensure_workspace_owner_for_artifact_service(
-        artifact_service,
+    await get_owned_workspace(
         workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        owner_session_resolver=_owner_check_session_from_service,
-        require_workspace_owner=_require_workspace_owner,
+        current_user=current_user,
+        workspace_service=workspace_service,
     )
 
     artifacts = await artifact_service.list_by_workspace(
@@ -199,16 +187,20 @@ async def _get_workspace_artifact(
     artifact_id: str,
     current_user: User,
     artifact_service: ArtifactService,
+    workspace_service: WorkspaceService,
 ) -> ArtifactResponse:
     """Get a workspace-scoped artifact."""
-    artifact = await _get_workspace_artifact_or_404(
-        artifact_service,
-        artifact_id=artifact_id,
+    await get_owned_workspace(
         workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        owner_session_resolver=_owner_check_session_from_service,
-        require_workspace_owner=_require_workspace_owner,
+        current_user=current_user,
+        workspace_service=workspace_service,
     )
+    artifact = await artifact_service.get(artifact_id)
+    if not artifact or str(artifact.workspace_id) != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
     return artifact_to_responses([artifact])[0]
 
 
@@ -219,16 +211,20 @@ async def _update_workspace_artifact(
     request: UpdateArtifactValidator,
     current_user: User,
     artifact_service: ArtifactService,
+    workspace_service: WorkspaceService,
 ) -> ArtifactResponse:
     """Update a workspace-scoped artifact."""
-    await _get_workspace_artifact_or_404(
-        artifact_service,
-        artifact_id=artifact_id,
+    await get_owned_workspace(
         workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        owner_session_resolver=_owner_check_session_from_service,
-        require_workspace_owner=_require_workspace_owner,
+        current_user=current_user,
+        workspace_service=workspace_service,
     )
+    existing = await artifact_service.get(artifact_id)
+    if not existing or str(existing.workspace_id) != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
 
     artifact = await artifact_service.update(
         artifact_id=artifact_id,
@@ -251,16 +247,20 @@ async def _delete_workspace_artifact(
     artifact_id: str,
     current_user: User,
     artifact_service: ArtifactService,
+    workspace_service: WorkspaceService,
 ) -> dict[str, object]:
     """Delete a workspace-scoped artifact."""
-    await _get_workspace_artifact_or_404(
-        artifact_service,
-        artifact_id=artifact_id,
+    await get_owned_workspace(
         workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        owner_session_resolver=_owner_check_session_from_service,
-        require_workspace_owner=_require_workspace_owner,
+        current_user=current_user,
+        workspace_service=workspace_service,
     )
+    existing = await artifact_service.get(artifact_id)
+    if not existing or str(existing.workspace_id) != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
 
     success = await artifact_service.delete(artifact_id)
     if not success:
@@ -277,16 +277,20 @@ async def _get_workspace_artifact_lineage(
     artifact_id: str,
     current_user: User,
     artifact_service: ArtifactService,
+    workspace_service: WorkspaceService,
 ) -> list[ArtifactResponse]:
     """Get lineage for a workspace-scoped artifact."""
-    await _get_workspace_artifact_or_404(
-        artifact_service,
-        artifact_id=artifact_id,
+    await get_owned_workspace(
         workspace_id=workspace_id,
-        user_id=str(current_user.id),
-        owner_session_resolver=_owner_check_session_from_service,
-        require_workspace_owner=_require_workspace_owner,
+        current_user=current_user,
+        workspace_service=workspace_service,
     )
+    existing = await artifact_service.get(artifact_id)
+    if not existing or str(existing.workspace_id) != workspace_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Artifact not found",
+        )
 
     lineage = await artifact_service.get_lineage(artifact_id)
     return artifact_to_responses(lineage)
@@ -474,6 +478,7 @@ async def create_workspace_artifact(
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ArtifactResponse:
     """Canonical workspace-scoped artifact creation route."""
     return await _create_workspace_artifact(
@@ -482,6 +487,7 @@ async def create_workspace_artifact(
         current_user=current_user,
         artifact_service=artifact_service,
         workspace_service=workspace_service,
+        dataservice=dataservice,
     )
 
 
@@ -494,6 +500,7 @@ async def list_workspace_artifacts(
     type: str | None = None,
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> ArtifactsListResponse:
     """Canonical workspace-scoped artifact list route."""
     return await _list_workspace_artifacts(
@@ -501,6 +508,7 @@ async def list_workspace_artifacts(
         artifact_type=type,
         current_user=current_user,
         artifact_service=artifact_service,
+        workspace_service=workspace_service,
     )
 
 
@@ -513,6 +521,7 @@ async def get_workspace_artifact(
     artifact_id: str,
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> ArtifactResponse:
     """Canonical workspace-scoped artifact detail route."""
     return await _get_workspace_artifact(
@@ -520,6 +529,7 @@ async def get_workspace_artifact(
         artifact_id=artifact_id,
         current_user=current_user,
         artifact_service=artifact_service,
+        workspace_service=workspace_service,
     )
 
 
@@ -533,6 +543,7 @@ async def update_workspace_artifact(
     request: WorkspaceArtifactUpdateRequest,
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> ArtifactResponse:
     """Canonical workspace-scoped artifact update route."""
     return await _update_workspace_artifact(
@@ -541,6 +552,7 @@ async def update_workspace_artifact(
         request=request,
         current_user=current_user,
         artifact_service=artifact_service,
+        workspace_service=workspace_service,
     )
 
 
@@ -550,6 +562,7 @@ async def delete_workspace_artifact(
     artifact_id: str,
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> dict[str, object]:
     """Canonical workspace-scoped artifact delete route."""
     return await _delete_workspace_artifact(
@@ -557,6 +570,7 @@ async def delete_workspace_artifact(
         artifact_id=artifact_id,
         current_user=current_user,
         artifact_service=artifact_service,
+        workspace_service=workspace_service,
     )
 
 
@@ -569,6 +583,7 @@ async def get_workspace_artifact_lineage(
     artifact_id: str,
     current_user: User = Depends(get_current_user),
     artifact_service: ArtifactService = Depends(get_artifact_service),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
 ) -> list[ArtifactResponse]:
     """Canonical workspace-scoped artifact lineage route."""
     return await _get_workspace_artifact_lineage(
@@ -576,4 +591,5 @@ async def get_workspace_artifact_lineage(
         artifact_id=artifact_id,
         current_user=current_user,
         artifact_service=artifact_service,
+        workspace_service=workspace_service,
     )

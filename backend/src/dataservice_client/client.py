@@ -19,9 +19,9 @@ from src.dataservice_client.contracts.account import (
     AccountUserStatusPayload,
 )
 from src.dataservice_client.contracts.asset import (
-    LegacyArtifactCreatePayload,
-    LegacyArtifactPayload,
-    LegacyArtifactUpdatePayload,
+    WorkspaceArtifactCreatePayload,
+    WorkspaceArtifactPayload,
+    WorkspaceArtifactUpdatePayload,
     WorkspaceAssetCreatePayload,
     WorkspaceAssetDownloadPayload,
     WorkspaceAssetPayload,
@@ -2106,38 +2106,38 @@ class AsyncDataServiceClient:
         data = payload.get("data")
         return WorkspaceAssetDownloadPayload.model_validate(data) if data is not None else None
 
-    async def create_legacy_artifact(
+    async def create_workspace_artifact(
         self,
-        command: LegacyArtifactCreatePayload,
-    ) -> LegacyArtifactPayload:
+        command: WorkspaceArtifactCreatePayload,
+    ) -> WorkspaceArtifactPayload:
         payload = await self._request(
             "POST",
-            "/internal/v1/assets/legacy-artifacts",
+            "/internal/v1/assets/artifacts",
             json=command.model_dump(mode="json"),
         )
-        return LegacyArtifactPayload.model_validate(payload["data"])
+        return WorkspaceArtifactPayload.model_validate(payload["data"])
 
-    async def get_legacy_artifact(self, artifact_id: str) -> LegacyArtifactPayload | None:
-        payload = await self._request("GET", f"/internal/v1/assets/legacy-artifacts/{artifact_id}")
+    async def get_workspace_artifact(self, artifact_id: str) -> WorkspaceArtifactPayload | None:
+        payload = await self._request("GET", f"/internal/v1/assets/artifacts/{artifact_id}")
         data = payload.get("data")
-        return LegacyArtifactPayload.model_validate(data) if data is not None else None
+        return WorkspaceArtifactPayload.model_validate(data) if data is not None else None
 
-    async def find_latest_legacy_artifact(
+    async def find_latest_workspace_artifact(
         self,
         *,
         workspace_id: str,
         artifact_type: str,
         title: str,
-    ) -> LegacyArtifactPayload | None:
+    ) -> WorkspaceArtifactPayload | None:
         payload = await self._request(
             "GET",
-            "/internal/v1/assets/legacy-artifacts/latest",
+            "/internal/v1/assets/artifacts/latest",
             params={"workspace_id": workspace_id, "artifact_type": artifact_type, "title": title},
         )
         data = payload.get("data")
-        return LegacyArtifactPayload.model_validate(data) if data is not None else None
+        return WorkspaceArtifactPayload.model_validate(data) if data is not None else None
 
-    async def list_legacy_artifacts(
+    async def list_workspace_artifacts(
         self,
         *,
         workspace_id: str,
@@ -2148,10 +2148,10 @@ class AsyncDataServiceClient:
         created_by_skills: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[LegacyArtifactPayload]:
+    ) -> list[WorkspaceArtifactPayload]:
         payload = await self._request(
             "GET",
-            "/internal/v1/assets/legacy-artifacts",
+            "/internal/v1/assets/artifacts",
             params={
                 "workspace_id": workspace_id,
                 "artifact_type": artifact_type,
@@ -2163,9 +2163,9 @@ class AsyncDataServiceClient:
                 "offset": offset,
             },
         )
-        return [LegacyArtifactPayload.model_validate(item) for item in payload["data"]]
+        return [WorkspaceArtifactPayload.model_validate(item) for item in payload["data"]]
 
-    async def count_legacy_artifacts(
+    async def count_workspace_artifacts(
         self,
         *,
         workspace_id: str | None = None,
@@ -2175,7 +2175,7 @@ class AsyncDataServiceClient:
     ) -> int:
         payload = await self._request(
             "GET",
-            "/internal/v1/assets/legacy-artifacts/count",
+            "/internal/v1/assets/artifacts/count",
             params={
                 "workspace_id": workspace_id,
                 "artifact_type": artifact_type,
@@ -2185,41 +2185,41 @@ class AsyncDataServiceClient:
         )
         return int(payload["data"]["count"])
 
-    async def list_legacy_artifact_versions(
+    async def list_workspace_artifact_versions(
         self,
         *,
         workspace_id: str,
         artifact_type: str,
         title: str,
-    ) -> list[LegacyArtifactPayload]:
+    ) -> list[WorkspaceArtifactPayload]:
         payload = await self._request(
             "GET",
-            "/internal/v1/assets/legacy-artifacts/versions",
+            "/internal/v1/assets/artifacts/versions",
             params={"workspace_id": workspace_id, "artifact_type": artifact_type, "title": title},
         )
-        return [LegacyArtifactPayload.model_validate(item) for item in payload["data"]]
+        return [WorkspaceArtifactPayload.model_validate(item) for item in payload["data"]]
 
-    async def update_legacy_artifact(
+    async def update_workspace_artifact(
         self,
         artifact_id: str,
-        command: LegacyArtifactUpdatePayload,
-    ) -> LegacyArtifactPayload | None:
+        command: WorkspaceArtifactUpdatePayload,
+    ) -> WorkspaceArtifactPayload | None:
         payload = await self._request(
             "PATCH",
-            f"/internal/v1/assets/legacy-artifacts/{artifact_id}",
+            f"/internal/v1/assets/artifacts/{artifact_id}",
             json=command.model_dump(mode="json", exclude_unset=True),
         )
         data = payload.get("data")
-        return LegacyArtifactPayload.model_validate(data) if data is not None else None
+        return WorkspaceArtifactPayload.model_validate(data) if data is not None else None
 
-    async def delete_legacy_artifact(self, artifact_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/assets/legacy-artifacts/{artifact_id}")
+    async def delete_workspace_artifact(self, artifact_id: str) -> bool:
+        payload = await self._request("DELETE", f"/internal/v1/assets/artifacts/{artifact_id}")
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("deleted")) if isinstance(data, dict) else False
 
-    async def get_legacy_artifact_lineage(self, artifact_id: str) -> list[LegacyArtifactPayload]:
-        payload = await self._request("GET", f"/internal/v1/assets/legacy-artifacts/{artifact_id}/lineage")
-        return [LegacyArtifactPayload.model_validate(item) for item in payload["data"]]
+    async def get_workspace_artifact_lineage(self, artifact_id: str) -> list[WorkspaceArtifactPayload]:
+        payload = await self._request("GET", f"/internal/v1/assets/artifacts/{artifact_id}/lineage")
+        return [WorkspaceArtifactPayload.model_validate(item) for item in payload["data"]]
 
     async def ensure_prism_primary_project(
         self,

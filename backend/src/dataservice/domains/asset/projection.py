@@ -5,15 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from src.dataservice.domains.asset.contracts import (
-    LegacyArtifactProjection,
+    WorkspaceArtifactProjection,
     WorkspaceAssetDownloadProjection,
     WorkspaceAssetProjection,
 )
 from src.dataservice.domains.asset.models import WorkspaceAssetRecord
 
 
-def legacy_artifact_to_projection(record: Any) -> LegacyArtifactProjection:
-    return LegacyArtifactProjection(
+def workspace_artifact_to_projection(record: Any) -> WorkspaceArtifactProjection:
+    return WorkspaceArtifactProjection(
         id=str(record.id),
         workspace_id=str(record.workspace_id),
         type=str(record.type),

@@ -400,6 +400,26 @@ def test_auth_runtime_stays_on_account_dataservice_boundary() -> None:
     )
 
 
+def test_runtime_code_does_not_use_legacy_artifact_surface_names() -> None:
+    """Runtime code must use canonical workspace artifact names."""
+
+    allowed_roots = {"database", "dataservice", "dataservice_app", "dataservice_client"}
+    forbidden_tokens = ("legacy_artifact", "legacy-artifacts", "LegacyArtifact")
+    violations: list[str] = []
+    for path in _python_files(SRC_ROOT):
+        relative = path.relative_to(SRC_ROOT)
+        if relative.parts and relative.parts[0] in allowed_roots:
+            continue
+        source = path.read_text(encoding="utf-8")
+        for token in forbidden_tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Runtime code must use workspace artifact naming:\n" + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

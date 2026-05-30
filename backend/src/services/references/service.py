@@ -333,7 +333,7 @@ class SourceLibraryImportService:
                 artifact
                 for artifact_id in artifact_ids
                 if (
-                    artifact := await client.get_legacy_artifact(str(artifact_id))
+                    artifact := await client.get_workspace_artifact(str(artifact_id))
                 )
                 is not None
                 and str(artifact.workspace_id) == workspace_id

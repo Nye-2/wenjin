@@ -56,18 +56,18 @@ class WorkspaceAssetRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    def create_legacy_artifact(self, values: dict[str, Any]) -> Artifact:
+    def create_workspace_artifact(self, values: dict[str, Any]) -> Artifact:
         record = Artifact(**values)
         self.session.add(record)
         return record
 
-    async def get_legacy_artifact(self, artifact_id: str) -> Artifact | None:
+    async def get_workspace_artifact(self, artifact_id: str) -> Artifact | None:
         result = await self.session.execute(
             select(Artifact).where(Artifact.id == artifact_id)
         )
         return result.scalar_one_or_none()
 
-    async def find_latest_legacy_artifact(
+    async def find_latest_workspace_artifact(
         self,
         *,
         workspace_id: str,
@@ -88,7 +88,7 @@ class WorkspaceAssetRepository:
         )
         return result.scalar_one_or_none()
 
-    async def list_legacy_artifacts(
+    async def list_workspace_artifacts(
         self,
         *,
         workspace_id: str,
@@ -120,7 +120,7 @@ class WorkspaceAssetRepository:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def count_legacy_artifacts(
+    async def count_workspace_artifacts(
         self,
         *,
         workspace_id: str | None = None,
@@ -140,7 +140,7 @@ class WorkspaceAssetRepository:
         result = await self.session.execute(query)
         return int(result.scalar() or 0)
 
-    async def list_legacy_artifact_versions(
+    async def list_workspace_artifact_versions(
         self,
         *,
         workspace_id: str,
@@ -160,5 +160,5 @@ class WorkspaceAssetRepository:
         )
         return list(result.scalars().all())
 
-    async def delete_legacy_artifact(self, artifact: Artifact) -> None:
+    async def delete_workspace_artifact(self, artifact: Artifact) -> None:
         await self.session.delete(artifact)

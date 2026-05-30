@@ -61,7 +61,7 @@ class WorkspaceAssetDownloadPayload(BaseModel):
     filename: str
 
 
-class LegacyArtifactCreatePayload(BaseModel):
+class WorkspaceArtifactCreatePayload(BaseModel):
     workspace_id: str
     artifact_type: str
     content: dict[str, Any] = Field(default_factory=dict)
@@ -70,7 +70,7 @@ class LegacyArtifactCreatePayload(BaseModel):
     parent_artifact_id: str | None = None
 
 
-class LegacyArtifactUpdatePayload(BaseModel):
+class WorkspaceArtifactUpdatePayload(BaseModel):
     title: str | None = None
     content: dict[str, Any] | None = None
     status: str | None = None
@@ -79,7 +79,7 @@ class LegacyArtifactUpdatePayload(BaseModel):
     parent_artifact_id: str | None = None
 
 
-class LegacyArtifactPayload(BaseModel):
+class WorkspaceArtifactPayload(BaseModel):
     id: str
     workspace_id: str
     type: str

@@ -7,9 +7,9 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.asset.contracts import (
-    LegacyArtifactCreateCommand,
-    LegacyArtifactProjection,
-    LegacyArtifactUpdateCommand,
+    WorkspaceArtifactCreateCommand,
+    WorkspaceArtifactProjection,
+    WorkspaceArtifactUpdateCommand,
     WorkspaceAssetCreateCommand,
     WorkspaceAssetDownloadProjection,
     WorkspaceAssetProjection,
@@ -104,29 +104,29 @@ class AssetDataService:
     async def resolve_download(self, asset_id: str) -> WorkspaceAssetDownloadProjection | None:
         return await self._domain.resolve_download(asset_id)
 
-    async def create_legacy_artifact(
+    async def create_workspace_artifact(
         self,
-        command: LegacyArtifactCreateCommand,
-    ) -> LegacyArtifactProjection:
-        return await self._domain.create_legacy_artifact(command)
+        command: WorkspaceArtifactCreateCommand,
+    ) -> WorkspaceArtifactProjection:
+        return await self._domain.create_workspace_artifact(command)
 
-    async def get_legacy_artifact(self, artifact_id: str) -> LegacyArtifactProjection | None:
-        return await self._domain.get_legacy_artifact(artifact_id)
+    async def get_workspace_artifact(self, artifact_id: str) -> WorkspaceArtifactProjection | None:
+        return await self._domain.get_workspace_artifact(artifact_id)
 
-    async def find_latest_legacy_artifact(
+    async def find_latest_workspace_artifact(
         self,
         *,
         workspace_id: str,
         artifact_type: str,
         title: str,
-    ) -> LegacyArtifactProjection | None:
-        return await self._domain.find_latest_legacy_artifact(
+    ) -> WorkspaceArtifactProjection | None:
+        return await self._domain.find_latest_workspace_artifact(
             workspace_id=workspace_id,
             artifact_type=artifact_type,
             title=title,
         )
 
-    async def list_legacy_artifacts(
+    async def list_workspace_artifacts(
         self,
         *,
         workspace_id: str,
@@ -137,8 +137,8 @@ class AssetDataService:
         created_by_skills: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[LegacyArtifactProjection]:
-        return await self._domain.list_legacy_artifacts(
+    ) -> list[WorkspaceArtifactProjection]:
+        return await self._domain.list_workspace_artifacts(
             workspace_id=workspace_id,
             artifact_type=artifact_type,
             artifact_types=artifact_types,
@@ -149,7 +149,7 @@ class AssetDataService:
             offset=offset,
         )
 
-    async def count_legacy_artifacts(
+    async def count_workspace_artifacts(
         self,
         *,
         workspace_id: str | None = None,
@@ -157,38 +157,38 @@ class AssetDataService:
         created_by_skill: str | None = None,
         created_by_skills: list[str] | None = None,
     ) -> int:
-        return await self._domain.count_legacy_artifacts(
+        return await self._domain.count_workspace_artifacts(
             workspace_id=workspace_id,
             artifact_type=artifact_type,
             created_by_skill=created_by_skill,
             created_by_skills=created_by_skills,
         )
 
-    async def list_legacy_artifact_versions(
+    async def list_workspace_artifact_versions(
         self,
         *,
         workspace_id: str,
         artifact_type: str,
         title: str,
-    ) -> list[LegacyArtifactProjection]:
-        return await self._domain.list_legacy_artifact_versions(
+    ) -> list[WorkspaceArtifactProjection]:
+        return await self._domain.list_workspace_artifact_versions(
             workspace_id=workspace_id,
             artifact_type=artifact_type,
             title=title,
         )
 
-    async def update_legacy_artifact(
+    async def update_workspace_artifact(
         self,
         artifact_id: str,
-        command: LegacyArtifactUpdateCommand,
-    ) -> LegacyArtifactProjection | None:
-        return await self._domain.update_legacy_artifact(artifact_id, command)
+        command: WorkspaceArtifactUpdateCommand,
+    ) -> WorkspaceArtifactProjection | None:
+        return await self._domain.update_workspace_artifact(artifact_id, command)
 
-    async def delete_legacy_artifact(self, artifact_id: str) -> bool:
-        return await self._domain.delete_legacy_artifact(artifact_id)
+    async def delete_workspace_artifact(self, artifact_id: str) -> bool:
+        return await self._domain.delete_workspace_artifact(artifact_id)
 
-    async def get_legacy_artifact_lineage(
+    async def get_workspace_artifact_lineage(
         self,
         artifact_id: str,
-    ) -> list[LegacyArtifactProjection]:
-        return await self._domain.get_legacy_artifact_lineage(artifact_id)
+    ) -> list[WorkspaceArtifactProjection]:
+        return await self._domain.get_workspace_artifact_lineage(artifact_id)

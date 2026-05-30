@@ -84,7 +84,7 @@ class ExecutionService:
 
     def __init__(
         self,
-        db: AsyncSession,
+        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
         redis: Any | None = None,

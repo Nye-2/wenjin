@@ -103,7 +103,7 @@ async def _execute_run_async(
             thread_service=ThreadService(db),
             workspace_service=WorkspaceService(db),
             index_service=dataservice,
-            artifact_service=ArtifactService(db),
+            artifact_service=ArtifactService(dataservice=dataservice),
             reference_service=dataservice,
         )
         await run_thread_turn(

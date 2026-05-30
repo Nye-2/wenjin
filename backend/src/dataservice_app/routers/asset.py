@@ -7,8 +7,8 @@ from fastapi import APIRouter, Depends, Query
 from src.dataservice.common.api import envelope_ok
 from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.asset.contracts import (
-    LegacyArtifactCreateCommand,
-    LegacyArtifactUpdateCommand,
+    WorkspaceArtifactCreateCommand,
+    WorkspaceArtifactUpdateCommand,
     WorkspaceAssetCreateCommand,
     WorkspaceAssetUpdateCommand,
 )
@@ -56,19 +56,19 @@ async def list_assets(
     return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
-@router.post("/legacy-artifacts")
-async def create_legacy_artifact(
-    command: LegacyArtifactCreateCommand,
+@router.post("/artifacts")
+async def create_workspace_artifact(
+    command: WorkspaceArtifactCreateCommand,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    record = await service.create_legacy_artifact(command)
+    record = await service.create_workspace_artifact(command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json"))
 
 
-@router.get("/legacy-artifacts")
-async def list_legacy_artifacts(
+@router.get("/artifacts")
+async def list_workspace_artifacts(
     workspace_id: str = Query(),
     artifact_type: str | None = Query(default=None),
     artifact_types: list[str] | None = Query(default=None),
@@ -80,7 +80,7 @@ async def list_legacy_artifacts(
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    records = await service.list_legacy_artifacts(
+    records = await service.list_workspace_artifacts(
         workspace_id=workspace_id,
         artifact_type=artifact_type,
         artifact_types=artifact_types,
@@ -93,8 +93,8 @@ async def list_legacy_artifacts(
     return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
-@router.get("/legacy-artifacts/count")
-async def count_legacy_artifacts(
+@router.get("/artifacts/count")
+async def count_workspace_artifacts(
     workspace_id: str | None = Query(default=None),
     artifact_type: str | None = Query(default=None),
     created_by_skill: str | None = Query(default=None),
@@ -102,7 +102,7 @@ async def count_legacy_artifacts(
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    count = await service.count_legacy_artifacts(
+    count = await service.count_workspace_artifacts(
         workspace_id=workspace_id,
         artifact_type=artifact_type,
         created_by_skill=created_by_skill,
@@ -111,15 +111,15 @@ async def count_legacy_artifacts(
     return envelope_ok({"count": count})
 
 
-@router.get("/legacy-artifacts/latest")
-async def find_latest_legacy_artifact(
+@router.get("/artifacts/latest")
+async def find_latest_workspace_artifact(
     workspace_id: str = Query(),
     artifact_type: str = Query(),
     title: str = Query(),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    record = await service.find_latest_legacy_artifact(
+    record = await service.find_latest_workspace_artifact(
         workspace_id=workspace_id,
         artifact_type=artifact_type,
         title=title,
@@ -127,15 +127,15 @@ async def find_latest_legacy_artifact(
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
-@router.get("/legacy-artifacts/versions")
-async def list_legacy_artifact_versions(
+@router.get("/artifacts/versions")
+async def list_workspace_artifact_versions(
     workspace_id: str = Query(),
     artifact_type: str = Query(),
     title: str = Query(),
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    records = await service.list_legacy_artifact_versions(
+    records = await service.list_workspace_artifact_versions(
         workspace_id=workspace_id,
         artifact_type=artifact_type,
         title=title,
@@ -143,45 +143,45 @@ async def list_legacy_artifact_versions(
     return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
-@router.get("/legacy-artifacts/{artifact_id}")
-async def get_legacy_artifact(
+@router.get("/artifacts/{artifact_id}")
+async def get_workspace_artifact(
     artifact_id: str,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    record = await service.get_legacy_artifact(artifact_id)
+    record = await service.get_workspace_artifact(artifact_id)
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
-@router.get("/legacy-artifacts/{artifact_id}/lineage")
-async def get_legacy_artifact_lineage(
+@router.get("/artifacts/{artifact_id}/lineage")
+async def get_workspace_artifact_lineage(
     artifact_id: str,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    records = await service.get_legacy_artifact_lineage(artifact_id)
+    records = await service.get_workspace_artifact_lineage(artifact_id)
     return envelope_ok([record.model_dump(mode="json") for record in records])
 
 
-@router.patch("/legacy-artifacts/{artifact_id}")
-async def update_legacy_artifact(
+@router.patch("/artifacts/{artifact_id}")
+async def update_workspace_artifact(
     artifact_id: str,
-    command: LegacyArtifactUpdateCommand,
+    command: WorkspaceArtifactUpdateCommand,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    record = await service.update_legacy_artifact(artifact_id, command)
+    record = await service.update_workspace_artifact(artifact_id, command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
 
 
-@router.delete("/legacy-artifacts/{artifact_id}")
-async def delete_legacy_artifact(
+@router.delete("/artifacts/{artifact_id}")
+async def delete_workspace_artifact(
     artifact_id: str,
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = WorkspaceAssetService(uow.required_session, autocommit=False)
-    deleted = await service.delete_legacy_artifact(artifact_id)
+    deleted = await service.delete_workspace_artifact(artifact_id)
     await uow.commit()
     return envelope_ok({"deleted": deleted})
 

@@ -221,10 +221,16 @@ def app(mock_service, mock_thread_service, mock_workspace_service):
     async def get_workspace_service_override():
         return mock_workspace_service
 
+    async def get_dataservice_client_override():
+        return MagicMock()
+
     app.dependency_overrides[get_artifact_service] = get_artifact_service_override
     app.dependency_overrides[get_thread_service] = get_thread_service_override
     app.dependency_overrides[artifacts_router.get_workspace_service] = (
         get_workspace_service_override
+    )
+    app.dependency_overrides[artifacts_router.get_dataservice_client] = (
+        get_dataservice_client_override
     )
     app.dependency_overrides[get_current_user] = get_current_user_override
     app.dependency_overrides[get_current_user_optional] = get_current_user_override
@@ -636,8 +642,7 @@ class TestListArtifacts:
 
     def test_list_artifacts_empty(self, client):
         """Test artifact listing with no artifacts."""
-        other_workspace = "550e8400-e29b-41d4-a716-446655440099"
-        response = client.get(f"/workspaces/{other_workspace}/artifacts")
+        response = client.get(f"/workspaces/{WORKSPACE_ID}/artifacts")
 
         assert response.status_code == 200
         data = response.json()

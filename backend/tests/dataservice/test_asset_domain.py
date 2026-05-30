@@ -12,8 +12,8 @@ from pydantic import ValidationError
 
 from src.database.base import Base
 from src.dataservice.domains.asset.contracts import (
-    LegacyArtifactCreateCommand,
-    LegacyArtifactUpdateCommand,
+    WorkspaceArtifactCreateCommand,
+    WorkspaceArtifactUpdateCommand,
     WorkspaceAssetCreateCommand,
     WorkspaceAssetUpdateCommand,
 )
@@ -61,7 +61,7 @@ def _asset(values: dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**defaults)
 
 
-def _legacy_artifact(values: dict[str, Any]) -> SimpleNamespace:
+def _workspace_artifact(values: dict[str, Any]) -> SimpleNamespace:
     now = datetime.now(UTC)
     defaults = {
         "id": "artifact-1",
@@ -115,16 +115,16 @@ class FakeAssetRepository:
             records = [record for record in records if record.deleted_at is None]
         return records[:limit]
 
-    def create_legacy_artifact(self, values: dict[str, Any]) -> SimpleNamespace:
+    def create_workspace_artifact(self, values: dict[str, Any]) -> SimpleNamespace:
         artifact_id = f"artifact-{len(self.artifacts) + 1}"
-        record = _legacy_artifact({"id": artifact_id, **values})
+        record = _workspace_artifact({"id": artifact_id, **values})
         self.artifacts[artifact_id] = record
         return record
 
-    async def get_legacy_artifact(self, artifact_id: str) -> SimpleNamespace | None:
+    async def get_workspace_artifact(self, artifact_id: str) -> SimpleNamespace | None:
         return self.artifacts.get(artifact_id)
 
-    async def find_latest_legacy_artifact(
+    async def find_latest_workspace_artifact(
         self,
         *,
         workspace_id: str,
@@ -140,7 +140,7 @@ class FakeAssetRepository:
         ]
         return max(matches, key=lambda record: record.version, default=None)
 
-    async def list_legacy_artifacts(
+    async def list_workspace_artifacts(
         self,
         *,
         workspace_id: str,
@@ -165,7 +165,7 @@ class FakeAssetRepository:
             records = [record for record in records if record.created_by_skill == created_by_skill]
         return records[offset : offset + limit]
 
-    async def count_legacy_artifacts(
+    async def count_workspace_artifacts(
         self,
         *,
         workspace_id: str | None = None,
@@ -184,7 +184,7 @@ class FakeAssetRepository:
             records = [record for record in records if record.created_by_skill == created_by_skill]
         return len(records)
 
-    async def list_legacy_artifact_versions(
+    async def list_workspace_artifact_versions(
         self,
         *,
         workspace_id: str,
@@ -200,7 +200,7 @@ class FakeAssetRepository:
         ]
         return sorted(records, key=lambda record: record.version, reverse=True)
 
-    async def delete_legacy_artifact(self, artifact: SimpleNamespace) -> None:
+    async def delete_workspace_artifact(self, artifact: SimpleNamespace) -> None:
         self.artifacts.pop(str(artifact.id), None)
 
 
@@ -300,10 +300,10 @@ async def test_workspace_asset_review_handler_registers_asset_from_review_payloa
 
 
 @pytest.mark.asyncio
-async def test_legacy_artifact_create_increments_version_inside_dataservice() -> None:
+async def test_workspace_artifact_create_increments_version_inside_dataservice() -> None:
     service, repository, session = _service()
     service.autocommit = False
-    repository.artifacts["artifact-existing"] = _legacy_artifact(
+    repository.artifacts["artifact-existing"] = _workspace_artifact(
         {"id": "artifact-existing", "version": 3}
     )
 
@@ -311,8 +311,8 @@ async def test_legacy_artifact_create_increments_version_inside_dataservice() ->
         "src.dataservice.domains.asset.service.DataServiceWorkspaceService"
     ) as workspace_service_cls:
         workspace_service_cls.return_value.lock_workspace_for_update = AsyncMock()
-        created = await service.create_legacy_artifact(
-            LegacyArtifactCreateCommand(
+        created = await service.create_workspace_artifact(
+            WorkspaceArtifactCreateCommand(
                 workspace_id="ws-1",
                 artifact_type="research_idea",
                 title="Idea",
@@ -330,27 +330,27 @@ async def test_legacy_artifact_create_increments_version_inside_dataservice() ->
 
 
 @pytest.mark.asyncio
-async def test_legacy_artifact_list_count_update_delete_and_lineage() -> None:
+async def test_workspace_artifact_list_count_update_delete_and_lineage() -> None:
     service, repository, _ = _service()
     service.autocommit = False
-    repository.artifacts["root"] = _legacy_artifact({"id": "root", "title": "Root"})
-    repository.artifacts["child"] = _legacy_artifact(
+    repository.artifacts["root"] = _workspace_artifact({"id": "root", "title": "Root"})
+    repository.artifacts["child"] = _workspace_artifact(
         {"id": "child", "title": "Child", "parent_artifact_id": "root", "version": 2}
     )
 
-    listed = await service.list_legacy_artifacts(workspace_id="ws-1")
-    count = await service.count_legacy_artifacts(workspace_id="ws-1")
-    versions = await service.list_legacy_artifact_versions(
+    listed = await service.list_workspace_artifacts(workspace_id="ws-1")
+    count = await service.count_workspace_artifacts(workspace_id="ws-1")
+    versions = await service.list_workspace_artifact_versions(
         workspace_id="ws-1",
         artifact_type="research_idea",
         title="Child",
     )
-    lineage = await service.get_legacy_artifact_lineage("child")
-    updated = await service.update_legacy_artifact(
+    lineage = await service.get_workspace_artifact_lineage("child")
+    updated = await service.update_workspace_artifact(
         "child",
-        command=LegacyArtifactUpdateCommand(title="Updated"),
+        command=WorkspaceArtifactUpdateCommand(title="Updated"),
     )
-    deleted = await service.delete_legacy_artifact("child")
+    deleted = await service.delete_workspace_artifact("child")
 
     assert [artifact.id for artifact in listed] == ["root", "child"]
     assert count == 2

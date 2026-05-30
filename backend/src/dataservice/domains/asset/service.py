@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.artifacts.types import ArtifactType
 from src.dataservice.domains.asset.contracts import (
-    LegacyArtifactCreateCommand,
-    LegacyArtifactProjection,
-    LegacyArtifactUpdateCommand,
+    WorkspaceArtifactCreateCommand,
+    WorkspaceArtifactProjection,
+    WorkspaceArtifactUpdateCommand,
     WorkspaceAssetCreateCommand,
     WorkspaceAssetDownloadProjection,
     WorkspaceAssetProjection,
@@ -20,7 +20,7 @@ from src.dataservice.domains.asset.contracts import (
 from src.dataservice.domains.asset.projection import (
     asset_to_download_projection,
     asset_to_projection,
-    legacy_artifact_to_projection,
+    workspace_artifact_to_projection,
 )
 from src.dataservice.domains.asset.repository import WorkspaceAssetRepository
 from src.dataservice.domains.workspace.service import DataServiceWorkspaceService
@@ -134,11 +134,11 @@ class WorkspaceAssetService:
             return None
         return asset_to_download_projection(record)
 
-    async def create_legacy_artifact(
+    async def create_workspace_artifact(
         self,
-        command: LegacyArtifactCreateCommand,
-    ) -> LegacyArtifactProjection:
-        self._validate_legacy_artifact_type(command.artifact_type)
+        command: WorkspaceArtifactCreateCommand,
+    ) -> WorkspaceArtifactProjection:
+        self._validate_workspace_artifact_type(command.artifact_type)
         max_attempts = _CREATE_RETRY_LIMIT if command.title else 1
 
         for attempt in range(max_attempts):
@@ -149,7 +149,7 @@ class WorkspaceAssetService:
                     self.session,
                     autocommit=False,
                 ).lock_workspace_for_update(command.workspace_id)
-                existing = await self.repository.find_latest_legacy_artifact(
+                existing = await self.repository.find_latest_workspace_artifact(
                     workspace_id=command.workspace_id,
                     artifact_type=command.artifact_type,
                     title=command.title,
@@ -158,7 +158,7 @@ class WorkspaceAssetService:
                     version = int(existing.version) + 1
                     auto_parent_id = str(existing.id)
 
-            record = self.repository.create_legacy_artifact(
+            record = self.repository.create_workspace_artifact(
                 {
                     "workspace_id": command.workspace_id,
                     "type": command.artifact_type,
@@ -184,29 +184,29 @@ class WorkspaceAssetService:
                 raise
             if self.autocommit:
                 await self.session.refresh(record)
-            return legacy_artifact_to_projection(record)
+            return workspace_artifact_to_projection(record)
 
         raise RuntimeError("Artifact create retry loop exhausted unexpectedly")
 
-    async def get_legacy_artifact(self, artifact_id: str) -> LegacyArtifactProjection | None:
-        record = await self.repository.get_legacy_artifact(artifact_id)
-        return legacy_artifact_to_projection(record) if record is not None else None
+    async def get_workspace_artifact(self, artifact_id: str) -> WorkspaceArtifactProjection | None:
+        record = await self.repository.get_workspace_artifact(artifact_id)
+        return workspace_artifact_to_projection(record) if record is not None else None
 
-    async def find_latest_legacy_artifact(
+    async def find_latest_workspace_artifact(
         self,
         *,
         workspace_id: str,
         artifact_type: str,
         title: str,
-    ) -> LegacyArtifactProjection | None:
-        record = await self.repository.find_latest_legacy_artifact(
+    ) -> WorkspaceArtifactProjection | None:
+        record = await self.repository.find_latest_workspace_artifact(
             workspace_id=workspace_id,
             artifact_type=artifact_type,
             title=title,
         )
-        return legacy_artifact_to_projection(record) if record is not None else None
+        return workspace_artifact_to_projection(record) if record is not None else None
 
-    async def list_legacy_artifacts(
+    async def list_workspace_artifacts(
         self,
         *,
         workspace_id: str,
@@ -217,10 +217,10 @@ class WorkspaceAssetService:
         created_by_skills: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> list[LegacyArtifactProjection]:
+    ) -> list[WorkspaceArtifactProjection]:
         return [
-            legacy_artifact_to_projection(record)
-            for record in await self.repository.list_legacy_artifacts(
+            workspace_artifact_to_projection(record)
+            for record in await self.repository.list_workspace_artifacts(
                 workspace_id=workspace_id,
                 artifact_type=artifact_type,
                 artifact_types=artifact_types,
@@ -232,7 +232,7 @@ class WorkspaceAssetService:
             )
         ]
 
-    async def count_legacy_artifacts(
+    async def count_workspace_artifacts(
         self,
         *,
         workspace_id: str | None = None,
@@ -240,39 +240,39 @@ class WorkspaceAssetService:
         created_by_skill: str | None = None,
         created_by_skills: list[str] | None = None,
     ) -> int:
-        return await self.repository.count_legacy_artifacts(
+        return await self.repository.count_workspace_artifacts(
             workspace_id=workspace_id,
             artifact_type=artifact_type,
             created_by_skill=created_by_skill,
             created_by_skills=created_by_skills,
         )
 
-    async def list_legacy_artifact_versions(
+    async def list_workspace_artifact_versions(
         self,
         *,
         workspace_id: str,
         artifact_type: str,
         title: str,
-    ) -> list[LegacyArtifactProjection]:
+    ) -> list[WorkspaceArtifactProjection]:
         return [
-            legacy_artifact_to_projection(record)
-            for record in await self.repository.list_legacy_artifact_versions(
+            workspace_artifact_to_projection(record)
+            for record in await self.repository.list_workspace_artifact_versions(
                 workspace_id=workspace_id,
                 artifact_type=artifact_type,
                 title=title,
             )
         ]
 
-    async def update_legacy_artifact(
+    async def update_workspace_artifact(
         self,
         artifact_id: str,
-        command: LegacyArtifactUpdateCommand,
-    ) -> LegacyArtifactProjection | None:
-        record = await self.repository.get_legacy_artifact(artifact_id)
+        command: WorkspaceArtifactUpdateCommand,
+    ) -> WorkspaceArtifactProjection | None:
+        record = await self.repository.get_workspace_artifact(artifact_id)
         if record is None:
             return None
         if command.artifact_type is not None:
-            self._validate_legacy_artifact_type(command.artifact_type)
+            self._validate_workspace_artifact_type(command.artifact_type)
             record.type = command.artifact_type
         if command.title is not None:
             record.title = command.title
@@ -287,21 +287,21 @@ class WorkspaceAssetService:
         await self._finish()
         if self.autocommit:
             await self.session.refresh(record)
-        return legacy_artifact_to_projection(record)
+        return workspace_artifact_to_projection(record)
 
-    async def delete_legacy_artifact(self, artifact_id: str) -> bool:
-        record = await self.repository.get_legacy_artifact(artifact_id)
+    async def delete_workspace_artifact(self, artifact_id: str) -> bool:
+        record = await self.repository.get_workspace_artifact(artifact_id)
         if record is None:
             return False
-        await self.repository.delete_legacy_artifact(record)
+        await self.repository.delete_workspace_artifact(record)
         await self._finish()
         return True
 
-    async def get_legacy_artifact_lineage(
+    async def get_workspace_artifact_lineage(
         self,
         artifact_id: str,
-    ) -> list[LegacyArtifactProjection]:
-        current = await self.repository.get_legacy_artifact(artifact_id)
+    ) -> list[WorkspaceArtifactProjection]:
+        current = await self.repository.get_workspace_artifact(artifact_id)
         if current is None:
             return []
 
@@ -309,10 +309,10 @@ class WorkspaceAssetService:
         while current is not None:
             lineage.append(current)
             if current.parent_artifact_id:
-                current = await self.repository.get_legacy_artifact(current.parent_artifact_id)
+                current = await self.repository.get_workspace_artifact(current.parent_artifact_id)
             else:
                 break
-        return [legacy_artifact_to_projection(record) for record in reversed(lineage)]
+        return [workspace_artifact_to_projection(record) for record in reversed(lineage)]
 
     async def _finish(self) -> None:
         if self.autocommit:
@@ -321,7 +321,7 @@ class WorkspaceAssetService:
             await self.session.flush()
 
     @staticmethod
-    def _validate_legacy_artifact_type(artifact_type: str) -> None:
+    def _validate_workspace_artifact_type(artifact_type: str) -> None:
         try:
             ArtifactType(artifact_type)
         except ValueError:

@@ -8,6 +8,7 @@ This module tests the ArtifactService class including:
 """
 
 from datetime import datetime
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -99,9 +100,9 @@ async def test_workspace(db_session):
 
 
 @pytest_asyncio.fixture
-async def artifact_service(db_session):
+async def artifact_service():
     """Create ArtifactService instance."""
-    return ArtifactService(db_session)
+    return ArtifactService(dataservice=AsyncMock())
 
 
 class TestCreateArtifact:

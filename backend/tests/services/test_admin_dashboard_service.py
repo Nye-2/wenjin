@@ -76,7 +76,7 @@ class FakeAdminDashboardClient:
             )
         )
         self.count_executions = AsyncMock(side_effect=[12, 2, 1])
-        self.count_legacy_artifacts = AsyncMock(return_value=8)
+        self.count_workspace_artifacts = AsyncMock(return_value=8)
         self.get_credit_admin_summary = AsyncMock(
             return_value=CreditAdminSummaryPayload(
                 total_issued=260,

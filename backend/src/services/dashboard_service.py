@@ -146,7 +146,7 @@ class DashboardService(DashboardStatusSharedMixin):
         limit: int = 5,
     ) -> list[dict[str, Any]]:
         async with self._client() as client:
-            artifacts = await client.list_legacy_artifacts(
+            artifacts = await client.list_workspace_artifacts(
                 workspace_id=workspace_id,
                 limit=limit,
             )

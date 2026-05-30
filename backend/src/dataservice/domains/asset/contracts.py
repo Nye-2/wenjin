@@ -69,8 +69,8 @@ class WorkspaceAssetDownloadProjection(BaseModel):
     filename: str
 
 
-class LegacyArtifactCreateCommand(BaseModel):
-    """Create one legacy artifact payload while the artifact table is being converged."""
+class WorkspaceArtifactCreateCommand(BaseModel):
+    """Create one workspace artifact payload."""
 
     workspace_id: str = Field(min_length=1, max_length=36)
     artifact_type: str = Field(min_length=1, max_length=100)
@@ -80,8 +80,8 @@ class LegacyArtifactCreateCommand(BaseModel):
     parent_artifact_id: str | None = Field(default=None, max_length=36)
 
 
-class LegacyArtifactUpdateCommand(BaseModel):
-    """Update mutable legacy artifact payload fields."""
+class WorkspaceArtifactUpdateCommand(BaseModel):
+    """Update mutable workspace artifact payload fields."""
 
     title: str | None = Field(default=None, max_length=500)
     content: dict[str, Any] | None = None
@@ -91,8 +91,8 @@ class LegacyArtifactUpdateCommand(BaseModel):
     parent_artifact_id: str | None = Field(default=None, max_length=36)
 
 
-class LegacyArtifactProjection(BaseModel):
-    """Projection over legacy artifacts owned by DataService during convergence."""
+class WorkspaceArtifactProjection(BaseModel):
+    """Projection over workspace artifacts owned by DataService."""
 
     id: str
     workspace_id: str

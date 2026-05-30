@@ -330,7 +330,7 @@ async def resolve_workspace_capability_action(
 
     from src.academic.services.artifact_service import ArtifactService
 
-    artifacts = await ArtifactService(db).list_by_workspace(
+    artifacts = await ArtifactService(dataservice=dataservice).list_by_workspace(
         workspace_id=workspace_id,
         limit=200,
         offset=0,

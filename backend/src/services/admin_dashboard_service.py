@@ -65,7 +65,7 @@ class AdminDashboardService:
             )
 
         async with self._client() as client:
-            artifact_total = await client.count_legacy_artifacts()
+            artifact_total = await client.count_workspace_artifacts()
 
         async with self._client() as client:
             credit_summary = (await client.get_credit_admin_summary()).model_dump(mode="json")
