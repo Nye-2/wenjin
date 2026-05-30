@@ -126,9 +126,17 @@
   - `skill_to_record` 要求 Catalog DB row 携带完整 canonical `skill_json`。
   - 空缺或空对象直接抛错，不再从旧字段读时合成 skill pack。
   - Architecture guard 新增 `test_catalog_skill_projection_does_not_synthesize_legacy_skill_json`。
+- Current Source reference projection naming follow-up
+  - `SourceDataDomainService` 的 Library list/detail helper 重命名为 `_serialize_reference_projection`。
+  - API 返回的 `reference` shape 仍是当前 Library 契约，不再以 `compat` 命名描述。
+  - Architecture guard 新增 `test_source_domain_does_not_name_current_reference_projection_as_compat`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/source/service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/architecture/test_dataservice_boundaries.py::test_source_domain_does_not_name_current_reference_projection_as_compat -q` -> 17 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 31 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2029 passed.
 - `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/catalog/projection.py tests/dataservice/test_catalog_domain.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/dataservice/test_catalog_domain.py tests/dataservice/test_foundation.py tests/services/test_capability_resolver.py tests/services/test_admin_skill_service.py tests/architecture/test_dataservice_boundaries.py::test_catalog_skill_projection_does_not_synthesize_legacy_skill_json -q` -> 43 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 30 passed.

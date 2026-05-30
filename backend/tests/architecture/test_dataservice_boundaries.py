@@ -1143,6 +1143,21 @@ def test_catalog_skill_projection_does_not_synthesize_legacy_skill_json() -> Non
     )
 
 
+def test_source_domain_does_not_name_current_reference_projection_as_compat() -> None:
+    """Source Library projections are current contracts, not compatibility helpers."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "source" / "service.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "_serialize_reference_compat",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Source domain still names current reference projection as compat: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
