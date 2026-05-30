@@ -13,7 +13,7 @@ def build_latex_adapter_metadata(
     llm_config: dict[str, Any] | None = None,
     template_id: str | None = None,
 ) -> dict[str, Any]:
-    """Normalize legacy LaTeX project fields into Prism adapter metadata."""
+    """Build canonical LaTeX project fields for Prism adapter metadata."""
 
     metadata = {}
     if isinstance(llm_config, dict):
@@ -25,5 +25,5 @@ def build_latex_adapter_metadata(
         "main_file": main_file,
         "template_id": template_id,
         "file_order": dict(file_order or {}),
-        "legacy_metadata": metadata,
+        "source_metadata": metadata,
     }

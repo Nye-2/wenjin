@@ -1047,9 +1047,19 @@ def test_gateway_routers_do_not_type_auth_subjects_as_database_users() -> None:
 def test_prism_adapter_metadata_uses_canonical_field_names() -> None:
     """Workspace Prism adapter metadata must not expose legacy metadata fields."""
 
-    path = SRC_ROOT / "services" / "workspace_prism_service.py"
-    source = path.read_text(encoding="utf-8")
-    assert "legacy_metadata" not in source
+    checked_files = [
+        SRC_ROOT / "services" / "workspace_prism_service.py",
+        SRC_ROOT / "dataservice" / "domains" / "prism" / "adapters" / "latex.py",
+    ]
+    violations: list[str] = []
+    for path in checked_files:
+        source = path.read_text(encoding="utf-8")
+        if "legacy_metadata" in source:
+            violations.append(f"{path.relative_to(SRC_ROOT)} contains legacy_metadata")
+    assert not violations, (
+        "Prism adapter metadata still exposes legacy fields:\n"
+        + "\n".join(violations)
+    )
 
 
 def test_feature_launch_context_does_not_keep_plain_param_compatibility() -> None:

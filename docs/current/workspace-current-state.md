@@ -91,7 +91,7 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 18. Gateway common deps 已移除通用 `get_db`；ExecutionService、TaskStore、SkillResolver、CapabilityResolver、WorkspaceService、GenerationService 均不再接受历史 DB/session 构造参数，workspace 运行链路只通过 DataService client 触达持久化。
 19. Documents room 和 workspace activity 的 asset projection 只读取 canonical metadata 字段，不再在运行时读取 `legacy_kind`、`legacy_parent_id`、`legacy_version`。
 20. Gateway routers 的 `current_user` / admin subject 均以 `AccountAuthSubject` 标注，不再导入 DB `User` model 作为运行时鉴权类型。
-21. Prism adapter metadata 对外只暴露 `source_metadata`，不再把历史 project metadata 放进 `legacy_metadata` 字段。
+21. Prism adapter metadata 在 DataService helper 和 runtime projection 中均只暴露 `source_metadata`，不再把 project metadata 放进 `legacy_metadata` 字段。
 22. Worker execution 解析 workspace type 时只读取 DataService workspace projection；workspace 或 type 缺失会显式失败，不再默认降级为 thesis。
 23. Feature execution params 只保留 canonical TaskBrief wrapper；旧 plain-param execution params 解析入口已移除。
 24. Artifact follow-up / rerun action state 只从显式 mission params 或来源 artifact 推导 goal；缺少上下文时返回不可重跑原因，前后端均不再用 workspace 描述、`fallbackTaskName` 或“未命名任务”兜底。
