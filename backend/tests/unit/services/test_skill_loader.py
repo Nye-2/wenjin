@@ -32,6 +32,7 @@ def _skill_v2_payload(*, skill_id: str = "research-scout") -> dict:
             "input_schema": {"type": "object"},
             "output_schema": {
                 "type": "object",
+                "required": ["quality_gates_checked"],
                 "properties": {
                     "quality_gates_checked": {
                         "type": "array",

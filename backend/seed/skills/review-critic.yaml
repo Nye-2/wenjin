@@ -25,6 +25,9 @@ io_contract:
     type: object
   output_schema:
     type: object
+    required:
+    - text
+    - quality_gates_checked
     properties:
       text:
         type: string
@@ -40,6 +43,18 @@ io_contract:
         type: array
         items:
           type: string
+      findings_by_severity:
+        type: array
+        items:
+          type: object
+      required_fixes:
+        type: array
+        items:
+          type: object
+      residual_risks:
+        type: array
+        items:
+          type: object
 context_access:
   room_reads:
     library: summary

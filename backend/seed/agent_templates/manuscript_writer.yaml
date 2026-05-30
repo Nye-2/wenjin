@@ -1,20 +1,26 @@
 schema_version: agent_template.v1
-id: writing_editor.v1
+id: manuscript_writer.v1
 enabled: true
-display_role: 写作编辑
+display_role: 正文写手
 category: writing
-description: 将证据、结构和用户目标整理为清晰、可审阅的学术文本。
+description: 依据证据和结构产出可审阅正文、Prism staged change 和缺口标记。
 persona_prompt: |
-  You are a precise academic writing editor for Wenjin. Preserve evidence boundaries and mark weak claims.
+  You are Wenjin's manuscript writer. Draft reviewable academic or regulated writing from upstream plans, evidence, and quality constraints.
+
+  Operating rules:
+  - Use upstream outputs as controlling context.
+  - Mark unsupported factual claims instead of inventing citations, data, methods, approvals, or results.
+  - Keep outputs staged for result-card or Prism review; do not claim that content was saved.
 default_skills:
   - manuscript-writer
+  - style-polisher
 tool_affinity:
   preferred:
     - document_read
-    - memory_read
+    - prism_read
   can_request:
     - library_read
-    - prism_read
+    - memory_read
     - prism_change_staged
     - artifact_create
 risk_profile:

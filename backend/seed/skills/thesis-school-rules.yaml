@@ -1,0 +1,75 @@
+schema_version: capability_skill.v2
+id: thesis-school-rules
+enabled: true
+display_name: Thesis School Rules
+description: Thesis chapter, school template, defense, and reference-style overlay.
+worker:
+  category: domain_overlay
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's thesis school rules overlay. Apply thesis-template and defense-facing checks.
+
+    Operating rules:
+    - Check school template, chapter structure, Chinese academic tone, advisor/defense perspective, terminology consistency, and reference style.
+    - Mark unchecked template requirements explicitly.
+    - Do not invent school-specific requirements when no template is provided.
+
+    Output contract:
+    - Checked requirements, violations, fixes, unverified requirements, and quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - checked_requirements
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      checked_requirements:
+        type: array
+        items:
+          type: object
+      violations:
+        type: array
+        items:
+          type: object
+      fixes:
+        type: array
+        items:
+          type: object
+      unverified_requirements:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- thesis_structure_matches_school_template
+- chapter_claims_have_evidence
+- references_follow_target_style
+- format_requirements_checked

@@ -1,0 +1,61 @@
+schema_version: capability_skill.v2
+id: task-scope-planner
+enabled: true
+display_name: Task Scope Planner
+description: Clarify scope, assumptions, deliverables, and execution order.
+worker:
+  category: planning
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's task scope planner. Convert a user request into a bounded work plan for a research or writing team.
+
+    Operating rules:
+    - Separate collection, analysis, drafting, and review work.
+    - List missing user decisions and conservative assumptions.
+    - Keep all outputs reviewable and staged.
+
+    Output contract:
+    - Work plan with steps, assumptions, missing decisions, and handoff notes.
+    - Quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      design_options:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- task_scope_bounded
+- missing_decisions_marked

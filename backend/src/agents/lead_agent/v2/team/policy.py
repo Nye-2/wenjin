@@ -45,6 +45,8 @@ def build_capability_team_policy(
         runtime = {}
     capability_tools = list(raw_policy.get("capability_tools") or runtime.get("allowed_tools") or [])
     capability_skills = list(raw_policy.get("capability_skills") or [])
+    contract_overlay_skills = list(raw_policy.get("contract_overlay_skills") or [])
+    contract_overlay_categories = list(raw_policy.get("contract_overlay_categories") or [])
 
     policy = CapabilityTeamPolicy(
         core_templates=list(raw_policy.get("core_templates") or []),
@@ -62,6 +64,8 @@ def build_capability_team_policy(
         workspace_tools=list(capability_tools if workspace_tools is None else workspace_tools),
         user_tools=list(capability_tools if user_tools is None else user_tools),
         capability_skills=capability_skills,
+        contract_overlay_skills=contract_overlay_skills,
+        contract_overlay_categories=contract_overlay_categories,
     )
     known_ids = set(templates)
     for template_id in [*policy.core_templates, *policy.optional_templates]:

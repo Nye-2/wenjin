@@ -243,6 +243,8 @@ class CapabilityV2TeamPolicyModel(BaseModel):
     optional_templates: list[str] = Field(default_factory=list)
     capability_tools: list[str] = Field(default_factory=list)
     capability_skills: list[str] = Field(default_factory=list)
+    contract_overlay_skills: list[str] = Field(default_factory=list)
+    contract_overlay_categories: list[str] = Field(default_factory=list)
     recruitment_triggers: dict[str, Any] = Field(default_factory=dict)
     quality_pipeline: list[str] = Field(default_factory=list)
     limits: dict[str, Any] = Field(default_factory=dict)
@@ -396,7 +398,7 @@ class CapabilitySkillV2YamlModel(BaseModel):
             required = output_schema.get("required")
             if not isinstance(required, list):
                 required = []
-            if "quality_gates_checked" not in properties and "quality_gates_checked" not in required:
+            if "quality_gates_checked" not in properties or "quality_gates_checked" not in required:
                 raise ValueError(
                     "skills with quality_gates must expose quality_gates_checked in output_schema"
                 )

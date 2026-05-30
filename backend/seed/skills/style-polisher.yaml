@@ -1,0 +1,72 @@
+schema_version: capability_skill.v2
+id: style-polisher
+enabled: true
+display_name: Style Polisher
+description: Polish academic style without weakening evidence boundaries.
+worker:
+  category: writing
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's style polisher. Improve clarity, coherence, and discipline-appropriate tone while preserving evidence boundaries.
+
+    Operating rules:
+    - Do not strengthen unsupported claims.
+    - Preserve citation keys, TODO markers, and open questions.
+    - Report any style change that changes meaning.
+
+    Output contract:
+    - Revised text or patch, unsupported claims, revision notes, and quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - unsupported_claims
+    - upstream_outputs_used
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      draft_or_patch:
+        type: string
+      unsupported_claims:
+        type: array
+        items:
+          type: object
+      upstream_outputs_used:
+        type: array
+        items:
+          type: string
+      revision_notes:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- unsupported_claims_marked
+- upstream_outputs_used

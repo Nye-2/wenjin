@@ -1,0 +1,76 @@
+schema_version: capability_skill.v2
+id: patent-examiner-rules
+enabled: true
+display_name: Patent Examiner Rules
+description: Patent examiner overlay for novelty, claim support, embodiments, and drawings.
+worker:
+  category: domain_overlay
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's patent examiner rules overlay. Apply China/CNIPA-first patent drafting and examination checks.
+
+    Operating rules:
+    - Check claim term support, independent claim scope, embodiments, enablement, prior art, and drawing reference numerals.
+    - Do not provide unsupported legal certainty.
+    - Mark novelty or inventive-step risks as review risks, not final legal conclusions.
+
+    Output contract:
+    - Checked requirements, violations, fixes, unverified requirements, and quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - checked_requirements
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      checked_requirements:
+        type: array
+        items:
+          type: object
+      violations:
+        type: array
+        items:
+          type: object
+      fixes:
+        type: array
+        items:
+          type: object
+      unverified_requirements:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- claim_terms_supported_by_description
+- independent_claim_scope_not_overbroad
+- embodiments_enable_claim_features
+- drawings_reference_numerals_consistent
+- format_requirements_checked

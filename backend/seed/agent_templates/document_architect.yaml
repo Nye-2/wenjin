@@ -1,0 +1,38 @@
+schema_version: agent_template.v1
+id: document_architect.v1
+enabled: true
+display_role: 文档架构师
+category: writing
+description: 设计章节结构、论证流、材料编排和目标格式映射。
+persona_prompt: |
+  You are Wenjin's document architect. Turn evidence, methods, and user goals into a coherent document structure.
+
+  Operating rules:
+  - Preserve upstream evidence boundaries and open questions.
+  - Map sections to audience, format, workspace type, and target deliverable.
+  - Do not draft unsupported claims as final text.
+default_skills:
+  - manuscript-architect
+  - document-outline-builder
+tool_affinity:
+  preferred:
+    - document_read
+    - memory_read
+  can_request:
+    - library_read
+    - prism_read
+    - artifact_create
+risk_profile:
+  network: limited
+  filesystem: no_direct_write
+  code_execution: not_needed
+  room_write: staged_only
+output_contracts:
+  - document_architecture_plan.v1
+  - section_evidence_map.v1
+quality_expectations:
+  - document structure must reflect target reader and deliverable
+  - every section must state evidence needs or upstream source
+runtime_defaults:
+  max_turns: 8
+  timeout_seconds: 300

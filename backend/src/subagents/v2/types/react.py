@@ -52,21 +52,173 @@ def _parse_output(final_text: str, config: dict[str, Any]) -> dict:
     * default / anything else -- returns ``{"text": text}``.
     """
     kind = config.get("output_kind", "text")
+    output_schema = _output_schema(config)
 
     if kind == "document":
         return {"markdown": final_text}
 
-    if kind == "json":
-        try:
-            parsed = json.loads(final_text)
-            if isinstance(parsed, dict):
-                return parsed
-            return {"text": final_text}
-        except (json.JSONDecodeError, TypeError):
-            return {"text": final_text}
+    if kind == "json" or output_schema:
+        parsed = _extract_json_object(final_text)
+        if isinstance(parsed, dict):
+            return _apply_schema_defaults(parsed, output_schema, config, final_text)
+        if output_schema:
+            return _schema_fallback_output(final_text, output_schema, config)
+        return {"text": final_text}
 
     # Default: plain text
     return {"text": final_text}
+
+
+def _output_schema(config: dict[str, Any]) -> dict[str, Any]:
+    io_contract = config.get("io_contract")
+    if not isinstance(io_contract, dict):
+        return {}
+    output_schema = io_contract.get("output_schema")
+    return output_schema if isinstance(output_schema, dict) else {}
+
+
+def _runtime_output_config(config: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
+    """Overlay resolved runtime quality contracts onto the skill config.
+
+    Team Kernel injects a merged ``quality_contract`` that may include contract
+    overlay skills. Use that resolved contract for prompt and parse shape so
+    the worker sees the same output contract that quality gates will enforce.
+    """
+    runtime_config = dict(config)
+    quality_contract = inputs.get("quality_contract")
+    if not isinstance(quality_contract, dict):
+        return runtime_config
+
+    output_schema = quality_contract.get("output_schema")
+    if isinstance(output_schema, dict) and output_schema:
+        io_contract = dict(runtime_config.get("io_contract") or {})
+        io_contract["output_schema"] = output_schema
+        runtime_config["io_contract"] = io_contract
+
+    gates = _string_list(
+        quality_contract.get("acknowledgement_required_gates")
+        or quality_contract.get("quality_gates")
+    )
+    if gates:
+        runtime_config["quality_gates"] = gates
+    return runtime_config
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    candidates = [text.strip()]
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    if fence_match:
+        candidates.insert(0, fence_match.group(1).strip())
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(text[start : end + 1])
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _apply_schema_defaults(
+    parsed: dict[str, Any],
+    output_schema: dict[str, Any],
+    config: dict[str, Any],
+    final_text: str,
+) -> dict[str, Any]:
+    if not output_schema:
+        return parsed
+    output = dict(parsed)
+    properties = output_schema.get("properties")
+    if not isinstance(properties, dict):
+        properties = {}
+    for field in _schema_required_fields(output_schema):
+        if field in output:
+            continue
+        output[field] = _default_schema_field(field, properties.get(field), config, final_text)
+    return output
+
+
+def _schema_fallback_output(
+    final_text: str,
+    output_schema: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    properties = output_schema.get("properties")
+    if not isinstance(properties, dict):
+        properties = {}
+    output: dict[str, Any] = {}
+    for field in _schema_required_fields(output_schema):
+        output[field] = _default_schema_field(field, properties.get(field), config, final_text)
+    if "text" not in output:
+        output["text"] = final_text
+    return output
+
+
+def _schema_required_fields(output_schema: dict[str, Any]) -> list[str]:
+    required = output_schema.get("required")
+    if not isinstance(required, list):
+        return []
+    return [str(field) for field in required if str(field).strip()]
+
+
+def _default_schema_field(
+    field: str,
+    schema: Any,
+    config: dict[str, Any],
+    final_text: str,
+) -> Any:
+    if field == "text":
+        return final_text
+    if field == "quality_gates_checked":
+        return []
+    field_type = schema.get("type") if isinstance(schema, dict) else None
+    if field_type == "array":
+        return []
+    if field_type == "object":
+        return {}
+    if field_type == "boolean":
+        return False
+    if field_type in {"number", "integer"}:
+        return 0
+    return ""
+
+
+def _with_output_contract(system_prompt: str, config: dict[str, Any]) -> str:
+    output_schema = _output_schema(config)
+    if not output_schema:
+        return system_prompt
+    schema_text = json.dumps(output_schema, ensure_ascii=False, sort_keys=True)
+    gates = config.get("quality_gates")
+    gates_text = json.dumps(gates, ensure_ascii=False) if isinstance(gates, list) else "[]"
+    contract = (
+        "\n\nOutput contract:\n"
+        "- Return only one JSON object, without markdown fences or prose outside JSON.\n"
+        "- Include every required field from this JSON Schema.\n"
+        f"- JSON Schema: {schema_text}\n"
+        f"- quality_gates_checked must list the checked gates: {gates_text}"
+    )
+    return f"{system_prompt}{contract}" if system_prompt else contract.strip()
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, list):
+        result: list[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                result.append(text)
+        return result
+    return []
 
 
 def _build_default_user_payload(ctx: SubagentContext, config: dict[str, Any]) -> dict[str, Any]:
@@ -118,8 +270,8 @@ class ReactSubagent(SubagentBase):
             return SubagentResult(output={"text": ""})
 
         # Assemble prompts
-        system_prompt = ctx.skill.prompt or ""
-        config = ctx.skill.config or {}
+        config = _runtime_output_config(ctx.skill.config or {}, ctx.inputs or {})
+        system_prompt = _with_output_contract(ctx.skill.prompt or "", config)
         user_template = config.get("user_template")
         user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)
         user_message = _render_user_message(user_template, user_inputs)

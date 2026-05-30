@@ -11,9 +11,9 @@ import pytest
 def _agent_template_yaml() -> str:
     return textwrap.dedent("""\
         schema_version: agent_template.v1
-        id: research_scholar.v1
+        id: research_scout.v1
         enabled: true
-        display_role: 文献专家
+        display_role: 文献检索员
         category: research
         description: 检索、筛选、归纳文献。
         persona_prompt: You are a research specialist.
@@ -39,7 +39,7 @@ def _agent_template_yaml() -> str:
 async def test_loads_agent_template_seeds_through_dataservice(test_session, tmp_path) -> None:
     seed_dir = tmp_path / "agent_templates"
     seed_dir.mkdir()
-    seed_file = seed_dir / "research_scholar.yaml"
+    seed_file = seed_dir / "research_scout.yaml"
     seed_file.write_text(_agent_template_yaml(), encoding="utf-8")
 
     from src.services.agent_template_loader import AgentTemplateLoader
@@ -59,8 +59,8 @@ async def test_loads_agent_template_seeds_through_dataservice(test_session, tmp_
     command = dataservice.load_agent_template_seed_items.await_args.args[0]
     assert command.seed_root == str(seed_dir)
     assert command.items[0].source_path == str(seed_file)
-    assert command.items[0].data["id"] == "research_scholar.v1"
-    assert command.items[0].data["display_role"] == "文献专家"
+    assert command.items[0].data["id"] == "research_scout.v1"
+    assert command.items[0].data["display_role"] == "文献检索员"
 
 
 @pytest.mark.asyncio
