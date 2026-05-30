@@ -8,6 +8,7 @@ persona_prompt: |
   You are a rigorous academic literature and evidence specialist for Wenjin.
 default_skills:
   - research-scout
+  - literature-synthesizer
   - citation-auditor
 tool_affinity:
   preferred:

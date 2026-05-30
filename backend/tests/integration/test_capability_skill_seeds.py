@@ -6,6 +6,7 @@ import yaml
 
 SEED_ROOT = Path(__file__).resolve().parent.parent.parent / "seed"
 SKILLLESS_SUBAGENTS = {"sandbox_python", "prism_selection_optimizer"}
+DIRECT_COMMIT_TOOLS = {"room_commit", "workspace_room_write", "prism_apply"}
 
 
 def _collect_skill_ids() -> set[str]:
@@ -18,6 +19,14 @@ def _collect_skill_ids() -> set[str]:
 
 def _collect_capability_files() -> list[Path]:
     return list((SEED_ROOT / "capabilities").glob("*/*.yaml"))
+
+
+def _collect_agent_template_ids() -> set[str]:
+    out: set[str] = set()
+    for f in (SEED_ROOT / "agent_templates").glob("*.yaml"):
+        data = yaml.safe_load(f.read_text())
+        out.add(data["id"])
+    return out
 
 
 def _is_hidden_capability(data: dict) -> bool:
@@ -97,7 +106,45 @@ def test_every_capability_required_fields_present():
         else:
             assert data["mission"]["primary_surface"] == "prism"
         assert "requires_sandbox" not in data
-        assert "runtime" not in data
+        runtime = data.get("runtime")
+        if runtime is not None:
+            assert runtime.get("mode") == "team_kernel", (
+                f"{cap_path}: runtime is only allowed for team_kernel capabilities"
+            )
+            assert isinstance(data.get("team_policy"), dict), (
+                f"{cap_path}: team_kernel capabilities must declare team_policy"
+            )
+
+
+def test_team_kernel_capability_declares_recruitable_team_policy():
+    template_ids = _collect_agent_template_ids()
+    assert template_ids, "no agent templates found"
+    team_kernel_capabilities: list[str] = []
+
+    for cap_path in _collect_capability_files():
+        data = yaml.safe_load(cap_path.read_text())
+        if (data.get("runtime") or {}).get("mode") != "team_kernel":
+            continue
+        team_kernel_capabilities.append(data["id"])
+        policy = data.get("team_policy") or {}
+        template_refs = [
+            *list(policy.get("core_templates") or []),
+            *list(policy.get("optional_templates") or []),
+        ]
+        assert template_refs, f"{cap_path}: team_policy must recruit at least one template"
+        assert set(template_refs) <= template_ids, (
+            f"{cap_path}: unknown agent templates {sorted(set(template_refs) - template_ids)}"
+        )
+        capability_tools = set(policy.get("capability_tools") or [])
+        assert capability_tools, f"{cap_path}: team_policy.capability_tools must not be empty"
+        assert not capability_tools.intersection(DIRECT_COMMIT_TOOLS), (
+            f"{cap_path}: direct commit tools must stay behind staged result_card flow"
+        )
+        assert policy.get("quality_pipeline"), (
+            f"{cap_path}: team_policy.quality_pipeline must close the loop"
+        )
+
+    assert "sci_literature_positioning" in team_kernel_capabilities
 
 
 def test_every_capability_declares_result_exit():
