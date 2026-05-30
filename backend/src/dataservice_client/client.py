@@ -119,6 +119,7 @@ from src.dataservice_client.contracts.prism import (
     PrismProtectedScopeUpsertPayload,
     PrismSurfacePayload,
 )
+from src.dataservice_client.contracts.pricing import PricingSimulationRequestPayload
 from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeAppliedPayload,
     PrismFileChangeClearPayload,
@@ -1709,6 +1710,14 @@ class AsyncDataServiceClient:
             params={"category": category},
         )
         return [ModelRuntimeConfigPayload.model_validate(item) for item in payload["data"]]
+
+    async def simulate_pricing(self, command: PricingSimulationRequestPayload) -> dict[str, Any]:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/pricing-policies/simulate",
+            json=command.model_dump(mode="json"),
+        )
+        return dict(payload["data"])
 
     async def create_execution(self, command: ExecutionCreatePayload) -> ExecutionPayload:
         payload = await self._request(

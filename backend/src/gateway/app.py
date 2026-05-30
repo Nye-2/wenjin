@@ -186,6 +186,7 @@ from .routers import (  # noqa: E402
     admin_capabilities,
     admin_credit_rules,
     admin_models,
+    admin_pricing,
     admin_redeem_codes,
     admin_skills,
     artifacts,
@@ -232,6 +233,7 @@ app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(admin_capabilities.router, prefix="/api", tags=["admin", "capabilities"])
 app.include_router(admin_skills.router, prefix="/api", tags=["admin", "skills"])
 app.include_router(admin_models.router, prefix="/api", tags=["admin", "models"])
+app.include_router(admin_pricing.router, prefix="/api", tags=["admin", "pricing"])
 app.include_router(admin_analytics.router, prefix="/api", tags=["admin", "analytics"])
 app.include_router(admin_credit_rules.router, prefix="/api", tags=["admin", "credits"])
 app.include_router(admin_redeem_codes.router, prefix="/api", tags=["admin", "credits"])

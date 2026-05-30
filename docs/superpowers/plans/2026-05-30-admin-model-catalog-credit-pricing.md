@@ -554,7 +554,7 @@ git commit -m "feat: route models from dataservice catalog"
 - Test: `backend/tests/services/test_pricing_policy_service.py`
 - Test: `backend/tests/gateway/routers/test_admin_pricing.py`
 
-- [ ] **Step 1: Write pricing tests**
+- [x] **Step 1: Write pricing tests**
 
 Cover validators and simulator:
 
@@ -565,7 +565,7 @@ Cover validators and simulator:
 - capability policy requires `max_charge_credits >= estimate_max_credits`.
 - sandbox policy requires at least one tier.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run:
 
@@ -574,7 +574,7 @@ cd backend
 .venv/bin/python -m pytest tests/dataservice/test_pricing_policy_domain.py tests/services/test_pricing_policy_service.py tests/gateway/routers/test_admin_pricing.py -v
 ```
 
-- [ ] **Step 3: Implement typed policy contracts**
+- [x] **Step 3: Implement typed policy contracts**
 
 Define:
 
@@ -598,7 +598,7 @@ PATCH  /internal/v1/pricing-policies/{policy_id}
 POST   /internal/v1/pricing-policies/{policy_id}/disable
 ```
 
-- [ ] **Step 5: Implement gateway simulator**
+- [x] **Step 5: Implement gateway simulator**
 
 `POST /api/admin/pricing/simulate` returns credits, raw cost, margin, and breakdown.
 
