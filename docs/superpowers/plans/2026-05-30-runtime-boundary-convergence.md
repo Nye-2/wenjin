@@ -1,0 +1,442 @@
+# Runtime Boundary Convergence Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Remove the remaining auth/account, artifact/asset, and LaTeX public-route historical boundaries and converge them on AccountDataService, AssetDataService, and Prism manuscript adapter architecture.
+
+**Architecture:** The migration is split into three independently verifiable domains. Auth removes request-time DB session dependency and returns an Account DataService subject. Artifact removes `legacy_artifact` runtime naming while preserving DataService ownership. LaTeX routes move from public `/latex/*` to Prism adapter routes with no compatibility layer.
+
+**Tech Stack:** Python 3.13, FastAPI, Pydantic v2, SQLAlchemy async inside DataService/database ownership only, pytest; Next.js 16, React 19, TypeScript, Vitest.
+
+---
+
+## File Structure
+
+### Auth / Account
+
+- Modify `backend/src/gateway/auth_dependencies.py`
+  - remove `Depends(get_db)` and `AsyncSession`
+  - return Account auth subject projection
+- Modify `backend/src/services/auth.py`
+  - remove `db` parameters from token persistence helpers
+- Modify `backend/src/services/user_service.py`
+  - remove `db` constructor and stale docstring
+- Modify routers currently typing `current_user: User`
+  - import and use the auth subject type where practical
+  - keep field access unchanged
+- Modify tests:
+  - `backend/tests/gateway/routers/test_auth.py`
+  - `backend/tests/services/test_auth.py`
+  - `backend/tests/services/test_auth_email_workflow_gate.py`
+  - architecture guard tests
+
+### Artifact / Asset
+
+- Modify `backend/src/dataservice/domains/asset/contracts.py`
+  - rename legacy artifact contracts to canonical workspace artifact names
+- Modify `backend/src/dataservice/domains/asset/projection.py`
+- Modify `backend/src/dataservice/domains/asset/service.py`
+- Modify `backend/src/dataservice/asset_api.py`
+- Modify `backend/src/dataservice_app/routers/asset.py`
+- Modify `backend/src/dataservice_client/contracts/asset.py`
+- Modify `backend/src/dataservice_client/client.py`
+- Modify `backend/src/academic/services/artifact_service.py`
+  - remove `db`
+  - remove compatibility wording
+  - call canonical client methods
+- Modify runtime call sites under gateway/application/task services.
+- Modify artifact tests and architecture guards.
+
+### Prism LaTeX Adapter
+
+- Create or modify router prefix under `backend/src/gateway/routers/prism_latex_adapter*.py`
+- Remove old `/latex/*` router registration from gateway app configuration
+- Modify LaTeX services:
+  - `backend/src/services/latex/project_service.py`
+  - `backend/src/services/latex/template_service.py`
+  - `backend/src/services/latex/compile_service.py`
+  - `backend/src/services/workspace_latex_projects.py`
+  - `backend/src/services/workspace_prism_service.py`
+- Modify frontend clients:
+  - `frontend/lib/api/latex.ts` or replacement `frontend/lib/api/prism-latex-adapter.ts`
+  - every importer of the LaTeX API client
+- Modify backend route tests and frontend API tests.
+- Extend architecture guards against `/latex` runtime routes and frontend calls.
+
+---
+
+## Task 1: Auth Subject And Token Helper Boundary
+
+**Files:**
+- Modify: `backend/src/gateway/auth_dependencies.py`
+- Modify: `backend/src/services/auth.py`
+- Modify: `backend/src/services/user_service.py`
+- Modify: `backend/tests/architecture/test_dataservice_boundaries.py`
+- Test: `backend/tests/gateway/routers/test_auth.py`
+- Test: `backend/tests/services/test_auth.py`
+- Test: `backend/tests/services/test_auth_email_workflow_gate.py`
+
+- [ ] **Step 1: Add failing architecture guard for auth DB dependency**
+
+Add a test in `backend/tests/architecture/test_dataservice_boundaries.py`:
+
+```python
+def test_auth_runtime_stays_on_account_dataservice_boundary() -> None:
+    checked_files = [
+        SRC_ROOT / "gateway" / "auth_dependencies.py",
+        SRC_ROOT / "services" / "auth.py",
+        SRC_ROOT / "services" / "user_service.py",
+    ]
+    forbidden_imports = {"sqlalchemy.ext.asyncio"}
+    forbidden_names_by_module = {
+        "src.database": {"User", "get_db_session"},
+        "src.gateway.deps.core": {"get_db"},
+    }
+
+    violations: list[str] = []
+    for path in checked_files:
+        relative = path.relative_to(SRC_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        for node in visitor.import_from_nodes:
+            module = node.module or ""
+            if module in forbidden_imports:
+                violations.append(f"{relative}:{node.lineno} imports {module}")
+            forbidden_names = forbidden_names_by_module.get(module, set())
+            imported_forbidden_names = sorted(
+                alias.name for alias in node.names if alias.name in forbidden_names
+            )
+            if imported_forbidden_names:
+                violations.append(
+                    f"{relative}:{node.lineno} imports {module}.{', '.join(imported_forbidden_names)}"
+                )
+
+    assert not violations, "Auth runtime must use Account DataService only:\n" + "\n".join(violations)
+```
+
+- [ ] **Step 2: Run guard and verify failure**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_auth_runtime_stays_on_account_dataservice_boundary -q
+```
+
+Expected: FAIL listing `AsyncSession`, `User`, and/or `get_db` imports.
+
+- [ ] **Step 3: Implement AccountAuthSubject**
+
+Add to `backend/src/gateway/auth_dependencies.py`:
+
+```python
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+
+
+@dataclass(slots=True)
+class AccountAuthSubject:
+    id: str
+    email: str
+    name: str | None
+    role: str
+    is_active: bool
+    is_superuser: bool
+    credits: int = 0
+    created_at: datetime | None = None
+    last_login: datetime | None = None
+    refresh_token_hash: str | None = None
+    refresh_token_expires_at: datetime | None = None
+
+    @classmethod
+    def from_record(cls, user: Any) -> "AccountAuthSubject":
+        return cls(
+            id=str(user.id),
+            email=str(user.email),
+            name=getattr(user, "name", None),
+            role=str(getattr(user, "role", "admin" if getattr(user, "is_superuser", False) else "user")),
+            is_active=bool(getattr(user, "is_active", False)),
+            is_superuser=bool(getattr(user, "is_superuser", False)),
+            credits=int(getattr(user, "credits", 0) or 0),
+            created_at=getattr(user, "created_at", None),
+            last_login=getattr(user, "last_login", None),
+            refresh_token_hash=getattr(user, "refresh_token_hash", None),
+            refresh_token_expires_at=getattr(user, "refresh_token_expires_at", None),
+        )
+```
+
+- [ ] **Step 4: Remove auth dependency DB session**
+
+Change `get_current_user` and `get_current_user_optional` so they accept only credentials and `dataservice`. Return `AccountAuthSubject.from_record(user)`.
+
+- [ ] **Step 5: Remove `db` from token helpers**
+
+In `backend/src/services/auth.py`:
+
+- `_get_user_record(user_id, *, dataservice=None)`
+- `persist_refresh_token(*, user, refresh_token, dataservice=None)`
+- `revoke_refresh_token(*, user, dataservice=None)`
+- `create_and_persist_tokens(*, user_id, email, role="user", user=None, dataservice=None)`
+- `verify_refresh_token_recorded(token, *, dataservice=None)`
+
+Update all call sites in `backend/src/gateway/routers/auth.py`.
+
+- [ ] **Step 6: Remove `db` from UserService**
+
+In `backend/src/services/user_service.py`, remove `AsyncSession`, `db`, and stale docstring language.
+
+- [ ] **Step 7: Run auth tests**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/gateway/routers/test_auth.py tests/services/test_auth.py tests/services/test_auth_email_workflow_gate.py tests/architecture/test_dataservice_boundaries.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add backend/src/gateway/auth_dependencies.py backend/src/services/auth.py backend/src/services/user_service.py backend/src/gateway/routers/auth.py backend/tests
+git commit -m "refactor: route auth subject through account dataservice"
+```
+
+## Task 2: Canonical Workspace Artifact Contracts
+
+**Files:**
+- Modify: `backend/src/dataservice/domains/asset/contracts.py`
+- Modify: `backend/src/dataservice/domains/asset/projection.py`
+- Modify: `backend/src/dataservice/domains/asset/service.py`
+- Modify: `backend/src/dataservice/asset_api.py`
+- Modify: `backend/src/dataservice_app/routers/asset.py`
+- Modify: `backend/src/dataservice_client/contracts/asset.py`
+- Modify: `backend/src/dataservice_client/client.py`
+- Modify: `backend/src/academic/services/artifact_service.py`
+- Modify: runtime call sites returned by `rg "legacy_artifact|legacy-artifacts|LegacyArtifact"`
+- Test: artifact, dashboard, execution commit, and architecture tests
+
+- [ ] **Step 1: Add failing guard for runtime legacy artifact names**
+
+Add architecture guard that scans runtime packages outside `database`, `dataservice`, `dataservice_app`, and `dataservice_client` for `legacy_artifact`, `legacy-artifacts`, and `LegacyArtifact`.
+
+- [ ] **Step 2: Run guard and verify failure**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_runtime_code_does_not_use_legacy_artifact_surface_names -q
+```
+
+Expected: FAIL with runtime files.
+
+- [ ] **Step 3: Rename contracts**
+
+Rename:
+
+- `LegacyArtifactCreateCommand` -> `WorkspaceArtifactCreateCommand`
+- `LegacyArtifactUpdateCommand` -> `WorkspaceArtifactUpdateCommand`
+- `LegacyArtifactProjection` -> `WorkspaceArtifactProjection`
+
+Keep field names compatible (`type`, `content`, `version`, `status`) unless tests require a broader product rename.
+
+- [ ] **Step 4: Rename DataService routes**
+
+Change internal route prefix from `/legacy-artifacts` to `/artifacts` in `backend/src/dataservice_app/routers/asset.py`.
+
+- [ ] **Step 5: Rename DataService client methods**
+
+Rename client methods to workspace artifact names and update all callers:
+
+- `create_workspace_artifact`
+- `get_workspace_artifact`
+- `find_latest_workspace_artifact`
+- `list_workspace_artifacts`
+- `count_workspace_artifacts`
+- `list_workspace_artifact_versions`
+- `update_workspace_artifact`
+- `delete_workspace_artifact`
+- `get_workspace_artifact_lineage`
+
+- [ ] **Step 6: Clean runtime ArtifactService**
+
+Update `backend/src/academic/services/artifact_service.py`:
+
+- remove `AsyncSession` and `db`
+- remove compatibility wording
+- call renamed client methods
+
+- [ ] **Step 7: Update call sites and tests**
+
+Use:
+
+```bash
+rg -n "legacy_artifact|legacy-artifacts|LegacyArtifact|count_legacy_artifacts|list_legacy_artifacts" backend/src backend/tests
+```
+
+Update every runtime/test caller to the canonical names.
+
+- [ ] **Step 8: Run artifact/domain tests**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/dataservice tests/gateway/routers/test_artifacts.py tests/gateway/routers/test_workspace_rooms_router.py tests/services/test_dashboard_service.py tests/services/test_admin_dashboard_service.py tests/architecture/test_dataservice_boundaries.py -q
+```
+
+Expected: PASS.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add backend/src backend/tests
+git commit -m "refactor: rename legacy artifacts to workspace artifacts"
+```
+
+## Task 3: Prism LaTeX Adapter Route Migration
+
+**Files:**
+- Modify/Create: `backend/src/gateway/routers/prism_latex_adapter.py`
+- Modify/Delete old router registration for `latex_*` routers
+- Modify: `backend/src/services/latex/project_service.py`
+- Modify: `backend/src/services/latex/template_service.py`
+- Modify: `backend/src/services/latex/compile_service.py`
+- Modify: `backend/src/services/workspace_latex_projects.py`
+- Modify: `backend/src/services/workspace_prism_service.py`
+- Modify: `frontend/lib/api/latex.ts`
+- Modify frontend importers of the LaTeX API client
+- Test: backend LaTeX/Prism route tests and frontend API tests
+
+- [ ] **Step 1: Add failing backend route guard**
+
+Add guard:
+
+```python
+def test_runtime_does_not_register_public_latex_routes() -> None:
+    router_root = SRC_ROOT / "gateway" / "routers"
+    violations = []
+    for path in router_root.glob("latex*.py"):
+        violations.append(str(path.relative_to(SRC_ROOT)))
+    assert not violations, "Public /latex route modules must be removed:\n" + "\n".join(violations)
+```
+
+Expected initial failure.
+
+- [ ] **Step 2: Add failing frontend API guard**
+
+Add or extend a frontend unit test to assert `frontend/lib/api/latex.ts` does not contain `"/latex`.
+
+- [ ] **Step 3: Remove DB constructor dependencies from LaTeX services**
+
+For each LaTeX/Prism adapter service constructor, remove:
+
+```python
+db: AsyncSession | None = None
+self.db = db
+```
+
+Construct nested services with `dataservice=dataservice`.
+
+- [ ] **Step 4: Create Prism adapter router**
+
+Move the existing route functions from old `latex_*` router files under a new prefix:
+
+```python
+router = APIRouter(prefix="/prism/latex-adapter", tags=["prism", "latex-adapter"])
+```
+
+Replace every `LatexProjectService(db)` with `LatexProjectService(dataservice=dataservice)` and inject `dataservice: AsyncDataServiceClient = Depends(get_dataservice_client)`.
+
+- [ ] **Step 5: Stop registering old LaTeX routers**
+
+Remove old imports/includes from gateway app setup. Delete old `backend/src/gateway/routers/latex*.py` files after the new router covers all needed endpoints.
+
+- [ ] **Step 6: Update frontend API prefix**
+
+Change `frontend/lib/api/latex.ts` constants/calls from:
+
+```ts
+"/latex/projects"
+`/latex/projects/${projectId}`
+```
+
+to:
+
+```ts
+"/prism/latex-adapter/projects"
+`/prism/latex-adapter/projects/${projectId}`
+```
+
+If the file name remains `latex.ts`, add a top comment stating it is the Prism LaTeX adapter client, not a standalone LaTeX product API.
+
+- [ ] **Step 7: Update backend tests**
+
+Rename request URLs in route tests from `/latex/...` to `/prism/latex-adapter/...`. Add a test that `/latex/health` returns 404 through normal app routing.
+
+- [ ] **Step 8: Run target tests**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/gateway/routers/test_latex* tests/services/test_latex* tests/services/test_workspace_prism_service.py tests/architecture/test_dataservice_boundaries.py -q
+cd frontend && npm run test -- tests/unit/lib/latex-api.test.ts tests/unit/proxy.test.ts
+cd frontend && npm run typecheck
+```
+
+Expected: PASS.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add backend/src backend/tests frontend
+git commit -m "refactor: move latex api under prism adapter"
+```
+
+## Task 4: Current Docs And Final Guards
+
+**Files:**
+- Modify: `docs/current/architecture.md`
+- Modify: `docs/current/workspace-current-state.md`
+- Modify: `docs/current/frontend-feature-plugin-contract.md`
+- Modify: `backend/tests/architecture/test_dataservice_boundaries.py`
+- Modify/add frontend static guard tests
+
+- [ ] **Step 1: Update docs**
+
+Record:
+
+- Auth returns Account DataService subject.
+- Artifact runtime surface is WorkspaceArtifact, not legacy artifact.
+- `/latex/*` is removed; Prism adapter route is the only backend manuscript adapter API.
+- `/workspaces/{id}/prism` remains the only user-facing manuscript route.
+
+- [ ] **Step 2: Run full verification**
+
+Run:
+
+```bash
+cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q
+cd frontend && npm run typecheck
+cd frontend && npm run build
+```
+
+Expected:
+
+- Backend full suite PASS.
+- Frontend typecheck PASS.
+- Frontend build PASS.
+
+- [ ] **Step 3: Commit docs and final guards**
+
+```bash
+git add docs backend/tests frontend/tests
+git commit -m "docs: record runtime boundary convergence"
+```
+
+- [ ] **Step 4: Push master**
+
+```bash
+git push origin master
+```
+
