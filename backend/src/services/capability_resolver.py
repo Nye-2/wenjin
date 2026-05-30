@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
@@ -70,10 +70,9 @@ class CapabilityResolver:
     def __init__(
         self,
         event_bus: EventBus,
+        *,
         dataservice: AsyncDataServiceClient | None = None,
-        session_factory: Any | None = None,
     ) -> None:
-        _ = session_factory
         self.event_bus = event_bus
         self._dataservice = dataservice
         self._cache: dict[tuple[str, str], object] = {}

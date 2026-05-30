@@ -27,24 +27,13 @@ def _workspace_payload(
 
 
 @pytest.fixture
-def mock_db_session():
-    return AsyncMock()
-
-
-@pytest.fixture
 def dataservice():
     return AsyncMock()
 
 
 @pytest.fixture
-def service(mock_db_session, dataservice):
-    return WorkspaceService(mock_db_session, dataservice=dataservice)
-
-
-class TestWorkspaceServiceInit:
-    def test_init_with_db_session(self, mock_db_session):
-        service = WorkspaceService(mock_db_session)
-        assert service.db == mock_db_session
+def service(dataservice):
+    return WorkspaceService(dataservice=dataservice)
 
 
 class TestCreateWorkspace:

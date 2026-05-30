@@ -150,7 +150,6 @@ async def test_lead_agent_runtime_with_seeded_capability_completes(db_session):
 
     bus = _make_event_bus_mock()
     resolver = CapabilityResolver(
-        session_factory=_session_factory(db_session),
         event_bus=bus,
         dataservice=dataservice,
     )

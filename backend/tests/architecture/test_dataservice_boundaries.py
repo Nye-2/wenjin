@@ -945,6 +945,50 @@ def test_legacy_gateway_and_execution_helpers_do_not_keep_db_sessions() -> None:
     )
 
 
+def test_catalog_and_academic_facades_do_not_keep_db_constructors() -> None:
+    """Catalog and academic facades must expose DataService-only constructors."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "services" / "capability_resolver.py": (
+            "session_factory",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "capabilities.py": (
+            "from src.database import User",
+            "current_user: User",
+        ),
+        SRC_ROOT / "academic" / "services" / "workspace_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+            "database session",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "academic.py": (
+            "WorkspaceService(None",
+        ),
+        SRC_ROOT / "task" / "tasks" / "run.py": (
+            "WorkspaceService(None",
+        ),
+        SRC_ROOT / "academic" / "services" / "generation_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Catalog/academic runtime facades still expose DB constructor boundaries:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

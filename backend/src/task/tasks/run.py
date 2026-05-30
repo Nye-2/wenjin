@@ -98,7 +98,7 @@ async def _execute_run_async(
     async with dataservice_client() as dataservice:
         handler = ThreadTurnHandler(
             thread_service=ThreadService(dataservice=dataservice),
-            workspace_service=WorkspaceService(None, dataservice=dataservice),
+            workspace_service=WorkspaceService(dataservice=dataservice),
             index_service=dataservice,
             artifact_service=ArtifactService(dataservice=dataservice),
             reference_service=dataservice,

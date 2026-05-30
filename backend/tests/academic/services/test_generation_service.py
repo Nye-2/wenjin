@@ -61,7 +61,7 @@ class FakeDataServiceClient:
 @pytest.mark.asyncio
 async def test_generation_service_delegates_to_dataservice_client() -> None:
     fake = FakeDataServiceClient()
-    service = GenerationService(object(), dataservice=fake)  # type: ignore[arg-type]
+    service = GenerationService(dataservice=fake)
     created = await service.create(
         workspace_id="ws-1",
         skill_name="idea_to_manuscript",

@@ -29,7 +29,7 @@ async def get_workspace_service(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> WorkspaceService:
     """Get workspace service instance."""
-    return WorkspaceService(None, dataservice=dataservice)
+    return WorkspaceService(dataservice=dataservice)
 
 
 async def get_artifact_service(

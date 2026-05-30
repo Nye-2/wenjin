@@ -248,7 +248,6 @@ async def test_capability_load_resolve_invalidate(db_session, tmp_path):
 
     bus = _make_event_bus_mock()
     resolver = CapabilityResolver(
-        session_factory=_session_factory(db_session),
         event_bus=bus,
         dataservice=dataservice,
     )

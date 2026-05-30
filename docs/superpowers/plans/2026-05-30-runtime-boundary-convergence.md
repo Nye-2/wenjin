@@ -34,7 +34,7 @@
   - `launch_feature` 直接从 Workspace/Catalog DataService 解析 workspace type 和 capability，并通过 Execution DataService 创建/恢复/标记 dispatch metadata。
   - Worker `execute_execution` 运行时不再打开 DB session、不再 reset DB engine、不再通过 `ThreadService(db)` 写回 result_card。
   - `LeadAgentRuntime` 不再接收或保存 DB session；Prism BibTeX 同步通过 Reference/DataService service 自己的 canonical client 边界执行。
-  - `CapabilityResolver` 运行时解析只依赖 Catalog DataService client，`session_factory` 仅保留为历史测试调用兼容参数且不参与运行路径。
+  - `CapabilityResolver` 运行时解析只依赖 Catalog DataService client，不接受 session factory 或 DB constructor。
   - Generic `execute_task` 预处理 worker 不再打开 DB session、不再 reset DB engine；任务记录、线程结果卡片、附件 preprocess 状态统一通过 Task/Conversation DataService client 写回。
   - Gateway `get_task_service` 不再为 TaskService 创建 request-time DB session，TaskStore 只需要 Redis runtime cache 与 DataService client。
   - Thread run worker、ProgressTracker stage transition flush、Task SSE initial snapshot 不再打开 DB session；统一通过 Run/Task/Conversation DataService client 访问运行态持久化。
@@ -74,6 +74,11 @@
   - `ExecutionService`、`TaskStore`、`SkillResolver` 移除历史 DB/session 构造参数和 `self.db`/`_db` 保存点。
   - Upload、execution cancel/display、engine、task store/service、skill resolver 单测同步到 DataService-only construction。
   - Architecture guard 新增 `test_legacy_gateway_and_execution_helpers_do_not_keep_db_sessions`，防止已退役 helper/facade 重新暴露 DB session。
+- Current catalog/academic facade boundary follow-up
+  - `CapabilityResolver` 移除 `session_factory` 参数；capabilities router 使用 Account auth subject，不再导入 DB `User`。
+  - `WorkspaceService`、`GenerationService` 移除 DB/session 构造参数和 `self.db` 保存点。
+  - Gateway academic dependency 与 thread run worker 不再传 `WorkspaceService(None, ...)`。
+  - Architecture guard 新增 `test_catalog_and_academic_facades_do_not_keep_db_constructors`，防止 Catalog/academic facade 回流到 DB constructor。
 
 已验证：
 
@@ -111,6 +116,10 @@
 - `cd backend && .venv/bin/python -m ruff check src/gateway/deps/core.py src/gateway/deps/__init__.py src/services/execution_service.py src/task/store.py src/services/skill_resolver.py tests/gateway/routers/test_uploads.py tests/services/test_execution_cancel.py tests/test_execution_display_name.py tests/execution/test_engine.py tests/task/conftest.py tests/task/test_store.py tests/task/test_service.py tests/unit/services/test_skill_resolver.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_execution_cancel.py tests/test_execution_display_name.py tests/execution/test_engine.py tests/task/test_store.py tests/task/test_service.py tests/task/test_task_metrics.py tests/unit/services/test_skill_resolver.py tests/gateway/routers/test_uploads.py tests/architecture/test_dataservice_boundaries.py::test_legacy_gateway_and_execution_helpers_do_not_keep_db_sessions -q` -> 66 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 21 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2014 passed.
+- `cd backend && .venv/bin/python -m ruff check src/services/capability_resolver.py src/gateway/routers/capabilities.py src/academic/services/workspace_service.py src/gateway/deps/academic.py src/task/tasks/run.py src/academic/services/generation_service.py tests/services/test_capability_resolver.py tests/integration/test_phase1_foundation.py tests/integration/test_phase2_e2e.py tests/academic/services/test_workspace_service.py tests/academic/services/test_generation_service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_capability_resolver.py tests/gateway/test_capabilities_router.py tests/gateway/routers/test_capabilities_router.py tests/integration/test_phase1_foundation.py::test_capability_load_resolve_invalidate tests/integration/test_phase2_e2e.py::test_lead_agent_runtime_with_seeded_capability_completes tests/academic/services/test_workspace_service.py tests/academic/services/test_generation_service.py tests/gateway/routers/test_threads.py tests/task/test_thread_writeback.py tests/architecture/test_dataservice_boundaries.py::test_catalog_and_academic_facades_do_not_keep_db_constructors -q` -> 45 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 22 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2014 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
