@@ -179,7 +179,7 @@ class CapabilityV2SandboxIsolationModel(BaseModel):
     allow_server_control: bool = False
 
     @model_validator(mode="after")
-    def reject_forbidden_controls(self) -> "CapabilityV2SandboxIsolationModel":
+    def reject_forbidden_controls(self) -> CapabilityV2SandboxIsolationModel:
         forbidden = {
             "allow_host_docker_socket": self.allow_host_docker_socket,
             "allow_docker_socket": self.allow_docker_socket,
@@ -231,6 +231,24 @@ class CapabilityV2CitationPolicyModel(BaseModel):
     record_usage: bool = True
 
 
+class CapabilityV2RuntimeModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["team_kernel"]
+    allowed_tools: list[str] = Field(default_factory=list)
+
+
+class CapabilityV2TeamPolicyModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    core_templates: list[str] = Field(default_factory=list)
+    optional_templates: list[str] = Field(default_factory=list)
+    capability_tools: list[str] = Field(default_factory=list)
+    capability_skills: list[str] = Field(default_factory=list)
+    recruitment_triggers: dict[str, Any] = Field(default_factory=dict)
+    quality_pipeline: list[str] = Field(default_factory=list)
+    limits: dict[str, Any] = Field(default_factory=dict)
+    budget: dict[str, Any] = Field(default_factory=dict)
+
+
 class CapabilityV2YamlModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["capability.v2"]
@@ -246,14 +264,30 @@ class CapabilityV2YamlModel(BaseModel):
     review_policy: CapabilityV2ReviewPolicyModel
     citation_policy: CapabilityV2CitationPolicyModel = Field(default_factory=CapabilityV2CitationPolicyModel)
     quality_gates: list[str] = Field(default_factory=list)
+    runtime: CapabilityV2RuntimeModel | None = None
+    team_policy: CapabilityV2TeamPolicyModel | None = None
     graph_template: GraphTemplateModel
     extensions: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_team_kernel_contract(self) -> CapabilityV2YamlModel:
+        if self.runtime is None:
+            if self.team_policy is not None:
+                raise ValueError("team_policy requires runtime.mode=team_kernel")
+            return self
+        if self.runtime.mode == "team_kernel" and self.team_policy is None:
+            raise ValueError("runtime.mode=team_kernel requires team_policy")
+        return self
 
     def to_catalog_data(self) -> dict[str, Any]:
         data = self.model_dump(mode="json")
         display = data["display"]
         intent = data["intent"]
         inputs = data["inputs"]
+        runtime = data.get("runtime") or {
+            "mode": "compute_agentic",
+            "sandbox_policy": data["sandbox_policy"],
+        }
         return {
             **data,
             "display_name": display["name"],
@@ -269,10 +303,7 @@ class CapabilityV2YamlModel(BaseModel):
                 "entry_tier": display.get("entry_tier", "primary"),
                 "stages": [],
             },
-            "runtime": {
-                "mode": "compute_agentic",
-                "sandbox_policy": data["sandbox_policy"],
-            },
+            "runtime": runtime,
             "dashboard_meta": {},
         }
 
