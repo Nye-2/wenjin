@@ -34,6 +34,11 @@ io_contract:
     type: object
   output_schema:
     type: object
+    required:
+    - text
+    - quality_gates_checked
+    - upstream_outputs_used
+    - unsupported_claims
     properties:
       text:
         type: string
@@ -49,6 +54,20 @@ io_contract:
         type: array
         items:
           type: string
+      upstream_outputs_used:
+        type: array
+        items:
+          type: string
+      draft_or_patch:
+        type: string
+      unsupported_claims:
+        type: array
+        items:
+          type: object
+      revision_notes:
+        type: array
+        items:
+          type: object
 context_access:
   room_reads:
     library: summary

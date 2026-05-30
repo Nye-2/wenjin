@@ -166,10 +166,13 @@ runtime:
   - artifact_create
 team_policy:
   core_templates:
-  - research_scholar.v1
-  - writing_editor.v1
-  - critical_reviewer.v1
+  - research_planner.v1
+  - research_scout.v1
+  - literature_synthesizer.v1
   optional_templates:
+  - citation_auditor.v1
+  - document_architect.v1
+  - critical_reviewer.v1
   - generalist_assistant.v1
   capability_tools:
   - web_search
@@ -181,17 +184,37 @@ team_policy:
   - prism_change_staged
   - artifact_create
   capability_skills:
+  - task-scope-planner
+  - query-planner
   - research-scout
+  - source-screener
   - literature-synthesizer
+  - novelty-mapper
   - citation-auditor
-  - manuscript-writer
   - source-quality-auditor
+  - manuscript-architect
+  - document-outline-builder
   - review-critic
+  - claim-verifier
+  - format-compliance-checker
+  - structured-summary
+  contract_overlay_skills:
+  - sci-journal-rules
+  contract_overlay_categories:
+  - planning
+  - method
+  - evidence
+  - writing
+  - review
+  - generalist
   recruitment_triggers:
+    missing_sources:
+    - research_scout.v1
+    unsupported_claims:
+    - citation_auditor.v1
+    - critical_reviewer.v1
     writing_needed:
-    - writing_editor.v1
-    evidence_gap_or_source_risk:
-    - research_scholar.v1
+    - document_architect.v1
     overloaded_or_missing_specialist:
     - generalist_assistant.v1
   quality_pipeline:

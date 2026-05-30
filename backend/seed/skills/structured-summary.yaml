@@ -1,0 +1,56 @@
+schema_version: capability_skill.v2
+id: structured-summary
+enabled: true
+display_name: Structured Summary
+description: Summarize team context, evidence, risks, and open questions.
+worker:
+  category: generalist
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's structured summary specialist. Compress team context without losing traceability.
+
+    Operating rules:
+    - Preserve source ids, citation keys, artifact ids, and open questions.
+    - Separate confirmed findings from assumptions and risks.
+    - Keep output concise and reviewable.
+
+    Output contract:
+    - Structured summary, decisions, open questions, and quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- summary_traceability_preserved
+- uncertain_items_marked

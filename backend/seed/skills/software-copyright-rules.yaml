@@ -1,0 +1,76 @@
+schema_version: capability_skill.v2
+id: software-copyright-rules
+enabled: true
+display_name: Software Copyright Rules
+description: China software copyright registration consistency and evidence overlay.
+worker:
+  category: domain_overlay
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's software copyright rules overlay. Apply China software copyright registration checks.
+
+    Operating rules:
+    - Check application form, source excerpts, technical manual, software name, version, modules, and implemented-feature consistency.
+    - Mark missing evidence and unimplemented-feature claims.
+    - Do not invent code evidence or registration guarantees.
+
+    Output contract:
+    - Checked requirements, violations, fixes, unverified requirements, and quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - checked_requirements
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      checked_requirements:
+        type: array
+        items:
+          type: object
+      violations:
+        type: array
+        items:
+          type: object
+      fixes:
+        type: array
+        items:
+          type: object
+      unverified_requirements:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- application_form_source_manual_consistency
+- software_name_version_consistent
+- source_and_document_deposit_rules_checked
+- no_claims_about_unimplemented_features
+- format_requirements_checked

@@ -16,6 +16,7 @@ from src.subagents.v2.types.react import (
     _parse_output,
     _render_user_message,
     _run_react_loop,
+    _runtime_output_config,
 )
 
 # ---------------------------------------------------------------------------
@@ -139,6 +140,92 @@ class TestParseOutput:
     def test_no_output_kind_key(self):
         result = _parse_output("plain output", {})
         assert result == {"text": "plain output"}
+
+    def test_v2_output_schema_parses_fenced_json_without_output_kind(self):
+        payload = {
+            "text": "planned queries",
+            "quality_gates_checked": ["query_strategy_recorded"],
+            "query_log": [{"query": "federated LoRA"}],
+        }
+        result = _parse_output(
+            "```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```",
+            {
+                "quality_gates": ["query_strategy_recorded"],
+                "io_contract": {
+                    "output_schema": {
+                        "type": "object",
+                        "required": ["text", "quality_gates_checked", "query_log"],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "quality_gates_checked": {"type": "array"},
+                            "query_log": {"type": "array"},
+                        },
+                    }
+                },
+            },
+        )
+
+        assert result == payload
+
+    def test_v2_output_schema_fallback_fills_contract_fields(self):
+        result = _parse_output(
+            "plain model text",
+            {
+                "quality_gates": ["task_scope_bounded"],
+                "io_contract": {
+                    "output_schema": {
+                        "type": "object",
+                        "required": ["text", "quality_gates_checked", "decision_candidates"],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "quality_gates_checked": {"type": "array"},
+                            "decision_candidates": {"type": "array"},
+                        },
+                    }
+                },
+            },
+        )
+
+        assert result == {
+            "text": "plain model text",
+            "quality_gates_checked": [],
+            "decision_candidates": [],
+        }
+
+    def test_runtime_output_config_prefers_resolved_quality_contract(self):
+        base_config = {
+            "quality_gates": ["skill_gate"],
+            "io_contract": {
+                "output_schema": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {"text": {"type": "string"}},
+                }
+            },
+        }
+        contract_schema = {
+            "type": "object",
+            "required": ["text", "quality_gates_checked", "checked_requirements"],
+            "properties": {
+                "text": {"type": "string"},
+                "quality_gates_checked": {"type": "array"},
+                "checked_requirements": {"type": "array"},
+            },
+        }
+
+        result = _runtime_output_config(
+            base_config,
+            {
+                "quality_contract": {
+                    "output_schema": contract_schema,
+                    "acknowledgement_required_gates": ["format_requirements_checked"],
+                }
+            },
+        )
+
+        assert result["io_contract"]["output_schema"] == contract_schema
+        assert result["quality_gates"] == ["format_requirements_checked"]
+        assert base_config["io_contract"]["output_schema"]["required"] == ["text"]
 
 
 class TestDegradedOutput:

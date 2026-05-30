@@ -28,6 +28,10 @@ io_contract:
     type: object
   output_schema:
     type: object
+    required:
+    - text
+    - quality_gates_checked
+    - query_log
     properties:
       text:
         type: string
@@ -43,6 +47,26 @@ io_contract:
         type: array
         items:
           type: string
+      query_log:
+        type: array
+        items:
+          type: object
+      included_sources:
+        type: array
+        items:
+          type: object
+      borderline_sources:
+        type: array
+        items:
+          type: object
+      rejected_sources:
+        type: array
+        items:
+          type: object
+      source_gaps:
+        type: array
+        items:
+          type: object
 context_access:
   room_reads:
     library: summary

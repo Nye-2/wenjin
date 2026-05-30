@@ -26,6 +26,9 @@ io_contract:
     type: object
   output_schema:
     type: object
+    required:
+    - text
+    - quality_gates_checked
     properties:
       text:
         type: string
@@ -41,6 +44,26 @@ io_contract:
         type: array
         items:
           type: string
+      input_inventory:
+        type: array
+        items:
+          type: object
+      analysis_plan:
+        type: array
+        items:
+          type: object
+      verified_results:
+        type: array
+        items:
+          type: object
+      limitations:
+        type: array
+        items:
+          type: object
+      artifact_refs:
+        type: array
+        items:
+          type: object
 context_access:
   room_reads:
     library: summary

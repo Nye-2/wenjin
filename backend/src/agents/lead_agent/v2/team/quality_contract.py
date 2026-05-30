@@ -47,6 +47,13 @@ class QualityContractResolver:
         quality_gates: list[str] = []
         acknowledgement_required_gates: list[str] = []
         source_refs: dict[str, list[str]] = {}
+        skill_ids = _effective_skill_ids_with_overlay(
+            template,
+            team_policy,
+            effective_skill_ids,
+            skill_records,
+            source_refs,
+        )
 
         if team_policy.quality_pipeline:
             quality_gates.extend(team_policy.quality_pipeline)
@@ -57,7 +64,7 @@ class QualityContractResolver:
             quality_gates.extend(capability_quality_gates)
             _add_source_ref(source_refs, "quality_gates", "capability.quality_gates")
 
-        for skill_id in effective_skill_ids:
+        for skill_id in skill_ids:
             skill = skill_records.get(skill_id)
             if skill is None:
                 continue
@@ -103,7 +110,7 @@ class QualityContractResolver:
         return ResolvedQualityContract(
             capability_id=str(getattr(capability, "id", "") or ""),
             template_id=template.id,
-            skill_ids=list(effective_skill_ids),
+            skill_ids=list(skill_ids),
             role=template.display_role,
             output_contracts=_dedupe(_string_list(template.output_contracts)),
             output_schema=output_schema,
@@ -137,6 +144,24 @@ def _mission_should_rules(definition: dict[str, Any]) -> list[str]:
         "Keep deliverables within mission.allowed_deliverables: "
         + ", ".join(allowed_deliverables)
     ]
+
+
+def _effective_skill_ids_with_overlay(
+    template: AgentTemplate,
+    team_policy: CapabilityTeamPolicy,
+    effective_skill_ids: list[str],
+    skill_records: dict[str, Any | None],
+    source_refs: dict[str, list[str]],
+) -> list[str]:
+    result = list(effective_skill_ids)
+    overlay_categories = set(team_policy.contract_overlay_categories or [])
+    if overlay_categories and template.category not in overlay_categories:
+        return result
+    for overlay_id in team_policy.contract_overlay_skills:
+        if overlay_id and skill_records.get(overlay_id) is not None and overlay_id not in result:
+            result.append(overlay_id)
+            _add_source_ref(source_refs, "skill_ids", "team_policy.contract_overlay_skills")
+    return result
 
 
 def _recruitment_hints(team_policy: CapabilityTeamPolicy) -> dict[str, list[str]]:
