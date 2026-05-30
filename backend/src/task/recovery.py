@@ -22,9 +22,6 @@ async def reconcile_interrupted_tasks() -> int:
         )
         return 0
 
-    from src.database import get_db_session
     from src.services.execution_service import ExecutionService
 
-    async with get_db_session() as db:
-        reconciled = await ExecutionService(db).reconcile_interrupted_executions()
-    return reconciled
+    return await ExecutionService().reconcile_interrupted_executions()

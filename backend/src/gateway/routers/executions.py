@@ -11,8 +11,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
-from src.database import User, get_db_session
-from src.gateway.auth_dependencies import get_current_user
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
+from src.gateway.deps.core import get_dataservice_client
 from src.gateway.services.run_lifecycle import format_sse
 from src.runtime.stream_bridge import END_SENTINEL, HEARTBEAT_SENTINEL
 from src.services.execution_event_publisher import _get_stream_bridge
@@ -75,14 +76,14 @@ async def _execution_sse_consumer(
 async def stream_execution(
     execution_id: str,
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> StreamingResponse:
     """Subscribe to execution events via SSE (unified stream protocol)."""
-    async with get_db_session() as db:
-        svc = ExecutionService(db)
-        record = await svc.get_by_id(execution_id)
-        if record is None or record.user_id != str(current_user.id):
-            raise HTTPException(status_code=404, detail="Execution not found")
+    svc = ExecutionService(dataservice=dataservice)
+    record = await svc.get_by_id(execution_id)
+    if record is None or record.user_id != str(current_user.id):
+        raise HTTPException(status_code=404, detail="Execution not found")
     return StreamingResponse(
         _execution_sse_consumer(execution_id=execution_id, request=request),
         media_type="text/event-stream",
@@ -98,67 +99,66 @@ async def stream_execution(
 @router.get("/{execution_id}")
 async def get_execution(
     execution_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     """Get a single execution record by ID."""
-    async with get_db_session() as db:
-        svc = ExecutionService(db)
-        record = await svc.get_by_id(execution_id)
-        if record is None:
-            raise HTTPException(status_code=404, detail="Execution not found")
-        if record.user_id != str(current_user.id):
-            raise HTTPException(status_code=404, detail="Execution not found")
-        return serialize_execution_record(record)
+    svc = ExecutionService(dataservice=dataservice)
+    record = await svc.get_by_id(execution_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Execution not found")
+    if record.user_id != str(current_user.id):
+        raise HTTPException(status_code=404, detail="Execution not found")
+    return serialize_execution_record(record)
 
 
 @router.get("/{execution_id}/nodes/{node_id}")
 async def get_node_detail(
     execution_id: str,
     node_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     """Return full detail for a single node within an execution."""
-    async with get_db_session() as db:
-        svc = ExecutionService(db)
-        record = await svc.get_by_id(execution_id)
-        if record is None or record.user_id != str(current_user.id):
-            raise HTTPException(status_code=404, detail="Execution not found")
+    svc = ExecutionService(dataservice=dataservice)
+    record = await svc.get_by_id(execution_id)
+    if record is None or record.user_id != str(current_user.id):
+        raise HTTPException(status_code=404, detail="Execution not found")
 
-        # Extract static node info from graph_structure
-        graph_structure = record.graph_structure or {"nodes": [], "edges": []}
-        static_node = None
-        for n in graph_structure.get("nodes", []):
-            if n.get("id") == node_id:
-                static_node = n
-                break
+    graph_structure = record.graph_structure or {"nodes": [], "edges": []}
+    static_node = None
+    for n in graph_structure.get("nodes", []):
+        if n.get("id") == node_id:
+            static_node = n
+            break
 
-        # Extract dynamic state from node_states
-        node_states = record.node_states or {}
-        state = node_states.get(node_id, {})
+    node_states = record.node_states or {}
+    state = node_states.get(node_id, {})
 
-        if static_node is None and not state:
-            raise HTTPException(status_code=404, detail="Node not found")
+    if static_node is None and not state:
+        raise HTTPException(status_code=404, detail="Node not found")
 
-        return {
-            "id": node_id,
-            "label": (static_node or {}).get("label") or state.get("label"),
-            "status": state.get("status", "pending"),
-            "phase_index": (static_node or {}).get("phase_index"),
-            "input": state.get("input"),
-            "output": state.get("output"),
-            "thinking": state.get("thinking"),
-            "tools": state.get("tool_calls"),
-            "token_usage": state.get("token_usage"),
-            "started_at": state.get("started_at"),
-            "completed_at": state.get("completed_at"),
-        }
+    return {
+        "id": node_id,
+        "label": (static_node or {}).get("label") or state.get("label"),
+        "status": state.get("status", "pending"),
+        "phase_index": (static_node or {}).get("phase_index"),
+        "input": state.get("input"),
+        "output": state.get("output"),
+        "thinking": state.get("thinking"),
+        "tools": state.get("tool_calls"),
+        "token_usage": state.get("token_usage"),
+        "started_at": state.get("started_at"),
+        "completed_at": state.get("completed_at"),
+    }
 
 
 @router.post("/{execution_id}/cancel")
 async def cancel_execution(
     execution_id: str,
     action: str = Query(default="interrupt"),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     """Cancel an active execution.
 
@@ -166,20 +166,19 @@ async def cancel_execution(
     does not distinguish interrupt vs rollback behavior yet.
     """
     _ = action
-    async with get_db_session() as db:
-        svc = ExecutionService(db)
-        record = await svc.get_by_id(execution_id)
-        if record is None or record.user_id != str(current_user.id):
-            raise HTTPException(status_code=404, detail="Execution not found")
+    svc = ExecutionService(dataservice=dataservice)
+    record = await svc.get_by_id(execution_id)
+    if record is None or record.user_id != str(current_user.id):
+        raise HTTPException(status_code=404, detail="Execution not found")
 
-        updated = await svc.cancel_execution(execution_id)
-        if updated is None:
-            raise HTTPException(status_code=404, detail="Execution not found")
+    updated = await svc.cancel_execution(execution_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Execution not found")
 
-        return {
-            "execution_id": execution_id,
-            "status": updated.status,
-        }
+    return {
+        "execution_id": execution_id,
+        "status": updated.status,
+    }
 
 
 @router.get("")
@@ -189,20 +188,20 @@ async def list_executions(
     execution_type: str | None = Query(default=None),
     status: list[str] | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     """List execution records for the current user."""
-    async with get_db_session() as db:
-        svc = ExecutionService(db)
-        items = await svc.list_executions(
-            user_id=str(current_user.id),
-            workspace_id=workspace_id,
-            thread_id=thread_id,
-            execution_type=execution_type,
-            status=status,
-            limit=limit,
-        )
-        return {
-            "items": [serialize_execution_record(r) for r in items],
-            "count": len(items),
-        }
+    svc = ExecutionService(dataservice=dataservice)
+    items = await svc.list_executions(
+        user_id=str(current_user.id),
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        execution_type=execution_type,
+        status=status,
+        limit=limit,
+    )
+    return {
+        "items": [serialize_execution_record(r) for r in items],
+        "count": len(items),
+    }

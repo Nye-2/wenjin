@@ -550,6 +550,48 @@ def test_gateway_runtime_drops_session_based_owner_commit_compute_boundaries() -
     )
 
 
+def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
+    """Execution runtime entrypoints must not construct execution services from DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "executions.py": (
+            "get_db_session",
+            "ExecutionService(db",
+            "from src.database import",
+        ),
+        SRC_ROOT / "tools" / "builtins" / "launch_feature.py": (
+            "get_db_session",
+            "ExecutionService(db",
+            "from src.database import",
+            "get_workspace_type",
+            "IntegrityError",
+        ),
+        SRC_ROOT / "task" / "recovery.py": (
+            "get_db_session",
+            "ExecutionService(db",
+        ),
+        SRC_ROOT / "task" / "service.py": (
+            "ExecutionService(self._store.db",
+        ),
+        SRC_ROOT / "task" / "tasks" / "execution.py": (
+            "ExecutionService(db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Execution runtime must use DataService execution boundary:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

@@ -22,6 +22,9 @@ class _FakeLaunchDataServiceClient:
     async def __aexit__(self, exc_type, exc, tb):
         return None
 
+    async def get_workspace(self, workspace_id: str):
+        return SimpleNamespace(id=workspace_id, workspace_type="sci")
+
     async def get_catalog_capability(
         self,
         *,

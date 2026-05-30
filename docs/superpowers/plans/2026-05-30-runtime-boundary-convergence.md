@@ -26,9 +26,16 @@
   - 前端/后端 manuscript adapter API 收敛到 `/api/prism/latex-adapter/*`。
   - `/api/latex/*` 不提供 compatibility layer、fallback 或 redirect。
   - Prism adapter routers、LaTeX services、WorkspacePrism/WorkspaceLatex services 通过 DataService client 访问 persistence，不再接受 runtime DB session。
+- `6ec02fc8 refactor: close gateway dataservice runtime boundaries`
+  - thread/run launch owner check、execution commit 和 compute projection 不再依赖 request DB session。
+  - Gateway runtime 通过 DataService client 执行 workspace owner、commit、compute shell/projection 读写。
+- Current execution runtime boundary follow-up
+  - `/executions/*` runtime API、`launch_feature`、task recovery/cancel 和 worker execution lifecycle 不再以 DB session 构造 `ExecutionService`。
+  - `launch_feature` 直接从 Workspace/Catalog DataService 解析 workspace type 和 capability，并通过 Execution DataService 创建/恢复/标记 dispatch metadata。
 
 已验证：
 
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.
