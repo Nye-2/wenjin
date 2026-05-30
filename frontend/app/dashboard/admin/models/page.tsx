@@ -11,6 +11,7 @@ import {
   listAdminModels,
   setDefaultAdminModel,
   testAdminModel,
+  updateAdminModel,
 } from "@/lib/api/admin-models";
 import type { AdminModelCatalogItem } from "@/lib/api/types";
 
@@ -54,10 +55,16 @@ export default function AdminModelsPage() {
     refresh();
   };
 
+  const handleEnable = async (model: AdminModelCatalogItem) => {
+    setError(null);
+    await updateAdminModel(model.model_id, { enabled: true });
+    refresh();
+  };
+
   const handleDefault = async (model: AdminModelCatalogItem) => {
     setError(null);
     if (!model.enabled) {
-      setError("停用模型不能设为默认，请先新增启用状态模型。");
+      setError("停用模型不能设为默认，请先启用该模型。");
       return;
     }
     await setDefaultAdminModel(model.model_id);
@@ -175,14 +182,25 @@ export default function AdminModelsPage() {
                         默认
                       </button>
                     )}
-                    <button
-                      type="button"
-                      aria-label={`禁用 ${model.model_id}`}
-                      onClick={() => handleDisable(model)}
-                      className="text-rose-600 hover:underline"
-                    >
-                      禁用
-                    </button>
+                    {model.enabled ? (
+                      <button
+                        type="button"
+                        aria-label={`禁用 ${model.model_id}`}
+                        onClick={() => handleDisable(model)}
+                        className="text-rose-600 hover:underline"
+                      >
+                        禁用
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`启用 ${model.model_id}`}
+                        onClick={() => handleEnable(model)}
+                        className="text-[var(--accent-primary)] hover:underline"
+                      >
+                        启用
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>

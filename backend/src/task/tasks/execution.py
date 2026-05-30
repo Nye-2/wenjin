@@ -156,6 +156,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         publish_execution_stream_end,
     )
     from src.services.execution_service import ExecutionService
+    from src.task.model_catalog_runtime import refresh_runtime_model_catalog
 
     if not redis_settings.enabled:
         raise RuntimeError("execute_execution requires REDIS_ENABLED=true")
@@ -166,6 +167,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
     await redis_client.connect_stream()
 
     async with dataservice_client() as dataservice:
+        await refresh_runtime_model_catalog(dataservice)
         execution_service = ExecutionService(dataservice=dataservice, redis=redis_client.client)
         record = await execution_service.get_by_id(execution_id)
         if record is None:

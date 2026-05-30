@@ -78,7 +78,7 @@ async def update_model(
     uow: DataServiceUnitOfWork = Depends(get_uow),
 ) -> dict:
     service = DataServiceModelCatalogService(uow.required_session, autocommit=False)
-    data = payload.model_dump(mode="json", exclude_none=True)
+    data = payload.model_dump(mode="json", exclude_unset=True)
     admin_id = data.pop("admin_id", None)
     record = await service.update_model(model_id, data, admin_id=admin_id)
     await uow.commit()

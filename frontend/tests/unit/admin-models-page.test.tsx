@@ -78,10 +78,15 @@ describe("AdminModelsPage", () => {
     await waitFor(() => expect(updateAdminModel).toHaveBeenCalled());
     expect(updateAdminModel).toHaveBeenCalledWith(
       "deepseek-chat",
+      expect.objectContaining({
+        enabled: true,
+      }),
+    );
+    expect(updateAdminModel).toHaveBeenCalledWith(
+      "deepseek-chat",
       expect.not.objectContaining({
         api_key: expect.anything(),
         category: expect.anything(),
-        enabled: expect.anything(),
       }),
     );
   });
@@ -93,5 +98,17 @@ describe("AdminModelsPage", () => {
 
     expect(screen.getByText("默认模型不能直接禁用，请先设置新的默认模型。")).toBeInTheDocument();
     expect(disableAdminModel).not.toHaveBeenCalled();
+  });
+
+  it("can re-enable a disabled model from the table", async () => {
+    listAdminModels.mockResolvedValue({
+      items: [{ ...MODEL, enabled: false, is_default: false }],
+      total: 1,
+    });
+    render(<AdminModelsPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "启用 deepseek-chat" }));
+
+    await waitFor(() => expect(updateAdminModel).toHaveBeenCalledWith("deepseek-chat", { enabled: true }));
   });
 });

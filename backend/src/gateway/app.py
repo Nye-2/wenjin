@@ -35,6 +35,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await redis_client.connect()
     await redis_client.connect_stream()
 
+    try:
+        from src.dataservice_client.provider import dataservice_client
+        from src.services.model_catalog_cache import refresh_model_catalog_cache
+
+        async with dataservice_client() as dataservice:
+            snapshot = await refresh_model_catalog_cache(dataservice)
+        logger.info(
+            "Model catalog runtime cache loaded (%d models, version=%s)",
+            len(snapshot.by_id),
+            snapshot.version,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Model catalog runtime cache warmup skipped: %s",
+            exc,
+            exc_info=True,
+        )
+
     # Initialize run runtime singletons.
     from src.runtime.runs import RunManager
     from src.runtime.stream_bridge import RedisStreamBridge

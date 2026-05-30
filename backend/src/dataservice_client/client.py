@@ -1723,7 +1723,7 @@ class AsyncDataServiceClient:
         payload = await self._request(
             "PATCH",
             f"/internal/v1/model-catalog/models/{model_id}",
-            json=command.model_dump(mode="json", exclude_none=True),
+            json=command.model_dump(mode="json", exclude_unset=True),
         )
         data = payload.get("data")
         return ModelCatalogPayload.model_validate(data) if data is not None else None

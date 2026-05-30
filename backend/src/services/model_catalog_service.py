@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal
 
 from src.dataservice_client import AsyncDataServiceClient
@@ -11,8 +12,18 @@ from src.dataservice_client.contracts.model_catalog import (
     ModelCatalogPayload,
     ModelCatalogUpdatePayload,
 )
+from src.services.model_catalog_cache import refresh_model_catalog_cache
+
+logger = logging.getLogger(__name__)
 
 ModelPurpose = Literal["chat", "writing", "image", "all"]
+
+_CLEARABLE_UPDATE_FIELDS = {
+    "pricing_policy_id",
+    "timeout_seconds",
+    "max_retries",
+    "default_headers",
+}
 
 
 class ModelCatalogService:
@@ -38,7 +49,9 @@ class ModelCatalogService:
     async def create_model(self, data: dict[str, Any], *, admin_id: str) -> ModelCatalogPayload:
         payload = dict(data)
         payload["admin_id"] = admin_id
-        return await self.dataservice.create_model_catalog_model(ModelCatalogCreatePayload.model_validate(payload))
+        record = await self.dataservice.create_model_catalog_model(ModelCatalogCreatePayload.model_validate(payload))
+        await self._refresh_runtime_cache_best_effort()
+        return record
 
     async def update_model(
         self,
@@ -47,22 +60,57 @@ class ModelCatalogService:
         *,
         admin_id: str,
     ) -> ModelCatalogPayload | None:
-        payload = {key: value for key, value in data.items() if value is not None}
+        payload = {
+            key: value
+            for key, value in data.items()
+            if value is not None or key in _CLEARABLE_UPDATE_FIELDS
+        }
         if not str(payload.get("api_key") or "").strip():
             payload.pop("api_key", None)
         payload["admin_id"] = admin_id
-        return await self.dataservice.update_model_catalog_model(
+        record = await self.dataservice.update_model_catalog_model(
             model_id,
             ModelCatalogUpdatePayload.model_validate(payload),
         )
+        await self._refresh_runtime_cache_best_effort()
+        return record
 
     async def disable_model(self, model_id: str, *, admin_id: str) -> ModelCatalogPayload | None:
         return await self.update_model(model_id, {"enabled": False}, admin_id=admin_id)
 
     async def set_default_model(self, model_id: str, *, admin_id: str) -> ModelCatalogPayload | None:
-        return await self.dataservice.set_model_catalog_default(model_id, admin_id=admin_id)
+        record = await self.dataservice.set_model_catalog_default(model_id, admin_id=admin_id)
+        await self._refresh_runtime_cache_best_effort()
+        return record
 
     async def test_model(self, model_id: str) -> ModelCatalogPayload | None:
+        try:
+            snapshot = await refresh_model_catalog_cache(self.dataservice)
+            runtime = snapshot.by_id.get(model_id)
+            if runtime is None:
+                return await self.dataservice.update_model_catalog_health(
+                    model_id,
+                    ModelCatalogHealthPayload(
+                        status="failed",
+                        error_message="model is disabled or unavailable to runtime",
+                    ),
+                )
+            if not runtime.api_key or not runtime.base_url or not runtime.model:
+                return await self.dataservice.update_model_catalog_health(
+                    model_id,
+                    ModelCatalogHealthPayload(
+                        status="failed",
+                        error_message="runtime model configuration is incomplete",
+                    ),
+                )
+        except Exception as exc:
+            return await self.dataservice.update_model_catalog_health(
+                model_id,
+                ModelCatalogHealthPayload(
+                    status="failed",
+                    error_message=str(exc),
+                ),
+            )
         return await self.dataservice.update_model_catalog_health(
             model_id,
             ModelCatalogHealthPayload(status="healthy"),
@@ -74,6 +122,12 @@ class ModelCatalogService:
             category=category,
             enabled_only=True,
         )
+
+    async def _refresh_runtime_cache_best_effort(self) -> None:
+        try:
+            await refresh_model_catalog_cache(self.dataservice)
+        except Exception:
+            logger.warning("Model catalog runtime cache refresh failed", exc_info=True)
 
 
 def _purpose_category(purpose: str) -> str | None:

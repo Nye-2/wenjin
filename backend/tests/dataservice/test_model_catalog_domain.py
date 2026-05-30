@@ -345,6 +345,37 @@ async def test_update_without_api_key_preserves_existing_encrypted_key() -> None
 
 
 @pytest.mark.asyncio
+async def test_update_can_clear_optional_runtime_fields() -> None:
+    service, repository, _session = _model_catalog_service()
+    await service.create_model(
+        _model_payload(
+            pricing_policy_id="model-standard",
+            timeout_seconds=30,
+            max_retries=2,
+            default_headers={"X-Provider": "qnaigc"},
+        )
+    )
+
+    record = await service.update_model(
+        "deepseek-v3",
+        {
+            "pricing_policy_id": None,
+            "timeout_seconds": None,
+            "max_retries": None,
+            "default_headers": None,
+        },
+    )
+
+    assert record is not None
+    row = repository.rows["deepseek-v3"]
+    assert row.pricing_policy_id is None
+    assert row.timeout_seconds is None
+    assert row.max_retries is None
+    assert row.default_headers == {}
+    assert record.default_headers == {}
+
+
+@pytest.mark.asyncio
 async def test_health_update_stores_redacted_error() -> None:
     service, repository, _session = _model_catalog_service()
     await service.create_model(_model_payload())

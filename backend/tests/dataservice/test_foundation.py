@@ -911,7 +911,10 @@ async def test_dataservice_client_model_catalog_contract_methods() -> None:
         )
         updated = await client.update_model_catalog_model(
             "deepseek-v3",
-            ModelCatalogUpdatePayload(display_name="DeepSeek V3.1"),
+            ModelCatalogUpdatePayload(
+                display_name="DeepSeek V3.1",
+                pricing_policy_id=None,
+            ),
         )
         default_model = await client.set_model_catalog_default("deepseek-v3")
         health = await client.update_model_catalog_health(
@@ -928,6 +931,11 @@ async def test_dataservice_client_model_catalog_contract_methods() -> None:
     assert health is not None and health.health_status == "unknown"
     assert runtime_models[0].api_key == "sk-live-1234abcd"
     assert seen[0][1] == "/internal/v1/model-catalog/models"
+    patch_request = next(item for item in seen if item[0] == "PATCH")
+    assert patch_request[2] == {
+        "display_name": "DeepSeek V3.1",
+        "pricing_policy_id": None,
+    }
     assert seen[-1][1] == "/internal/v1/model-catalog/models/runtime"
 
 

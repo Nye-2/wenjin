@@ -35,6 +35,11 @@ async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkey
 
     monkeypatch.setattr(
         worker_module,
+        "_refresh_worker_model_catalog_cache",
+        lambda: _append_async(init_calls, "model_catalog"),
+    )
+    monkeypatch.setattr(
+        worker_module,
         "_load_worker_runtime_dependencies",
         lambda: (
             lambda: init_calls.append("sentry"),
@@ -57,6 +62,7 @@ async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkey
         "reset_redis_stream:False",
         "redis",
         "redis_stream",
+        "model_catalog",
     ]
 
 
@@ -84,6 +90,11 @@ async def test_bootstrap_worker_runtime_raises_in_strict_mcp_mode(monkeypatch):
 
     monkeypatch.setattr(
         worker_module,
+        "_refresh_worker_model_catalog_cache",
+        lambda: _noop_async(),
+    )
+    monkeypatch.setattr(
+        worker_module,
         "_load_worker_runtime_dependencies",
         lambda: (
             lambda: None,
@@ -100,6 +111,56 @@ async def test_bootstrap_worker_runtime_raises_in_strict_mcp_mode(monkeypatch):
 
     with pytest.raises(RuntimeError, match="secure-http"):
         await worker_module._bootstrap_worker_runtime()
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_worker_runtime_degrades_on_model_catalog_warmup_errors(monkeypatch):
+    init_calls: list[str] = []
+
+    class FakeManager:
+        def get_last_load_errors(self):
+            return {}
+
+    async def _fake_activate_mcp_runtime(**_kwargs):
+        return FakeManager(), []
+
+    class FakeRedisClient:
+        async def reset_client(self, *, close_current=True):
+            init_calls.append(f"reset_redis:{close_current}")
+
+        async def reset_stream_client(self, *, close_current=True):
+            init_calls.append(f"reset_redis_stream:{close_current}")
+
+        async def connect(self):
+            init_calls.append("redis")
+
+        async def connect_stream(self):
+            init_calls.append("redis_stream")
+
+    async def _raise_refresh():
+        raise RuntimeError("dataservice unavailable")
+
+    monkeypatch.setattr(
+        worker_module,
+        "_load_worker_runtime_dependencies",
+        lambda: (
+            lambda: init_calls.append("sentry"),
+            FakeRedisClient(),
+            lambda: object(),
+            _fake_activate_mcp_runtime,
+        ),
+    )
+    monkeypatch.setattr(worker_module, "_refresh_worker_model_catalog_cache", _raise_refresh)
+
+    await worker_module._bootstrap_worker_runtime()
+
+    assert init_calls == [
+        "sentry",
+        "reset_redis:False",
+        "reset_redis_stream:False",
+        "redis",
+        "redis_stream",
+    ]
 
 
 def test_run_worker_coroutine_reuses_process_runner():
@@ -145,3 +206,11 @@ def test_parse_worker_cli_args_accepts_queue_list():
 
     assert args.concurrency == 2
     assert args.queues == ["long_running", "default"]
+
+
+async def _append_async(calls: list[str], value: str) -> None:
+    calls.append(value)
+
+
+async def _noop_async() -> None:
+    return None

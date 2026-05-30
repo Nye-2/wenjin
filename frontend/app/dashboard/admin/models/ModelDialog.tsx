@@ -40,6 +40,7 @@ const INITIAL_FORM = {
   supports_json_schema: false,
   supports_vision: false,
   supports_reasoning_effort: false,
+  enabled: true,
   is_default: false,
 };
 
@@ -71,12 +72,19 @@ export function ModelDialog({ open, model, onClose }: Props) {
       supports_json_schema: model?.supports_json_schema ?? false,
       supports_vision: model?.supports_vision ?? false,
       supports_reasoning_effort: model?.supports_reasoning_effort ?? false,
+      enabled: model?.enabled ?? true,
       is_default: model?.is_default ?? false,
     });
   }, [open, model]);
 
   const update = (key: keyof typeof form, value: string | boolean) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "is_default" && value === true) {
+        next.enabled = true;
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async () => {
@@ -152,6 +160,8 @@ export function ModelDialog({ open, model, onClose }: Props) {
           <Field label="API Key" htmlFor="api-key">
             <Input
               id="api-key"
+              type="password"
+              autoComplete="new-password"
               value={form.api_key}
               placeholder={isEdit ? "留空则不更新" : ""}
               onChange={(event) => update("api_key", event.target.value)}
@@ -191,9 +201,12 @@ export function ModelDialog({ open, model, onClose }: Props) {
             ["supports_json_schema", "JSON schema"],
             ["supports_vision", "Vision"],
             ["supports_reasoning_effort", "Reasoning effort"],
+            ["enabled", "启用"],
             ["is_default", "设为默认"],
           ].map(([key, label]) => {
-            const disabled = key === "is_default" && isEdit && (model?.is_default || !model?.enabled);
+            const disabled =
+              (key === "is_default" && isEdit && (model?.is_default || !form.enabled))
+              || (key === "enabled" && form.is_default);
             return (
               <label key={key} className="flex items-center gap-2 text-[var(--text-secondary)]">
                 <input
@@ -241,7 +254,7 @@ function buildPayload(form: ModelFormState) {
     model_name: form.model_name.trim(),
     base_url: form.base_url.trim(),
     api_key: form.api_key.trim(),
-    enabled: true,
+    enabled: form.enabled,
     is_default: form.is_default,
     supports_streaming: form.supports_streaming,
     supports_tools: form.supports_tools,
@@ -262,7 +275,6 @@ function buildUpdatePayload(payload: ReturnType<typeof buildPayload>): AdminMode
   delete updatePayload.api_key;
   delete updatePayload.model_id;
   delete updatePayload.category;
-  delete updatePayload.enabled;
   if (payload.api_key) {
     updatePayload.api_key = payload.api_key;
   }

@@ -53,9 +53,16 @@ describe("AdminPricingPage", () => {
   it("renders simulator credit estimate and margin", async () => {
     render(<AdminPricingPage />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "估算积分" }));
+    const simulateButton = await screen.findByRole("button", { name: "估算积分" });
+    await waitFor(() => expect(simulateButton).not.toBeDisabled());
+    fireEvent.click(simulateButton);
 
     await waitFor(() => expect(simulatePricing).toHaveBeenCalled());
+    expect(simulatePricing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model_usage_policy: POLICY.config,
+      }),
+    );
     expect(await screen.findByText("12 credits")).toBeInTheDocument();
     expect(screen.getByText("毛利 1 CNY")).toBeInTheDocument();
   });

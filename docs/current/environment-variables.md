@@ -1,6 +1,6 @@
 # Environment Variables
 
-更新时间: 2026-05-20
+更新时间: 2026-05-30
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 
@@ -11,6 +11,7 @@
 - 根目录 `.env` 用于 `docker compose` 的镜像源、构建参数等仓库级配置。
   - `WENJIN_PROJECT_DIR`：宿主机仓库绝对路径（用于 Docker-in-Docker 的 LaTeX 编译路径映射）。
   - `ADMIN_PASSWORD`：`bootstrap-admin` 的初始管理员密码，compose 必填。
+  - `DATASERVICE_INTERNAL_TOKEN`：Gateway/worker/DataService 内部调用令牌，compose 必填。
   - `GRAFANA_PASSWORD`：Grafana 管理员密码，compose 必填。
   - `DOCKER_GID`：容器访问宿主机 `/var/run/docker.sock` 的 group id；Docker Desktop 通常为 `0`，Linux 服务器按宿主机 docker 组设置。
   - `PYTHON_IMAGE` / `NODE_IMAGE`：本地构建 backend/frontend 时的 base image；网络不稳定环境建议使用 `.env.docker-cn.example` 中的镜像源。
@@ -25,10 +26,18 @@
 | `DATABASE_URL` | PostgreSQL async 连接串 | `postgresql+asyncpg://postgres:postgres@localhost:5432/wenjin` |
 | `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
 | `JWT_SECRET_KEY` | JWT 签名密钥 | `change-me-...` |
-| `LLM_MODELS` | 文本/Agent 模型列表(JSON) | `[ {...} ]` |
-| `LLM_DEFAULT_MODEL` | 默认文本模型 id | `gpt-4o` |
+| `DATASERVICE_INTERNAL_TOKEN` | Gateway/worker/DataService 内部调用令牌 | `change-me-...` |
+| `MODEL_SECRET_KEY` 或 `MODEL_SECRET_KEY_FILE` | DataService 模型 API Key 加密主密钥 | `base64:...` |
 
-### 1.2 常用可选
+### 1.2 模型目录与计费配置
+
+- 模型目录、模型 API Key、默认模型、模型用量定价策略由 DataService 持久化，并通过管理员后台维护。
+- `MODEL_SECRET_KEY` 用于加密 `model_catalog_entries.encrypted_api_key`，生产必须是强随机 32-byte key。推荐格式为 `base64:<urlsafe-base64-32-byte>`；也可以用 `MODEL_SECRET_KEY_FILE` 挂载密钥文件。
+- `LLM_MODELS` / `LLM_IMAGE_MODELS` 现在只作为首次 seed/bootstrap 输入和测试夹具，不是生产运行时模型发现事实源。
+- `LLM_DEFAULT_MODEL` 只影响 env seed/test helper 的默认项；生产运行时默认模型来自 DataService 中 `is_default=true` 的 enabled model。
+- Gateway 启动时会 best-effort 预热本进程模型缓存；worker 启动和每次 chat/execution 任务开始前会从 DataService 刷新 runtime model cache，管理员后台修改会影响后续任务。
+
+### 1.3 常用可选
 
 | 变量 | 说明 |
 |---|---|
@@ -101,9 +110,9 @@
 
 ## 4. 配置建议
 
-1. 开发环境先保证 `DATABASE_URL`、`REDIS_URL`、LLM 模型配置可用，再调业务。
+1. 开发环境先保证 `DATABASE_URL`、`REDIS_URL`、`DATASERVICE_INTERNAL_TOKEN`、`MODEL_SECRET_KEY` 和至少一个 enabled default 模型可用，再调业务。
 2. 生产环境必须替换 `JWT_SECRET_KEY`，不要使用默认值。
 3. SMTP 联调时优先验证服务端连通性，再验证前端交互。
 4. 若部署在反向代理后，确认真实客户端 IP 会正确透传；否则限流会退化为按代理 IP 计数。
-5. `docker compose` 部署前必须在仓库根 `.env` 或 shell 环境中显式提供 `ADMIN_PASSWORD` 和 `GRAFANA_PASSWORD`。
-6. 当前运行时模型发现以 `backend/.env` 中的 `LLM_MODELS` / `LLM_IMAGE_MODELS` 为准，不再依赖 `backend/config.yaml` 中的模型 provider 声明。
+5. `docker compose` 部署前必须在仓库根 `.env` 或 shell 环境中显式提供 `ADMIN_PASSWORD`、`GRAFANA_PASSWORD` 和 `DATASERVICE_INTERNAL_TOKEN`。
+6. 管理员后台不会返回明文 API Key；编辑模型时 API Key 留空表示保持原密钥不变，填写新值才会替换。
