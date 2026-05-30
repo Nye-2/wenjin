@@ -6,16 +6,15 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
 
-from src.database import User, get_db_session
+from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.services.credit_redeem_service import CreditRedeemService, RedeemError
 
 router = APIRouter(prefix="/credits", tags=["credits"])
 
 
-async def _service():
-    async with get_db_session() as db:
-        yield CreditRedeemService(db)
+def _service() -> CreditRedeemService:
+    return CreditRedeemService()
 
 
 @router.post("/redeem")

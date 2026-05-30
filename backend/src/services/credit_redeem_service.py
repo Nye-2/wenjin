@@ -1,7 +1,7 @@
 """CreditRedeemService — admin batch generate + user-side atomic redemption.
 
-Atomic redeem uses SELECT ... FOR UPDATE to lock the redeem-code row inside a
-transaction, preventing over-redemption under concurrent requests.
+This runtime service owns business orchestration only. Persistence and atomicity
+are delegated to the standalone DataService credit domain.
 """
 
 from __future__ import annotations
@@ -10,8 +10,6 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime
-
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import AdminLogCreatePayload
@@ -28,11 +26,9 @@ class RedeemError(Exception):
 class CreditRedeemService:
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager
@@ -145,12 +141,7 @@ class CreditRedeemService:
         return code
 
     async def redeem(self, *, code: str, user_id: str) -> object:
-        """Atomic redemption.
-
-        Acquires a row-level lock on the redeem code (SELECT ... FOR UPDATE),
-        validates all constraints, writes redemption + transaction, increments use_count.
-        Any failure raises RedeemError and the transaction is rolled back.
-        """
+        """Redeem through DataService's atomic credit endpoint."""
         try:
             async with self._client() as client:
                 return await client.redeem_credit_code(

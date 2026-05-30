@@ -11,12 +11,9 @@ def test_referral_service_import():
 
 def test_referral_cannot_refer_self():
     """record() should reject referrer == referee."""
-    from unittest.mock import AsyncMock
-
     async def _run():
-        db = AsyncMock()
         from src.services.referral_service import ReferralService
-        svc = ReferralService(db)
+        svc = ReferralService()
         try:
             await svc.record(referrer_user_id="abc", referee_user_id="abc")
             return False

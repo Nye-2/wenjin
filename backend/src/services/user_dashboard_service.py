@@ -5,8 +5,6 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
 from src.services.credit_service import CreditService
@@ -17,11 +15,9 @@ class UserDashboardService:
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ):
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager
@@ -39,7 +35,7 @@ class UserDashboardService:
         if user is None:
             raise ValueError("User not found")
 
-        credit_service = CreditService(self.db)
+        credit_service = CreditService()
         workspace_stats = await self._get_workspace_stats(user_id)
         task_stats, recent_tasks = await self._get_task_stats(user_id)
         thread_credit_status = await self._get_thread_credit_status(

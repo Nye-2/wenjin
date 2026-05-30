@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from src.database import AdminActionType, User
+from src.database import User
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import (
     get_admin_dashboard_service,
@@ -13,7 +13,7 @@ from src.gateway.deps import (
     get_release_gate_service,
     get_user_dashboard_service,
 )
-from src.services.admin_dashboard_service import AdminDashboardService
+from src.services.admin_dashboard_service import AdminDashboardService, DashboardAdminAction
 from src.services.credit_service import CreditService
 from src.services.release_gate_service import ReleaseGateService
 from src.services.user_dashboard_service import UserDashboardService
@@ -179,7 +179,7 @@ async def update_user_status(
 
     await dashboard_service.create_admin_log(
         admin_id=str(current_user.id),
-        action=AdminActionType.USER_STATUS_CHANGE,
+        action=DashboardAdminAction.USER_STATUS_CHANGE,
         target_user_id=user_id,
         details={"is_active": request.is_active},
         ip_address=raw_request.client.host if raw_request.client else None,
@@ -212,7 +212,7 @@ async def update_user_role(
 
     await dashboard_service.create_admin_log(
         admin_id=str(current_user.id),
-        action=AdminActionType.USER_ROLE_CHANGE,
+        action=DashboardAdminAction.USER_ROLE_CHANGE,
         target_user_id=user_id,
         details={"role": request.role},
         ip_address=raw_request.client.host if raw_request.client else None,
@@ -243,7 +243,7 @@ async def grant_credits(
 
     await dashboard_service.create_admin_log(
         admin_id=str(current_user.id),
-        action=AdminActionType.CREDIT_GRANT,
+        action=DashboardAdminAction.CREDIT_GRANT,
         target_user_id=request.user_id,
         details={
             "amount": request.amount,
@@ -285,7 +285,7 @@ async def deduct_credits(
 
     await dashboard_service.create_admin_log(
         admin_id=str(current_user.id),
-        action=AdminActionType.CREDIT_DEDUCT,
+        action=DashboardAdminAction.CREDIT_DEDUCT,
         target_user_id=request.user_id,
         details={
             "amount": request.amount,

@@ -301,6 +301,61 @@ def test_runtime_code_does_not_access_thread_messages_json() -> None:
     assert not violations, "Runtime code accesses legacy threads.messages JSON:\n" + "\n".join(violations)
 
 
+def test_credit_runtime_stays_on_dataservice_client_boundary() -> None:
+    """Credit runtime services must not reopen legacy DB sessions after migration."""
+
+    checked_files = [
+        SRC_ROOT / "services" / "admin_dashboard_service.py",
+        SRC_ROOT / "services" / "credit_grant_rule_service.py",
+        SRC_ROOT / "services" / "credit_service.py",
+        SRC_ROOT / "services" / "credit_redeem_service.py",
+        SRC_ROOT / "services" / "referral_service.py",
+        SRC_ROOT / "services" / "user_dashboard_service.py",
+        SRC_ROOT / "gateway" / "routers" / "credits_redeem.py",
+        SRC_ROOT / "gateway" / "routers" / "admin_redeem_codes.py",
+    ]
+    forbidden_imports = {
+        "sqlalchemy.ext.asyncio",
+        "src.database.session",
+    }
+    forbidden_names_by_module = {
+        "src.database": {
+            "AdminActionType",
+            "CreditGrantRuleType",
+            "CreditTransactionType",
+            "get_db_session",
+        },
+    }
+
+    violations: list[str] = []
+    for path in checked_files:
+        relative = path.relative_to(SRC_ROOT)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _RuntimeImportVisitor()
+        visitor.visit(tree)
+        for node in visitor.import_from_nodes:
+            module = node.module or ""
+            if module in forbidden_imports:
+                violations.append(f"{relative}:{node.lineno} imports {module}")
+            forbidden_names = forbidden_names_by_module.get(module, set())
+            imported_forbidden_names = sorted(
+                alias.name for alias in node.names if alias.name in forbidden_names
+            )
+            if imported_forbidden_names:
+                imported_names = ", ".join(imported_forbidden_names)
+                violations.append(
+                    f"{relative}:{node.lineno} imports {module}.{imported_names}"
+                )
+        for node in visitor.import_nodes:
+            for alias in node.names:
+                if alias.name in forbidden_imports:
+                    violations.append(f"{relative}:{node.lineno} imports {alias.name}")
+
+    assert not violations, (
+        "Credit runtime must stay behind DataService client:\n" + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

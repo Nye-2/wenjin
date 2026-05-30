@@ -205,7 +205,7 @@ async def register(
         # Grant registration bonus with ledger record (rule-based)
         try:
             from src.services.credit_grant_rule_service import CreditGrantRuleService
-            rule_svc = CreditGrantRuleService(db)
+            rule_svc = CreditGrantRuleService()
             await rule_svc.apply_registration_bonus(str(user.id))
         except Exception:
             logger.exception("registration bonus failed for user %s", user.id)
@@ -219,7 +219,7 @@ async def register(
             )
             if referrer:
                 from src.services.referral_service import ReferralService
-                referral_svc = ReferralService(db)
+                referral_svc = ReferralService()
                 try:
                     await referral_svc.record(
                         referrer_user_id=str(referrer.id),

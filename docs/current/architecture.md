@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-05-27
+更新时间：2026-05-30
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
@@ -67,8 +67,9 @@
 | Compute | `backend/src/compute/` | workbench projection、files/logs/review gate |
 | Capability Domain | `backend/seed/capabilities/` `backend/src/dataservice/domains/catalog/` `backend/src/services/capability_loader.py` | `capability.v2` mission schema、DataService Catalog SSOT、graph_template、policy preload |
 | Capability Skill Domain | `backend/seed/skills/` `backend/src/dataservice/domains/catalog/` `backend/src/agents/middlewares/capability_skill_preload.py` | `capability_skill.v2` worker instruction packs、skill preload、subagent prompt/runtime config |
+| Account / Credit Domain | `backend/src/dataservice/domains/account/` `backend/src/dataservice/domains/credit/` `backend/src/services/credit_service.py` | account、credit ledger、redeem code、referral、dashboard credit projection 的 DataService SSOT |
 | Agent Runtime | `backend/src/agents/lead_agent/` | graph compile、subagent orchestration、TaskReport |
-| Prism Manuscript Domain | `backend/src/database/models/prism.py` `backend/src/services/prism_review_service.py` `backend/src/services/workspace_prism_service.py` | workspace-owned manuscript review、source links、protected sections、surface projection |
+| Prism Manuscript Domain | `backend/src/dataservice/prism_api.py` `backend/src/dataservice/prism_review_api.py` `backend/src/services/workspace_prism_service.py` | workspace-owned manuscript review、source links、protected sections、surface projection |
 
 ### 2.3 前端主分层
 
@@ -91,6 +92,7 @@
 6. 前端 execution 状态不能再维护第二套并行运行态
 7. workspace event hook 必须继续是 execution 发现与订阅单入口
 8. workspace-owned Prism 只通过 `/workspaces/{workspace_id}/prism` 进入；review/provenance/protected-section facts 只读写 canonical Prism tables
+9. account / credit / referral / redeem-code runtime 服务只能通过 DataService client 读写，不得重新打开 DB session 或导入迁移后的 ORM enum/model
 
 ## 3. Execution-First Main Chain
 

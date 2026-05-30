@@ -3,11 +3,9 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from src.database import AdminActionType
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.account import (
     AccountUserPayload,
@@ -20,16 +18,23 @@ from src.dataservice_client.provider import dataservice_client
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
 
+class DashboardAdminAction(StrEnum):
+    """Admin dashboard audit action contract."""
+
+    CREDIT_GRANT = "credit_grant"
+    CREDIT_DEDUCT = "credit_deduct"
+    USER_ROLE_CHANGE = "user_role_change"
+    USER_STATUS_CHANGE = "user_status_change"
+
+
 class AdminDashboardService:
     """Service for admin dashboard metrics and lightweight user management."""
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ):
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager
@@ -234,16 +239,17 @@ class AdminDashboardService:
         self,
         *,
         admin_id: str,
-        action: AdminActionType,
+        action: DashboardAdminAction | str,
         target_user_id: str | None,
         details: dict[str, Any] | None = None,
         ip_address: str | None = None,
     ) -> Any:
         """Persist admin audit log entry."""
+        action_value = DashboardAdminAction(action).value
         async with self._client() as client:
             return await client.record_catalog_admin_log(
                 AdminLogCreatePayload(
-                    action=action.value,
+                    action=action_value,
                     admin_id=admin_id,
                     target_user_id=target_user_id,
                     target_type="user",
@@ -268,7 +274,7 @@ class AdminDashboardService:
         action_enum = None
         if action:
             try:
-                action_enum = AdminActionType(action)
+                action_enum = DashboardAdminAction(action)
             except ValueError as exc:
                 raise ValueError(f"Unsupported action: {action}") from exc
 

@@ -417,12 +417,10 @@ class ExecutionCommitService:
             await self._referral_first_task_callback(user_id)
             return
 
-        from src.database import get_db_session
         from src.services.referral_service import ReferralService
 
-        async with get_db_session() as db:
-            referral_svc = ReferralService(db)
-            await referral_svc.fire_first_task_for_referrer(user_id)
+        referral_svc = ReferralService()
+        await referral_svc.fire_first_task_for_referrer(user_id)
 
     async def _sync_prism_bibliography(
         self,

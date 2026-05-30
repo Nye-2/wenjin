@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.credit import (
     CreditAdminAdjustPayload,
@@ -137,11 +135,9 @@ class CreditService:
 
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ):
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager

@@ -485,22 +485,20 @@ class TaskService:
             return
 
         try:
-            from src.database import get_db_session
             from src.services.credit_service import CreditService
 
-            async with get_db_session() as db:
-                credit_service = CreditService(db)
-                await credit_service.refund_consumption(
-                    user_id=user_id,
-                    original_transaction_id=str(credit_transaction_id),
-                    reason="任务取消退款",
-                    task_id=record.id,
-                )
-                logger.info(
-                    "Refunded credits for cancelled task %s (tx %s)",
-                    record.id,
-                    credit_transaction_id,
-                )
+            credit_service = CreditService()
+            await credit_service.refund_consumption(
+                user_id=user_id,
+                original_transaction_id=str(credit_transaction_id),
+                reason="任务取消退款",
+                task_id=record.id,
+            )
+            logger.info(
+                "Refunded credits for cancelled task %s (tx %s)",
+                record.id,
+                credit_transaction_id,
+            )
         except Exception:
             logger.warning(
                 "Failed to refund credits for cancelled task %s",

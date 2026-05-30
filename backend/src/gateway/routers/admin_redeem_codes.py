@@ -9,16 +9,15 @@ from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Response
 
-from src.database import User, get_db_session
+from src.database import User
 from src.gateway.auth_dependencies import get_current_admin
 from src.services.credit_redeem_service import CreditRedeemService
 
 router = APIRouter(prefix="/admin/redeem-codes", tags=["admin", "credits"])
 
 
-async def _service():
-    async with get_db_session() as db:
-        yield CreditRedeemService(db)
+def _service() -> CreditRedeemService:
+    return CreditRedeemService()
 
 
 def _to_dict(code) -> dict[str, Any]:

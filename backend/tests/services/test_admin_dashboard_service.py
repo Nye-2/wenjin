@@ -128,8 +128,7 @@ class FakeAdminDashboardClient:
 
 @pytest.mark.asyncio
 async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() -> None:
-    db = AsyncMock()
-    service = AdminDashboardService(db, dataservice=FakeAdminDashboardClient())
+    service = AdminDashboardService(dataservice=FakeAdminDashboardClient())
 
     payload = await service.get_dashboard()
 

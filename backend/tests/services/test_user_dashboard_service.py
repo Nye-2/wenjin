@@ -46,9 +46,8 @@ class FakeDashboardDataServiceClient:
 
 @pytest.mark.asyncio
 async def test_get_dashboard_includes_thread_credit_status() -> None:
-    db = AsyncMock()
     fake_client = FakeDashboardDataServiceClient()
-    service = UserDashboardService(db, dataservice=fake_client)
+    service = UserDashboardService(dataservice=fake_client)
     service._get_workspace_stats = AsyncMock(return_value={"total": 1, "by_type": {"thesis": 1}, "created_last_7d": 0})
     service._get_task_stats = AsyncMock(
         return_value=(
@@ -92,14 +91,13 @@ async def test_get_dashboard_includes_thread_credit_status() -> None:
 
 @pytest.mark.asyncio
 async def test_get_workspace_stats_uses_dataservice_projection() -> None:
-    db = AsyncMock()
     fake_client = FakeDashboardDataServiceClient()
     fake_client.workspace_stats = WorkspaceStatsPayload(
         total=2,
         by_type={"thesis": 1, "sci": 1},
         created_last_7d=1,
     )
-    service = UserDashboardService(db, dataservice=fake_client)
+    service = UserDashboardService(dataservice=fake_client)
 
     stats = await service._get_workspace_stats("user-1")
 

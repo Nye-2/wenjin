@@ -1257,16 +1257,15 @@ class ThreadTurnHandler:
             billing_context["user_message_id"] = user_message_id
             billing_context["idempotency_key"] = f"thread_token_billing:{user_message_id}"
 
-        async with get_db_session() as db:
-            credit_service = CreditService(db)
-            billing = await credit_service.consume_for_thread_usage(
-                user_id=actor_id,
-                token_usage=normalized_usage,
-                model_name=usage_metadata.get("model_name") if usage_metadata else None,
-                workspace_id=thread.workspace_id,
-                thread_id=thread.id,
-                metadata=billing_context,
-            )
+        credit_service = CreditService()
+        billing = await credit_service.consume_for_thread_usage(
+            user_id=actor_id,
+            token_usage=normalized_usage,
+            model_name=usage_metadata.get("model_name") if usage_metadata else None,
+            workspace_id=thread.workspace_id,
+            thread_id=thread.id,
+            metadata=billing_context,
+        )
 
         reply.metadata = dict(reply.metadata or {})
         reply.metadata["billing"] = billing.as_metadata()
@@ -1331,13 +1330,12 @@ class ThreadTurnHandler:
         if not transaction_id:
             return
 
-        async with get_db_session() as db:
-            credit_service = CreditService(db)
-            await credit_service.refund_consumption(
-                user_id=actor_id,
-                original_transaction_id=transaction_id,
-                reason="线程回复失败退款",
-            )
+        credit_service = CreditService()
+        await credit_service.refund_consumption(
+            user_id=actor_id,
+            original_transaction_id=transaction_id,
+            reason="线程回复失败退款",
+        )
 
     async def _persist_thread_reply(
         self,
@@ -1475,14 +1473,13 @@ class ThreadTurnHandler:
 
 async def ensure_thread_turn_budget(actor_id: str) -> None:
     """Reject pure thread turns once free quota is exhausted and credits are empty."""
-    async with get_db_session() as db:
-        credit_service = CreditService(db)
-        allowed = await credit_service.can_start_thread_turn(actor_id)
-        if allowed:
-            return
-        raise PaymentRequiredError(
-            "主线对话积分额度不足，请先补充积分后继续。"
-        )
+    credit_service = CreditService()
+    allowed = await credit_service.can_start_thread_turn(actor_id)
+    if allowed:
+        return
+    raise PaymentRequiredError(
+        "主线对话积分额度不足，请先补充积分后继续。"
+    )
 
 
 def _build_thread_agent_runtime(

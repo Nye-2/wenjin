@@ -9,7 +9,6 @@ from typing import Any, Literal
 
 from croniter import croniter
 from pydantic import BaseModel, ConfigDict, ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import AdminLogCreatePayload
@@ -83,11 +82,9 @@ def _validated_config(rule_type: Any, raw: dict[str, Any]) -> dict[str, Any]:
 class CreditGrantRuleService:
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager

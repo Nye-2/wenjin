@@ -147,7 +147,7 @@ async def launch_feature_tool(
 
         from src.services.credit_service import CreditService
 
-        credit_service = CreditService(db)
+        credit_service = CreditService()
         if not await credit_service.can_start_feature_task(user_id):
             policy = credit_service.get_feature_billing_policy()
             return {

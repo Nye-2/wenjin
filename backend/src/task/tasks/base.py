@@ -388,7 +388,7 @@ async def _execute_task_async(
                     # Phase 3: Unified path — payload is the sole source of truth.
                     user_id = str(payload.get("user_id") or payload.get("created_by") or "").strip()
                     if user_id:
-                        credit_service = CreditService(db)
+                        credit_service = CreditService()
                         refund_tx = await credit_service.refund_failed_task(
                             user_id=user_id,
                             original_transaction_id=str(credit_transaction_id),

@@ -279,7 +279,7 @@ class ExecutionEngineV2:
 
         from src.services.credit_service import CreditService
 
-        credit_service = CreditService(getattr(self.execution_service, "db", None))
+        credit_service = CreditService()
         billing = await credit_service.consume_for_feature_usage(
             user_id=str(execution.user_id),
             feature_id=str(execution.feature_id or report.capability_id),
@@ -312,7 +312,7 @@ class ExecutionEngineV2:
 
         from src.services.credit_service import CreditService
 
-        credit_service = CreditService(getattr(self.execution_service, "db", None))
+        credit_service = CreditService()
         await credit_service.refund_consumption(
             user_id=str(execution.user_id),
             original_transaction_id=transaction_id,

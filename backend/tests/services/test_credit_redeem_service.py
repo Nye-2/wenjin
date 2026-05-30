@@ -10,9 +10,7 @@ from src.services.credit_redeem_service import CreditRedeemService, RedeemError
 def test_batch_generate_rejects_zero_amount():
     """batch_generate should reject amount <= 0."""
     async def _run():
-        from unittest.mock import AsyncMock
-        db = AsyncMock()
-        svc = CreditRedeemService(db)
+        svc = CreditRedeemService()
         try:
             await svc.batch_generate(
                 amount=0, count=10, max_uses=1, per_user_limit=1,
@@ -28,9 +26,7 @@ def test_batch_generate_rejects_zero_amount():
 
 def test_batch_generate_rejects_negative_amount():
     async def _run():
-        from unittest.mock import AsyncMock
-        db = AsyncMock()
-        svc = CreditRedeemService(db)
+        svc = CreditRedeemService()
         try:
             await svc.batch_generate(
                 amount=-5, count=10, max_uses=1, per_user_limit=1,
@@ -46,9 +42,7 @@ def test_batch_generate_rejects_negative_amount():
 
 def test_batch_generate_rejects_zero_count():
     async def _run():
-        from unittest.mock import AsyncMock
-        db = AsyncMock()
-        svc = CreditRedeemService(db)
+        svc = CreditRedeemService()
         try:
             await svc.batch_generate(
                 amount=100, count=0, max_uses=1, per_user_limit=1,
@@ -64,9 +58,7 @@ def test_batch_generate_rejects_zero_count():
 
 def test_batch_generate_rejects_over_10000_count():
     async def _run():
-        from unittest.mock import AsyncMock
-        db = AsyncMock()
-        svc = CreditRedeemService(db)
+        svc = CreditRedeemService()
         try:
             await svc.batch_generate(
                 amount=100, count=10001, max_uses=1, per_user_limit=1,
@@ -82,9 +74,7 @@ def test_batch_generate_rejects_over_10000_count():
 
 def test_batch_generate_rejects_zero_max_uses():
     async def _run():
-        from unittest.mock import AsyncMock
-        db = AsyncMock()
-        svc = CreditRedeemService(db)
+        svc = CreditRedeemService()
         try:
             await svc.batch_generate(
                 amount=100, count=10, max_uses=0, per_user_limit=1,

@@ -22,26 +22,23 @@ async def get_dashboard_service(
 
 
 async def get_credit_service(
-    db: AsyncSession = Depends(get_db),
 ) -> CreditService:
     """Get credit service instance."""
-    return CreditService(db)
+    return CreditService()
 
 
 async def get_user_dashboard_service(
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> UserDashboardService:
     """Get user dashboard service instance."""
-    return UserDashboardService(db, dataservice=dataservice)
+    return UserDashboardService(dataservice=dataservice)
 
 
 async def get_admin_dashboard_service(
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> AdminDashboardService:
     """Get admin dashboard service instance."""
-    return AdminDashboardService(db, dataservice=dataservice)
+    return AdminDashboardService(dataservice=dataservice)
 
 
 async def get_release_gate_service() -> ReleaseGateService:

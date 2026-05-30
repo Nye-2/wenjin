@@ -7,7 +7,6 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.credit import CreditReferralCreatePayload
@@ -18,11 +17,9 @@ from src.dataservice_client.provider import dataservice_client
 class ReferralService:
     def __init__(
         self,
-        db: AsyncSession | None = None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
 
     @asynccontextmanager
@@ -45,8 +42,6 @@ class ReferralService:
                     )
                 )
         except (IntegrityError, DataServiceClientError) as exc:
-            if self.db is not None and hasattr(self.db, "rollback"):
-                await self.db.rollback()
             raise ValueError("referee already has a referrer") from exc
 
     async def get_by_referee(self, referee_user_id: str) -> Any | None:
