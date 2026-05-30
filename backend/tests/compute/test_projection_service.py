@@ -462,7 +462,7 @@ async def test_compute_projection_aggregates_execution_task_and_subagents() -> N
         db=db,
     )
 
-    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
+    projection = await ComputeProjectionService(dataservice=dataservice).get_projection(
         compute_session_id="compute-1",
         user_id="user-1",
     )
@@ -585,7 +585,7 @@ async def test_compute_projection_treats_open_prism_as_optional_review_action() 
         db=db,
     )
 
-    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
+    projection = await ComputeProjectionService(dataservice=dataservice).get_projection(
         compute_session_id="compute-2",
         user_id="user-1",
     )
@@ -650,7 +650,7 @@ async def test_compute_projection_exposes_runtime_profile_policy_for_agentic_san
         db=db,
     )
 
-    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
+    projection = await ComputeProjectionService(dataservice=dataservice).get_projection(
         compute_session_id="compute-figure",
         user_id="user-1",
     )
@@ -782,7 +782,7 @@ async def test_compute_projection_refreshes_resolved_prism_file_changes_from_rev
         db=db,
     )
 
-    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
+    projection = await ComputeProjectionService(dataservice=dataservice).get_projection(
         compute_session_id="compute-3",
         user_id="user-1",
     )
@@ -873,7 +873,7 @@ async def test_projection_prefers_workspace_owned_authoritative_prism_over_runti
         db=db,
     )
 
-    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
+    projection = await ComputeProjectionService(dataservice=dataservice).get_projection(
         compute_session_id="compute-authoritative",
         user_id="user-1",
     )

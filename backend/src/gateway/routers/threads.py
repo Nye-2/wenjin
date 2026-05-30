@@ -9,10 +9,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from src.database import User
-from src.gateway.access_control import (
-    owner_check_session_from_service,
-    require_workspace_owner_by_session,
-)
+from src.gateway.access_control import require_workspace_owner_by_dataservice
 from src.gateway.auth_dependencies import get_current_user
 from src.gateway.deps import get_thread_service
 from src.gateway.deps.runtime import get_run_manager
@@ -88,15 +85,10 @@ async def _require_owned_workspace_if_provided(
     workspace_id: str | None,
     *,
     user_id: str,
-    thread_service: ThreadService,
 ) -> None:
     if not workspace_id:
         return
-    owner_session = owner_check_session_from_service(thread_service)
-    if owner_session is None:
-        return
-    await require_workspace_owner_by_session(
-        owner_session,
+    await require_workspace_owner_by_dataservice(
         workspace_id=workspace_id,
         user_id=user_id,
     )
@@ -184,7 +176,6 @@ async def create_thread(
     await _require_owned_workspace_if_provided(
         request.workspace_id,
         user_id=actor_id,
-        thread_service=thread_service,
     )
     try:
         thread = await thread_service.create_thread(
@@ -213,7 +204,6 @@ async def ensure_workspace_thread(
     await _require_owned_workspace_if_provided(
         workspace_id,
         user_id=actor_id,
-        thread_service=thread_service,
     )
     try:
         thread = await thread_service.get_or_create_thread(
@@ -274,7 +264,6 @@ async def list_threads(
     await _require_owned_workspace_if_provided(
         workspace_id,
         user_id=actor_id,
-        thread_service=thread_service,
     )
     threads = await thread_service.list_threads(
         user_id=actor_id,

@@ -387,8 +387,9 @@ class TestTaskStorePostgres:
                 return None
 
         class _FakeComputeSessionService:
-            def __init__(self, db) -> None:
-                self.db = db
+            def __init__(self, *args, **kwargs) -> None:
+                self.args = args
+                self.kwargs = kwargs
 
             async def touch_session_by_execution(self, execution_id: str):
                 await compute_touch(execution_id)

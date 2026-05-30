@@ -8,10 +8,8 @@ from typing import Any
 from fastapi import HTTPException
 
 from src.application.errors import ApplicationError
-from src.gateway.access_control import (
-    owner_check_session_from_service,
-    require_workspace_owner_by_session,
-)
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.access_control import require_workspace_owner_by_dataservice
 from src.gateway.error_mapping import to_http_exception
 from src.gateway.routers.run_contracts import RunCreateRequest, to_turn_request
 from src.gateway.services.run_lifecycle import launch_thread_run
@@ -30,18 +28,15 @@ async def require_owned_workspace_if_provided(
     workspace_id: str | None,
     *,
     user_id: str,
-    thread_service: Any,
+    dataservice: AsyncDataServiceClient | None = None,
 ) -> None:
     """Enforce workspace ownership when a workspace-bound request is sent."""
     if not workspace_id:
         return
-    owner_session = owner_check_session_from_service(thread_service)
-    if owner_session is None:
-        return
-    await require_workspace_owner_by_session(
-        owner_session,
+    await require_workspace_owner_by_dataservice(
         workspace_id=workspace_id,
         user_id=user_id,
+        dataservice=dataservice,
     )
 
 
@@ -59,7 +54,6 @@ async def launch_run_from_create_request(
     await require_owned_workspace_if_provided(
         body.workspace_id,
         user_id=actor_id,
-        thread_service=getattr(handler, "thread_service", None),
     )
     turn_request = to_turn_request(body, forced_thread_id=request_thread_id)
 

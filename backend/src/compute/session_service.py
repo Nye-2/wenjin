@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.compute.events import publish_compute_session_event
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.execution import (
@@ -21,11 +19,9 @@ class ComputeSessionService:
 
     def __init__(
         self,
-        db: AsyncSession,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
 
     async def ensure_for_execution(

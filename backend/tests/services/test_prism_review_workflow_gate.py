@@ -699,7 +699,7 @@ async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]
             "allowed_paths": [],
         }),
     )
-    projection = await ComputeProjectionService(db, dataservice=dataservice).get_projection(
+    projection = await ComputeProjectionService(dataservice=dataservice).get_projection(
         compute_session_id="compute-1",
         user_id="user-1",
     )

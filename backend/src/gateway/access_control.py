@@ -2,26 +2,23 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.academic.services.workspace_service import WorkspaceService
-from src.database import User
+from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.provider import dataservice_client
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import get_workspace_service
-
-if TYPE_CHECKING:
-    from src.database import Workspace
 
 
 async def require_workspace_owner(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: WorkspaceService = Depends(get_workspace_service),
-) -> Workspace:
+) -> Any:
     """Verify that the current user owns the specified workspace.
 
     Args:
@@ -54,19 +51,25 @@ async def require_workspace_owner(
     return workspace
 
 
-def owner_check_session_from_service(service: Any) -> AsyncSession | None:
-    """Extract a SQLAlchemy session from a service for manual owner checks."""
-    db = getattr(service, "db", None)
-    return db if isinstance(db, AsyncSession) else None
+@asynccontextmanager
+async def _workspace_dataservice_client(
+    dataservice: AsyncDataServiceClient | None,
+):
+    if dataservice is not None:
+        yield dataservice
+        return
+    async with dataservice_client() as client:
+        yield client
 
 
-async def require_workspace_owner_by_session(
-    session: AsyncSession,
+async def require_workspace_owner_by_dataservice(
     workspace_id: str,
     user_id: str,
-) -> Workspace:
-    """Verify workspace ownership using an existing database session."""
-    async with dataservice_client() as client:
+    *,
+    dataservice: AsyncDataServiceClient | None = None,
+) -> Any:
+    """Verify workspace ownership through the canonical Workspace DataService."""
+    async with _workspace_dataservice_client(dataservice) as client:
         workspace = await client.get_workspace(workspace_id)
         if workspace is not None:
             has_access = await client.workspace_has_active_membership(

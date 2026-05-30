@@ -6,12 +6,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database import User
 from src.dataservice_client import AsyncDataServiceClient
-from src.gateway.auth_dependencies import get_current_user
-from src.gateway.deps import get_db
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps.core import get_dataservice_client
 from src.services.execution_commit_service import (
     ExecutionCommitNotFoundError,
@@ -38,10 +35,9 @@ class CommitRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _get_commit_service(
-    db: AsyncSession = Depends(get_db),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ExecutionCommitService:
-    """Construct ExecutionCommitService from per-request DB session."""
+    """Construct ExecutionCommitService against the canonical DataService."""
     try:
         from src.academic.cache.redis_client import redis_client as _rc
         _redis = _rc.client
@@ -49,7 +45,7 @@ def _get_commit_service(
         _redis = None
 
     return ExecutionCommitService(
-        execution_service=ExecutionService(db, dataservice=dataservice),
+        execution_service=ExecutionService(dataservice=dataservice),
         dataservice=dataservice,
         redis=_redis,
     )
@@ -65,7 +61,7 @@ async def commit_execution_outputs(
     execution_id: str,
     body: CommitRequest,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     commit_service: ExecutionCommitService = Depends(_get_commit_service),
 ) -> dict[str, Any]:
     """Commit selected execution outputs to rooms.

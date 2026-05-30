@@ -499,6 +499,57 @@ def test_prism_latex_runtime_stays_on_dataservice_boundary() -> None:
     )
 
 
+def test_gateway_runtime_drops_session_based_owner_commit_compute_boundaries() -> None:
+    """Thread launch, execution commit, and compute must not depend on request DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "access_control.py": (
+            "AsyncSession",
+            "owner_check_session_from_service",
+            "require_workspace_owner_by_session",
+        ),
+        SRC_ROOT / "gateway" / "services" / "run_launch.py": (
+            "owner_check_session_from_service",
+            "require_workspace_owner_by_session",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "threads.py": (
+            "owner_check_session_from_service",
+            "require_workspace_owner_by_session",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "execution_commit.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "ExecutionService(db",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "compute.py": (
+            "Depends(get_db)",
+            "ComputeSessionService(db",
+            "ComputeProjectionService(db",
+        ),
+        SRC_ROOT / "compute" / "session_service.py": (
+            "db: AsyncSession",
+            "self.db",
+        ),
+        SRC_ROOT / "compute" / "projection_service.py": (
+            "db: AsyncSession",
+            "self.db",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Gateway runtime still depends on session-based helper boundaries:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

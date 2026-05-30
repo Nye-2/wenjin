@@ -256,7 +256,7 @@ class TaskStore:
         if record.execution_id:
             from src.compute.session_service import ComputeSessionService
 
-            await ComputeSessionService(self._db).touch_session_by_execution(
+            await ComputeSessionService().touch_session_by_execution(
                 record.execution_id
             )
 
@@ -330,7 +330,7 @@ class TaskStore:
         if record.execution_id and runtime_state is not None:
             from src.compute.session_service import ComputeSessionService
 
-            await ComputeSessionService(self._db).touch_session_by_execution(
+            await ComputeSessionService().touch_session_by_execution(
                 record.execution_id
             )
 
@@ -449,7 +449,7 @@ class TaskStore:
         if record.execution_id:
             from src.compute.session_service import ComputeSessionService
 
-            await ComputeSessionService(self._db).touch_session_by_execution(
+            await ComputeSessionService().touch_session_by_execution(
                 record.execution_id
             )
 
