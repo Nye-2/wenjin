@@ -17,11 +17,21 @@ node_modules/
 .idea/
 .vscode/
 .claude/
+.DS_Store
 
 # Test
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Local generated artifacts
+.codex-artifacts/
+.docx-render-*/
+.tmp/
+artifact-build-manifest.json
+output/
+outputs/
+tmp_docx_work/
 
 # Runtime logs
 logs/*.log
