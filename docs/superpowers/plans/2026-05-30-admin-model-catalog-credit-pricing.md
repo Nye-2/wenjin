@@ -586,7 +586,7 @@ Define:
 - `PricingSimulationRequest`
 - `PricingSimulationResult`
 
-- [ ] **Step 4: Implement DataService CRUD**
+- [x] **Step 4: Implement DataService CRUD**
 
 Routes:
 
@@ -602,7 +602,7 @@ POST   /internal/v1/pricing-policies/{policy_id}/disable
 
 `POST /api/admin/pricing/simulate` returns credits, raw cost, margin, and breakdown.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 Run:
 

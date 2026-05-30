@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
@@ -64,3 +65,31 @@ class PricingSimulationResult(BaseModel):
     raw_cost_cny: float = 0
     margin_cny: float = 0
     breakdown: dict[str, Any] = Field(default_factory=dict)
+
+
+class PricingPolicyRecord(BaseModel):
+    id: str | None = None
+    policy_key: str
+    policy_kind: str
+    name: str
+    enabled: bool = True
+    version: int = 1
+    config: dict[str, Any] = Field(default_factory=dict)
+    created_by_admin_id: str | None = None
+    updated_by_admin_id: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class PricingPolicyCreateCommand(BaseModel):
+    policy_key: str
+    policy_kind: str
+    name: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    enabled: bool = True
+
+
+class PricingPolicyUpdateCommand(BaseModel):
+    name: str | None = None
+    config: dict[str, Any] | None = None
+    enabled: bool | None = None
