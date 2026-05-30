@@ -183,9 +183,9 @@ async def set_thread_status(
     subagent_count: int = 0,
 ) -> None:
     """Best-effort thread status update for Redis and workspace SSE."""
-    # Legacy in-process skill name lookup is gone; capability/skill catalog
-    # now lives in the DB.  Callers may pass an explicit ``skill_name`` for
-    # display, but we no longer resolve it from a thread.skill foreign key.
+    # Capability/skill catalog now lives in the DB. Callers may pass an explicit
+    # ``skill_name`` for display, but this path no longer resolves it from a
+    # thread.skill foreign key.
     resolved_skill_name = skill_name
 
     try:

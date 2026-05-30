@@ -3,7 +3,7 @@
 import pytest
 
 from src.database.migration_bootstrap import (
-    LEGACY_BOOTSTRAP_STAMP_REVISION,
+    CREATE_ALL_BOOTSTRAP_STAMP_REVISION,
     THREAD_BOOTSTRAP_STAMP_REVISION,
     MigrationBootstrapMode,
     decide_bootstrap_mode,
@@ -30,9 +30,9 @@ def test_decide_bootstrap_mode_rejects_unknown_existing_schema() -> None:
         decide_bootstrap_mode({"custom_table"})
 
 
-def test_resolve_bootstrap_stamp_revision_legacy_chat_schema() -> None:
+def test_resolve_bootstrap_stamp_revision_create_all_chat_schema() -> None:
     table_names = {"users", "chat_threads", "workspaces"}
-    assert resolve_bootstrap_stamp_revision(table_names) == LEGACY_BOOTSTRAP_STAMP_REVISION
+    assert resolve_bootstrap_stamp_revision(table_names) == CREATE_ALL_BOOTSTRAP_STAMP_REVISION
 
 
 def test_resolve_bootstrap_stamp_revision_thread_schema() -> None:

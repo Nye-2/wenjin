@@ -1242,6 +1242,34 @@ def test_workspace_capability_runtime_comments_do_not_keep_legacy_guidance() -> 
     )
 
 
+def test_production_source_does_not_keep_unscoped_legacy_labels() -> None:
+    """Production source should describe current contracts, not old paths."""
+
+    checked_roots = [
+        SRC_ROOT,
+        REPO_ROOT / "frontend" / "app",
+        REPO_ROOT / "frontend" / "components",
+        REPO_ROOT / "frontend" / "hooks",
+        REPO_ROOT / "frontend" / "lib",
+        REPO_ROOT / "frontend" / "stores",
+    ]
+    violations: list[str] = []
+    for root in checked_roots:
+        for path in _python_files(root) if root == SRC_ROOT else sorted(root.rglob("*")):
+            if path.is_dir() or "__pycache__" in path.parts:
+                continue
+            if path.suffix not in {".py", ".ts", ".tsx"}:
+                continue
+            source = path.read_text(encoding="utf-8")
+            if "legacy" in source.lower():
+                violations.append(str(path.relative_to(REPO_ROOT)))
+
+    assert not violations, (
+        "Production source still contains unscoped legacy labels:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

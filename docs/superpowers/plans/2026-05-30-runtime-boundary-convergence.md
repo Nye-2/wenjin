@@ -148,9 +148,19 @@
   - Deep-link selected skill 注释收敛为 DB-backed capability catalog routing。
   - Frontend workspace thread seed 注释收敛为 server-side capability/skill routing。
   - Architecture guard 新增 `test_workspace_capability_runtime_comments_do_not_keep_legacy_guidance`。
+- Current production source legacy label cleanup
+  - Execution model docstring、feature flag tombstone、literature context、thread event 注释收敛为当前语义。
+  - Migration bootstrap constant 从 `LEGACY_BOOTSTRAP_STAMP_REVISION` 改为 `CREATE_ALL_BOOTSTRAP_STAMP_REVISION`。
+  - Production source `legacy` scan 已无命中；测试和迁移断言仍可保留历史词用于证明退役路径。
+  - Architecture guard 新增 `test_production_source_does_not_keep_unscoped_legacy_labels`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/config/feature_flags.py src/agents/middlewares/literature_context.py src/database/migration_bootstrap.py src/database/models/execution.py src/services/thread_events.py tests/database/test_migration_bootstrap.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_production_source_does_not_keep_unscoped_legacy_labels tests/database/test_migration_bootstrap.py -q` -> 7 passed.
+- `rg -ni "legacy" backend/src frontend/app frontend/components frontend/hooks frontend/lib frontend/stores -g '*.{py,ts,tsx}'` -> no matches.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 36 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2034 passed.
 - `cd backend && .venv/bin/python -m ruff check src/agents/chat_agent/agent.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_workspace_capability_runtime_comments_do_not_keep_legacy_guidance -q` -> 1 passed.
 - `cd frontend && npm run typecheck` -> passed.
