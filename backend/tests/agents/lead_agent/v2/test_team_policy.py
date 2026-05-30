@@ -15,10 +15,10 @@ from src.agents.lead_agent.v2.team.policy import (
 )
 
 
-def _template(template_id: str = "research_scholar.v1") -> AgentTemplate:
+def _template(template_id: str = "research_scout.v1") -> AgentTemplate:
     return AgentTemplate(
         id=template_id,
-        display_role="文献专家",
+        display_role="文献检索员",
         category="research",
         description="Research role",
         persona_prompt="research",
@@ -47,14 +47,14 @@ def test_build_capability_team_policy_rejects_unknown_template() -> None:
     )
 
     with pytest.raises(TeamPolicyError, match="unknown agent template"):
-        build_capability_team_policy(cap, templates={"research_scholar.v1": _template()})
+        build_capability_team_policy(cap, templates={"research_scout.v1": _template()})
 
 
 def test_build_capability_team_policy_applies_platform_caps() -> None:
     cap = SimpleNamespace(
         definition_json={
             "team_policy": {
-                "core_templates": ["research_scholar.v1"],
+                "core_templates": ["research_scout.v1"],
                 "optional_templates": [],
                 "limits": {
                     "max_iterations": 99,
@@ -71,7 +71,7 @@ def test_build_capability_team_policy_applies_platform_caps() -> None:
 
     policy = build_capability_team_policy(
         cap,
-        templates={"research_scholar.v1": _template()},
+        templates={"research_scout.v1": _template()},
     )
 
     assert policy.limits.max_iterations == 8
@@ -84,7 +84,7 @@ def test_build_capability_team_policy_rejects_unknown_trigger_template() -> None
     cap = SimpleNamespace(
         definition_json={
             "team_policy": {
-                "core_templates": ["research_scholar.v1"],
+                "core_templates": ["research_scout.v1"],
                 "optional_templates": [],
                 "recruitment_triggers": {"member_failed": ["missing.v1"]},
             }
@@ -93,12 +93,12 @@ def test_build_capability_team_policy_rejects_unknown_trigger_template() -> None
     )
 
     with pytest.raises(TeamPolicyError, match="unknown recruitment trigger template"):
-        build_capability_team_policy(cap, templates={"research_scholar.v1": _template()})
+        build_capability_team_policy(cap, templates={"research_scout.v1": _template()})
 
 
 def test_effective_tools_keep_high_ceiling_but_block_direct_commit() -> None:
     policy = CapabilityTeamPolicy(
-        core_templates=["research_scholar.v1"],
+        core_templates=["research_scout.v1"],
         optional_templates=[],
         capability_tools=["web_search", "library_read", "citation_parser", "room_commit"],
         workspace_tools=["web_search", "library_read", "citation_parser", "artifact_create"],
@@ -114,7 +114,7 @@ def test_capability_team_policy_respects_empty_user_tool_allowlist() -> None:
     cap = SimpleNamespace(
         definition_json={
             "team_policy": {
-                "core_templates": ["research_scholar.v1"],
+                "core_templates": ["research_scout.v1"],
                 "capability_tools": ["web_search", "library_read", "citation_parser"],
             }
         },
@@ -123,12 +123,33 @@ def test_capability_team_policy_respects_empty_user_tool_allowlist() -> None:
 
     policy = build_capability_team_policy(
         cap,
-        templates={"research_scholar.v1": _template()},
+        templates={"research_scout.v1": _template()},
         user_tools=[],
     )
 
     assert policy.user_tools == []
     assert resolve_effective_tools(_template(), policy) == []
+
+
+def test_build_capability_team_policy_reads_contract_overlays() -> None:
+    cap = SimpleNamespace(
+        definition_json={
+            "team_policy": {
+                "core_templates": ["research_scout.v1"],
+                "contract_overlay_skills": ["sci-journal-rules", "sci-journal-rules"],
+                "contract_overlay_categories": ["review", "writing", "review"],
+            }
+        },
+        runtime={"mode": "team_kernel"},
+    )
+
+    policy = build_capability_team_policy(
+        cap,
+        templates={"research_scout.v1": _template()},
+    )
+
+    assert policy.contract_overlay_skills == ["sci-journal-rules"]
+    assert policy.contract_overlay_categories == ["review", "writing"]
 
 
 def test_invocation_assignment_names_duplicate_templates() -> None:

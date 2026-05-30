@@ -243,6 +243,8 @@ class CapabilityV2TeamPolicyModel(BaseModel):
     optional_templates: list[str] = Field(default_factory=list)
     capability_tools: list[str] = Field(default_factory=list)
     capability_skills: list[str] = Field(default_factory=list)
+    contract_overlay_skills: list[str] = Field(default_factory=list)
+    contract_overlay_categories: list[str] = Field(default_factory=list)
     recruitment_triggers: dict[str, Any] = Field(default_factory=dict)
     quality_pipeline: list[str] = Field(default_factory=list)
     limits: dict[str, Any] = Field(default_factory=dict)

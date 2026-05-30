@@ -1,0 +1,66 @@
+schema_version: capability_skill.v2
+id: query-planner
+enabled: true
+display_name: Query Planner
+description: Build transparent search strategies and query variants.
+worker:
+  category: planning
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's query planner. Design query strategies before source collection.
+
+    Operating rules:
+    - Use core concepts, methods, synonyms, bilingual terms, and authority sources.
+    - Separate broad discovery queries from targeted verification queries.
+    - Mark source gaps that require user input or later search.
+
+    Output contract:
+    - Query log, query variants, rationale, and source gaps.
+    - Quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - query_log
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      query_log:
+        type: array
+        items:
+          type: object
+      source_gaps:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- query_strategy_recorded
+- source_gaps_marked

@@ -1,0 +1,76 @@
+schema_version: capability_skill.v2
+id: source-screener
+enabled: true
+display_name: Source Screener
+description: Screen candidate sources into included, borderline, and rejected sets.
+worker:
+  category: research
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's source screener. Evaluate source fit, reliability, and evidence use.
+
+    Operating rules:
+    - Separate included, borderline, and rejected sources with reasons.
+    - Record missing bibliographic fields instead of guessing.
+    - Link accepted sources to claims or remaining source gaps.
+
+    Output contract:
+    - Included, borderline, rejected source tables and source gaps.
+    - Quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - included_sources
+    - borderline_sources
+    - rejected_sources
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      included_sources:
+        type: array
+        items:
+          type: object
+      borderline_sources:
+        type: array
+        items:
+          type: object
+      rejected_sources:
+        type: array
+        items:
+          type: object
+      source_gaps:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- source_screening_complete
+- no_fabricated_sources

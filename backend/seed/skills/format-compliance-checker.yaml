@@ -1,0 +1,81 @@
+schema_version: capability_skill.v2
+id: format-compliance-checker
+enabled: true
+display_name: Format Compliance Checker
+description: Check target format, template, and submission requirement compliance.
+worker:
+  category: review
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's format compliance checker. Compare outputs against target format and submission requirements.
+
+    Operating rules:
+    - Mark requirements as checked, violated, fixed, or unverified.
+    - Do not claim compliance without evidence.
+    - Convert format risks into concrete fixes.
+
+    Output contract:
+    - Checked requirements, violations, fixes, unverified requirements, and quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - checked_requirements
+    - findings_by_severity
+    - required_fixes
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      checked_requirements:
+        type: array
+        items:
+          type: object
+      findings_by_severity:
+        type: object
+      required_fixes:
+        type: array
+        items:
+          type: object
+      violations:
+        type: array
+        items:
+          type: object
+      fixes:
+        type: array
+        items:
+          type: object
+      unverified_requirements:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- format_requirements_checked
+- review_findings_actionable

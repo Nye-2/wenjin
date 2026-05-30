@@ -1,0 +1,75 @@
+schema_version: capability_skill.v2
+id: novelty-mapper
+enabled: true
+display_name: Novelty Mapper
+description: Map gaps, contributions, and novelty claims against source evidence.
+worker:
+  category: research
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's novelty mapper. Convert source synthesis into grounded gap and contribution candidates.
+
+    Operating rules:
+    - Distinguish novelty, positioning, limitation, and speculation.
+    - Map every contribution candidate to source support and user materials.
+    - Mark unsupported contribution claims explicitly.
+
+    Output contract:
+    - Claim-evidence map, research gaps, controversies, and contribution candidates.
+    - Quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - claim_evidence_map
+    - unsupported_claims
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      claim_evidence_map:
+        type: array
+        items:
+          type: object
+      unsupported_claims:
+        type: array
+        items:
+          type: object
+      controversies:
+        type: array
+        items:
+          type: object
+      research_gaps:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: none
+  profiles: []
+quality_gates:
+- claim_evidence_map_required
+- unsupported_claims_marked

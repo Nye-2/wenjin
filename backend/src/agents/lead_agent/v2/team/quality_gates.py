@@ -8,6 +8,28 @@ from typing import Any
 from .contracts import AgentInvocation, CapabilityTeamPolicy, QualityGateResult
 from .policy import DIRECT_COMMIT_TOOLS
 
+FOUNDATION_GATE_REQUIRED_FIELDS = {
+    "query_strategy_recorded": ["query_log"],
+    "source_screening_complete": [
+        "included_sources",
+        "borderline_sources",
+        "rejected_sources",
+    ],
+    "claim_evidence_map_required": ["claim_evidence_map"],
+    "upstream_outputs_used": ["upstream_outputs_used"],
+    "unsupported_claims_marked": ["unsupported_claims"],
+    "method_assumptions_logged": ["assumptions"],
+    "reproducibility_status_declared": ["verified_results", "artifact_refs"],
+    "review_findings_actionable": ["findings_by_severity", "required_fixes"],
+    "format_requirements_checked": ["checked_requirements"],
+}
+
+FOUNDATION_GATE_ALLOW_EMPTY_FIELDS = {
+    "borderline_sources",
+    "rejected_sources",
+    "unsupported_claims",
+}
+
 
 def evaluate_quality_gates(
     quality_pipeline: list[str],
@@ -22,6 +44,14 @@ def evaluate_quality_gates(
     latest = latest_invocations or invocations
     total_invocations = len(invocations)
     gates: list[QualityGateResult] = []
+    gates.extend(
+        _foundation_field_gates(
+            latest,
+            team_policy=team_policy,
+            counts=counts,
+            total_invocations=total_invocations,
+        )
+    )
     gates.extend(
         _pipeline_gates(
             quality_pipeline,
@@ -88,7 +118,13 @@ def _pipeline_gates(
         total_invocations=len(invocations),
     )
     status = "warning" if interrupted else "pass"
-    gate_ids = quality_pipeline or ["team_output_available"]
+    gate_ids = [
+        gate_id
+        for gate_id in quality_pipeline or ["team_output_available"]
+        if interrupted or gate_id not in FOUNDATION_GATE_REQUIRED_FIELDS
+    ]
+    if not gate_ids:
+        return []
     finding_message = (
         f"{len(failed)} team member invocation(s) failed; "
         f"{len(cancelled)} cancelled"
@@ -111,6 +147,79 @@ def _pipeline_gates(
         )
         for gate_id in gate_ids
     ]
+
+
+def _foundation_field_gates(
+    invocations: list[AgentInvocation],
+    *,
+    team_policy: CapabilityTeamPolicy | None,
+    counts: Counter[str] | None,
+    total_invocations: int,
+) -> list[QualityGateResult]:
+    results: list[QualityGateResult] = []
+    for gate_id, required_fields in FOUNDATION_GATE_REQUIRED_FIELDS.items():
+        findings: list[dict[str, Any]] = []
+        suggested: list[dict[str, str]] = []
+        for invocation in invocations:
+            if invocation.status != "succeeded":
+                continue
+            output = invocation.output_report if isinstance(invocation.output_report, dict) else {}
+            contract = _quality_contract(invocation)
+            active_gates = set(_string_list(contract.get("quality_gates")))
+            if gate_id not in active_gates:
+                continue
+            missing = [
+                field for field in required_fields
+                if not _has_meaningful_field(output, field)
+            ]
+            if not missing:
+                continue
+            findings.append(
+                {
+                    "invocation_id": invocation.id,
+                    "template_id": invocation.template_id,
+                    "missing_fields": missing,
+                    "message": f"required fields for {gate_id} are missing",
+                }
+            )
+            suggested.extend(
+                _revision_recruit(
+                    invocation,
+                    reason=gate_id,
+                    team_policy=team_policy,
+                    counts=counts,
+                    total_invocations=total_invocations,
+                    already_suggested=len(suggested),
+                )
+            )
+        if not findings:
+            continue
+        missing_for_message = _dedupe(
+            [
+                field
+                for finding in findings
+                for field in _string_list(finding.get("missing_fields"))
+            ]
+        )
+        results.append(
+            QualityGateResult(
+                gate_id=gate_id,
+                status="fail",
+                severity="medium",
+                findings=findings,
+                required_fixes=[
+                    {
+                        "message": (
+                            f"Return required fields for {gate_id}: "
+                            f"{', '.join(missing_for_message)}."
+                        )
+                    }
+                ],
+                suggested_recruits=_dedupe_recruits(suggested),
+                next_action="revise_existing" if suggested else "stop_with_warning",
+            )
+        )
+    return results
 
 
 def _member_output_available(
@@ -520,6 +629,21 @@ def _matches_json_schema_type(value: Any, schema: Any) -> bool:
         return isinstance(value, int | float) and not isinstance(value, bool)
     if expected == "integer":
         return isinstance(value, int) and not isinstance(value, bool)
+    return True
+
+
+def _has_meaningful_field(output: dict[str, Any], field: str) -> bool:
+    if field not in output:
+        return False
+    value = output[field]
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list | dict):
+        if field in FOUNDATION_GATE_ALLOW_EMPTY_FIELDS:
+            return True
+        return bool(value)
     return True
 
 

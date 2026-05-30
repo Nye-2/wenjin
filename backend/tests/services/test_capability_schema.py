@@ -199,7 +199,7 @@ class TestCapabilityV2Yaml:
             "allowed_tools": ["web_search"],
         }
         payload["team_policy"] = {
-            "core_templates": ["research_scholar.v1"],
+            "core_templates": ["research_scout.v1"],
             "optional_templates": [],
             "capability_tools": ["web_search"],
             "quality_pipeline": [],
@@ -207,6 +207,27 @@ class TestCapabilityV2Yaml:
 
         with pytest.raises(ValidationError, match="quality_pipeline"):
             CapabilityV2YamlModel(**payload)
+
+    def test_team_policy_accepts_contract_overlays(self):
+        payload = self._valid_payload()
+        payload["runtime"] = {
+            "mode": "team_kernel",
+            "allowed_tools": ["web_search"],
+        }
+        payload["team_policy"] = {
+            "core_templates": ["research_scout.v1"],
+            "optional_templates": [],
+            "capability_tools": ["web_search"],
+            "contract_overlay_skills": ["sci-journal-rules"],
+            "contract_overlay_categories": ["review", "writing"],
+            "quality_pipeline": ["evidence_traceability"],
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+        data = model.to_catalog_data()
+
+        assert data["team_policy"]["contract_overlay_skills"] == ["sci-journal-rules"]
+        assert data["team_policy"]["contract_overlay_categories"] == ["review", "writing"]
 
     def test_quality_gate_ids_must_not_be_blank(self):
         payload = self._valid_payload()

@@ -7,6 +7,50 @@ import yaml
 SEED_ROOT = Path(__file__).resolve().parent.parent.parent / "seed"
 SKILLLESS_SUBAGENTS = {"sandbox_python", "prism_selection_optimizer"}
 DIRECT_COMMIT_TOOLS = {"room_commit", "workspace_room_write", "prism_apply"}
+FOUNDATION_AGENT_TEMPLATES = {
+    "research_planner.v1",
+    "research_scout.v1",
+    "literature_synthesizer.v1",
+    "methodologist.v1",
+    "evidence_analyst.v1",
+    "figure_table_engineer.v1",
+    "document_architect.v1",
+    "manuscript_writer.v1",
+    "citation_auditor.v1",
+    "critical_reviewer.v1",
+    "generalist_assistant.v1",
+}
+FOUNDATION_SKILLS = {
+    "task-scope-planner",
+    "query-planner",
+    "source-screener",
+    "research-scout",
+    "literature-synthesizer",
+    "novelty-mapper",
+    "method-design",
+    "reporting-guideline-checker",
+    "evidence-analyst",
+    "reproducibility-auditor",
+    "figure-engineer",
+    "table-builder",
+    "manuscript-architect",
+    "document-outline-builder",
+    "manuscript-writer",
+    "style-polisher",
+    "citation-auditor",
+    "source-quality-auditor",
+    "review-critic",
+    "claim-verifier",
+    "structured-summary",
+    "format-compliance-checker",
+}
+FOUNDATION_OVERLAY_SKILLS = {
+    "sci-journal-rules",
+    "thesis-school-rules",
+    "proposal-panel-rules",
+    "patent-examiner-rules",
+    "software-copyright-rules",
+}
 
 
 def _collect_skill_ids() -> set[str]:
@@ -29,8 +73,161 @@ def _collect_agent_template_ids() -> set[str]:
     return out
 
 
+def _collect_skill_records() -> dict[str, dict]:
+    records: dict[str, dict] = {}
+    for f in (SEED_ROOT / "skills").glob("*.yaml"):
+        data = yaml.safe_load(f.read_text())
+        records[data["id"]] = data
+    return records
+
+
+def _collect_agent_template_records() -> dict[str, dict]:
+    records: dict[str, dict] = {}
+    for f in (SEED_ROOT / "agent_templates").glob("*.yaml"):
+        data = yaml.safe_load(f.read_text())
+        records[data["id"]] = data
+    return records
+
+
 def _is_hidden_capability(data: dict) -> bool:
     return (data.get("display") or {}).get("entry_tier") == "hidden"
+
+
+def test_foundation_agent_templates_are_seeded():
+    template_ids = _collect_agent_template_ids()
+    missing = FOUNDATION_AGENT_TEMPLATES - template_ids
+    assert not missing, f"missing foundation agent templates {sorted(missing)}"
+
+
+def test_foundation_template_default_skills_exist():
+    skill_ids = _collect_skill_ids()
+    records = _collect_agent_template_records()
+    for template_id in sorted(FOUNDATION_AGENT_TEMPLATES):
+        data = records[template_id]
+        assert data.get("schema_version") == "agent_template.v1"
+        assert data.get("enabled") is True
+        assert data.get("display_role")
+        assert data.get("persona_prompt")
+        default_skills = set(data.get("default_skills") or [])
+        assert default_skills, f"{template_id}: foundation template must declare default_skills"
+        missing = default_skills - skill_ids
+        assert not missing, f"{template_id}: unknown default skills {sorted(missing)}"
+        assert (data.get("risk_profile") or {}).get("room_write") == "staged_only"
+
+
+def test_workspace_overlay_skills_are_seeded():
+    skill_ids = _collect_skill_ids()
+    missing = FOUNDATION_OVERLAY_SKILLS - skill_ids
+    assert not missing, f"missing workspace overlay skills {sorted(missing)}"
+
+
+def test_foundation_skills_have_quality_contract_shape():
+    records = _collect_skill_records()
+    expected_ids = FOUNDATION_SKILLS | FOUNDATION_OVERLAY_SKILLS
+    missing_ids = expected_ids - set(records)
+    assert not missing_ids, f"missing foundation skills {sorted(missing_ids)}"
+    for skill_id in sorted(expected_ids):
+        data = records[skill_id]
+        worker = data.get("worker") or {}
+        io_contract = data.get("io_contract") or {}
+        output_schema = io_contract.get("output_schema") or {}
+        properties = output_schema.get("properties") or {}
+        required = set(output_schema.get("required") or [])
+        assert worker.get("role_prompt"), f"{skill_id}: missing worker.role_prompt"
+        assert output_schema.get("type") == "object", (
+            f"{skill_id}: output_schema must be object"
+        )
+        assert "text" in properties, f"{skill_id}: output_schema.properties.text required"
+        assert "quality_gates_checked" in properties, (
+            f"{skill_id}: output_schema.properties.quality_gates_checked required"
+        )
+        assert {"text", "quality_gates_checked"} <= required, (
+            f"{skill_id}: text and quality_gates_checked must be required"
+        )
+        assert data.get("quality_gates"), f"{skill_id}: quality_gates must not be empty"
+
+
+def test_foundation_skill_required_fields_cover_quality_gate_contracts():
+    from src.agents.lead_agent.v2.team.quality_gates import FOUNDATION_GATE_REQUIRED_FIELDS
+
+    records = _collect_skill_records()
+    expected_ids = FOUNDATION_SKILLS | FOUNDATION_OVERLAY_SKILLS
+    for skill_id in sorted(expected_ids):
+        data = records[skill_id]
+        output_schema = ((data.get("io_contract") or {}).get("output_schema") or {})
+        properties = output_schema.get("properties") or {}
+        required = set(output_schema.get("required") or [])
+        for gate_id in data.get("quality_gates") or []:
+            for field in FOUNDATION_GATE_REQUIRED_FIELDS.get(gate_id, []):
+                assert field in required, (
+                    f"{skill_id}: quality gate {gate_id} requires {field}, "
+                    "but output_schema.required does not"
+                )
+                assert field in properties, (
+                    f"{skill_id}: quality gate {gate_id} requires {field}, "
+                    "but output_schema.properties does not define it"
+                )
+
+
+def test_sample_capabilities_use_foundation_team_patterns():
+    expected = {
+        "sci_literature_positioning": {
+            "core": {
+                "research_planner.v1",
+                "research_scout.v1",
+                "literature_synthesizer.v1",
+            },
+            "optional": {
+                "citation_auditor.v1",
+                "document_architect.v1",
+                "critical_reviewer.v1",
+                "generalist_assistant.v1",
+            },
+            "overlay": {"sci-journal-rules"},
+        },
+        "thesis_research_pack": {
+            "core": {
+                "research_planner.v1",
+                "research_scout.v1",
+                "literature_synthesizer.v1",
+            },
+            "optional": {
+                "citation_auditor.v1",
+                "document_architect.v1",
+                "critical_reviewer.v1",
+                "generalist_assistant.v1",
+            },
+            "overlay": {"thesis-school-rules"},
+        },
+        "proposal_background_pack": {
+            "core": {
+                "research_planner.v1",
+                "research_scout.v1",
+                "literature_synthesizer.v1",
+            },
+            "optional": {
+                "citation_auditor.v1",
+                "document_architect.v1",
+                "critical_reviewer.v1",
+                "generalist_assistant.v1",
+            },
+            "overlay": {"proposal-panel-rules"},
+        },
+    }
+    by_id = {
+        yaml.safe_load(path.read_text())["id"]: path
+        for path in _collect_capability_files()
+    }
+    for capability_id, expected_policy in expected.items():
+        data = yaml.safe_load(by_id[capability_id].read_text())
+        policy = data.get("team_policy") or {}
+        assert set(policy.get("core_templates") or []) == expected_policy["core"]
+        assert expected_policy["optional"] <= set(policy.get("optional_templates") or [])
+        assert set(policy.get("contract_overlay_skills") or []) == expected_policy["overlay"]
+        assert "research" not in set(policy.get("contract_overlay_categories") or [])
+        triggers = policy.get("recruitment_triggers") or {}
+        assert triggers.get("missing_sources")
+        assert triggers.get("unsupported_claims")
 
 
 def test_every_capability_skill_id_exists():
@@ -118,6 +315,7 @@ def test_every_capability_required_fields_present():
 
 def test_team_kernel_capability_declares_recruitable_team_policy():
     template_ids = _collect_agent_template_ids()
+    skill_ids = _collect_skill_ids()
     assert template_ids, "no agent templates found"
     team_kernel_capabilities: list[str] = []
 
@@ -143,6 +341,14 @@ def test_team_kernel_capability_declares_recruitable_team_policy():
         assert policy.get("quality_pipeline"), (
             f"{cap_path}: team_policy.quality_pipeline must close the loop"
         )
+        overlay_skills = set(policy.get("contract_overlay_skills") or [])
+        assert overlay_skills <= skill_ids, (
+            f"{cap_path}: unknown contract overlay skills {sorted(overlay_skills - skill_ids)}"
+        )
+        if overlay_skills:
+            assert policy.get("contract_overlay_categories"), (
+                f"{cap_path}: contract overlays must declare applicable template categories"
+            )
 
     assert "sci_literature_positioning" in team_kernel_capabilities
 

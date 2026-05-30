@@ -378,7 +378,7 @@ class TeamKernelRuntime:
         skill_load_error: Exception | None = None
         if await self._should_prefetch_skills(execution_id):
             try:
-                await self._ensure_skill_cache(skill_cache, batch)
+                await self._ensure_skill_cache(skill_cache, batch, team_policy)
             except Exception as exc:
                 skill_load_error = exc
         if skill_load_error is None:
@@ -433,12 +433,16 @@ class TeamKernelRuntime:
         self,
         skill_cache: SkillCatalogCache,
         invocations: list[AgentInvocation],
+        team_policy: CapabilityTeamPolicy,
     ) -> None:
         missing: list[str] = []
         for invocation in invocations:
             for skill_id in invocation.effective_skills:
                 if skill_id not in skill_cache.records and skill_id not in missing:
                     missing.append(skill_id)
+        for skill_id in team_policy.contract_overlay_skills:
+            if skill_id not in skill_cache.records and skill_id not in missing:
+                missing.append(skill_id)
         if not missing:
             return
         if not skill_cache.loaded:

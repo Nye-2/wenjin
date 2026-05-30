@@ -48,10 +48,31 @@ class CapabilityTeamPolicy(BaseModel):
     workspace_tools: list[str] = Field(default_factory=list)
     user_tools: list[str] = Field(default_factory=list)
     capability_skills: list[str] = Field(default_factory=list)
+    contract_overlay_skills: list[str] = Field(default_factory=list)
+    contract_overlay_categories: list[str] = Field(default_factory=list)
 
     @field_validator("core_templates", "optional_templates")
     @classmethod
     def _dedupe_template_list(cls, value: list[str]) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for item in value:
+            key = str(item).strip()
+            if key and key not in seen:
+                seen.add(key)
+                result.append(key)
+        return result
+
+    @field_validator(
+        "capability_tools",
+        "workspace_tools",
+        "user_tools",
+        "capability_skills",
+        "contract_overlay_skills",
+        "contract_overlay_categories",
+    )
+    @classmethod
+    def _dedupe_string_list(cls, value: list[str]) -> list[str]:
         seen: set[str] = set()
         result: list[str] = []
         for item in value:

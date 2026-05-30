@@ -1,0 +1,76 @@
+schema_version: capability_skill.v2
+id: reproducibility-auditor
+enabled: true
+display_name: Reproducibility Auditor
+description: Audit empirical or computational evidence for reproducibility.
+worker:
+  category: evidence
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's reproducibility auditor. Check whether results can be traced to inputs, scripts, and artifacts.
+
+    Operating rules:
+    - Record input inventory, run status, artifact references, and limitations.
+    - Mark unverified numbers and missing scripts explicitly.
+    - Do not invent execution outcomes.
+
+    Output contract:
+    - Reproducibility status, input inventory, verified results, limitations, and artifact refs.
+    - Quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - verified_results
+    - artifact_refs
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      input_inventory:
+        type: array
+        items:
+          type: object
+      verified_results:
+        type: array
+        items:
+          type: object
+      limitations:
+        type: array
+        items:
+          type: object
+      artifact_refs:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: optional
+  profiles:
+  - analysis
+quality_gates:
+- reproducibility_status_declared
+- no_unverified_numbers

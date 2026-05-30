@@ -67,7 +67,7 @@ def _team_capability() -> SimpleNamespace:
         definition_json={
             "mission": {"primary_surface": "rooms"},
             "team_policy": {
-                "core_templates": ["research_scholar.v1", "critical_reviewer.v1"],
+                "core_templates": ["research_scout.v1", "critical_reviewer.v1"],
                 "optional_templates": ["generalist_assistant.v1"],
                 "recruitment_triggers": {
                     "overloaded_or_missing_specialist": ["generalist_assistant.v1"],
@@ -107,8 +107,8 @@ class FakeTeamCatalogClient:
 
         return [
             AgentTemplatePayload(
-                id="research_scholar.v1",
-                display_role="文献专家",
+                id="research_scout.v1",
+                display_role="文献检索员",
                 category="research",
                 default_skills=["research-scout", "citation-auditor"],
                 tool_affinity={
@@ -405,7 +405,7 @@ async def test_team_kernel_runtime_injects_quality_contract_into_member_brief(mo
         contract = event["input_data"]["quality_contract"]
         assert contract["schema_version"] == "resolved_quality_contract.v1"
         assert contract["template_id"] in {
-            "research_scholar.v1",
+            "research_scout.v1",
             "critical_reviewer.v1",
         }
         assert contract["quality_gates"] == [
@@ -692,7 +692,7 @@ async def test_team_kernel_runtime_revises_existing_member_after_schema_gate(mon
 
     assert report.status == "failed_partial"
     assert any(
-        item["template_id"] == "research_scholar.v1" and item["iteration"] == 2
+        item["template_id"] == "research_scout.v1" and item["iteration"] == 2
         for item in completed_by_id.values()
     )
     assert any(
@@ -783,7 +783,7 @@ async def test_team_kernel_runtime_recruits_after_failed_core_in_earlier_batch(m
     cap = _team_capability()
     cap.definition_json["team_policy"]["core_templates"] = [
         "critical_reviewer.v1",
-        "research_scholar.v1",
+        "research_scout.v1",
     ]
     cap.definition_json["team_policy"]["capability_skills"].append("failing-review-critic")
     cap.definition_json["team_policy"]["limits"]["max_parallel_invocations"] = 1

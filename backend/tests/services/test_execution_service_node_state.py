@@ -31,14 +31,14 @@ async def test_update_node_state_persists_team_node_metadata() -> None:
 
     await service.update_node_state(
         "exec-team",
-        "research_scholar.v1__1",
+        "research_scout.v1__1",
         status="completed",
         node_type="agent_invocation",
-        label="文献专家",
+        label="文献检索员",
         node_metadata={
             "team": True,
-            "template_id": "research_scholar.v1",
-            "display_name": "文献专家",
+            "template_id": "research_scout.v1",
+            "display_name": "文献检索员",
             "effective_tools": ["web_search", "library_read"],
             "effective_skills": ["literature_search.v1"],
         },
@@ -46,14 +46,14 @@ async def test_update_node_state_persists_team_node_metadata() -> None:
 
     assert client.updated_payload is not None
     assert client.updated_payload.node_states_json == {
-        "research_scholar.v1__1": {
+        "research_scout.v1__1": {
             "status": "completed",
             "node_type": "agent_invocation",
-            "label": "文献专家",
+            "label": "文献检索员",
             "node_metadata": {
                 "team": True,
-                "template_id": "research_scholar.v1",
-                "display_name": "文献专家",
+                "template_id": "research_scout.v1",
+                "display_name": "文献检索员",
                 "effective_tools": ["web_search", "library_read"],
                 "effective_skills": ["literature_search.v1"],
             },

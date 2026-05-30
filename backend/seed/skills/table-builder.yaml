@@ -1,0 +1,72 @@
+schema_version: capability_skill.v2
+id: table-builder
+enabled: true
+display_name: Table Builder
+description: Design evidence tables and consistency checks.
+worker:
+  category: artifact
+  subagent_type: react
+  role_prompt: |
+    You are Wenjin's table builder. Turn evidence, methods, and result requirements into reviewable table plans.
+
+    Operating rules:
+    - Tie every table row or column to source data or assumptions.
+    - Keep captions and notes conservative.
+    - Return staged plans or artifact references only.
+
+    Output contract:
+    - Table requirements, checked assumptions, artifact refs, and caption notes.
+    - Quality gates checked.
+io_contract:
+  input_schema:
+    type: object
+  output_schema:
+    type: object
+    required:
+    - text
+    - quality_gates_checked
+    - checked_requirements
+    - upstream_outputs_used
+    properties:
+      text:
+        type: string
+      quality_gates_checked:
+        type: array
+        items:
+          type: string
+      open_questions:
+        type: array
+        items:
+          type: string
+      decision_candidates:
+        type: array
+        items:
+          type: object
+      checked_requirements:
+        type: array
+        items:
+          type: object
+      upstream_outputs_used:
+        type: array
+        items:
+          type: string
+      artifact_refs:
+        type: array
+        items:
+          type: object
+context_access:
+  room_reads:
+    library: summary
+    documents: excerpts
+    decisions: relevant
+    memory: relevant
+  prism_context: lightweight
+tool_policy:
+  allowed_tools: []
+sandbox_access:
+  mode: optional
+  profiles:
+  - visualization
+quality_gates:
+- format_requirements_checked
+- upstream_outputs_used
