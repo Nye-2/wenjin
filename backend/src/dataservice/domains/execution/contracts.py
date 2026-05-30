@@ -61,7 +61,7 @@ class ExecutionEventCreateCommand(BaseModel):
 
 
 class GenerationRecordCreateCommand(BaseModel):
-    """Record one legacy skill-generation usage event behind DataService."""
+    """Record one skill-generation usage event behind DataService."""
 
     workspace_id: str = Field(min_length=1, max_length=36)
     skill_name: str = Field(min_length=1, max_length=100)
@@ -240,7 +240,7 @@ class ExecutionEventProjection(BaseModel):
 
 
 class GenerationRecordProjection(BaseModel):
-    """Projection for legacy generation usage rows owned by DataService."""
+    """Projection for generation usage rows owned by DataService."""
 
     id: str
     workspace_id: str

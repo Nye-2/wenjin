@@ -1173,6 +1173,22 @@ def test_conversation_block_payloads_do_not_persist_legacy_kind() -> None:
     )
 
 
+def test_execution_generation_contracts_do_not_label_current_usage_projection_legacy() -> None:
+    """Generation usage contracts are current DataService projections."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "execution" / "contracts.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "legacy generation",
+        "legacy skill-generation",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Execution generation contracts still label current usage projection as legacy: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

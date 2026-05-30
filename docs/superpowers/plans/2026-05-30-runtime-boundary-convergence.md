@@ -134,9 +134,17 @@
   - `normalize_block_payload` 只写入 canonical `kind`，不再保留旧 kind/type 的 shadow 字段。
   - Conversation block protocol 继续保持 7 类 canonical block 持久化契约。
   - Architecture guard 新增 `test_conversation_block_payloads_do_not_persist_legacy_kind`。
+- Current execution generation usage naming follow-up
+  - `GenerationRecordCreateCommand` / `GenerationRecordProjection` 文案收敛为当前 DataService-owned usage contract。
+  - 不再把 generation usage projection 描述为 legacy record。
+  - Architecture guard 新增 `test_execution_generation_contracts_do_not_label_current_usage_projection_legacy`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/execution/contracts.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_execution_generation_contracts_do_not_label_current_usage_projection_legacy -q` -> 1 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 33 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2031 passed.
 - `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/conversation/block_protocol.py tests/dataservice/test_conversation_domain.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/dataservice/test_conversation_domain.py tests/architecture/test_dataservice_boundaries.py::test_conversation_block_payloads_do_not_persist_legacy_kind -q` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 32 passed.
