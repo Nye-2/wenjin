@@ -250,7 +250,7 @@ git commit -m "feat: add model catalog pricing reservation models"
 - Create: `backend/src/dataservice/domains/model_catalog/security.py`
 - Test: `backend/tests/dataservice/test_model_catalog_domain.py`
 
-- [ ] **Step 1: Write security tests**
+- [x] **Step 1: Write security tests**
 
 Cover:
 
@@ -260,7 +260,7 @@ Cover:
 - Production URL validator rejects localhost, private IPs, metadata IP, and non-HTTPS.
 - Development URL validator allows `http://localhost`.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run:
 
@@ -271,7 +271,7 @@ cd backend
 
 Expected: fail with missing `security.py`.
 
-- [ ] **Step 3: Implement security helpers**
+- [x] **Step 3: Implement security helpers**
 
 Use `cryptography.hazmat.primitives.ciphers.aead.AESGCM`. If `cryptography` is not available in the existing environment, use `Fernet` only if already installed; do not add a new dependency without checking `pyproject.toml`.
 
@@ -286,11 +286,11 @@ def api_key_fingerprint(api_key: str, *, master_key: bytes) -> str: ...
 def validate_model_base_url(base_url: str, *, environment: str) -> None: ...
 ```
 
-- [ ] **Step 4: Add master key loader**
+- [x] **Step 4: Add master key loader**
 
 Read `MODEL_SECRET_KEY_FILE` first, then local-development `MODEL_SECRET_KEY`. Require at least 32 bytes after base64/utf8 normalization. Keep this loader in the same security module unless it grows.
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -301,7 +301,7 @@ cd backend
 
 Expected: pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/src/dataservice/domains/model_catalog/security.py backend/tests/dataservice/test_model_catalog_domain.py
