@@ -1101,6 +1101,22 @@ def test_workspace_uploads_do_not_accept_legacy_root_prefixed_relative_paths() -
     )
 
 
+def test_react_subagent_does_not_silently_ignore_requested_tools() -> None:
+    """React subagents must fail when requested tool names cannot be resolved."""
+
+    path = SRC_ROOT / "subagents" / "v2" / "types" / "react.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "TODO:",
+        "plain model invoke is used when tools list is empty after resolution",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "React subagent still documents silent tool fallback: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

@@ -96,6 +96,7 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 23. Feature execution params 只保留 canonical TaskBrief wrapper；旧 plain-param execution params 解析入口已移除。
 24. Artifact follow-up / rerun action state 只从显式 mission params 或来源 artifact 推导 goal；缺少上下文时返回不可重跑原因，不再用 workspace 描述或“未命名任务”兜底。
 25. Workspace upload stored path 只接受 workspace-relative path 或 workspace-root 内绝对路径；历史 cwd-relative 全根路径不再由运行时解析。
+26. React subagent 请求 tools 但没有解析到 callable 时显式失败；不会把工具型节点静默当作普通 LLM 节点执行。
 
 ## 7. 前端信息架构
 

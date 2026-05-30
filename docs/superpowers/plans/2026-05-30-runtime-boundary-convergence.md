@@ -111,9 +111,17 @@
   - `resolve_workspace_upload_stored_path` 删除 cwd-relative workspace-root-prefixed 历史路径解析分支。
   - Stored path 只接受 workspace-relative path、root-prefixed virtual relative path（显式 `allow_root_prefixed_relative=True`）或 workspace-root 内绝对路径。
   - Architecture guard 新增 `test_workspace_uploads_do_not_accept_legacy_root_prefixed_relative_paths`。
+- Current React requested-tools boundary follow-up
+  - React subagent 请求 tools 且 `_resolve_tools` 未返回 callable 时显式抛错。
+  - 删除“tools 解析为空就退回 plain model invoke”的 TODO/注释口径。
+  - Architecture guard 新增 `test_react_subagent_does_not_silently_ignore_requested_tools`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/subagents/v2/types/react.py tests/unit/subagents/test_react.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/unit/subagents/test_react.py tests/agents/lead_agent/v2/test_runtime.py tests/agents/lead_agent/v2/test_failure_handling.py tests/agents/lead_agent/v2/test_compiler.py tests/architecture/test_dataservice_boundaries.py::test_react_subagent_does_not_silently_ignore_requested_tools -q` -> 43 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 29 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2025 passed.
 - `cd backend && .venv/bin/python -m ruff check src/services/workspace_uploads.py tests/services/test_workspace_uploads.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_workspace_uploads.py tests/services/test_template_service.py tests/services/test_reference_import_service.py tests/agents/middlewares/test_uploads_middleware.py tests/task/test_document_preprocess_handler.py tests/gateway/routers/test_uploads.py tests/architecture/test_dataservice_boundaries.py::test_workspace_uploads_do_not_accept_legacy_root_prefixed_relative_paths -q` -> 28 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 28 passed.

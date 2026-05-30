@@ -173,27 +173,30 @@ async def _run_react_loop(
     ]
 
     if tools:
-        # Resolve tool callables by name and build a ReAct agent
+        resolved_tools = _resolve_tools(tools)
+        if not resolved_tools:
+            requested = ", ".join(str(tool).strip() for tool in tools if str(tool).strip())
+            raise RuntimeError(
+                "React tools were requested but no registered tool callables are available"
+                f": {requested}"
+            )
+
         from langgraph.prebuilt import create_react_agent
 
-        # TODO: resolve actual tool callables from tool names when tool registry is ready
-        # For now, plain model invoke is used when tools list is empty after resolution
-        resolved_tools = _resolve_tools(tools)
-        if resolved_tools:
-            agent = create_react_agent(
-                model=model,
-                tools=resolved_tools,
-                state_modifier=system_prompt,
-            )
-            result = await agent.ainvoke({"messages": [HumanMessage(content=user_message)]})
-            # Extract last AI message content
-            msgs = result.get("messages", [])
-            for msg in reversed(msgs):
-                if hasattr(msg, "content") and msg.content:
-                    for usage_message in msgs:
-                        record_token_usage(usage_message)
-                    return msg.content
-            return ""
+        agent = create_react_agent(
+            model=model,
+            tools=resolved_tools,
+            state_modifier=system_prompt,
+        )
+        result = await agent.ainvoke({"messages": [HumanMessage(content=user_message)]})
+        # Extract last AI message content
+        msgs = result.get("messages", [])
+        for msg in reversed(msgs):
+            if hasattr(msg, "content") and msg.content:
+                for usage_message in msgs:
+                    record_token_usage(usage_message)
+                return msg.content
+        return ""
 
     # No tools -- stream the response and emit thinking deltas
     collected_content: list[str] = []
@@ -256,9 +259,9 @@ async def _run_react_loop(
 def _resolve_tools(tool_names: list[str]) -> list:
     """Resolve tool names to callables.
 
-    Placeholder -- returns an empty list until the tool registry is wired up.
+    The current runtime has no React tool registry bridge. Callers that request
+    tools must receive an explicit failure instead of a plain-LLM execution.
     """
-    # TODO: integrate with tool registry
     return []
 
 
