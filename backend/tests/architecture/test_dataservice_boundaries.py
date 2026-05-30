@@ -595,6 +595,8 @@ def test_execution_runtime_uses_dataservice_execution_boundary() -> None:
             "ThreadService",
             "session_factory=",
             "db=",
+            "_resolve_ws_type_with_fallback",
+            'or "thesis"',
         ),
         SRC_ROOT / "task" / "tasks" / "base.py": (
             "get_db_session",

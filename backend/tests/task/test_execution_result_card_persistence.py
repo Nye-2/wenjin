@@ -7,6 +7,7 @@ import pytest
 
 from src.task.tasks.execution import (
     _persist_result_card_for_execution,
+    _resolve_execution_workspace_type,
     _result_card_data_from_task_report,
 )
 
@@ -60,6 +61,28 @@ def test_result_card_data_from_task_report_preserves_outputs_and_reviews() -> No
         }
     ]
     assert data["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_execution_workspace_type_uses_dataservice_projection() -> None:
+    dataservice = SimpleNamespace(
+        get_workspace=AsyncMock(return_value=SimpleNamespace(workspace_type="sci")),
+    )
+
+    workspace_type = await _resolve_execution_workspace_type(dataservice, "ws-1")
+
+    assert workspace_type == "sci"
+    dataservice.get_workspace.assert_awaited_once_with("ws-1")
+
+
+@pytest.mark.asyncio
+async def test_resolve_execution_workspace_type_rejects_missing_type() -> None:
+    dataservice = SimpleNamespace(
+        get_workspace=AsyncMock(return_value=SimpleNamespace(workspace_type=None)),
+    )
+
+    with pytest.raises(ValueError, match="workspace type is not configured"):
+        await _resolve_execution_workspace_type(dataservice, "ws-1")
 
 
 @pytest.mark.asyncio

@@ -126,6 +126,26 @@ async def _persist_result_card_for_execution(
     )
 
 
+async def _resolve_execution_workspace_type(
+    dataservice: AsyncDataServiceClient,
+    workspace_id: str,
+) -> str:
+    workspace = await dataservice.get_workspace(workspace_id)
+    if workspace is None:
+        raise ValueError(f"Workspace {workspace_id} was not found")
+
+    raw_workspace_type = getattr(workspace, "workspace_type", None)
+    if raw_workspace_type is None:
+        raw_workspace_type = getattr(workspace, "type", None)
+    if hasattr(raw_workspace_type, "value"):
+        raw_workspace_type = raw_workspace_type.value
+
+    workspace_type = str(raw_workspace_type or "").strip()
+    if not workspace_type:
+        raise ValueError(f"Workspace {workspace_id} workspace type is not configured")
+    return workspace_type
+
+
 async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
     from src.academic.cache.redis_client import redis_client
     from src.dataservice_client.provider import dataservice_client
@@ -194,9 +214,8 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
         from src.execution.engine import ExecutionEngineV2
 
-        async def _resolve_ws_type_with_fallback(ws_id: str) -> str:
-            workspace = await dataservice.get_workspace(ws_id)
-            return str(getattr(workspace, "workspace_type", None) or "thesis")
+        async def _resolve_ws_type(ws_id: str) -> str:
+            return await _resolve_execution_workspace_type(dataservice, ws_id)
 
         async def _record_node_event(**kw: Any) -> None:
             # Persist per-node lifecycle into ``executions.node_states`` so the
@@ -253,7 +272,7 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
         runtime = LeadAgentRuntime(
             resolver=resolver,
             publish_event=_publish_fn,
-            get_workspace_type=_resolve_ws_type_with_fallback,
+            get_workspace_type=_resolve_ws_type,
             redis=redis_client.client,
             record_node_event=_record_node_event,
         )

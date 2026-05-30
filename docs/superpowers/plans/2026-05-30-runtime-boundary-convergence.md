@@ -93,9 +93,18 @@
   - `legacy_metadata` 不再出现在 runtime Prism adapter surface projection 中。
   - `_list_prism_review_items` 类型注解收敛到 DataService client contract `ReviewItemPayload`，不引用 DataService 内部 projection 类型。
   - Architecture guard 新增 `test_prism_adapter_metadata_uses_canonical_field_names`，防止 Prism adapter metadata 重新暴露 legacy field。
+- Current execution workspace type boundary follow-up
+  - `execute_execution` 的 Lead runtime workspace type resolver 改为 `_resolve_execution_workspace_type`。
+  - Workspace type 只从 DataService workspace projection 读取，支持 `workspace_type` / `type` projection shape。
+  - workspace 不存在或 type 为空时显式抛错并由 execution engine 标记 failed，不再默认使用 thesis。
+  - Architecture guard 扩展 `test_execution_runtime_uses_dataservice_execution_boundary`，防止恢复 fallback resolver 或 `or "thesis"`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/task/tasks/execution.py tests/task/test_execution_result_card_persistence.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_execution_result_card_persistence.py tests/task/test_thread_writeback.py tests/services/test_execution_cancel.py tests/execution/test_engine.py tests/agents/lead_agent/v2/test_runtime.py tests/agents/lead_agent/v2/test_failure_handling.py tests/architecture/test_dataservice_boundaries.py::test_execution_runtime_uses_dataservice_execution_boundary -q` -> 49 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 25 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2019 passed.
 - `cd backend && .venv/bin/python -m ruff check src/services/workspace_prism_service.py tests/services/test_workspace_prism_service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_workspace_prism_service.py tests/gateway/routers/test_workspace_prism.py tests/execution/test_engine.py tests/architecture/test_dataservice_boundaries.py::test_prism_adapter_metadata_uses_canonical_field_names -q` -> 23 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 25 passed.
