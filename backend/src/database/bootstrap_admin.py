@@ -14,10 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
-from typing import Any
 
-import yaml
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -126,33 +123,14 @@ async def async_main() -> int:
 
             # Seed recruitable agent templates before capabilities that reference them.
             try:
-                from src.dataservice.domains.catalog.seed_loader import (
-                    DataServiceCatalogSeedLoader,
-                )
-                from src.dataservice.domains.catalog.service import (
-                    DataServiceCatalogService,
-                )
+                from src.services.agent_template_loader import AgentTemplateLoader
 
-                seed_dir = Path(__file__).resolve().parents[2] / "seed" / "agent_templates"
-                if seed_dir.exists():
-                    service = DataServiceCatalogService(session)
-
-                    def validate_agent_template(path: Path, text: str) -> dict[str, Any]:
-                        data = yaml.safe_load(text) or {}
-                        if not isinstance(data, dict):
-                            raise ValueError(f"{path} must contain an object")
-                        return data
-
-                    result = await DataServiceCatalogSeedLoader(
-                        service,
-                        seed_dir,
-                    ).load_agent_templates(
-                        validate_yaml_text=validate_agent_template,
+                template_loader = AgentTemplateLoader(session)
+                loaded_templates = await template_loader.load_seeds_if_empty()
+                if loaded_templates:
+                    print(
+                        f"[bootstrap-admin] Seeded {loaded_templates} agent template record(s)"
                     )
-                    if result.loaded:
-                        print(
-                            f"[bootstrap-admin] Seeded {result.loaded} agent template record(s)"
-                        )
             except Exception as template_exc:
                 print(f"[bootstrap-admin] WARN: agent template seed failed: {template_exc}")
 
