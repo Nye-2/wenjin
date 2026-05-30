@@ -146,6 +146,14 @@ class FakeTeamCatalogClient:
         ]
 
 
+class CountingTeamCatalogClient(FakeTeamCatalogClient):
+    skill_list_calls = 0
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        type(self).skill_list_calls += 1
+        return await super().list_catalog_skills(enabled_only=enabled_only)
+
+
 class FakeCriticalReviewerFailingTeamCatalogClient(FakeTeamCatalogClient):
     async def list_agent_templates(self, *, enabled_only: bool = True):
         records = await super().list_agent_templates(enabled_only=enabled_only)
@@ -169,6 +177,39 @@ class FakeCriticalReviewerFailingTeamCatalogClient(FakeTeamCatalogClient):
                 config={"output_kind": "json"},
             ),
         ]
+
+
+class CountingGeneralistNewSkillCatalogClient(FakeCriticalReviewerFailingTeamCatalogClient):
+    skill_list_calls = 0
+
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        records = await super().list_agent_templates(enabled_only=enabled_only)
+        for record in records:
+            if record.id == "generalist_assistant.v1":
+                record.default_skills = ["generalist-helper"]
+        return records
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        type(self).skill_list_calls += 1
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            *records,
+            CapabilitySkillPayload(
+                id="generalist-helper",
+                display_name="Generalist Helper",
+                worker_type="generalist",
+                subagent_type="team_fake",
+                prompt="Fill team gaps.",
+                config={"output_kind": "json"},
+            ),
+        ]
+
+
+class FakeSkillCatalogFailingClient(FakeTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        raise RuntimeError("skill catalog unavailable")
 
 
 class FakeFailingTeamCatalogClient(FakeTeamCatalogClient):
@@ -235,6 +276,29 @@ async def test_team_kernel_runtime_publishes_team_events_and_report(monkeypatch)
     assert "团队调研" in report.narrative
     assert report.token_usage == {"input": 6, "output": 10}
     assert any(event["node_type"] == "agent_invocation" for event in node_events)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_batches_skill_catalog_loads(monkeypatch) -> None:
+    CountingTeamCatalogClient.skill_list_calls = 0
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: CountingTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-skill-cache", brief=_brief())
+
+    assert report.status == "completed"
+    assert CountingTeamCatalogClient.skill_list_calls == 1
 
 
 @pytest.mark.asyncio
@@ -384,6 +448,37 @@ async def test_team_kernel_runtime_marks_failed_member_as_partial(monkeypatch) -
 
 
 @pytest.mark.asyncio
+async def test_team_kernel_runtime_records_skill_catalog_failure_as_member_failures(monkeypatch) -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeSkillCatalogFailingClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-skill-load-fails", brief=_brief())
+
+    assert report.status == "failed_partial"
+    assert report.errors
+    assert all(error.task != "team_kernel" for error in report.errors)
+    assert any(event["status"] == "failed" for event in node_events)
+    assert any(event["error"] == "skill catalog unavailable" for event in node_events)
+
+
+@pytest.mark.asyncio
 async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(monkeypatch) -> None:
     published: list[tuple[str, str, dict]] = []
     node_events: list[dict] = []
@@ -443,6 +538,32 @@ async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(mo
         event["node_metadata"]["template_id"] == "generalist_assistant.v1"
         for event in node_events
     )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_loads_skill_catalog_once_across_dynamic_recruitment(monkeypatch) -> None:
+    CountingGeneralistNewSkillCatalogClient.skill_list_calls = 0
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: CountingGeneralistNewSkillCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["capability_skills"].extend(
+        ["failing-review-critic", "generalist-helper"]
+    )
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-skill-catalog-once", brief=_brief())
+
+    assert report.status == "failed_partial"
+    assert CountingGeneralistNewSkillCatalogClient.skill_list_calls == 1
 
 
 @pytest.mark.asyncio
