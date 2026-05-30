@@ -16,6 +16,7 @@ from src.dataservice_client.provider import dataservice_client
 from src.services.billing_policy import (
     OperationBillingPolicy,
     TokenBillingPolicy,
+    calculate_model_usage_credits,
     calculate_token_billing_charge,
     get_feature_token_billing_policy,
     get_sandbox_operation_billing_policy,
@@ -33,6 +34,20 @@ from src.services.thread_billing import (
 )
 
 REGISTRATION_BONUS = 100
+
+
+@dataclass(slots=True)
+class _ResolvedModelBillingPolicy:
+    """Resolved pricing state for one model-billed surface."""
+
+    enabled: bool
+    free_tokens: int
+    max_overdraft_credits: int
+    global_policy: Any | None
+    model_policy: Any | None
+    model_policy_config: dict[str, Any]
+    policy_metadata: dict[str, Any]
+    uses_pricing_policy: bool
 
 
 class CreditTransactionType(StrEnum):
@@ -252,11 +267,16 @@ class CreditService:
         both passing the check before either deducts credits.
         """
         policy = self.get_thread_billing_policy()
-        if not policy.enabled:
+        billing_policy = await self._resolve_model_billing_policy(
+            surface="chat",
+            model_name=None,
+            legacy_policy=policy,
+        )
+        if not billing_policy.enabled:
             return True
 
         consumed_tokens = await self.get_consumed_thread_tokens(user_id)
-        if consumed_tokens < policy.free_tokens:
+        if consumed_tokens < billing_policy.free_tokens:
             return True
 
         return await self.get_balance(user_id) > 0
@@ -270,11 +290,16 @@ class CreditService:
         Compute work once the configured feature free-token quota is exhausted.
         """
         policy = self.get_feature_billing_policy()
-        if not policy.enabled:
+        billing_policy = await self._resolve_model_billing_policy(
+            surface="feature",
+            model_name=None,
+            legacy_policy=policy,
+        )
+        if not billing_policy.enabled:
             return True
 
         consumed_tokens = await self.get_consumed_feature_tokens(user_id)
-        if consumed_tokens < policy.free_tokens:
+        if consumed_tokens < billing_policy.free_tokens:
             return True
 
         return await self.get_balance(user_id) > 0
@@ -324,6 +349,143 @@ class CreditService:
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _policy_int(config: dict[str, Any], key: str, default: int) -> int:
+        try:
+            return max(int(config.get(key, default) or 0), 0)
+        except (TypeError, ValueError):
+            return default
+
+    async def _resolve_model_billing_policy(
+        self,
+        *,
+        surface: str,
+        model_name: str | None,
+        legacy_policy: TokenBillingPolicy,
+    ) -> _ResolvedModelBillingPolicy:
+        async with self._client() as client:
+            global_policy = await self._first_enabled_pricing_policy(
+                client,
+                policy_kind="global_credit",
+            )
+            model_policy = await self._resolve_model_usage_policy(client, model_name=model_name)
+
+        if model_policy is None:
+            return _ResolvedModelBillingPolicy(
+                enabled=legacy_policy.enabled,
+                free_tokens=legacy_policy.free_tokens,
+                max_overdraft_credits=legacy_policy.max_overdraft_credits,
+                global_policy=global_policy,
+                model_policy=None,
+                model_policy_config={},
+                policy_metadata=legacy_policy.as_dict(),
+                uses_pricing_policy=False,
+            )
+
+        config = self._pricing_policy_config(model_policy)
+        metadata = self._pricing_policy_metadata(model_policy, config)
+        return _ResolvedModelBillingPolicy(
+            enabled=bool(getattr(model_policy, "enabled", config.get("enabled", True))),
+            free_tokens=self._policy_int(config, "free_tokens", 0),
+            max_overdraft_credits=self._policy_int(
+                config,
+                "max_overdraft_credits",
+                legacy_policy.max_overdraft_credits,
+            ),
+            global_policy=global_policy,
+            model_policy=model_policy,
+            model_policy_config=config,
+            policy_metadata=metadata,
+            uses_pricing_policy=True,
+        )
+
+    async def _first_enabled_pricing_policy(
+        self,
+        client: Any,
+        *,
+        policy_kind: str,
+    ) -> Any | None:
+        if not hasattr(client, "list_pricing_policies"):
+            return None
+        try:
+            policies = await client.list_pricing_policies(
+                policy_kind=policy_kind,
+                enabled_only=True,
+            )
+        except Exception:
+            return None
+        return policies[0] if policies else None
+
+    async def _resolve_model_usage_policy(self, client: Any, *, model_name: str | None) -> Any | None:
+        if not hasattr(client, "list_pricing_policies"):
+            return None
+
+        pricing_policy_id = self._model_pricing_policy_id(model_name)
+        for key in (pricing_policy_id, model_name):
+            if not key or not hasattr(client, "get_pricing_policy"):
+                continue
+            try:
+                policy = await client.get_pricing_policy(str(key))
+            except Exception:
+                policy = None
+            if policy is not None and self._is_enabled_model_usage_policy(policy):
+                return policy
+
+        try:
+            policies = await client.list_pricing_policies(
+                policy_kind="model_usage",
+                enabled_only=True,
+            )
+        except Exception:
+            return None
+        return policies[0] if policies else None
+
+    @staticmethod
+    def _model_pricing_policy_id(model_name: str | None) -> str | None:
+        if not model_name:
+            return None
+        try:
+            from src.services.model_catalog_cache import get_runtime_model_config
+
+            config = get_runtime_model_config(str(model_name))
+        except Exception:
+            return None
+        value = getattr(config, "pricing_policy_id", None) if config is not None else None
+        return str(value).strip() if value else None
+
+    @classmethod
+    def _is_enabled_model_usage_policy(cls, policy: Any) -> bool:
+        policy_kind = getattr(policy, "policy_kind", None)
+        kind_value = policy_kind.value if hasattr(policy_kind, "value") else policy_kind
+        if kind_value != "model_usage":
+            return False
+        return bool(getattr(policy, "enabled", True))
+
+    @staticmethod
+    def _pricing_policy_config(policy: Any) -> dict[str, Any]:
+        config = getattr(policy, "config", None)
+        if isinstance(config, dict):
+            return dict(config)
+        config_json = getattr(policy, "config_json", None)
+        if isinstance(config_json, dict):
+            return dict(config_json)
+        if isinstance(policy, dict):
+            nested = policy.get("config")
+            return dict(nested) if isinstance(nested, dict) else dict(policy)
+        return {}
+
+    @staticmethod
+    def _pricing_policy_metadata(policy: Any, config: dict[str, Any]) -> dict[str, Any]:
+        metadata = dict(config)
+        for attr in ("id", "policy_key", "policy_kind", "version"):
+            value = getattr(policy, attr, None)
+            if value is not None:
+                metadata[attr] = value.value if hasattr(value, "value") else value
+        enabled = getattr(policy, "enabled", None)
+        if enabled is not None:
+            metadata["enabled"] = bool(enabled)
+        return metadata
+
     async def consume_for_thread_usage(
         self,
         *,
@@ -337,17 +499,42 @@ class CreditService:
     ) -> ThreadCreditConsumption:
         """Consume credits for a completed thread turn based on token usage."""
         policy = self.get_thread_billing_policy()
+        billing_policy = await self._resolve_model_billing_policy(
+            surface="chat",
+            model_name=model_name,
+            legacy_policy=policy,
+        )
         normalized_usage = self._normalize_usage_dict(token_usage)
         total_tokens = normalized_usage["total_tokens"]
         historical_tokens_before = await self.get_consumed_thread_tokens(user_id)
-        charge = calculate_token_billing_charge(
-            policy=policy,
+        free_token_charge = calculate_token_billing_charge(
+            policy=TokenBillingPolicy(
+                enabled=billing_policy.enabled,
+                free_tokens=billing_policy.free_tokens,
+                tokens_per_credit=policy.tokens_per_credit,
+                max_overdraft_credits=billing_policy.max_overdraft_credits,
+            ),
             total_tokens=total_tokens,
             historical_tokens_before=historical_tokens_before,
         )
-        historical_tokens_after = charge.historical_tokens_after
+        if billing_policy.uses_pricing_policy:
+            model_charge = calculate_model_usage_credits(
+                model_policy=billing_policy.model_policy,
+                global_policy=billing_policy.global_policy,
+                token_usage=normalized_usage,
+                surface="chat",
+                billable_tokens=free_token_charge.billable_tokens,
+            )
+            credits_to_charge = model_charge.credits_to_charge
+            billable_tokens = model_charge.billable_tokens
+            pricing_breakdown = model_charge.breakdown()
+        else:
+            credits_to_charge = free_token_charge.credits_to_charge
+            billable_tokens = free_token_charge.billable_tokens
+            pricing_breakdown = None
+        historical_tokens_after = free_token_charge.historical_tokens_after
 
-        if not policy.enabled or total_tokens <= 0:
+        if not billing_policy.enabled or total_tokens <= 0:
             return ThreadCreditConsumption(
                 token_usage=normalized_usage,
                 model_name=model_name,
@@ -361,20 +548,20 @@ class CreditService:
                 charged=False,
             )
 
-        credits_to_charge = charge.credits_to_charge
-
         tx_metadata = {
             "type": "thread_token_billing",
             "token_usage": normalized_usage,
             "thread_id": thread_id,
-            "policy": policy.as_dict(),
+            "policy": billing_policy.policy_metadata,
             "historical_tokens_before": historical_tokens_before,
             "historical_tokens_after": historical_tokens_after,
-            "free_tokens_applied": charge.free_tokens_applied,
-            "billable_tokens": charge.billable_tokens,
+            "free_tokens_applied": free_token_charge.free_tokens_applied,
+            "billable_tokens": billable_tokens,
             "credits_charged": credits_to_charge,
             "model_name": model_name,
         }
+        if pricing_breakdown is not None:
+            tx_metadata["pricing_breakdown"] = pricing_breakdown
         if metadata:
             tx_metadata.update(metadata)
 
@@ -387,7 +574,7 @@ class CreditService:
                     description=description or self._build_thread_description(
                         total_tokens=total_tokens,
                         credits_charged=credits_to_charge,
-                        free_tokens_applied=charge.free_tokens_applied,
+                        free_tokens_applied=free_token_charge.free_tokens_applied,
                     ),
                     feature_id="thread",
                     workspace_id=workspace_id,
@@ -408,12 +595,12 @@ class CreditService:
             free_tokens_applied=self._metadata_int(
                 recorded_metadata,
                 "free_tokens_applied",
-                charge.free_tokens_applied,
+                free_token_charge.free_tokens_applied,
             ),
             billable_tokens=self._metadata_int(
                 recorded_metadata,
                 "billable_tokens",
-                charge.billable_tokens,
+                billable_tokens,
             ),
             credits_charged=recorded_charge,
             historical_tokens_before=self._metadata_int(
@@ -444,17 +631,45 @@ class CreditService:
     ) -> FeatureCreditConsumption:
         """Consume credits for a completed feature task based on token usage."""
         policy = self.get_feature_billing_policy()
+        model_name = None
+        if metadata and metadata.get("model_name"):
+            model_name = str(metadata["model_name"])
+        billing_policy = await self._resolve_model_billing_policy(
+            surface="feature",
+            model_name=model_name,
+            legacy_policy=policy,
+        )
         normalized_usage = self._normalize_usage_dict(token_usage)
         total_tokens = normalized_usage["total_tokens"]
         historical_tokens_before = await self.get_consumed_feature_tokens(user_id)
-        charge = calculate_token_billing_charge(
-            policy=policy,
+        free_token_charge = calculate_token_billing_charge(
+            policy=TokenBillingPolicy(
+                enabled=billing_policy.enabled,
+                free_tokens=billing_policy.free_tokens,
+                tokens_per_credit=policy.tokens_per_credit,
+                max_overdraft_credits=billing_policy.max_overdraft_credits,
+            ),
             total_tokens=total_tokens,
             historical_tokens_before=historical_tokens_before,
         )
-        historical_tokens_after = charge.historical_tokens_after
+        if billing_policy.uses_pricing_policy:
+            model_charge = calculate_model_usage_credits(
+                model_policy=billing_policy.model_policy,
+                global_policy=billing_policy.global_policy,
+                token_usage=normalized_usage,
+                surface="feature",
+                billable_tokens=free_token_charge.billable_tokens,
+            )
+            credits_to_charge = model_charge.credits_to_charge
+            billable_tokens = model_charge.billable_tokens
+            pricing_breakdown = model_charge.breakdown()
+        else:
+            credits_to_charge = free_token_charge.credits_to_charge
+            billable_tokens = free_token_charge.billable_tokens
+            pricing_breakdown = None
+        historical_tokens_after = free_token_charge.historical_tokens_after
 
-        if not policy.enabled or total_tokens <= 0:
+        if not billing_policy.enabled or total_tokens <= 0:
             return FeatureCreditConsumption(
                 token_usage=normalized_usage,
                 free_tokens_applied=0,
@@ -467,18 +682,18 @@ class CreditService:
                 charged=False,
             )
 
-        credits_to_charge = charge.credits_to_charge
-
         tx_metadata = {
             "type": "feature_token_billing",
             "token_usage": normalized_usage,
-            "policy": policy.as_dict(),
+            "policy": billing_policy.policy_metadata,
             "historical_tokens_before": historical_tokens_before,
             "historical_tokens_after": historical_tokens_after,
-            "free_tokens_applied": charge.free_tokens_applied,
-            "billable_tokens": charge.billable_tokens,
+            "free_tokens_applied": free_token_charge.free_tokens_applied,
+            "billable_tokens": billable_tokens,
             "credits_charged": credits_to_charge,
         }
+        if pricing_breakdown is not None:
+            tx_metadata["pricing_breakdown"] = pricing_breakdown
         if metadata:
             tx_metadata.update(metadata)
         if task_id:
@@ -494,7 +709,7 @@ class CreditService:
                         feature_id=feature_id,
                         total_tokens=total_tokens,
                         credits_charged=credits_to_charge,
-                        free_tokens_applied=charge.free_tokens_applied,
+                        free_tokens_applied=free_token_charge.free_tokens_applied,
                     ),
                     feature_id=feature_id,
                     workspace_id=workspace_id,
@@ -514,12 +729,12 @@ class CreditService:
             free_tokens_applied=self._metadata_int(
                 recorded_metadata,
                 "free_tokens_applied",
-                charge.free_tokens_applied,
+                free_token_charge.free_tokens_applied,
             ),
             billable_tokens=self._metadata_int(
                 recorded_metadata,
                 "billable_tokens",
-                charge.billable_tokens,
+                billable_tokens,
             ),
             credits_charged=recorded_charge,
             historical_tokens_before=self._metadata_int(

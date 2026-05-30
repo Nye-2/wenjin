@@ -40,6 +40,7 @@ class PricingPolicyUpdatePayload(BaseModel):
 
 class PricingSimulationRequestPayload(BaseModel):
     policy_kind: str
+    surface: str = "chat"
     global_policy: dict[str, Any] = Field(default_factory=lambda: {"credits_per_cny": 10})
     model_usage_policy: dict[str, Any] | None = None
     capability_policy: dict[str, Any] | None = None

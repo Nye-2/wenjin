@@ -627,7 +627,7 @@ git commit -m "feat: add admin pricing policies"
 - Test: `backend/tests/services/test_billing_policy.py`
 - Test: `backend/tests/services/test_credit_service.py`
 
-- [ ] **Step 1: Write policy-based billing tests**
+- [x] **Step 1: Write policy-based billing tests**
 
 Add tests:
 
@@ -637,7 +637,7 @@ Add tests:
 - raw cost guard applies when provider cost configured.
 - public workflow costs still hide token policy details.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run:
 
@@ -646,7 +646,7 @@ cd backend
 .venv/bin/python -m pytest tests/services/test_billing_policy.py tests/services/test_credit_service.py -v
 ```
 
-- [ ] **Step 3: Implement calculation helpers**
+- [x] **Step 3: Implement calculation helpers**
 
 Keep legacy names where needed but add:
 
@@ -657,11 +657,11 @@ def calculate_capability_estimate(...)
 def calculate_sandbox_estimate(...)
 ```
 
-- [ ] **Step 4: Wire CreditService to pricing service**
+- [x] **Step 4: Wire CreditService to pricing service**
 
 Use pricing policies for new paths. Preserve existing transaction metadata keys (`token_usage`, `credits_charged`, `idempotency_key`) so ledger projections continue working.
 
-- [ ] **Step 5: Run tests and commit**
+- [x] **Step 5: Run tests and commit**
 
 Run:
 

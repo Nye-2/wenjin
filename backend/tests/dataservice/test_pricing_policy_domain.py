@@ -119,6 +119,29 @@ def test_raw_cost_guard_can_dominate_weighted_token_price() -> None:
     assert result.breakdown["raw_cost_guard_credits"] == 200
 
 
+def test_model_usage_simulator_uses_value_pricing_policy_fields() -> None:
+    service = DataServicePricingPolicyService(None, autocommit=False)  # type: ignore[arg-type]
+    policy = ModelUsagePolicyConfig(
+        input_weight=0.3,
+        output_weight=1,
+        credits_per_1k_weighted_tokens=6,
+        min_chat_credits=3,
+    )
+
+    result = service.simulate(
+        PricingSimulationRequest(
+            policy_kind="model_usage",
+            global_policy=GlobalCreditPolicyConfig(credits_per_cny=10, usd_to_cny=7.3),
+            model_usage_policy=policy,
+            prompt_tokens=1000,
+            completion_tokens=500,
+        )
+    )
+
+    assert result.charge_credits == 5
+    assert result.breakdown["weighted_tokens"] == 800
+
+
 def test_invalid_negative_rates_are_rejected() -> None:
     with pytest.raises(ValidationError):
         GlobalCreditPolicyConfig(credits_per_cny=-1)

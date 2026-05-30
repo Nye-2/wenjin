@@ -185,6 +185,54 @@ class FakeCreditClient:
         return tx
 
 
+class PricingAwareFakeCreditClient(FakeCreditClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.global_policy = SimpleNamespace(
+            id="global-policy",
+            policy_key="global-credit",
+            policy_kind="global_credit",
+            enabled=True,
+            version=1,
+            config={"credits_per_cny": 10, "usd_to_cny": 7.3},
+        )
+        self.model_policy = SimpleNamespace(
+            id="model-policy",
+            policy_key="gpt-4o",
+            policy_kind="model_usage",
+            enabled=True,
+            version=3,
+            config={
+                "input_weight": 0.3,
+                "output_weight": 1,
+                "credits_per_1k_weighted_tokens": 6,
+                "min_chat_credits": 3,
+                "min_feature_model_credits": 10,
+                "max_overdraft_credits": 100,
+            },
+        )
+
+    async def get_pricing_policy(self, policy_id_or_key: str):
+        if policy_id_or_key in {"global-credit", self.global_policy.id}:
+            return self.global_policy
+        if policy_id_or_key in {"gpt-4o", self.model_policy.id}:
+            return self.model_policy
+        return None
+
+    async def list_pricing_policies(
+        self,
+        *,
+        policy_kind: str | None = None,
+        enabled_only: bool = False,
+    ):
+        rows = [self.global_policy, self.model_policy]
+        if policy_kind is not None:
+            rows = [row for row in rows if row.policy_kind == policy_kind]
+        if enabled_only:
+            rows = [row for row in rows if row.enabled]
+        return rows
+
+
 @pytest_asyncio.fixture
 async def fake_credit_client() -> FakeCreditClient:
     return FakeCreditClient()
@@ -193,6 +241,16 @@ async def fake_credit_client() -> FakeCreditClient:
 @pytest_asyncio.fixture
 async def credit_service(fake_credit_client: FakeCreditClient) -> CreditService:
     return CreditService(dataservice=fake_credit_client)
+
+
+@pytest_asyncio.fixture
+async def pricing_credit_client() -> PricingAwareFakeCreditClient:
+    return PricingAwareFakeCreditClient()
+
+
+@pytest_asyncio.fixture
+async def pricing_credit_service(pricing_credit_client: PricingAwareFakeCreditClient) -> CreditService:
+    return CreditService(dataservice=pricing_credit_client)
 
 
 @pytest.mark.asyncio
@@ -223,6 +281,94 @@ async def test_consume_for_thread_usage_applies_free_quota_before_charging(
     assert result.historical_tokens_after == 105000
     assert result.charged is True
     assert await credit_service.get_balance("user-1") == 9
+
+
+@pytest.mark.asyncio
+async def test_consume_for_thread_usage_uses_pricing_policy_weighted_tokens(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    pricing_credit_client.add_user(credits=20)
+
+    result = await pricing_credit_service.consume_for_thread_usage(
+        user_id="user-1",
+        token_usage={"input_tokens": 1000, "output_tokens": 500, "total_tokens": 1500},
+        model_name="gpt-4o",
+        thread_id="thread-1",
+    )
+
+    assert result.free_tokens_applied == 0
+    assert result.billable_tokens == 1500
+    assert result.credits_charged == 5
+    assert result.charged is True
+    assert await pricing_credit_service.get_balance("user-1") == 15
+
+    tx = next(tx for tx in pricing_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.metadata["policy"]["policy_key"] == "gpt-4o"
+    assert tx.metadata["policy"]["version"] == 3
+    assert tx.metadata["pricing_breakdown"]["weighted_tokens"] == 800
+    assert tx.metadata["credits_charged"] == 5
+
+
+@pytest.mark.asyncio
+async def test_consume_for_thread_usage_applies_pricing_policy_chat_minimum(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    pricing_credit_client.add_user(credits=20)
+
+    result = await pricing_credit_service.consume_for_thread_usage(
+        user_id="user-1",
+        token_usage={"input_tokens": 1, "output_tokens": 0, "total_tokens": 1},
+        model_name="gpt-4o",
+        thread_id="thread-1",
+    )
+
+    assert result.credits_charged == 3
+    assert await pricing_credit_service.get_balance("user-1") == 17
+
+
+@pytest.mark.asyncio
+async def test_consume_for_feature_usage_applies_pricing_policy_feature_minimum(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    pricing_credit_client.add_user(credits=20)
+
+    result = await pricing_credit_service.consume_for_feature_usage(
+        user_id="user-1",
+        feature_id="deep_research",
+        token_usage={"input_tokens": 1, "output_tokens": 0, "total_tokens": 1},
+        task_id="task-1",
+    )
+
+    assert result.credits_charged == 10
+    assert await pricing_credit_service.get_balance("user-1") == 10
+
+
+@pytest.mark.asyncio
+async def test_consume_for_thread_usage_applies_pricing_policy_raw_cost_guard(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    pricing_credit_client.add_user(credits=50)
+    pricing_credit_client.model_policy.config = {
+        **pricing_credit_client.model_policy.config,
+        "credits_per_1k_weighted_tokens": 1,
+        "cost_guard_multiplier": 20,
+        "raw_cost": {"input_usd_per_1m": 1, "output_usd_per_1m": 10},
+    }
+
+    result = await pricing_credit_service.consume_for_thread_usage(
+        user_id="user-1",
+        token_usage={"input_tokens": 1000, "output_tokens": 1000, "total_tokens": 2000},
+        model_name="gpt-4o",
+        thread_id="thread-1",
+    )
+
+    assert result.credits_charged == 17
+    tx = next(tx for tx in pricing_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.metadata["pricing_breakdown"]["raw_cost_guard_credits"] == 17
 
 
 @pytest.mark.asyncio

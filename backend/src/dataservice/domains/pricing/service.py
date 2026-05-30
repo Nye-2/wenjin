@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +20,7 @@ from src.dataservice.domains.pricing.contracts import (
     ToolPricingPolicyConfig,
 )
 from src.dataservice.domains.pricing.repository import PricingPolicyRepository
+from src.services.billing_policy import calculate_model_usage_credits
 
 
 class DataServicePricingPolicyService:
@@ -113,27 +113,24 @@ class DataServicePricingPolicyService:
 
     def _simulate_model_usage(self, request: PricingSimulationRequest) -> PricingSimulationResult:
         policy = request.model_usage_policy or ModelUsagePolicyConfig()
-        weighted_tokens = (
-            request.prompt_tokens * policy.prompt_token_weight
-            + request.completion_tokens * policy.completion_token_weight
+        charge = calculate_model_usage_credits(
+            model_policy=policy.model_dump(mode="json", exclude_none=True),
+            global_policy=request.global_policy.model_dump(mode="json"),
+            token_usage={
+                "input_tokens": request.prompt_tokens,
+                "output_tokens": request.completion_tokens,
+                "total_tokens": request.prompt_tokens + request.completion_tokens,
+            },
+            surface=request.surface,
         )
-        weighted_credits = math.ceil(weighted_tokens / policy.tokens_per_credit)
-        raw_cost_cny = (
-            request.prompt_tokens / 1000 * policy.input_cny_per_1k_tokens
-            + request.completion_tokens / 1000 * policy.output_cny_per_1k_tokens
-        )
-        raw_cost_guard_credits = math.ceil(raw_cost_cny * request.global_policy.credits_per_cny * policy.raw_cost_markup)
-        charge_credits = max(policy.minimum_credits, weighted_credits, raw_cost_guard_credits)
+        charge_credits = charge.credits_to_charge
+        raw_cost_cny = charge.raw_cost_cny
         revenue_cny = charge_credits / request.global_policy.credits_per_cny
         return PricingSimulationResult(
             charge_credits=charge_credits,
             raw_cost_cny=raw_cost_cny,
             margin_cny=revenue_cny - raw_cost_cny,
-            breakdown={
-                "weighted_tokens": weighted_tokens,
-                "weighted_credits": weighted_credits,
-                "raw_cost_guard_credits": raw_cost_guard_credits,
-            },
+            breakdown=charge.breakdown(),
         )
 
     def to_record(self, row: Any) -> PricingPolicyRecord:
@@ -176,7 +173,7 @@ def _validated_config(kind: str | PricingPolicyKind, config: dict[str, Any]) -> 
         PricingPolicyKind.SANDBOX.value: SandboxPricingPolicyConfig,
     }
     validator = validators[kind_value]
-    return validator.model_validate(config).model_dump(mode="json")
+    return validator.model_validate(config).model_dump(mode="json", exclude_none=True)
 
 
 def _coerce_kind(value: str | PricingPolicyKind) -> PricingPolicyKind:
