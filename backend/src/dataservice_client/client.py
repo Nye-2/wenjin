@@ -256,6 +256,7 @@ class AsyncDataServiceClient:
             base_url=self.base_url,
             timeout=timeout_seconds or dataservice_settings.timeout_seconds,
             transport=transport,
+            trust_env=False,
         )
 
     async def close(self) -> None:

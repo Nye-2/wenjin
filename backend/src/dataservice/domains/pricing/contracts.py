@@ -46,9 +46,15 @@ class ModelUsagePolicyConfig(BaseModel):
 
 
 class CapabilityPricingPolicyConfig(BaseModel):
+    workspace_type: str | None = None
+    capability_id: str | None = None
+    base_fee_credits: int = Field(default=0, ge=0)
     estimate_min_credits: int = Field(default=0, ge=0)
     estimate_max_credits: int = Field(ge=0)
     max_charge_credits: int = Field(ge=0)
+    included_revision_loops: int = Field(default=0, ge=0)
+    platform_failed_refund: str = "full"
+    user_cancel_policy: str = "settle_completed_usage"
 
     @model_validator(mode="after")
     def validate_charge_bounds(self) -> CapabilityPricingPolicyConfig:

@@ -289,6 +289,7 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
                 "max_overdraft_credits": 100,
             },
         )
+        self.capability_policies: list[SimpleNamespace] = []
 
     async def get_pricing_policy(self, policy_id_or_key: str):
         if policy_id_or_key in {"global-credit", self.global_policy.id}:
@@ -303,7 +304,7 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
         policy_kind: str | None = None,
         enabled_only: bool = False,
     ):
-        rows = [self.global_policy, self.model_policy]
+        rows = [self.global_policy, self.model_policy, *self.capability_policies]
         if policy_kind is not None:
             rows = [row for row in rows if row.policy_kind == policy_kind]
         if enabled_only:
@@ -422,6 +423,80 @@ async def test_consume_for_feature_usage_applies_pricing_policy_feature_minimum(
 
     assert result.credits_charged == 10
     assert await pricing_credit_service.get_balance("user-1") == 10
+
+
+@pytest.mark.asyncio
+async def test_estimate_feature_reservation_uses_matching_capability_policy(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    pricing_credit_client.capability_policies = [
+        SimpleNamespace(
+            id="other-capability-policy",
+            policy_key="other",
+            policy_kind="capability",
+            enabled=True,
+            version=1,
+            config={
+                "workspace_type": "thesis",
+                "capability_id": "other_feature",
+                "estimate_min_credits": 10,
+                "estimate_max_credits": 900,
+                "max_charge_credits": 900,
+            },
+        ),
+        SimpleNamespace(
+            id="target-capability-policy",
+            policy_key="target",
+            policy_kind="capability",
+            enabled=True,
+            version=1,
+            config={
+                "workspace_type": "thesis",
+                "capability_id": "deep_research",
+                "estimate_min_credits": 10,
+                "estimate_max_credits": 120,
+                "max_charge_credits": 120,
+            },
+        ),
+    ]
+
+    estimate = await pricing_credit_service.estimate_feature_reservation_credits(
+        feature_id="deep_research",
+        workspace_type="thesis",
+    )
+
+    assert estimate == 120
+
+
+@pytest.mark.asyncio
+async def test_estimate_feature_reservation_does_not_fallback_to_unrelated_capability_policy(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    pricing_credit_client.capability_policies = [
+        SimpleNamespace(
+            id="other-capability-policy",
+            policy_key="other",
+            policy_kind="capability",
+            enabled=True,
+            version=1,
+            config={
+                "workspace_type": "thesis",
+                "capability_id": "other_feature",
+                "estimate_min_credits": 10,
+                "estimate_max_credits": 900,
+                "max_charge_credits": 900,
+            },
+        )
+    ]
+
+    estimate = await pricing_credit_service.estimate_feature_reservation_credits(
+        feature_id="deep_research",
+        workspace_type="thesis",
+    )
+
+    assert estimate == 100
 
 
 @pytest.mark.asyncio

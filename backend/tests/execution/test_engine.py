@@ -1,6 +1,7 @@
 """Tests for ExecutionEngineV2 (Task 2.6)."""
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,23 +37,27 @@ def _make_execution_record(
     feature_id: str | None = "test_cap",
     user_id: str = "user-001",
     workspace_type: str | None = None,
+    credit_reservation_id: str | None = None,
 ) -> SimpleNamespace:
     """Minimal stand-in for an ExecutionRecord ORM object."""
+    params: dict[str, Any] = {
+        "brief": {
+            "capability_id": "test_cap",
+            "raw_message": "do the thing",
+            "workspace_id": workspace_id,
+            "brief": {"topic": "machine learning"},
+            "decisions": {},
+        }
+    }
+    if credit_reservation_id:
+        params["billing"] = {"credit_reservation_id": credit_reservation_id}
     return SimpleNamespace(
         id=execution_id,
         user_id=user_id,
         workspace_id=workspace_id,
         workspace_type=workspace_type,
         feature_id=feature_id,
-        params={
-            "brief": {
-                "capability_id": "test_cap",
-                "raw_message": "do the thing",
-                "workspace_id": workspace_id,
-                "brief": {"topic": "machine learning"},
-                "decisions": {},
-            }
-        },
+        params=params,
     )
 
 
@@ -176,6 +181,56 @@ async def test_engine_settles_feature_token_billing_before_marking_complete():
 
 
 @pytest.mark.asyncio
+async def test_engine_settles_feature_credit_reservation_when_present():
+    record = _make_execution_record(
+        user_id="user-001",
+        workspace_id="ws-001",
+        credit_reservation_id="reservation-1",
+    )
+    report = _make_task_report(token_usage={"input": 12000, "output": 3000})
+    estimate = SimpleNamespace(
+        as_metadata=lambda: {
+            "type": "feature_token_billing",
+            "credits_charged": 8,
+            "token_usage": {"input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000},
+            "charged": True,
+        }
+    )
+    settled = SimpleNamespace(id="reservation-1", status="settled", transaction_id="credit-tx-1")
+    tx = SimpleNamespace(id="credit-tx-1", balance_after=12)
+    credit_service = MagicMock()
+    credit_service.preview_feature_usage_charge = AsyncMock(return_value=estimate)
+    credit_service.settle_feature_reservation = AsyncMock(return_value=(settled, tx))
+
+    execution_svc = _make_execution_service(record=record)
+    runtime = _make_runtime(report=report)
+
+    with patch("src.services.credit_service.CreditService", return_value=credit_service):
+        engine = ExecutionEngineV2(runtime=runtime, execution_service=execution_svc)
+        await engine.run("exec-001")
+
+    credit_service.preview_feature_usage_charge.assert_awaited_once()
+    credit_service.settle_feature_reservation.assert_awaited_once_with(
+        reservation_id="reservation-1",
+        settled_credits=8,
+        feature_id="test_cap",
+        task_id="exec-001",
+        metadata={
+            "type": "feature_token_billing",
+            "credits_charged": 8,
+            "token_usage": {"input_tokens": 12000, "output_tokens": 3000, "total_tokens": 15000},
+            "charged": True,
+            "execution_id": "exec-001",
+            "workspace_type": None,
+            "source": "execution_engine",
+        },
+    )
+    complete_result = execution_svc.complete_execution.await_args.kwargs["result"]
+    assert complete_result["billing"]["credit_reservation_id"] == "reservation-1"
+    assert complete_result["billing"]["transaction_id"] == "credit-tx-1"
+
+
+@pytest.mark.asyncio
 async def test_engine_skips_feature_billing_without_token_usage():
     """Executions without measured token usage should not write zero-charge billing noise."""
     record = _make_execution_record(user_id="user-001", workspace_id="ws-001")
@@ -237,6 +292,30 @@ async def test_engine_refunds_feature_billing_when_completion_persist_fails():
         task_id="exec-001",
     )
     assert execution_svc.complete_execution.await_args_list[1].kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_engine_releases_feature_reservation_when_runtime_fails():
+    record = _make_execution_record(
+        user_id="user-001",
+        workspace_id="ws-001",
+        credit_reservation_id="reservation-1",
+    )
+    credit_service = MagicMock()
+    credit_service.release_reservation = AsyncMock()
+
+    execution_svc = _make_execution_service(record=record)
+    runtime = _make_runtime(raise_exc=RuntimeError("runtime failed"))
+
+    with patch("src.services.credit_service.CreditService", return_value=credit_service):
+        engine = ExecutionEngineV2(runtime=runtime, execution_service=execution_svc)
+        with pytest.raises(RuntimeError, match="runtime failed"):
+            await engine.run("exec-001")
+
+    credit_service.release_reservation.assert_awaited_once_with(
+        "reservation-1",
+        reason="执行失败释放预留积分",
+    )
 
 
 @pytest.mark.asyncio

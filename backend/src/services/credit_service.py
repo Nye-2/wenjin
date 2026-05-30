@@ -18,7 +18,9 @@ from src.dataservice_client.provider import dataservice_client
 from src.services.billing_policy import (
     OperationBillingPolicy,
     TokenBillingPolicy,
+    calculate_capability_estimate,
     calculate_model_usage_credits,
+    calculate_sandbox_estimate,
     calculate_token_billing_charge,
     get_feature_token_billing_policy,
     get_sandbox_operation_billing_policy,
@@ -754,6 +756,121 @@ class CreditService:
             charged=recorded_charge > 0,
         )
 
+    async def preview_feature_usage_charge(
+        self,
+        *,
+        user_id: str,
+        feature_id: str,
+        token_usage: TokenUsage | dict[str, int] | None,
+        metadata: dict[str, Any] | None = None,
+    ) -> FeatureCreditConsumption:
+        """Calculate feature usage credits without writing a ledger transaction."""
+        policy = self.get_feature_billing_policy()
+        model_name = None
+        if metadata and metadata.get("model_name"):
+            model_name = str(metadata["model_name"])
+        billing_policy = await self._resolve_model_billing_policy(
+            surface="feature",
+            model_name=model_name,
+            legacy_policy=policy,
+        )
+        normalized_usage = self._normalize_usage_dict(token_usage or {})
+        total_tokens = normalized_usage["total_tokens"]
+        historical_tokens_before = await self.get_consumed_feature_tokens(user_id)
+        free_token_charge = calculate_token_billing_charge(
+            policy=TokenBillingPolicy(
+                enabled=billing_policy.enabled,
+                free_tokens=billing_policy.free_tokens,
+                tokens_per_credit=policy.tokens_per_credit,
+                max_overdraft_credits=billing_policy.max_overdraft_credits,
+            ),
+            total_tokens=total_tokens,
+            historical_tokens_before=historical_tokens_before,
+        )
+        if billing_policy.uses_pricing_policy:
+            model_charge = calculate_model_usage_credits(
+                model_policy=billing_policy.model_policy,
+                global_policy=billing_policy.global_policy,
+                token_usage=normalized_usage,
+                surface="feature",
+                billable_tokens=free_token_charge.billable_tokens,
+            )
+            credits_to_charge = model_charge.credits_to_charge
+            billable_tokens = model_charge.billable_tokens
+        else:
+            credits_to_charge = free_token_charge.credits_to_charge
+            billable_tokens = free_token_charge.billable_tokens
+        return FeatureCreditConsumption(
+            token_usage=normalized_usage,
+            free_tokens_applied=free_token_charge.free_tokens_applied,
+            billable_tokens=billable_tokens,
+            credits_charged=credits_to_charge,
+            historical_tokens_before=historical_tokens_before,
+            historical_tokens_after=free_token_charge.historical_tokens_after,
+            transaction_id=None,
+            balance_after=None,
+            charged=credits_to_charge > 0,
+        )
+
+    async def estimate_feature_reservation_credits(
+        self,
+        *,
+        feature_id: str,
+        workspace_type: str | None = None,
+    ) -> int:
+        """Return max reservation credits for a capability policy."""
+        policy = await self._resolve_capability_pricing_policy(
+            feature_id=feature_id,
+            workspace_type=workspace_type,
+        )
+        if policy is not None:
+            return calculate_capability_estimate(policy).max_charge_credits
+        return calculate_capability_estimate(
+            {
+                "base_fee_credits": 0,
+                "estimate_min_credits": 10,
+                "estimate_max_credits": 100,
+                "max_charge_credits": 100,
+            }
+        ).max_charge_credits
+
+    async def _resolve_capability_pricing_policy(
+        self,
+        *,
+        feature_id: str,
+        workspace_type: str | None,
+    ) -> Any | None:
+        async with self._client() as client:
+            if not hasattr(client, "list_pricing_policies"):
+                return None
+            try:
+                policies = await client.list_pricing_policies(
+                    policy_kind="capability",
+                    enabled_only=True,
+                )
+            except Exception:
+                return None
+        normalized_feature = str(feature_id or "").strip()
+        normalized_workspace = str(workspace_type or "").strip()
+        workspace_default = None
+        global_default = None
+        for policy in policies:
+            config = self._pricing_policy_config(policy)
+            policy_feature = str(config.get("capability_id") or "").strip()
+            policy_workspace = str(config.get("workspace_type") or "").strip()
+            if policy_feature == normalized_feature:
+                if not policy_workspace or policy_workspace == normalized_workspace:
+                    return policy
+                continue
+            if policy_feature:
+                continue
+            if policy_workspace == normalized_workspace and workspace_default is None:
+                workspace_default = policy
+                continue
+            if not policy_workspace and global_default is None:
+                global_default = policy
+        return workspace_default or global_default
+
     async def consume_for_sandbox_operation(
         self,
         *,
@@ -908,6 +1025,51 @@ class CreditService:
                     expires_at=expires_at,
                 )
             )
+
+    async def estimate_sandbox_reservation_credits(
+        self,
+        *,
+        operation: str,
+        sandbox_policy: dict[str, Any] | None = None,
+    ) -> int:
+        """Return conservative sandbox reservation credits."""
+        normalized_operation = self._normalize_sandbox_operation(operation)
+        policy = dict(sandbox_policy or {})
+        configured_max = self._policy_int(policy, "max_charge_credits", 0)
+        if configured_max > 0:
+            return configured_max
+        estimated = calculate_sandbox_estimate(
+            policy,
+            operation=normalized_operation,
+            duration_seconds=self._policy_int(policy, "minimum_billable_seconds", 0),
+        ).credits
+        if estimated > 0:
+            return estimated
+        return self._sandbox_operation_credits(
+            self.get_sandbox_billing_policy(),
+            normalized_operation,
+        )
+
+    async def estimate_sandbox_settlement_credits(
+        self,
+        *,
+        operation: str,
+        sandbox_policy: dict[str, Any] | None = None,
+        duration_seconds: int = 0,
+    ) -> int:
+        """Return actual sandbox settlement credits after runtime usage is known."""
+        normalized_operation = self._normalize_sandbox_operation(operation)
+        estimated = calculate_sandbox_estimate(
+            dict(sandbox_policy or {}),
+            operation=normalized_operation,
+            duration_seconds=duration_seconds,
+        ).credits
+        if estimated > 0:
+            return estimated
+        return self._sandbox_operation_credits(
+            self.get_sandbox_billing_policy(),
+            normalized_operation,
+        )
 
     async def settle_sandbox_reservation(
         self,

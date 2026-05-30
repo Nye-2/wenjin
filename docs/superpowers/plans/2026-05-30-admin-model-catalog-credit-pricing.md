@@ -769,7 +769,7 @@ git commit -m "feat: add credit reservations"
 - Modify: `backend/src/task/tasks/base.py`
 - Test: existing execution/sandbox/task tests plus new targeted tests after locating exact hooks.
 
-- [ ] **Step 1: Locate current billing hooks**
+- [x] **Step 1: Locate current billing hooks**
 
 Run:
 
@@ -780,7 +780,7 @@ rg -n "consume_for_feature_usage|consume_for_sandbox_operation|refund_consumptio
 
 Record exact functions in comments inside this plan if they differ from expected files.
 
-- [ ] **Step 2: Write integration tests**
+- [x] **Step 2: Write integration tests**
 
 Add/extend tests to cover:
 
@@ -789,25 +789,28 @@ Add/extend tests to cover:
 - failed execution releases or refunds reservation.
 - sandbox Python reserves before acquiring sandbox and settles actual usage.
 
-- [ ] **Step 3: Run failing tests**
+- [x] **Step 3: Run failing tests**
 
 Run targeted tests discovered in Step 1.
 
-- [ ] **Step 4: Implement feature reservation integration**
+- [x] **Step 4: Implement feature reservation integration**
 
 At launch, compute capability estimate/max and reserve. Store `credit_reservation_id` in runtime/execution metadata. At completion, settle with collected model/tool/sandbox usage.
 
-- [ ] **Step 5: Implement sandbox reservation integration**
+- [x] **Step 5: Implement sandbox reservation integration**
 
 Reserve before acquiring sandbox. Settle with actual duration/tier. Platform acquisition failure releases reservation.
+User-code sandbox failure settles already-used runtime through `SandboxCommandExecutionError`.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 Run:
 
 ```bash
 cd backend
 .venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/services/test_credit_service.py tests/task -v
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/services/test_credit_service.py tests/task tests/execution/test_engine.py tests/tools/test_launch_feature_tool.py tests/dataservice/test_foundation.py::test_dataservice_client_ignores_environment_proxy_settings -v
+.venv/bin/python -m ruff check src/services/credit_service.py src/dataservice/domains/pricing/contracts.py src/dataservice_client/client.py src/agents/lead_agent/v2/sandbox_runtime.py src/tools/builtins/launch_feature.py src/execution/engine.py src/subagents/v2/types/sandbox.py tests/execution/test_engine.py tests/tools/test_launch_feature_tool.py tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/dataservice/test_foundation.py
 ```
 
 Commit:

@@ -28,6 +28,14 @@ _SCRIPT_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 _MAX_SCRIPT_BYTES = 128 * 1024
 
 
+class SandboxCommandExecutionError(RuntimeError):
+    """Raised when user code ran in sandbox but exited unsuccessfully."""
+
+    def __init__(self, message: str, *, output: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.output = output
+
+
 def _default_base_dir() -> str:
     configured = os.getenv("WENJIN_AGENT_SANDBOX_BASE_DIR")
     if configured:
@@ -113,12 +121,6 @@ async def run_python_smoke_check(
         except json.JSONDecodeError:
             parsed = {}
 
-    if not result.success:
-        raise RuntimeError(
-            "Docker sandbox Python smoke check failed "
-            f"(exit_code={result.exit_code}, stderr={stderr or 'none'})"
-        )
-
     mean = parsed.get("mean")
     python_version = parsed.get("python")
     report_markdown = (
@@ -132,8 +134,7 @@ async def run_python_smoke_check(
         f"- 固定计算 mean([2,4,6,8])：{mean}\n"
         f"- Docker image：{getattr(resolved_provider, 'image', None)}\n"
     )
-
-    return {
+    output = {
         "status": "completed",
         "operation": "smoke_check",
         "mean": mean,
@@ -145,6 +146,15 @@ async def run_python_smoke_check(
         "docker_image": getattr(resolved_provider, "image", None),
         "report_markdown": report_markdown,
     }
+    if not result.success:
+        output["status"] = "failed"
+        raise SandboxCommandExecutionError(
+            "Docker sandbox Python smoke check failed "
+            f"(exit_code={result.exit_code}, stderr={stderr or 'none'})",
+            output=output,
+        )
+
+    return output
 
 
 async def run_python_script(
@@ -194,12 +204,6 @@ async def run_python_script(
         except json.JSONDecodeError:
             parsed_stdout = {}
 
-    if not result.success:
-        raise RuntimeError(
-            "Docker sandbox Python script failed "
-            f"(exit_code={result.exit_code}, stderr={stderr or 'none'})"
-        )
-
     report_markdown = (
         "# Sandbox Python 执行报告\n\n"
         "- 执行位置：LeadAgentRuntime / subagent node\n"
@@ -220,8 +224,7 @@ async def run_python_script(
         f"{stderr}\n"
         "```\n"
     )
-
-    return {
+    output = {
         "status": "completed",
         "operation": "python_script",
         "stdout": stdout,
@@ -234,6 +237,15 @@ async def run_python_script(
         "script_hash": script_hash,
         "report_markdown": report_markdown,
     }
+    if not result.success:
+        output["status"] = "failed"
+        raise SandboxCommandExecutionError(
+            "Docker sandbox Python script failed "
+            f"(exit_code={result.exit_code}, stderr={stderr or 'none'})",
+            output=output,
+        )
+
+    return output
 
 
 def _safe_script_name(value: str) -> str:

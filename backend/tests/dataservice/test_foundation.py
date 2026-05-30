@@ -219,6 +219,23 @@ async def test_dataservice_client_sends_internal_token() -> None:
     assert result == {"status": "ok", "data": {"received": True}}
 
 
+def test_dataservice_client_ignores_environment_proxy_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs: Any) -> None:
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr("src.dataservice_client.client.httpx.AsyncClient", FakeAsyncClient)
+
+    AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+    )
+
+    assert captured_kwargs["trust_env"] is False
+
+
 @pytest.mark.asyncio
 async def test_dataservice_client_strips_none_query_params() -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
