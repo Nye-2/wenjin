@@ -37,12 +37,16 @@
   - `CapabilityResolver` 运行时解析只依赖 Catalog DataService client，`session_factory` 仅保留为历史测试调用兼容参数且不参与运行路径。
   - Generic `execute_task` 预处理 worker 不再打开 DB session、不再 reset DB engine；任务记录、线程结果卡片、附件 preprocess 状态统一通过 Task/Conversation DataService client 写回。
   - Gateway `get_task_service` 不再为 TaskService 创建 request-time DB session，TaskStore 只需要 Redis runtime cache 与 DataService client。
+  - Thread run worker、ProgressTracker stage transition flush、Task SSE initial snapshot 不再打开 DB session；统一通过 Run/Task/Conversation DataService client 访问运行态持久化。
 
 已验证：
 
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_execution_result_card_persistence.py tests/task/test_thread_writeback.py tests/services/test_capability_resolver.py tests/gateway/routers/test_capabilities_router.py tests/gateway/test_capabilities_router.py tests/agents/lead_agent/v2/test_runtime.py tests/agents/lead_agent/v2/test_cancel_flow.py tests/agents/lead_agent/v2/test_failure_handling.py tests/architecture/test_dataservice_boundaries.py -q` -> 59 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task tests/gateway/routers/test_uploads.py tests/architecture/test_dataservice_boundaries.py -q` -> 141 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_progress.py tests/task/test_sse.py tests/task/test_task_metrics.py tests/task/test_agent_status.py tests/gateway/test_run_lifecycle_dispatch.py tests/gateway/routers/test_thread_runs.py tests/architecture/test_dataservice_boundaries.py -q` -> 54 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task tests/gateway/test_run_lifecycle_dispatch.py tests/gateway/routers/test_thread_runs.py tests/architecture/test_dataservice_boundaries.py -q` -> 150 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.

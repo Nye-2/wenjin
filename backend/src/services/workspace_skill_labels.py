@@ -31,7 +31,7 @@ def resolve_thread_workspace_type(thread: Any) -> str | None:
 
 
 async def list_workspace_types(
-    db: AsyncSession,
+    db: AsyncSession | None,
     workspace_ids: Iterable[str | None],
 ) -> dict[str, str]:
     """Resolve workspace types for a batch of workspace IDs."""
@@ -58,7 +58,7 @@ async def list_workspace_types(
 
 
 async def get_workspace_type(
-    db: AsyncSession,
+    db: AsyncSession | None,
     workspace_id: str | None,
 ) -> str | None:
     """Resolve a single workspace type from storage."""

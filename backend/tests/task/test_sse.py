@@ -30,12 +30,12 @@ class _IdlePubSub:
         self.get_message = AsyncMock(return_value=None)
 
 
-class _DbContext:
-    def __init__(self, db: object) -> None:
-        self._db = db
+class _ClientContext:
+    def __init__(self, client: object) -> None:
+        self._client = client
 
     async def __aenter__(self) -> object:
-        return self._db
+        return self._client
 
     async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[no-untyped-def]
         return False
@@ -68,7 +68,7 @@ async def test_create_task_sse_stream_wraps_pubsub_creation_failure(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_create_task_sse_stream_falls_back_to_db_snapshot_and_closes_on_terminal_state(monkeypatch):
+async def test_create_task_sse_stream_falls_back_to_dataservice_snapshot_and_closes_on_terminal_state(monkeypatch):
     task_id = "task-2"
     pubsub = _IdlePubSub()
     create_pubsub = AsyncMock(return_value=pubsub)
@@ -91,9 +91,13 @@ async def test_create_task_sse_stream_falls_back_to_db_snapshot_and_closes_on_te
             created_at=now,
         )
     )
+    dataservice = AsyncMock()
 
     with (
-        patch("src.database.get_db_session", return_value=_DbContext(object())),
+        patch(
+            "src.dataservice_client.provider.dataservice_client",
+            return_value=_ClientContext(dataservice),
+        ) as dataservice_client,
         patch("src.task.store.TaskStore", return_value=mock_store),
     ):
         stream = await create_task_sse_stream(task_id)
@@ -109,6 +113,7 @@ async def test_create_task_sse_stream_falls_back_to_db_snapshot_and_closes_on_te
             await anext(stream)
 
     create_pubsub.assert_awaited_once()
+    dataservice_client.assert_called_once()
     pubsub.subscribe.assert_awaited_once_with(f"task_progress:{task_id}")
     pubsub.get_message.assert_not_awaited()
     pubsub.unsubscribe.assert_awaited_once_with(f"task_progress:{task_id}")
@@ -135,9 +140,13 @@ async def test_create_task_sse_stream_injects_task_id_for_pubsub_payload(monkeyp
     mock_store = AsyncMock()
     mock_store.get_task_state = AsyncMock(return_value=None)
     mock_store.get_task_record = AsyncMock(return_value=None)
+    dataservice = AsyncMock()
 
     with (
-        patch("src.database.get_db_session", return_value=_DbContext(object())),
+        patch(
+            "src.dataservice_client.provider.dataservice_client",
+            return_value=_ClientContext(dataservice),
+        ),
         patch("src.task.store.TaskStore", return_value=mock_store),
     ):
         stream = await create_task_sse_stream(task_id)

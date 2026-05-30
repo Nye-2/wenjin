@@ -66,14 +66,11 @@ async def _execute_run_async(
     from src.academic.cache.redis_client import redis_client
     from src.academic.services.artifact_service import ArtifactService
     from src.academic.services.workspace_service import WorkspaceService
-    from src.database import get_db_session, reset_db_engine
     from src.dataservice_client.provider import dataservice_client
     from src.services import ThreadService
 
     if not redis_settings.enabled:
         raise RuntimeError("execute_run requires REDIS_ENABLED=true")
-    # Rebind DB engine to the current worker loop before creating sessions.
-    await reset_db_engine(dispose_current=False)
 
     # Rebind Redis clients to the current loop before task execution.
     await redis_client.reset_client(close_current=False)
@@ -98,10 +95,10 @@ async def _execute_run_async(
         stream_ttl_seconds=settings.runtime_run_ttl_seconds,
     )
 
-    async with get_db_session() as db, dataservice_client() as dataservice:
+    async with dataservice_client() as dataservice:
         handler = ThreadTurnHandler(
-            thread_service=ThreadService(db),
-            workspace_service=WorkspaceService(db),
+            thread_service=ThreadService(None, dataservice=dataservice),
+            workspace_service=WorkspaceService(None, dataservice=dataservice),
             index_service=dataservice,
             artifact_service=ArtifactService(dataservice=dataservice),
             reference_service=dataservice,

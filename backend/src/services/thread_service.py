@@ -47,7 +47,7 @@ class ThreadService:
 
     def __init__(
         self,
-        db: AsyncSession,
+        db: AsyncSession | None,
         model: type[Any] | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:

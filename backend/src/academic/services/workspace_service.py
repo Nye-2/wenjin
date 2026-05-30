@@ -39,7 +39,7 @@ class WorkspaceService:
 
     def __init__(
         self,
-        db: AsyncSession,
+        db: AsyncSession | None,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
@@ -48,7 +48,7 @@ class WorkspaceService:
         Args:
             db: AsyncSession for database operations
         """
-        self.db: AsyncSession = db
+        self.db: AsyncSession | None = db
         self._dataservice = dataservice
 
     @staticmethod

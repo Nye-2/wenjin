@@ -112,11 +112,11 @@ async def create_task_sse_stream(task_id: str) -> AsyncGenerator[str, None]:
             terminal_statuses = _terminal_status_values()
 
             # Send initial status
-            from src.database import get_db_session
+            from src.dataservice_client.provider import dataservice_client
             from src.task.store import TaskStore
 
-            async with get_db_session() as db:
-                store = TaskStore(redis_client, db)
+            async with dataservice_client() as dataservice:
+                store = TaskStore(redis_client, dataservice=dataservice)
                 initial_state = await store.get_task_state(task_id)
                 initial_payload: dict[str, Any] | None = None
                 if initial_state:
