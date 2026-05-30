@@ -102,9 +102,18 @@
   - `extract_feature_params` 旧 plain-param parser 已删除。
   - Feature execution launch params 只通过 `build_execution_launch_params` 生成 canonical TaskBrief wrapper。
   - Architecture guard 新增 `test_feature_launch_context_does_not_keep_plain_param_compatibility`，防止恢复旧执行参数兼容入口。
+- Current feature action goal boundary follow-up
+  - `FeatureActionResolutionService` 不再从 workspace description/name 或“未命名任务”合成 rerun goal。
+  - Rerun/follow-up state 只从显式 mission params 或 source artifact title/content 推导。
+  - `_GOAL_KEYS` 补齐 `description`、`keywords`，确保已有显式参数仍可生成 canonical goal。
+  - Architecture guard 新增 `test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/services/feature_action_resolution_service.py tests/task/test_workspace_feature_actions_runtime.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_workspace_feature_actions_runtime.py tests/gateway/routers/test_workspace_activity.py tests/architecture/test_dataservice_boundaries.py::test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks -q` -> 36 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 27 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2021 passed.
 - `cd backend && .venv/bin/python -m ruff check src/application/services/feature_launch_context.py tests/application/services/test_feature_launch_context.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/application/services/test_feature_launch_context.py tests/tools/test_launch_feature_tool.py tests/integration/test_chat_to_feature_launch.py tests/architecture/test_dataservice_boundaries.py::test_feature_launch_context_does_not_keep_plain_param_compatibility -q` -> 18 passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 26 passed.

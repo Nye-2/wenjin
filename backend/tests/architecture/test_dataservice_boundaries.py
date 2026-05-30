@@ -1069,6 +1069,22 @@ def test_feature_launch_context_does_not_keep_plain_param_compatibility() -> Non
     )
 
 
+def test_feature_action_resolution_does_not_synthesize_workspace_goal_fallbacks() -> None:
+    """Follow-up/rerun state must require explicit mission params or source artifacts."""
+
+    path = SRC_ROOT / "services" / "feature_action_resolution_service.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "_workspace_fallback",
+        "未命名任务",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Feature action resolver still synthesizes implicit workspace goals: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
