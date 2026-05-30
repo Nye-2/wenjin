@@ -1158,6 +1158,21 @@ def test_source_domain_does_not_name_current_reference_projection_as_compat() ->
     )
 
 
+def test_conversation_block_payloads_do_not_persist_legacy_kind() -> None:
+    """Canonical conversation blocks must not preserve old kind shadow fields."""
+
+    path = SRC_ROOT / "dataservice" / "domains" / "conversation" / "block_protocol.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "legacy_kind",
+    )
+    violations = [token for token in forbidden_tokens if token in source]
+    assert not violations, (
+        "Conversation block protocol still persists old kind shadow fields: "
+        + ", ".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

@@ -130,9 +130,17 @@
   - `SourceDataDomainService` 的 Library list/detail helper 重命名为 `_serialize_reference_projection`。
   - API 返回的 `reference` shape 仍是当前 Library 契约，不再以 `compat` 命名描述。
   - Architecture guard 新增 `test_source_domain_does_not_name_current_reference_projection_as_compat`。
+- Current conversation block payload boundary follow-up
+  - `normalize_block_payload` 只写入 canonical `kind`，不再保留旧 kind/type 的 shadow 字段。
+  - Conversation block protocol 继续保持 7 类 canonical block 持久化契约。
+  - Architecture guard 新增 `test_conversation_block_payloads_do_not_persist_legacy_kind`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/conversation/block_protocol.py tests/dataservice/test_conversation_domain.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/dataservice/test_conversation_domain.py tests/architecture/test_dataservice_boundaries.py::test_conversation_block_payloads_do_not_persist_legacy_kind -q` -> 5 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 32 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2030 passed.
 - `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/source/service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/architecture/test_dataservice_boundaries.py::test_source_domain_does_not_name_current_reference_projection_as_compat -q` -> 17 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 31 passed.
