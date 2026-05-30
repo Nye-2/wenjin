@@ -172,8 +172,8 @@ def _create_client(
     async def _override_thread_service():
         return shared_handler.thread_service
 
-    import src.gateway.services.run_lifecycle as run_lifecycle_module
     import src.gateway.services.run_launch as run_launch_module
+    import src.gateway.services.run_lifecycle as run_lifecycle_module
     import src.task.tasks as task_module
 
     async def _allow_workspace_owner(*args, **kwargs):

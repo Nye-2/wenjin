@@ -24,29 +24,6 @@ from src.gateway.routers.latex_files import (
 )
 
 
-class _ScalarResult:
-    def __init__(self, values):
-        self._values = list(values)
-
-    def all(self):
-        return list(self._values)
-
-
-class _Result:
-    def __init__(self, *, scalar=None, scalars=None):
-        self._scalar = scalar
-        self._scalars = scalars or []
-
-    def scalar_one_or_none(self):
-        return self._scalar
-
-    def scalar(self):
-        return self._scalar
-
-    def scalars(self):
-        return _ScalarResult(self._scalars)
-
-
 class _FakeDb:
     def __init__(self, results=()):
         self._results = list(results)
@@ -658,37 +635,8 @@ def _task(now: datetime) -> SimpleNamespace:
 
 async def _projection_for_project(project: SimpleNamespace) -> dict[str, object]:
     now = datetime.now(UTC)
-    item = _FakePrismReviewService.review_item
-    projected_item = _canonical_review_item(item, project=project, now=now) if item else None
-    pending_items = [
-        projected_item
-    ] if projected_item is not None and projected_item.status in {"pending", "accepted"} else []
-    applied_items = [
-        projected_item
-    ] if projected_item is not None and projected_item.status == "applied" else []
     execution = _execution(now)
     execution.result = _task(now).result
-    db = _FakeDb(
-        [
-            _Result(scalar=_prism_project_from_latex(project)),
-            _Result(scalars=[_prism_document_from_latex(project)]),
-            _Result(
-                scalars=[
-                    _prism_file_from_latex(project),
-                    _prism_file_from_latex(project, "sections/introduction.tex"),
-                ]
-            ),
-            _Result(scalar=project),
-            _Result(scalars=pending_items),
-            _Result(scalars=applied_items),
-            _Result(scalars=[]),
-            _Result(scalars=[]),
-            _Result(scalars=[]),
-            _Result(scalars=[]),
-            _Result(scalars=[]),
-            _Result(scalars=[]),
-        ]
-    )
     dataservice = _FakeDataServiceClient(
         compute_session=_compute_session(now),
         execution=execution,
