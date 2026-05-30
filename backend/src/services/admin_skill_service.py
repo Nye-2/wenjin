@@ -7,7 +7,6 @@ from typing import Any
 
 import yaml
 from pydantic import ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import (
@@ -37,13 +36,11 @@ def _record_to_yaml_dict(skill: Any) -> dict[str, Any]:
 class AdminSkillService:
     def __init__(
         self,
-        db: AsyncSession,
         *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
         self._dataservice = dataservice
-        self.validator = CrossRefValidator(db)
+        self.validator = CrossRefValidator()
 
     async def _list_skills(self) -> list[Any]:
         if self._dataservice is not None:

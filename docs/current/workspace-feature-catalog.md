@@ -1,6 +1,6 @@
 # Workspace Mission Capability Catalog
 
-更新时间: 2026-05-27
+更新时间: 2026-05-30
 状态: Current
 Capability 数据源: `backend/seed/capabilities/` + DataService Catalog `capabilities`
 Capability Skill 数据源: `backend/seed/skills/` + DataService Catalog `capability_skills`
@@ -11,7 +11,7 @@ Capability Skill 数据源: `backend/seed/skills/` + DataService Catalog `capabi
 
 1. capability seed 必须声明 `schema_version: capability.v2`。
 2. skill seed 必须声明 `schema_version: capability_skill.v2`。
-3. DataService Catalog 是 capability / skill SSOT；loader、admin save、runtime launch 都使用同一套 v2 schema。
+3. DataService Catalog 是 capability / skill SSOT；loader、admin save、runtime launch 都使用同一套 v2 schema 和 Catalog DataService client，不允许回退到 request DB session。
 4. `feature_id` 仅保留为传输字段名，字段值必须是 canonical mission capability id。
 5. Prism 是文档编辑/预览主 surface；写作变更进入 Prism review item，不直接覆盖主稿。
 6. sandbox 开放边界由 `sandbox_policy` 明确表达；禁止 docker socket、privileged、host network、host paths、sibling container、server control。

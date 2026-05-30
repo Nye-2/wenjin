@@ -758,6 +758,67 @@ def test_workspace_runtime_uses_dataservice_boundary() -> None:
     )
 
 
+def test_admin_catalog_runtime_uses_dataservice_boundary() -> None:
+    """Admin capability/skill catalog runtime must not accept DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "admin_capabilities.py": (
+            "from src.database import",
+            "get_db_session",
+            "Request",
+            "CapabilityLoader(session=",
+            "AdminCapabilityService(db",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "admin_skills.py": (
+            "from src.database import",
+            "get_db_session",
+            "Request",
+            "SkillLoader(db",
+            "AdminSkillService(db",
+        ),
+        SRC_ROOT / "services" / "admin_capability_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+            "CrossRefValidator(db",
+        ),
+        SRC_ROOT / "services" / "admin_skill_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+            "CrossRefValidator(db",
+        ),
+        SRC_ROOT / "services" / "capability_schema.py": (
+            "self.db",
+            "_existing_skill_ids(self.db",
+            "_existing_skill_ids(db",
+        ),
+        SRC_ROOT / "services" / "capability_loader.py": (
+            "AsyncSession",
+            "self.session",
+            "session: AsyncSession",
+        ),
+        SRC_ROOT / "services" / "skill_loader.py": (
+            "AsyncSession",
+            "self.session",
+            "session: AsyncSession",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Admin catalog runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

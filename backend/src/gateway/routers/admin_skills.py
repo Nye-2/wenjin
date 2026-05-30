@@ -7,10 +7,11 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 
-from src.database import User, get_db_session
-from src.gateway.auth_dependencies import get_current_admin
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
+from src.gateway.deps.core import get_dataservice_client
 from src.services.admin_skill_service import AdminSkillService
 
 router = APIRouter(prefix="/admin/skills", tags=["admin", "skills"])
@@ -18,9 +19,10 @@ router = APIRouter(prefix="/admin/skills", tags=["admin", "skills"])
 SKILL_SEED_DIR = Path(__file__).resolve().parent.parent.parent.parent / "seed" / "skills"
 
 
-async def _service(request: Request) -> AdminSkillService:
-    async with get_db_session() as db:
-        yield AdminSkillService(db=db)
+async def _service(
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> AdminSkillService:
+    yield AdminSkillService(dataservice=dataservice)
 
 
 def _to_dict(skill) -> dict[str, Any]:
@@ -36,7 +38,7 @@ def _to_dict(skill) -> dict[str, Any]:
 @router.get("")
 async def list_skills(
     service: AdminSkillService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     items = await service.list_all()
     return {"items": [_to_dict(s) for s in items], "total": len(items)}
@@ -45,7 +47,7 @@ async def list_skills(
 @router.get("/export")
 async def export_zip(
     service: AdminSkillService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> Response:
     items = await service.list_all()
     buf = io.BytesIO()
@@ -65,7 +67,7 @@ async def export_zip(
 async def get_skill(
     skill_id: str,
     service: AdminSkillService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     skill = await service.get(skill_id)
     if skill is None:
@@ -80,7 +82,7 @@ async def get_skill(
 async def validate_skill(
     payload: dict = Body(...),
     service: AdminSkillService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     errors = await service.validate(payload.get("yaml", ""))
     return {"valid": not errors, "errors": errors}
@@ -90,7 +92,7 @@ async def validate_skill(
 async def create_skill(
     payload: dict = Body(...),
     service: AdminSkillService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         skill = await service.create(yaml_text=payload["yaml"], admin_id=admin.id)
@@ -104,7 +106,7 @@ async def update_skill(
     skill_id: str,
     payload: dict = Body(...),
     service: AdminSkillService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         skill = await service.update(
@@ -121,7 +123,7 @@ async def update_skill(
 async def delete_skill(
     skill_id: str,
     service: AdminSkillService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> Response:
     try:
         await service.delete(skill_id, admin_id=admin.id)
@@ -134,7 +136,7 @@ async def delete_skill(
 async def toggle_skill(
     skill_id: str,
     service: AdminSkillService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         skill = await service.toggle(skill_id, admin_id=admin.id)
@@ -145,14 +147,15 @@ async def toggle_skill(
 
 @router.post("/import-from-seed")
 async def import_from_seed(
-    service: AdminSkillService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     from src.services.skill_loader import SkillLoader
 
-    async with get_db_session() as db:
-        if not SKILL_SEED_DIR.exists():
-            return {"loaded": []}
-        loaded_rows = await SkillLoader(db, seed_dir=SKILL_SEED_DIR).load_all(overwrite=True)
-        loaded = [{"id": skill.id} for skill in loaded_rows]
+    if not SKILL_SEED_DIR.exists():
+        return {"loaded": []}
+    loaded_rows = await SkillLoader(seed_dir=SKILL_SEED_DIR, dataservice=dataservice).load_all(
+        overwrite=True
+    )
+    loaded = [{"id": skill.id} for skill in loaded_rows]
     return {"loaded": loaded}

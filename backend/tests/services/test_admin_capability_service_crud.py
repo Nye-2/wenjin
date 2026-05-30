@@ -110,7 +110,7 @@ def service():
     dataservice = _CatalogFake()
     fake_validator = MagicMock()
     fake_validator.validate_capability = AsyncMock(return_value=[])
-    svc = AdminCapabilityService(db=AsyncMock(), event_bus=bus, dataservice=dataservice)
+    svc = AdminCapabilityService(event_bus=bus, dataservice=dataservice)
     svc.validator = fake_validator
     svc._test_dataservice = dataservice
     return svc
@@ -231,7 +231,6 @@ async def test_to_yaml_text_round_trips(service):
 
 
 @pytest.mark.asyncio
-async def test_create_does_not_commit_gateway_session(service):
-    service.db.commit = AsyncMock()
+async def test_create_keeps_gateway_db_out_of_admin_catalog_boundary(service):
     await service.create(yaml_text=SAMPLE_YAML, admin_id="admin-uuid")
-    service.db.commit.assert_not_awaited()
+    assert not hasattr(service, "db")

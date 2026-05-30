@@ -76,7 +76,7 @@ def _capability_v2_yaml(*, cap_id: str = "idea_to_thesis_manuscript") -> str:
 
 
 @pytest.mark.asyncio
-async def test_load_seeds_when_empty(test_session, tmp_path):
+async def test_load_seeds_when_empty(tmp_path):
     """Catalog empty → loads YAML through DataService."""
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
@@ -88,7 +88,6 @@ async def test_load_seeds_when_empty(test_session, tmp_path):
     dataservice = _SeedCatalogFake(has_capabilities=False)
     dataservice.load_catalog_capability_seed_items.return_value.loaded = 1
     loader = CapabilityLoader(
-        session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
         dataservice=dataservice,
     )
@@ -106,14 +105,13 @@ async def test_load_seeds_when_empty(test_session, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_load_skips_when_db_has_data(test_session, tmp_path):
+async def test_load_skips_when_db_has_data(tmp_path):
     """Existing catalog data → loader returns 0."""
 
     from src.services.capability_loader import CapabilityLoader
 
     dataservice = _SeedCatalogFake(has_capabilities=True)
     loader = CapabilityLoader(
-        session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
         dataservice=dataservice,
     )
@@ -124,7 +122,7 @@ async def test_load_skips_when_db_has_data(test_session, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_load_validates_required_fields(test_session, tmp_path):
+async def test_load_validates_required_fields(tmp_path):
     """YAML missing required field → raises ValueError."""
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
@@ -140,7 +138,6 @@ async def test_load_validates_required_fields(test_session, tmp_path):
     from src.services.capability_loader import CapabilityLoader
 
     loader = CapabilityLoader(
-        session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
         dataservice=_SeedCatalogFake(has_capabilities=False),
     )
@@ -150,7 +147,7 @@ async def test_load_validates_required_fields(test_session, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_loads_ui_meta_from_yaml(test_session, tmp_path):
+async def test_loads_ui_meta_from_yaml(tmp_path):
     """YAML containing ui_meta is persisted verbatim onto the Capability row."""
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
@@ -162,7 +159,6 @@ async def test_loads_ui_meta_from_yaml(test_session, tmp_path):
     dataservice = _SeedCatalogFake(has_capabilities=False)
     dataservice.load_catalog_capability_seed_items.return_value.loaded = 1
     loader = CapabilityLoader(
-        session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
         dataservice=dataservice,
     )
@@ -180,7 +176,7 @@ async def test_loads_ui_meta_from_yaml(test_session, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_dataservice_branch_loads_seed_items(test_session, tmp_path):
+async def test_dataservice_branch_loads_seed_items(tmp_path):
     seed_dir = tmp_path / "capabilities" / "thesis"
     seed_dir.mkdir(parents=True)
     yaml_file = seed_dir / "test_cap.yaml"
@@ -192,7 +188,6 @@ async def test_dataservice_branch_loads_seed_items(test_session, tmp_path):
     dataservice.has_catalog_capabilities.return_value = False
     dataservice.load_catalog_capability_seed_items.return_value.loaded = 1
     loader = CapabilityLoader(
-        session=test_session,
         seed_dir=str(tmp_path / "capabilities"),
         dataservice=dataservice,
     )

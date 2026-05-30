@@ -6,23 +6,28 @@ import io
 import zipfile
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Response, status
 
-from src.database import User, get_db_session
-from src.gateway.auth_dependencies import get_current_admin
+from src.dataservice_client import AsyncDataServiceClient
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
+from src.gateway.deps.core import get_dataservice_client
 from src.services.admin_capability_service import AdminCapabilityService
 
 router = APIRouter(prefix="/admin/capabilities", tags=["admin", "capabilities"])
 
 
-async def _service(request: Request) -> AdminCapabilityService:
+async def _service(
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
+) -> AdminCapabilityService:
     from src.academic.cache.redis_client import redis_client
     from src.services.event_bus import EventBus
 
     if redis_client._client is None:
         await redis_client.connect()
-    async with get_db_session() as db:
-        yield AdminCapabilityService(db=db, event_bus=EventBus(redis_client.client))
+    yield AdminCapabilityService(
+        event_bus=EventBus(redis_client.client),
+        dataservice=dataservice,
+    )
 
 
 def _to_dict(cap) -> dict[str, Any]:
@@ -47,7 +52,7 @@ def _to_dict(cap) -> dict[str, Any]:
 @router.get("")
 async def list_capabilities(
     service: AdminCapabilityService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     items = await service.list_all()
     grouped: dict[str, list[dict[str, Any]]] = {}
@@ -59,7 +64,7 @@ async def list_capabilities(
 @router.get("/export")
 async def export_zip(
     service: AdminCapabilityService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> Response:
     items = await service.list_all()
     buf = io.BytesIO()
@@ -80,7 +85,7 @@ async def get_capability(
     capability_id: str,
     workspace_type: str,
     service: AdminCapabilityService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     cap = await service.get(capability_id, workspace_type)
     if cap is None:
@@ -95,7 +100,7 @@ async def get_capability(
 async def validate_capability(
     payload: dict = Body(...),
     service: AdminCapabilityService = Depends(_service),
-    _admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     errors = await service.validate(payload.get("yaml", ""))
     return {"valid": not errors, "errors": errors}
@@ -105,7 +110,7 @@ async def validate_capability(
 async def create_capability(
     payload: dict = Body(...),
     service: AdminCapabilityService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         cap = await service.create(yaml_text=payload["yaml"], admin_id=admin.id)
@@ -120,7 +125,7 @@ async def update_capability(
     workspace_type: str,
     payload: dict = Body(...),
     service: AdminCapabilityService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         cap = await service.update(
@@ -139,7 +144,7 @@ async def delete_capability(
     capability_id: str,
     workspace_type: str,
     service: AdminCapabilityService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> Response:
     try:
         await service.delete(capability_id, workspace_type, admin_id=admin.id)
@@ -153,7 +158,7 @@ async def toggle_capability(
     capability_id: str,
     workspace_type: str,
     service: AdminCapabilityService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
     try:
         cap = await service.toggle(
@@ -166,14 +171,13 @@ async def toggle_capability(
 
 @router.post("/import-from-seed")
 async def import_from_seed(
-    service: AdminCapabilityService = Depends(_service),
-    admin: User = Depends(get_current_admin),
+    _admin: AccountAuthSubject = Depends(get_current_admin),
+    dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
     from src.services.capability_loader import DEFAULT_SEED_DIR, CapabilityLoader
 
-    async with get_db_session() as db:
-        loader = CapabilityLoader(session=db, seed_dir=DEFAULT_SEED_DIR)
-        loaded = await loader.load_all(overwrite=True)
+    loader = CapabilityLoader(seed_dir=DEFAULT_SEED_DIR, dataservice=dataservice)
+    loaded = await loader.load_all(overwrite=True)
     return {
         "loaded": [
             {"id": c.id, "workspace_type": c.workspace_type} for c in loaded

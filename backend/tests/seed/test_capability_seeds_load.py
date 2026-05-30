@@ -33,18 +33,18 @@ class _SeedCatalogFake:
         return list(self.records)
 
 
-async def _load_seed_records(test_session) -> list[SimpleNamespace]:
+async def _load_seed_records() -> list[SimpleNamespace]:
     dataservice = _SeedCatalogFake()
-    loader = CapabilityLoader(session=test_session, dataservice=dataservice)
+    loader = CapabilityLoader(dataservice=dataservice)
     n = await loader.load_seeds_if_empty()
     assert n >= 6, f"expected mission capabilities, loaded {n}"
     return dataservice.records
 
 
 @pytest.mark.asyncio
-async def test_thesis_seeds_load(test_session):
+async def test_thesis_seeds_load():
     """All thesis YAML seeds load into the DataService catalog contract."""
-    records = await _load_seed_records(test_session)
+    records = await _load_seed_records()
 
     by_key = {(record.workspace_type, record.id): record for record in records}
     expected_ids = [
@@ -66,12 +66,12 @@ async def test_thesis_seeds_load(test_session):
 
 
 @pytest.mark.asyncio
-async def test_seeds_use_only_registered_subagents(test_session):
+async def test_seeds_use_only_registered_subagents():
     """Every subagent_type referenced in seeds must be in REGISTRY."""
     import src.subagents.v2.types  # noqa: F401
     from src.subagents.v2.registry import REGISTRY
 
-    records = await _load_seed_records(test_session)
+    records = await _load_seed_records()
     thesis_caps = [record for record in records if record.workspace_type == "thesis"]
     assert len(thesis_caps) >= 6, "Expected at least 6 thesis mission capabilities"
 
@@ -92,10 +92,10 @@ async def test_seeds_use_only_registered_subagents(test_session):
 
 
 @pytest.mark.asyncio
-async def test_seeds_idempotent(test_session):
+async def test_seeds_idempotent():
     """Calling load_seeds_if_empty twice returns 0 on the second call."""
     dataservice = _SeedCatalogFake()
-    loader = CapabilityLoader(session=test_session, dataservice=dataservice)
+    loader = CapabilityLoader(dataservice=dataservice)
 
     n1 = await loader.load_seeds_if_empty()
     assert n1 >= 6
@@ -105,9 +105,9 @@ async def test_seeds_idempotent(test_session):
 
 
 @pytest.mark.asyncio
-async def test_seeds_have_trigger_phrases(test_session):
+async def test_seeds_have_trigger_phrases():
     """Each thesis seed must declare at least 1 trigger phrase."""
-    records = await _load_seed_records(test_session)
+    records = await _load_seed_records()
 
     for cap in [record for record in records if record.workspace_type == "thesis"]:
         assert isinstance(cap.trigger_phrases, list), (
@@ -119,8 +119,8 @@ async def test_seeds_have_trigger_phrases(test_session):
 
 
 @pytest.mark.asyncio
-async def test_old_workflow_ids_not_loaded(test_session):
-    records = await _load_seed_records(test_session)
+async def test_old_workflow_ids_not_loaded():
+    records = await _load_seed_records()
     old_ids = {
         "deep_research",
         "outline_generate",

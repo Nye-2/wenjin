@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import CatalogSeedItemPayload, CatalogSeedLoadPayload
@@ -20,16 +19,14 @@ logger = logging.getLogger(__name__)
 DEFAULT_SEED_DIR = Path(__file__).resolve().parent.parent.parent / "seed" / "skills"
 
 class SkillLoader:
-    """Loads CapabilitySkill rows from YAML files in seed_dir."""
+    """Loads CapabilitySkill seed files through DataService."""
 
     def __init__(
         self,
-        session: AsyncSession,
         *,
         seed_dir: Path | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.session = session
         self.seed_dir = Path(seed_dir) if seed_dir is not None else DEFAULT_SEED_DIR
         self._dataservice = dataservice
 

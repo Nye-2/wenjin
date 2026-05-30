@@ -238,7 +238,6 @@ async def test_capability_load_resolve_invalidate(db_session, tmp_path):
 
     dataservice = _FakeCatalogDataServiceClient()
     loader = CapabilityLoader(
-        session=db_session,
         seed_dir=str(tmp_path / "capabilities"),
         dataservice=dataservice,
     )

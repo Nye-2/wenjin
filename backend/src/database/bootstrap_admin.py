@@ -114,7 +114,7 @@ async def async_main() -> int:
             try:
                 from src.services.skill_loader import SkillLoader
 
-                skill_loader = SkillLoader(session)
+                skill_loader = SkillLoader()
                 loaded_skills = await skill_loader.load_seeds_if_empty()
                 if loaded_skills:
                     print(f"[bootstrap-admin] Seeded {loaded_skills} skill record(s)")
@@ -125,7 +125,7 @@ async def async_main() -> int:
             try:
                 from src.services.capability_loader import CapabilityLoader
 
-                loader = CapabilityLoader(session)
+                loader = CapabilityLoader()
                 loaded = await loader.load_seeds_if_empty()
                 if loaded:
                     print(f"[bootstrap-admin] Seeded {loaded} capability records")
