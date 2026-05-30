@@ -1216,6 +1216,32 @@ def test_dataservice_internal_contracts_do_not_keep_legacy_or_fallback_naming() 
     )
 
 
+def test_workspace_capability_runtime_comments_do_not_keep_legacy_guidance() -> None:
+    """Runtime comments should describe current capability routing directly."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "agents" / "chat_agent" / "agent.py": (
+            "legacy consumers",
+            "legacy per-skill guidance prompt",
+        ),
+        REPO_ROOT / "frontend" / "lib" / "workspace-thread-entry.ts": (
+            "legacy resolver",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(REPO_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Workspace capability runtime comments still describe removed legacy paths:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

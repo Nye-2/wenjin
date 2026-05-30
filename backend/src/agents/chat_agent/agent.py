@@ -76,8 +76,8 @@ def _build_system_prompt(workspace_type: str, skill_id: str | None) -> str:
 def _concat_text_blocks(msg: AgentMessage) -> str:
     """Join all TextBlock.content values from an AgentMessage.
 
-    Used to populate GeneratedThreadReply.content for legacy consumers
-    that still read .content rather than .blocks.
+    Used to populate GeneratedThreadReply.content alongside canonical blocks
+    for transport surfaces that still expose a text summary.
     """
     parts = [
         block.content
@@ -484,8 +484,8 @@ def apply_prompt_template(
     )
     if selected_skill:
         # Frontend may still send a ``selected_skill`` from a deep-link, but the
-        # legacy per-skill guidance prompt is gone (capability catalog handles
-        # routing now).  Surface the selection so the model knows the user
+        # capability catalog now handles routing and instruction selection.
+        # Surface the selection so the model knows the user
         # already picked a direction, and let it pick a matching capability
         # from ``<available_capabilities>``.
         base_prompt += (

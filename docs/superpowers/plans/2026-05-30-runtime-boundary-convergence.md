@@ -143,9 +143,20 @@
   - Source BibTeX citation key 默认值参数改为 `default_key`。
   - DataService / DataService app / DataService client 源码的 stale keyword scan 已无 `legacy|compat|fallback|TODO|backward|deprecated` 命中。
   - Architecture guard 新增 `test_dataservice_internal_contracts_do_not_keep_legacy_or_fallback_naming`。
+- Current workspace capability runtime comment follow-up
+  - Chat Agent text summary docstring 不再描述 old consumers；改为 transport text summary。
+  - Deep-link selected skill 注释收敛为 DB-backed capability catalog routing。
+  - Frontend workspace thread seed 注释收敛为 server-side capability/skill routing。
+  - Architecture guard 新增 `test_workspace_capability_runtime_comments_do_not_keep_legacy_guidance`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/agents/chat_agent/agent.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_workspace_capability_runtime_comments_do_not_keep_legacy_guidance -q` -> 1 passed.
+- `cd frontend && npm run typecheck` -> passed.
+- `rg -n "legacy consumers|legacy per-skill guidance prompt|legacy resolver" backend/src/agents/chat_agent/agent.py frontend/lib/workspace-thread-entry.ts` -> no matches.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 35 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2033 passed.
 - `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/source/service.py src/dataservice/domains/rooms/models.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/dataservice/test_rooms_domain.py tests/architecture/test_dataservice_boundaries.py::test_dataservice_internal_contracts_do_not_keep_legacy_or_fallback_naming -q` -> 21 passed.
 - `rg -n "legacy|compat|fallback|TODO|backward|deprecated" backend/src/dataservice backend/src/dataservice_app backend/src/dataservice_client -g '*.py'` -> no matches.
