@@ -16,6 +16,7 @@ from src.subagents.v2.types.react import (
     _parse_output,
     _render_user_message,
     _run_react_loop,
+    _runtime_output_config,
 )
 
 # ---------------------------------------------------------------------------
@@ -187,9 +188,44 @@ class TestParseOutput:
 
         assert result == {
             "text": "plain model text",
-            "quality_gates_checked": ["task_scope_bounded"],
+            "quality_gates_checked": [],
             "decision_candidates": [],
         }
+
+    def test_runtime_output_config_prefers_resolved_quality_contract(self):
+        base_config = {
+            "quality_gates": ["skill_gate"],
+            "io_contract": {
+                "output_schema": {
+                    "type": "object",
+                    "required": ["text"],
+                    "properties": {"text": {"type": "string"}},
+                }
+            },
+        }
+        contract_schema = {
+            "type": "object",
+            "required": ["text", "quality_gates_checked", "checked_requirements"],
+            "properties": {
+                "text": {"type": "string"},
+                "quality_gates_checked": {"type": "array"},
+                "checked_requirements": {"type": "array"},
+            },
+        }
+
+        result = _runtime_output_config(
+            base_config,
+            {
+                "quality_contract": {
+                    "output_schema": contract_schema,
+                    "acknowledgement_required_gates": ["format_requirements_checked"],
+                }
+            },
+        )
+
+        assert result["io_contract"]["output_schema"] == contract_schema
+        assert result["quality_gates"] == ["format_requirements_checked"]
+        assert base_config["io_contract"]["output_schema"]["required"] == ["text"]
 
 
 class TestDegradedOutput:

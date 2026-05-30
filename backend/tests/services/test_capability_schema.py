@@ -356,6 +356,21 @@ class TestCapabilitySkillV2Yaml:
         with pytest.raises(ValidationError, match="quality_gates_checked"):
             CapabilitySkillV2YamlModel(**payload)
 
+    def test_skill_with_quality_gates_requires_checked_field_to_be_required(self):
+        payload = self._valid_payload()
+        payload["quality_gates"] = ["source_log_required"]
+        payload["io_contract"]["output_schema"] = {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string"},
+                "quality_gates_checked": {"type": "array"},
+            },
+        }
+
+        with pytest.raises(ValidationError, match="quality_gates_checked"):
+            CapabilitySkillV2YamlModel(**payload)
+
     def test_skill_output_schema_must_be_object_when_declared(self):
         payload = self._valid_payload()
         payload["io_contract"]["output_schema"] = {"type": "array"}

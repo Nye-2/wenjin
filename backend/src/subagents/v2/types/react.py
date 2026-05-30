@@ -77,6 +77,33 @@ def _output_schema(config: dict[str, Any]) -> dict[str, Any]:
     return output_schema if isinstance(output_schema, dict) else {}
 
 
+def _runtime_output_config(config: dict[str, Any], inputs: dict[str, Any]) -> dict[str, Any]:
+    """Overlay resolved runtime quality contracts onto the skill config.
+
+    Team Kernel injects a merged ``quality_contract`` that may include contract
+    overlay skills. Use that resolved contract for prompt and parse shape so
+    the worker sees the same output contract that quality gates will enforce.
+    """
+    runtime_config = dict(config)
+    quality_contract = inputs.get("quality_contract")
+    if not isinstance(quality_contract, dict):
+        return runtime_config
+
+    output_schema = quality_contract.get("output_schema")
+    if isinstance(output_schema, dict) and output_schema:
+        io_contract = dict(runtime_config.get("io_contract") or {})
+        io_contract["output_schema"] = output_schema
+        runtime_config["io_contract"] = io_contract
+
+    gates = _string_list(
+        quality_contract.get("acknowledgement_required_gates")
+        or quality_contract.get("quality_gates")
+    )
+    if gates:
+        runtime_config["quality_gates"] = gates
+    return runtime_config
+
+
 def _extract_json_object(text: str) -> dict[str, Any] | None:
     candidates = [text.strip()]
     fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
@@ -148,8 +175,7 @@ def _default_schema_field(
     if field == "text":
         return final_text
     if field == "quality_gates_checked":
-        gates = config.get("quality_gates")
-        return list(gates) if isinstance(gates, list) else []
+        return []
     field_type = schema.get("type") if isinstance(schema, dict) else None
     if field_type == "array":
         return []
@@ -177,6 +203,22 @@ def _with_output_contract(system_prompt: str, config: dict[str, Any]) -> str:
         f"- quality_gates_checked must list the checked gates: {gates_text}"
     )
     return f"{system_prompt}{contract}" if system_prompt else contract.strip()
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        return [stripped] if stripped else []
+    if isinstance(value, list):
+        result: list[str] = []
+        for item in value:
+            text = str(item).strip()
+            if text:
+                result.append(text)
+        return result
+    return []
 
 
 def _build_default_user_payload(ctx: SubagentContext, config: dict[str, Any]) -> dict[str, Any]:
@@ -228,7 +270,7 @@ class ReactSubagent(SubagentBase):
             return SubagentResult(output={"text": ""})
 
         # Assemble prompts
-        config = ctx.skill.config or {}
+        config = _runtime_output_config(ctx.skill.config or {}, ctx.inputs or {})
         system_prompt = _with_output_contract(ctx.skill.prompt or "", config)
         user_template = config.get("user_template")
         user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)

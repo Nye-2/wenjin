@@ -398,7 +398,7 @@ class CapabilitySkillV2YamlModel(BaseModel):
             required = output_schema.get("required")
             if not isinstance(required, list):
                 required = []
-            if "quality_gates_checked" not in properties and "quality_gates_checked" not in required:
+            if "quality_gates_checked" not in properties or "quality_gates_checked" not in required:
                 raise ValueError(
                     "skills with quality_gates must expose quality_gates_checked in output_schema"
                 )
