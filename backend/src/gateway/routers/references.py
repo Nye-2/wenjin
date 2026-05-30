@@ -6,14 +6,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field, ValidationError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database import (
     ReferenceBibtexScope,
     ReferenceLibraryStatus,
     ReferenceReadStatus,
     ReferenceSourceType,
-    User,
 )
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.source import (
@@ -21,9 +19,9 @@ from src.dataservice_client.contracts.source import (
     SourceUpdatePayload,
 )
 from src.gateway.access_control import require_workspace_owner
-from src.gateway.auth_dependencies import get_current_user
+from src.gateway.auth_dependencies import AccountAuthSubject, get_current_user
 from src.gateway.deps import get_task_service, get_workspace_service
-from src.gateway.deps.core import get_dataservice_client, get_db
+from src.gateway.deps.core import get_dataservice_client
 from src.services.references import (
     SourceBibliographyService,
     SourceLibraryImportService,
@@ -114,7 +112,7 @@ async def _read_upload(upload: UploadFile) -> bytes:
 async def _require_owner(
     *,
     workspace_id: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     workspace_service: Any,
 ) -> None:
     await require_workspace_owner(
@@ -177,7 +175,7 @@ async def list_references(
     query: str | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -199,7 +197,7 @@ async def list_references(
 @router.get("/count")
 async def count_references(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, int]:
@@ -214,7 +212,7 @@ async def count_references(
 @router.get("/outline")
 async def get_library_outline(
     workspace_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -231,7 +229,7 @@ async def get_library_outline(
 async def upload_reference_pdf(
     workspace_id: str,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     task_service: TaskService = Depends(get_task_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
@@ -263,7 +261,7 @@ async def upload_reference_pdf(
 async def import_semantic_scholar(
     workspace_id: str,
     request: SemanticScholarImportRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -286,7 +284,7 @@ async def import_semantic_scholar(
 async def import_deep_search_artifact(
     workspace_id: str,
     request: DeepSearchArtifactImportRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -307,7 +305,7 @@ async def import_deep_search_artifact(
 async def import_bibtex(
     workspace_id: str,
     request: BibtexImportRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -328,7 +326,7 @@ async def import_bibtex(
 async def create_manual_reference(
     workspace_id: str,
     request: ManualReferenceRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -352,7 +350,7 @@ async def create_manual_reference(
 async def search_text_units(
     workspace_id: str,
     request: SearchTextUnitsRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -374,7 +372,7 @@ async def search_text_units(
 async def build_evidence_pack(
     workspace_id: str,
     request: EvidencePackRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -398,7 +396,7 @@ async def build_evidence_pack(
 async def get_bibtex(
     workspace_id: str,
     scope: ReferenceBibtexScope = ReferenceBibtexScope.INCLUDED_AND_CORE,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -420,7 +418,7 @@ async def get_bibtex(
 async def validate_bibtex(
     workspace_id: str,
     request: BibtexValidateRequest | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -442,10 +440,9 @@ async def validate_bibtex(
 async def sync_bibtex_to_prism(
     workspace_id: str,
     request: BibtexScopeRequest | None = None,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
-    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _require_owner(
         workspace_id=workspace_id,
@@ -454,7 +451,7 @@ async def sync_bibtex_to_prism(
     )
     scope = request.scope if request is not None else "included_and_core"
     try:
-        result = await SourceBibliographyService(dataservice, db=db).sync_prism(
+        result = await SourceBibliographyService(dataservice).sync_prism(
             workspace_id=workspace_id,
             scope=scope,
         )
@@ -468,7 +465,7 @@ async def sync_bibtex_to_prism(
 async def get_reference(
     workspace_id: str,
     reference_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -491,7 +488,7 @@ async def update_reference(
     workspace_id: str,
     reference_id: str,
     request: ReferenceUpdateRequest,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -515,7 +512,7 @@ async def update_reference(
 async def delete_reference(
     workspace_id: str,
     reference_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, bool]:
@@ -538,7 +535,7 @@ async def delete_reference(
 async def mark_included(
     workspace_id: str,
     reference_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -556,7 +553,7 @@ async def mark_included(
 async def mark_core(
     workspace_id: str,
     reference_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -574,7 +571,7 @@ async def mark_core(
 async def exclude_reference(
     workspace_id: str,
     reference_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -592,7 +589,7 @@ async def exclude_reference(
 async def mark_read(
     workspace_id: str,
     reference_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -616,7 +613,7 @@ async def _mark_reference_status(
     workspace_id: str,
     reference_id: str,
     library_status: str,
-    current_user: User,
+    current_user: AccountAuthSubject,
     workspace_service: Any,
     dataservice: AsyncDataServiceClient,
 ) -> dict[str, Any]:
@@ -640,7 +637,7 @@ async def _mark_reference_status(
 async def get_reference_outline(
     workspace_id: str,
     reference_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -658,7 +655,7 @@ async def read_outline_node(
     workspace_id: str,
     reference_id: str,
     node_id: str,
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:
@@ -683,7 +680,7 @@ async def read_reference_pages(
     reference_id: str,
     page_start: int = Query(ge=1),
     page_end: int = Query(ge=1),
-    current_user: User = Depends(get_current_user),
+    current_user: AccountAuthSubject = Depends(get_current_user),
     workspace_service: Any = Depends(get_workspace_service),
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> dict[str, Any]:

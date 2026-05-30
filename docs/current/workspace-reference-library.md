@@ -17,7 +17,7 @@ Workspace Reference Library 是 workspace 级文献与证据的用户入口；ca
 - 手动录入
 - BibTeX import
 
-所有后续功能统一读取 Source DataService：
+所有后续功能统一读取 Source DataService；gateway references router、BibTeX export/validation 和 Prism `refs.bib` sync 均不得注入 runtime DB session：
 
 - 文献中心 UI
 - outline-first page index / text unit 检索

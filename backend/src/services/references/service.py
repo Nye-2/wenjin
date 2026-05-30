@@ -9,8 +9,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.academic.citation.bibtex.parser import BibTeXParser
 from src.academic.literature.search_service import LiteratureSearchService
 from src.database import (
@@ -29,7 +27,6 @@ from src.dataservice_client.contracts.source import (
     SourceAssetUpdatePayload,
     SourceBibliographyCreatePayload,
     SourceBibliographySnapshotCreatePayload,
-    SourceEvidencePackCreatePayload,
     SourceExternalIdCreatePayload,
     SourceImportPayload,
     SourceIndexReplacePayload,
@@ -1014,11 +1011,8 @@ class SourceBibliographyService:
     def __init__(
         self,
         dataservice: AsyncDataServiceClient | None = None,
-        *,
-        db: AsyncSession | None = None,
     ) -> None:
         self._dataservice = dataservice
-        self.db = db
 
     async def build_bibtex(
         self,

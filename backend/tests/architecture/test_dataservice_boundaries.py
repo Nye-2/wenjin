@@ -819,6 +819,39 @@ def test_admin_catalog_runtime_uses_dataservice_boundary() -> None:
     )
 
 
+def test_reference_library_runtime_uses_dataservice_boundary() -> None:
+    """Reference Library gateway and BibTeX sync must not accept DB sessions."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "routers" / "references.py": (
+            "AsyncSession",
+            "Depends(get_db)",
+            "get_db",
+            "db: AsyncSession",
+            "SourceBibliographyService(dataservice, db=",
+        ),
+        SRC_ROOT / "services" / "references" / "service.py": (
+            "AsyncSession",
+            "self.db",
+            "db: AsyncSession",
+            "db=",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Reference Library runtime must use DataService boundary:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 

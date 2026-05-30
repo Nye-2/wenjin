@@ -60,6 +60,10 @@
   - `AdminCapabilityService`、`AdminSkillService`、`CrossRefValidator`、`CapabilityLoader`、`SkillLoader` 移除 DB/session 构造参数，Catalog CRUD、cross-ref 校验和 seed load 统一走 DataService client。
   - `bootstrap_admin` 只负责创建管理员账号的 DB-owned bootstrap；skills/capabilities seed load 调用 DataService-backed loader，不把 bootstrap session 传入 catalog runtime。
   - Architecture guard 新增 `test_admin_catalog_runtime_uses_dataservice_boundary`，防止 admin catalog router/service/loader/validator 回流到 request DB session。
+- Current reference library runtime boundary follow-up
+  - `references` gateway router 不再导入 `AsyncSession` 或 `get_db`，Prism `refs.bib` sync 复用请求注入的 Source/Prism DataService client。
+  - `SourceBibliographyService` 移除 DB/session 构造参数，不再保存 `self.db`；BibTeX export、citation validation、Prism refs sync 均通过 DataService client 完成。
+  - Architecture guard 新增 `test_reference_library_runtime_uses_dataservice_boundary`，防止 references router 和 bibliography service 回流到 request DB session。
 
 已验证：
 
@@ -86,6 +90,10 @@
 - `cd backend && .venv/bin/python -m ruff check src/gateway/routers/admin_capabilities.py src/gateway/routers/admin_skills.py src/services/admin_capability_service.py src/services/admin_skill_service.py src/services/capability_schema.py src/services/capability_loader.py src/services/skill_loader.py src/database/bootstrap_admin.py tests/services/test_admin_capability_service.py tests/services/test_admin_capability_service_crud.py tests/services/test_admin_skill_service.py tests/services/test_cross_ref_validator.py tests/services/test_capability_loader.py tests/seed/test_capability_seeds_load.py tests/unit/services/test_skill_loader.py tests/integration/test_phase1_foundation.py tests/integration/test_phase2_e2e.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 18 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2012 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_reference_writing_workflow_gate.py tests/services/test_reference_bibtex_service.py tests/services/test_reference_import_service.py tests/gateway/routers/test_access_control_matrix.py tests/architecture/test_dataservice_boundaries.py::test_reference_library_runtime_uses_dataservice_boundary -q` -> 29 passed.
+- `cd backend && .venv/bin/python -m ruff check src/gateway/routers/references.py src/services/references/service.py tests/services/test_reference_writing_workflow_gate.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 19 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2013 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
 - `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.

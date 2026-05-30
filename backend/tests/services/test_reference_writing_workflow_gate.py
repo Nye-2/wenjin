@@ -222,7 +222,7 @@ async def test_reference_evidence_usage_bibtex_prism_validation_workflow_gate() 
             return_value=project_service,
         ),
     ):
-        sync_result = await SourceBibliographyService(bibliography_data, db=db).sync_prism(
+        sync_result = await SourceBibliographyService(bibliography_data).sync_prism(
             workspace_id="ws-1",
             scope="used_only",
         )
