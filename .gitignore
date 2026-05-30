@@ -41,5 +41,6 @@ backend/docker/images/texlive/*.tar
 
 # Superpowers brainstorming sessions
 .superpowers/
+.worktrees/
 frontend/test-results/
 frontend/public/pdfjs/
