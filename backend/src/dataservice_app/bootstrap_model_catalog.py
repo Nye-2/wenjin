@@ -24,4 +24,3 @@ async def seed_model_catalog_from_env(
         admin_id=admin_id,
     )
     return await model_loader.load_seeds_if_empty()
-
