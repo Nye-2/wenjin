@@ -402,7 +402,7 @@ git commit -m "feat: add dataservice model catalog"
 - Test: `backend/tests/gateway/routers/test_admin_models.py`
 - Test: `backend/tests/gateway/routers/test_models.py`
 
-- [ ] **Step 1: Write gateway tests**
+- [x] **Step 1: Write gateway tests**
 
 Cover:
 
@@ -412,7 +412,7 @@ Cover:
 - admin disable returns backend validation errors.
 - `/models` lists enabled public models only.
 
-- [ ] **Step 2: Run failing tests**
+- [x] **Step 2: Run failing tests**
 
 Run:
 
@@ -423,11 +423,11 @@ cd backend
 
 Expected: admin model tests fail before implementation; existing `/models` tests still pass until modified.
 
-- [ ] **Step 3: Implement service facade**
+- [x] **Step 3: Implement service facade**
 
 `ModelCatalogService` wraps `AsyncDataServiceClient` and keeps browser responses redacted.
 
-- [ ] **Step 4: Implement admin router**
+- [x] **Step 4: Implement admin router**
 
 Routes:
 
@@ -442,11 +442,11 @@ POST   /api/admin/models/{model_id}/test
 
 Use `get_current_admin`.
 
-- [ ] **Step 5: Update public `/models` route**
+- [x] **Step 5: Update public `/models` route**
 
 Keep response shape compatible with current frontend `ModelInfo`; source data from the model catalog service once runtime cache is introduced, or from DataService directly for gateway.
 
-- [ ] **Step 6: Run tests and commit**
+- [x] **Step 6: Run tests and commit**
 
 Run:
 
