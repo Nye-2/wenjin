@@ -159,6 +159,9 @@ class ExecutionEngineV2:
             return brief
 
         prism_required = await self._requires_prism_surface(brief, execution)
+        if not prism_required:
+            return brief
+
         async with dataservice_client() as client:
             prism_service = WorkspacePrismService(dataservice=client)
             try:

@@ -1,7 +1,13 @@
 # Runtime Boundary Convergence Design
 
 Date: 2026-05-30
-Status: Approved for implementation
+Status: Implemented on master
+
+Implementation commits:
+
+- `86f10cef` — auth/account runtime now uses Account DataService subject/client boundary.
+- `c57e5efd` — artifact runtime naming and client contracts are WorkspaceArtifact / Asset DataService.
+- `4f93cba3` — LaTeX public API moved behind Prism adapter routes; adapter runtime services no longer carry DB sessions.
 
 ## Goal
 
@@ -182,4 +188,3 @@ This is a direct migration on `master`:
 - Rewriting the LaTeX file editor UI design.
 - Replacing the LaTeX compile engine.
 - Keeping old `/latex/*` clients alive.
-

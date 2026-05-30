@@ -1,6 +1,6 @@
 # Wenjin Current Docs Map
 
-更新时间：2026-05-22
+更新时间：2026-05-30
 状态：Current
 
 本目录是 Wenjin 当前实现的唯一事实源目录。后续开发、联调、review、发布前检查，优先只看这里。
@@ -16,6 +16,7 @@
 | `workspace-reference-library.md` | Reference Library 当前事实源 |
 | `workspace-prism-surface-release-notes.md` | workspace-owned Prism 当前发布说明与验证口径 |
 | `release-gate-checklist.md` | 发布与回归门禁 |
+| `../superpowers/plans/2026-05-30-runtime-boundary-convergence.md` | auth/account、artifact/asset、Prism LaTeX adapter 边界收敛实现记录 |
 | `../superpowers/plans/2026-05-22-workspace-execution-experience-convergence.md` | workspace execution UX 收敛实现记录；当前已合入主线 |
 
 ## 2. 运维与环境
@@ -41,9 +42,10 @@
 3. `docs/current/architecture.md`
 4. `docs/current/workspace-current-state.md`
 5. `docs/current/frontend-feature-plugin-contract.md`
-6. 涉及 execution UX / Runs / Live panel 时看 `docs/superpowers/plans/2026-05-22-workspace-execution-experience-convergence.md`
-7. 涉及 Prism 主稿链路时看 `docs/current/workspace-prism-surface-release-notes.md`
-8. 需要时再看对应专题
+6. 涉及 DataService runtime 边界、auth/account、artifact/asset、Prism adapter 时看 `docs/superpowers/plans/2026-05-30-runtime-boundary-convergence.md`
+7. 涉及 execution UX / Runs / Live panel 时看 `docs/superpowers/plans/2026-05-22-workspace-execution-experience-convergence.md`
+8. 涉及 Prism 主稿链路时看 `docs/current/workspace-prism-surface-release-notes.md`
+9. 需要时再看对应专题
 
 ## 5. 提交前维护清单
 

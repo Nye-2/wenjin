@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-05-27
+更新时间：2026-05-30
 状态：Current
 适用项目：`wenjin`
 
@@ -73,13 +73,15 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 
 1. Prism 是 workspace 的第二主 surface，canonical route 为 `/workspaces/{workspace_id}/prism`
 2. `LatexProject.workspace_id + surface_role=primary_manuscript` 是 workspace 与主稿项目的绑定事实
-3. Canonical `review_items` 是文件变更 review 状态事实源；ResultCard、CompletedView、Compute、Prism Changes 共享同一 projection
-4. Canonical `provenance_links` 记录稿件变更与 Library / Documents / execution 输出的 provenance
-5. Canonical `prism_protected_scopes` 记录用户手动保护的稿件范围，并进入后续 agent launch context
-6. `WorkspacePrismService` 对外提供 surface projection：main file、target files、pending/applied review items、source links、protected sections、activity、compile status
-7. `TaskBrief.manuscript_context` 只注入 lightweight manuscript projection，不传完整正文、完整 diff 或 PDF
-8. `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
-9. DataService review batch/action log 是 Prism review 的事务边界；batch/items 先 flush，action log 后写入，保证独立 DataService + Postgres 部署下 FK 顺序稳定。
+3. LaTeX editor/compile/file-change endpoints 只作为 Prism adapter 暴露在 `/api/prism/latex-adapter/*`；旧 `/api/latex/*` 不提供兼容层、fallback 或 redirect
+4. Canonical `review_items` 是文件变更 review 状态事实源；ResultCard、CompletedView、Compute、Prism Changes 共享同一 projection
+5. Canonical `provenance_links` 记录稿件变更与 Library / Documents / execution 输出的 provenance
+6. Canonical `prism_protected_scopes` 记录用户手动保护的稿件范围，并进入后续 agent launch context
+7. `WorkspacePrismService` 对外提供 surface projection：main file、target files、pending/applied review items、source links、protected sections、activity、compile status
+8. `TaskBrief.manuscript_context` 只注入 lightweight manuscript projection，不传完整正文、完整 diff 或 PDF
+9. `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
+10. DataService review batch/action log 是 Prism review 的事务边界；batch/items 先 flush，action log 后写入，保证独立 DataService + Postgres 部署下 FK 顺序稳定。
+11. Prism adapter routers 和 LaTeX/WorkspacePrism runtime services 通过 DataService client 访问 Latex/Prism/Review/Source facts，不再携带 runtime DB session。
 
 ## 7. 前端信息架构
 

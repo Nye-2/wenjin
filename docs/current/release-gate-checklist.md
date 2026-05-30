@@ -1,10 +1,10 @@
 # Release Gate Checklist
 
-更新时间: 2026-05-22
+更新时间: 2026-05-30
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
 
-最新验证：2026-05-22 Prism writing review E2E：backend target suite 53 passed（Lead runtime Prism staging、DataService review batch/action log、Prism workflow gate、workspace Prism projection、Runs projection）；frontend Playwright `iteration.spec.ts prism-surface.spec.ts --project=chromium` 5 passed；Docker local-build 重建 gateway / worker / dataservice / bootstrap-admin 后服务 healthy；真实浏览器 smoke 通过：runtime staging -> canonical `review_items` pending -> workspace Prism route -> diff preview -> apply -> `review_summary.pending_count=0/applied_count=1`。workspace execution UX convergence：frontend `npx vitest run` 205 passed；frontend `npm run typecheck` passed；backend target suite 32 passed；`git diff --check` passed；Docker local-build 重建 gateway / worker / frontend 后服务 healthy；Browser smoke 通过：workspace query seed 启动 `sci_literature_positioning` -> chat launch receipt -> LiveWorkflowPanel Current run running -> completed -> Runs drawer 历史记录。Super Agent capability cutover target suite：backend 122 passed；frontend `npm run typecheck` passed；frontend `npx vitest run` 198 passed。DataService / Prism / Conversation cleanup 基线：backend full pytest 1952 passed；frontend typecheck / lint passed；Alembic single head 为 `075_enforce_workspace_owner_membership`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
+最新验证：2026-05-30 runtime boundary convergence：backend full pytest 2005 passed；frontend `npm run typecheck` passed；frontend `npm run build` passed；backend Prism/LaTeX/Reference/architecture target suite 88 passed；frontend Prism adapter API unit 5 passed；`git diff --check` passed。2026-05-22 Prism writing review E2E：backend target suite 53 passed（Lead runtime Prism staging、DataService review batch/action log、Prism workflow gate、workspace Prism projection、Runs projection）；frontend Playwright `iteration.spec.ts prism-surface.spec.ts --project=chromium` 5 passed；Docker local-build 重建 gateway / worker / dataservice / bootstrap-admin 后服务 healthy；真实浏览器 smoke 通过：runtime staging -> canonical `review_items` pending -> workspace Prism route -> diff preview -> apply -> `review_summary.pending_count=0/applied_count=1`。workspace execution UX convergence：frontend `npx vitest run` 205 passed；frontend `npm run typecheck` passed；backend target suite 32 passed；`git diff --check` passed；Docker local-build 重建 gateway / worker / frontend 后服务 healthy；Browser smoke 通过：workspace query seed 启动 `sci_literature_positioning` -> chat launch receipt -> LiveWorkflowPanel Current run running -> completed -> Runs drawer 历史记录。Super Agent capability cutover target suite：backend 122 passed；frontend `npm run typecheck` passed；frontend `npx vitest run` 198 passed。DataService / Prism / Conversation cleanup 基线：backend full pytest 1952 passed；frontend typecheck / lint passed；Alembic single head 为 `075_enforce_workspace_owner_membership`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
 
 ## 1. Core Gate (必须全绿)
 
@@ -35,9 +35,14 @@
   - `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 writer 输出必须 stage 到 workspace primary Prism project
   - DataService review batch 创建必须先持久化 batch/items，再写 action log，避免 Postgres FK 顺序失败
   - Browser smoke 必须覆盖 pending diff 可见、apply 成功、`review_summary` 回流
-16. 统一门禁命令（发布前需要运行）：
+16. Runtime boundary convergence gate：
+  - Auth dependencies / token helpers / `UserService` 必须只走 Account DataService subject/client，不得重新引入 request-time DB session
+  - Artifact runtime surface 必须使用 WorkspaceArtifact / Asset DataService 命名和 client contract，不得恢复 `legacy_artifact` runtime naming
+  - Prism manuscript adapter API 必须位于 `/api/prism/latex-adapter/*`；`/api/latex/*` 不得提供兼容层或 redirect
+  - Prism adapter routers 和 LaTeX/WorkspacePrism services 不得接受或存储 runtime DB session
+17. 统一门禁命令（发布前需要运行）：
   - `cd backend && uv run python -m src.quality.release_gate_cli`
-17. 当前 Core Gate 覆盖:
+18. 当前 Core Gate 覆盖:
   - `tests/workspace_features/test_workspace_e2e_matrix.py`
   - `tests/gateway/routers/test_features.py`
   - `tests/application/services/test_feature_submission_service.py`
@@ -58,14 +63,14 @@
   - `tests/services/test_prism_review_workflow_gate.py tests/compute/test_projection_service.py`
   - `tests/workspace_features/services/test_sci_feature_service.py`
   - `tests/services/test_auth_email_workflow_gate.py tests/gateway/routers/test_auth.py tests/services/test_email_service.py`
-18. 前端静态检查通过:
+19. 前端静态检查通过:
   - `npm run typecheck`
   - `npm run lint`
   - `npm run build`
-19. Execution UX 建议回归:
+20. Execution UX 建议回归:
   - `cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/stores/chat-store.test.ts tests/unit/hooks/useWorkspaceEventStream.test.tsx tests/unit/v2/rooms/RunsDrawer.test.tsx tests/unit/v2/ExecutionCard.test.tsx`
   - `cd backend && .venv/bin/python -m pytest tests/application/handlers/test_thread_turn_handler.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy tests/integration/test_chat_to_feature_launch.py tests/tools/test_launch_feature_tool.py -v`
-20. Prism writing review 建议回归:
+21. Prism writing review 建议回归:
   - `cd backend && .venv/bin/python -m pytest tests/dataservice/test_review_batch_service.py tests/dataservice/test_foundation.py::test_dataservice_client_prism_review_contract_methods tests/agents/lead_agent/v2/test_output_mapping.py tests/agents/lead_agent/v2/test_runtime.py tests/services/test_prism_review_workflow_gate.py tests/services/test_workspace_prism_service.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy -v`
   - `cd frontend && npm run test:e2e -- iteration.spec.ts prism-surface.spec.ts --project=chromium`
 

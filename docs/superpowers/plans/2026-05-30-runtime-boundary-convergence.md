@@ -10,6 +10,36 @@
 
 ---
 
+## Implementation Status
+
+更新时间：2026-05-30
+
+已完成并提交：
+
+- `86f10cef refactor: route auth through account dataservice`
+  - `get_current_user` / `get_current_admin` 返回 Account DataService subject。
+  - auth token helper 与 `UserService` 不再携带 runtime DB session。
+- `c57e5efd refactor: canonicalize workspace artifact boundary`
+  - Runtime contract 收敛到 `WorkspaceArtifact*` / Asset DataService。
+  - `legacy_artifact` 命名退出 runtime surface。
+- `4f93cba3 refactor: route latex surface through prism adapter`
+  - 前端/后端 manuscript adapter API 收敛到 `/api/prism/latex-adapter/*`。
+  - `/api/latex/*` 不提供 compatibility layer、fallback 或 redirect。
+  - Prism adapter routers、LaTeX services、WorkspacePrism/WorkspaceLatex services 通过 DataService client 访问 persistence，不再接受 runtime DB session。
+
+已验证：
+
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/gateway/routers/test_latex_upload_limits.py tests/gateway/routers/test_latex_workspace_route_convergence.py tests/services/test_latex_hardening.py tests/services/test_workspace_prism_service.py tests/services/test_prism_review_workflow_gate.py tests/services/test_reference_writing_workflow_gate.py tests/gateway/routers/test_workspace_prism.py tests/compute/test_projection_service.py tests/architecture/test_dataservice_boundaries.py -q` -> 88 passed.
+- `cd frontend && npm run test -- tests/unit/lib/prism-review-api.test.ts` -> 5 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2005 passed.
+- `cd frontend && npm run typecheck` -> passed.
+- `cd frontend && npm run build` -> passed.
+- `git diff --check` -> passed.
+
+当前发布前统一门禁已通过。
+
+---
+
 ## File Structure
 
 ### Auth / Account
@@ -439,4 +469,3 @@ git commit -m "docs: record runtime boundary convergence"
 ```bash
 git push origin master
 ```
-

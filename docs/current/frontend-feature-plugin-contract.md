@@ -139,6 +139,7 @@
 6. Prism writing result action 必须统一落到 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`，不得落到 standalone `/latex/{project_id}` 页面。
 7. Runs drawer 必须合并 live execution store 与 `/api/workspaces/{workspace_id}/runs`，不得成为第二套执行状态系统。
 8. LiveWorkflowPanel 必须 pin 当前 active/focused run；从 running 到 completed 的状态切换必须来自 execution store / Runs projection，不来自本地计时假设。
+9. Prism editor API client 可以继续位于 `frontend/lib/api/latex.ts`，但它是 Prism LaTeX adapter client；所有 HTTP 调用必须走 `/prism/latex-adapter/*` 或 `/api/prism/latex-adapter/*`，不得调用 `/latex/*` 或 `/api/latex/*`。
 
 ### 4.1 全站 UIUX 收敛约束
 
@@ -171,3 +172,4 @@
 - LiveWorkflowPanel 必须能从 `/api/workspaces/{workspace_id}/compute/sessions` 和 `/api/compute/sessions/{compute_session_id}/projection` 恢复任务状态。
 - WenjinPrism file changes 必须走 DB-backed review item 与 `preview -> apply/reject/revert`；前端不得直接把 capability 生成内容写入 Prism 文件。
 - Prism protected sections 与 source links 由后端 canonical tables 投影；前端只做展示、聚焦导航和用户动作触发。
+- Prism adapter route 是后端 manuscript editing 的唯一 API 面；前端不得恢复 standalone LaTeX page/action，也不得为旧 route 增加兼容跳转。

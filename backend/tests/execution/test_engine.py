@@ -246,7 +246,36 @@ async def test_engine_refunds_feature_billing_when_completion_persist_fails():
 @pytest.mark.asyncio
 async def test_engine_injects_lightweight_manuscript_context(monkeypatch: pytest.MonkeyPatch):
     """Runtime TaskBrief receives current Prism launch context when available."""
-    record = _make_execution_record(user_id="user-1", workspace_id="ws-1")
+    class _ClientContext:
+        def __init__(self, client: object) -> None:
+            self.client = client
+
+        async def __aenter__(self) -> object:
+            return self.client
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    fake_client = SimpleNamespace(
+        get_catalog_capability=AsyncMock(
+            return_value=SimpleNamespace(
+                definition_json={"mission": {"primary_surface": "prism"}},
+                graph_template={},
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        "src.execution.engine.dataservice_client",
+        lambda: _ClientContext(fake_client),
+    )
+
+    record = _make_execution_record(
+        user_id="user-1",
+        workspace_id="ws-1",
+        feature_id="research_question_to_paper",
+        workspace_type="sci",
+    )
+    record.params["brief"]["capability_id"] = "research_question_to_paper"
     report = _make_task_report()
     execution_svc = _make_execution_service(record=record)
     execution_svc.db = object.__new__(AsyncSession)

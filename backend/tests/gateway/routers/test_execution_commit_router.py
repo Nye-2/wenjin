@@ -13,9 +13,6 @@ from src.gateway.auth_dependencies import (
 from src.gateway.auth_dependencies import (
     get_dataservice_client as auth_get_dataservice_client,
 )
-from src.gateway.auth_dependencies import (
-    get_db as auth_get_db,
-)
 from src.gateway.routers.execution_commit import (
     _get_commit_service,
     router,
@@ -45,14 +42,10 @@ def _make_app(
     async def override_commit_service() -> ExecutionCommitService:
         return commit_service
 
-    async def override_db():
-        yield MagicMock()
-
     async def override_dataservice():
         yield MagicMock()
 
     app.dependency_overrides[_get_commit_service] = override_commit_service
-    app.dependency_overrides[auth_get_db] = override_db
     app.dependency_overrides[auth_get_dataservice_client] = override_dataservice
     if authenticated:
         app.dependency_overrides[get_current_user] = lambda: _FakeUser()
