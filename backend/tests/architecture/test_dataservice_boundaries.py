@@ -402,6 +402,92 @@ def test_auth_runtime_stays_on_account_dataservice_boundary() -> None:
     )
 
 
+def test_gateway_process_stays_off_database_lifecycle() -> None:
+    """Gateway process lifecycle and readiness must depend on DataService, not DB engine."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "gateway" / "app.py": (
+            "from src.database import init_db",
+            "from src.database import close_db",
+            "await init_db()",
+            "await close_db()",
+        ),
+        SRC_ROOT / "gateway" / "health.py": (
+            "from src.database.session import engine",
+            "from sqlalchemy import text",
+            "engine.connect()",
+            "check_database",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Gateway must use DataService readiness instead of owning DB lifecycle:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_worker_process_stays_off_database_lifecycle() -> None:
+    """Worker process bootstrap must not own DB engine lifecycle after DataService migration."""
+
+    path = SRC_ROOT / "task" / "worker.py"
+    source = path.read_text(encoding="utf-8")
+    forbidden_tokens = (
+        "from src.database import init_db",
+        "from src.database import close_db",
+        "reset_db_engine",
+        "await init_db()",
+        "await close_db()",
+    )
+
+    violations = [
+        f"{path.relative_to(SRC_ROOT)} contains {token}"
+        for token in forbidden_tokens
+        if token in source
+    ]
+    assert not violations, (
+        "Worker must use DataService client and avoid DB lifecycle ownership:\n"
+        + "\n".join(violations)
+    )
+
+
+def test_runtime_type_hints_use_dataservice_contracts_not_database_models() -> None:
+    """Runtime helper type hints must reference DataService payload contracts."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "application" / "handlers" / "thread_turn_handler.py": (
+            "from src.database import Thread",
+        ),
+        SRC_ROOT / "services" / "thread_events.py": (
+            "from src.database import Thread",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "thread_serializers.py": (
+            "from src.database import Thread",
+        ),
+        SRC_ROOT / "gateway" / "routers" / "workspaces_runtime.py": (
+            "from src.database import Workspace",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Runtime type hints must use DataService client contracts:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_audit_service_stays_on_audit_dataservice_boundary() -> None:
     """Audit runtime must expose only the Audit DataService client boundary."""
 
@@ -885,6 +971,10 @@ def test_reference_library_runtime_uses_dataservice_boundary() -> None:
             "get_db",
             "db: AsyncSession",
             "SourceBibliographyService(dataservice, db=",
+        ),
+        SRC_ROOT / "services" / "execution_commit_service.py": (
+            "SourceBibliographyService(dataservice, db=",
+            "getattr(self.execution, \"db\", None)",
         ),
         SRC_ROOT / "services" / "references" / "service.py": (
             "AsyncSession",

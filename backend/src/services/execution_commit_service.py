@@ -429,11 +429,8 @@ class ExecutionCommitService:
         dataservice: AsyncDataServiceClient,
     ) -> None:
         """Materialize accepted Library sources into Prism's refs.bib."""
-        db = getattr(self.execution, "db", None)
-        if db is None:
-            return
         try:
-            await SourceBibliographyService(dataservice, db=db).sync_prism(
+            await SourceBibliographyService(dataservice).sync_prism(
                 workspace_id=workspace_id,
             )
         except Exception:

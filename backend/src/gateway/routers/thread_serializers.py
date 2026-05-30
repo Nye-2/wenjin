@@ -10,7 +10,7 @@ from src.services.thread_events import serialize_thread_summary
 from .thread_contracts import ThreadMessage, ThreadResponse, ThreadSummaryResponse
 
 if TYPE_CHECKING:
-    from src.database import Thread
+    from src.dataservice_client.contracts.conversation import ConversationThreadPayload as Thread
 
 
 def thread_messages_to_response(messages: list[dict[str, Any]]) -> list[ThreadMessage]:

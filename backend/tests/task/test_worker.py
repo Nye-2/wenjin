@@ -20,12 +20,6 @@ async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkey
     async def _fake_activate_mcp_runtime(**_kwargs):
         return FakeManager(), []
 
-    async def _fake_reset_db_engine(*, dispose_current=True):
-        init_calls.append(f"reset_db:{dispose_current}")
-
-    async def _fake_init_db():
-        init_calls.append("db")
-
     class FakeRedisClient:
         async def reset_client(self, *, close_current=True):
             init_calls.append(f"reset_redis:{close_current}")
@@ -44,8 +38,6 @@ async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkey
         "_load_worker_runtime_dependencies",
         lambda: (
             lambda: init_calls.append("sentry"),
-            _fake_reset_db_engine,
-            _fake_init_db,
             FakeRedisClient(),
             lambda: object(),
             _fake_activate_mcp_runtime,
@@ -61,10 +53,8 @@ async def test_bootstrap_worker_runtime_degrades_on_mcp_validation_errors(monkey
 
     assert init_calls == [
         "sentry",
-        "reset_db:False",
         "reset_redis:False",
         "reset_redis_stream:False",
-        "db",
         "redis",
         "redis_stream",
     ]
@@ -78,12 +68,6 @@ async def test_bootstrap_worker_runtime_raises_in_strict_mcp_mode(monkeypatch):
 
     async def _fake_activate_mcp_runtime(**_kwargs):
         return FakeManager(), []
-
-    async def _fake_reset_db_engine(*, dispose_current=True):
-        return None
-
-    async def _fake_init_db():
-        return None
 
     class FakeRedisClient:
         async def reset_client(self, *, close_current=True):
@@ -103,8 +87,6 @@ async def test_bootstrap_worker_runtime_raises_in_strict_mcp_mode(monkeypatch):
         "_load_worker_runtime_dependencies",
         lambda: (
             lambda: None,
-            _fake_reset_db_engine,
-            _fake_init_db,
             FakeRedisClient(),
             lambda: object(),
             _fake_activate_mcp_runtime,

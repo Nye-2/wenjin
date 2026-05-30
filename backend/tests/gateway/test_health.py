@@ -24,8 +24,8 @@ def test_build_liveness_report_is_static():
 async def test_build_readiness_report_aggregates_component_health(monkeypatch):
     monkeypatch.setattr(
         health_module,
-        "check_database",
-        AsyncMock(return_value={"status": "healthy"}),
+        "check_dataservice",
+        AsyncMock(return_value={"status": "healthy", "service": "dataservice"}),
     )
     monkeypatch.setattr(
         health_module,
@@ -51,6 +51,8 @@ async def test_build_readiness_report_aggregates_component_health(monkeypatch):
     report = await health_module.build_readiness_report()
 
     assert report["status"] == "healthy"
+    assert "dataservice" in report["required_dependencies"]
+    assert report["checks"]["dataservice"]["service"] == "dataservice"
     assert report["checks"]["task_backend"]["mode"] == "celery"
 
 
@@ -58,7 +60,7 @@ async def test_build_readiness_report_aggregates_component_health(monkeypatch):
 async def test_build_readiness_report_is_unhealthy_if_any_component_fails(monkeypatch):
     monkeypatch.setattr(
         health_module,
-        "check_database",
+        "check_dataservice",
         AsyncMock(return_value={"status": "healthy"}),
     )
     monkeypatch.setattr(
@@ -92,7 +94,7 @@ async def test_build_readiness_report_is_unhealthy_if_any_component_fails(monkey
 async def test_build_readiness_report_is_degraded_when_optional_dependency_fails(monkeypatch):
     monkeypatch.setattr(
         health_module,
-        "check_database",
+        "check_dataservice",
         AsyncMock(return_value={"status": "healthy"}),
     )
     monkeypatch.setattr(
@@ -190,7 +192,7 @@ async def test_build_readiness_report_marks_dependency_unhealthy_on_timeout(monk
         await asyncio.sleep(5)
         return {"status": "healthy"}
 
-    monkeypatch.setattr(health_module, "check_database", _slow_check)
+    monkeypatch.setattr(health_module, "check_dataservice", _slow_check)
     monkeypatch.setattr(
         health_module,
         "check_redis",
@@ -215,8 +217,35 @@ async def test_build_readiness_report_marks_dependency_unhealthy_on_timeout(monk
     report = await health_module.build_readiness_report()
 
     assert report["status"] == "unhealthy"
-    assert report["checks"]["database"]["status"] == "unhealthy"
-    assert "timeout" in report["checks"]["database"]["error"]
+    assert report["checks"]["dataservice"]["status"] == "unhealthy"
+    assert "timeout" in report["checks"]["dataservice"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_check_dataservice_uses_dataservice_readyz(monkeypatch):
+    class _FakeDataServiceClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def readyz(self):
+            return {
+                "status": "healthy",
+                "service": "dataservice",
+                "database": {"status": "healthy"},
+            }
+
+    monkeypatch.setattr(health_module, "dataservice_client", _FakeDataServiceClient)
+
+    report = await health_module.check_dataservice()
+
+    assert report == {
+        "status": "healthy",
+        "service": "dataservice",
+        "database": {"status": "healthy"},
+    }
 
 
 @pytest.mark.asyncio

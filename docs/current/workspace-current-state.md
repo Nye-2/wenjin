@@ -103,6 +103,9 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 28. Conversation block payload 只持久化 canonical `kind`，不再写入旧 kind 的 shadow 字段。
 29. React subagent 请求 tools 但没有解析到 callable 时显式失败；不会把工具型节点静默当作普通 LLM 节点执行。
 30. `AuditService` 只通过 Audit DataService client 写入和查询审计记录，不再暴露 `session_factory` / ORM model 构造入口。
+31. Execution commit 接受 Library outputs 后会通过同一个 Source/Prism DataService client 同步 Prism `refs.bib`，不依赖 execution service 上的 DB session。
+32. Gateway / Worker 进程生命周期不再初始化、重置或关闭 DB engine；Gateway readiness 检查 DataService `/readyz`，worker bootstrap 只处理 Sentry、Redis 和 MCP runtime。
+33. Thread / workspace runtime helper 的类型注解使用 DataService payload contract，不再引用 DB `Thread` / `Workspace` model。
 
 ## 7. 前端信息架构
 

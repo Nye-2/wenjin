@@ -9,12 +9,10 @@ import urllib.request
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from sqlalchemy import text
-
 from src.academic.cache.redis_client import redis_client
 from src.config import get_extensions_config, settings
 from src.config.app_config import celery_settings, get_prometheus_settings
-from src.database.session import engine
+from src.dataservice_client.provider import dataservice_client
 from src.execution.capabilities import execution_type_readiness
 from src.execution.types import ExecutionType
 from src.mcp import peek_mcp_manager
@@ -29,14 +27,19 @@ def _mcp_failure_status() -> str:
     return "unhealthy" if settings.mcp_required_for_readiness else "degraded"
 
 
-async def check_database() -> dict[str, Any]:
-    """Verify database connectivity."""
+async def check_dataservice() -> dict[str, Any]:
+    """Verify standalone DataService readiness."""
     try:
-        async with engine.connect() as connection:
-            await connection.execute(text("SELECT 1"))
-        return {"status": "healthy"}
+        async with dataservice_client() as client:
+            report = await client.readyz()
+        status = str(report.get("status") or "unhealthy")
+        return {
+            **report,
+            "status": status,
+            "service": report.get("service") or "dataservice",
+        }
     except Exception as exc:
-        return {"status": "unhealthy", "error": str(exc)}
+        return {"status": "unhealthy", "service": "dataservice", "error": str(exc)}
 
 
 async def check_redis() -> dict[str, Any]:
@@ -234,21 +237,21 @@ async def build_readiness_report() -> dict[str, Any]:
             )
             return {"status": "unhealthy", "error": str(exc)}
 
-    database, redis, task_backend, mcp, execution = await asyncio.gather(
-        _run_check_with_timeout("database", check_database),
+    dataservice, redis, task_backend, mcp, execution = await asyncio.gather(
+        _run_check_with_timeout("dataservice", check_dataservice),
         _run_check_with_timeout("redis", check_redis),
         _run_check_with_timeout("task_backend", check_task_backend),
         _run_check_with_timeout("mcp", check_mcp),
         _run_check_with_timeout("execution", check_execution),
     )
     checks = {
-        "database": database,
+        "dataservice": dataservice,
         "redis": redis,
         "task_backend": task_backend,
         "mcp": mcp,
         "execution": execution,
     }
-    required_dependencies = ["database", "redis", "task_backend", "execution"]
+    required_dependencies = ["dataservice", "redis", "task_backend", "execution"]
     if settings.mcp_required_for_readiness:
         required_dependencies.append("mcp")
 

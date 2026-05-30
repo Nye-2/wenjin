@@ -17,7 +17,7 @@ from src.services.workspace_activity_contracts import (
 from src.workspace_events import publish_workspace_event
 
 if TYPE_CHECKING:
-    from src.database import Thread
+    from src.dataservice_client.contracts.conversation import ConversationThreadPayload as Thread
 
 logger = logging.getLogger(__name__)
 
