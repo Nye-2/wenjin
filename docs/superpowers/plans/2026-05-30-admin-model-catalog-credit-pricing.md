@@ -890,7 +890,7 @@ git commit -m "feat: seed model catalog and enforce pricing gates"
 - Test: `frontend/tests/unit/lib/admin-models-api.test.ts`
 - Test: `frontend/tests/unit/lib/admin-pricing-api.test.ts`
 
-- [ ] **Step 1: Write API client tests**
+- [x] **Step 1: Write API client tests**
 
 Mock `apiClient` and assert endpoint paths:
 
@@ -901,7 +901,7 @@ Mock `apiClient` and assert endpoint paths:
 - `GET /admin/pricing-policies`
 - `POST /admin/pricing/simulate`
 
-- [ ] **Step 2: Write page tests**
+- [x] **Step 2: Write page tests**
 
 Cover:
 
@@ -910,7 +910,7 @@ Cover:
 - disable default model error displays.
 - pricing simulator renders credit estimate and margin.
 
-- [ ] **Step 3: Run failing frontend tests**
+- [x] **Step 3: Run failing frontend tests**
 
 Run:
 
@@ -919,22 +919,22 @@ cd frontend
 npx vitest run frontend/tests/unit/admin-models-page.test.tsx frontend/tests/unit/admin-pricing-page.test.tsx frontend/tests/unit/lib/admin-models-api.test.ts frontend/tests/unit/lib/admin-pricing-api.test.ts
 ```
 
-- [ ] **Step 4: Implement API clients**
+- [x] **Step 4: Implement API clients**
 
 Follow existing `admin-credit-rules.ts` style. Keep types explicit and avoid returning API key plaintext.
 
-- [ ] **Step 5: Implement admin pages**
+- [x] **Step 5: Implement admin pages**
 
 Use existing admin visual language. Avoid nested cards. Use compact tables, dialogs, badges, and explicit destructive confirmations.
 
-- [ ] **Step 6: Add sidebar entries**
+- [x] **Step 6: Add sidebar entries**
 
 Add:
 
 - Business section: `模型管理`
 - Credit group child: `定价策略`
 
-- [ ] **Step 7: Run tests and commit**
+- [x] **Step 7: Run tests and commit**
 
 Run:
 
@@ -942,6 +942,8 @@ Run:
 cd frontend
 npm run typecheck
 npx vitest run frontend/tests/unit/admin-models-page.test.tsx frontend/tests/unit/admin-pricing-page.test.tsx frontend/tests/unit/lib/admin-models-api.test.ts frontend/tests/unit/lib/admin-pricing-api.test.ts
+npm run lint
+npx vitest run tests/unit/admin-models-page.test.tsx tests/unit/admin-pricing-page.test.tsx tests/unit/lib/admin-models-api.test.ts tests/unit/lib/admin-pricing-api.test.ts
 ```
 
 Commit:

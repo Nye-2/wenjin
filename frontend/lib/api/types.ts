@@ -1010,6 +1010,70 @@ export interface Model {
 
 export type ModelPurpose = "chat" | "writing" | "image" | "all";
 
+export interface AdminModelCatalogItem {
+  id?: string | null;
+  model_id: string;
+  display_name: string;
+  provider_protocol: string;
+  provider_name: string;
+  category: string;
+  model_name: string;
+  base_url: string;
+  api_key_redacted?: string | null;
+  enabled: boolean;
+  is_default: boolean;
+  supports_streaming: boolean;
+  supports_tools: boolean;
+  supports_json_mode: boolean;
+  supports_json_schema: boolean;
+  supports_vision: boolean;
+  supports_reasoning_effort: boolean;
+  max_tokens: number;
+  temperature: number;
+  timeout_seconds?: number | null;
+  max_retries?: number | null;
+  trust_level: string;
+  pricing_policy_id?: string | null;
+  config_version: number;
+  health_status: string;
+  last_tested_at?: string | null;
+  last_test_error?: string | null;
+  default_headers: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AdminPricingPolicy {
+  id?: string | null;
+  policy_key: string;
+  policy_kind: string;
+  name: string;
+  enabled: boolean;
+  version: number;
+  config: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AdminPricingSimulationRequest {
+  policy_kind: string;
+  surface?: string;
+  global_policy: Record<string, unknown>;
+  model_usage_policy?: Record<string, unknown> | null;
+  capability_policy?: Record<string, unknown> | null;
+  tool_policy?: Record<string, unknown> | null;
+  sandbox_policy?: Record<string, unknown> | null;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+}
+
+export interface AdminPricingSimulationResult {
+  charge_credits: number;
+  raw_cost_cny?: number | null;
+  margin_cny?: number | null;
+  breakdown: Record<string, unknown>;
+}
+
 export interface FeatureStage {
   id: string;
   label: string;
