@@ -88,9 +88,18 @@
   - 所有 router auth 注解统一为 `AccountAuthSubject`，`get_current_user_optional` 对应 `AccountAuthSubject | None`。
   - MCP router 从 canonical `auth_dependencies` 导入 `get_current_user`，不再从 auth router 反向取依赖。
   - Architecture guard 新增 `test_gateway_routers_do_not_type_auth_subjects_as_database_users`，防止 router 层重新引入 DB `User` auth subject。
+- Current Prism adapter metadata boundary follow-up
+  - `WorkspacePrismService` adapter metadata 对外字段收敛为 canonical `source_metadata`。
+  - `legacy_metadata` 不再出现在 runtime Prism adapter surface projection 中。
+  - `_list_prism_review_items` 类型注解收敛到 DataService client contract `ReviewItemPayload`，不引用 DataService 内部 projection 类型。
+  - Architecture guard 新增 `test_prism_adapter_metadata_uses_canonical_field_names`，防止 Prism adapter metadata 重新暴露 legacy field。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/services/workspace_prism_service.py tests/services/test_workspace_prism_service.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/services/test_workspace_prism_service.py tests/gateway/routers/test_workspace_prism.py tests/execution/test_engine.py tests/architecture/test_dataservice_boundaries.py::test_prism_adapter_metadata_uses_canonical_field_names -q` -> 23 passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 25 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2017 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2007 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task/test_execution_result_card_persistence.py tests/task/test_thread_writeback.py tests/services/test_capability_resolver.py tests/gateway/routers/test_capabilities_router.py tests/gateway/test_capabilities_router.py tests/agents/lead_agent/v2/test_runtime.py tests/agents/lead_agent/v2/test_cancel_flow.py tests/agents/lead_agent/v2/test_failure_handling.py tests/architecture/test_dataservice_boundaries.py -q` -> 59 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/task tests/gateway/routers/test_uploads.py tests/architecture/test_dataservice_boundaries.py -q` -> 141 passed.

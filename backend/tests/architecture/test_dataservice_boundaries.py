@@ -1042,6 +1042,14 @@ def test_gateway_routers_do_not_type_auth_subjects_as_database_users() -> None:
     )
 
 
+def test_prism_adapter_metadata_uses_canonical_field_names() -> None:
+    """Workspace Prism adapter metadata must not expose legacy metadata fields."""
+
+    path = SRC_ROOT / "services" / "workspace_prism_service.py"
+    source = path.read_text(encoding="utf-8")
+    assert "legacy_metadata" not in source
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
