@@ -306,6 +306,7 @@ def test_every_capability_required_fields_present():
 def test_team_kernel_capability_declares_recruitable_team_policy():
     template_ids = _collect_agent_template_ids()
     skill_ids = _collect_skill_ids()
+    template_records = _collect_agent_template_records()
     assert template_ids, "no agent templates found"
     team_kernel_capabilities: list[str] = []
 
@@ -331,6 +332,15 @@ def test_team_kernel_capability_declares_recruitable_team_policy():
         assert policy.get("quality_pipeline"), (
             f"{cap_path}: team_policy.quality_pipeline must close the loop"
         )
+        capability_skills = set(policy.get("capability_skills") or [])
+        assert capability_skills, f"{cap_path}: team_policy.capability_skills must not be empty"
+        for template_id in template_refs:
+            default_skills = set(template_records[template_id].get("default_skills") or [])
+            missing_defaults = default_skills - capability_skills
+            assert not missing_defaults, (
+                f"{cap_path}: capability_skills filters out default skills for "
+                f"{template_id}: {sorted(missing_defaults)}"
+            )
         overlay_skills = set(policy.get("contract_overlay_skills") or [])
         assert overlay_skills <= skill_ids, (
             f"{cap_path}: unknown contract overlay skills {sorted(overlay_skills - skill_ids)}"

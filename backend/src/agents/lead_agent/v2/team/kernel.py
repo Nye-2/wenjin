@@ -19,6 +19,7 @@ from src.agents.contracts.task_report import (
     ResultOutput,
     TaskReport,
 )
+from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
 from src.dataservice_client.provider import dataservice_client
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
@@ -112,7 +113,12 @@ class TeamKernelRuntime:
             if invocations and all(invocation.status == "cancelled" for invocation in invocations):
                 return self._cancelled_report(execution_id, brief, started_at)
             duration = int((datetime.now(UTC) - started_at).total_seconds())
-            outputs: list[ResultOutput] = list(self._outputs_from_invocations(invocations))
+            outputs: list[ResultOutput] = self._mapped_outputs_from_graph_template(
+                capability,
+                invocations,
+            )
+            if not outputs:
+                outputs = list(self._outputs_from_invocations(invocations))
             outputs.extend(self.collect_policy_memory_outputs(capability, brief, outputs))
             errors = [
                 *self._errors_from_invocations(invocations),
@@ -721,6 +727,76 @@ class TeamKernelRuntime:
                 )
             )
         return outputs
+
+    def _mapped_outputs_from_graph_template(
+        self,
+        capability: Any,
+        invocations: list[AgentInvocation],
+    ) -> list[ResultOutput]:
+        graph_template = getattr(capability, "graph_template", None)
+        if not isinstance(graph_template, dict):
+            return []
+        node_results = self._node_results_for_graph_outputs(graph_template, invocations)
+        if not node_results:
+            return []
+        return OutputMappingResolver().resolve(graph_template, node_results)
+
+    def _node_results_for_graph_outputs(
+        self,
+        graph_template: dict[str, Any],
+        invocations: list[AgentInvocation],
+    ) -> dict[str, dict[str, Any]]:
+        node_results: dict[str, dict[str, Any]] = {}
+        for phase in graph_template.get("phases") or []:
+            for task in phase.get("tasks") or []:
+                if not task.get("outputs"):
+                    continue
+                output = self._output_for_graph_task(task, invocations)
+                if output is not None:
+                    node_results[str(task["name"])] = {"output": output}
+        return node_results
+
+    def _output_for_graph_task(
+        self,
+        task: dict[str, Any],
+        invocations: list[AgentInvocation],
+    ) -> dict[str, Any] | None:
+        skill_id = str(task.get("skill_id") or "").strip()
+        task_name = str(task.get("name") or "").strip()
+        for invocation in invocations:
+            if invocation.status != "succeeded":
+                continue
+            if skill_id and skill_id in invocation.effective_skills:
+                return invocation.output_report or {}
+        normalized_task_name = task_name.replace("-", "_")
+        for invocation in invocations:
+            if invocation.status != "succeeded":
+                continue
+            template_name = invocation.template_id.split(".")[0].replace("-", "_")
+            if normalized_task_name and normalized_task_name == template_name:
+                return invocation.output_report or {}
+        if self._task_declares_document_output(task):
+            content = self._aggregate_team_content(invocations)
+            return {"text": content} if content else None
+        return None
+
+    @staticmethod
+    def _task_declares_document_output(task: dict[str, Any]) -> bool:
+        return any(
+            isinstance(decl, dict) and decl.get("kind") == "document"
+            for decl in task.get("outputs") or []
+        )
+
+    def _aggregate_team_content(self, invocations: list[AgentInvocation]) -> str:
+        sections: list[str] = []
+        for invocation in invocations:
+            if invocation.status != "succeeded":
+                continue
+            content = self._preview_output(invocation.output_report).strip()
+            if not content:
+                continue
+            sections.append(f"## {invocation.display_name}\n\n{content}")
+        return "\n\n".join(sections)
 
     def _errors_from_invocations(self, invocations: list[AgentInvocation]) -> list[ResultError]:
         errors: list[ResultError] = []

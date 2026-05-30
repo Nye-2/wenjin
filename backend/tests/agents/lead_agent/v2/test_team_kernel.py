@@ -54,6 +54,31 @@ class TeamSchemaRepairSubagent(SubagentBase):
         )
 
 
+@subagent("team_mapping_fake")
+class TeamMappingFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        if ctx.invocation["template_id"] == "research_scout.v1":
+            return SubagentResult(
+                output={
+                    "text": "source search completed",
+                    "papers": [
+                        {
+                            "title": "Paper A",
+                            "authors": ["Smith"],
+                            "year": 2026,
+                            "doi": "10.1/a",
+                            "abstract": "A",
+                        }
+                    ],
+                },
+                token_usage={"input": 1, "output": 1},
+            )
+        return SubagentResult(
+            output={"text": f"{ctx.invocation['display_name']} report"},
+            token_usage={"input": 1, "output": 1},
+        )
+
+
 def _team_capability() -> SimpleNamespace:
     return SimpleNamespace(
         id="team_research",
@@ -276,6 +301,24 @@ class SchemaRepairTeamCatalogClient(SchemaRequiredTeamCatalogClient):
                 prompt=record.prompt,
                 config=record.config,
                 skill_json=record.skill_json,
+            )
+            for record in records
+        ]
+
+
+class MappingTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            CapabilitySkillPayload(
+                id=record.id,
+                display_name=record.display_name,
+                worker_type=record.worker_type,
+                subagent_type="team_mapping_fake",
+                prompt=record.prompt,
+                config=record.config,
             )
             for record in records
         ]
@@ -700,6 +743,85 @@ async def test_team_kernel_runtime_revises_existing_member_after_schema_gate(mon
         and gate["next_action"] == "revise_existing"
         for gate in quality_gates
     )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_resolves_graph_declared_outputs(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: MappingTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.graph_template = {
+        "phases": [
+            {
+                "name": "step_01_research_scout",
+                "tasks": [
+                    {
+                        "name": "research_scout",
+                        "subagent_type": "searcher",
+                        "skill_id": "research-scout",
+                        "outputs": [
+                            {
+                                "kind": "library_item",
+                                "iterate_on": "output.papers",
+                                "default_checked": True,
+                                "mapping": {
+                                    "title": "{{item.title}}",
+                                    "authors": "{{item.authors}}",
+                                    "year": "{{item.year}}",
+                                    "doi": "{{item.doi}}",
+                                    "abstract": "{{item.abstract}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "name": "step_02_final_report",
+                "tasks": [
+                    {
+                        "name": "source_quality_auditor",
+                        "subagent_type": "react",
+                        "skill_id": "source-quality-auditor",
+                        "outputs": [
+                            {
+                                "kind": "document",
+                                "default_checked": True,
+                                "mapping": {
+                                    "name": "文献定位与创新点.md",
+                                    "doc_kind": "review_report",
+                                    "content": "{{output.text}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        ]
+    }
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-output-map", brief=_brief())
+
+    assert report.status == "completed"
+    assert any(output.kind == "library_item" for output in report.outputs)
+    library_output = next(output for output in report.outputs if output.kind == "library_item")
+    assert library_output.data.title == "Paper A"
+    document_output = next(
+        output
+        for output in report.outputs
+        if output.kind == "document" and output.data.name == "文献定位与创新点.md"
+    )
+    assert "文献检索员" in document_output.data.content
 
 
 @pytest.mark.asyncio

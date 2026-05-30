@@ -140,6 +140,57 @@ class TestParseOutput:
         result = _parse_output("plain output", {})
         assert result == {"text": "plain output"}
 
+    def test_v2_output_schema_parses_fenced_json_without_output_kind(self):
+        payload = {
+            "text": "planned queries",
+            "quality_gates_checked": ["query_strategy_recorded"],
+            "query_log": [{"query": "federated LoRA"}],
+        }
+        result = _parse_output(
+            "```json\n" + json.dumps(payload, ensure_ascii=False) + "\n```",
+            {
+                "quality_gates": ["query_strategy_recorded"],
+                "io_contract": {
+                    "output_schema": {
+                        "type": "object",
+                        "required": ["text", "quality_gates_checked", "query_log"],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "quality_gates_checked": {"type": "array"},
+                            "query_log": {"type": "array"},
+                        },
+                    }
+                },
+            },
+        )
+
+        assert result == payload
+
+    def test_v2_output_schema_fallback_fills_contract_fields(self):
+        result = _parse_output(
+            "plain model text",
+            {
+                "quality_gates": ["task_scope_bounded"],
+                "io_contract": {
+                    "output_schema": {
+                        "type": "object",
+                        "required": ["text", "quality_gates_checked", "decision_candidates"],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "quality_gates_checked": {"type": "array"},
+                            "decision_candidates": {"type": "array"},
+                        },
+                    }
+                },
+            },
+        )
+
+        assert result == {
+            "text": "plain model text",
+            "quality_gates_checked": ["task_scope_bounded"],
+            "decision_candidates": [],
+        }
+
 
 class TestDegradedOutput:
     def test_manuscript_writer_degraded_output_uses_library_citations(self):

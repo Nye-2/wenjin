@@ -193,8 +193,11 @@ team_policy:
   - citation-auditor
   - source-quality-auditor
   - manuscript-architect
+  - document-outline-builder
   - review-critic
   - claim-verifier
+  - format-compliance-checker
+  - structured-summary
   contract_overlay_skills:
   - sci-journal-rules
   contract_overlay_categories:
