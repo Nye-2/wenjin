@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Loader2,
@@ -10,6 +10,7 @@ import {
   ListChecks,
   TrendingUp,
   Gauge,
+  Gift,
 } from "lucide-react";
 
 import { Header } from "@/components/layout/header";
@@ -24,6 +25,7 @@ import { useAuthStore } from "@/stores/auth";
 import {
   getMyCreditHistory,
   getMyDashboard,
+  redeemCreditCode,
   type CreditTransactionItem,
   type UserDashboardData,
 } from "@/lib/api";
@@ -37,13 +39,17 @@ function formatDate(dateText: string | null | undefined): string {
 
 export default function MyDashboardPage() {
   const router = useRouter();
-  const { isAuthenticated, isLoading: authLoading } = useAuthStore();
+  const { isAuthenticated, isLoading: authLoading, user, setUser } = useAuthStore();
 
   const [dashboard, setDashboard] = useState<UserDashboardData | null>(null);
   const [history, setHistory] = useState<CreditTransactionItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [redeemCode, setRedeemCode] = useState("");
+  const [isRedeeming, setIsRedeeming] = useState(false);
+  const [redeemMessage, setRedeemMessage] = useState<string | null>(null);
+  const [redeemError, setRedeemError] = useState<string | null>(null);
 
   const loadDashboard = async (refresh = false) => {
     if (refresh) setIsRefreshing(true);
@@ -57,11 +63,48 @@ export default function MyDashboardPage() {
       ]);
       setDashboard(dashboardData);
       setHistory(historyData.transactions);
+      return { dashboardData, historyData };
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
+      return null;
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
+    }
+  };
+
+  const handleRedeemCode = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const code = redeemCode.trim();
+    if (!code) {
+      setRedeemError("请输入兑换码");
+      setRedeemMessage(null);
+      return;
+    }
+
+    setIsRedeeming(true);
+    setRedeemError(null);
+    setRedeemMessage(null);
+    try {
+      const result = await redeemCreditCode(code);
+      setRedeemCode("");
+      setRedeemMessage(`兑换成功，已到账 ${result.amount.toLocaleString()} 积分。`);
+      const refreshed = await loadDashboard(true);
+      if (user) {
+        const refreshedCredits = refreshed?.dashboardData.credits;
+        setUser({
+          ...user,
+          credits: refreshedCredits?.balance ?? result.balance_after,
+          total_credits_earned:
+            refreshedCredits?.total_earned ?? user.total_credits_earned,
+          total_credits_spent:
+            refreshedCredits?.total_spent ?? user.total_credits_spent,
+        });
+      }
+    } catch (err) {
+      setRedeemError(err instanceof Error ? err.message : "兑换失败，请检查兑换码");
+    } finally {
+      setIsRedeeming(false);
     }
   };
 
@@ -142,7 +185,7 @@ export default function MyDashboardPage() {
                 creditBalance < 0 ? "text-rose-600" : "text-[var(--text-primary)]"
               }`}
             >
-              {creditBalance}
+              {creditBalance.toLocaleString()}
             </div>
             <div className="mt-1 text-xs text-[var(--text-muted)]">
               累计获得 {dashboard?.credits.total_earned ?? 0} / 累计消费 {dashboard?.credits.total_spent ?? 0}
@@ -206,6 +249,53 @@ export default function MyDashboardPage() {
             </div>
           </div>
         </div>
+
+        <section className="route-card rounded-[1.75rem] p-5">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl">
+              <div className="flex items-center gap-2">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--wjn-accent-soft)] text-[var(--accent-primary)]">
+                  <Gift className="h-4 w-4" />
+                </span>
+                <h2 className="text-lg font-semibold text-[var(--text-primary)]">兑换码充值</h2>
+              </div>
+              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                输入管理员发放的 credits 兑换码，成功后会立即写入积分流水，并刷新账户余额。
+              </p>
+            </div>
+
+            <form onSubmit={handleRedeemCode} className="w-full max-w-xl">
+              <label
+                htmlFor="credit-redeem-code"
+                className="text-xs font-medium text-[var(--text-muted)]"
+              >
+                兑换码
+              </label>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                <input
+                  id="credit-redeem-code"
+                  value={redeemCode}
+                  onChange={(event) => setRedeemCode(event.target.value)}
+                  placeholder="输入兑换码"
+                  className="min-h-11 flex-1 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-4 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-primary)] focus:ring-4 focus:ring-[var(--accent-primary)]/10"
+                />
+                <button
+                  type="submit"
+                  disabled={isRedeeming}
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--accent-primary)] px-5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+                >
+                  {isRedeeming ? "兑换中..." : "立即兑换"}
+                </button>
+              </div>
+              {redeemMessage ? (
+                <div className="mt-2 text-sm text-emerald-600">{redeemMessage}</div>
+              ) : null}
+              {redeemError ? (
+                <div className="mt-2 text-sm text-rose-600">{redeemError}</div>
+              ) : null}
+            </form>
+          </div>
+        </section>
 
         {threadCredit?.enabled ? (
           <section
