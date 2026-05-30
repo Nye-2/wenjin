@@ -35,7 +35,7 @@ class ModelUsagePolicyConfig(BaseModel):
     free_tokens: int = Field(default=0, ge=0)
     max_overdraft_credits: int = Field(default=100, ge=0)
 
-    # Legacy fields are accepted while existing seed/tests migrate to value pricing.
+    # Compatibility fields are accepted while seed/tests migrate to value pricing.
     tokens_per_credit: int | None = Field(default=None, gt=0)
     prompt_token_weight: float | None = Field(default=None, ge=0)
     completion_token_weight: float | None = Field(default=None, ge=0)

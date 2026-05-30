@@ -78,6 +78,9 @@ class LLMSettings:
 
 
 _env_loaded = False
+_converted_model_cache_snapshot_id: int | None = None
+_converted_model_cache: tuple[dict[str, "ModelConfig"], dict[str, "ModelConfig"]] | None = None
+_invalid_explicit_default_model_id: str | None = None
 
 
 def _maybe_load_env_file() -> None:
@@ -243,7 +246,16 @@ def _get_cached_models() -> tuple[
     Returns:
         Tuple of (llm_models, image_models)
     """
+    global _converted_model_cache, _converted_model_cache_snapshot_id
+
     snapshot = get_model_catalog_snapshot()
+    snapshot_id = id(snapshot)
+    if (
+        _converted_model_cache is not None
+        and _converted_model_cache_snapshot_id == snapshot_id
+    ):
+        return _converted_model_cache
+
     llm_models = {
         model.id: _runtime_to_model_config(model)
         for model in snapshot.models(category="llm")
@@ -252,7 +264,9 @@ def _get_cached_models() -> tuple[
         model.id: _runtime_to_model_config(model)
         for model in snapshot.models(category="image")
     }
-    return llm_models, image_models
+    _converted_model_cache_snapshot_id = snapshot_id
+    _converted_model_cache = (llm_models, image_models)
+    return _converted_model_cache
 
 
 def reload_models() -> tuple[
@@ -268,9 +282,16 @@ def reload_models() -> tuple[
     Returns:
         Tuple of (llm_models, image_models)
     """
+    global _converted_model_cache, _converted_model_cache_snapshot_id
+    global _invalid_explicit_default_model_id
+
+    _invalid_explicit_default_model_id = None
     llm_models, image_models = _load_models_from_env()
     explicit_default = os.environ.get("LLM_DEFAULT_MODEL", "").strip()
     if explicit_default and explicit_default not in llm_models and explicit_default not in image_models:
+        _invalid_explicit_default_model_id = explicit_default
+        _converted_model_cache_snapshot_id = None
+        _converted_model_cache = None
         reset_model_catalog_cache()
         return {}, {}
 
@@ -285,6 +306,8 @@ def reload_models() -> tuple[
         for model in image_models.values()
     )
     install_model_catalog_snapshot(all_models)
+    _converted_model_cache_snapshot_id = None
+    _converted_model_cache = None
 
     return _get_cached_models()
 
@@ -406,6 +429,11 @@ def get_default_model_id() -> str:
     Raises:
         ValueError: If no models are configured.
     """
+    if _invalid_explicit_default_model_id:
+        raise ValueError(
+            f"LLM_DEFAULT_MODEL is not configured: {_invalid_explicit_default_model_id}"
+        )
+
     try:
         return get_default_runtime_model_id()
     except ValueError as exc:

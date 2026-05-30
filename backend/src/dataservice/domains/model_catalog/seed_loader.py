@@ -1,4 +1,4 @@
-"""One-time model catalog seed import from legacy environment config."""
+"""One-time model catalog seed import from environment config."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class DataServiceModelCatalogSeedLoader:
-    """Seed DataService model catalog from legacy LLM env config when empty."""
+    """Seed DataService model catalog from LLM env config when empty."""
 
     def __init__(
         self,
@@ -39,7 +39,7 @@ class DataServiceModelCatalogSeedLoader:
             await self.service.create_model(seed, admin_id=self.admin_id)
             loaded += 1
         if loaded:
-            logger.info("Loaded %d model catalog seed(s) from legacy env config", loaded)
+            logger.info("Loaded %d model catalog seed(s) from env config", loaded)
         return loaded
 
     def _read_seed_models(self) -> list[dict[str, Any]]:

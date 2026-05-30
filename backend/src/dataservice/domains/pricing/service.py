@@ -6,6 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.billing.policies import calculate_model_usage_credits
 from src.database.models.pricing_policy import PricingPolicyKind
 from src.dataservice.domains.pricing.contracts import (
     CapabilityPricingPolicyConfig,
@@ -20,7 +21,6 @@ from src.dataservice.domains.pricing.contracts import (
     ToolPricingPolicyConfig,
 )
 from src.dataservice.domains.pricing.repository import PricingPolicyRepository
-from src.services.billing_policy import calculate_model_usage_credits
 
 
 class DataServicePricingPolicyService:

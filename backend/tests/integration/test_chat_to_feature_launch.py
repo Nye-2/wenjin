@@ -66,6 +66,15 @@ class _FakeLaunchDataServiceClient:
     async def get_credit_balance(self, user_id: str) -> int | None:
         return 10
 
+    async def create_credit_reservation(self, command):
+        return SimpleNamespace(
+            id="reservation-1",
+            user_id=command.user_id,
+            reserved_credits=command.reserved_credits,
+            workspace_id=command.workspace_id,
+            execution_id=command.execution_id,
+        )
+
 
 @pytest.fixture(autouse=True)
 def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):

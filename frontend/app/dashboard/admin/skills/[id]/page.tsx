@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
@@ -13,7 +13,12 @@ import {
   validateAdminSkill,
 } from "@/lib/api/admin-skills";
 
-export default function SkillEditPage({ params }: { params: { id: string } }) {
+export default function SkillEditPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = use(params);
   const router = useRouter();
 
   const [yamlText, setYamlText] = useState("");
@@ -25,13 +30,13 @@ export default function SkillEditPage({ params }: { params: { id: string } }) {
 
   useEffect(() => {
     setIsLoading(true);
-    getAdminSkill(params.id)
+    getAdminSkill(id)
       .then((res) => {
         setYamlText(res.yaml);
         setOriginalYaml(res.yaml);
       })
       .finally(() => setIsLoading(false));
-  }, [params.id]);
+  }, [id]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -53,7 +58,7 @@ export default function SkillEditPage({ params }: { params: { id: string } }) {
     setIsSaving(true);
     setSaveError(null);
     try {
-      await updateAdminSkill(params.id, yamlText);
+      await updateAdminSkill(id, yamlText);
       setOriginalYaml(yamlText);
       router.push("/dashboard/admin/skills");
     } catch (e) {
@@ -64,8 +69,8 @@ export default function SkillEditPage({ params }: { params: { id: string } }) {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`确认删除 skill "${params.id}"？此操作不可恢复。`)) return;
-    await deleteAdminSkill(params.id);
+    if (!confirm(`确认删除 skill "${id}"？此操作不可恢复。`)) return;
+    await deleteAdminSkill(id);
     router.push("/dashboard/admin/skills");
   };
 
@@ -92,7 +97,7 @@ export default function SkillEditPage({ params }: { params: { id: string } }) {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <h1 className="text-xl font-bold text-[var(--text-primary)]">
-            {params.id}
+            {id}
           </h1>
         </div>
         <div className="flex items-center gap-2">

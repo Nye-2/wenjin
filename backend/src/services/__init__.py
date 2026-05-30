@@ -1,9 +1,9 @@
 """Services package for Wenjin.
 
-The package root intentionally exposes legacy service symbols lazily. Several
-low-level modules import specific submodules such as ``src.services.model_catalog_cache``;
-eager imports here would pull auth, thread, agent, and execution dependencies into
-configuration import paths and create circular imports.
+The package root intentionally exposes service symbols lazily. Several low-level
+modules import specific submodules such as ``src.services.model_catalog_cache``;
+eager imports here would pull auth, thread, agent, and execution dependencies
+into configuration import paths and create circular imports.
 """
 
 from __future__ import annotations

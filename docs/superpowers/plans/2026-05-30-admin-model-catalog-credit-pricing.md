@@ -958,7 +958,7 @@ git commit -m "feat: add admin model and pricing pages"
 **Files:**
 - All changed files.
 
-- [ ] **Step 1: Run backend lint**
+- [x] **Step 1: Run backend lint**
 
 ```bash
 cd backend
@@ -967,7 +967,9 @@ cd backend
 
 Expected: `All checks passed!`
 
-- [ ] **Step 2: Run backend full tests**
+Actual: `All checks passed!`
+
+- [x] **Step 2: Run backend full tests**
 
 ```bash
 cd backend
@@ -977,7 +979,9 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u al
 
 Expected: all tests pass.
 
-- [ ] **Step 3: Run frontend checks**
+Actual: `2169 passed`.
+
+- [x] **Step 3: Run frontend checks**
 
 ```bash
 cd frontend
@@ -988,7 +992,14 @@ npm run build
 
 Expected: typecheck, Vitest, and production build pass.
 
-- [ ] **Step 4: Run migration smoke**
+Actual:
+
+- `npm run typecheck`: passed.
+- `npm run lint`: passed.
+- `npm test`: `53 passed`, `241 tests`.
+- `npm run build`: passed after replacing the worktree `node_modules` symlink with a local install.
+
+- [x] **Step 4: Run migration smoke**
 
 ```bash
 cd backend
@@ -997,7 +1008,9 @@ cd backend
 
 Expected: migration reaches latest head in local configured DB. If local DB is unavailable, report that explicitly and rely on migration bootstrap tests.
 
-- [ ] **Step 5: Manual browser check**
+Actual: `alembic upgrade head` reached `077_model_catalog_pricing_reservations`.
+
+- [x] **Step 5: Manual browser check**
 
 Start dev server:
 
@@ -1013,7 +1026,16 @@ Open admin pages in the local browser:
 
 Verify no layout overlap and key fields redact secrets.
 
-- [ ] **Step 6: Final git review**
+Actual:
+
+- Dev server started at `http://localhost:3310`.
+- In-app browser opened both admin URLs.
+- Both URLs correctly redirected to login because the local browser session had no admin auth state:
+  - `/dashboard/admin/models` -> `/login?redirect=%2Fdashboard%2Fadmin%2Fmodels`
+  - `/dashboard/admin/credits/pricing` -> `/login?redirect=%2Fdashboard%2Fadmin%2Fcredits%2Fpricing`
+- Authenticated table/dialog rendering and API-key redaction are covered by frontend unit tests and production build. Full authenticated visual inspection still needs a logged-in admin browser session or a local backend auth fixture.
+
+- [x] **Step 6: Final git review**
 
 ```bash
 git status --short --branch
@@ -1021,7 +1043,14 @@ git log --oneline --decorate -12
 git diff --stat origin/master..HEAD
 ```
 
-- [ ] **Step 7: Commit final cleanup if needed**
+Actual:
+
+- `git diff --check`: passed.
+- `git status --short --branch`: reviewed current branch and final cleanup changes.
+- `git log --oneline --decorate -12`: reviewed feature commit stack.
+- `git diff --stat origin/master..HEAD`: reviewed overall feature scope.
+
+- [x] **Step 7: Commit final cleanup if needed**
 
 Only commit if verification caused doc/test cleanup.
 
@@ -1029,6 +1058,8 @@ Only commit if verification caused doc/test cleanup.
 git add <files>
 git commit -m "test: verify admin model pricing system"
 ```
+
+Actual: final cleanup is committed with architecture boundary fixes, Next 16 route typing fixes, and verification notes.
 
 ## Execution Notes
 
