@@ -31,7 +31,15 @@ def _skill_v2_payload(*, skill_id: str = "research-scout") -> dict:
         },
         "io_contract": {
             "input_schema": {"type": "object"},
-            "output_schema": {"type": "object"},
+            "output_schema": {
+                "type": "object",
+                "properties": {
+                    "quality_gates_checked": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    }
+                },
+            },
         },
         "context_access": {
             "room_reads": {"library": "summary"},

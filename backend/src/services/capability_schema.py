@@ -271,12 +271,20 @@ class CapabilityV2YamlModel(BaseModel):
 
     @model_validator(mode="after")
     def validate_team_kernel_contract(self) -> CapabilityV2YamlModel:
+        _validate_non_blank_ids(self.quality_gates, "quality_gates")
         if self.runtime is None:
             if self.team_policy is not None:
                 raise ValueError("team_policy requires runtime.mode=team_kernel")
             return self
         if self.runtime.mode == "team_kernel" and self.team_policy is None:
             raise ValueError("runtime.mode=team_kernel requires team_policy")
+        if self.runtime.mode == "team_kernel" and self.team_policy is not None:
+            _validate_non_blank_ids(
+                self.team_policy.quality_pipeline,
+                "team_policy.quality_pipeline",
+            )
+            if not self.team_policy.quality_pipeline:
+                raise ValueError("runtime.mode=team_kernel requires team_policy.quality_pipeline")
         return self
 
     def to_catalog_data(self) -> dict[str, Any]:
@@ -375,6 +383,25 @@ class CapabilitySkillV2YamlModel(BaseModel):
     def subagent_type(self) -> str:
         return self.worker.subagent_type
 
+    @model_validator(mode="after")
+    def validate_quality_contract_shape(self) -> CapabilitySkillV2YamlModel:
+        _validate_non_blank_ids(self.quality_gates, "quality_gates")
+        output_schema = self.io_contract.output_schema
+        if output_schema and output_schema.get("type") != "object":
+            raise ValueError("io_contract.output_schema must declare type=object")
+        if self.quality_gates:
+            properties = output_schema.get("properties")
+            if not isinstance(properties, dict):
+                properties = {}
+            required = output_schema.get("required")
+            if not isinstance(required, list):
+                required = []
+            if "quality_gates_checked" not in properties and "quality_gates_checked" not in required:
+                raise ValueError(
+                    "skills with quality_gates must expose quality_gates_checked in output_schema"
+                )
+        return self
+
     def to_catalog_data(self) -> dict[str, Any]:
         data = self.model_dump(mode="json")
         return {
@@ -461,3 +488,9 @@ class CrossRefValidator:
         from src.subagents.v2.registry import REGISTRY
 
         return set(REGISTRY.all_names())
+
+
+def _validate_non_blank_ids(values: list[str], field_name: str) -> None:
+    for value in values:
+        if not str(value).strip():
+            raise ValueError(f"{field_name} entries must be non-empty strings")

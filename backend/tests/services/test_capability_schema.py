@@ -192,6 +192,29 @@ class TestCapabilityV2Yaml:
         with pytest.raises(ValidationError):
             CapabilityV2YamlModel(**payload)
 
+    def test_team_kernel_requires_quality_pipeline(self):
+        payload = self._valid_payload()
+        payload["runtime"] = {
+            "mode": "team_kernel",
+            "allowed_tools": ["web_search"],
+        }
+        payload["team_policy"] = {
+            "core_templates": ["research_scholar.v1"],
+            "optional_templates": [],
+            "capability_tools": ["web_search"],
+            "quality_pipeline": [],
+        }
+
+        with pytest.raises(ValidationError, match="quality_pipeline"):
+            CapabilityV2YamlModel(**payload)
+
+    def test_quality_gate_ids_must_not_be_blank(self):
+        payload = self._valid_payload()
+        payload["quality_gates"] = [" "]
+
+        with pytest.raises(ValidationError, match="quality_gates"):
+            CapabilityV2YamlModel(**payload)
+
     def test_required_decision_type_validated(self):
         with pytest.raises(ValidationError):
             CapabilityYamlModel(
@@ -240,7 +263,14 @@ class TestCapabilitySkillV2Yaml:
                 },
                 "output_schema": {
                     "type": "object",
-                    "required": ["artifacts"],
+                    "required": ["artifacts", "quality_gates_checked"],
+                    "properties": {
+                        "artifacts": {"type": "array"},
+                        "quality_gates_checked": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                        },
+                    },
                 },
             },
             "context_access": {
@@ -293,3 +323,21 @@ class TestCapabilitySkillV2Yaml:
         assert data["prompt"] == "Run reproducible analysis and return artifacts."
         assert data["allowed_tools"] == ["sandbox.run_python", "sandbox.write_file"]
         assert data["config"]["extensions"]["search"]["sources"] == ["semantic_scholar"]
+
+    def test_skill_with_quality_gates_requires_checked_output_field(self):
+        payload = self._valid_payload()
+        payload["quality_gates"] = ["source_log_required"]
+        payload["io_contract"]["output_schema"] = {
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+        }
+
+        with pytest.raises(ValidationError, match="quality_gates_checked"):
+            CapabilitySkillV2YamlModel(**payload)
+
+    def test_skill_output_schema_must_be_object_when_declared(self):
+        payload = self._valid_payload()
+        payload["io_contract"]["output_schema"] = {"type": "array"}
+
+        with pytest.raises(ValidationError, match="output_schema"):
+            CapabilitySkillV2YamlModel(**payload)

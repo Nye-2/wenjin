@@ -38,6 +38,8 @@ from .policy import (
     resolve_effective_skills,
     resolve_effective_tools,
 )
+from .quality_contract import QualityContractResolver
+from .quality_gates import evaluate_quality_gates
 
 logger = logging.getLogger(__name__)
 
@@ -46,9 +48,6 @@ logger = logging.getLogger(__name__)
 class RecruitmentCandidate:
     template_id: str
     reason: str
-
-    def to_quality_gate_payload(self) -> dict[str, str]:
-        return {"template_id": self.template_id, "reason": self.reason}
 
 
 @dataclass(slots=True)
@@ -115,7 +114,10 @@ class TeamKernelRuntime:
             duration = int((datetime.now(UTC) - started_at).total_seconds())
             outputs: list[ResultOutput] = list(self._outputs_from_invocations(invocations))
             outputs.extend(self.collect_policy_memory_outputs(capability, brief, outputs))
-            errors = self._errors_from_invocations(invocations)
+            errors = [
+                *self._errors_from_invocations(invocations),
+                *self._errors_from_quality_gates(gates),
+            ]
             return TaskReport(
                 execution_id=execution_id,
                 capability_id=brief.capability_id,
@@ -379,6 +381,14 @@ class TeamKernelRuntime:
                 await self._ensure_skill_cache(skill_cache, batch)
             except Exception as exc:
                 skill_load_error = exc
+        if skill_load_error is None:
+            self._inject_quality_contracts(
+                capability=capability,
+                templates=templates,
+                team_policy=team_policy,
+                skill_records=skill_cache.records,
+                invocations=batch,
+            )
         await asyncio.gather(
             *[
                 self._run_invocation(
@@ -394,6 +404,24 @@ class TeamKernelRuntime:
             ]
         )
         return batch
+
+    def _inject_quality_contracts(
+        self,
+        *,
+        capability: Any,
+        templates: dict[str, AgentTemplate],
+        team_policy: CapabilityTeamPolicy,
+        skill_records: dict[str, Any | None],
+        invocations: list[AgentInvocation],
+    ) -> None:
+        for invocation in invocations:
+            invocation.input_brief["quality_contract"] = QualityContractResolver.resolve(
+                capability=capability,
+                template=templates[invocation.template_id],
+                team_policy=team_policy,
+                effective_skill_ids=invocation.effective_skills,
+                skill_records=skill_records,
+            ).model_dump(mode="json")
 
     async def _should_prefetch_skills(self, execution_id: str) -> bool:
         try:
@@ -622,7 +650,7 @@ class TeamKernelRuntime:
             return recruits
         batch_limit = min(team_policy.limits.max_parallel_invocations, remaining_total)
         for gate in gates:
-            if gate.next_action != "recruit_more":
+            if gate.next_action not in {"recruit_more", "revise_existing"}:
                 continue
             for item in gate.suggested_recruits:
                 template_id = str(item.get("template_id") or "")
@@ -649,76 +677,6 @@ class TeamKernelRuntime:
                     return recruits
         return recruits
 
-    def _suggest_recruits(
-        self,
-        interrupted: list[AgentInvocation],
-        *,
-        team_policy: CapabilityTeamPolicy | None,
-        counts: Counter[str] | None,
-        total_invocations: int,
-    ) -> list[RecruitmentCandidate]:
-        if not interrupted or team_policy is None or counts is None:
-            return []
-
-        candidate_pairs: list[tuple[str, str]] = []
-        if any(invocation.status == "failed" for invocation in interrupted):
-            for trigger_key in ("member_failed", "overloaded_or_missing_specialist"):
-                candidate_pairs.extend(
-                    self._trigger_template_pairs(
-                        team_policy,
-                        trigger_key,
-                        trigger_key,
-                    )
-                )
-        if any(invocation.status == "cancelled" for invocation in interrupted):
-            for trigger_key in ("member_cancelled", "overloaded_or_missing_specialist"):
-                candidate_pairs.extend(
-                    self._trigger_template_pairs(
-                        team_policy,
-                        trigger_key,
-                        trigger_key,
-                    )
-                )
-        if not candidate_pairs:
-            candidate_pairs = [
-                (template_id, "optional_fallback")
-                for template_id in team_policy.optional_templates
-            ]
-
-        recruits: list[RecruitmentCandidate] = []
-        seen: set[str] = set()
-        for template_id, trigger in candidate_pairs:
-            if template_id in seen:
-                continue
-            if not self._is_recruitable_template(template_id, team_policy):
-                continue
-            if not self._can_invoke_template(
-                template_id,
-                counts,
-                total_invocations + len(recruits),
-                team_policy,
-            ):
-                continue
-            recruits.append(
-                RecruitmentCandidate(
-                    template_id=template_id,
-                    reason=f"{trigger} after interrupted team member",
-                )
-            )
-            seen.add(template_id)
-        return recruits
-
-    def _trigger_template_pairs(
-        self,
-        team_policy: CapabilityTeamPolicy,
-        trigger_key: str,
-        reason: str,
-    ) -> list[tuple[str, str]]:
-        raw_templates = team_policy.recruitment_triggers.get(trigger_key) or []
-        if isinstance(raw_templates, str):
-            raw_templates = [raw_templates]
-        return [(str(template_id), reason) for template_id in raw_templates]
-
     def _is_recruitable_template(self, template_id: str, team_policy: CapabilityTeamPolicy) -> bool:
         return template_id in {*team_policy.core_templates, *team_policy.optional_templates}
 
@@ -731,46 +689,13 @@ class TeamKernelRuntime:
         counts: Counter[str] | None = None,
         latest_invocations: list[AgentInvocation] | None = None,
     ) -> list[QualityGateResult]:
-        failed = [item for item in invocations if item.status == "failed"]
-        cancelled = [item for item in invocations if item.status == "cancelled"]
-        interrupted = [*failed, *cancelled]
-        latest = latest_invocations or invocations
-        latest_interrupted = [
-            item for item in latest if item.status in {"failed", "cancelled"}
-        ]
-        suggested_recruits = self._suggest_recruits(
-            latest_interrupted,
+        return evaluate_quality_gates(
+            quality_pipeline,
+            invocations,
             team_policy=team_policy,
             counts=counts,
-            total_invocations=len(invocations),
+            latest_invocations=latest_invocations,
         )
-        status = "warning" if interrupted else "pass"
-        gates = quality_pipeline or ["team_output_available"]
-        finding_message = (
-            f"{len(failed)} team member invocation(s) failed; "
-            f"{len(cancelled)} cancelled"
-        )
-        next_action = (
-            "recruit_more"
-            if suggested_recruits
-            else "stop_with_warning"
-            if interrupted
-            else "finish"
-        )
-        return [
-            QualityGateResult(
-                gate_id=gate,
-                status=status,
-                severity="medium" if interrupted else "low",
-                findings=[{"message": finding_message}] if interrupted else [],
-                suggested_recruits=[
-                    recruit.to_quality_gate_payload()
-                    for recruit in suggested_recruits
-                ],
-                next_action=next_action,
-            )
-            for gate in gates
-        ]
 
     def _outputs_from_invocations(self, invocations: list[AgentInvocation]) -> list[DocumentOutput]:
         outputs: list[DocumentOutput] = []
@@ -808,6 +733,22 @@ class TeamKernelRuntime:
                     phase=invocation.assigned_role,
                     task=invocation.template_id,
                     error=message or f"team member {invocation.status}",
+                )
+            )
+        return errors
+
+    def _errors_from_quality_gates(self, gates: list[QualityGateResult]) -> list[ResultError]:
+        errors: list[ResultError] = []
+        for gate in gates:
+            if gate.status != "fail":
+                continue
+            if gate.next_action not in {"stop_with_warning", "ask_user"} and gate.severity != "high":
+                continue
+            errors.append(
+                ResultError(
+                    phase="quality_gate",
+                    task=gate.gate_id,
+                    error=self._preview_output(gate.model_dump(mode="json")),
                 )
             )
         return errors

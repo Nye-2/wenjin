@@ -34,6 +34,26 @@ class TeamFailingSubagent(SubagentBase):
         raise RuntimeError(f"{ctx.invocation['display_name']} failed")
 
 
+@subagent("team_schema_repair")
+class TeamSchemaRepairSubagent(SubagentBase):
+    calls: dict[str, int] = {}
+
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        key = f"{ctx.execution_id}:{ctx.invocation['template_id']}"
+        count = self.calls.get(key, 0) + 1
+        self.calls[key] = count
+        output = (
+            {"summary": "first attempt misses required text"}
+            if count == 1
+            else {"text": f"{ctx.invocation['display_name']} repaired schema"}
+        )
+        return SubagentResult(
+            output=output,
+            tool_calls=[{"name": "team_schema_repair.run", "status": "completed"}],
+            token_usage={"input": 1, "output": 1},
+        )
+
+
 def _team_capability() -> SimpleNamespace:
     return SimpleNamespace(
         id="team_research",
@@ -212,6 +232,55 @@ class FakeSkillCatalogFailingClient(FakeTeamCatalogClient):
         raise RuntimeError("skill catalog unavailable")
 
 
+class SchemaRequiredTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            CapabilitySkillPayload(
+                id=record.id,
+                display_name=record.display_name,
+                worker_type=record.worker_type,
+                subagent_type=record.subagent_type,
+                prompt=record.prompt,
+                config=record.config,
+                skill_json={
+                    "schema_version": "capability_skill.v2",
+                    "id": record.id,
+                    "io_contract": {
+                        "output_schema": {
+                            "type": "object",
+                            "required": ["text"],
+                            "properties": {"text": {"type": "string"}},
+                        }
+                    },
+                    "quality_gates": [],
+                },
+            )
+            for record in records
+        ]
+
+
+class SchemaRepairTeamCatalogClient(SchemaRequiredTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            CapabilitySkillPayload(
+                id=record.id,
+                display_name=record.display_name,
+                worker_type=record.worker_type,
+                subagent_type="team_schema_repair",
+                prompt=record.prompt,
+                config=record.config,
+                skill_json=record.skill_json,
+            )
+            for record in records
+        ]
+
+
 class FakeFailingTeamCatalogClient(FakeTeamCatalogClient):
     async def list_catalog_skills(self, *, enabled_only: bool = True):
         from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
@@ -299,6 +368,50 @@ async def test_team_kernel_runtime_batches_skill_catalog_loads(monkeypatch) -> N
 
     assert report.status == "completed"
     assert CountingTeamCatalogClient.skill_list_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_injects_quality_contract_into_member_brief(monkeypatch) -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-quality-contract", brief=_brief())
+
+    running_events = [
+        event
+        for event in node_events
+        if event["node_type"] == "agent_invocation" and event["status"] == "running"
+    ]
+    assert report.status == "completed"
+    assert running_events
+    for event in running_events:
+        contract = event["input_data"]["quality_contract"]
+        assert contract["schema_version"] == "resolved_quality_contract.v1"
+        assert contract["template_id"] in {
+            "research_scholar.v1",
+            "critical_reviewer.v1",
+        }
+        assert contract["quality_gates"] == [
+            "evidence_traceability",
+            "critical_review",
+        ]
 
 
 @pytest.mark.asyncio
@@ -537,6 +650,95 @@ async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(mo
     assert any(
         event["node_metadata"]["template_id"] == "generalist_assistant.v1"
         for event in node_events
+    )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_revises_existing_member_after_schema_gate(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SchemaRequiredTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["limits"]["max_iterations"] = 2
+    cap.definition_json["team_policy"]["limits"]["max_invocations_total"] = 4
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-schema-revise", brief=_brief())
+
+    invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+    ]
+    completed_by_id = {item["id"]: item for item in invocations if item["status"] != "running"}
+    quality_gates = [
+        payload["quality_gate"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.quality_gate"
+    ]
+
+    assert report.status == "failed_partial"
+    assert any(
+        item["template_id"] == "research_scholar.v1" and item["iteration"] == 2
+        for item in completed_by_id.values()
+    )
+    assert any(
+        gate["gate_id"] == "output_schema_min_shape"
+        and gate["next_action"] == "revise_existing"
+        for gate in quality_gates
+    )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_does_not_fail_report_after_successful_revision(monkeypatch) -> None:
+    TeamSchemaRepairSubagent.calls = {}
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SchemaRepairTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["limits"]["max_iterations"] = 2
+    cap.definition_json["team_policy"]["limits"]["max_invocations_total"] = 4
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-schema-repaired", brief=_brief())
+
+    quality_gates = [
+        payload["quality_gate"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.quality_gate"
+    ]
+    assert report.status == "completed"
+    assert not report.errors
+    assert any(
+        gate["gate_id"] == "output_schema_min_shape"
+        and gate["next_action"] == "revise_existing"
+        for gate in quality_gates
     )
 
 
