@@ -1,6 +1,6 @@
 # Troubleshooting
 
-更新时间：2026-05-20
+更新时间：2026-05-30
 
 以下命令默认你已经设置：
 
@@ -15,7 +15,8 @@ cd "$REPO_ROOT"
 
 - worker 没有启动
 - Redis 不可用
-- `backend/.env` 缺少必要模型配置
+- DataService 不可用，或模型目录没有 enabled default 模型
+- `backend/.env` 缺少 `MODEL_SECRET_KEY`
 
 排查：
 
@@ -38,8 +39,9 @@ Compose 场景补充：
 修复：
 
 1. 确认状态页里 `Worker` 为运行中。
-2. 检查 `backend/.env` 的 `REDIS_URL`、模型配置和数据库连接。
-3. 单独重启 worker：`./start.sh --worker`。
+2. 检查 `backend/.env` 的 `REDIS_URL`、`DATASERVICE_INTERNAL_TOKEN`、`MODEL_SECRET_KEY` 和数据库连接。
+3. 进入管理员后台确认模型管理里至少有一个 enabled default LLM 模型，且该模型绑定了可用 API URL/API Key。
+4. 单独重启 worker：`./start.sh --worker`。
 
 ## 2. Compose 启动后 API 不可用
 

@@ -35,6 +35,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await redis_client.connect()
     await redis_client.connect_stream()
 
+    try:
+        from src.dataservice_client.provider import dataservice_client
+        from src.services.model_catalog_cache import refresh_model_catalog_cache
+
+        async with dataservice_client() as dataservice:
+            snapshot = await refresh_model_catalog_cache(dataservice)
+        logger.info(
+            "Model catalog runtime cache loaded (%d models, version=%s)",
+            len(snapshot.by_id),
+            snapshot.version,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Model catalog runtime cache warmup skipped: %s",
+            exc,
+            exc_info=True,
+        )
+
     # Initialize run runtime singletons.
     from src.runtime.runs import RunManager
     from src.runtime.stream_bridge import RedisStreamBridge
@@ -185,6 +203,8 @@ from .routers import (  # noqa: E402
     admin_analytics,
     admin_capabilities,
     admin_credit_rules,
+    admin_models,
+    admin_pricing,
     admin_redeem_codes,
     admin_skills,
     artifacts,
@@ -230,6 +250,9 @@ app.include_router(workspace_rooms.router, prefix="/api", tags=["workspace_rooms
 app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(admin_capabilities.router, prefix="/api", tags=["admin", "capabilities"])
 app.include_router(admin_skills.router, prefix="/api", tags=["admin", "skills"])
+app.include_router(admin_models.router, prefix="/api", tags=["admin", "models"])
+app.include_router(admin_pricing.router, prefix="/api", tags=["admin", "pricing"])
+app.include_router(admin_pricing.policies_router, prefix="/api", tags=["admin", "pricing"])
 app.include_router(admin_analytics.router, prefix="/api", tags=["admin", "analytics"])
 app.include_router(admin_credit_rules.router, prefix="/api", tags=["admin", "credits"])
 app.include_router(admin_redeem_codes.router, prefix="/api", tags=["admin", "credits"])

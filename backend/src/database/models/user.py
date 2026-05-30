@@ -47,6 +47,12 @@ class User(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
+    reserved_credits: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False,
+    )
     total_credits_earned: Mapped[int] = mapped_column(
         Integer,
         default=0,

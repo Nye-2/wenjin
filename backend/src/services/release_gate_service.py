@@ -220,6 +220,17 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
+                check_id="model_catalog_pricing_gate",
+                command=self._uv_command(
+                    "run",
+                    "python",
+                    "-m",
+                    "src.quality.model_catalog_pricing_gate",
+                    "--json",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
                 check_id="frontend_typescript_check",
                 command=("npm", "run", "typecheck"),
                 cwd=self.project_root / "frontend",

@@ -1,11 +1,16 @@
 """Tests for DataService credit domain behavior."""
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from src.database.models.credit import CreditTransactionType
+from src.database.models.credit_reservation import (
+    CreditReservationScope,
+    CreditReservationStatus,
+)
 from src.dataservice.common.errors import CreditOverdraftLimitError
 from src.dataservice.domains.credit.service import DataServiceCreditService
 
@@ -15,6 +20,9 @@ class _FakeCreditRepository:
         self.user = user
         self.created_transactions: list[dict] = []
         self.idempotent_transactions: dict[tuple[str, CreditTransactionType, str], SimpleNamespace] = {}
+        self.reservations: dict[str, SimpleNamespace] = {}
+        self.idempotent_reservations: dict[tuple[str, CreditReservationScope, str], SimpleNamespace] = {}
+        self.reservation_counter = 0
 
     async def get_user_for_update(self, user_id: str) -> SimpleNamespace | None:
         if user_id != self.user.id:
@@ -33,6 +41,44 @@ class _FakeCreditRepository:
     def create_credit_transaction(self, values: dict) -> SimpleNamespace:
         self.created_transactions.append(values)
         return SimpleNamespace(id="tx-1", **values)
+
+    async def find_reservation_by_idempotency_key(
+        self,
+        *,
+        user_id: str,
+        scope: CreditReservationScope,
+        idempotency_key: str,
+    ) -> SimpleNamespace | None:
+        return self.idempotent_reservations.get((user_id, scope, idempotency_key))
+
+    def create_credit_reservation(self, values: dict) -> SimpleNamespace:
+        self.reservation_counter += 1
+        values.setdefault("status", CreditReservationStatus.RESERVED)
+        values.setdefault("settled_credits", 0)
+        values.setdefault("transaction_id", None)
+        reservation = SimpleNamespace(
+            id=f"reservation-{self.reservation_counter}",
+            created_at=None,
+            updated_at=None,
+            **values,
+        )
+        self.reservations[reservation.id] = reservation
+        self.idempotent_reservations[
+            (reservation.user_id, reservation.scope, reservation.idempotency_key)
+        ] = reservation
+        return reservation
+
+    async def get_reservation_for_update(self, reservation_id: str) -> SimpleNamespace | None:
+        return self.reservations.get(reservation_id)
+
+    async def list_expired_reserved_reservations(self, *, now: datetime) -> list[SimpleNamespace]:
+        return [
+            reservation
+            for reservation in self.reservations.values()
+            if reservation.status == CreditReservationStatus.RESERVED
+            and reservation.expires_at is not None
+            and reservation.expires_at <= now
+        ]
 
 
 @pytest.mark.asyncio
@@ -130,3 +176,155 @@ async def test_record_consumption_replays_existing_idempotent_charge() -> None:
     assert user.total_credits_spent == 3
     assert repository.created_transactions == []
     service._finish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_create_reservation_holds_spendable_balance() -> None:
+    user = SimpleNamespace(id="user-1", credits=10, reserved_credits=0, total_credits_spent=0)
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+
+    reservation = await service.create_reservation(
+        user_id="user-1",
+        scope=CreditReservationScope.FEATURE_EXECUTION,
+        reserved_credits=4,
+        idempotency_key="feature:exec-1",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+    )
+
+    assert reservation.reserved_credits == 4
+    assert reservation.status == CreditReservationStatus.RESERVED
+    assert user.credits == 10
+    assert user.reserved_credits == 4
+    assert user.credits - user.reserved_credits == 6
+
+
+@pytest.mark.asyncio
+async def test_create_reservation_replays_by_idempotency_key() -> None:
+    user = SimpleNamespace(id="user-1", credits=10, reserved_credits=0, total_credits_spent=0)
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+
+    first = await service.create_reservation(
+        user_id="user-1",
+        scope=CreditReservationScope.FEATURE_EXECUTION,
+        reserved_credits=4,
+        idempotency_key="feature:exec-1",
+    )
+    second = await service.create_reservation(
+        user_id="user-1",
+        scope=CreditReservationScope.FEATURE_EXECUTION,
+        reserved_credits=4,
+        idempotency_key="feature:exec-1",
+    )
+
+    assert second is first
+    assert user.reserved_credits == 4
+    assert len(repository.reservations) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_reservation_rejects_when_spendable_balance_is_insufficient() -> None:
+    user = SimpleNamespace(id="user-1", credits=5, reserved_credits=3, total_credits_spent=0)
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+
+    with pytest.raises(CreditOverdraftLimitError, match="insufficient spendable credits"):
+        await service.create_reservation(
+            user_id="user-1",
+            scope=CreditReservationScope.FEATURE_EXECUTION,
+            reserved_credits=3,
+            idempotency_key="feature:exec-1",
+        )
+
+    assert user.reserved_credits == 3
+    assert repository.reservations == {}
+
+
+@pytest.mark.asyncio
+async def test_settle_reservation_creates_final_transaction_and_releases_remainder() -> None:
+    user = SimpleNamespace(id="user-1", credits=20, reserved_credits=0, total_credits_spent=0)
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+    reservation = await service.create_reservation(
+        user_id="user-1",
+        scope=CreditReservationScope.FEATURE_EXECUTION,
+        reserved_credits=10,
+        idempotency_key="feature:exec-1",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        metadata={"type": "feature_reservation"},
+    )
+
+    settled, tx = await service.settle_reservation(
+        reservation_id=reservation.id,
+        settled_credits=6,
+        description="feature settlement",
+        feature_id="deep_research",
+        task_id="exec-1",
+        metadata={"actual_credits": 6},
+    )
+
+    assert settled.status == CreditReservationStatus.SETTLED
+    assert settled.settled_credits == 6
+    assert settled.transaction_id == tx.id
+    assert user.reserved_credits == 0
+    assert user.credits == 14
+    assert user.total_credits_spent == 6
+    assert tx.amount == -6
+    assert tx.tx_metadata["reservation_id"] == reservation.id
+    assert tx.tx_metadata["actual_credits"] == 6
+
+
+@pytest.mark.asyncio
+async def test_release_reservation_returns_all_reserved_credits() -> None:
+    user = SimpleNamespace(id="user-1", credits=20, reserved_credits=0, total_credits_spent=0)
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+    reservation = await service.create_reservation(
+        user_id="user-1",
+        scope=CreditReservationScope.SANDBOX_OPERATION,
+        reserved_credits=7,
+        idempotency_key="sandbox:exec-1:node-1",
+    )
+
+    released = await service.release_reservation(reservation.id, reason="platform failed")
+
+    assert released.status == CreditReservationStatus.RELEASED
+    assert user.reserved_credits == 0
+    assert user.credits == 20
+    assert released.metadata_json["release_reason"] == "platform failed"
+
+
+@pytest.mark.asyncio
+async def test_release_expired_reservations_returns_held_credits() -> None:
+    user = SimpleNamespace(id="user-1", credits=20, reserved_credits=0, total_credits_spent=0)
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+    now = datetime.now(UTC)
+    reservation = await service.create_reservation(
+        user_id="user-1",
+        scope=CreditReservationScope.FEATURE_EXECUTION,
+        reserved_credits=8,
+        idempotency_key="feature:exec-1",
+        expires_at=now - timedelta(minutes=1),
+    )
+
+    released = await service.release_expired_reservations(now=now)
+
+    assert released == [reservation]
+    assert reservation.status == CreditReservationStatus.EXPIRED
+    assert user.reserved_credits == 0

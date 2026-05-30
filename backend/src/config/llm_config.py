@@ -14,12 +14,20 @@ import json
 import logging
 import os
 import sys
-import threading
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
+
+from src.services.model_catalog_cache import (
+    RuntimeModelConfig,
+    get_default_runtime_model_id,
+    get_model_catalog_snapshot,
+    install_model_catalog_snapshot,
+    reset_model_catalog_cache,
+    resolve_runtime_model_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +78,9 @@ class LLMSettings:
 
 
 _env_loaded = False
+_converted_model_cache_snapshot_id: int | None = None
+_converted_model_cache: tuple[dict[str, "ModelConfig"], dict[str, "ModelConfig"]] | None = None
+_invalid_explicit_default_model_id: str | None = None
 
 
 def _maybe_load_env_file() -> None:
@@ -225,51 +236,78 @@ def _load_models_from_env() -> tuple[
     return llm_models, image_models
 
 
-# Global cache with thread-safe access
-_CACHED_LLM_MODELS: dict[str, ModelConfig] | None = None
-_CACHED_IMAGE_MODELS: dict[str, ModelConfig] | None = None
-_cache_lock = threading.Lock()
-
-
 def _get_cached_models() -> tuple[
     dict[str, ModelConfig],
-    dict[str, ModelConfig] | None,
+    dict[str, ModelConfig],
 ]:
     """
-    Get cached model configurations (lazy loading, thread-safe).
+    Get cached model configurations from the runtime model catalog snapshot.
 
     Returns:
         Tuple of (llm_models, image_models)
     """
-    global _CACHED_LLM_MODELS, _CACHED_IMAGE_MODELS
+    global _converted_model_cache, _converted_model_cache_snapshot_id
 
-    if _CACHED_LLM_MODELS is None:
-        with _cache_lock:
-            # Double-check after acquiring lock
-            if _CACHED_LLM_MODELS is None:
-                _CACHED_LLM_MODELS, _CACHED_IMAGE_MODELS = _load_models_from_env()
+    snapshot = get_model_catalog_snapshot()
+    snapshot_id = id(snapshot)
+    if (
+        _converted_model_cache is not None
+        and _converted_model_cache_snapshot_id == snapshot_id
+    ):
+        return _converted_model_cache
 
-    return _CACHED_LLM_MODELS, _CACHED_IMAGE_MODELS
+    llm_models = {
+        model.id: _runtime_to_model_config(model)
+        for model in snapshot.models(category="llm")
+    }
+    image_models = {
+        model.id: _runtime_to_model_config(model)
+        for model in snapshot.models(category="image")
+    }
+    _converted_model_cache_snapshot_id = snapshot_id
+    _converted_model_cache = (llm_models, image_models)
+    return _converted_model_cache
 
 
 def reload_models() -> tuple[
     dict[str, ModelConfig],
-    dict[str, ModelConfig] | None,
+    dict[str, ModelConfig],
 ]:
     """
-    Reload model configurations from environment variables.
+    Reload model configurations from environment variables into the test snapshot.
 
-    This clears the cache and reloads models, useful for hot-reloading
-    configuration changes without restarting the application.
+    Production runtime should refresh `model_catalog_cache` from DataService. This
+    helper remains for tests that explicitly install environment-shaped fixtures.
 
     Returns:
         Tuple of (llm_models, image_models)
     """
-    global _CACHED_LLM_MODELS, _CACHED_IMAGE_MODELS
+    global _converted_model_cache, _converted_model_cache_snapshot_id
+    global _invalid_explicit_default_model_id
 
-    with _cache_lock:
-        _CACHED_LLM_MODELS = None
-        _CACHED_IMAGE_MODELS = None
+    _invalid_explicit_default_model_id = None
+    llm_models, image_models = _load_models_from_env()
+    explicit_default = os.environ.get("LLM_DEFAULT_MODEL", "").strip()
+    if explicit_default and explicit_default not in llm_models and explicit_default not in image_models:
+        _invalid_explicit_default_model_id = explicit_default
+        _converted_model_cache_snapshot_id = None
+        _converted_model_cache = None
+        reset_model_catalog_cache()
+        return {}, {}
+
+    all_models: list[RuntimeModelConfig] = []
+    default_id = explicit_default or (next(iter(llm_models.keys())) if llm_models else next(iter(image_models.keys()), ""))
+    all_models.extend(
+        _model_config_to_runtime(model, category="llm", is_default=model.id == default_id)
+        for model in llm_models.values()
+    )
+    all_models.extend(
+        _model_config_to_runtime(model, category="image", is_default=model.id == default_id)
+        for model in image_models.values()
+    )
+    install_model_catalog_snapshot(all_models)
+    _converted_model_cache_snapshot_id = None
+    _converted_model_cache = None
 
     return _get_cached_models()
 
@@ -296,7 +334,7 @@ def get_image_models() -> list[ModelConfig]:
         List of ModelConfig objects for image generation models.
     """
     _, image_models = _get_cached_models()
-    return list(image_models.values()) if image_models is not None else []
+    return list(image_models.values())
 
 
 def get_model_config(model_id: str) -> ModelConfig | None:
@@ -315,7 +353,7 @@ def get_model_config(model_id: str) -> ModelConfig | None:
 
     if model_id in llm_models:
         return llm_models[model_id]
-    if image_models is not None and model_id in image_models:
+    if model_id in image_models:
         return image_models[model_id]
 
     return None
@@ -361,6 +399,7 @@ def get_model_full_config(model_id: str) -> dict[str, Any]:
         "supports_json_schema": model_config.supports_json_schema,
         "supports_vision": model_config.supports_vision,
         "supports_reasoning_effort": model_config.supports_reasoning_effort,
+        "default_headers": dict(model_config.default_headers or {}),
     }
 
 
@@ -373,10 +412,7 @@ def get_all_models() -> dict[str, list[ModelConfig]]:
     """
     llm_models, image_models = _get_cached_models()
 
-    return {
-        "llm": list(llm_models.values()),
-        "image": list(image_models.values()) if image_models is not None else [],
-    }
+    return {"llm": list(llm_models.values()), "image": list(image_models.values())}
 
 
 def get_default_model_id() -> str:
@@ -393,29 +429,61 @@ def get_default_model_id() -> str:
     Raises:
         ValueError: If no models are configured.
     """
-    explicit = os.environ.get("LLM_DEFAULT_MODEL", "").strip()
-    if explicit:
-        if get_model_config(explicit) is not None:
-            return explicit
-        raise ValueError(f"LLM_DEFAULT_MODEL is not configured: {explicit}")
+    if _invalid_explicit_default_model_id:
+        raise ValueError(
+            f"LLM_DEFAULT_MODEL is not configured: {_invalid_explicit_default_model_id}"
+        )
 
-    llm_models, image_models = _get_cached_models()
-    for model_map in (llm_models, image_models):
-        if model_map:
-            return next(iter(model_map.keys()))
-
-    raise ValueError(
-        "No models configured. Set LLM_MODELS in backend/.env."
-    )
+    try:
+        return get_default_runtime_model_id()
+    except ValueError as exc:
+        raise ValueError("No models configured in model catalog cache") from exc
 
 
 def resolve_model_id(model_id: str | None) -> str:
     """Normalize requested model id without silently rerouting unknown ids."""
-    requested = (model_id or "").strip()
-    if not requested or requested == "default":
-        return get_default_model_id()
+    return resolve_runtime_model_id(model_id)
 
-    if get_model_config(requested) is not None:
-        return requested
 
-    raise ValueError(f"Unknown model id: {requested}")
+def _runtime_to_model_config(model: RuntimeModelConfig) -> ModelConfig:
+    return ModelConfig(
+        id=model.id,
+        model=model.model,
+        api_key=model.api_key,
+        base_url=model.base_url,
+        name=model.name,
+        temperature=model.temperature,
+        max_tokens=model.max_tokens,
+        supports_streaming=model.supports_streaming,
+        supports_tools=model.supports_tools,
+        supports_thinking=model.supports_thinking,
+        supports_json_mode=model.supports_json_mode,
+        supports_json_schema=model.supports_json_schema,
+        supports_vision=model.supports_vision,
+        supports_reasoning_effort=model.supports_reasoning_effort,
+        default_headers=model.default_headers,
+    )
+
+
+def _model_config_to_runtime(model: ModelConfig, *, category: str, is_default: bool) -> RuntimeModelConfig:
+    return RuntimeModelConfig(
+        id=model.id,
+        name=model.name or model.id,
+        category=category,
+        provider="Custom",
+        model=model.model,
+        api_key=model.api_key,
+        base_url=model.base_url,
+        max_tokens=model.max_tokens,
+        temperature=model.temperature,
+        supports_streaming=model.supports_streaming,
+        supports_tools=model.supports_tools,
+        supports_thinking=model.supports_thinking,
+        supports_json_mode=model.supports_json_mode,
+        supports_json_schema=model.supports_json_schema,
+        supports_vision=model.supports_vision,
+        supports_reasoning_effort=model.supports_reasoning_effort,
+        default_headers=dict(model.default_headers or {}),
+        is_default=is_default,
+        config_version=1,
+    )

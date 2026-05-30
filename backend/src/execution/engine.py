@@ -130,6 +130,10 @@ class ExecutionEngineV2:
                 "execution failed",
                 extra={"execution_id": execution_id},
             )
+            await self._release_feature_reservation(
+                execution,
+                reason="执行失败释放预留积分",
+            )
             await self._mark_failed(execution_id, str(exc))
             await self._append_execution_event(
                 execution_id,
@@ -276,9 +280,14 @@ class ExecutionEngineV2:
     ) -> dict[str, Any] | None:
         """Settle completed feature executions against measured token usage."""
         if report.status != "completed" or not report.token_usage:
+            if report.status == "completed" and self._credit_reservation_id(execution):
+                return await self._settle_reserved_feature_billing(execution, report)
             return None
 
         from src.services.credit_service import CreditService
+
+        if self._credit_reservation_id(execution):
+            return await self._settle_reserved_feature_billing(execution, report)
 
         credit_service = CreditService()
         billing = await credit_service.consume_for_feature_usage(
@@ -294,6 +303,46 @@ class ExecutionEngineV2:
             },
         )
         billing_metadata: dict[str, Any] = dict(billing.as_metadata())
+        return billing_metadata
+
+    async def _settle_reserved_feature_billing(
+        self,
+        execution: Any,
+        report: TaskReport,
+    ) -> dict[str, Any] | None:
+        reservation_id = self._credit_reservation_id(execution)
+        if not reservation_id:
+            return None
+
+        from src.services.credit_service import CreditService
+
+        credit_service = CreditService()
+        base_metadata = {
+            "execution_id": str(execution.id),
+            "workspace_type": getattr(execution, "workspace_type", None),
+            "source": "execution_engine",
+        }
+        preview = await credit_service.preview_feature_usage_charge(
+            user_id=str(execution.user_id),
+            feature_id=str(execution.feature_id or report.capability_id),
+            token_usage=report.token_usage or {},
+            metadata=base_metadata,
+        )
+        billing_metadata: dict[str, Any] = dict(preview.as_metadata())
+        billing_metadata.update(base_metadata)
+        reservation, tx = await credit_service.settle_feature_reservation(
+            reservation_id=reservation_id,
+            settled_credits=int(billing_metadata.get("credits_charged", 0) or 0),
+            feature_id=str(execution.feature_id or report.capability_id),
+            task_id=str(execution.id),
+            metadata=dict(billing_metadata),
+        )
+        billing_metadata["credit_reservation_id"] = reservation_id
+        billing_metadata["reservation_status"] = getattr(reservation, "status", None)
+        if tx is not None:
+            billing_metadata["transaction_id"] = str(tx.id)
+            billing_metadata["balance_after"] = int(getattr(tx, "balance_after", 0) or 0)
+            billing_metadata["charged"] = int(billing_metadata.get("credits_charged", 0) or 0) > 0
         return billing_metadata
 
     async def _refund_feature_billing(
@@ -320,6 +369,25 @@ class ExecutionEngineV2:
             reason=reason,
             task_id=str(execution.id),
         )
+
+    async def _release_feature_reservation(self, execution: Any, *, reason: str) -> None:
+        reservation_id = self._credit_reservation_id(execution)
+        if not reservation_id:
+            return
+        from src.services.credit_service import CreditService
+
+        await CreditService().release_reservation(reservation_id, reason=reason)
+
+    @staticmethod
+    def _credit_reservation_id(execution: Any) -> str | None:
+        params = getattr(execution, "params", None)
+        if not isinstance(params, Mapping):
+            return None
+        billing = params.get("billing")
+        if not isinstance(billing, Mapping):
+            return None
+        value = str(billing.get("credit_reservation_id") or "").strip()
+        return value or None
 
     async def _mark_complete(
         self,

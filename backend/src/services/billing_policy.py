@@ -1,58 +1,26 @@
-"""Single source of truth for token-based credit billing policy."""
+"""Runtime facade for credit billing policy."""
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass
 from typing import Any
 
+from src.billing.policies import (
+    CapabilityPricingEstimate,
+    GlobalCreditPolicy,
+    ModelUsageCreditCharge,
+    OperationBillingPolicy,
+    SandboxPricingEstimate,
+    TokenBillingCharge,
+    TokenBillingPolicy,
+    calculate_capability_estimate,
+    calculate_model_usage_credits,
+    calculate_sandbox_estimate,
+    calculate_token_billing_charge,
+    calculate_weighted_tokens,
+)
 from src.config.config_loader import get_app_config
 
 BILLABLE_FEATURE_TASK_TYPES: frozenset[str] = frozenset({"execution"})
-
-
-@dataclass(frozen=True, slots=True)
-class TokenBillingPolicy:
-    """Token-to-credit billing parameters for one usage surface."""
-
-    enabled: bool
-    free_tokens: int
-    tokens_per_credit: int
-    max_overdraft_credits: int
-
-    def as_dict(self) -> dict[str, int | bool]:
-        return {
-            "enabled": self.enabled,
-            "free_tokens": self.free_tokens,
-            "tokens_per_credit": self.tokens_per_credit,
-            "max_overdraft_credits": self.max_overdraft_credits,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class TokenBillingCharge:
-    """Calculated billing delta for one token usage event."""
-
-    free_tokens_applied: int
-    billable_tokens: int
-    credits_to_charge: int
-    historical_tokens_after: int
-
-
-@dataclass(frozen=True, slots=True)
-class OperationBillingPolicy:
-    """Fixed credit billing parameters for non-LLM operations."""
-
-    enabled: bool
-    run_python_credits: int
-    max_overdraft_credits: int
-
-    def as_dict(self) -> dict[str, int | bool]:
-        return {
-            "enabled": self.enabled,
-            "run_python_credits": self.run_python_credits,
-            "max_overdraft_credits": self.max_overdraft_credits,
-        }
 
 
 def _coerce_policy(raw_policy: Any, *, default_free_tokens: int) -> TokenBillingPolicy:
@@ -93,42 +61,6 @@ def get_sandbox_operation_billing_policy() -> OperationBillingPolicy:
     return _coerce_operation_policy(get_app_config().billing.sandbox)
 
 
-def calculate_token_billing_charge(
-    *,
-    policy: TokenBillingPolicy,
-    total_tokens: int,
-    historical_tokens_before: int,
-) -> TokenBillingCharge:
-    """Calculate token billing deltas under a cumulative free-token policy."""
-    normalized_total = max(int(total_tokens or 0), 0)
-    historical_before = max(int(historical_tokens_before or 0), 0)
-    historical_after = historical_before + normalized_total
-
-    if not policy.enabled or normalized_total <= 0:
-        return TokenBillingCharge(
-            free_tokens_applied=0,
-            billable_tokens=0,
-            credits_to_charge=0,
-            historical_tokens_after=historical_after,
-        )
-
-    overage_before = max(historical_before - policy.free_tokens, 0)
-    overage_after = max(historical_after - policy.free_tokens, 0)
-    billable_tokens = max(overage_after - overage_before, 0)
-    free_tokens_applied = max(normalized_total - billable_tokens, 0)
-    credits_to_charge = (
-        math.ceil(billable_tokens / policy.tokens_per_credit)
-        if billable_tokens > 0
-        else 0
-    )
-    return TokenBillingCharge(
-        free_tokens_applied=free_tokens_applied,
-        billable_tokens=billable_tokens,
-        credits_to_charge=credits_to_charge,
-        historical_tokens_after=historical_after,
-    )
-
-
 def get_workflow_costs() -> dict[str, dict[str, int | bool]]:
     """Expose internal billing policies for admin/diagnostics consumers."""
     return {
@@ -158,3 +90,25 @@ def get_public_workflow_costs() -> dict[str, dict[str, int | str | bool]]:
             "credits": sandbox.run_python_credits,
         },
     }
+
+
+__all__ = [
+    "BILLABLE_FEATURE_TASK_TYPES",
+    "CapabilityPricingEstimate",
+    "GlobalCreditPolicy",
+    "ModelUsageCreditCharge",
+    "OperationBillingPolicy",
+    "SandboxPricingEstimate",
+    "TokenBillingCharge",
+    "TokenBillingPolicy",
+    "calculate_capability_estimate",
+    "calculate_model_usage_credits",
+    "calculate_sandbox_estimate",
+    "calculate_token_billing_charge",
+    "calculate_weighted_tokens",
+    "get_feature_token_billing_policy",
+    "get_public_workflow_costs",
+    "get_sandbox_operation_billing_policy",
+    "get_thread_token_billing_policy",
+    "get_workflow_costs",
+]

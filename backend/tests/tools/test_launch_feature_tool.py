@@ -79,6 +79,20 @@ class _FakeDataServiceClient:
     async def get_credit_balance(self, user_id: str) -> int | None:
         return 10
 
+    async def create_credit_reservation(self, command):
+        return SimpleNamespace(
+            id="reservation-1",
+            status="reserved",
+            reserved_credits=command.reserved_credits,
+        )
+
+    async def release_credit_reservation(self, reservation_id: str, *, reason: str | None = None):
+        return SimpleNamespace(
+            id=reservation_id,
+            status="released",
+            release_reason=reason,
+        )
+
 
 @pytest.fixture(autouse=True)
 def _patch_dataservice_client(monkeypatch: pytest.MonkeyPatch):
@@ -153,6 +167,65 @@ async def test_launch_feature_creates_execution_and_dispatches():
         dispatch_mode="celery_worker",
         worker_task_id="worker-task-1",
     )
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_creates_credit_reservation_before_dispatch():
+    fake_execution = _StubExecution(id="exec-1")
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock(return_value=fake_execution)
+    fake_service.update_execution = AsyncMock()
+    fake_credit_service = MagicMock()
+    fake_credit_service.can_start_feature_task = AsyncMock(return_value=True)
+    fake_credit_service.estimate_feature_reservation_credits = AsyncMock(return_value=120)
+    fake_credit_service.reserve_for_feature_execution = AsyncMock(
+        return_value=SimpleNamespace(id="reservation-1", reserved_credits=120, status="reserved")
+    )
+    fake_celery = MagicMock(enabled=True)
+    fake_celery_app = MagicMock()
+    fake_celery_app.send_task.return_value = SimpleNamespace(id="worker-task-1")
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", return_value=fake_credit_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "idea_to_thesis_manuscript",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "launched"
+    fake_credit_service.estimate_feature_reservation_credits.assert_awaited_once_with(
+        feature_id="idea_to_thesis_manuscript",
+        workspace_type="thesis",
+    )
+    fake_credit_service.reserve_for_feature_execution.assert_awaited_once_with(
+        user_id="user-1",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        estimated_credits=120,
+        metadata={
+            "feature_id": "idea_to_thesis_manuscript",
+            "workspace_type": "thesis",
+            "source": "launch_feature",
+        },
+    )
+    reservation_updates = [
+        call.kwargs for call in fake_service.update_execution.await_args_list
+        if call.kwargs.get("params")
+    ]
+    assert reservation_updates[0]["params"]["billing"]["credit_reservation_id"] == "reservation-1"
 
 
 @pytest.mark.asyncio
@@ -280,13 +353,15 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
     assert result["status"] == "launched"
     assert result["execution_id"] == "exec-9"
     fake_service.create_execution.assert_not_called()
-    assert fake_service.update_execution.await_count == 2
+    assert fake_service.update_execution.await_count == 3
     update_kwargs = fake_service.update_execution.await_args_list[0].kwargs
     assert update_kwargs["status"] == "pending"
     assert update_kwargs["thread_id"] == "th-1"
     assert update_kwargs["entry_skill_id"] == "manuscript-writer"
     assert update_kwargs["params"]["brief"]["capability_id"] == "idea_to_thesis_manuscript"
-    dispatch_kwargs = fake_service.update_execution.await_args_list[1].kwargs
+    reservation_kwargs = fake_service.update_execution.await_args_list[1].kwargs
+    assert reservation_kwargs["params"]["billing"]["credit_reservation_id"] == "reservation-1"
+    dispatch_kwargs = fake_service.update_execution.await_args_list[2].kwargs
     assert dispatch_kwargs == {
         "dispatch_mode": "celery_worker",
         "worker_task_id": "worker-task-9",
@@ -469,13 +544,22 @@ async def test_launch_feature_returns_error_when_queue_dispatch_fails():
     fake_service = MagicMock()
     fake_service.list_executions = AsyncMock(return_value=[])
     fake_service.create_execution = AsyncMock(return_value=fake_execution)
+    fake_service.update_execution = AsyncMock()
     fake_service.complete_execution = AsyncMock()
+    fake_credit_service = MagicMock()
+    fake_credit_service.can_start_feature_task = AsyncMock(return_value=True)
+    fake_credit_service.estimate_feature_reservation_credits = AsyncMock(return_value=100)
+    fake_credit_service.reserve_for_feature_execution = AsyncMock(
+        return_value=SimpleNamespace(id="reservation-1", reserved_credits=100, status="reserved")
+    )
+    fake_credit_service.release_reservation = AsyncMock()
     fake_celery = MagicMock(enabled=True)
     fake_celery_app = MagicMock()
     fake_celery_app.send_task.side_effect = RuntimeError("queue down")
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", return_value=fake_credit_service), \
          patch("src.config.app_config.celery_settings", fake_celery), \
          patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
@@ -491,6 +575,10 @@ async def test_launch_feature_returns_error_when_queue_dispatch_fails():
 
     assert result["status"] == "error"
     assert result["code"] == "execution_queue_unavailable"
+    fake_credit_service.release_reservation.assert_awaited_once_with(
+        "reservation-1",
+        reason="执行队列派发失败释放预留积分",
+    )
 
 
 @pytest.mark.asyncio

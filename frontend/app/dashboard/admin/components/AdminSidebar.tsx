@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Bot,
   Coins,
   Layers,
   LayoutDashboard,
@@ -26,10 +27,12 @@ const CREDIT_GROUP = {
     { href: "/dashboard/admin/credits", label: "流水" },
     { href: "/dashboard/admin/credits/rules", label: "发放规则" },
     { href: "/dashboard/admin/credits/redeem-codes", label: "兑换码" },
+    { href: "/dashboard/admin/credits/pricing", label: "定价策略" },
   ],
 };
 
 const BUSINESS: Array<{ href: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  { href: "/dashboard/admin/models", label: "模型管理", icon: Bot },
   { href: "/dashboard/admin/capabilities", label: "Capability", icon: Layers },
   { href: "/dashboard/admin/skills", label: "Skill", icon: Wrench },
   { href: "/dashboard/admin/analytics", label: "数据分析", icon: BarChart3 },

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import math
+import time
+
 from src.agents.lead_agent.v2.sandbox_runtime import (
+    SandboxCommandExecutionError,
     require_run_python_allowed,
     run_python_script,
     run_python_smoke_check,
@@ -31,31 +35,78 @@ class SandboxPythonSubagent(SubagentBase):
         if not user_id:
             raise ValueError("sandbox billing requires user_id")
 
-        billing = await CreditService().consume_for_sandbox_operation(
-            user_id=user_id,
+        credit_service = CreditService()
+        estimated_credits = await credit_service.estimate_sandbox_reservation_credits(
             operation="run_python",
-            workspace_id=ctx.workspace_id,
-            task_id=ctx.execution_id,
-            node_id=node_id,
+            sandbox_policy=sandbox_policy,
         )
-        billing_metadata = billing.as_metadata()
+        reservation = await credit_service.reserve_for_sandbox_operation(
+            user_id=user_id,
+            workspace_id=ctx.workspace_id,
+            execution_id=ctx.execution_id,
+            node_id=node_id,
+            operation="run_python",
+            estimated_credits=estimated_credits,
+            metadata={"source": "sandbox_python_subagent"},
+        )
         await ctx.emit("thinking", "正在启动隔离 Docker sandbox 运行受控 Python 任务。")
-        if operation == "smoke_check":
-            output = await run_python_smoke_check(
-                workspace_id=ctx.workspace_id,
-                execution_id=ctx.execution_id,
-                node_id=node_id,
+        started = time.perf_counter()
+
+        async def _settle_billing() -> dict:
+            duration_seconds = max(int(math.ceil(time.perf_counter() - started)), 0)
+            settled_credits = await credit_service.estimate_sandbox_settlement_credits(
+                operation="run_python",
                 sandbox_policy=sandbox_policy,
+                duration_seconds=duration_seconds,
             )
-        else:
-            output = await run_python_script(
-                workspace_id=ctx.workspace_id,
-                execution_id=ctx.execution_id,
-                node_id=node_id,
-                sandbox_policy=sandbox_policy,
-                script=str(ctx.inputs.get("script") or ""),
-                script_name=str(ctx.inputs.get("script_name") or "analysis.py"),
+            _settled_reservation, tx = await credit_service.settle_sandbox_reservation(
+                reservation_id=str(reservation.id),
+                settled_credits=settled_credits,
+                operation="run_python",
+                task_id=ctx.execution_id,
+                metadata={
+                    "node_id": node_id,
+                    "duration_seconds": duration_seconds,
+                    "source": "sandbox_python_subagent",
+                },
             )
+            return {
+                "type": "sandbox_operation_billing",
+                "operation": "run_python",
+                "credits_charged": settled_credits,
+                "credit_reservation_id": str(reservation.id),
+                "transaction_id": str(tx.id) if tx is not None else None,
+                "balance_after": int(getattr(tx, "balance_after", 0) or 0) if tx is not None else None,
+                "charged": settled_credits > 0,
+            }
+
+        try:
+            if operation == "smoke_check":
+                output = await run_python_smoke_check(
+                    workspace_id=ctx.workspace_id,
+                    execution_id=ctx.execution_id,
+                    node_id=node_id,
+                    sandbox_policy=sandbox_policy,
+                )
+            else:
+                output = await run_python_script(
+                    workspace_id=ctx.workspace_id,
+                    execution_id=ctx.execution_id,
+                    node_id=node_id,
+                    sandbox_policy=sandbox_policy,
+                    script=str(ctx.inputs.get("script") or ""),
+                    script_name=str(ctx.inputs.get("script_name") or "analysis.py"),
+                )
+        except SandboxCommandExecutionError:
+            await _settle_billing()
+            raise
+        except Exception:
+            await credit_service.release_reservation(
+                str(reservation.id),
+                reason="sandbox execution failed before settlement",
+            )
+            raise
+        billing_metadata = await _settle_billing()
         output = dict(output)
         output["billing"] = billing_metadata
         await ctx.emit("thinking", "Docker sandbox Python 任务完成，正在整理结果。")

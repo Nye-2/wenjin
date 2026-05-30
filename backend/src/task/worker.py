@@ -139,6 +139,14 @@ async def _bootstrap_worker_runtime() -> None:
     )
     await redis_client.connect()
     await _maybe_call_async_method(redis_client, "connect_stream")
+    try:
+        await _refresh_worker_model_catalog_cache()
+    except Exception as exc:
+        logger.warning(
+            "Worker model catalog runtime cache warmup skipped: %s",
+            exc,
+            exc_info=True,
+        )
     manager, _ = await activate_mcp_runtime(
         extensions_config=get_extensions_config(),
         warmup=True,
@@ -152,6 +160,19 @@ async def _bootstrap_worker_runtime() -> None:
         logger.warning(
             "Worker MCP runtime degraded; continuing without MCP tools: %s",
             runtime_errors,
+        )
+
+
+async def _refresh_worker_model_catalog_cache() -> None:
+    """Warm the worker-process model catalog cache from DataService."""
+    from src.dataservice_client.provider import dataservice_client
+    from src.task.model_catalog_runtime import refresh_runtime_model_catalog
+
+    async with dataservice_client() as dataservice:
+        await refresh_runtime_model_catalog(
+            dataservice,
+            logger=logger,
+            context="Worker model catalog runtime",
         )
 
 

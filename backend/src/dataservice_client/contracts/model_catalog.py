@@ -1,0 +1,128 @@
+"""Model catalog contracts returned by DataService client methods."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class ModelCatalogPayload(BaseModel):
+    id: str | None = None
+    model_id: str
+    display_name: str
+    provider_protocol: str = "openai_compatible"
+    provider_name: str = "Custom"
+    category: str = "llm"
+    model_name: str
+    base_url: str
+    api_key_redacted: str | None = None
+    enabled: bool = True
+    is_default: bool = False
+    supports_streaming: bool = True
+    supports_tools: bool = False
+    supports_json_mode: bool = True
+    supports_json_schema: bool = False
+    supports_vision: bool = False
+    supports_reasoning_effort: bool = False
+    max_tokens: int = 4096
+    temperature: float = 0.7
+    timeout_seconds: float | None = None
+    max_retries: int | None = None
+    trust_level: str = "custom"
+    pricing_policy_id: str | None = None
+    config_version: int = 1
+    health_status: str = "unknown"
+    last_tested_at: datetime | None = None
+    last_test_error: str | None = None
+    default_headers: dict[str, Any] = Field(default_factory=dict)
+    created_by_admin_id: str | None = None
+    updated_by_admin_id: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ModelRuntimeConfigPayload(BaseModel):
+    model_id: str
+    display_name: str
+    provider_protocol: str = "openai_compatible"
+    provider_name: str = "Custom"
+    category: str = "llm"
+    model_name: str
+    base_url: str
+    api_key: str
+    is_default: bool = False
+    supports_streaming: bool = True
+    supports_tools: bool = False
+    supports_json_mode: bool = True
+    supports_json_schema: bool = False
+    supports_vision: bool = False
+    supports_reasoning_effort: bool = False
+    max_tokens: int = 4096
+    temperature: float = 0.7
+    timeout_seconds: float | None = None
+    max_retries: int | None = None
+    trust_level: str = "custom"
+    pricing_policy_id: str | None = None
+    config_version: int = 1
+    default_headers: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelCatalogCreatePayload(BaseModel):
+    model_id: str
+    display_name: str
+    provider_protocol: str = "openai_compatible"
+    provider_name: str = "Custom"
+    category: str = "llm"
+    model_name: str
+    base_url: str
+    api_key: str
+    enabled: bool = True
+    is_default: bool = False
+    supports_streaming: bool = True
+    supports_tools: bool = False
+    supports_json_mode: bool = True
+    supports_json_schema: bool = False
+    supports_vision: bool = False
+    supports_reasoning_effort: bool = False
+    max_tokens: int = 4096
+    temperature: float = 0.7
+    timeout_seconds: float | None = None
+    max_retries: int | None = None
+    trust_level: str = "custom"
+    pricing_policy_id: str | None = None
+    default_headers: dict[str, Any] = Field(default_factory=dict)
+    admin_id: str | None = None
+
+
+class ModelCatalogUpdatePayload(BaseModel):
+    model_id: str | None = None
+    display_name: str | None = None
+    provider_protocol: str | None = None
+    provider_name: str | None = None
+    category: str | None = None
+    model_name: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    enabled: bool | None = None
+    is_default: bool | None = None
+    supports_streaming: bool | None = None
+    supports_tools: bool | None = None
+    supports_json_mode: bool | None = None
+    supports_json_schema: bool | None = None
+    supports_vision: bool | None = None
+    supports_reasoning_effort: bool | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
+    timeout_seconds: float | None = None
+    max_retries: int | None = None
+    trust_level: str | None = None
+    pricing_policy_id: str | None = None
+    default_headers: dict[str, Any] | None = None
+    admin_id: str | None = None
+
+
+class ModelCatalogHealthPayload(BaseModel):
+    status: str
+    error_message: str | None = None

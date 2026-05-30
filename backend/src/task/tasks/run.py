@@ -68,6 +68,7 @@ async def _execute_run_async(
     from src.academic.services.workspace_service import WorkspaceService
     from src.dataservice_client.provider import dataservice_client
     from src.services import ThreadService
+    from src.task.model_catalog_runtime import refresh_runtime_model_catalog
 
     if not redis_settings.enabled:
         raise RuntimeError("execute_run requires REDIS_ENABLED=true")
@@ -96,6 +97,7 @@ async def _execute_run_async(
     )
 
     async with dataservice_client() as dataservice:
+        await refresh_runtime_model_catalog(dataservice)
         handler = ThreadTurnHandler(
             thread_service=ThreadService(dataservice=dataservice),
             workspace_service=WorkspaceService(dataservice=dataservice),

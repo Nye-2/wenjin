@@ -10,6 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.credit import CreditTransactionType
 from src.database.models.credit_grant_rule import CreditGrantRuleType
+from src.database.models.credit_reservation import (
+    CreditReservationScope,
+    CreditReservationStatus,
+)
 from src.dataservice.common.errors import CreditOverdraftLimitError
 from src.dataservice.domains.credit.repository import CreditRepository
 
@@ -32,6 +36,10 @@ def _idempotency_key(metadata: dict[str, Any] | None) -> str | None:
         return None
     value = str(metadata.get("idempotency_key") or "").strip()
     return value or None
+
+
+def _enum_value(value: Any) -> Any:
+    return value.value if hasattr(value, "value") else value
 
 
 class DataServiceCreditService:
@@ -336,9 +344,191 @@ class DataServiceCreditService:
             summary["users_granted"] += await self.apply_periodic_grant_rule(
                 rule=rule,
                 now=effective_now,
-            )
+                )
             summary["rules_fired"] += 1
         return summary
+
+    async def create_reservation(
+        self,
+        *,
+        user_id: str,
+        scope: CreditReservationScope | str,
+        reserved_credits: int,
+        idempotency_key: str,
+        workspace_id: str | None = None,
+        execution_id: str | None = None,
+        node_id: str | None = None,
+        expires_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        """Hold credits for long-running billable work without writing a ledger entry."""
+        normalized_scope = CreditReservationScope(scope)
+        normalized_reserved = max(int(reserved_credits or 0), 0)
+        normalized_key = str(idempotency_key or "").strip()
+        if not normalized_key:
+            raise ValueError("Reservation idempotency_key is required")
+
+        user = await self.repository.get_user_for_update(user_id)
+        if user is None:
+            raise ValueError("User not found")
+
+        existing = await self.repository.find_reservation_by_idempotency_key(
+            user_id=user_id,
+            scope=normalized_scope,
+            idempotency_key=normalized_key,
+        )
+        if existing is not None:
+            return existing
+
+        spendable_credits = int(user.credits or 0) - int(getattr(user, "reserved_credits", 0) or 0)
+        if normalized_reserved > spendable_credits:
+            raise CreditOverdraftLimitError("insufficient spendable credits for reservation")
+
+        user.reserved_credits = int(getattr(user, "reserved_credits", 0) or 0) + normalized_reserved
+        reservation = self.repository.create_credit_reservation(
+            {
+                "user_id": user_id,
+                "workspace_id": workspace_id,
+                "execution_id": execution_id,
+                "node_id": node_id,
+                "scope": normalized_scope,
+                "status": CreditReservationStatus.RESERVED,
+                "reserved_credits": normalized_reserved,
+                "settled_credits": 0,
+                "idempotency_key": normalized_key,
+                "expires_at": expires_at,
+                "metadata_json": dict(metadata or {}),
+            }
+        )
+        await self._finish(reservation)
+        return reservation
+
+    async def settle_reservation(
+        self,
+        *,
+        reservation_id: str,
+        settled_credits: int,
+        description: str,
+        transaction_type: CreditTransactionType = CreditTransactionType.WORKFLOW_CONSUME,
+        feature_id: str | None = None,
+        task_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[Any, Any | None]:
+        """Finalize a reservation into a normal credit transaction."""
+        reservation = await self.repository.get_reservation_for_update(reservation_id)
+        if reservation is None:
+            raise ValueError("Credit reservation not found")
+        if reservation.status != CreditReservationStatus.RESERVED:
+            tx = (
+                await self.repository.get_credit_transaction(reservation.transaction_id)
+                if reservation.transaction_id
+                else None
+            )
+            return reservation, tx
+
+        user = await self.repository.get_user_for_update(reservation.user_id)
+        if user is None:
+            raise ValueError("User not found")
+
+        reserved_credits = max(int(reservation.reserved_credits or 0), 0)
+        credits_to_charge = min(max(int(settled_credits or 0), 0), reserved_credits)
+        user.reserved_credits = max(int(getattr(user, "reserved_credits", 0) or 0) - reserved_credits, 0)
+        if credits_to_charge > 0:
+            user.credits = int(user.credits or 0) - credits_to_charge
+            user.total_credits_spent = int(user.total_credits_spent or 0) + credits_to_charge
+
+        tx_metadata = dict(getattr(reservation, "metadata_json", {}) or {})
+        tx_metadata.update(metadata or {})
+        tx_metadata.update(
+            {
+                "reservation_id": str(reservation.id),
+                "reservation_scope": _enum_value(reservation.scope),
+                "reserved_credits": reserved_credits,
+                "settled_credits": credits_to_charge,
+            }
+        )
+        tx = self.repository.create_credit_transaction(
+            {
+                "user_id": reservation.user_id,
+                "transaction_type": transaction_type,
+                "amount": -credits_to_charge,
+                "balance_after": user.credits,
+                "description": description,
+                "feature_id": feature_id,
+                "workspace_id": reservation.workspace_id,
+                "task_id": task_id or reservation.execution_id,
+                "tx_metadata": tx_metadata,
+            }
+        )
+        reservation.status = CreditReservationStatus.SETTLED
+        reservation.settled_credits = credits_to_charge
+        reservation.transaction_id = str(tx.id)
+        reservation.metadata_json = {
+            **dict(getattr(reservation, "metadata_json", {}) or {}),
+            "settlement_metadata": dict(metadata or {}),
+        }
+        await self._finish(tx)
+        return reservation, tx
+
+    async def release_reservation(
+        self,
+        reservation_id: str,
+        *,
+        reason: str | None = None,
+    ) -> Any:
+        """Release a reserved hold without creating a final ledger transaction."""
+        reservation = await self.repository.get_reservation_for_update(reservation_id)
+        if reservation is None:
+            raise ValueError("Credit reservation not found")
+        return await self._release_locked_reservation(
+            reservation,
+            status=CreditReservationStatus.RELEASED,
+            reason=reason,
+        )
+
+    async def release_expired_reservations(
+        self,
+        *,
+        now: datetime | None = None,
+    ) -> list[Any]:
+        """Release active reservations whose expiration has passed."""
+        effective_now = now or datetime.now(UTC)
+        reservations = await self.repository.list_expired_reserved_reservations(now=effective_now)
+        released: list[Any] = []
+        for reservation in reservations:
+            released.append(
+                await self._release_locked_reservation(
+                    reservation,
+                    status=CreditReservationStatus.EXPIRED,
+                    reason="reservation expired",
+                )
+            )
+        return released
+
+    async def _release_locked_reservation(
+        self,
+        reservation: Any,
+        *,
+        status: CreditReservationStatus,
+        reason: str | None,
+    ) -> Any:
+        if reservation.status != CreditReservationStatus.RESERVED:
+            return reservation
+        user = await self.repository.get_user_for_update(reservation.user_id)
+        if user is None:
+            raise ValueError("User not found")
+        user.reserved_credits = max(
+            int(getattr(user, "reserved_credits", 0) or 0)
+            - max(int(reservation.reserved_credits or 0), 0),
+            0,
+        )
+        reservation.status = status
+        reservation.metadata_json = {
+            **dict(getattr(reservation, "metadata_json", {}) or {}),
+            "release_reason": reason,
+        }
+        await self._finish(reservation)
+        return reservation
 
     async def record_consumption(
         self,

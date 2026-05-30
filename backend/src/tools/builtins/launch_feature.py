@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import suppress
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -83,6 +84,7 @@ async def launch_feature_tool(
     from src.dataservice_client.provider import dataservice_client
     from src.services.execution_service import ExecutionService
 
+    credit_reservation_id: str | None = None
     async with dataservice_client() as catalog:
         workspace = await catalog.get_workspace(workspace_id)
         if workspace is None:
@@ -249,6 +251,12 @@ async def launch_feature_tool(
                     completed_at=None,
                     commit=False,
                 )
+                existing_params = getattr(execution, "params", None)
+                if isinstance(existing_params, Mapping):
+                    existing_billing = existing_params.get("billing")
+                    if isinstance(existing_billing, Mapping):
+                        value = str(existing_billing.get("credit_reservation_id") or "").strip()
+                        credit_reservation_id = value or None
 
             if execution is None:
                 execution = await execution_service.create_execution(
@@ -263,16 +271,67 @@ async def launch_feature_tool(
                     params=execution_params,
                     commit=False,
                 )
+            if credit_reservation_id is None:
+                try:
+                    estimated_credits = await credit_service.estimate_feature_reservation_credits(
+                        feature_id=feature_id,
+                        workspace_type=workspace_type,
+                    )
+                    reservation = await credit_service.reserve_for_feature_execution(
+                        user_id=user_id,
+                        workspace_id=workspace_id,
+                        execution_id=str(execution.id),
+                        estimated_credits=estimated_credits,
+                        metadata={
+                            "feature_id": feature_id,
+                            "workspace_type": workspace_type,
+                            "source": "launch_feature",
+                        },
+                    )
+                    credit_reservation_id = str(reservation.id)
+                    execution_params = {
+                        **execution_params,
+                        "billing": {
+                            **(
+                                execution_params.get("billing")
+                                if isinstance(execution_params.get("billing"), dict)
+                                else {}
+                            ),
+                            "credit_reservation_id": credit_reservation_id,
+                            "reserved_credits": int(getattr(reservation, "reserved_credits", 0) or 0),
+                        },
+                    }
+                    await execution_service.update_execution(
+                        str(execution.id),
+                        params=execution_params,
+                        commit=False,
+                    )
+                except Exception:
+                    if credit_reservation_id:
+                        with suppress(Exception):
+                            await credit_service.release_reservation(
+                                credit_reservation_id,
+                                reason="执行启动失败释放预留积分",
+                            )
+                        credit_reservation_id = None
+                    raise
         except DataServiceClientError as exc:
-            if exc.status_code != 409:
-                raise
-            return {
-                "status": "advisory",
-                "code": "lead_busy",
-                "feature_id": feature_id,
-                "execution_id": None,
-                "detail": "已有执行正在运行，请稍候。",
-            }
+            if exc.status_code == 409:
+                return {
+                    "status": "advisory",
+                    "code": "lead_busy",
+                    "feature_id": feature_id,
+                    "execution_id": None,
+                    "detail": "已有执行正在运行，请稍候。",
+                }
+            if exc.status_code == 402:
+                return {
+                    "status": "advisory",
+                    "code": "feature_credits_required",
+                    "feature_id": feature_id,
+                    "detail": "功能任务可用积分不足，无法为本次执行预留计算资源。",
+                }
+            raise
 
     # Dispatch through the project Celery app rather than the shared_task proxy.
     # The chat gateway process does not own worker task registration, so using
@@ -280,6 +339,12 @@ async def launch_feature_tool(
     from src.task.celery_app import celery_app
 
     worker_task_id: str | None = None
+    reservation_id = credit_reservation_id
+    params_after_reservation = getattr(execution, "params", None)
+    if isinstance(params_after_reservation, Mapping):
+        billing = params_after_reservation.get("billing")
+        if isinstance(billing, Mapping):
+            reservation_id = str(billing.get("credit_reservation_id") or "").strip() or None
     try:
         worker_task = celery_app.send_task(
             "src.task.tasks.execute_execution",
@@ -288,6 +353,7 @@ async def launch_feature_tool(
         )
         worker_task_id = str(getattr(worker_task, "id", "") or "") or None
     except Exception:
+        from src.services.credit_service import CreditService
         from src.services.execution_service import ExecutionService
 
         async with dataservice_client() as catalog:
@@ -297,6 +363,11 @@ async def launch_feature_tool(
                 status="failed",
                 error="Failed to dispatch execution to worker queue",
                 result_summary="后台执行队列暂时不可用，请稍后重试。",
+            )
+        if reservation_id:
+            await CreditService().release_reservation(
+                reservation_id,
+                reason="执行队列派发失败释放预留积分",
             )
         return {
             "status": "error",

@@ -36,6 +36,7 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
         "execution_commit_writeback_security",
         "execution_resume_runtime_config",
         "execution_ux_convergence",
+        "model_catalog_pricing_gate",
         "frontend_execution_ux_unit_tests",
         "frontend_static_build",
         "frontend_lint",
@@ -57,4 +58,7 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
     )
     assert "tests/unit/lib/execution-run-view.test.ts" in " ".join(
         command_by_id["frontend_execution_ux_unit_tests"]
+    )
+    assert "src.quality.model_catalog_pricing_gate" in " ".join(
+        command_by_id["model_catalog_pricing_gate"]
     )

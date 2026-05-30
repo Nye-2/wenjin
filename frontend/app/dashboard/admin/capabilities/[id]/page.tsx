@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
@@ -16,8 +16,9 @@ import {
 export default function CapabilityEditPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
   const workspaceType = searchParams.get("workspace_type") ?? "";
@@ -32,13 +33,13 @@ export default function CapabilityEditPage({
   useEffect(() => {
     if (!workspaceType) return;
     setIsLoading(true);
-    getAdminCapability(params.id, workspaceType)
+    getAdminCapability(id, workspaceType)
       .then((res) => {
         setYamlText(res.yaml);
         setOriginalYaml(res.yaml);
       })
       .finally(() => setIsLoading(false));
-  }, [params.id, workspaceType]);
+  }, [id, workspaceType]);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -63,7 +64,7 @@ export default function CapabilityEditPage({
     setIsSaving(true);
     setSaveError(null);
     try {
-      await updateAdminCapability(params.id, workspaceType, yamlText);
+      await updateAdminCapability(id, workspaceType, yamlText);
       setOriginalYaml(yamlText);
       router.push("/dashboard/admin/capabilities");
     } catch (e) {
@@ -74,8 +75,8 @@ export default function CapabilityEditPage({
   };
 
   const handleDelete = async () => {
-    if (!confirm(`确认删除 capability "${params.id}"？此操作不可恢复。`)) return;
-    await deleteAdminCapability(params.id, workspaceType);
+    if (!confirm(`确认删除 capability "${id}"？此操作不可恢复。`)) return;
+    await deleteAdminCapability(id, workspaceType);
     router.push("/dashboard/admin/capabilities");
   };
 
@@ -103,7 +104,7 @@ export default function CapabilityEditPage({
           </Button>
           <div>
             <h1 className="text-xl font-bold text-[var(--text-primary)]">
-              {params.id}{" "}
+              {id}{" "}
               <span className="text-sm text-[var(--text-muted)]">
                 / {workspaceType}
               </span>
