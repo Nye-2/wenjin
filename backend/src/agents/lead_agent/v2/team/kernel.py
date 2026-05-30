@@ -78,7 +78,7 @@ class TeamKernelRuntime:
                 else {}
             )
             blackboard = TeamBlackboard(mission_summary=brief.raw_message or capability.display_name)
-            invocations = await self._run_iteration(
+            invocations, gates = await self._run_iteration(
                 execution_id=execution_id,
                 brief=brief,
                 capability=capability,
@@ -90,13 +90,6 @@ class TeamKernelRuntime:
             )
             if invocations and all(invocation.status == "cancelled" for invocation in invocations):
                 return self._cancelled_report(execution_id, brief, started_at)
-            gates = self._run_quality_gates(team_policy.quality_pipeline, invocations)
-            for gate in gates:
-                await self.publish_event(
-                    execution_id,
-                    "execution.team.quality_gate",
-                    {"quality_gate": gate.model_dump(mode="json")},
-                )
             duration = int((datetime.now(UTC) - started_at).total_seconds())
             outputs: list[ResultOutput] = list(self._outputs_from_invocations(invocations))
             outputs.extend(self.collect_policy_memory_outputs(capability, brief, outputs))
@@ -144,30 +137,148 @@ class TeamKernelRuntime:
         capability_policy: dict[str, Any],
         workspace_data: dict[str, Any],
         blackboard: TeamBlackboard,
-    ) -> list[AgentInvocation]:
-        selected_template_ids = team_policy.core_templates[: team_policy.limits.max_parallel_invocations]
+    ) -> tuple[list[AgentInvocation], list[QualityGateResult]]:
         counts: Counter[str] = Counter()
         invocations: list[AgentInvocation] = []
-        for template_id in selected_template_ids:
-            template = templates[template_id]
-            counts[template_id] += 1
-            effective_tools = resolve_effective_tools(template, team_policy)
-            effective_skills = resolve_effective_skills(
-                template,
-                capability_skills=team_policy.capability_skills or template.default_skills,
-            )
-            invocation = build_invocation_assignment(
-                template=template,
-                iteration=1,
-                template_invocation_count=counts[template_id],
-                reason="core team member for capability",
-                input_brief=self._build_member_brief(brief, capability, template, blackboard),
-                effective_tools=effective_tools,
-                effective_skills=effective_skills,
-            )
-            invocation.execution_id = execution_id
-            invocations.append(invocation)
+        gates: list[QualityGateResult] = []
+        core_queue = [
+            {
+                "template_id": template_id,
+                "reason": "core team member for capability",
+            }
+            for template_id in team_policy.core_templates
+        ]
+        latest_batch: list[AgentInvocation] = []
+        core_invocations: list[AgentInvocation] = []
 
+        while core_queue and len(invocations) < team_policy.limits.max_invocations_total:
+            current_core = core_queue[: team_policy.limits.max_parallel_invocations]
+            core_queue = core_queue[team_policy.limits.max_parallel_invocations :]
+            latest_batch = await self._run_invocation_batch(
+                execution_id=execution_id,
+                brief=brief,
+                capability=capability,
+                templates=templates,
+                team_policy=team_policy,
+                capability_policy=capability_policy,
+                workspace_data=workspace_data,
+                blackboard=blackboard,
+                counts=counts,
+                invocations=invocations,
+                iteration=1,
+                recruits=current_core,
+            )
+            if not latest_batch:
+                break
+            core_invocations.extend(latest_batch)
+            if invocations and all(invocation.status == "cancelled" for invocation in invocations):
+                break
+
+        if invocations and all(invocation.status == "cancelled" for invocation in invocations):
+            return invocations, gates
+        if not invocations:
+            return invocations, gates
+
+        batch_gates = await self._evaluate_quality_gates(
+            execution_id=execution_id,
+            team_policy=team_policy,
+            counts=counts,
+            invocations=invocations,
+            latest_invocations=core_invocations or latest_batch,
+            blackboard=blackboard,
+        )
+        gates.extend(batch_gates)
+        next_batch = self._next_recruits_from_gates(
+            batch_gates,
+            counts,
+            len(invocations),
+            team_policy,
+        )
+        iteration = 2
+        no_progress_rounds = 0
+
+        while (
+            next_batch
+            and iteration <= team_policy.limits.max_iterations
+            and len(invocations) < team_policy.limits.max_invocations_total
+        ):
+            batch = await self._run_invocation_batch(
+                execution_id=execution_id,
+                brief=brief,
+                capability=capability,
+                templates=templates,
+                team_policy=team_policy,
+                capability_policy=capability_policy,
+                workspace_data=workspace_data,
+                blackboard=blackboard,
+                counts=counts,
+                invocations=invocations,
+                iteration=iteration,
+                recruits=next_batch[: team_policy.limits.max_parallel_invocations],
+            )
+            if not batch:
+                break
+            if invocations and all(invocation.status == "cancelled" for invocation in invocations):
+                break
+
+            batch_gates = await self._evaluate_quality_gates(
+                execution_id=execution_id,
+                team_policy=team_policy,
+                counts=counts,
+                invocations=invocations,
+                latest_invocations=batch,
+                blackboard=blackboard,
+            )
+            gates.extend(batch_gates)
+            recruits = self._next_recruits_from_gates(
+                batch_gates,
+                counts,
+                len(invocations),
+                team_policy,
+            )
+            if not recruits:
+                if any(gate.next_action == "recruit_more" for gate in batch_gates):
+                    no_progress_rounds += 1
+                    if no_progress_rounds >= team_policy.limits.no_progress_rounds_before_stop:
+                        break
+                break
+
+            no_progress_rounds = 0
+            next_batch = recruits
+            iteration += 1
+
+        return invocations, gates
+
+    async def _run_invocation_batch(
+        self,
+        *,
+        execution_id: str,
+        brief: TaskBrief,
+        capability: Any,
+        templates: dict[str, AgentTemplate],
+        team_policy: Any,
+        capability_policy: dict[str, Any],
+        workspace_data: dict[str, Any],
+        blackboard: TeamBlackboard,
+        counts: Counter[str],
+        invocations: list[AgentInvocation],
+        iteration: int,
+        recruits: list[dict[str, str]],
+    ) -> list[AgentInvocation]:
+        batch = self._build_invocation_batch(
+            execution_id=execution_id,
+            brief=brief,
+            capability=capability,
+            templates=templates,
+            team_policy=team_policy,
+            blackboard=blackboard,
+            counts=counts,
+            iteration=iteration,
+            recruits=recruits,
+        )
+        invocations.extend(batch)
+        if not batch:
+            return batch
         await asyncio.gather(
             *[
                 self._run_invocation(
@@ -177,10 +288,81 @@ class TeamKernelRuntime:
                     workspace_data=workspace_data,
                     blackboard=blackboard,
                 )
-                for invocation in invocations
+                for invocation in batch
             ]
         )
-        return invocations
+        return batch
+
+    async def _evaluate_quality_gates(
+        self,
+        *,
+        execution_id: str,
+        team_policy: Any,
+        counts: Counter[str],
+        invocations: list[AgentInvocation],
+        latest_invocations: list[AgentInvocation],
+        blackboard: TeamBlackboard,
+    ) -> list[QualityGateResult]:
+        gates = self._run_quality_gates(
+            team_policy.quality_pipeline,
+            invocations,
+            team_policy=team_policy,
+            counts=counts,
+            latest_invocations=latest_invocations,
+        )
+        blackboard.quality_gate_history.extend(
+            gate.model_dump(mode="json") for gate in gates
+        )
+        for gate in gates:
+            await self.publish_event(
+                execution_id,
+                "execution.team.quality_gate",
+                {"quality_gate": gate.model_dump(mode="json")},
+            )
+        return gates
+
+    def _build_invocation_batch(
+        self,
+        *,
+        execution_id: str,
+        brief: TaskBrief,
+        capability: Any,
+        templates: dict[str, AgentTemplate],
+        team_policy: Any,
+        blackboard: TeamBlackboard,
+        counts: Counter[str],
+        iteration: int,
+        recruits: list[dict[str, str]],
+    ) -> list[AgentInvocation]:
+        batch: list[AgentInvocation] = []
+        for recruit in recruits:
+            template_id = recruit["template_id"]
+            if not self._can_invoke_template(
+                template_id,
+                counts,
+                total_invocations=counts.total(),
+                team_policy=team_policy,
+            ):
+                continue
+            template = templates[template_id]
+            counts[template_id] += 1
+            effective_tools = resolve_effective_tools(template, team_policy)
+            effective_skills = resolve_effective_skills(
+                template,
+                capability_skills=team_policy.capability_skills or template.default_skills,
+            )
+            invocation = build_invocation_assignment(
+                template=template,
+                iteration=iteration,
+                template_invocation_count=counts[template_id],
+                reason=recruit["reason"],
+                input_brief=self._build_member_brief(brief, capability, template, blackboard),
+                effective_tools=effective_tools,
+                effective_skills=effective_skills,
+            )
+            invocation.execution_id = execution_id
+            batch.append(invocation)
+        return batch
 
     def _build_member_brief(
         self,
@@ -286,19 +468,165 @@ class TeamKernelRuntime:
             completed_at=completed_at,
         )
 
+    def _can_invoke_template(
+        self,
+        template_id: str,
+        counts: Counter[str],
+        total_invocations: int,
+        team_policy: Any,
+    ) -> bool:
+        if total_invocations >= team_policy.limits.max_invocations_total:
+            return False
+        return counts[template_id] < team_policy.limits.max_invocations_per_template
+
+    def _next_recruits_from_gates(
+        self,
+        gates: list[QualityGateResult],
+        counts: Counter[str],
+        total_invocations: int,
+        team_policy: Any,
+    ) -> list[dict[str, str]]:
+        recruits: list[dict[str, str]] = []
+        seen: set[str] = set()
+        remaining_total = team_policy.limits.max_invocations_total - total_invocations
+        if remaining_total <= 0:
+            return recruits
+        batch_limit = min(team_policy.limits.max_parallel_invocations, remaining_total)
+        for gate in gates:
+            if gate.next_action != "recruit_more":
+                continue
+            for item in gate.suggested_recruits:
+                template_id = str(item.get("template_id") or "")
+                if not template_id or template_id in seen:
+                    continue
+                if not self._is_recruitable_template(template_id, team_policy):
+                    continue
+                if not self._can_invoke_template(
+                    template_id,
+                    counts,
+                    total_invocations + len(recruits),
+                    team_policy,
+                ):
+                    continue
+                reason = str(item.get("reason") or gate.gate_id)
+                recruits.append(
+                    {
+                        "template_id": template_id,
+                        "reason": f"quality gate requested: {reason}",
+                    }
+                )
+                seen.add(template_id)
+                if len(recruits) >= batch_limit:
+                    return recruits
+        return recruits
+
+    def _suggest_recruits(
+        self,
+        interrupted: list[AgentInvocation],
+        *,
+        team_policy: Any | None,
+        counts: Counter[str] | None,
+        total_invocations: int,
+    ) -> list[dict[str, str]]:
+        if not interrupted or team_policy is None or counts is None:
+            return []
+
+        candidate_pairs: list[tuple[str, str]] = []
+        if any(invocation.status == "failed" for invocation in interrupted):
+            for trigger_key in ("member_failed", "overloaded_or_missing_specialist"):
+                candidate_pairs.extend(
+                    self._trigger_template_pairs(
+                        team_policy,
+                        trigger_key,
+                        trigger_key,
+                    )
+                )
+        if any(invocation.status == "cancelled" for invocation in interrupted):
+            for trigger_key in ("member_cancelled", "overloaded_or_missing_specialist"):
+                candidate_pairs.extend(
+                    self._trigger_template_pairs(
+                        team_policy,
+                        trigger_key,
+                        trigger_key,
+                    )
+                )
+        if not candidate_pairs:
+            candidate_pairs = [
+                (template_id, "optional_fallback")
+                for template_id in team_policy.optional_templates
+            ]
+
+        recruits: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for template_id, trigger in candidate_pairs:
+            if template_id in seen:
+                continue
+            if not self._is_recruitable_template(template_id, team_policy):
+                continue
+            if not self._can_invoke_template(
+                template_id,
+                counts,
+                total_invocations + len(recruits),
+                team_policy,
+            ):
+                continue
+            recruits.append(
+                {
+                    "template_id": template_id,
+                    "reason": f"{trigger} after interrupted team member",
+                }
+            )
+            seen.add(template_id)
+        return recruits
+
+    def _trigger_template_pairs(
+        self,
+        team_policy: Any,
+        trigger_key: str,
+        reason: str,
+    ) -> list[tuple[str, str]]:
+        raw_templates = team_policy.recruitment_triggers.get(trigger_key) or []
+        if isinstance(raw_templates, str):
+            raw_templates = [raw_templates]
+        return [(str(template_id), reason) for template_id in raw_templates]
+
+    def _is_recruitable_template(self, template_id: str, team_policy: Any) -> bool:
+        return template_id in {*team_policy.core_templates, *team_policy.optional_templates}
+
     def _run_quality_gates(
         self,
         quality_pipeline: list[str],
         invocations: list[AgentInvocation],
+        *,
+        team_policy: Any | None = None,
+        counts: Counter[str] | None = None,
+        latest_invocations: list[AgentInvocation] | None = None,
     ) -> list[QualityGateResult]:
         failed = [item for item in invocations if item.status == "failed"]
         cancelled = [item for item in invocations if item.status == "cancelled"]
         interrupted = [*failed, *cancelled]
+        latest = latest_invocations or invocations
+        latest_interrupted = [
+            item for item in latest if item.status in {"failed", "cancelled"}
+        ]
+        suggested_recruits = self._suggest_recruits(
+            latest_interrupted,
+            team_policy=team_policy,
+            counts=counts,
+            total_invocations=len(invocations),
+        )
         status = "warning" if interrupted else "pass"
         gates = quality_pipeline or ["team_output_available"]
         finding_message = (
             f"{len(failed)} team member invocation(s) failed; "
             f"{len(cancelled)} cancelled"
+        )
+        next_action = (
+            "recruit_more"
+            if suggested_recruits
+            else "stop_with_warning"
+            if interrupted
+            else "finish"
         )
         return [
             QualityGateResult(
@@ -306,7 +634,8 @@ class TeamKernelRuntime:
                 status=status,
                 severity="medium" if interrupted else "low",
                 findings=[{"message": finding_message}] if interrupted else [],
-                next_action="stop_with_warning" if interrupted else "finish",
+                suggested_recruits=[dict(item) for item in suggested_recruits],
+                next_action=next_action,
             )
             for gate in gates
         ]

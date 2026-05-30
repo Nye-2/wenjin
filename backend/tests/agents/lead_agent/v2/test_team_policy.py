@@ -80,6 +80,22 @@ def test_build_capability_team_policy_applies_platform_caps() -> None:
     assert policy.limits.max_invocations_per_template == 6
 
 
+def test_build_capability_team_policy_rejects_unknown_trigger_template() -> None:
+    cap = SimpleNamespace(
+        definition_json={
+            "team_policy": {
+                "core_templates": ["research_scholar.v1"],
+                "optional_templates": [],
+                "recruitment_triggers": {"member_failed": ["missing.v1"]},
+            }
+        },
+        runtime={"mode": "team_kernel"},
+    )
+
+    with pytest.raises(TeamPolicyError, match="unknown recruitment trigger template"):
+        build_capability_team_policy(cap, templates={"research_scholar.v1": _template()})
+
+
 def test_effective_tools_keep_high_ceiling_but_block_direct_commit() -> None:
     policy = CapabilityTeamPolicy(
         core_templates=["research_scholar.v1"],

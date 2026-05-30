@@ -67,9 +67,31 @@ def build_capability_team_policy(
     for template_id in [*policy.core_templates, *policy.optional_templates]:
         if template_id not in known_ids:
             raise TeamPolicyError(f"unknown agent template: {template_id}")
+    recruitable_ids = {*policy.core_templates, *policy.optional_templates}
+    for trigger_key, raw_templates in policy.recruitment_triggers.items():
+        trigger_templates = _normalize_trigger_templates(raw_templates)
+        for template_id in trigger_templates:
+            if template_id not in known_ids:
+                raise TeamPolicyError(
+                    f"unknown recruitment trigger template: {trigger_key}.{template_id}"
+                )
+            if template_id not in recruitable_ids:
+                raise TeamPolicyError(
+                    f"recruitment trigger template outside team_policy: {trigger_key}.{template_id}"
+                )
     if not policy.core_templates and not policy.optional_templates:
         raise TeamPolicyError("team_policy must declare at least one template")
     return policy
+
+
+def _normalize_trigger_templates(raw_templates: Any) -> list[str]:
+    if raw_templates is None:
+        return []
+    if isinstance(raw_templates, str):
+        return [raw_templates]
+    if isinstance(raw_templates, list):
+        return [str(template_id) for template_id in raw_templates]
+    raise TeamPolicyError("recruitment_triggers values must be template id strings or lists")
 
 
 def resolve_effective_tools(template: AgentTemplate, policy: CapabilityTeamPolicy) -> list[str]:

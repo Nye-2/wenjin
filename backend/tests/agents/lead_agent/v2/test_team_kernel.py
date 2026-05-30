@@ -49,6 +49,9 @@ def _team_capability() -> SimpleNamespace:
             "team_policy": {
                 "core_templates": ["research_scholar.v1", "critical_reviewer.v1"],
                 "optional_templates": ["generalist_assistant.v1"],
+                "recruitment_triggers": {
+                    "overloaded_or_missing_specialist": ["generalist_assistant.v1"],
+                },
                 "capability_tools": ["web_search", "library_read", "citation_parser"],
                 "capability_skills": ["research-scout", "citation-auditor", "review-critic"],
                 "quality_pipeline": ["evidence_traceability", "critical_review"],
@@ -143,6 +146,31 @@ class FakeTeamCatalogClient:
         ]
 
 
+class FakeCriticalReviewerFailingTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        records = await super().list_agent_templates(enabled_only=enabled_only)
+        for record in records:
+            if record.id == "critical_reviewer.v1":
+                record.default_skills = ["failing-review-critic"]
+        return records
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            *records,
+            CapabilitySkillPayload(
+                id="failing-review-critic",
+                display_name="Failing Review Critic",
+                worker_type="review",
+                subagent_type="team_failing",
+                prompt="Fail this reviewer.",
+                config={"output_kind": "json"},
+            ),
+        ]
+
+
 class FakeFailingTeamCatalogClient(FakeTeamCatalogClient):
     async def list_catalog_skills(self, *, enabled_only: bool = True):
         from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
@@ -207,6 +235,49 @@ async def test_team_kernel_runtime_publishes_team_events_and_report(monkeypatch)
     assert "团队调研" in report.narrative
     assert report.token_usage == {"input": 6, "output": 10}
     assert any(event["node_type"] == "agent_invocation" for event in node_events)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_batches_all_core_members_across_parallel_limit(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["core_templates"].append("generalist_assistant.v1")
+    cap.definition_json["team_policy"]["optional_templates"] = []
+    cap.definition_json["team_policy"]["limits"]["max_parallel_invocations"] = 2
+    cap.definition_json["team_policy"]["limits"]["max_invocations_total"] = 3
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-core-batches", brief=_brief())
+
+    invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+    ]
+    completed_by_id = {item["id"]: item for item in invocations if item["status"] != "running"}
+
+    assert report.status == "completed"
+    assert len(completed_by_id) == 3
+    assert any(
+        item["template_id"] == "generalist_assistant.v1"
+        for item in completed_by_id.values()
+    )
+    assert all(item["iteration"] == 1 for item in completed_by_id.values())
 
 
 @pytest.mark.asyncio
@@ -310,3 +381,198 @@ async def test_team_kernel_runtime_marks_failed_member_as_partial(monkeypatch) -
     assert report.status == "failed_partial"
     assert report.errors
     assert any(event["status"] == "failed" for event in node_events)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+    node_events: list[dict] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeCriticalReviewerFailingTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["capability_skills"].append("failing-review-critic")
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-recruit", brief=_brief())
+
+    invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+    ]
+    completed_by_id = {item["id"]: item for item in invocations if item["status"] != "running"}
+    quality_gates = [
+        payload["quality_gate"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.quality_gate"
+    ]
+
+    generalist = [
+        item
+        for item in completed_by_id.values()
+        if item["template_id"] == "generalist_assistant.v1"
+    ]
+    assert report.status == "failed_partial"
+    assert generalist
+    assert generalist[0]["iteration"] == 2
+    assert "quality gate requested" in generalist[0]["recruitment_reason"]
+    assert any(gate["next_action"] == "recruit_more" for gate in quality_gates)
+    assert any(
+        recruit["template_id"] == "generalist_assistant.v1"
+        for gate in quality_gates
+        for recruit in gate["suggested_recruits"]
+    )
+    assert any(
+        event["node_metadata"]["template_id"] == "generalist_assistant.v1"
+        for event in node_events
+    )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_recruits_after_failed_core_in_earlier_batch(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeCriticalReviewerFailingTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["core_templates"] = [
+        "critical_reviewer.v1",
+        "research_scholar.v1",
+    ]
+    cap.definition_json["team_policy"]["capability_skills"].append("failing-review-critic")
+    cap.definition_json["team_policy"]["limits"]["max_parallel_invocations"] = 1
+    cap.definition_json["team_policy"]["limits"]["max_invocations_total"] = 3
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-earlier-failure", brief=_brief())
+
+    invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+    ]
+    completed_by_id = {item["id"]: item for item in invocations if item["status"] != "running"}
+
+    assert report.status == "failed_partial"
+    assert any(
+        item["template_id"] == "generalist_assistant.v1"
+        for item in completed_by_id.values()
+    )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_respects_total_invocation_limit_before_recruiting(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeCriticalReviewerFailingTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["capability_skills"].append("failing-review-critic")
+    cap.definition_json["team_policy"]["limits"]["max_invocations_total"] = 2
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-total-limit", brief=_brief())
+
+    invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+    ]
+    completed_by_id = {item["id"]: item for item in invocations if item["status"] != "running"}
+    quality_gates = [
+        payload["quality_gate"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.quality_gate"
+    ]
+
+    assert report.status == "failed_partial"
+    assert len(completed_by_id) == 2
+    assert all(
+        item["template_id"] != "generalist_assistant.v1"
+        for item in completed_by_id.values()
+    )
+    assert all(gate["next_action"] != "recruit_more" for gate in quality_gates)
+    assert all(not gate["suggested_recruits"] for gate in quality_gates)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_caps_repeated_optional_recruits(monkeypatch) -> None:
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FakeFailingTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["limits"]["max_iterations"] = 3
+    cap.definition_json["team_policy"]["limits"]["max_invocations_per_template"] = 1
+    cap.definition_json["team_policy"]["limits"]["max_invocations_total"] = 4
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-template-limit", brief=_brief())
+
+    invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+    ]
+    completed_by_id = {item["id"]: item for item in invocations if item["status"] != "running"}
+    generalist_invocations = [
+        item
+        for item in completed_by_id.values()
+        if item["template_id"] == "generalist_assistant.v1"
+    ]
+
+    assert report.status == "failed_partial"
+    assert len(generalist_invocations) == 1
