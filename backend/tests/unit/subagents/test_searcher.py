@@ -195,6 +195,60 @@ class TestSingleSource:
         )
         assert result.output["papers"][0]["title"] == "Paper A"
 
+    @pytest.mark.asyncio
+    async def test_returns_team_research_contract_fields_when_quality_contract_present(self):
+        papers = [
+            _paper("Paper A", doi="10.1/a"),
+            _paper("Paper B", doi="10.1/b"),
+        ]
+
+        mock_source = AsyncMock()
+        mock_source.search.return_value = papers
+
+        quality_gates = [
+            "no_direct_primary_document_write",
+            "no_fabricated_sources",
+            "source_log_required",
+            "query_strategy_recorded",
+            "source_screening_complete",
+        ]
+        with patch(
+            "src.subagents.v2.types.searcher.get_search_source",
+            return_value=mock_source,
+        ):
+            sub = SearcherSubagent()
+            skill = _make_skill(sources=["mock_src"])
+            ctx = _make_ctx(
+                inputs={
+                    "query": "主题：test query。请输出报告",
+                    "quality_contract": {
+                        "quality_gates": quality_gates,
+                        "acknowledgement_required_gates": quality_gates,
+                    },
+                },
+                skill=skill,
+            )
+            result = await sub.run(ctx)
+
+        assert result.output["text"]
+        assert result.output["quality_gates_checked"] == quality_gates
+        assert result.output["query_log"] == [
+            {
+                "raw_query": "主题：test query。请输出报告",
+                "normalized_query": "test query",
+                "sources": ["mock_src"],
+                "max_results": 30,
+                "year_range": None,
+                "source_errors": [],
+            }
+        ]
+        assert [item["title"] for item in result.output["included_sources"]] == [
+            "Paper A",
+            "Paper B",
+        ]
+        assert result.output["borderline_sources"] == []
+        assert result.output["rejected_sources"] == []
+
 
 # ---------------------------------------------------------------------------
 # Test: run() -- dedup by DOI

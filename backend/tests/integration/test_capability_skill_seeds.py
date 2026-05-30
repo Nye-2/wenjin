@@ -185,34 +185,6 @@ def test_sample_capabilities_use_foundation_team_patterns():
             },
             "overlay": {"sci-journal-rules"},
         },
-        "thesis_research_pack": {
-            "core": {
-                "research_planner.v1",
-                "research_scout.v1",
-                "literature_synthesizer.v1",
-            },
-            "optional": {
-                "citation_auditor.v1",
-                "document_architect.v1",
-                "critical_reviewer.v1",
-                "generalist_assistant.v1",
-            },
-            "overlay": {"thesis-school-rules"},
-        },
-        "proposal_background_pack": {
-            "core": {
-                "research_planner.v1",
-                "research_scout.v1",
-                "literature_synthesizer.v1",
-            },
-            "optional": {
-                "citation_auditor.v1",
-                "document_architect.v1",
-                "critical_reviewer.v1",
-                "generalist_assistant.v1",
-            },
-            "overlay": {"proposal-panel-rules"},
-        },
     }
     by_id = {
         yaml.safe_load(path.read_text())["id"]: path
@@ -228,6 +200,24 @@ def test_sample_capabilities_use_foundation_team_patterns():
         triggers = policy.get("recruitment_triggers") or {}
         assert triggers.get("missing_sources")
         assert triggers.get("unsupported_claims")
+
+
+def test_existing_graph_output_capabilities_stay_on_graph_runtime():
+    by_id = {
+        yaml.safe_load(path.read_text())["id"]: path
+        for path in _collect_capability_files()
+    }
+    for capability_id in {"thesis_research_pack", "proposal_background_pack"}:
+        data = yaml.safe_load(by_id[capability_id].read_text())
+        outputs = [
+            output
+            for phase in data["graph_template"]["phases"]
+            for task in phase["tasks"]
+            for output in task.get("outputs") or []
+        ]
+        assert any(output.get("kind") in {"library_item", "document"} for output in outputs)
+        assert (data.get("runtime") or {}).get("mode") != "team_kernel"
+        assert data.get("team_policy") is None
 
 
 def test_every_capability_skill_id_exists():

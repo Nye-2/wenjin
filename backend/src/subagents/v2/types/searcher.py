@@ -89,7 +89,14 @@ class SearcherSubagent(SubagentBase):
             "papers": [
                 {"title": str, "authors": [str], "year": int | None, ...},
                 ...
-            ]
+            ],
+            "text": str,
+            "quality_gates_checked": [str],
+            "query_log": [object],
+            "included_sources": [object],
+            "borderline_sources": [object],
+            "rejected_sources": [object],
+            "source_gaps": [object]
         }
     """
 
@@ -155,9 +162,69 @@ class SearcherSubagent(SubagentBase):
             raise RuntimeError(f"all search sources failed ({joined})")
 
         deduped = _deduplicate(all_results)
+        papers = [r.model_dump() for r in deduped]
+        source_error_records = [
+            {"source": name, "error": error}
+            for name, error in source_errors
+        ]
 
         return SubagentResult(
-            output={"papers": [r.model_dump() for r in deduped]},
+            output={
+                "papers": papers,
+                "text": _search_summary(query, papers, source_error_records),
+                "quality_gates_checked": _checked_quality_gates(ctx, config),
+                "query_log": [
+                    {
+                        "raw_query": raw_query,
+                        "normalized_query": query,
+                        "sources": source_names,
+                        "max_results": limit,
+                        "year_range": list(year_range) if year_range else None,
+                        "source_errors": source_error_records,
+                    }
+                ],
+                "included_sources": papers,
+                "borderline_sources": [],
+                "rejected_sources": [],
+                "source_gaps": _source_gaps(papers, source_error_records),
+            },
             tool_calls=[],
             token_usage={"input": 0, "output": 0},
         )
+
+
+def _checked_quality_gates(ctx: SubagentContext, config: dict) -> list[str]:
+    contract = ctx.inputs.get("quality_contract")
+    if isinstance(contract, dict):
+        gates = contract.get("acknowledgement_required_gates") or contract.get("quality_gates")
+        return _string_list(gates)
+    return _string_list(config.get("quality_gates"))
+
+
+def _search_summary(query: str, papers: list[dict], source_errors: list[dict]) -> str:
+    parts = [f"Search query `{query}` returned {len(papers)} deduplicated source(s)."]
+    if source_errors:
+        failed = ", ".join(str(item.get("source")) for item in source_errors)
+        parts.append(f"Source failures recorded: {failed}.")
+    return " ".join(parts)
+
+
+def _source_gaps(papers: list[dict], source_errors: list[dict]) -> list[dict]:
+    gaps: list[dict] = []
+    if not papers:
+        gaps.append({"type": "no_results", "message": "No sources were returned."})
+    for item in source_errors:
+        gaps.append(
+            {
+                "type": "source_error",
+                "source": item.get("source"),
+                "message": item.get("error"),
+            }
+        )
+    return gaps
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item) for item in value if str(item).strip()]
