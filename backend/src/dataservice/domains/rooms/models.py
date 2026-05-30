@@ -3,7 +3,7 @@
 The current decision, memory, and task tables already match the target
 aggregate shape. DataService owns their repositories and service logic while
 the physical SQLAlchemy models stay in ``src.database.models`` until the final
-legacy deletion/archive gate.
+database-model archive gate.
 """
 
 from __future__ import annotations

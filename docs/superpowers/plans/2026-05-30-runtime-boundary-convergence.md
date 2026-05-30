@@ -138,9 +138,19 @@
   - `GenerationRecordCreateCommand` / `GenerationRecordProjection` 文案收敛为当前 DataService-owned usage contract。
   - 不再把 generation usage projection 描述为 legacy record。
   - Architecture guard 新增 `test_execution_generation_contracts_do_not_label_current_usage_projection_legacy`。
+- Current DataService stale naming cleanup
+  - `rooms.models` 文案改为 database-model archive gate。
+  - Source BibTeX citation key 默认值参数改为 `default_key`。
+  - DataService / DataService app / DataService client 源码的 stale keyword scan 已无 `legacy|compat|fallback|TODO|backward|deprecated` 命中。
+  - Architecture guard 新增 `test_dataservice_internal_contracts_do_not_keep_legacy_or_fallback_naming`。
 
 已验证：
 
+- `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/source/service.py src/dataservice/domains/rooms/models.py tests/architecture/test_dataservice_boundaries.py` -> passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/dataservice/test_source_provenance_domain.py tests/dataservice/test_rooms_domain.py tests/architecture/test_dataservice_boundaries.py::test_dataservice_internal_contracts_do_not_keep_legacy_or_fallback_naming -q` -> 21 passed.
+- `rg -n "legacy|compat|fallback|TODO|backward|deprecated" backend/src/dataservice backend/src/dataservice_app backend/src/dataservice_client -g '*.py'` -> no matches.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 34 passed.
+- `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/ -q` -> 2032 passed.
 - `cd backend && .venv/bin/python -m ruff check src/dataservice/domains/execution/contracts.py tests/architecture/test_dataservice_boundaries.py` -> passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_execution_generation_contracts_do_not_label_current_usage_projection_legacy -q` -> 1 passed.
 - `cd backend && env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u http_proxy -u HTTPS_PROXY -u https_proxy .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py -q` -> 33 passed.

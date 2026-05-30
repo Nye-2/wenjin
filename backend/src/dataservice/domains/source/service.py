@@ -1028,7 +1028,7 @@ class SourceDataDomainService:
                 rendered_fields.append(f"  {key} = {{{value}}}")
         citation_key = SourceDataDomainService._clean_citation_key(
             getattr(record, "citation_key", None),
-            fallback=str(getattr(record, "id", "source")),
+            default_key=str(getattr(record, "id", "source")),
         )
         joined = ",\n".join(rendered_fields)
         return f"@{entry_type}{{{citation_key},\n{joined}\n}}"
@@ -1038,9 +1038,9 @@ class SourceDataDomainService:
         return str(value or "").replace("{", "").replace("}", "").strip()
 
     @staticmethod
-    def _clean_citation_key(value: object, *, fallback: str) -> str:
+    def _clean_citation_key(value: object, *, default_key: str) -> str:
         cleaned = str(value or "").strip().replace("{", "").replace("}", "")
-        return cleaned or fallback
+        return cleaned or default_key
 
     @staticmethod
     def _normalize_doi(value: object) -> str | None:

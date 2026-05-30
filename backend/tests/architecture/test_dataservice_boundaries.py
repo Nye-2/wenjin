@@ -1189,6 +1189,33 @@ def test_execution_generation_contracts_do_not_label_current_usage_projection_le
     )
 
 
+def test_dataservice_internal_contracts_do_not_keep_legacy_or_fallback_naming() -> None:
+    """DataService internal names should describe current contracts directly."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "dataservice" / "domains" / "rooms" / "models.py": (
+            "legacy deletion/archive gate",
+        ),
+        SRC_ROOT / "dataservice" / "domains" / "source" / "service.py": (
+            "fallback=",
+            "fallback:",
+            "return cleaned or fallback",
+        ),
+    }
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "DataService internal contracts still use stale legacy/fallback naming:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
