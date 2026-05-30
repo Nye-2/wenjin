@@ -26,9 +26,9 @@ def mock_db_session():
 
 
 @pytest.fixture
-def service(mock_db_session):
+def service():
     """Create ThreadService instance."""
-    return ThreadService(mock_db_session, dataservice=_FakeConversationDataService())
+    return ThreadService(dataservice=_FakeConversationDataService())
 
 
 @pytest.fixture

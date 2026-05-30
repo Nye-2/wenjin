@@ -11,4 +11,4 @@ async def get_thread_service(
     dataservice: AsyncDataServiceClient = Depends(get_dataservice_client),
 ) -> ThreadService:
     """Get thread service instance."""
-    return ThreadService(None, dataservice=dataservice)
+    return ThreadService(dataservice=dataservice)

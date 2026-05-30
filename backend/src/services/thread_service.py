@@ -6,8 +6,6 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from src.agents.middlewares.thread_data import delete_thread_directory
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.conversation import (
@@ -47,12 +45,9 @@ class ThreadService:
 
     def __init__(
         self,
-        db: AsyncSession | None,
-        model: type[Any] | None = None,
+        *,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.db = db
-        self._model = model
         self._dataservice = dataservice
 
     async def _with_client(self) -> AsyncDataServiceClient:
@@ -107,7 +102,12 @@ class ThreadService:
         if workspace_id and workspace_types is not None:
             workspace_type = workspace_types.get(workspace_id)
         if workspace_type is None and workspace_id:
-            workspace_type = (await list_workspace_types(self.db, [workspace_id])).get(workspace_id)
+            workspace_type = (
+                await list_workspace_types(
+                    [workspace_id],
+                    dataservice=self._dataservice,
+                )
+            ).get(workspace_id)
         return self._hydrate_thread_skill_metadata(
             thread,
             workspace_type=workspace_type,
@@ -669,8 +669,8 @@ class ThreadService:
                     limit=limit,
                 )
         workspace_types = await list_workspace_types(
-            self.db,
             [thread.workspace_id for thread in threads],
+            dataservice=self._dataservice,
         )
         return [
             self._hydrate_thread_skill_metadata(

@@ -852,6 +852,56 @@ def test_reference_library_runtime_uses_dataservice_boundary() -> None:
     )
 
 
+def test_runtime_service_facades_do_not_keep_optional_db_sessions() -> None:
+    """DataService-backed service facades must not retain optional DB constructors."""
+
+    forbidden_tokens_by_file = {
+        SRC_ROOT / "services" / "thread_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+            "ThreadService(None",
+            "list_workspace_types(self.db",
+        ),
+        SRC_ROOT / "services" / "template_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+        ),
+        SRC_ROOT / "services" / "workspace_activity_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+            "get_workspace_type(self.db",
+        ),
+        SRC_ROOT / "services" / "admin_analytics_service.py": (
+            "AsyncSession",
+            "self.db",
+            "db:",
+        ),
+        SRC_ROOT / "services" / "workspace_skill_labels.py": (
+            "AsyncSession",
+            "db:",
+        ),
+        SRC_ROOT / "gateway" / "deps" / "threads.py": (
+            "ThreadService(None",
+        ),
+    }
+
+    violations: list[str] = []
+    for path, tokens in forbidden_tokens_by_file.items():
+        source = path.read_text(encoding="utf-8")
+        relative = path.relative_to(SRC_ROOT)
+        for token in tokens:
+            if token in source:
+                violations.append(f"{relative} contains {token}")
+
+    assert not violations, (
+        "Runtime service facades must not keep optional DB session boundaries:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_retired_room_service_facades_do_not_return() -> None:
     """Workspace room endpoints must use DataService APIs directly."""
 
