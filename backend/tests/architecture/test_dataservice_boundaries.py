@@ -477,6 +477,31 @@ def test_live_workflow_panel_composes_focused_views() -> None:
         assert local_view not in source
 
 
+def test_latex_editor_shell_uses_focused_local_modules() -> None:
+    """LatexEditorShell should shrink into a shell over local editor modules."""
+    shell_path = REPO_ROOT / "frontend" / "components" / "latex" / "LatexEditorShell.tsx"
+    module_root = shell_path.parent / "latex-editor"
+    expected_files = {
+        "fileKinds.ts",
+        "feedbackAnchors.ts",
+        "clientErrors.ts",
+        "rewriteDisplay.ts",
+        "prismOptimizationJobs.ts",
+        "PrismMonacoEditor.tsx",
+        "LatexRewritePreviewPanel.tsx",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing focused LatexEditorShell modules: {missing}"
+
+    source = shell_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 2400
+    assert 'from "@/components/latex/latex-editor/PrismMonacoEditor"' in source
+    assert 'from "@/components/latex/latex-editor/LatexRewritePreviewPanel"' in source
+    assert "function buildFeedbackAnchor(" not in source
+    assert "function resolveFeedbackRange(" not in source
+    assert "const PrismMonacoEditor =" not in source
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"

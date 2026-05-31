@@ -1,23 +1,16 @@
 "use client";
 
 import {
-  forwardRef,
   useCallback,
   useEffect,
-  useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Editor, { loader, type OnMount } from "@monaco-editor/react";
-import * as monaco from "monaco-editor";
 import {
   AlertTriangle,
-  Activity,
   ArrowLeft,
-  CheckCircle2,
-  Clock3,
   Columns3,
   Eye,
   FileImage,
@@ -35,6 +28,36 @@ import {
 } from "lucide-react";
 
 import { LatexFileChangeDiffPreview } from "@/components/latex/LatexFileChangeDiffPreview";
+import { LatexRewritePreviewPanel } from "@/components/latex/latex-editor/LatexRewritePreviewPanel";
+import {
+  PrismMonacoEditor,
+  type PrismTextEditorHandle,
+} from "@/components/latex/latex-editor/PrismMonacoEditor";
+import { PrismOptimizationTraceDialog } from "@/components/latex/latex-editor/PrismOptimizationTraceDialog";
+import {
+  buildFeedbackAnchor,
+  createFeedbackId,
+  parsePdfAnchor,
+  resolveFeedbackRange,
+  resolveSnippetRange,
+  shiftFeedbacksAfterRewrite,
+} from "@/components/latex/latex-editor/feedbackAnchors";
+import {
+  isImageFile,
+  isTextFile,
+} from "@/components/latex/latex-editor/fileKinds";
+import {
+  createPrismOptimizationJobId,
+  jobStatusFromExecution,
+  prismJobStatusLabel,
+  TERMINAL_PRISM_EXECUTION_STATUSES,
+  trimSnippet,
+  type PrismOptimizationJob,
+} from "@/components/latex/latex-editor/prismOptimizationJobs";
+import {
+  STALE_REWRITE_ERROR_CODES,
+  STRUCTURE_REWRITE_ERROR_CODES,
+} from "@/components/latex/latex-editor/rewriteDisplay";
 import { LatexFileTree } from "@/components/latex/LatexFileTree";
 import { LatexPdfPreview } from "@/components/latex/LatexPdfPreview";
 import { LatexToolbar } from "@/components/latex/LatexToolbar";
@@ -65,6 +88,11 @@ import {
   revertLatexFeedbackRewrite,
   saveLatexProjectFeedback,
 } from "@/lib/api";
+import {
+  readClientErrorCode,
+  readClientErrorDetailField,
+  readClientErrorMessage,
+} from "@/components/latex/latex-editor/clientErrors";
 import { listExecutions } from "@/lib/api/executions";
 import { groupExecutionPhases } from "@/lib/execution-phases";
 import {
@@ -83,27 +111,6 @@ import { useAuthStore } from "@/stores/auth";
 import { useChatStoreV2 } from "@/stores/chat-store";
 import { useExecutionStore } from "@/stores/execution-store";
 import { useLatexStore } from "@/stores/latex";
-
-const monacoGlobal = globalThis as typeof globalThis & {
-  MonacoEnvironment?: {
-    getWorker?: (workerId: string, label: string) => Worker;
-  };
-};
-
-if (typeof window !== "undefined" && !monacoGlobal.MonacoEnvironment) {
-  monacoGlobal.MonacoEnvironment = {
-    getWorker: () =>
-      new Worker(
-        new URL(
-          "monaco-editor/esm/vs/editor/editor.worker.js",
-          import.meta.url,
-        ),
-        { type: "module" },
-      ),
-  };
-}
-
-loader.config({ monaco });
 
 interface LatexEditorShellProps {
   projectId: string;
@@ -131,668 +138,6 @@ interface LastRewriteUndoState extends LatexFeedbackRewriteUndoPayload {
 
 type PrismSurfaceMode = "edit" | "compare" | "review" | "focus";
 type PrismInspectorTab = "assist" | "review" | "compile" | "agent";
-
-interface PrismTextEditorHandle {
-  focus: () => void;
-  setSelectionRange: (start: number, end: number) => void;
-}
-
-interface PrismMonacoEditorProps {
-  path: string | null;
-  value: string;
-  readOnly: boolean;
-  onChange: (value: string) => void;
-  onSelect: (range: [number, number]) => void;
-}
-
-function languageForPath(path: string | null): string {
-  const lower = (path || "").toLowerCase();
-  if (lower.endsWith(".bib")) return "bibtex";
-  if (lower.endsWith(".json")) return "json";
-  if (lower.endsWith(".md")) return "markdown";
-  if (lower.endsWith(".yaml") || lower.endsWith(".yml")) return "yaml";
-  if (lower.endsWith(".tex") || lower.endsWith(".sty") || lower.endsWith(".cls")) {
-    return "latex";
-  }
-  return "plaintext";
-}
-
-const PrismMonacoEditor = forwardRef<PrismTextEditorHandle, PrismMonacoEditorProps>(
-  function PrismMonacoEditor(
-    {
-      path,
-      value,
-      readOnly,
-      onChange,
-      onSelect,
-    },
-    ref,
-  ) {
-    const monacoEditorRef = useRef<Parameters<OnMount>[0] | null>(null);
-    const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
-
-    useImperativeHandle(ref, () => ({
-      focus() {
-        monacoEditorRef.current?.focus();
-      },
-      setSelectionRange(start: number, end: number) {
-        const editor = monacoEditorRef.current;
-        const monaco = monacoRef.current;
-        const model = editor?.getModel();
-        if (!editor || !monaco || !model) {
-          return;
-        }
-        const safeStart = Math.max(0, Math.min(start, model.getValueLength()));
-        const safeEnd = Math.max(safeStart, Math.min(end, model.getValueLength()));
-        const startPosition = model.getPositionAt(safeStart);
-        const endPosition = model.getPositionAt(safeEnd);
-        const selection = new monaco.Selection(
-          startPosition.lineNumber,
-          startPosition.column,
-          endPosition.lineNumber,
-          endPosition.column,
-        );
-        editor.setSelection(selection);
-        editor.revealRangeInCenter(selection, 0);
-        editor.focus();
-      },
-    }), []);
-
-    const handleMount: OnMount = (editor, monaco) => {
-      monacoEditorRef.current = editor;
-      monacoRef.current = monaco;
-      editor.onDidChangeCursorSelection((event) => {
-        const model = editor.getModel();
-        if (!model) {
-          return;
-        }
-        const start = model.getOffsetAt(event.selection.getStartPosition());
-        const end = model.getOffsetAt(event.selection.getEndPosition());
-        onSelect([Math.min(start, end), Math.max(start, end)]);
-      });
-    };
-
-    return (
-      <Editor
-        key={path || "prism-editor"}
-        height="100%"
-        value={value}
-        language={languageForPath(path)}
-        onMount={handleMount}
-        onChange={(nextValue) => onChange(nextValue ?? "")}
-        options={{
-          readOnly,
-          minimap: { enabled: false },
-          fontSize: 14,
-          lineHeight: 22,
-          wordWrap: "on",
-          scrollBeyondLastLine: false,
-          folding: true,
-          lineNumbersMinChars: 3,
-          renderLineHighlight: "line",
-          automaticLayout: true,
-          padding: { top: 14, bottom: 14 },
-          overviewRulerBorder: false,
-          hideCursorInOverviewRuler: true,
-          smoothScrolling: true,
-          tabSize: 2,
-        }}
-        theme="vs"
-      />
-    );
-  },
-);
-
-function isTextFile(path: string): boolean {
-  const lower = path.toLowerCase();
-  return [
-    ".tex",
-    ".bib",
-    ".cls",
-    ".sty",
-    ".txt",
-    ".md",
-    ".json",
-    ".yaml",
-    ".yml",
-  ].some((suffix) => lower.endsWith(suffix));
-}
-
-function isImageFile(path: string): boolean {
-  return [".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif"].some((suffix) =>
-    path.toLowerCase().endsWith(suffix),
-  );
-}
-
-function createFeedbackId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `feedback-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function countLinesUntil(text: string, offset: number): number {
-  let line = 1;
-  const safeOffset = Math.max(0, Math.min(offset, text.length));
-  for (let i = 0; i < safeOffset; i += 1) {
-    if (text[i] === "\n") {
-      line += 1;
-    }
-  }
-  return line;
-}
-
-const SECTION_HEADING_RE =
-  /\\(section|subsection|subsubsection|paragraph|subparagraph)\*?\s*(?:\[[^\]]*\])?\s*\{([^}]*)\}/g;
-
-function stripLatexComment(line: string): string {
-  for (let i = 0; i < line.length; i += 1) {
-    if (line[i] !== "%") continue;
-    let slashCount = 0;
-    let cursor = i - 1;
-    while (cursor >= 0 && line[cursor] === "\\") {
-      slashCount += 1;
-      cursor -= 1;
-    }
-    if (slashCount % 2 === 0) {
-      return line.slice(0, i);
-    }
-  }
-  return line;
-}
-
-function findNearestHeading(content: string, offset: number): {
-  title: string;
-  level: string;
-} | null {
-  let best: { title: string; level: string; start: number } | null = null;
-  let cursor = 0;
-  for (const line of content.split("\n")) {
-    const clean = stripLatexComment(line);
-    SECTION_HEADING_RE.lastIndex = 0;
-    let match = SECTION_HEADING_RE.exec(clean);
-    while (match) {
-      const level = String(match[1] || "").trim();
-      const title = String(match[2] || "").trim();
-      const start = cursor + match.index;
-      if (start <= offset) {
-        best = { title, level, start };
-      }
-      match = SECTION_HEADING_RE.exec(clean);
-    }
-    cursor += line.length + 1;
-  }
-  if (!best) {
-    return null;
-  }
-  return { title: best.title, level: best.level };
-}
-
-function normalizeAnchorSegment(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function scoreContextMatch(expected: string, actual: string): number {
-  const left = normalizeAnchorSegment(expected);
-  const right = normalizeAnchorSegment(actual);
-  if (!left || !right) return 0;
-  if (left === right) return Math.min(80, left.length * 2);
-  if (right.endsWith(left)) return Math.min(60, left.length * 1.5);
-  if (left.endsWith(right)) return Math.min(50, right.length * 1.3);
-  let overlap = 0;
-  const max = Math.min(left.length, right.length, 60);
-  for (let len = max; len >= 8; len -= 1) {
-    if (left.slice(-len) === right.slice(-len)) {
-      overlap = len;
-      break;
-    }
-  }
-  return overlap;
-}
-
-function buildFeedbackAnchor(content: string, start: number, end: number): LatexFeedbackAnchor {
-  const safeStart = Math.max(0, Math.min(start, content.length));
-  const safeEnd = Math.max(safeStart, Math.min(end, content.length));
-  const heading = findNearestHeading(content, safeStart);
-  return {
-    selected_text: content.slice(safeStart, safeEnd),
-    prefix: content.slice(Math.max(0, safeStart - 120), safeStart),
-    suffix: content.slice(safeEnd, Math.min(content.length, safeEnd + 120)),
-    heading_title: heading?.title || "",
-    heading_level: heading?.level || "",
-    line_hint: countLinesUntil(content, safeStart),
-  };
-}
-
-function resolveFeedbackRange(
-  item: Pick<LatexFeedbackItem, "start" | "end" | "selected_text" | "anchor">,
-  content: string,
-): { start: number; end: number; text: string } | null {
-  const anchor = item.anchor;
-  const targetText = anchor?.selected_text || item.selected_text;
-  if (!targetText) return null;
-
-  const safeStart = Math.max(0, Math.min(item.start, content.length));
-  const safeEnd = Math.max(safeStart, Math.min(item.end, content.length));
-  const exact = content.slice(safeStart, safeEnd);
-  if (exact === targetText) {
-    return { start: safeStart, end: safeEnd, text: targetText };
-  }
-
-  const nearbyStart = Math.max(0, safeStart - 400);
-  const nearbyEnd = Math.min(content.length, safeEnd + 400 + targetText.length);
-  const nearby = content.slice(nearbyStart, nearbyEnd);
-  const nearbyIndex = nearby.indexOf(targetText);
-  if (nearbyIndex >= 0) {
-    const start = nearbyStart + nearbyIndex;
-    return { start, end: start + targetText.length, text: targetText };
-  }
-
-  const candidateStarts: number[] = [];
-  let searchIndex = 0;
-  while (searchIndex < content.length) {
-    const found = content.indexOf(targetText, searchIndex);
-    if (found === -1) break;
-    candidateStarts.push(found);
-    if (candidateStarts.length >= 120) break;
-    searchIndex = found + Math.max(1, targetText.length);
-  }
-  if (!candidateStarts.length) return null;
-
-  let best: { start: number; score: number } | null = null;
-  for (const start of candidateStarts) {
-    const end = start + targetText.length;
-    let score = 0;
-    score -= Math.min(Math.abs(start - safeStart), 3000) / 8;
-    if (anchor) {
-      const actualPrefix = content.slice(Math.max(0, start - 120), start);
-      const actualSuffix = content.slice(end, Math.min(content.length, end + 120));
-      score += scoreContextMatch(anchor.prefix, actualPrefix);
-      score += scoreContextMatch(anchor.suffix, actualSuffix);
-      const heading = findNearestHeading(content, start);
-      if (heading?.title && anchor.heading_title && heading.title === anchor.heading_title) {
-        score += 90;
-      }
-      if (heading?.level && anchor.heading_level && heading.level === anchor.heading_level) {
-        score += 30;
-      }
-      const lineDistance = Math.abs(countLinesUntil(content, start) - (anchor.line_hint || 1));
-      score -= Math.min(lineDistance, 200) / 3;
-    }
-    if (!best || score > best.score) {
-      best = { start, score };
-    }
-  }
-  if (!best) return null;
-  return { start: best.start, end: best.start + targetText.length, text: targetText };
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function resolveSnippetRange(
-  content: string,
-  snippet: string,
-  preferredOffset = 0,
-): { start: number; end: number } | null {
-  const raw = snippet.trim();
-  if (!raw) return null;
-
-  const candidates: Array<{ start: number; end: number }> = [];
-  let cursor = 0;
-  while (cursor < content.length) {
-    const found = content.indexOf(raw, cursor);
-    if (found < 0) break;
-    candidates.push({ start: found, end: found + raw.length });
-    cursor = found + Math.max(1, raw.length);
-    if (candidates.length >= 120) break;
-  }
-
-  if (!candidates.length) {
-    const tokens = raw.split(/\s+/).filter(Boolean).slice(0, 40);
-    if (!tokens.length) return null;
-    const pattern = new RegExp(tokens.map((token) => escapeRegExp(token)).join("\\s+"), "ig");
-    let match = pattern.exec(content);
-    while (match) {
-      candidates.push({
-        start: match.index,
-        end: match.index + match[0].length,
-      });
-      if (candidates.length >= 120) break;
-      match = pattern.exec(content);
-    }
-  }
-
-  if (!candidates.length) return null;
-  let best = candidates[0];
-  let bestScore = Math.abs(best.start - preferredOffset);
-  for (const candidate of candidates.slice(1)) {
-    const score = Math.abs(candidate.start - preferredOffset);
-    if (score < bestScore) {
-      best = candidate;
-      bestScore = score;
-    }
-  }
-  return best;
-}
-
-function readClientErrorMessage(error: unknown): string {
-  if (error && typeof error === "object" && "response" in error) {
-    const response = (error as { response?: { data?: unknown } }).response;
-    const data = response?.data;
-    if (typeof data === "string" && data.trim()) {
-      return data;
-    }
-    if (data && typeof data === "object" && "detail" in data) {
-      const detail = (data as { detail?: unknown }).detail;
-      if (typeof detail === "string" && detail.trim()) {
-        return detail;
-      }
-      if (detail && typeof detail === "object" && "message" in detail) {
-        const message = (detail as { message?: unknown }).message;
-        if (typeof message === "string" && message.trim()) {
-          return message;
-        }
-      }
-    }
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message;
-  }
-  return String(error);
-}
-
-function readClientErrorCode(error: unknown): string | null {
-  if (!(error && typeof error === "object" && "response" in error)) {
-    return null;
-  }
-  const response = (error as { response?: { data?: unknown } }).response;
-  const data = response?.data;
-  if (!(data && typeof data === "object" && "detail" in data)) {
-    return null;
-  }
-  const detail = (data as { detail?: unknown }).detail;
-  if (!(detail && typeof detail === "object" && "code" in detail)) {
-    return null;
-  }
-  const code = (detail as { code?: unknown }).code;
-  if (typeof code !== "string" || !code.trim()) {
-    return null;
-  }
-  return code;
-}
-
-function readClientErrorDetailField(error: unknown, field: string): string | null {
-  if (!(error && typeof error === "object" && "response" in error)) {
-    return null;
-  }
-  const response = (error as { response?: { data?: unknown } }).response;
-  const data = response?.data;
-  if (!(data && typeof data === "object" && "detail" in data)) {
-    return null;
-  }
-  const detail = (data as { detail?: unknown }).detail;
-  if (!(detail && typeof detail === "object")) {
-    return null;
-  }
-  const value = (detail as Record<string, unknown>)[field];
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function rewriteProfileLabel(profile: "balanced" | "conservative" | "aggressive"): string {
-  if (profile === "conservative") return "保守";
-  if (profile === "aggressive") return "激进";
-  return "平衡";
-}
-
-function riskLevelLabel(level: "low" | "medium" | "high"): string {
-  if (level === "high") return "高风险";
-  if (level === "medium") return "中风险";
-  return "低风险";
-}
-
-function riskLevelClass(level: "low" | "medium" | "high"): string {
-  if (level === "high") return "border-red-500/25 bg-red-500/10 text-red-700";
-  if (level === "medium") return "border-amber-500/25 bg-amber-500/10 text-amber-800";
-  return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700";
-}
-
-function riskFlagClass(flag: string): string {
-  if (["boundary_leak", "citation_drop", "label_drop", "brace_unbalanced"].includes(flag)) {
-    return "border-red-500/25 bg-red-500/10 text-red-700";
-  }
-  if (["math_structure_change", "math_change", "large_change"].includes(flag)) {
-    return "border-amber-500/25 bg-amber-500/10 text-amber-800";
-  }
-  return "border-[var(--border-default)] bg-white/80 text-[var(--text-muted)]";
-}
-
-function riskFlagLabel(flag: string): string {
-  const labels: Record<string, string> = {
-    boundary_leak: "越界改写",
-    citation_drop: "引用被删",
-    label_drop: "标签被删",
-    brace_unbalanced: "花括号不平衡",
-    math_structure_change: "数学结构变化",
-    math_change: "数学相关改动",
-    large_change: "改动较大",
-    citation_change: "引用改动",
-    label_change: "标签改动",
-  };
-  return labels[flag] || flag;
-}
-
-function tokenKindLabel(kind: string): string {
-  if (kind === "citation") return "引用";
-  if (kind === "label") return "标签";
-  if (kind === "math") return "数学";
-  if (kind === "env") return "环境";
-  if (kind === "latex_cmd") return "命令";
-  return "文本";
-}
-
-function diffOpLabel(op: "equal" | "insert" | "delete" | "replace"): string {
-  if (op === "replace") return "替换";
-  if (op === "insert") return "新增";
-  if (op === "delete") return "删除";
-  return "保持";
-}
-
-function isWhitespaceOnlyDiffOp(op: { old_text: string; new_text: string }): boolean {
-  const oldCompact = op.old_text.replace(/\s+/g, "");
-  const newCompact = op.new_text.replace(/\s+/g, "");
-  return oldCompact === newCompact && op.old_text !== op.new_text;
-}
-
-const STALE_REWRITE_ERROR_CODES = new Set([
-  "invalid_candidate_signature",
-  "base_file_hash_mismatch",
-  "base_range_hash_mismatch",
-  "target_range_out_of_bounds",
-]);
-
-const STRUCTURE_REWRITE_ERROR_CODES = new Set([
-  "boundary_leak",
-  "citation_drop",
-  "label_drop",
-  "ref_drop",
-  "brace_unbalanced",
-  "environment_unbalanced",
-  "math_delimiter_unbalanced",
-]);
-
-function parsePdfAnchor(
-  value: unknown,
-): {
-  page: number;
-  text: string;
-  rects: Array<{ x: number; y: number; width: number; height: number }>;
-} | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const raw = value as {
-    page?: unknown;
-    text?: unknown;
-    rects?: unknown;
-  };
-  const page = Number(raw.page);
-  const text = typeof raw.text === "string" ? raw.text : "";
-  const rectsRaw = Array.isArray(raw.rects) ? raw.rects : [];
-  const rects = rectsRaw
-    .map((rect) => {
-      if (!rect || typeof rect !== "object") return null;
-      const next = rect as {
-        x?: unknown;
-        y?: unknown;
-        width?: unknown;
-        height?: unknown;
-      };
-      const x = Number(next.x);
-      const y = Number(next.y);
-      const width = Number(next.width);
-      const height = Number(next.height);
-      if (![x, y, width, height].every((item) => Number.isFinite(item))) {
-        return null;
-      }
-      return { x, y, width, height };
-    })
-    .filter((item): item is { x: number; y: number; width: number; height: number } => Boolean(item));
-  if (!Number.isFinite(page) || page <= 0 || rects.length === 0) {
-    return null;
-  }
-  return { page, text, rects };
-}
-
-function shiftFeedbacksAfterRewrite(
-  items: LatexFeedbackItem[],
-  filePath: string,
-  feedbackId: string,
-  start: number,
-  end: number,
-  nextText: string,
-  nextContent: string,
-): LatexFeedbackItem[] {
-  const delta = nextText.length - (end - start);
-  return items.map((item) => {
-    if (item.file_path !== filePath) return item;
-    if (item.id === feedbackId) {
-      return {
-        ...item,
-        start,
-        end: start + nextText.length,
-        selected_text: nextText,
-        anchor: buildFeedbackAnchor(nextContent, start, start + nextText.length),
-        last_status: "done",
-        last_error: "",
-      };
-    }
-    let nextStart = item.start;
-    let nextEnd = item.end;
-    if (item.start >= end) {
-      nextStart = item.start + delta;
-      nextEnd = item.end + delta;
-    }
-    const nextExact = nextContent.slice(nextStart, nextEnd);
-    if (nextExact === item.selected_text) {
-      return {
-        ...item,
-        start: nextStart,
-        end: nextEnd,
-        anchor: buildFeedbackAnchor(nextContent, nextStart, nextEnd),
-      };
-    }
-    const resolved = resolveFeedbackRange(item, nextContent);
-    if (!resolved) {
-      return { ...item, start: nextStart, end: nextEnd };
-    }
-    return {
-      ...item,
-      start: resolved.start,
-      end: resolved.end,
-      anchor: buildFeedbackAnchor(nextContent, resolved.start, resolved.end),
-    };
-  });
-}
-
-type PrismOptimizationJobStatus =
-  | "launching"
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled"
-  | "advisory";
-
-interface PrismOptimizationJob {
-  id: string;
-  feedbackId: string;
-  executionId?: string | null;
-  status: PrismOptimizationJobStatus;
-  filePath: string;
-  scope: "selection" | "section";
-  instruction: string;
-  selectedText: string;
-  createdAt: string;
-  error?: string | null;
-}
-
-const TERMINAL_PRISM_EXECUTION_STATUSES = new Set([
-  "completed",
-  "failed_partial",
-  "failed",
-  "cancelled",
-]);
-
-function createPrismOptimizationJobId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `prism-job-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
-
-function trimSnippet(value: string, limit = 120): string {
-  const compact = value.replace(/\s+/g, " ").trim();
-  if (compact.length <= limit) {
-    return compact;
-  }
-  return `${compact.slice(0, limit - 1).trim()}…`;
-}
-
-function jobStatusFromExecution(record: ExecutionRecord | null | undefined): PrismOptimizationJobStatus | null {
-  if (!record) {
-    return null;
-  }
-  if (record.status === "completed") {
-    return "completed";
-  }
-  if (record.status === "failed_partial") {
-    return record.review_items?.length ? "completed" : "failed";
-  }
-  if (record.status === "cancelled") {
-    return "cancelled";
-  }
-  if (record.status === "failed") {
-    return "failed";
-  }
-  return "running";
-}
-
-function prismJobStatusLabel(status: PrismOptimizationJobStatus): string {
-  if (status === "completed") return "已生成待审修改";
-  if (status === "failed") return "优化失败";
-  if (status === "cancelled") return "已取消";
-  if (status === "advisory") return "需要稍后重试";
-  if (status === "running") return "Agent 正在优化";
-  return "正在启动 Agent";
-}
-
-function prismExecutionNodeLabel(status?: string): string {
-  if (status === "completed") return "完成";
-  if (status === "failed") return "失败";
-  if (status === "running") return "运行中";
-  return "等待";
-}
 
 export function LatexEditorShell({
   projectId,
@@ -2527,229 +1872,6 @@ export function LatexEditorShell({
     </section>
   );
 
-  const renderRewritePreview = () => {
-    if (!rewritePreviewFeedbackId || !selectedRewriteCandidate) {
-      return null;
-    }
-
-    return (
-      <div className="rounded-lg border border-[var(--border-default)] bg-white p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-medium">改写 diff 预览</p>
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              候选 {selectedRewriteCandidateIndex + 1}/{rewriteCandidates.length} · Cmd/Ctrl + Enter 应用 · Esc 取消
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedRewriteCandidate.candidate_id}
-              onChange={(event) => setSelectedRewriteCandidateId(event.target.value)}
-              className="h-8 rounded-md border border-[var(--border-default)] bg-white px-2 text-xs"
-            >
-              {rewriteCandidates.map((candidate, index) => (
-                <option key={candidate.candidate_id} value={candidate.candidate_id}>
-                  候选 {index + 1} · {rewriteProfileLabel(candidate.profile)} · {riskLevelLabel(candidate.risk_level)}
-                </option>
-              ))}
-            </select>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void regenerateRewritePreview()}
-              disabled={!previewFeedbackItem || Boolean(feedbackBusyId) || isApplyingRewrite}
-            >
-              {feedbackBusyId ? "重生成中..." : "重生成"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
-          <span>
-            {selectedRewriteCandidate.scope === "section"
-              ? `section：${selectedRewriteCandidate.section_title || "未命名"}`
-              : "仅选区"}
-          </span>
-          <span>风格：{rewriteProfileLabel(selectedRewriteCandidate.profile)}</span>
-          <span className={`inline-flex rounded-full border px-1.5 py-0.5 ${riskLevelClass(selectedRewriteCandidate.risk_level)}`}>
-            {riskLevelLabel(selectedRewriteCandidate.risk_level)}
-          </span>
-          <span>
-            token {selectedRewriteCandidate.diff.stats.tokens_changed} · +{selectedRewriteCandidate.diff.stats.chars_added} / -{selectedRewriteCandidate.diff.stats.chars_deleted}
-          </span>
-        </div>
-
-        {selectedRewriteCandidate.changes_summary.trim() ? (
-          <p className="mt-2 rounded-md border border-[var(--border-default)] bg-[#f8f9fb] px-2 py-1 text-xs leading-5 text-[var(--text-secondary)]">
-            模型摘要：{selectedRewriteCandidate.changes_summary.trim()}
-          </p>
-        ) : null}
-
-        {selectedRewriteCandidate.diff.risk_flags.length > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {selectedRewriteCandidate.diff.risk_flags.map((flag) => (
-              <span
-                key={flag}
-                className={`rounded-full border px-2 py-0.5 text-[10px] ${riskFlagClass(flag)}`}
-              >
-                {riskFlagLabel(flag)}
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setDiffViewMode("inline")}
-            className={diffViewMode === "inline" ? "bg-[#eef0f3]" : ""}
-          >
-            Inline
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setDiffViewMode("side-by-side")}
-            className={diffViewMode === "side-by-side" ? "bg-[#eef0f3]" : ""}
-          >
-            对照
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowWhitespaceOnlyDiff((prev) => !prev)}
-          >
-            {showWhitespaceOnlyDiff ? "隐藏空白" : "显示空白"}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setAllDiffHunksCollapsed(true)}>
-            折叠
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setAllDiffHunksCollapsed(false)}>
-            展开
-          </Button>
-        </div>
-
-        <div className="mt-3 max-h-[360px] space-y-2 overflow-auto rounded-lg border border-[var(--border-default)] bg-[#f8f9fb] p-2">
-          {selectedRewriteCandidate.diff.hunks.length === 0 ? (
-            <p className="text-xs text-[var(--text-muted)]">未检测到文本差异。</p>
-          ) : (
-            selectedRewriteCandidate.diff.hunks.map((hunk, index) => {
-              const hunkKey = `${hunk.old_start}-${hunk.old_end}-${hunk.new_start}-${hunk.new_end}-${index}`;
-              const changedOps = hunk.ops.filter((op) => op.op !== "equal");
-              const hiddenWhitespaceCount = changedOps.filter((op) => isWhitespaceOnlyDiffOp(op)).length;
-              const visibleOps = showWhitespaceOnlyDiff
-                ? changedOps
-                : changedOps.filter((op) => !isWhitespaceOnlyDiffOp(op));
-              const isCollapsed = Boolean(collapsedDiffHunks[hunkKey]);
-              return (
-                <div key={hunkKey} className="rounded-md border border-[var(--border-default)] bg-white p-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[11px] text-[var(--text-muted)]">
-                      Hunk #{index + 1} · old {hunk.old_start}-{hunk.old_end} · new {hunk.new_start}-{hunk.new_end}
-                    </p>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => toggleDiffHunkCollapsed(hunkKey)}
-                    >
-                      {isCollapsed ? "展开" : "折叠"}
-                    </Button>
-                  </div>
-                  <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-                    token {hunk.stats.tokens_changed} · +{hunk.stats.chars_added} / -{hunk.stats.chars_deleted}
-                    {hiddenWhitespaceCount > 0 && !showWhitespaceOnlyDiff
-                      ? ` · 已隐藏空白改动 ${hiddenWhitespaceCount} 条`
-                      : ""}
-                  </p>
-                  {hunk.risk_flags.length > 0 ? (
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {hunk.risk_flags.map((flag) => (
-                        <span key={flag} className={`rounded-full border px-2 py-0.5 text-[10px] ${riskFlagClass(flag)}`}>
-                          {riskFlagLabel(flag)}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  {!isCollapsed ? (
-                    visibleOps.length > 0 ? (
-                      <div className="mt-2 space-y-2">
-                        {visibleOps.map((op, opIndex) => (
-                          <div key={`${op.old_start}-${op.new_start}-${opIndex}`} className="text-xs leading-5">
-                            <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
-                              <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                {diffOpLabel(op.op)}
-                              </span>
-                              <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                {tokenKindLabel(op.token_kind)}
-                              </span>
-                              {isWhitespaceOnlyDiffOp(op) ? (
-                                <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
-                                  仅空白
-                                </span>
-                              ) : null}
-                            </div>
-                            {diffViewMode === "side-by-side" ? (
-                              <div className="grid gap-2 md:grid-cols-2">
-                                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "insert" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-red-500/10 text-red-700"}`}>
-                                  {op.op === "insert" ? "(空)" : op.old_text || "(空)"}
-                                </pre>
-                                <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "delete" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-emerald-500/10 text-emerald-700"}`}>
-                                  {op.op === "delete" ? "(空)" : op.new_text || "(空)"}
-                                </pre>
-                              </div>
-                            ) : op.op === "replace" ? (
-                              <>
-                                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
-                                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
-                              </>
-                            ) : op.op === "insert" ? (
-                              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-emerald-500/10 px-2 py-0.5 font-mono text-[12px] text-emerald-700">+ {op.new_text || "(空)"}</pre>
-                            ) : (
-                              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded bg-red-500/10 px-2 py-0.5 font-mono text-[12px] text-red-700">- {op.old_text || "(空)"}</pre>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="mt-2 text-xs text-[var(--text-muted)]">当前 hunk 仅包含空白改动。</p>
-                    )
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <div className="mt-3 flex flex-wrap justify-end gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void copySelectedRewrite()}
-            disabled={isApplyingRewrite}
-          >
-            复制改写
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => clearRewritePreview()}
-            disabled={isApplyingRewrite}
-          >
-            取消
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => void applyRewriteCandidate()}
-            disabled={isApplyingRewrite || isSaving}
-          >
-            {isApplyingRewrite ? "应用中..." : "确认应用"}
-          </Button>
-        </div>
-      </div>
-    );
-  };
-
   const renderFeedbackInspector = () => (
     <div className="space-y-3">
       <div>
@@ -2829,7 +1951,27 @@ export function LatexEditorShell({
           </Button>
         </div>
       ) : null}
-      {renderRewritePreview()}
+      <LatexRewritePreviewPanel
+        selectedRewriteCandidate={selectedRewriteCandidate}
+        selectedRewriteCandidateIndex={selectedRewriteCandidateIndex}
+        rewriteCandidates={rewriteCandidates}
+        diffViewMode={diffViewMode}
+        showWhitespaceOnlyDiff={showWhitespaceOnlyDiff}
+        collapsedDiffHunks={collapsedDiffHunks}
+        previewFeedbackItem={previewFeedbackItem}
+        feedbackBusyId={feedbackBusyId}
+        isApplyingRewrite={isApplyingRewrite}
+        isSaving={isSaving}
+        onSelectCandidate={setSelectedRewriteCandidateId}
+        onRegenerate={() => void regenerateRewritePreview()}
+        onDiffViewModeChange={setDiffViewMode}
+        onToggleWhitespaceOnlyDiff={() => setShowWhitespaceOnlyDiff((prev) => !prev)}
+        onCollapseAll={setAllDiffHunksCollapsed}
+        onToggleHunkCollapsed={toggleDiffHunkCollapsed}
+        onCopy={() => void copySelectedRewrite()}
+        onCancel={() => clearRewritePreview()}
+        onApply={() => void applyRewriteCandidate()}
+      />
       <div className="border-t border-[rgba(15,23,42,0.08)] pt-3">
         <p className="mb-2 text-xs font-semibold text-[var(--text-muted)]">
           当前文件点评
@@ -3143,176 +2285,20 @@ export function LatexEditorShell({
       ) : null}
       {renderPrismWorkspace()}
 
-      {activePrismOptimizationJob ? (
-        <button
-          type="button"
-          onClick={() => setIsPrismOptimizationTraceOpen(true)}
-          className="fixed bottom-5 right-5 z-40 flex max-w-[320px] items-center gap-3 rounded-2xl border border-white/60 bg-white/90 px-4 py-3 text-left shadow-2xl shadow-[rgba(86,74,118,0.16)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white"
-        >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[rgba(124,92,255,0.12)] text-[var(--v2-accent-purple-700)]">
-            {activePrismOptimizationJob.status === "launching" ||
-            activePrismOptimizationJob.status === "running" ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : activePrismOptimizationJob.status === "completed" ? (
-              <CheckCircle2 className="h-4 w-4" />
-            ) : (
-              <X className="h-4 w-4" />
-            )}
-          </span>
-          <span className="min-w-0">
-            <span className="block text-sm font-medium text-[var(--text-primary)]">
-              {prismJobStatusLabel(activePrismOptimizationJob.status)}
-            </span>
-            <span className="mt-0.5 block truncate text-xs text-[var(--text-muted)]">
-              {trimSnippet(activePrismOptimizationJob.selectedText, 72)}
-            </span>
-          </span>
-        </button>
-      ) : null}
-
-      <Dialog
+      <PrismOptimizationTraceDialog
         open={isPrismOptimizationTraceOpen}
+        activeJob={activePrismOptimizationJob}
+        jobs={prismOptimizationJobs}
+        activeRecord={activePrismOptimizationRecord}
+        activePhases={activePrismOptimizationPhases}
+        fileChangesCount={fileChanges.length}
         onOpenChange={setIsPrismOptimizationTraceOpen}
-      >
-        <DialogContent className="max-h-[84vh] max-w-2xl overflow-auto">
-          <DialogHeader>
-            <DialogTitle>Prism Agent 工作过程</DialogTitle>
-            <DialogDescription>
-              右侧 Lead Agent 异步处理划词优化，结果会进入 Prism 待确认写入。
-            </DialogDescription>
-          </DialogHeader>
-          {activePrismOptimizationJob ? (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-[var(--border-default)] bg-white/80 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-[var(--v2-accent-purple-700)]" />
-                    <p className="text-sm font-medium">
-                      {prismJobStatusLabel(activePrismOptimizationJob.status)}
-                    </p>
-                  </div>
-                  <span className="rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
-                    {activePrismOptimizationJob.scope === "section" ? "所在 section" : "仅选区"}
-                  </span>
-                </div>
-                <p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">
-                  文件：{activePrismOptimizationJob.filePath}
-                </p>
-                <p className="mt-2 rounded-lg bg-[rgba(19,34,53,0.04)] px-3 py-2 text-xs leading-5 text-[var(--text-secondary)]">
-                  {trimSnippet(activePrismOptimizationJob.selectedText, 240)}
-                </p>
-                <p className="mt-2 text-xs leading-5 text-[var(--text-muted)]">
-                  指令：{activePrismOptimizationJob.instruction}
-                </p>
-                {activePrismOptimizationJob.error ? (
-                  <p className="mt-2 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-700">
-                    {activePrismOptimizationJob.error}
-                  </p>
-                ) : null}
-              </div>
-
-              {prismOptimizationJobs.length > 1 ? (
-                <div className="flex flex-wrap gap-2">
-                  {prismOptimizationJobs.map((job, index) => (
-                    <button
-                      key={job.id}
-                      type="button"
-                      onClick={() => setActivePrismOptimizationJobId(job.id)}
-                      className={`rounded-full border px-3 py-1 text-xs ${
-                        job.id === activePrismOptimizationJob.id
-                          ? "border-[var(--v2-accent-purple-300)] bg-[rgba(124,92,255,0.12)] text-[var(--v2-accent-purple-700)]"
-                          : "border-[var(--border-default)] bg-white text-[var(--text-muted)]"
-                      }`}
-                    >
-                      任务 {index + 1} · {prismJobStatusLabel(job.status)}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="rounded-xl border border-[var(--border-default)] bg-white/80 p-3">
-                <div className="flex items-center gap-2">
-                  <Activity className="h-4 w-4 text-[var(--v2-accent-blue-700)]" />
-                  <p className="text-sm font-medium">执行节点</p>
-                </div>
-                {activePrismOptimizationRecord ? (
-                  <div className="mt-3 space-y-3">
-                    <div className="grid gap-2 text-xs text-[var(--text-muted)] md:grid-cols-3">
-                      <span>执行：{activePrismOptimizationRecord.id.slice(0, 8)}</span>
-                      <span>状态：{activePrismOptimizationRecord.status}</span>
-                      <span>进度：{Math.round(activePrismOptimizationRecord.progress || 0)}%</span>
-                    </div>
-                    {activePrismOptimizationPhases.length > 0 ? (
-                      <div className="space-y-3">
-                        {activePrismOptimizationPhases.map((phase) => (
-                          <div key={`${phase.name}-${phase.index}`} className="rounded-lg border border-[var(--border-default)] bg-[rgba(19,34,53,0.025)] p-2">
-                            <p className="text-xs font-medium text-[var(--text-secondary)]">
-                              {phase.name}
-                            </p>
-                            <div className="mt-2 space-y-2">
-                              {phase.nodes.map((node) => {
-                                const nodeState = activePrismOptimizationRecord.node_states[node.id] || {};
-                                return (
-                                  <div key={node.id} className="rounded-md bg-white/80 px-3 py-2">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
-                                      <p className="text-xs font-medium">
-                                        {node.label || node.task || node.id}
-                                      </p>
-                                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border-default)] bg-white px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
-                                        <Clock3 className="h-3 w-3" />
-                                        {prismExecutionNodeLabel(nodeState.status)}
-                                      </span>
-                                    </div>
-                                    {nodeState.output_preview ? (
-                                      <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
-                                        {nodeState.output_preview}
-                                      </p>
-                                    ) : nodeState.thinking ? (
-                                      <p className="mt-1 text-xs leading-5 text-[var(--text-muted)]">
-                                        {trimSnippet(nodeState.thinking, 180)}
-                                      </p>
-                                    ) : null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-[var(--text-muted)]">正在等待执行图回传。</p>
-                    )}
-                  </div>
-                ) : (
-                  <p className="mt-3 text-xs text-[var(--text-muted)]">
-                    {activePrismOptimizationJob.executionId
-                      ? "已启动，正在拉取执行过程。"
-                      : "正在等待 Agent 启动确认。"}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex flex-wrap justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setIsPrismOptimizationTraceOpen(false)}
-                >
-                  关闭
-                </Button>
-                <Button
-                  onClick={() => {
-                    fileChangesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    setIsPrismOptimizationTraceOpen(false);
-                  }}
-                  disabled={fileChanges.length === 0}
-                >
-                  查看待确认写入
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+        onSelectJob={setActivePrismOptimizationJobId}
+        onViewPendingChanges={() => {
+          fileChangesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          setIsPrismOptimizationTraceOpen(false);
+        }}
+      />
 
       <Dialog open={isCompileLogOpen} onOpenChange={setIsCompileLogOpen}>
         <DialogContent className="max-h-[85vh] max-w-5xl overflow-hidden">
