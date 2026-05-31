@@ -58,25 +58,20 @@
 
 ---
 
-## 📋 待处理（建议创建 GitHub issue 跟踪）
+## ✅ 后续复查已收敛
 
-### 8. `ExecutionNodeRecord` 表存在但无任何代码写入
+### 8. `[FIXED]` `ExecutionNodeRecord` 已成为节点级事实源
 
 - **Issue type**: Task
 - **Labels**: `backend`, `execution`, `database`, `tech-debt`
-- **描述**: Migration 030 创建了 `execution_nodes` 表，且 `ExecutionService` 提供了 `create_execution_node` / `update_execution_node` 方法，但当前没有任何调用方使用。子 agent 的节点状态通过 `ExecutionRecord.node_states` (JSONB) 维护，`ExecutionNodeRecord` 处于闲置状态。
-- **建议**: 决定是废弃该表（回滚 migration）还是启用它（在 `SubagentManager` 中写入节点级持久化）。
-- **关联代码**:
-  - `backend/src/services/execution_service.py` — `create_execution_node`, `update_execution_node`
-  - `backend/src/database/models/execution_node.py`
-  - `backend/src/subagents/manager.py` — `_publish_subagent_update`, `_persist_subagent_activity`
+- **原问题**: `execution_nodes` 表存在，但执行链路只读取 `ExecutionRecord.node_states` JSONB，导致节点级表闲置并形成双事实源。
+- **当前状态**: `LeadAgentRuntime` 通过 `ExecutionService.upsert_node_event()` 写入 `execution_nodes`；`GET /executions/{execution_id}/nodes/{node_id}` 通过 `ExecutionService.find_node_by_node_id()` 读取节点详情。`graph_structure` 只负责静态节点拓扑与 label/phase 默认值。
+- **防回归**: `tests/architecture/test_dataservice_boundaries.py::test_execution_node_detail_router_uses_execution_node_records` 禁止 router 重新读取 `record.node_states`。
 
-### 9. 长期：将 feature task 的并发控制从 TaskRecord 迁移到 ExecutionRecord
+### 9. `[FIXED]` feature launch 并发控制已迁到 ExecutionRecord
 
 - **Issue type**: Task
 - **Labels**: `backend`, `execution`, `task-system`, `refactor`
-- **描述**: 当前 feature task 仍需创建 `TaskRecord`（仅用于 `create_task_record_guarded` 的并发限制检查）。这是新旧架构的残留耦合。长期应将并发控制逻辑迁移到 `ExecutionRecord` 层（检查同一 user/workspace/feature 的 active execution 数量），然后彻底停止 feature task 的 `TaskRecord` 创建。
-- **影响**: 移除后，feature task 将完全脱离 legacy `TaskRecord` / `TaskStore` 路径，架构更纯粹。
-- **关联代码**:
-  - `backend/src/task/service.py` — `create_task_record_guarded`, `find_active_task`
-  - `backend/src/services/execution_service.py` — `create_execution`, `list_executions`
+- **原问题**: feature task 依赖 `TaskRecord` guarded create 做并发限制，产品执行事实源与后台任务记录耦合。
+- **当前状态**: `launch_feature` 通过 active `ExecutionRecord` 判断 lead-busy；`TaskRecord` 仅保留为 Celery / upload / generic background task 的 durable task history，不再作为 feature execution 并发事实源。
+- **边界**: 后续新增 feature execution 入口必须复用 `ExecutionRecord` lead-busy 语义，不得回退到 `TaskRecord.find_active_task()`。

@@ -40,6 +40,32 @@ def _normalize_action_list(values: list[dict[str, Any]] | None) -> list[dict[str
     return normalized
 
 
+def _timestamp_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _execution_node_state(record: Any) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "status": record.status,
+        "node_type": record.node_type,
+        "input": record.input_data,
+        "output": record.output_data,
+        "thinking": record.thinking,
+        "tool_calls": record.tool_calls,
+        "token_usage": record.token_usage,
+        "node_metadata": record.node_metadata,
+        "started_at": _timestamp_or_none(record.started_at),
+        "completed_at": _timestamp_or_none(record.completed_at),
+    }
+    if record.label is not None:
+        state["label"] = record.label
+    return state
+
+
 def serialize_execution_record(record: Any) -> dict[str, Any]:
     """Serialize an execution record into the canonical API shape."""
     return {
@@ -177,7 +203,9 @@ class ExecutionService:
             return {"nodes": [], "edges": []}
 
         graph_structure = record.graph_structure or {"nodes": [], "edges": []}
-        node_states = record.node_states or {}
+        async with self._client() as client:
+            node_records = await client.list_execution_nodes(execution_id)
+        node_states = {node.node_id: _execution_node_state(node) for node in node_records}
 
         # Merge static topology with dynamic node states
         nodes = []

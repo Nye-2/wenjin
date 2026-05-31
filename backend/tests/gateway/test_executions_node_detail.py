@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +14,7 @@ from fastapi.testclient import TestClient
 from src.gateway.routers.executions import router
 
 # ---------------------------------------------------------------------------
-# Test app factory — overrides DB session + auth so we don't need a real DB
+# Test app factory — overrides DataService + auth so we don't need real services
 # ---------------------------------------------------------------------------
 
 
@@ -31,6 +33,27 @@ def _build_record(data: dict[str, Any]) -> MagicMock:
     return record
 
 
+def _build_node(data: dict[str, Any]) -> SimpleNamespace:
+    """Build a mock ExecutionNodePayload from a plain dict."""
+    return SimpleNamespace(
+        id=data.get("id", "node-row-1"),
+        execution_id=data.get("execution_id", "exec-1"),
+        node_id=data.get("node_id", "node-1"),
+        node_type=data.get("node_type", "subagent"),
+        label=data.get("label"),
+        parent_node_id=data.get("parent_node_id"),
+        status=data.get("status", "pending"),
+        input_data=data.get("input_data"),
+        output_data=data.get("output_data"),
+        thinking=data.get("thinking"),
+        tool_calls=data.get("tool_calls"),
+        token_usage=data.get("token_usage"),
+        node_metadata=data.get("node_metadata"),
+        started_at=data.get("started_at"),
+        completed_at=data.get("completed_at"),
+    )
+
+
 @pytest.fixture()
 def client_factory():
     """Return a factory that builds a TestClient with mocked dependencies.
@@ -42,31 +65,31 @@ def client_factory():
 
     Pass ``None`` for *execution_record* to simulate a missing execution.
     """
-    from src.database import get_db_session
     from src.gateway.auth_dependencies import get_current_user
+    from src.gateway.deps.core import get_dataservice_client
 
     patchers: list = []
 
-    def _factory(execution_record: dict[str, Any] | None) -> TestClient:
+    def _factory(
+        execution_record: dict[str, Any] | None,
+        execution_node: dict[str, Any] | None = None,
+    ) -> TestClient:
         app = FastAPI()
         app.include_router(router)
 
         # Build mock record
         record = _build_record(execution_record) if execution_record is not None else None
+        node = _build_node(execution_node) if execution_node is not None else None
 
         # Override auth
         app.dependency_overrides[get_current_user] = lambda: _FakeUser()
 
-        # Override DB + ExecutionService
-        mock_session = AsyncMock()
-
-        async def _override_db():
-            yield mock_session
-
-        app.dependency_overrides[get_db_session] = _override_db
+        # Override DataService + ExecutionService
+        app.dependency_overrides[get_dataservice_client] = lambda: object()
 
         svc_mock = MagicMock()
         svc_mock.get_by_id = AsyncMock(return_value=record)
+        svc_mock.find_node_by_node_id = AsyncMock(return_value=node)
         patcher = patch(
             "src.gateway.routers.executions.ExecutionService",
             return_value=svc_mock,
@@ -88,7 +111,7 @@ def client_factory():
 
 
 def test_get_node_detail_returns_node_info(client_factory):
-    """Happy path: execution exists with node in graph_structure and node_states."""
+    """Happy path: execution exists with node in graph_structure and execution_nodes."""
     record = {
         "id": "exec-1",
         "user_id": "user-1",
@@ -101,25 +124,31 @@ def test_get_node_detail_returns_node_info(client_factory):
         },
         "node_states": {
             "node-1": {
-                "status": "completed",
-                "input": {"query": "machine learning"},
-                "output": {"results_count": 15},
-                "thinking": "Searching for relevant papers...",
-                "tool_calls": [{"name": "scholar_search", "args": {"query": "ml"}, "result": "15 found"}],
-                "token_usage": {"input": 150, "output": 200},
-                "started_at": "2026-01-01T00:00:00Z",
-                "completed_at": "2026-01-01T00:01:00Z",
+                "status": "failed",
+                "output": {"stale": True},
             },
         },
     }
+    node = {
+        "node_id": "node-1",
+        "label": "Runtime Search",
+        "status": "completed",
+        "input_data": {"query": "machine learning"},
+        "output_data": {"results_count": 15},
+        "thinking": "Searching for relevant papers...",
+        "tool_calls": [{"name": "scholar_search", "args": {"query": "ml"}, "result": "15 found"}],
+        "token_usage": {"input": 150, "output": 200},
+        "started_at": datetime(2026, 1, 1, 0, 0, tzinfo=UTC),
+        "completed_at": datetime(2026, 1, 1, 0, 1, tzinfo=UTC),
+    }
 
-    client = client_factory(record)
+    client = client_factory(record, node)
     resp = client.get("/executions/exec-1/nodes/node-1")
 
     assert resp.status_code == 200
     data = resp.json()
     assert data["id"] == "node-1"
-    assert data["label"] == "Search"
+    assert data["label"] == "Runtime Search"
     assert data["status"] == "completed"
     assert data["phase_index"] == 0
     assert data["input"] == {"query": "machine learning"}
@@ -127,8 +156,8 @@ def test_get_node_detail_returns_node_info(client_factory):
     assert data["thinking"] == "Searching for relevant papers..."
     assert len(data["tools"]) == 1
     assert data["token_usage"] == {"input": 150, "output": 200}
-    assert data["started_at"] == "2026-01-01T00:00:00Z"
-    assert data["completed_at"] == "2026-01-01T00:01:00Z"
+    assert data["started_at"] == "2026-01-01T00:00:00+00:00"
+    assert data["completed_at"] == "2026-01-01T00:01:00+00:00"
 
 
 def test_get_node_detail_returns_pending_defaults(client_factory):
@@ -165,7 +194,7 @@ def test_get_node_detail_execution_not_found(client_factory):
 
 
 def test_get_node_detail_node_not_found(client_factory):
-    """Execution exists but node_id not in graph_structure or node_states → 404."""
+    """Execution exists but node_id is in neither graph_structure nor execution_nodes."""
     record = {
         "id": "exec-1",
         "user_id": "user-1",

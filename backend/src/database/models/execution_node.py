@@ -14,8 +14,9 @@ class ExecutionNodeRecord(Base):
     """Granular node-level execution record.
 
     Each row represents one node in the execution graph (agent, tool, subagent, etc.).
-    Optional for V1 (node_states in ExecutionRecord can substitute), but recommended
-    for long-term analytics and rich node detail drawers.
+    This is the canonical persisted source for rich node detail drawers and
+    execution-node analytics; ``ExecutionRecord.node_states`` is only a
+    lightweight run-summary projection.
     """
 
     __tablename__ = "execution_nodes"

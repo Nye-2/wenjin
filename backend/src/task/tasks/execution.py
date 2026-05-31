@@ -220,10 +220,8 @@ async def _execute_execution_async(execution_id: str) -> dict[str, Any]:
             return await _resolve_execution_workspace_type(dataservice, ws_id)
 
         async def _record_node_event(**kw: Any) -> None:
-            # Persist per-node lifecycle into ``executions.node_states`` so the
-            # FE ``GET /executions/{id}/nodes/{node_id}`` endpoint returns real
-            # input/output/thinking.  (That endpoint reads the JSONB blob on
-            # the executions row, not the ``execution_nodes`` table.)
+            # Persist per-node lifecycle into ``execution_nodes`` so node-detail
+            # views can read canonical input/output/thinking for each runtime node.
             # Best-effort: a DB hiccup must not abort the run.
             try:
                 await execution_service.upsert_node_event(

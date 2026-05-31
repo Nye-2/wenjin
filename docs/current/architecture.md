@@ -19,16 +19,26 @@
 - 执行身份与类型
 - 生命周期状态
 - feature / workspace / thread 上下文
-- graph structure / node states
+- graph structure
 - artifact linkage
 - advisory / next actions
 - parent-child execution 关系
+
+节点级运行详情由 `ExecutionNodeRecord` 拥有：
+
+- node lifecycle status
+- node input / output / thinking
+- tool calls / token usage
+- started_at / completed_at
+
+`ExecutionRecord.graph_structure` 只描述静态拓扑；节点详情接口必须从 `execution_nodes` 读取运行态数据。
 
 ### 1.2 支撑模型
 
 - `TaskRecord`：异步任务运行记录，不是产品执行 SSOT
 - `ComputeSessionRecord`：工作台 shell / projection 绑定，不拥有业务执行状态
 - `SubagentTaskRecord`：子执行投影，绑定 canonical `execution_id`
+- `ExecutionNodeRecord`：节点级运行详情，绑定 canonical `execution_id`
 
 ### 1.3 为什么这样拆
 
@@ -71,6 +81,8 @@
 | Model / Pricing Domain | `backend/src/dataservice/domains/model_catalog/` `backend/src/dataservice/domains/pricing/` `backend/src/services/model_catalog_cache.py` `backend/src/services/credit_service.py` | admin-managed OpenAI-compatible model catalog、encrypted model secrets、pricing policy、credit reservation、runtime model cache |
 | Agent Runtime | `backend/src/agents/lead_agent/` | graph compile、subagent orchestration、TaskReport |
 | Prism Manuscript Domain | `backend/src/dataservice/prism_api.py` `backend/src/dataservice/prism_review_api.py` `backend/src/services/workspace_prism_service.py` | workspace-owned manuscript review、source links、protected sections、surface projection |
+
+DataService client 按领域拆分 domain mixin；`AsyncDataServiceClient` 只保留 HTTP shell、通用请求处理和未拆分领域的临时方法。新增 execution / generation client 方法必须放在 `backend/src/dataservice_client/execution_client.py`，不得回流到主 client shell。
 
 ### 2.3 前端主分层
 
@@ -127,6 +139,8 @@
 40. Workspace sandbox 只能按 workspace 维度拥有一个 active environment；runtime provider key 为 `workspace-{workspace_id}`，不得再按 execution/node 生成独立 sandbox 基座
 41. Credit admission 和普通扣费必须以 `spendable_credits = credits - reserved_credits` 为边界；active reservation 不能被 thread/feature/sandbox 普通消费穿透使用
 42. Execution credit reservation metadata 只能通过 `src.billing.reservation_metadata` 读取和合并；feature launch、execution engine、DataService reconcile 不得各自手写 `billing.credit_reservation_id` 解析逻辑
+43. Execution node detail 的运行态事实源是 `ExecutionNodeRecord`；`ExecutionRecord.node_states` 不得作为 gateway/API 的节点详情来源
+44. DataService client 的 execution / generation API 必须通过领域 mixin 承载，避免 `AsyncDataServiceClient` 主文件继续膨胀成跨领域热点
 
 ## 3. Execution-First Main Chain
 

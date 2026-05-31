@@ -233,6 +233,28 @@ def test_credit_reservation_metadata_access_uses_canonical_helper() -> None:
     )
 
 
+def test_execution_node_detail_router_uses_execution_node_records() -> None:
+    """Node detail must read node lifecycle rows, not the historical JSON blob."""
+    router_path = SRC_ROOT / "gateway" / "routers" / "executions.py"
+    source = router_path.read_text(encoding="utf-8")
+
+    assert "record.node_states" not in source
+    assert "find_node_by_node_id" in source
+
+
+def test_dataservice_client_execution_api_lives_in_dedicated_mixin() -> None:
+    """Keep the DataService client shell from absorbing every domain API."""
+    client_path = SRC_ROOT / "dataservice_client" / "client.py"
+    mixin_path = SRC_ROOT / "dataservice_client" / "execution_client.py"
+    client_source = client_path.read_text(encoding="utf-8")
+
+    assert mixin_path.exists()
+    assert "class AsyncDataServiceClient(ExecutionDataServiceClientMixin)" in client_source
+    assert "async def create_execution(" not in client_source
+    assert "async def upsert_execution_node(" not in client_source
+    assert "async def create_generation_record(" not in client_source
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"

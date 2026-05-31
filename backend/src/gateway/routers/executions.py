@@ -22,6 +22,14 @@ from src.services.execution_service import ExecutionService, serialize_execution
 router = APIRouter(prefix="/executions", tags=["executions"])
 
 
+def _jsonable_timestamp(value: Any) -> str | None:
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
 async def _execution_sse_consumer(
     *,
     execution_id: str,
@@ -132,24 +140,23 @@ async def get_node_detail(
             static_node = n
             break
 
-    node_states = record.node_states or {}
-    state = node_states.get(node_id, {})
+    node_record = await svc.find_node_by_node_id(execution_id, node_id)
 
-    if static_node is None and not state:
+    if static_node is None and node_record is None:
         raise HTTPException(status_code=404, detail="Node not found")
 
     return {
         "id": node_id,
-        "label": (static_node or {}).get("label") or state.get("label"),
-        "status": state.get("status", "pending"),
+        "label": (node_record.label if node_record else None) or (static_node or {}).get("label"),
+        "status": node_record.status if node_record else "pending",
         "phase_index": (static_node or {}).get("phase_index"),
-        "input": state.get("input"),
-        "output": state.get("output"),
-        "thinking": state.get("thinking"),
-        "tools": state.get("tool_calls"),
-        "token_usage": state.get("token_usage"),
-        "started_at": state.get("started_at"),
-        "completed_at": state.get("completed_at"),
+        "input": node_record.input_data if node_record else None,
+        "output": node_record.output_data if node_record else None,
+        "thinking": node_record.thinking if node_record else None,
+        "tools": node_record.tool_calls if node_record else None,
+        "token_usage": node_record.token_usage if node_record else None,
+        "started_at": _jsonable_timestamp(node_record.started_at) if node_record else None,
+        "completed_at": _jsonable_timestamp(node_record.completed_at) if node_record else None,
     }
 
 
