@@ -293,6 +293,8 @@ Sandbox：
 | `sandbox_environment_installer.py` | 自动环境安装、依赖计划、幂等安装记录 |
 | `sandbox_job_runner.py` | command/script execution、timeout、stdout/stderr |
 | `sandbox_artifact_collector.py` | generated files/artifacts collection |
+| `sandbox_runtime_session.py` | provider/manager resolve、environment context、lease acquire/release |
+| `sandbox_script_executor.py` | script validate/write、declared dependency install、missing-module retry |
 | `sandbox_runtime.py` | facade，保留现有外部调用入口 |
 
 边界规则：
@@ -313,6 +315,7 @@ Sandbox：
 
 - `uploads.py` 低于 300 行。
 - `sandbox_runtime.py` facade 低于 300 行。
+- `sandbox_job_runner.py` 不成为新热点，低于 350 行，session/script 细节继续下沉。
 - sandbox install 与 run 的责任边界在测试名中可读。
 
 ### 6.6 Dead-code cleanup

@@ -343,6 +343,65 @@ def test_source_domain_service_is_facade_over_focused_services() -> None:
     assert "def _serialize_reference_projection(" not in service_source
 
 
+def test_upload_gateway_is_protocol_adapter_over_application_services() -> None:
+    """Thread upload router should delegate orchestration to focused services."""
+    upload_router = SRC_ROOT / "gateway" / "routers" / "uploads.py"
+    expected_files = {
+        SRC_ROOT / "application" / "services" / "upload_application_service.py",
+        SRC_ROOT / "services" / "upload_preflight_policy.py",
+        SRC_ROOT / "services" / "thread_upload_service.py",
+        SRC_ROOT / "services" / "workspace_upload_service.py",
+        SRC_ROOT / "services" / "layout_preprocess_orchestrator.py",
+    }
+    missing = [str(path.relative_to(SRC_ROOT)) for path in sorted(expected_files) if not path.exists()]
+    assert not missing, f"Missing focused upload services: {missing}"
+
+    source = upload_router.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 300
+    assert "UploadApplicationService" in source
+    assert "SourceLibraryImportService" not in source
+    assert "KnowledgeService" not in source
+    assert "persist_workspace_upload(" not in source
+    assert "preprocess_file(" not in source
+
+
+def test_sandbox_runtime_is_facade_over_installer_runner_and_artifacts() -> None:
+    """Lead sandbox runtime should expose stable functions over focused helpers."""
+    runtime_root = SRC_ROOT / "agents" / "lead_agent" / "v2"
+    runtime_path = runtime_root / "sandbox_runtime.py"
+    expected_files = {
+        "sandbox_environment_installer.py",
+        "sandbox_job_runner.py",
+        "sandbox_artifact_collector.py",
+    }
+    missing = [name for name in sorted(expected_files) if not (runtime_root / name).exists()]
+    assert not missing, f"Missing focused sandbox runtime services: {missing}"
+
+    source = runtime_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 300
+    assert "SandboxEnvironmentInstaller" in source
+    assert "SandboxJobRunner" in source
+    assert "SandboxArtifactCollector" in source
+    assert "async def _install_dependencies(" not in source
+    assert "await sandbox.execute_command(" not in source
+
+
+def test_sandbox_runner_does_not_become_the_new_runtime_hotspot() -> None:
+    """Sandbox execution internals should stay split beyond the public facade."""
+    runtime_root = SRC_ROOT / "agents" / "lead_agent" / "v2"
+    expected_files = {
+        "sandbox_runtime_session.py",
+        "sandbox_script_executor.py",
+    }
+    missing = [name for name in sorted(expected_files) if not (runtime_root / name).exists()]
+    assert not missing, f"Missing focused sandbox runner helpers: {missing}"
+
+    runner_source = (runtime_root / "sandbox_job_runner.py").read_text(encoding="utf-8")
+    assert len(runner_source.splitlines()) < 350
+    assert "SandboxRuntimeSession" in runner_source
+    assert "SandboxScriptExecutor" in runner_source
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"
