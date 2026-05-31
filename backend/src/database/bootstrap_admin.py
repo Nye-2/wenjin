@@ -138,7 +138,7 @@ async def async_main() -> int:
             try:
                 from src.services.agent_template_loader import AgentTemplateLoader
 
-                template_loader = AgentTemplateLoader(session)
+                template_loader = AgentTemplateLoader()
                 loaded_templates = await template_loader.load_seeds_if_empty()
                 if loaded_templates:
                     print(

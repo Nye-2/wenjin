@@ -1008,6 +1008,11 @@ def test_admin_catalog_runtime_uses_dataservice_boundary() -> None:
             "self.session",
             "session: AsyncSession",
         ),
+        SRC_ROOT / "services" / "agent_template_loader.py": (
+            "AsyncSession",
+            "self.session",
+            "session: AsyncSession",
+        ),
     }
 
     violations: list[str] = []

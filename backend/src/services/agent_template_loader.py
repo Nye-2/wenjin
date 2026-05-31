@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import CatalogSeedItemPayload, CatalogSeedLoadPayload
@@ -24,12 +23,10 @@ class AgentTemplateLoader:
 
     def __init__(
         self,
-        session: AsyncSession,
         *,
         seed_dir: Path | str | None = None,
         dataservice: AsyncDataServiceClient | None = None,
     ) -> None:
-        self.session = session
         self.seed_dir = Path(seed_dir) if seed_dir is not None else DEFAULT_SEED_DIR
         self._dataservice = dataservice
 

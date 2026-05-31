@@ -36,7 +36,7 @@ def _agent_template_yaml() -> str:
 
 
 @pytest.mark.asyncio
-async def test_loads_agent_template_seeds_through_dataservice(test_session, tmp_path) -> None:
+async def test_loads_agent_template_seeds_through_dataservice(tmp_path) -> None:
     seed_dir = tmp_path / "agent_templates"
     seed_dir.mkdir()
     seed_file = seed_dir / "research_scout.yaml"
@@ -48,7 +48,6 @@ async def test_loads_agent_template_seeds_through_dataservice(test_session, tmp_
     dataservice.has_agent_templates.return_value = False
     dataservice.load_agent_template_seed_items.return_value.loaded = 1
     loader = AgentTemplateLoader(
-        test_session,
         seed_dir=seed_dir,
         dataservice=dataservice,
     )
@@ -64,13 +63,12 @@ async def test_loads_agent_template_seeds_through_dataservice(test_session, tmp_
 
 
 @pytest.mark.asyncio
-async def test_skips_agent_template_seed_when_catalog_has_data(test_session, tmp_path) -> None:
+async def test_skips_agent_template_seed_when_catalog_has_data(tmp_path) -> None:
     from src.services.agent_template_loader import AgentTemplateLoader
 
     dataservice = AsyncMock()
     dataservice.has_agent_templates.return_value = True
     loader = AgentTemplateLoader(
-        test_session,
         seed_dir=tmp_path / "agent_templates",
         dataservice=dataservice,
     )
@@ -82,7 +80,7 @@ async def test_skips_agent_template_seed_when_catalog_has_data(test_session, tmp
 
 
 @pytest.mark.asyncio
-async def test_agent_template_loader_validates_required_shape(test_session, tmp_path) -> None:
+async def test_agent_template_loader_validates_required_shape(tmp_path) -> None:
     seed_dir = tmp_path / "agent_templates"
     seed_dir.mkdir()
     (seed_dir / "broken.yaml").write_text(
@@ -95,7 +93,6 @@ async def test_agent_template_loader_validates_required_shape(test_session, tmp_
     dataservice = AsyncMock()
     dataservice.has_agent_templates.return_value = False
     loader = AgentTemplateLoader(
-        test_session,
         seed_dir=seed_dir,
         dataservice=dataservice,
     )
