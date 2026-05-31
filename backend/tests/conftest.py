@@ -9,6 +9,16 @@ import pytest
 import pytest_asyncio
 
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-pytest")
+# Keep developer machine proxy settings from changing httpx client construction in tests.
+for proxy_env_var in (
+    "ALL_PROXY",
+    "all_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "HTTPS_PROXY",
+    "https_proxy",
+):
+    os.environ.pop(proxy_env_var, None)
 
 
 @pytest.fixture(scope="session")

@@ -185,6 +185,33 @@ class _CreditReservationMetadataVisitor(ast.NodeVisitor):
             self.violations.append(node.lineno)
         self.generic_visit(node)
 
+    def visit_Subscript(self, node: ast.Subscript) -> None:
+        if (
+            isinstance(node.ctx, ast.Load)
+            and isinstance(node.slice, ast.Constant)
+            and node.slice.value == "credit_reservation_id"
+        ):
+            self.violations.append(node.lineno)
+        self.generic_visit(node)
+
+
+def test_credit_reservation_metadata_visitor_flags_direct_key_reads() -> None:
+    """The architecture guard must catch both get() and subscript reads."""
+    tree = ast.parse(
+        "\n".join(
+            [
+                "reservation_id = billing.get('credit_reservation_id')",
+                "reservation_id = billing['credit_reservation_id']",
+                "billing['credit_reservation_id'] = reservation_id",
+            ]
+        )
+    )
+    visitor = _CreditReservationMetadataVisitor()
+
+    visitor.visit(tree)
+
+    assert visitor.violations == [1, 2]
+
 
 def test_credit_reservation_metadata_access_uses_canonical_helper() -> None:
     """Production code should not hand-roll execution billing metadata parsing."""
