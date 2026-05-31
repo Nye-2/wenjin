@@ -1,7 +1,27 @@
 # Architecture Hotspot Convergence Design
 
 日期：2026-05-31
-状态：Implementation started
+状态：Implemented and verification-gated on 2026-06-01
+
+## 0. Implementation Status
+
+This convergence spec is implemented in small, reviewable slices. Current evidence:
+
+- `AsyncDataServiceClient` is a shell plus domain mixins; source, catalog, workspace, execution, credit, model catalog, pricing, and sandbox client methods no longer live in the shell.
+- `SourceDataDomainService` is a facade over import, asset, bibliography, projection, index, context, and helper modules.
+- Upload and sandbox runtime hotspots are facades over focused application/runtime helpers.
+- `LiveWorkflowPanel` is a composition shell over `live-workflow/*` view-model and view slices.
+- `LatexEditorShell` is a compact composition shell over focused LaTeX editor panes, hooks, and helpers.
+- Dead-code cleanup was kept as separate commits from functional split commits.
+
+Verification evidence from 2026-06-01:
+
+- `cd backend && .venv/bin/python -m pytest tests/ -q` -> 2251 passed, 4 snapshots passed.
+- `cd backend && .venv/bin/python -m pytest tests/architecture -q` -> 78 passed.
+- `cd frontend && npm run typecheck` -> passed.
+- `cd frontend && npx vitest run tests/unit/v2/latex-editor-utils.test.ts tests/unit/v2/prism-surface.test.tsx tests/unit/lib/prism-review-api.test.ts tests/unit/lib/execution-run-view.test.ts tests/unit/v2/LiveWorkflowPanel.test.tsx` -> 5 files passed, 31 tests passed.
+- `cd frontend && npx playwright test tests/e2e/prism-surface.spec.ts tests/e2e/iteration.spec.ts` -> 5 passed.
+- code-review-graph incremental update -> ok; `detect_changes` risk score 0.40 for final doc/e2e fixture/test changes.
 
 ## 1. 背景
 
@@ -54,17 +74,22 @@ flowchart TD
   A --> A2["SourceDataServiceClientMixin"]
   A --> A3["CreditDataServiceClientMixin"]
   A --> A4["ModelCatalogDataServiceClientMixin"]
-  A --> A5["SandboxDataServiceClientMixin"]
+  A --> A5["PricingDataServiceClientMixin"]
+  A --> A6["SandboxDataServiceClientMixin"]
+  A --> A7["WorkspaceDataServiceClientMixin"]
 
   S["SourceDataDomainService facade"] --> S1["SourceImportService"]
   S --> S2["SourceAssetService"]
   S --> S3["SourceBibliographyService"]
   S --> S4["SourceProjectionService"]
+  S --> S5["SourceIndexService"]
+  S --> S6["SourceDomainContext + helpers"]
 
   E["LiveWorkflowPanel shell"] --> E1["useLiveWorkflowViewModel"]
-  E --> E2["RunHeader"]
-  E --> E3["WorkflowTimeline"]
-  E --> E4["TeamAndEvidencePanels"]
+  E --> E2["WorkbenchHeader"]
+  E --> E3["OverviewView / RunView"]
+  E --> E4["NodeInspector"]
+  E --> E5["EvidenceView / ReviewView"]
   E1 --> P["frontend/lib/execution-run-view.ts"]
 
   L["LatexEditorShell shell"] --> L1["useLatexProjectState"]
@@ -74,10 +99,32 @@ flowchart TD
 
   U["uploads router"] --> U1["UploadApplicationService"]
   B["sandbox_runtime"] --> B1["SandboxEnvironmentInstaller"]
-  B --> B2["SandboxJobRunner"]
+  B --> B2["SandboxRuntimeSession"]
+  B --> B3["SandboxScriptExecutor"]
+  B --> B4["SandboxJobRunner"]
+  B --> B5["SandboxArtifactCollector"]
 ```
 
 ## 6. 拆分清单
+
+### 6.0 拆分判定矩阵
+
+本轮只拆“责任混杂且会继续承载产品迭代”的热点。高 degree 但职责天然集中、或作为依赖注入/协议入口存在的文件，不因为图谱数值高就拆。
+
+| 类别 | 文件 / 模块 | 处理结论 | 原因 |
+|---|---|---|---|
+| 必拆 | `backend/src/dataservice_client/client.py` | 拆成领域 mixin，主类保留 HTTP shell | 后续模型、计费、sandbox、source API 都会增长；不拆会持续污染单个入口 |
+| 必拆 | `backend/src/dataservice/domains/source/service.py` | 拆成 Source facade + import/asset/bibliography/projection/index 子服务 | 文献库是垂直科研质量核心，导入、引用、资产、检索投影不应互相缠绕 |
+| 必拆 | `backend/src/gateway/routers/uploads.py` | router 下沉到 application service / preflight / upload service | 上传流程直接影响用户资料进入工作区；router 不应拥有业务编排 |
+| 必拆 | `backend/src/agents/lead_agent/v2/sandbox_runtime.py` | runtime facade + installer/runner/session/script/artifact | 一个 workspace 一个 sandbox 后，环境安装、运行、artifact、计费边界必须清楚 |
+| 必拆 | `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx` | shell + view model + view slices | execution UX 是用户感知主链，不能让运行状态、团队展示、证据、review actions 混在一个组件 |
+| 必拆 | `frontend/components/latex/LatexEditorShell.tsx` | shell + hooks + pure utils + panes | Prism 主稿编辑承载 compile/review/selection/autosave，多职责会拖慢后续质量迭代 |
+| 小批清理 | 明确 retired application contracts / legacy workspace components | 独立 cleanup commit | 删除前必须有 `rg` 和测试证明；不混入功能性拆分 |
+| 暂缓 | Alembic migration functions | 不拆 | 迁移天然聚合表结构，拆分收益低且风险高 |
+| 暂缓 | `envelope_ok` / `get_uow` / auth dependency provider | 不拆 | 这些是合理中心点，不是业务职责漂移 |
+| 暂缓 | public Pydantic contracts / shared UI primitives | 默认不删不拆 | 容易被动态入口、文档、测试 fixture 或未来 admin UI 使用 |
+
+拆分后的目标形态是“外部入口少、内部模块清楚”：调用方仍走原来的 facade / public component / typed client；内部细节根据业务边界下沉。
 
 ### 6.1 DataService client 领域 mixin
 
@@ -97,6 +144,16 @@ flowchart TD
 | `pricing_client.py` | pricing policy、pricing simulation | `AsyncDataServiceClient.*pricing*` 方法签名不变 |
 | `sandbox_client.py` | sandbox environment、job、lease、artifact | `AsyncDataServiceClient.*sandbox*` 方法签名不变 |
 | `workspace_client.py` | workspace、settings、stats、template | 可放到第二批，先不阻塞核心链路 |
+
+具体归属规则：
+
+- `client.py` 可以 import mixin，但不能重新 import 某个领域的大批 contract 类型。
+- 任何方法名包含 `source` / `reference` / `bibliography` / `citation` / `evidence` 的 DataService call 进入 `source_client.py`。
+- 任何方法名包含 `credit` / `reservation` / `redeem` / `referral` / `grant_rule` 的 DataService call 进入 `credit_client.py`。
+- 任何方法名包含 `model_catalog` / `runtime_model` / `model_health` 的 DataService call 进入 `model_catalog_client.py`。
+- 任何方法名包含 `pricing` / `simulate_pricing` 的 DataService call 进入 `pricing_client.py`。
+- 任何方法名包含 `sandbox_environment` / `sandbox_job` / `sandbox_lease` / `sandbox_artifact` 的 DataService call 进入 `sandbox_client.py`。
+- 如果一个新方法横跨两个领域，优先回到 DataService domain 重新设计 command/query；不要在 client 里做跨领域编排。
 
 实现方式：
 
@@ -142,6 +199,18 @@ flowchart TD
 | `projection_service.py` | library list/detail/outline/text-unit projection |
 | `index_service.py` | source index replace、search/read projections，如当前逻辑足够多再拆 |
 
+具体方法归属：
+
+| 方法族 | 所属服务 | 说明 |
+|---|---|---|
+| `create_source` / `upsert_source` / `import_source` / external id upsert | `SourceImportService` | 只处理来源记录生命周期、去重、导入合并 |
+| `link_source_asset` / `get_source_asset` / `update_source_asset` / `list_source_assets` | `SourceAssetService` | 只处理 source 与 asset 的关系和 metadata |
+| `build_source_bibliography` / `snapshot_bibliography` / citation usage / provenance link | `SourceBibliographyService` | 只处理引用、BibTeX、证据引用链 |
+| `list_sources` / `get_source_detail` / library outline / workspace TOC | `SourceProjectionService` | 只做读模型组装，不改变业务状态 |
+| `replace_source_index` / text unit search / evidence pack read | `SourceIndexService` | 只处理检索、索引、片段级读模型 |
+| serialization / DOI/citation key normalization | `helpers.py` | pure helper，禁止拿 session 或 repository |
+| commit/flush/repository holder | `context.py` | 子服务共享上下文，避免每个服务重复初始化 |
+
 边界规则：
 
 - Repository 仍在 `repository.py`，子 service 不绕过 repository。
@@ -185,12 +254,23 @@ flowchart TD
 |---|---|
 | `live-workflow/types.ts` | panel-local display types，不重新定义 API contract |
 | `live-workflow/useLiveWorkflowViewModel.ts` | 从 `RunView` + stores 生成组件 view model |
-| `live-workflow/RunHeader.tsx` | current run 标题、状态、主要 actions |
-| `live-workflow/WorkflowTimeline.tsx` | phase/node timeline |
-| `live-workflow/TeamRoster.tsx` | team member/subagent 展示 |
-| `live-workflow/EvidencePanel.tsx` | evidence/result preview |
-| `live-workflow/ReviewQueuePanel.tsx` | result card / review actions |
+| `live-workflow/WorkbenchHeader.tsx` | current run 标题、状态、主要 actions |
+| `live-workflow/OverviewView.tsx` | 当前运行概览、phase/node summary |
+| `live-workflow/RunView.tsx` | run 级内容组合，不直接订阅 store |
+| `live-workflow/NodeInspector.tsx` | 当前 node / subagent 细节 |
+| `live-workflow/EvidenceView.tsx` | evidence/result preview |
+| `live-workflow/ReviewView.tsx` | result card / review actions |
+| `live-workflow/InterventionBar.tsx` | 用户介入、暂停/继续等轻量操作入口 |
+| `live-workflow/ResultEditor.tsx` | 可编辑结果内容，不把编辑状态塞回 shell |
 | `LiveWorkflowPanel.tsx` | composition shell，只做布局和子组件装配 |
+
+具体状态归属：
+
+- execution/run 数据源只来自 `frontend/lib/execution-run-view.ts` 和既有 store projection。
+- `LiveWorkflowPanel.tsx` 不直接计算 phase 状态、subagent 状态、review 数量、证据摘要。
+- `useLiveWorkflowViewModel.ts` 是 display decision 的唯一位置；子组件只吃 view model slice。
+- `run-ui-store` 只管焦点、badge、drawer UI 状态，不承载业务 run state。
+- Chat inline result card、LiveWorkflowPanel、Runs drawer 对同一 execution 的展示必须能从同一 projection 推导出来。
 
 边界规则：
 
@@ -236,6 +316,20 @@ flowchart TD
 | `latex-editor/latexFileMatching.ts` | file/path matching、active file resolve |
 | `latex-editor/LatexEditorToolbar.tsx` | toolbar buttons and status controls |
 | `latex-editor/LatexEditorPanes.tsx` | editor/PDF/file tree pane composition |
+
+具体拆分顺序：
+
+1. 先抽 pure helper：文件匹配、rewrite 展示、错误归一化、selection anchor 计算。这类代码没有 React state，最适合先用单测锁住。
+2. 再抽 hooks：feedback workflow、review queue、optimization jobs、PDF selection mapping。hook 只持有自身 concern 的状态，不读取整棵 shell state。
+3. 再抽 panes：toolbar、resource rail、inspector、compile log、rewrite preview、Monaco/PDF pane。pane 只接受明确 props，不反向拥有 project lifecycle。
+4. 最后收缩 shell：只负责 route context、hook 组合、pane composition、关键 callback glue。
+
+不拆进本轮：
+
+- 不更换 Monaco/PDF preview 方案。
+- 不恢复旧 `/latex/{project_id}` route。
+- 不把 Prism review 流程改成非 DataService review item。
+- 不重做视觉设计；只降低组件职责复杂度。
 
 边界规则：
 
@@ -296,6 +390,16 @@ Sandbox：
 | `sandbox_runtime_session.py` | provider/manager resolve、environment context、lease acquire/release |
 | `sandbox_script_executor.py` | script validate/write、declared dependency install、missing-module retry |
 | `sandbox_runtime.py` | facade，保留现有外部调用入口 |
+
+具体责任分配：
+
+- `sandbox_runtime.py` 只保留外部函数、policy check、错误类型导出和 facade glue。
+- `sandbox_runtime_session.py` 负责 workspace sandbox key、environment resolve、lease 生命周期；它是“一 workspace 一 sandbox”策略的运行时落点。
+- `sandbox_environment_installer.py` 负责 declared dependency、missing-module retry 前置安装、安装 job 记录；安装操作 `billable=False`。
+- `sandbox_script_executor.py` 负责脚本内容校验、临时脚本写入、hash/path 生成、依赖 retry 触发。
+- `sandbox_job_runner.py` 负责真正执行 command、timeout、stdout/stderr、job 状态映射；它不解析 artifact payload。
+- `sandbox_artifact_collector.py` 负责 stdout JSON、markdown report、generated file 列表的结构化输出。
+- 计费入口仍在 sandbox task/run admission：启动 sandbox 任务计费，安装不单独计费，subagent 不能绕过 runtime 自行扣费。
 
 边界规则：
 

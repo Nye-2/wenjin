@@ -5,6 +5,37 @@ import {
   installWorkspaceRouteMocks,
 } from "./fixtures/workspace-route-mocks";
 
+function completedExecution(
+  result: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    id: "ex-1",
+    user_id: "user-1",
+    workspace_id: "ws-1",
+    thread_id: "thread-1",
+    execution_type: "feature",
+    feature_id: "paper_analysis",
+    display_name: "论文分析",
+    status: "completed",
+    params: {},
+    result,
+    error: null,
+    result_summary:
+      typeof result.narrative === "string" ? result.narrative : null,
+    graph_structure: { nodes: [], edges: [] },
+    node_states: {},
+    runtime_state: {},
+    progress: 100,
+    artifact_ids: [],
+    next_actions: [],
+    child_execution_ids: [],
+    created_at: "2026-05-19T00:00:00Z",
+    started_at: "2026-05-19T00:00:00Z",
+    completed_at: "2026-05-19T00:00:10Z",
+    updated_at: "2026-05-19T00:00:10Z",
+  };
+}
+
 test("result cards can commit all staged outputs in one click", async ({
   page,
   context,
@@ -68,10 +99,8 @@ test("result cards can commit all staged outputs in one click", async ({
     "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
   );
 
-  await page.getByRole("button", { name: "查看结果" }).click();
-  await expect(
-    page.getByRole("button", { name: /论文分析报告/ }).first(),
-  ).toBeVisible();
+  await expect(page.getByText("论文分析报告").first()).toBeVisible();
+  await expect(page.getByText("补充对比实验").first()).toBeVisible();
   await page.getByRole("button", { name: "保存到工作区" }).click();
 
   await expect(page.getByText("已保存到工作区")).toBeVisible();
@@ -205,24 +234,21 @@ test("Prism review links open the workspace surface before committing room outpu
   await expect(page).toHaveURL(
     /\/workspaces\/ws-1\/prism\?focus=file_changes&review_item_id=section%3Aintroduction&logical_key=section%3Aintroduction/,
   );
-  await expect(page.getByText("Prism 待确认写入")).toBeVisible();
+  await expect(page.getByText("Prism 审阅")).toBeVisible();
   await expect(page.getByText("main.tex").first()).toBeVisible();
   await expect(page.getByText(/Generated workspace manuscript/).first()).toBeVisible();
 
-  await page.getByRole("button", { name: "应用到 Prism" }).click();
+  await page.getByRole("button", { name: /^应用$/ }).click();
 
-  await expect(page.getByText("Prism 已写入变更")).toBeVisible();
+  await expect(page.getByText("已写入变更")).toBeVisible();
   await expect(page.getByText("已写入稿件修改: main.tex")).toBeVisible();
-  await expect(page.locator("textarea").last()).toHaveValue(
-    /Generated workspace manuscript/,
-  );
 
+  await page.getByRole("button", { name: "划词" }).click();
   await page.getByRole("button", { name: "保护当前文件" }).click();
   await expect(page.getByText("当前文件已保护")).toBeVisible();
   await expect(page.getByText("保护段落")).toBeVisible();
 
   await page.goto(workbenchUrl);
-  await page.getByRole("button", { name: "查看结果" }).click();
   await page.getByRole("button", { name: "保存到工作区" }).click();
 
   await expect(page.getByText("已保存到工作区")).toBeVisible();
@@ -317,7 +343,6 @@ test("saved result links open the document drawer without resetting the chat sta
     "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
   );
 
-  await page.getByRole("button", { name: "查看结果" }).click();
   await page.getByRole("button", { name: "保存到工作区" }).click();
   await page.getByRole("link", { name: "打开已保存的 论文分析报告" }).click();
 
@@ -331,35 +356,37 @@ test("markdown links inside result previews open workspace rooms without resetti
   page,
   context,
 }) => {
+  const result = {
+    execution_id: "ex-1",
+    capability_name: "论文分析",
+    status: "completed",
+    narrative: "我把后续阅读路线也串进结果预览里了。",
+    outputs: [
+      {
+        id: "doc-1",
+        kind: "document",
+        preview: "论文分析报告",
+        default_checked: true,
+        data: {
+          name: "analysis.md",
+          mime_type: "text/markdown",
+          size_bytes: 128,
+          doc_kind: "draft",
+          content:
+            "# 论文分析报告\n\n接下来建议先看[核心参考文献](/workspaces/ws-1?room=library&item_id=lib-1&query=Deep%20Learning)。",
+        },
+      },
+    ],
+  };
   await installWorkspaceRouteMocks(page, context, {
+    executions: [completedExecution(result)],
     runStreamBody: buildEventStreamBody([
       {
         event: "block",
         data: {
           block: {
             kind: "result_card",
-            data: {
-              execution_id: "ex-1",
-              capability_name: "论文分析",
-              status: "completed",
-              narrative: "我把后续阅读路线也串进结果预览里了。",
-              outputs: [
-                {
-                  id: "doc-1",
-                  kind: "document",
-                  preview: "论文分析报告",
-                  default_checked: true,
-                  data: {
-                    name: "analysis.md",
-                    mime_type: "text/markdown",
-                    size_bytes: 128,
-                    doc_kind: "draft",
-                    content:
-                      "# 论文分析报告\n\n接下来建议先看[核心参考文献](/workspaces/ws-1?room=library&item_id=lib-1&query=Deep%20Learning)。",
-                  },
-                },
-              ],
-            },
+            data: result,
           },
         },
       },
@@ -404,11 +431,14 @@ test("markdown links inside result previews open workspace rooms without resetti
     "/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=x",
   );
 
-  await page.getByRole("button", { name: "查看结果" }).click();
+  await page.getByRole("button", { name: "查看详情" }).click();
   await expect(page.getByRole("link", { name: "核心参考文献" })).toBeVisible();
   await page.getByRole("link", { name: "核心参考文献" }).click();
 
   await expect(page.getByTestId("library-drawer")).toBeVisible();
   await expect(page.getByText("A compact survey of deep learning systems.")).toBeVisible();
-  await expect(page.getByText("我把后续阅读路线也串进结果预览里了。")).toBeVisible();
+  await expect(page.getByRole("region", { name: "候选结果详情" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "论文分析报告" }),
+  ).toBeVisible();
 });
