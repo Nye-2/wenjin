@@ -402,6 +402,35 @@ def test_sandbox_runner_does_not_become_the_new_runtime_hotspot() -> None:
     assert "SandboxScriptExecutor" in runner_source
 
 
+def test_live_workflow_panel_uses_focused_local_modules() -> None:
+    """LiveWorkflowPanel should stay a shell over local view-model modules."""
+    panel_path = (
+        REPO_ROOT
+        / "frontend"
+        / "app"
+        / "(workbench)"
+        / "workspaces"
+        / "[id]"
+        / "components"
+        / "LiveWorkflowPanel.tsx"
+    )
+    module_root = panel_path.parent / "live-workflow"
+    expected_files = {
+        "types.ts",
+        "utils.ts",
+        "useLiveWorkflowViewModel.ts",
+        "styles.ts",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing LiveWorkflowPanel focused modules: {missing}"
+
+    source = panel_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 1800
+    assert "useLiveWorkflowViewModel" in source
+    assert "const styles:" not in source
+    assert "function buildEvidenceItems(" not in source
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"
