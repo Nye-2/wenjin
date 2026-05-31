@@ -29,6 +29,7 @@ This means:
 - A workspace may have only one active sandbox environment.
 - Subagents may request sandbox work, but package installation mechanics are owned by sandbox runtime, not hand-written by individual subagents.
 - Automatic installation is allowed, but only through controlled package-manager operations. Agent-generated `curl | bash`, `sudo`, `docker`, host mounts, host networking, and service control remain forbidden.
+- Network access is operation-scoped. Normal sandbox runs default to no network or restricted network; dependency installation may temporarily use package-index egress through a runtime-controlled network profile.
 - Dependency installation has no separate user confirmation and no separate credit charge.
 - User-visible outputs still go through execution/result-card/review flow. Sandbox artifacts do not directly commit to rooms.
 
@@ -165,18 +166,33 @@ Manifest fields:
   "workspace_id": "workspace-id",
   "environment_id": "sandbox-environment-id",
   "runtime_image": "wenjin/sandbox-python:2026-05",
+  "runtime_image_digest": "sha256:...",
+  "platform": "linux/amd64",
   "python": {
     "version": "3.13",
+    "abi": "cp313",
     "venv_path": "/workspace/.wenjin/env/python",
     "packages": {
       "pandas": "2.2.3",
       "scikit-learn": "1.6.1"
-    }
+    },
+    "pip_freeze_hash": "sha256:...",
+    "lockfile_path": "/workspace/.wenjin/env/python-requirements.lock"
   },
   "package_manager": {
     "preferred": "uv",
-    "cache_path": "/workspace/.wenjin/cache"
+    "cache_path": "/workspace/.wenjin/cache",
+    "index_policy": "admin_default_package_index"
   },
+  "install_history": [
+    {
+      "job_id": "sandbox-job-id",
+      "packages": ["scikit-learn"],
+      "installer": "pip",
+      "index_policy": "admin_default_package_index",
+      "status": "succeeded"
+    }
+  ],
   "last_install_job_id": "sandbox-job-id",
   "last_verified_at": "2026-05-31T00:00:00Z"
 }
@@ -278,6 +294,28 @@ If `uv` is preinstalled in the sandbox image, runtime may use `uv pip install` w
 
 First-phase automatic installation supports Python packages only. System packages are handled by improving the base Docker image, not by allowing agents to run `apt-get`, `sudo`, or shell installers.
 
+Package specs are normalized before execution:
+
+- allow simple PyPI package names with optional extras and version constraints
+- reject direct URLs, VCS URLs, local paths, editable installs, custom index flags, requirements files, constraints files, and shell metacharacters
+- resolve package indexes from admin/runtime policy only
+- cap package count per install job
+- record the normalized package list, installer, package index policy, and resulting `pip freeze` hash
+
+### Network Profiles
+
+Docker execution must support operation-scoped network profiles. The profile is selected by sandbox runtime, not by subagent input.
+
+Profiles:
+
+- `none`: no network. Default for ordinary script execution when the capability does not need web/API access.
+- `restricted_egress`: limited network for capability-approved web/API calls.
+- `package_index_only`: temporary egress for dependency installation.
+
+Current Docker runtime hardcodes disabled network. Implementation must replace that with a provider parameter such as `network_profile`, while keeping the default equivalent to `none`.
+
+`install_dependencies` may use `package_index_only`. It should be time-limited, output-limited, and scoped to admin-configured package indexes. Ordinary user scripts should not inherit package-install network permissions.
+
 ### Missing Dependency Retry
 
 The runtime retries missing dependency failures without returning to the Leader Agent first.
@@ -364,7 +402,12 @@ Not separately billable:
 
 If a run job triggers installation, the run job still consumes the normal sandbox-start/run credits. The install sub-job does not create a separate credit reservation or transaction.
 
-If admin sandbox pricing later includes duration-sensitive settlement, runtime should record `install_duration_seconds` separately and exclude it from additional duration-based compute charges. The user pays for starting the sandbox task, not for Wenjin repairing its dependency environment.
+Billing outcomes:
+
+- If setup or dependency installation fails before the user script starts, release the run reservation.
+- If the user script starts, fails with a missing dependency, triggers automatic install, and still fails, settle the run base fee but do not add a separate install charge.
+- If the user script succeeds after automatic install, settle the run job normally.
+- If duration-sensitive settlement is enabled later, record install duration separately and exclude it from additional duration-based compute charges unless admin policy explicitly changes that product decision.
 
 Billing invariants:
 
@@ -391,6 +434,8 @@ Runtime must enforce:
 - package count limit per job
 - output size limit
 - disk usage guard
+- operation-aware command validation
+- package spec validation before installer execution
 
 The first implementation should prefer a prebuilt Wenjin sandbox image with common research dependencies installed. Automatic installation then handles smaller missing packages instead of rebuilding the world during a user run.
 
@@ -421,10 +466,22 @@ First-phase policy:
 
 - Serialize sandbox jobs per workspace sandbox environment.
 - Show queued/running status in execution events when a job waits.
-- Use a workspace sandbox lock around environment mutation and script execution.
+- Use a cross-worker workspace sandbox lease around environment mutation and script execution.
 - Keep per-job output folders to avoid overwriting previous results.
 
 This is conservative but reliable. It matches the existing lead-busy product behavior and avoids dependency install races.
+
+The lease must work across Celery workers and gateway/worker processes. Do not implement it as an in-process lock.
+
+Lease requirements:
+
+- key: `workspace_sandbox:{workspace_id}`
+- holder: sandbox job id plus execution id
+- TTL with heartbeat/renewal for long jobs
+- release in `finally` on normal completion/failure/cancellation
+- stale lease recovery after TTL expiry
+- queued status event while waiting
+- bounded wait timeout with structured `sandbox_busy` failure when the queue cannot advance
 
 Future optimization can split locks:
 
@@ -466,9 +523,22 @@ Normalize operation tracking and dependency metadata:
 
 `install_dependencies` jobs are recorded for audit but marked `billable=false`.
 
+Job validation must be operation-aware:
+
+- `run_python` validates runtime-generated Python execution commands and forbids host/server/container controls.
+- `install_dependencies` validates runtime-generated installer commands and normalized package specs.
+- Agent-provided command strings are never executed directly for installation.
+- Workspace venv interpreter paths under `/workspace/.wenjin/env/python/bin/` are allowed for installer and run commands.
+
 ### Artifact
 
 Existing artifact flow remains. Sandbox-produced files should be registered as artifacts only when they become user-visible outputs or reviewable result-card items.
+
+### Lease
+
+DataService or Redis-backed runtime infrastructure must provide a workspace sandbox lease for cross-worker serialization.
+
+The lease may live outside the relational sandbox tables if Redis is the existing runtime coordination backend, but job records must still capture wait time, lease holder id, and whether the job timed out waiting for the lease.
 
 ## Runtime API Contract
 
@@ -580,20 +650,39 @@ If sandbox disk usage exceeds limits:
 - do not delete user-visible datasets or outputs automatically
 - allow an explicit cleanup workflow later
 
+## Storage Lifecycle
+
+One sandbox per workspace makes storage understandable, but it also makes storage growth long-lived.
+
+First-phase lifecycle rules:
+
+- Every workspace sandbox has a quota snapshot in environment metadata.
+- Track approximate disk usage for datasets, scripts, outputs, venv, and cache.
+- Keep job outputs under per-job folders, e.g. `/workspace/outputs/{sandbox_job_id}/`.
+- Package caches may be cleaned automatically when disk pressure is caused by cache growth.
+- User datasets, scripts, and result outputs are never deleted automatically.
+- Workspace deletion or explicit sandbox reset stops the active environment and schedules physical sandbox directory cleanup.
+- Admin/runtime diagnostics should expose largest paths and cache size when disk pressure occurs.
+- A future user-facing cleanup workflow can be added, but it is not required for the first implementation.
+
 ## Rollout Plan
 
 1. Add DataService invariants and projection fields for one active sandbox per workspace.
 2. Introduce `WorkspaceSandboxManager` in Lead Agent runtime.
-3. Change sandbox provider key from execution/node scoped to workspace scoped.
-4. Add persistent `/workspace/.wenjin/env` and `/workspace/.wenjin/cache` mounts.
-5. Add controlled Python dependency installer.
-6. Add dependency hints to sandbox subagent input/output contract.
-7. Add missing dependency detection and bounded retry.
-8. Split billable run jobs from unbilled install jobs.
-9. Fix credit spendable-balance reservation invariants before relying on sandbox reservations.
-10. Update execution UX projection to show sandbox environment/job/install summaries.
-11. Add backend and frontend tests.
-12. Update current architecture docs after implementation.
+3. Add cross-worker workspace sandbox lease.
+4. Change sandbox provider key from execution/node scoped to workspace scoped.
+5. Add provider-level network profiles with safe defaults.
+6. Add persistent `/workspace/.wenjin/env` and `/workspace/.wenjin/cache` mounts.
+7. Add operation-aware sandbox job validation.
+8. Add controlled Python dependency installer.
+9. Add dependency hints to sandbox subagent input/output contract.
+10. Add missing dependency detection and bounded retry.
+11. Split billable run jobs from unbilled install jobs.
+12. Fix credit spendable-balance reservation invariants before relying on sandbox reservations.
+13. Add storage usage diagnostics and quota metadata.
+14. Update execution UX projection to show sandbox environment/job/install summaries.
+15. Add backend and frontend tests.
+16. Update current architecture docs after implementation.
 
 ## Testing Strategy
 
@@ -604,6 +693,9 @@ If sandbox disk usage exceeds limits:
 - `install_dependencies` jobs are recorded with `billable=false`.
 - Run jobs can link credit reservation and transaction ids.
 - Environment metadata stores manifest snapshot updates.
+- Job validation is operation-aware and rejects install commands outside controlled installer shape.
+- Sandbox lease wait/holder/timeout metadata is captured for queued jobs.
+- Storage quota and disk usage metadata can be updated without creating a second sandbox state source.
 
 ### Runtime
 
@@ -614,6 +706,13 @@ If sandbox disk usage exceeds limits:
 - Repeated dependency failure returns structured `environment_setup_failed`.
 - Installer commands reject forbidden host/server/container controls.
 - Workspace sandbox key no longer includes execution/node id.
+- Ordinary run jobs default to the no-network profile.
+- Install jobs use the package-index-only network profile and do not leak that profile to later run jobs.
+- Package specs reject direct URLs, local paths, editable installs, custom indexes, and shell metacharacters.
+- Concurrent sandbox jobs for the same workspace serialize across worker processes.
+- Stale sandbox lease recovery allows a later job to proceed after TTL expiry.
+- Job outputs are written under per-job output folders.
+- Disk pressure reports largest paths and does not delete user datasets or outputs automatically.
 
 ### Billing
 
@@ -622,6 +721,8 @@ If sandbox disk usage exceeds limits:
 - If duration pricing is enabled, install duration is recorded separately.
 - Credit consumption respects reserved credits and cannot spend through existing reservations.
 - Reservation release/settlement remains idempotent.
+- Install failure before user script start releases the run reservation.
+- User script failure after start settles the run base fee without a separate install charge.
 
 ### Agent Runtime
 
@@ -635,6 +736,8 @@ If sandbox disk usage exceeds limits:
 - Live status includes automatic dependency installation events.
 - Result card remains the handoff for generated artifacts.
 - No user-facing sandbox room or independent sandbox state store is introduced.
+- Queued sandbox jobs show a waiting/queued status instead of appearing stuck.
+- Disk pressure and environment setup failures surface concise diagnostics and next actions.
 
 ### Browser Smoke
 
