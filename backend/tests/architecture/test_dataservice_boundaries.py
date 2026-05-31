@@ -494,12 +494,47 @@ def test_latex_editor_shell_uses_focused_local_modules() -> None:
     assert not missing, f"Missing focused LatexEditorShell modules: {missing}"
 
     source = shell_path.read_text(encoding="utf-8")
+    inspector_source = (module_root / "LatexInspector.tsx").read_text(encoding="utf-8")
     assert len(source.splitlines()) < 2400
     assert 'from "@/components/latex/latex-editor/PrismMonacoEditor"' in source
-    assert 'from "@/components/latex/latex-editor/LatexRewritePreviewPanel"' in source
+    assert (
+        'from "@/components/latex/latex-editor/LatexRewritePreviewPanel"' in source
+        or 'from "./LatexRewritePreviewPanel"' in inspector_source
+    )
     assert "function buildFeedbackAnchor(" not in source
     assert "function resolveFeedbackRange(" not in source
     assert "const PrismMonacoEditor =" not in source
+
+
+def test_latex_editor_shell_composes_second_stage_views() -> None:
+    """LatexEditorShell should keep panes, inspector, and job/review orchestration local."""
+    shell_path = REPO_ROOT / "frontend" / "components" / "latex" / "LatexEditorShell.tsx"
+    module_root = shell_path.parent / "latex-editor"
+    expected_files = {
+        "types.ts",
+        "useLatexFeedbackCreation.ts",
+        "useLatexFeedbackPersistence.ts",
+        "useLatexPdfSelectionMapping.ts",
+        "usePrismOptimizationJobs.ts",
+        "usePrismReviewQueue.ts",
+        "LatexEditorProjectBar.tsx",
+        "LatexResourceRail.tsx",
+        "LatexEditorPanes.tsx",
+        "LatexInspector.tsx",
+        "LatexCompileLogDialog.tsx",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing second-stage LatexEditorShell modules: {missing}"
+
+    source = shell_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 1200
+    assert 'from "@/components/latex/latex-editor/LatexEditorPanes"' in source
+    assert 'from "@/components/latex/latex-editor/LatexInspector"' in source
+    assert 'from "@/components/latex/latex-editor/usePrismOptimizationJobs"' in source
+    assert 'from "@/components/latex/latex-editor/usePrismReviewQueue"' in source
+    assert "const renderProjectBar =" not in source
+    assert "const renderFeedbackInspector =" not in source
+    assert "const renderPrismWorkspace =" not in source
 
 
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
