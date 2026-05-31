@@ -12,7 +12,7 @@
 
 ## File Structure
 
-- Modify `backend/src/dataservice/domains/sandbox/models.py`: add active-environment invariant index, job `operation` and `billable`, and lease model.
+- Modify `backend/src/dataservice/domains/sandbox/models.py`: mirror the existing active-environment invariant index, add job `operation` and `billable`, and add lease model.
 - Modify `backend/src/dataservice/domains/sandbox/contracts.py`: expose operation/billable/lease payload fields.
 - Modify `backend/src/dataservice/domains/sandbox/policy.py`: make job validation operation-aware and validate package specs.
 - Modify `backend/src/dataservice/domains/sandbox/repository.py`: add active environment helpers and lease CRUD.
@@ -127,13 +127,13 @@ Expected: FAIL because projections/contracts do not expose `operation`, `billabl
 
 - [ ] **Step 3: Implement schema and contracts**
 
-In `backend/src/dataservice/domains/sandbox/models.py`, add imports and fields:
+In `backend/src/dataservice/domains/sandbox/models.py`, add imports and fields. Use the existing active-index name from migration `068_dataservice_sandbox_runtime.py`; do not create a second active-workspace index with a new name:
 
 ```python
 from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
 
 Index(
-    "uq_sandbox_environments_one_active_workspace",
+    "uq_sandbox_environments_workspace_active",
     "workspace_id",
     unique=True,
     postgresql_where=text("state = 'active'"),
@@ -236,14 +236,6 @@ depends_on = None
 def upgrade() -> None:
     op.add_column("sandbox_job_records", sa.Column("operation", sa.String(length=50), server_default="run_python", nullable=False))
     op.add_column("sandbox_job_records", sa.Column("billable", sa.Boolean(), server_default=sa.true(), nullable=False))
-    op.create_index(
-        "uq_sandbox_environments_one_active_workspace",
-        "sandbox_environments",
-        ["workspace_id"],
-        unique=True,
-        postgresql_where=sa.text("state = 'active'"),
-        sqlite_where=sa.text("state = 'active'"),
-    )
     op.create_table(
         "sandbox_leases",
         sa.Column("id", sa.String(length=36), nullable=False),
@@ -268,7 +260,6 @@ def downgrade() -> None:
     op.drop_index("ix_sandbox_leases_expires_at", table_name="sandbox_leases")
     op.drop_index("uq_sandbox_leases_workspace", table_name="sandbox_leases")
     op.drop_table("sandbox_leases")
-    op.drop_index("uq_sandbox_environments_one_active_workspace", table_name="sandbox_environments")
     op.drop_column("sandbox_job_records", "billable")
     op.drop_column("sandbox_job_records", "operation")
 ```
