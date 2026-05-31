@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.database.base import generate_uuid
 from src.dataservice.common.errors import DataServiceNotFoundError, DataServiceValidationError
 from src.dataservice.domains.review.contracts import ReviewBatchCreateCommand, ReviewItemCreateCommand
 from src.dataservice.domains.review.service import DataServiceReviewService
@@ -19,6 +18,10 @@ from src.dataservice.domains.sandbox.contracts import (
     SandboxJobCreateCommand,
     SandboxJobProjection,
     SandboxJobUpdateCommand,
+    SandboxLeaseAcquireCommand,
+    SandboxLeaseProjection,
+    SandboxLeaseReleaseCommand,
+    SandboxLeaseRenewCommand,
     default_resource_limits,
     default_sandbox_policy,
 )
@@ -30,6 +33,7 @@ from src.dataservice.domains.sandbox.projection import (
     artifact_to_projection,
     environment_to_projection,
     job_to_projection,
+    lease_to_projection,
 )
 from src.dataservice.domains.sandbox.repository import SandboxRepository
 
@@ -50,10 +54,20 @@ class SandboxDataDomainService:
         policy_json = dict(command.policy_json or default_sandbox_policy())
         resource_limits_json = dict(command.resource_limits_json or default_resource_limits())
         validate_sandbox_policy(policy_json)
+        sandbox_id = command.sandbox_id or _workspace_sandbox_id(command.workspace_id)
+        if command.state == "active":
+            existing = await self.repository.get_active_environment(command.workspace_id)
+            if existing is not None:
+                raise DataServiceValidationError(
+                    "active sandbox environment already exists",
+                    detail={"workspace_id": command.workspace_id},
+                )
+        metadata_json = dict(command.metadata_json or {})
+        metadata_json.setdefault("provider_key", sandbox_id)
         record = self.repository.create_environment(
             {
                 "workspace_id": command.workspace_id,
-                "sandbox_id": command.sandbox_id or generate_uuid(),
+                "sandbox_id": sandbox_id,
                 "provider": command.provider,
                 "state": command.state,
                 "workspace_path": command.workspace_path,
@@ -63,7 +77,7 @@ class SandboxDataDomainService:
                 "created_by": command.created_by,
                 "last_active_at": datetime.now(UTC) if command.state == "active" else None,
                 "released_at": None if command.state == "active" else datetime.now(UTC),
-                "metadata_json": dict(command.metadata_json or {}),
+                "metadata_json": metadata_json,
             }
         )
         await self._finish()
@@ -129,10 +143,16 @@ class SandboxDataDomainService:
     async def create_job(self, command: SandboxJobCreateCommand) -> SandboxJobProjection:
         policy_json = dict(command.policy_json or default_sandbox_policy())
         resource_limits_json = dict(command.resource_limits_json or default_resource_limits())
+        metadata_json = dict(command.metadata_json or {})
+        package_specs = metadata_json.get("packages")
+        if not isinstance(package_specs, list):
+            package_specs = None
         validate_python_job_contract(
+            operation=command.operation,
             language=command.language,
             command=command.command,
             policy_json=policy_json,
+            package_specs=package_specs,
         )
         environment = await self.repository.get_environment(command.sandbox_environment_id)
         if environment is None:
@@ -155,6 +175,8 @@ class SandboxDataDomainService:
                 "sandbox_environment_id": command.sandbox_environment_id,
                 "execution_id": command.execution_id,
                 "execution_node_id": command.execution_node_id,
+                "operation": command.operation,
+                "billable": command.billable,
                 "language": command.language,
                 "runtime_image": command.runtime_image,
                 "command": command.command,
@@ -164,12 +186,72 @@ class SandboxDataDomainService:
                 "resource_limits_json": resource_limits_json,
                 "policy_json": policy_json,
                 "status": "queued",
-                "metadata_json": dict(command.metadata_json or {}),
+                "metadata_json": metadata_json,
             }
         )
         environment.last_active_at = now
         await self._finish()
         return job_to_projection(record)
+
+    async def acquire_lease(self, command: SandboxLeaseAcquireCommand) -> SandboxLeaseProjection:
+        now = datetime.now(UTC)
+        expires_at = now + timedelta(seconds=command.ttl_seconds)
+        existing = await self.repository.get_lease_for_update(command.workspace_id)
+        metadata_json = dict(command.metadata_json or {})
+        if existing is not None:
+            existing_expires_at = _ensure_aware(existing.expires_at)
+            if existing_expires_at > now and existing.lease_token != command.lease_token:
+                raise DataServiceValidationError(
+                    "workspace sandbox is busy",
+                    detail={
+                        "workspace_id": command.workspace_id,
+                        "holder_job_id": existing.holder_job_id,
+                        "expires_at": existing.expires_at.isoformat(),
+                    },
+                )
+            existing.sandbox_environment_id = command.sandbox_environment_id
+            existing.holder_job_id = command.holder_job_id
+            existing.holder_execution_id = command.holder_execution_id
+            existing.lease_token = command.lease_token
+            existing.expires_at = expires_at
+            existing.metadata_json = metadata_json
+            existing.updated_at = now
+            await self._finish()
+            return lease_to_projection(existing)
+
+        record = self.repository.create_lease(
+            {
+                "workspace_id": command.workspace_id,
+                "sandbox_environment_id": command.sandbox_environment_id,
+                "holder_job_id": command.holder_job_id,
+                "holder_execution_id": command.holder_execution_id,
+                "lease_token": command.lease_token,
+                "expires_at": expires_at,
+                "metadata_json": metadata_json,
+            }
+        )
+        await self._finish()
+        return lease_to_projection(record)
+
+    async def renew_lease(self, command: SandboxLeaseRenewCommand) -> SandboxLeaseProjection | None:
+        record = await self.repository.get_lease_for_update(command.workspace_id)
+        if record is None or record.lease_token != command.lease_token:
+            return None
+        now = datetime.now(UTC)
+        record.expires_at = now + timedelta(seconds=command.ttl_seconds)
+        if command.metadata_json is not None:
+            record.metadata_json = dict(command.metadata_json)
+        record.updated_at = now
+        await self._finish()
+        return lease_to_projection(record)
+
+    async def release_lease(self, command: SandboxLeaseReleaseCommand) -> bool:
+        record = await self.repository.get_lease_for_update(command.workspace_id)
+        if record is None or record.lease_token != command.lease_token:
+            return False
+        await self.repository.delete_lease(record)
+        await self._finish()
+        return True
 
     async def update_job(self, job_id: str, command: SandboxJobUpdateCommand) -> SandboxJobProjection | None:
         record = await self.repository.get_job(job_id)
@@ -340,3 +422,13 @@ class SandboxDataDomainService:
             await self.session.commit()
         else:
             await self.session.flush()
+
+
+def _workspace_sandbox_id(workspace_id: str) -> str:
+    return f"workspace-{workspace_id}"[:100]
+
+
+def _ensure_aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

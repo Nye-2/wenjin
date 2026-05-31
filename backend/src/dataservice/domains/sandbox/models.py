@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,6 +20,13 @@ class SandboxEnvironmentRecord(Base, UUIDMixin, TimestampMixin):
         Index("ix_sandbox_environments_workspace_state", "workspace_id", "state"),
         Index("ix_sandbox_environments_external", "provider", "sandbox_id"),
         Index("uq_sandbox_environments_workspace_external", "workspace_id", "sandbox_id", unique=True),
+        Index(
+            "uq_sandbox_environments_workspace_active",
+            "workspace_id",
+            unique=True,
+            postgresql_where=text("state = 'active'"),
+            sqlite_where=text("state = 'active'"),
+        ),
     )
 
     workspace_id: Mapped[str] = mapped_column(
@@ -72,6 +79,13 @@ class SandboxJobRecord(Base, UUIDMixin, TimestampMixin):
     )
     execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     execution_node_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    operation: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="run_python",
+        server_default="run_python",
+    )
+    billable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     language: Mapped[str] = mapped_column(String(32), nullable=False, default="python", server_default="python")
     runtime_image: Mapped[str] = mapped_column(String(255), nullable=False)
     command: Mapped[str] = mapped_column(Text, nullable=False)
@@ -100,6 +114,32 @@ class SandboxJobRecord(Base, UUIDMixin, TimestampMixin):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+
+
+class SandboxLeaseRecord(Base, UUIDMixin, TimestampMixin):
+    """Cross-worker lease for serializing one workspace sandbox."""
+
+    __tablename__ = "sandbox_leases"
+    __table_args__ = (
+        Index("uq_sandbox_leases_workspace", "workspace_id", unique=True),
+        Index("ix_sandbox_leases_expires_at", "expires_at"),
+    )
+
+    workspace_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    sandbox_environment_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("sandbox_environments.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    holder_job_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    holder_execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    lease_token: Mapped[str] = mapped_column(String(100), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
 

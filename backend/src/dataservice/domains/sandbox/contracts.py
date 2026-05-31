@@ -72,6 +72,8 @@ class SandboxJobCreateCommand(BaseModel):
     sandbox_environment_id: str = Field(min_length=1, max_length=36)
     execution_id: str | None = Field(default=None, max_length=36)
     execution_node_id: str | None = Field(default=None, max_length=100)
+    operation: str = Field(default="run_python", pattern="^(run_python|smoke_check|install_dependencies)$")
+    billable: bool = True
     language: str = Field(default="python", pattern="^python$")
     runtime_image: str = Field(default="python:3.13-slim", min_length=1, max_length=255)
     command: str = Field(min_length=1)
@@ -108,6 +110,34 @@ class SandboxArtifactCreateCommand(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class SandboxLeaseAcquireCommand(BaseModel):
+    """Acquire or renew the cross-worker lease for one workspace sandbox."""
+
+    workspace_id: str = Field(min_length=1, max_length=36)
+    sandbox_environment_id: str | None = Field(default=None, max_length=36)
+    holder_job_id: str = Field(min_length=1, max_length=36)
+    holder_execution_id: str | None = Field(default=None, max_length=36)
+    lease_token: str = Field(min_length=1, max_length=100)
+    ttl_seconds: int = Field(default=900, ge=1, le=86_400)
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class SandboxLeaseRenewCommand(BaseModel):
+    """Renew a workspace sandbox lease held by the same token."""
+
+    workspace_id: str = Field(min_length=1, max_length=36)
+    lease_token: str = Field(min_length=1, max_length=100)
+    ttl_seconds: int = Field(default=900, ge=1, le=86_400)
+    metadata_json: dict[str, Any] | None = None
+
+
+class SandboxLeaseReleaseCommand(BaseModel):
+    """Release a workspace sandbox lease if the token still owns it."""
+
+    workspace_id: str = Field(min_length=1, max_length=36)
+    lease_token: str = Field(min_length=1, max_length=100)
+
+
 class SandboxEnvironmentProjection(BaseModel):
     """Canonical sandbox environment projection."""
 
@@ -136,6 +166,8 @@ class SandboxJobProjection(BaseModel):
     sandbox_environment_id: str
     execution_id: str | None = None
     execution_node_id: str | None = None
+    operation: str = "run_python"
+    billable: bool = True
     language: str
     runtime_image: str
     command: str
@@ -151,6 +183,21 @@ class SandboxJobProjection(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_text: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class SandboxLeaseProjection(BaseModel):
+    """Canonical workspace sandbox lease projection."""
+
+    id: str
+    workspace_id: str
+    sandbox_environment_id: str | None = None
+    holder_job_id: str
+    holder_execution_id: str | None = None
+    lease_token: str
+    expires_at: datetime
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None

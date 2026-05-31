@@ -169,6 +169,10 @@ from src.dataservice_client.contracts.sandbox import (
     SandboxJobCreatePayload,
     SandboxJobPayload,
     SandboxJobUpdatePayload,
+    SandboxLeaseAcquirePayload,
+    SandboxLeasePayload,
+    SandboxLeaseReleasePayload,
+    SandboxLeaseRenewPayload,
 )
 from src.dataservice_client.contracts.source import (
     SourceAssetLinkPayload,
@@ -3158,6 +3162,32 @@ class AsyncDataServiceClient:
             },
         )
         return [SandboxJobPayload.model_validate(item) for item in payload["data"]]
+
+    async def acquire_sandbox_lease(self, command: SandboxLeaseAcquirePayload) -> SandboxLeasePayload:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sandbox/leases/acquire",
+            json=command.model_dump(mode="json"),
+        )
+        return SandboxLeasePayload.model_validate(payload["data"])
+
+    async def renew_sandbox_lease(self, command: SandboxLeaseRenewPayload) -> SandboxLeasePayload | None:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sandbox/leases/renew",
+            json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return SandboxLeasePayload.model_validate(data) if data is not None else None
+
+    async def release_sandbox_lease(self, command: SandboxLeaseReleasePayload) -> bool:
+        payload = await self._request(
+            "POST",
+            "/internal/v1/sandbox/leases/release",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data") or {}
+        return bool(data.get("released"))
 
     async def register_sandbox_artifact(
         self,

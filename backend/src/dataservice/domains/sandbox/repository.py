@@ -12,6 +12,7 @@ from src.dataservice.domains.sandbox.models import (
     SandboxArtifactRecord,
     SandboxEnvironmentRecord,
     SandboxJobRecord,
+    SandboxLeaseRecord,
 )
 
 
@@ -41,6 +42,20 @@ class SandboxRepository:
             )
             .order_by(SandboxEnvironmentRecord.updated_at.desc())
             .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_environment_by_sandbox_id(
+        self,
+        *,
+        workspace_id: str,
+        sandbox_id: str,
+    ) -> SandboxEnvironmentRecord | None:
+        result = await self.session.execute(
+            select(SandboxEnvironmentRecord).where(
+                SandboxEnvironmentRecord.workspace_id == workspace_id,
+                SandboxEnvironmentRecord.sandbox_id == sandbox_id,
+            )
         )
         return result.scalar_one_or_none()
 
@@ -101,6 +116,22 @@ class SandboxRepository:
         record = SandboxArtifactRecord(id=generate_uuid(), **values)
         self.session.add(record)
         return record
+
+    def create_lease(self, values: dict[str, Any]) -> SandboxLeaseRecord:
+        record = SandboxLeaseRecord(id=generate_uuid(), **values)
+        self.session.add(record)
+        return record
+
+    async def get_lease_for_update(self, workspace_id: str) -> SandboxLeaseRecord | None:
+        result = await self.session.execute(
+            select(SandboxLeaseRecord)
+            .where(SandboxLeaseRecord.workspace_id == workspace_id)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
+    async def delete_lease(self, record: SandboxLeaseRecord) -> None:
+        await self.session.delete(record)
 
     async def get_artifact(self, artifact_id: str) -> SandboxArtifactRecord | None:
         result = await self.session.execute(

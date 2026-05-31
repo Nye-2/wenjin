@@ -35,6 +35,8 @@ class SandboxJobCreatePayload(BaseModel):
     sandbox_environment_id: str
     execution_id: str | None = None
     execution_node_id: str | None = None
+    operation: str = "run_python"
+    billable: bool = True
     language: str = "python"
     runtime_image: str = "python:3.13-slim"
     command: str
@@ -67,6 +69,28 @@ class SandboxArtifactCreatePayload(BaseModel):
     metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class SandboxLeaseAcquirePayload(BaseModel):
+    workspace_id: str
+    sandbox_environment_id: str | None = None
+    holder_job_id: str
+    holder_execution_id: str | None = None
+    lease_token: str
+    ttl_seconds: int = 900
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class SandboxLeaseRenewPayload(BaseModel):
+    workspace_id: str
+    lease_token: str
+    ttl_seconds: int = 900
+    metadata_json: dict[str, Any] | None = None
+
+
+class SandboxLeaseReleasePayload(BaseModel):
+    workspace_id: str
+    lease_token: str
+
+
 class SandboxEnvironmentPayload(BaseModel):
     id: str
     workspace_id: str
@@ -91,6 +115,8 @@ class SandboxJobPayload(BaseModel):
     sandbox_environment_id: str
     execution_id: str | None = None
     execution_node_id: str | None = None
+    operation: str = "run_python"
+    billable: bool = True
     language: str
     runtime_image: str
     command: str
@@ -106,6 +132,19 @@ class SandboxJobPayload(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error_text: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class SandboxLeasePayload(BaseModel):
+    id: str
+    workspace_id: str
+    sandbox_environment_id: str | None = None
+    holder_job_id: str
+    holder_execution_id: str | None = None
+    lease_token: str
+    expires_at: datetime
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
     updated_at: datetime | None = None

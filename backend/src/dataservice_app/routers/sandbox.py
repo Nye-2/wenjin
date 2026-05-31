@@ -12,6 +12,9 @@ from src.dataservice.domains.sandbox.contracts import (
     SandboxEnvironmentUpdateCommand,
     SandboxJobCreateCommand,
     SandboxJobUpdateCommand,
+    SandboxLeaseAcquireCommand,
+    SandboxLeaseReleaseCommand,
+    SandboxLeaseRenewCommand,
 )
 from src.dataservice.domains.sandbox.service import SandboxDataDomainService
 from src.dataservice_app.auth import require_internal_token
@@ -122,6 +125,39 @@ async def update_job(
     record = await service.update_job(job_id, command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/leases/acquire")
+async def acquire_lease(
+    command: SandboxLeaseAcquireCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SandboxDataDomainService(uow.required_session, autocommit=False)
+    record = await service.acquire_lease(command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json"))
+
+
+@router.post("/leases/renew")
+async def renew_lease(
+    command: SandboxLeaseRenewCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SandboxDataDomainService(uow.required_session, autocommit=False)
+    record = await service.renew_lease(command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/leases/release")
+async def release_lease(
+    command: SandboxLeaseReleaseCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = SandboxDataDomainService(uow.required_session, autocommit=False)
+    released = await service.release_lease(command)
+    await uow.commit()
+    return envelope_ok({"released": released})
 
 
 @router.post("/artifacts")

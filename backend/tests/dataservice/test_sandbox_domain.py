@@ -20,6 +20,9 @@ from src.dataservice.domains.sandbox.contracts import (
     SandboxEnvironmentCreateCommand,
     SandboxJobCreateCommand,
     SandboxJobUpdateCommand,
+    SandboxLeaseAcquireCommand,
+    SandboxLeaseReleaseCommand,
+    SandboxLeaseRenewCommand,
 )
 from src.dataservice.domains.sandbox.models import (
     SandboxArtifactRecord,
@@ -55,6 +58,7 @@ class FakeSandboxRepository:
         self.environments: dict[str, SimpleNamespace] = {}
         self.jobs: dict[str, SimpleNamespace] = {}
         self.artifacts: dict[str, SimpleNamespace] = {}
+        self.leases: dict[str, SimpleNamespace] = {}
 
     def create_environment(self, values: dict[str, Any]) -> SimpleNamespace:
         environment_id = f"env-{len(self.environments) + 1}"
@@ -88,6 +92,8 @@ class FakeSandboxRepository:
         record = _record(
             {
                 "id": job_id,
+                "operation": values.get("operation", "run_python"),
+                "billable": values.get("billable", True),
                 "status": "queued",
                 "exit_code": None,
                 "stdout_asset_id": None,
@@ -121,6 +127,18 @@ class FakeSandboxRepository:
         if status is not None:
             records = [record for record in records if record.status == status]
         return records[:limit]
+
+    def create_lease(self, values: dict[str, Any]) -> SimpleNamespace:
+        lease_id = f"lease-{len(self.leases) + 1}"
+        record = _record({"id": lease_id, **values})
+        self.leases[record.workspace_id] = record
+        return record
+
+    async def get_lease_for_update(self, workspace_id: str) -> SimpleNamespace | None:
+        return self.leases.get(workspace_id)
+
+    async def delete_lease(self, record: SimpleNamespace) -> None:
+        self.leases.pop(record.workspace_id, None)
 
     def create_artifact(self, values: dict[str, Any]) -> SimpleNamespace:
         artifact_id = f"artifact-{len(self.artifacts) + 1}"
@@ -232,6 +250,136 @@ def test_python_job_contract_blocks_container_control() -> None:
             command="python analysis.py",
             policy_json={"allow_host_network": True},
         )
+
+
+def test_install_dependency_contract_allows_workspace_venv_pip_install() -> None:
+    validate_python_job_contract(
+        operation="install_dependencies",
+        language="python",
+        command="/workspace/.wenjin/env/python/bin/python -m pip install scikit-learn pandas>=2",
+        policy_json={"allow_package_install": True},
+        package_specs=["scikit-learn", "pandas>=2"],
+    )
+
+
+@pytest.mark.parametrize(
+    "package_spec",
+    [
+        "https://example.com/pkg.whl",
+        "git+https://example.com/repo.git",
+        "../pkg",
+        "-r requirements.txt",
+        "pkg; os_name == 'posix'",
+    ],
+)
+def test_install_dependency_contract_rejects_unsafe_package_specs(package_spec: str) -> None:
+    with pytest.raises(DataServiceValidationError):
+        validate_python_job_contract(
+            operation="install_dependencies",
+            language="python",
+            command=f"/workspace/.wenjin/env/python/bin/python -m pip install {package_spec}",
+            policy_json={"allow_package_install": True},
+            package_specs=[package_spec],
+        )
+
+
+def test_run_python_contract_allows_workspace_venv_python() -> None:
+    validate_python_job_contract(
+        operation="run_python",
+        language="python",
+        command="/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis.py",
+        policy_json={"allow_python": True},
+    )
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_environment_uses_workspace_sandbox_identity() -> None:
+    service, repository, _, _ = _service()
+
+    first = await service.get_or_create_environment(
+        SandboxEnvironmentCreateCommand(workspace_id="ws-1", created_by="lead-agent")
+    )
+    second = await service.get_or_create_environment(
+        SandboxEnvironmentCreateCommand(workspace_id="ws-1", created_by="lead-agent")
+    )
+
+    assert first.id == second.id
+    assert first.sandbox_id == "workspace-ws-1"
+    assert first.metadata_json["provider_key"] == "workspace-ws-1"
+    assert len(repository.environments) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_environment_rejects_second_active_workspace_environment() -> None:
+    service, _, _, _ = _service()
+    await service.create_environment(SandboxEnvironmentCreateCommand(workspace_id="ws-1"))
+
+    with pytest.raises(DataServiceValidationError, match="active sandbox environment already exists"):
+        await service.create_environment(
+            SandboxEnvironmentCreateCommand(workspace_id="ws-1", sandbox_id="another")
+        )
+
+
+@pytest.mark.asyncio
+async def test_sandbox_job_records_operation_and_billable_flag() -> None:
+    service, _, _, _ = _service()
+    environment = await service.create_environment(SandboxEnvironmentCreateCommand(workspace_id="ws-1"))
+
+    job = await service.create_job(
+        SandboxJobCreateCommand(
+            workspace_id="ws-1",
+            sandbox_environment_id=environment.id,
+            operation="install_dependencies",
+            billable=False,
+            command="/workspace/.wenjin/env/python/bin/python -m pip install scikit-learn",
+            metadata_json={"packages": ["scikit-learn"]},
+        )
+    )
+
+    assert job.operation == "install_dependencies"
+    assert job.billable is False
+    assert job.metadata_json["packages"] == ["scikit-learn"]
+
+
+@pytest.mark.asyncio
+async def test_sandbox_lease_blocks_other_active_holder_and_releases() -> None:
+    service, repository, _, _ = _service()
+
+    lease = await service.acquire_lease(
+        SandboxLeaseAcquireCommand(
+            workspace_id="ws-1",
+            sandbox_environment_id="env-1",
+            holder_job_id="job-1",
+            holder_execution_id="exec-1",
+            lease_token="token-1",
+            ttl_seconds=60,
+        )
+    )
+
+    with pytest.raises(DataServiceValidationError, match="workspace sandbox is busy"):
+        await service.acquire_lease(
+            SandboxLeaseAcquireCommand(
+                workspace_id="ws-1",
+                sandbox_environment_id="env-1",
+                holder_job_id="job-2",
+                holder_execution_id="exec-2",
+                lease_token="token-2",
+                ttl_seconds=60,
+            )
+        )
+
+    renewed = await service.renew_lease(
+        SandboxLeaseRenewCommand(workspace_id="ws-1", lease_token="token-1", ttl_seconds=120)
+    )
+    released = await service.release_lease(
+        SandboxLeaseReleaseCommand(workspace_id="ws-1", lease_token="token-1")
+    )
+
+    assert lease.holder_job_id == "job-1"
+    assert renewed is not None
+    assert renewed.expires_at > lease.expires_at
+    assert released is True
+    assert repository.leases == {}
 
 
 @pytest.mark.asyncio

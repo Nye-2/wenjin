@@ -6,11 +6,13 @@ from src.dataservice.domains.sandbox.contracts import (
     SandboxArtifactProjection,
     SandboxEnvironmentProjection,
     SandboxJobProjection,
+    SandboxLeaseProjection,
 )
 from src.dataservice.domains.sandbox.models import (
     SandboxArtifactRecord,
     SandboxEnvironmentRecord,
     SandboxJobRecord,
+    SandboxLeaseRecord,
 )
 
 
@@ -41,6 +43,8 @@ def job_to_projection(record: SandboxJobRecord) -> SandboxJobProjection:
         sandbox_environment_id=str(record.sandbox_environment_id),
         execution_id=record.execution_id,
         execution_node_id=record.execution_node_id,
+        operation=getattr(record, "operation", "run_python"),
+        billable=bool(getattr(record, "billable", True)),
         language=record.language,
         runtime_image=record.runtime_image,
         command=record.command,
@@ -56,6 +60,21 @@ def job_to_projection(record: SandboxJobRecord) -> SandboxJobProjection:
         started_at=record.started_at,
         finished_at=record.finished_at,
         error_text=record.error_text,
+        metadata_json=dict(record.metadata_json or {}),
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+def lease_to_projection(record: SandboxLeaseRecord) -> SandboxLeaseProjection:
+    return SandboxLeaseProjection(
+        id=str(record.id),
+        workspace_id=str(record.workspace_id),
+        sandbox_environment_id=str(record.sandbox_environment_id) if record.sandbox_environment_id else None,
+        holder_job_id=str(record.holder_job_id),
+        holder_execution_id=str(record.holder_execution_id) if record.holder_execution_id else None,
+        lease_token=record.lease_token,
+        expires_at=record.expires_at,
         metadata_json=dict(record.metadata_json or {}),
         created_at=record.created_at,
         updated_at=record.updated_at,
