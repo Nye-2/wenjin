@@ -51,31 +51,6 @@ from src.dataservice_client.contracts.conversation import (
     ConversationThreadPayload,
     ConversationThreadUpdatePayload,
 )
-from src.dataservice_client.contracts.credit import (
-    CreditAdminAdjustPayload,
-    CreditAdminSummaryPayload,
-    CreditConsumptionCreatePayload,
-    CreditConsumptionStatsPayload,
-    CreditGrantRuleCreatePayload,
-    CreditGrantRulePayload,
-    CreditGrantRuleUpdatePayload,
-    CreditHistoryPayload,
-    CreditPeriodicGrantProcessPayload,
-    CreditPeriodicGrantSummaryPayload,
-    CreditRedeemCodeCreatePayload,
-    CreditRedeemCodePayload,
-    CreditRedeemPayload,
-    CreditReferralCreatePayload,
-    CreditReferralPayload,
-    CreditRefundPayload,
-    CreditReservationCreatePayload,
-    CreditReservationPayload,
-    CreditReservationReleasePayload,
-    CreditReservationSettlePayload,
-    CreditSummaryPayload,
-    CreditTokenUsagePayload,
-    CreditTransactionPayload,
-)
 from src.dataservice_client.contracts.knowledge import (
     KnowledgeArchiveLowConfidencePayload,
     KnowledgeMemoryCreatePayload,
@@ -92,19 +67,6 @@ from src.dataservice_client.contracts.latex import (
     LatexProjectUpdatePayload,
     LatexTemplatePayload,
 )
-from src.dataservice_client.contracts.model_catalog import (
-    ModelCatalogCreatePayload,
-    ModelCatalogHealthPayload,
-    ModelCatalogPayload,
-    ModelCatalogUpdatePayload,
-    ModelRuntimeConfigPayload,
-)
-from src.dataservice_client.contracts.pricing import (
-    PricingPolicyCreatePayload,
-    PricingPolicyPayload,
-    PricingPolicyUpdatePayload,
-    PricingSimulationRequestPayload,
-)
 from src.dataservice_client.contracts.prism import (
     PrismFileVersionCreatePayload,
     PrismFileVersionPayload,
@@ -119,10 +81,6 @@ from src.dataservice_client.contracts.prism_review import (
     PrismFileChangeClearPayload,
     PrismFileChangeRejectedPayload,
     PrismFileChangeUpsertPayload,
-)
-from src.dataservice_client.contracts.provenance import (
-    ProvenanceLinkCreatePayload,
-    ProvenanceLinkPayload,
 )
 from src.dataservice_client.contracts.review import (
     ReviewBatchCreatePayload,
@@ -144,39 +102,6 @@ from src.dataservice_client.contracts.rooms import (
     WorkspaceTaskCreatePayload,
     WorkspaceTaskPayload,
     WorkspaceTaskUpdatePayload,
-)
-from src.dataservice_client.contracts.sandbox import (
-    SandboxArtifactCreatePayload,
-    SandboxArtifactPayload,
-    SandboxEnvironmentCreatePayload,
-    SandboxEnvironmentPayload,
-    SandboxEnvironmentUpdatePayload,
-    SandboxJobCreatePayload,
-    SandboxJobPayload,
-    SandboxJobUpdatePayload,
-    SandboxLeaseAcquirePayload,
-    SandboxLeasePayload,
-    SandboxLeaseReleasePayload,
-    SandboxLeaseRenewPayload,
-)
-from src.dataservice_client.contracts.source import (
-    SourceAssetLinkPayload,
-    SourceAssetUpdatePayload,
-    SourceBibliographyCreatePayload,
-    SourceBibliographyPayload,
-    SourceBibliographySnapshotCreatePayload,
-    SourceBibliographySnapshotPayload,
-    SourceCitationUsageCreatePayload,
-    SourceCitationUsagePayload,
-    SourceCreatePayload,
-    SourceEvidencePackCreatePayload,
-    SourceEvidencePackPayload,
-    SourceExternalIdCreatePayload,
-    SourceImportPayload,
-    SourceImportResultPayload,
-    SourceIndexReplacePayload,
-    SourcePayload,
-    SourceUpdatePayload,
 )
 from src.dataservice_client.contracts.task import (
     TaskRecordCompletedPayload,
@@ -201,8 +126,13 @@ from src.dataservice_client.contracts.workspace import (
     WorkspaceStatsPayload,
     WorkspaceUpdatePayload,
 )
+from src.dataservice_client.credit_client import CreditDataServiceClientMixin
 from src.dataservice_client.errors import DataServiceClientError
 from src.dataservice_client.execution_client import ExecutionDataServiceClientMixin
+from src.dataservice_client.model_catalog_client import ModelCatalogDataServiceClientMixin
+from src.dataservice_client.pricing_client import PricingDataServiceClientMixin
+from src.dataservice_client.sandbox_client import SandboxDataServiceClientMixin
+from src.dataservice_client.source_client import SourceDataServiceClientMixin
 
 
 def _clean_request_params(params: Any) -> Any:
@@ -229,7 +159,14 @@ def _clean_request_params(params: Any) -> Any:
     return cleaned
 
 
-class AsyncDataServiceClient(ExecutionDataServiceClientMixin):
+class AsyncDataServiceClient(
+    ExecutionDataServiceClientMixin,
+    SourceDataServiceClientMixin,
+    CreditDataServiceClientMixin,
+    ModelCatalogDataServiceClientMixin,
+    PricingDataServiceClientMixin,
+    SandboxDataServiceClientMixin,
+):
     """Small typed client used by gateway, worker, and agent runtime code."""
 
     def __init__(
@@ -988,325 +925,36 @@ class AsyncDataServiceClient(ExecutionDataServiceClientMixin):
         )
         return AccountUserGrowthPayload.model_validate(payload["data"])
 
-    async def list_credit_grant_rules(self) -> list[CreditGrantRulePayload]:
-        payload = await self._request("GET", "/internal/v1/credit/grant-rules")
-        return [CreditGrantRulePayload.model_validate(item) for item in payload["data"]]
-
-    async def get_credit_grant_rule(self, rule_id: str) -> CreditGrantRulePayload | None:
-        payload = await self._request("GET", f"/internal/v1/credit/grant-rules/{rule_id}")
-        data = payload.get("data")
-        return CreditGrantRulePayload.model_validate(data) if data is not None else None
-
-    async def get_active_credit_grant_rule(
-        self,
-        rule_type: str,
-    ) -> CreditGrantRulePayload | None:
-        payload = await self._request("GET", f"/internal/v1/credit/active-grant-rules/{rule_type}")
-        data = payload.get("data")
-        return CreditGrantRulePayload.model_validate(data) if data is not None else None
-
-    async def create_credit_grant_rule(
-        self,
-        command: CreditGrantRuleCreatePayload,
-    ) -> CreditGrantRulePayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/grant-rules",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CreditGrantRulePayload.model_validate(data) if data is not None else None
-
-    async def update_credit_grant_rule(
-        self,
-        rule_id: str,
-        command: CreditGrantRuleUpdatePayload,
-    ) -> CreditGrantRulePayload | None:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/credit/grant-rules/{rule_id}",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CreditGrantRulePayload.model_validate(data) if data is not None else None
-
-    async def toggle_credit_grant_rule(self, rule_id: str) -> CreditGrantRulePayload | None:
-        payload = await self._request("POST", f"/internal/v1/credit/grant-rules/{rule_id}/toggle")
-        data = payload.get("data")
-        return CreditGrantRulePayload.model_validate(data) if data is not None else None
-
-    async def delete_credit_grant_rule(self, rule_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/credit/grant-rules/{rule_id}")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def apply_credit_registration_bonus(
-        self,
-        user_id: str,
-    ) -> CreditTransactionPayload | None:
-        payload = await self._request("POST", f"/internal/v1/credit/users/{user_id}/registration-bonus")
-        data = payload.get("data")
-        return CreditTransactionPayload.model_validate(data) if data is not None else None
-
-    async def get_credit_balance(self, user_id: str) -> int | None:
-        payload = await self._request("GET", f"/internal/v1/credit/users/{user_id}/balance")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, dict) or data.get("balance") is None:
-            return None
-        return int(data["balance"])
-
-    async def get_credit_summary(self, user_id: str) -> CreditSummaryPayload | None:
-        payload = await self._request("GET", f"/internal/v1/credit/users/{user_id}/summary")
-        data = payload.get("data")
-        return CreditSummaryPayload.model_validate(data) if data is not None else None
-
-    async def get_credit_consumed_tokens(
-        self,
-        *,
-        user_id: str,
-        consume_type: str,
-        metadata_type: str | None = None,
-    ) -> int:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/credit/users/{user_id}/consumed-tokens",
-            params={"consume_type": consume_type, "metadata_type": metadata_type},
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return int(data.get("consumed_tokens", 0)) if isinstance(data, dict) else 0
-
-    async def process_credit_periodic_grant_rules(
-        self,
-        command: CreditPeriodicGrantProcessPayload | None = None,
-    ) -> CreditPeriodicGrantSummaryPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/periodic-grants/process",
-            json=(command or CreditPeriodicGrantProcessPayload()).model_dump(mode="json"),
-        )
-        return CreditPeriodicGrantSummaryPayload.model_validate(payload["data"])
 
 
-    async def get_credit_history(
-        self,
-        *,
-        user_id: str | None = None,
-        transaction_type: str | None = None,
-        limit: int = 20,
-        offset: int = 0,
-    ) -> CreditHistoryPayload:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/credit/history",
-            params={
-                "user_id": user_id,
-                "transaction_type": transaction_type,
-                "limit": limit,
-                "offset": offset,
-            },
-        )
-        return CreditHistoryPayload.model_validate(payload["data"])
 
-    async def get_credit_admin_summary(self) -> CreditAdminSummaryPayload:
-        payload = await self._request("GET", "/internal/v1/credit/admin-summary")
-        return CreditAdminSummaryPayload.model_validate(payload["data"])
 
-    async def get_credit_thread_token_usage(self) -> CreditTokenUsagePayload:
-        payload = await self._request("GET", "/internal/v1/credit/thread-token-usage")
-        return CreditTokenUsagePayload.model_validate(payload["data"])
 
-    async def aggregate_credit_consumption_stats(
-        self,
-        *,
-        since: datetime,
-        granularity: str = "day",
-    ) -> CreditConsumptionStatsPayload:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/credit/consumption-stats",
-            params={"since": since.isoformat(), "granularity": granularity},
-        )
-        return CreditConsumptionStatsPayload.model_validate(payload["data"])
 
-    async def record_credit_consumption(
-        self,
-        command: CreditConsumptionCreatePayload,
-    ) -> tuple[CreditTransactionPayload | None, int]:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/consume",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload["data"]
-        transaction = data.get("transaction")
-        return (
-            CreditTransactionPayload.model_validate(transaction) if transaction else None,
-            int(data.get("balance_before", 0)),
-        )
 
-    async def create_credit_reservation(
-        self,
-        command: CreditReservationCreatePayload,
-    ) -> CreditReservationPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/reservations",
-            json=command.model_dump(mode="json"),
-        )
-        return CreditReservationPayload.model_validate(payload["data"])
 
-    async def settle_credit_reservation(
-        self,
-        reservation_id: str,
-        command: CreditReservationSettlePayload,
-    ) -> tuple[CreditReservationPayload, CreditTransactionPayload | None]:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/credit/reservations/{reservation_id}/settle",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload["data"]
-        transaction = data.get("transaction")
-        return (
-            CreditReservationPayload.model_validate(data["reservation"]),
-            CreditTransactionPayload.model_validate(transaction) if transaction else None,
-        )
 
-    async def release_credit_reservation(
-        self,
-        reservation_id: str,
-        *,
-        reason: str | None = None,
-    ) -> CreditReservationPayload:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/credit/reservations/{reservation_id}/release",
-            json=CreditReservationReleasePayload(reason=reason).model_dump(mode="json"),
-        )
-        return CreditReservationPayload.model_validate(payload["data"])
 
-    async def refund_credit_consumption(
-        self,
-        command: CreditRefundPayload,
-    ) -> CreditTransactionPayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/refund",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CreditTransactionPayload.model_validate(data) if data is not None else None
 
-    async def admin_adjust_credit(
-        self,
-        command: CreditAdminAdjustPayload,
-    ) -> CreditTransactionPayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/admin-adjust",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CreditTransactionPayload.model_validate(data) if data is not None else None
 
-    async def create_credit_redeem_code(
-        self,
-        command: CreditRedeemCodeCreatePayload,
-    ) -> CreditRedeemCodePayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/redeem-codes",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CreditRedeemCodePayload.model_validate(data) if data is not None else None
 
-    async def list_credit_redeem_codes(
-        self,
-        *,
-        batch_id: str | None = None,
-        enabled: bool | None = None,
-        keyword: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> list[CreditRedeemCodePayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/credit/redeem-codes",
-            params={
-                "batch_id": batch_id,
-                "enabled": enabled,
-                "keyword": keyword,
-                "limit": limit,
-                "offset": offset,
-            },
-        )
-        return [CreditRedeemCodePayload.model_validate(item) for item in payload["data"]]
 
-    async def disable_credit_redeem_code(
-        self,
-        code_id: str,
-    ) -> CreditRedeemCodePayload | None:
-        payload = await self._request("POST", f"/internal/v1/credit/redeem-codes/{code_id}/disable")
-        data = payload.get("data")
-        return CreditRedeemCodePayload.model_validate(data) if data is not None else None
 
-    async def redeem_credit_code(
-        self,
-        command: CreditRedeemPayload,
-    ) -> CreditTransactionPayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/redeem",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CreditTransactionPayload.model_validate(data) if data is not None else None
 
-    async def record_credit_referral(
-        self,
-        command: CreditReferralCreatePayload,
-    ) -> CreditReferralPayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/credit/referrals",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CreditReferralPayload.model_validate(data) if data is not None else None
 
-    async def get_credit_referral_by_referee(
-        self,
-        referee_user_id: str,
-    ) -> CreditReferralPayload | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/credit/referrals/by-referee/{referee_user_id}",
-        )
-        data = payload.get("data")
-        return CreditReferralPayload.model_validate(data) if data is not None else None
 
-    async def apply_credit_referee_signup_bonus(
-        self,
-        referee_user_id: str,
-    ) -> CreditTransactionPayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/credit/referrals/{referee_user_id}/apply-referee-signup",
-        )
-        data = payload.get("data")
-        return CreditTransactionPayload.model_validate(data) if data is not None else None
 
-    async def apply_credit_referrer_first_task_bonus(
-        self,
-        referee_user_id: str,
-    ) -> CreditTransactionPayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/credit/referrals/{referee_user_id}/apply-referrer-first-task",
-        )
-        data = payload.get("data")
-        return CreditTransactionPayload.model_validate(data) if data is not None else None
+
+
+
+
+
+
+
+
+
+
+
 
     async def append_conversation_message(
         self,
@@ -1679,139 +1327,18 @@ class AsyncDataServiceClient(ExecutionDataServiceClientMixin):
             int(data.get("total", 0)),
         )
 
-    async def list_model_catalog_models(
-        self,
-        *,
-        category: str | None = None,
-        enabled_only: bool = False,
-    ) -> list[ModelCatalogPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/model-catalog/models",
-            params={"category": category, "enabled_only": enabled_only},
-        )
-        return [ModelCatalogPayload.model_validate(item) for item in payload["data"]]
 
-    async def get_model_catalog_model(self, model_id: str) -> ModelCatalogPayload | None:
-        payload = await self._request("GET", f"/internal/v1/model-catalog/models/{model_id}")
-        data = payload.get("data")
-        return ModelCatalogPayload.model_validate(data) if data is not None else None
 
-    async def create_model_catalog_model(self, command: ModelCatalogCreatePayload) -> ModelCatalogPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/model-catalog/models",
-            json=command.model_dump(mode="json"),
-        )
-        return ModelCatalogPayload.model_validate(payload["data"])
 
-    async def update_model_catalog_model(
-        self,
-        model_id: str,
-        command: ModelCatalogUpdatePayload,
-    ) -> ModelCatalogPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/model-catalog/models/{model_id}",
-            json=command.model_dump(mode="json", exclude_unset=True),
-        )
-        data = payload.get("data")
-        return ModelCatalogPayload.model_validate(data) if data is not None else None
 
-    async def set_model_catalog_default(self, model_id: str, *, admin_id: str | None = None) -> ModelCatalogPayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/model-catalog/models/{model_id}/default",
-            json={"admin_id": admin_id},
-        )
-        data = payload.get("data")
-        return ModelCatalogPayload.model_validate(data) if data is not None else None
 
-    async def update_model_catalog_health(
-        self,
-        model_id: str,
-        command: ModelCatalogHealthPayload,
-    ) -> ModelCatalogPayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/model-catalog/models/{model_id}/health",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return ModelCatalogPayload.model_validate(data) if data is not None else None
 
-    async def list_model_catalog_runtime_models(
-        self,
-        *,
-        category: str | None = None,
-    ) -> list[ModelRuntimeConfigPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/model-catalog/models/runtime",
-            params={"category": category},
-        )
-        return [ModelRuntimeConfigPayload.model_validate(item) for item in payload["data"]]
 
-    async def simulate_pricing(self, command: PricingSimulationRequestPayload) -> dict[str, Any]:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/pricing-policies/simulate",
-            json=command.model_dump(mode="json"),
-        )
-        return dict(payload["data"])
 
-    async def list_pricing_policies(
-        self,
-        *,
-        policy_kind: str | None = None,
-        enabled_only: bool = False,
-    ) -> list[PricingPolicyPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/pricing-policies",
-            params={"policy_kind": policy_kind, "enabled_only": enabled_only},
-        )
-        return [PricingPolicyPayload.model_validate(item) for item in payload["data"]]
 
-    async def get_pricing_policy(self, policy_id_or_key: str) -> PricingPolicyPayload | None:
-        payload = await self._request("GET", f"/internal/v1/pricing-policies/{policy_id_or_key}")
-        data = payload.get("data")
-        return PricingPolicyPayload.model_validate(data) if data is not None else None
 
-    async def create_pricing_policy(self, command: PricingPolicyCreatePayload) -> PricingPolicyPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/pricing-policies",
-            json=command.model_dump(mode="json", exclude_none=True),
-        )
-        return PricingPolicyPayload.model_validate(payload["data"])
 
-    async def update_pricing_policy(
-        self,
-        policy_id_or_key: str,
-        command: PricingPolicyUpdatePayload,
-    ) -> PricingPolicyPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/pricing-policies/{policy_id_or_key}",
-            json=command.model_dump(mode="json", exclude_none=True),
-        )
-        data = payload.get("data")
-        return PricingPolicyPayload.model_validate(data) if data is not None else None
 
-    async def disable_pricing_policy(
-        self,
-        policy_id_or_key: str,
-        *,
-        admin_id: str | None = None,
-    ) -> PricingPolicyPayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/pricing-policies/{policy_id_or_key}/disable",
-            json={"admin_id": admin_id},
-        )
-        data = payload.get("data")
-        return PricingPolicyPayload.model_validate(data) if data is not None else None
 
     async def create_review_batch(self, command: ReviewBatchCreatePayload) -> ReviewBatchDetailPayload:
         payload = await self._request(
@@ -2171,691 +1698,56 @@ class AsyncDataServiceClient(ExecutionDataServiceClientMixin):
         data = payload.get("data")
         return PrismFileVersionPayload.model_validate(data) if data is not None else None
 
-    async def create_source(self, command: SourceCreatePayload) -> SourcePayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sources",
-            json=command.model_dump(mode="json"),
-        )
-        return SourcePayload.model_validate(payload["data"])
 
-    async def upsert_source(self, command: SourceCreatePayload) -> SourcePayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sources/upsert",
-            json=command.model_dump(mode="json"),
-        )
-        return SourcePayload.model_validate(payload["data"])
 
-    async def import_source(self, command: SourceImportPayload) -> SourceImportResultPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sources/import",
-            json=command.model_dump(mode="json"),
-        )
-        return SourceImportResultPayload.model_validate(payload["data"])
 
-    async def list_sources(
-        self,
-        *,
-        workspace_id: str,
-        library_status: str | None = None,
-        source_kind: str | None = None,
-        ingest_kind: str | None = None,
-        query: str | None = None,
-        include_deleted: bool = False,
-        include_excluded: bool = True,
-        offset: int = 0,
-        limit: int = 50,
-    ) -> list[SourcePayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sources",
-            params={
-                "workspace_id": workspace_id,
-                "library_status": library_status,
-                "source_kind": source_kind,
-                "ingest_kind": ingest_kind,
-                "query": query,
-                "include_deleted": include_deleted,
-                "include_excluded": include_excluded,
-                "offset": offset,
-                "limit": limit,
-            },
-        )
-        return [SourcePayload.model_validate(item) for item in payload["data"]]
 
-    async def count_sources(
-        self,
-        *,
-        workspace_id: str,
-        library_status: str | None = None,
-        source_kind: str | None = None,
-        ingest_kind: str | None = None,
-        query: str | None = None,
-        fulltext_status: str | None = None,
-        include_deleted: bool = False,
-        include_excluded: bool = False,
-    ) -> int:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sources/count",
-            params={
-                "workspace_id": workspace_id,
-                "library_status": library_status,
-                "source_kind": source_kind,
-                "ingest_kind": ingest_kind,
-                "query": query,
-                "fulltext_status": fulltext_status,
-                "include_deleted": include_deleted,
-                "include_excluded": include_excluded,
-            },
-        )
-        return int(payload["data"]["count"])
 
-    async def count_source_reference_summary(self, *, workspace_id: str) -> dict[str, int]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sources/count/reference-summary",
-            params={"workspace_id": workspace_id},
-        )
-        return dict(payload["data"])
 
-    async def list_sources_page(
-        self,
-        *,
-        workspace_id: str,
-        library_status: str | None = None,
-        source_kind: str | None = None,
-        ingest_kind: str | None = None,
-        query: str | None = None,
-        offset: int = 0,
-        limit: int = 50,
-    ) -> dict[str, Any]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sources/page",
-            params={
-                "workspace_id": workspace_id,
-                "library_status": library_status,
-                "source_kind": source_kind,
-                "ingest_kind": ingest_kind,
-                "query": query,
-                "offset": offset,
-                "limit": limit,
-            },
-        )
-        return dict(payload["data"])
 
-    async def get_source_library_outline(self, *, workspace_id: str) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sources/library-outline",
-            params={"workspace_id": workspace_id},
-        )
-        return list(payload["data"])
 
-    async def get_source_toc_summary(self, *, workspace_id: str) -> str:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sources/toc-summary",
-            params={"workspace_id": workspace_id},
-        )
-        return str(payload["data"].get("summary") or "")
 
-    async def get_workspace_toc_summary(self, workspace_id: str) -> str:
-        return await self.get_source_toc_summary(workspace_id=workspace_id)
 
-    async def search_source_text_units(
-        self,
-        *,
-        workspace_id: str,
-        query: str,
-        source_ids: list[str] | None = None,
-        limit: int = 8,
-    ) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sources/text-units/search",
-            params={
-                "workspace_id": workspace_id,
-                "query": query,
-                "source_ids": source_ids,
-                "limit": limit,
-            },
-        )
-        return list(payload["data"])
 
-    async def get_source_section_by_path(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        section_path: str,
-    ) -> dict[str, Any] | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/sections/by-path",
-            params={"workspace_id": workspace_id, "section_path": section_path},
-        )
-        data = payload.get("data")
-        return dict(data) if isinstance(data, dict) else None
 
-    async def get_source_section_by_title(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        section_title: str,
-    ) -> dict[str, Any] | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/sections/by-title",
-            params={"workspace_id": workspace_id, "section_title": section_title},
-        )
-        data = payload.get("data")
-        return dict(data) if isinstance(data, dict) else None
 
-    async def get_source(self, source_id: str) -> SourcePayload | None:
-        payload = await self._request("GET", f"/internal/v1/sources/{source_id}")
-        data = payload.get("data")
-        return SourcePayload.model_validate(data) if data is not None else None
 
-    async def get_source_for_workspace(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        include_deleted: bool = False,
-    ) -> SourcePayload | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/workspace-record",
-            params={"workspace_id": workspace_id, "include_deleted": include_deleted},
-        )
-        data = payload.get("data")
-        return SourcePayload.model_validate(data) if data is not None else None
 
-    async def get_source_detail(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-    ) -> dict[str, Any] | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/detail",
-            params={"workspace_id": workspace_id},
-        )
-        data = payload.get("data")
-        return dict(data) if isinstance(data, dict) else None
 
-    async def list_source_assets(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-    ) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/assets",
-            params={"workspace_id": workspace_id},
-        )
-        return list(payload["data"])
 
-    async def upsert_source_external_ids(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        external_ids: list[SourceExternalIdCreatePayload],
-    ) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/sources/{source_id}/external-ids",
-            params={"workspace_id": workspace_id},
-            json=[item.model_dump(mode="json") for item in external_ids],
-        )
-        return list(payload["data"])
 
-    async def list_source_external_ids(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-    ) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/external-ids",
-            params={"workspace_id": workspace_id},
-        )
-        return list(payload["data"])
 
-    async def link_source_asset(
-        self,
-        command: SourceAssetLinkPayload,
-    ) -> dict[str, Any]:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/source-assets",
-            json=command.model_dump(mode="json"),
-        )
-        return dict(payload["data"])
 
-    async def get_source_asset(
-        self,
-        *,
-        source_asset_id: str,
-        workspace_id: str,
-    ) -> dict[str, Any] | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/source-assets/{source_asset_id}",
-            params={"workspace_id": workspace_id},
-        )
-        data = payload.get("data")
-        return dict(data) if isinstance(data, dict) else None
 
-    async def update_source_asset(
-        self,
-        *,
-        source_asset_id: str,
-        workspace_id: str,
-        command: SourceAssetUpdatePayload,
-    ) -> dict[str, Any] | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/source-assets/{source_asset_id}",
-            params={"workspace_id": workspace_id},
-            json=command.model_dump(mode="json", exclude_none=True),
-        )
-        data = payload.get("data")
-        return dict(data) if isinstance(data, dict) else None
 
-    async def mark_source_status(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        library_status: str | None = None,
-        read_status: str | None = None,
-    ) -> SourcePayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/sources/{source_id}/status",
-            params={"workspace_id": workspace_id},
-            json={
-                "library_status": library_status,
-                "read_status": read_status,
-            },
-        )
-        data = payload.get("data")
-        return SourcePayload.model_validate(data) if data is not None else None
 
-    async def update_source(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        command: SourceUpdatePayload,
-    ) -> SourcePayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/sources/{source_id}",
-            params={"workspace_id": workspace_id},
-            json=command.model_dump(mode="json", exclude_none=True),
-        )
-        data = payload.get("data")
-        return SourcePayload.model_validate(data) if data is not None else None
 
-    async def delete_source(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-    ) -> bool:
-        payload = await self._request(
-            "DELETE",
-            f"/internal/v1/sources/{source_id}",
-            params={"workspace_id": workspace_id},
-        )
-        return bool(payload["data"].get("deleted"))
 
-    async def build_source_bibliography(
-        self,
-        command: SourceBibliographyCreatePayload,
-    ) -> SourceBibliographyPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sources/bibliography",
-            json=command.model_dump(mode="json"),
-        )
-        return SourceBibliographyPayload.model_validate(payload["data"])
 
-    async def build_bibliography(
-        self,
-        command: SourceBibliographyCreatePayload,
-    ) -> SourceBibliographyPayload:
-        return await self.build_source_bibliography(command)
 
-    async def create_source_bibliography_snapshot(
-        self,
-        command: SourceBibliographySnapshotCreatePayload,
-    ) -> SourceBibliographySnapshotPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sources/bibliography/snapshots",
-            json=command.model_dump(mode="json"),
-        )
-        return SourceBibliographySnapshotPayload.model_validate(payload["data"])
 
-    async def build_source_evidence_pack(
-        self,
-        command: SourceEvidencePackCreatePayload,
-    ) -> SourceEvidencePackPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sources/evidence-pack",
-            json=command.model_dump(mode="json"),
-        )
-        return SourceEvidencePackPayload.model_validate(payload["data"])
 
-    async def replace_source_index(
-        self,
-        command: SourceIndexReplacePayload,
-    ) -> dict[str, int]:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/sources/{command.source_id}/index",
-            json=command.model_dump(mode="json"),
-        )
-        return {str(key): int(value) for key, value in dict(payload["data"]).items()}
 
-    async def get_source_outline(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        limit: int = 200,
-    ) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/outline",
-            params={"workspace_id": workspace_id, "limit": limit},
-        )
-        return list(payload["data"])
 
-    async def read_source_outline_node(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        outline_node_id: str,
-    ) -> dict[str, Any] | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/outline/{outline_node_id}/content",
-            params={"workspace_id": workspace_id},
-        )
-        data = payload.get("data")
-        return dict(data) if isinstance(data, dict) else None
 
-    async def read_source_pages(
-        self,
-        *,
-        source_id: str,
-        workspace_id: str,
-        page_start: int,
-        page_end: int,
-    ) -> list[dict[str, Any]]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/sources/{source_id}/pages",
-            params={
-                "workspace_id": workspace_id,
-                "page_start": page_start,
-                "page_end": page_end,
-            },
-        )
-        return list(payload["data"])
 
-    async def record_source_citation_usage(
-        self,
-        command: SourceCitationUsageCreatePayload,
-    ) -> SourceCitationUsagePayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sources/citation-usage",
-            json=command.model_dump(mode="json"),
-        )
-        return SourceCitationUsagePayload.model_validate(payload["data"])
 
-    async def record_citation_usage(
-        self,
-        command: SourceCitationUsageCreatePayload,
-    ) -> SourceCitationUsagePayload:
-        return await self.record_source_citation_usage(command)
 
-    async def create_provenance_link(
-        self,
-        command: ProvenanceLinkCreatePayload,
-    ) -> ProvenanceLinkPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/provenance/links",
-            json=command.model_dump(mode="json"),
-        )
-        return ProvenanceLinkPayload.model_validate(payload["data"])
 
-    async def list_provenance_links(
-        self,
-        *,
-        workspace_id: str,
-        source_id: str | None = None,
-        target_domain: str | None = None,
-        target_kind: str | None = None,
-        target_id: str | None = None,
-        review_item_id: str | None = None,
-        relation_kind: str | None = None,
-        limit: int = 50,
-    ) -> list[ProvenanceLinkPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/provenance/links",
-            params={
-                "workspace_id": workspace_id,
-                "source_id": source_id,
-                "target_domain": target_domain,
-                "target_kind": target_kind,
-                "target_id": target_id,
-                "review_item_id": review_item_id,
-                "relation_kind": relation_kind,
-                "limit": limit,
-            },
-        )
-        return [ProvenanceLinkPayload.model_validate(item) for item in payload["data"]]
 
-    async def delete_provenance_links(
-        self,
-        *,
-        workspace_id: str,
-        source_id: str | None = None,
-        target_domain: str | None = None,
-        target_kind: str | None = None,
-        target_id: str | None = None,
-        review_item_id: str | None = None,
-        relation_kind: str | None = None,
-    ) -> int:
-        payload = await self._request(
-            "DELETE",
-            "/internal/v1/provenance/links",
-            params={
-                "workspace_id": workspace_id,
-                "source_id": source_id,
-                "target_domain": target_domain,
-                "target_kind": target_kind,
-                "target_id": target_id,
-                "review_item_id": review_item_id,
-                "relation_kind": relation_kind,
-            },
-        )
-        data = payload.get("data") or {}
-        return int(data.get("deleted") or 0)
 
-    async def create_sandbox_environment(
-        self,
-        command: SandboxEnvironmentCreatePayload,
-    ) -> SandboxEnvironmentPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sandbox/environments",
-            json=command.model_dump(mode="json"),
-        )
-        return SandboxEnvironmentPayload.model_validate(payload["data"])
 
-    async def get_or_create_sandbox_environment(
-        self,
-        workspace_id: str,
-        command: SandboxEnvironmentCreatePayload,
-    ) -> SandboxEnvironmentPayload:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/sandbox/workspaces/{workspace_id}/environment",
-            json=command.model_dump(mode="json"),
-        )
-        return SandboxEnvironmentPayload.model_validate(payload["data"])
 
-    async def list_sandbox_environments(
-        self,
-        *,
-        workspace_id: str,
-        state: str | None = None,
-        limit: int = 50,
-    ) -> list[SandboxEnvironmentPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sandbox/environments",
-            params={"workspace_id": workspace_id, "state": state, "limit": limit},
-        )
-        return [SandboxEnvironmentPayload.model_validate(item) for item in payload["data"]]
 
-    async def get_sandbox_environment(self, environment_id: str) -> SandboxEnvironmentPayload | None:
-        payload = await self._request("GET", f"/internal/v1/sandbox/environments/{environment_id}")
-        data = payload.get("data")
-        return SandboxEnvironmentPayload.model_validate(data) if data is not None else None
 
-    async def update_sandbox_environment(
-        self,
-        environment_id: str,
-        command: SandboxEnvironmentUpdatePayload,
-    ) -> SandboxEnvironmentPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/sandbox/environments/{environment_id}",
-            json=command.model_dump(mode="json", exclude_unset=True),
-        )
-        data = payload.get("data")
-        return SandboxEnvironmentPayload.model_validate(data) if data is not None else None
 
-    async def create_sandbox_job(self, command: SandboxJobCreatePayload) -> SandboxJobPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sandbox/jobs",
-            json=command.model_dump(mode="json"),
-        )
-        return SandboxJobPayload.model_validate(payload["data"])
 
-    async def update_sandbox_job(
-        self,
-        job_id: str,
-        command: SandboxJobUpdatePayload,
-    ) -> SandboxJobPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/sandbox/jobs/{job_id}",
-            json=command.model_dump(mode="json", exclude_unset=True),
-        )
-        data = payload.get("data")
-        return SandboxJobPayload.model_validate(data) if data is not None else None
 
-    async def list_sandbox_jobs(
-        self,
-        *,
-        workspace_id: str,
-        sandbox_environment_id: str | None = None,
-        execution_id: str | None = None,
-        status: str | None = None,
-        limit: int = 50,
-    ) -> list[SandboxJobPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sandbox/jobs",
-            params={
-                "workspace_id": workspace_id,
-                "sandbox_environment_id": sandbox_environment_id,
-                "execution_id": execution_id,
-                "status": status,
-                "limit": limit,
-            },
-        )
-        return [SandboxJobPayload.model_validate(item) for item in payload["data"]]
 
-    async def acquire_sandbox_lease(self, command: SandboxLeaseAcquirePayload) -> SandboxLeasePayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sandbox/leases/acquire",
-            json=command.model_dump(mode="json"),
-        )
-        return SandboxLeasePayload.model_validate(payload["data"])
 
-    async def renew_sandbox_lease(self, command: SandboxLeaseRenewPayload) -> SandboxLeasePayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sandbox/leases/renew",
-            json=command.model_dump(mode="json", exclude_unset=True),
-        )
-        data = payload.get("data")
-        return SandboxLeasePayload.model_validate(data) if data is not None else None
 
-    async def release_sandbox_lease(self, command: SandboxLeaseReleasePayload) -> bool:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sandbox/leases/release",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data") or {}
-        return bool(data.get("released"))
 
-    async def register_sandbox_artifact(
-        self,
-        command: SandboxArtifactCreatePayload,
-    ) -> SandboxArtifactPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/sandbox/artifacts",
-            json=command.model_dump(mode="json"),
-        )
-        return SandboxArtifactPayload.model_validate(payload["data"])
 
-    async def list_sandbox_artifacts(
-        self,
-        *,
-        workspace_id: str,
-        sandbox_job_id: str | None = None,
-        materialization_status: str | None = None,
-        limit: int = 50,
-    ) -> list[SandboxArtifactPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/sandbox/artifacts",
-            params={
-                "workspace_id": workspace_id,
-                "sandbox_job_id": sandbox_job_id,
-                "materialization_status": materialization_status,
-                "limit": limit,
-            },
-        )
-        return [SandboxArtifactPayload.model_validate(item) for item in payload["data"]]
 
     async def list_room_decisions(self, workspace_id: str) -> list[DecisionPayload]:
         payload = await self._request("GET", f"/internal/v1/rooms/workspaces/{workspace_id}/decisions")

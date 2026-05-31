@@ -249,10 +249,71 @@ def test_dataservice_client_execution_api_lives_in_dedicated_mixin() -> None:
     client_source = client_path.read_text(encoding="utf-8")
 
     assert mixin_path.exists()
-    assert "class AsyncDataServiceClient(ExecutionDataServiceClientMixin)" in client_source
+    assert "ExecutionDataServiceClientMixin" in client_source
     assert "async def create_execution(" not in client_source
     assert "async def upsert_execution_node(" not in client_source
     assert "async def create_generation_record(" not in client_source
+
+
+def test_dataservice_client_domain_apis_live_in_dedicated_mixins() -> None:
+    """Keep domain DataService APIs out of the generic HTTP client shell."""
+    client_path = SRC_ROOT / "dataservice_client" / "client.py"
+    client_source = client_path.read_text(encoding="utf-8")
+    expected = {
+        "SourceDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "source_client.py",
+            "forbidden_methods": [
+                "async def create_source(",
+                "async def import_source(",
+                "async def list_sources(",
+                "async def build_source_bibliography(",
+                "async def create_provenance_link(",
+            ],
+        },
+        "CreditDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "credit_client.py",
+            "forbidden_methods": [
+                "async def get_credit_summary(",
+                "async def record_credit_consumption(",
+                "async def create_credit_reservation(",
+                "async def create_credit_redeem_code(",
+                "async def record_credit_referral(",
+            ],
+        },
+        "ModelCatalogDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "model_catalog_client.py",
+            "forbidden_methods": [
+                "async def list_model_catalog_models(",
+                "async def create_model_catalog_model(",
+                "async def update_model_catalog_health(",
+                "async def list_model_catalog_runtime_models(",
+            ],
+        },
+        "PricingDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "pricing_client.py",
+            "forbidden_methods": [
+                "async def simulate_pricing(",
+                "async def list_pricing_policies(",
+                "async def create_pricing_policy(",
+                "async def disable_pricing_policy(",
+            ],
+        },
+        "SandboxDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "sandbox_client.py",
+            "forbidden_methods": [
+                "async def create_sandbox_environment(",
+                "async def get_or_create_sandbox_environment(",
+                "async def create_sandbox_job(",
+                "async def acquire_sandbox_lease(",
+                "async def register_sandbox_artifact(",
+            ],
+        },
+    }
+    for mixin, config in expected.items():
+        assert config["file"].exists(), f"{mixin} module is missing"
+        assert mixin in client_source
+        for method in config["forbidden_methods"]:
+            assert method not in client_source
 
 
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
