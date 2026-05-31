@@ -88,6 +88,8 @@ class CreditHistoryPayload(BaseModel):
 
 class CreditSummaryPayload(BaseModel):
     credits: int
+    reserved_credits: int = 0
+    spendable_credits: int = 0
     total_earned: int
     total_spent: int
 

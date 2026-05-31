@@ -32,8 +32,6 @@ class LocalSandbox(Sandbox):
         - Symbolic links are resolved and validated
     """
 
-    # Allowed virtual path prefixes
-    ALLOWED_VIRTUAL_PREFIXES = frozenset(["/mnt/user-data", "/workspace"])
     _COMMAND_ABSOLUTE_PATH_RE = re.compile(
         r"(?<![A-Za-z0-9_.:/])(\/(?!\/)[^ \t\r\n'\"`|&;<>(),]*)"
     )
@@ -76,7 +74,10 @@ class LocalSandbox(Sandbox):
         )
 
     def _is_allowed_virtual_path(self, path: str) -> bool:
-        return any(path.startswith(prefix) for prefix in self.ALLOWED_VIRTUAL_PREFIXES)
+        for prefix in self.path_mappings:
+            if path == prefix or path.startswith(f"{prefix.rstrip('/')}/"):
+                return True
+        return False
 
     def _resolve_path(self, path: str) -> str:
         """Resolve virtual path to physical path with security checks.

@@ -69,7 +69,13 @@ class FakeCreditClient:
     async def get_credit_summary(self, user_id: str) -> CreditSummaryPayload | None:
         if user_id not in self.balances:
             return None
-        return CreditSummaryPayload(credits=self.balances[user_id], total_earned=0, total_spent=0)
+        return CreditSummaryPayload(
+            credits=self.balances[user_id],
+            reserved_credits=self.reserved_balances.get(user_id, 0),
+            spendable_credits=self.balances[user_id] - self.reserved_balances.get(user_id, 0),
+            total_earned=0,
+            total_spent=0,
+        )
 
     async def get_credit_history(
         self,
@@ -552,6 +558,25 @@ async def test_can_start_feature_task_blocks_when_balance_empty(
 
 
 @pytest.mark.asyncio
+async def test_can_start_feature_task_blocks_when_positive_balance_is_reserved(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=10)
+    fake_credit_client.reserved_balances["user-1"] = 10
+    fake_credit_client.seed_consumption(
+        user_id="user-1",
+        transaction_type="workflow_consume",
+        amount=0,
+        total_tokens=100000,
+        balance_after=10,
+        metadata_type="feature_token_billing",
+    )
+
+    assert await credit_service.can_start_feature_task("user-1") is False
+
+
+@pytest.mark.asyncio
 async def test_can_start_feature_task_allows_free_feature_quota(
     fake_credit_client: FakeCreditClient,
     credit_service: CreditService,
@@ -588,6 +613,17 @@ async def test_can_start_sandbox_operation_blocks_when_balance_empty(
     credit_service: CreditService,
 ) -> None:
     fake_credit_client.add_user(credits=0)
+
+    assert await credit_service.can_start_sandbox_operation("user-1", "run_python") is False
+
+
+@pytest.mark.asyncio
+async def test_can_start_sandbox_operation_blocks_when_positive_balance_is_reserved(
+    fake_credit_client: FakeCreditClient,
+    credit_service: CreditService,
+) -> None:
+    fake_credit_client.add_user(credits=10)
+    fake_credit_client.reserved_balances["user-1"] = 10
 
     assert await credit_service.can_start_sandbox_operation("user-1", "run_python") is False
 

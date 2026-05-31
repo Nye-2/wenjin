@@ -15,14 +15,18 @@ from src.subagents.v2.types.sandbox import SandboxPythonSubagent
 
 
 class _FakeSandbox:
-    def __init__(self, result: CommandResult) -> None:
-        self.result = result
+    def __init__(self, result: CommandResult | list[CommandResult]) -> None:
+        self.results = list(result) if isinstance(result, list) else [result]
         self.commands: list[tuple[str, int]] = []
+        self.command_options: list[dict] = []
         self.files: dict[str, str] = {}
 
-    async def execute_command(self, command: str, timeout: int = 300) -> CommandResult:
+    async def execute_command(self, command: str, timeout: int = 300, **kwargs) -> CommandResult:
         self.commands.append((command, timeout))
-        return self.result
+        self.command_options.append(dict(kwargs))
+        if len(self.results) > 1:
+            return self.results.pop(0)
+        return self.results[0]
 
     async def write_file(self, path: str, content: str, append: bool = False) -> None:
         self.files[path] = self.files.get(path, "") + content if append else content
@@ -31,7 +35,7 @@ class _FakeSandbox:
 class _FakeProvider:
     image = "fake-python:3.13"
 
-    def __init__(self, result: CommandResult) -> None:
+    def __init__(self, result: CommandResult | list[CommandResult]) -> None:
         self.sandbox = _FakeSandbox(result)
         self.acquired: list[str] = []
         self.released: list[_FakeSandbox] = []
@@ -44,12 +48,59 @@ class _FakeProvider:
         self.released.append(sandbox)
 
 
+class _FakeWorkspaceSandboxManager:
+    def __init__(self) -> None:
+        self.created_jobs: list[dict] = []
+        self.updated_jobs: list[dict] = []
+        self.acquired_leases: list[dict] = []
+        self.released_leases: list[dict] = []
+
+    async def get_or_create_environment(
+        self,
+        *,
+        workspace_id,
+        sandbox_policy,
+        resource_limits,
+        runtime_image,
+    ):
+        return type(
+            "Env",
+            (),
+            {
+                "id": "env-1",
+                "sandbox_id": f"workspace-{workspace_id}",
+                "metadata_json": {"provider_key": f"workspace-{workspace_id}"},
+            },
+        )()
+
+    async def create_job(self, **kwargs):
+        self.created_jobs.append(kwargs)
+        return type("Job", (), {"id": f"job-{len(self.created_jobs)}", "operation": kwargs["operation"]})()
+
+    async def update_job(self, job_id, **kwargs):
+        self.updated_jobs.append({"job_id": job_id, **kwargs})
+
+    async def acquire_lease(self, **kwargs):
+        self.acquired_leases.append(kwargs)
+        return "lease-token-1"
+
+    async def release_lease(self, **kwargs):
+        self.released_leases.append(kwargs)
+
+
 def _policy() -> dict:
     return {
         "mode": "required",
         "allowed_operations": ["run_python"],
         "resource_limits": {"cpu": 1, "memory_mb": 512, "timeout_seconds": 60},
     }
+
+
+def _install_policy() -> dict:
+    policy = _policy()
+    policy["allowed_operations"] = ["run_python", "install_python_packages"]
+    policy["allow_package_install"] = True
+    return policy
 
 
 @pytest.mark.asyncio
@@ -63,6 +114,7 @@ async def test_run_python_smoke_check_uses_fixed_command_and_releases_sandbox() 
         }
     )
     provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
 
     result = await run_python_smoke_check(
         workspace_id="ws-1",
@@ -70,17 +122,23 @@ async def test_run_python_smoke_check_uses_fixed_command_and_releases_sandbox() 
         node_id="sandbox_validation__python_smoke",
         sandbox_policy=_policy(),
         provider=provider,
+        manager=manager,
+        billing_reservation_id="reservation-1",
     )
 
-    assert provider.acquired == ["exec-1-sandbox_validation__python_smoke"]
+    assert provider.acquired == ["workspace-ws-1"]
     assert provider.released == [provider.sandbox]
     [(command, timeout)] = provider.sandbox.commands
     assert timeout == 60
     assert "statistics.mean(data)" in command
     assert "lead_agent_docker_sandbox" in command
     assert result["status"] == "completed"
+    assert result["sandbox_environment_id"] == "env-1"
+    assert result["sandbox_job_id"] == "job-1"
     assert result["mean"] == 5
     assert "LeadAgentRuntime / subagent node" in result["report_markdown"]
+    assert manager.created_jobs[0]["operation"] == "smoke_check"
+    assert manager.created_jobs[0]["metadata"]["credit_reservation_id"] == "reservation-1"
 
 
 @pytest.mark.asyncio
@@ -103,6 +161,7 @@ async def test_run_python_smoke_check_rejects_policy_without_run_python() -> Non
 async def test_run_python_script_writes_script_and_returns_report() -> None:
     stdout = json.dumps({"ok": True, "metric": 0.42})
     provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
 
     result = await run_python_script(
         workspace_id="ws-1",
@@ -112,24 +171,180 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
         script="import json\nprint(json.dumps({'ok': True, 'metric': 0.42}))\n",
         script_name="analysis_probe.py",
         provider=provider,
+        manager=manager,
+        billing_reservation_id="reservation-1",
     )
 
-    assert provider.acquired == ["exec-1-analysis_probe"]
+    assert provider.acquired == ["workspace-ws-1"]
     assert provider.released == [provider.sandbox]
-    assert provider.sandbox.files["/mnt/user-data/workspace/analysis_probe.py"].startswith("import json")
-    [(command, timeout)] = provider.sandbox.commands
-    assert command == "python /mnt/user-data/workspace/analysis_probe.py"
+    assert provider.sandbox.files["/workspace/scripts/analysis_probe.py"].startswith("import json")
+    [(venv_command, _), (command, timeout)] = provider.sandbox.commands
+    assert "python -m venv /workspace/.wenjin/env/python" in venv_command
+    assert command == "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py"
     assert timeout == 60
     assert result["status"] == "completed"
     assert result["operation"] == "python_script"
+    assert result["sandbox_environment_id"] == "env-1"
+    assert result["sandbox_job_id"] == "job-1"
     assert result["parsed_stdout"] == {"ok": True, "metric": 0.42}
     assert result["script_hash"]
     assert "analysis_probe.py" in result["report_markdown"]
+    assert manager.created_jobs[0]["operation"] == "run_python"
+    assert manager.created_jobs[0]["metadata"]["credit_reservation_id"] == "reservation-1"
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_installs_declared_dependency_hints_before_execution() -> None:
+    stdout = json.dumps({"ok": True, "rows": 3})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout="installed pandas", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_install_policy(),
+        script="import pandas as pd\nprint('{\"ok\": true, \"rows\": 3}')\n",
+        script_name="analysis_probe.py",
+        dependency_hints=["pandas==2.2.3"],
+        provider=provider,
+        manager=manager,
+    )
+
+    assert [job["operation"] for job in manager.created_jobs] == ["run_python", "install_dependencies"]
+    install_job = manager.created_jobs[1]
+    assert install_job["billable"] is False
+    assert install_job["metadata"]["packages"] == ["pandas==2.2.3"]
+    assert [options["network_profile"] for options in provider.sandbox.command_options] == [
+        "none",
+        "package_index_only",
+        "none",
+    ]
+    assert provider.sandbox.commands[1][0].startswith(
+        "/workspace/.wenjin/env/python/bin/python -m pip install"
+    )
+    assert "--cache-dir /workspace/.wenjin/cache/pip" in provider.sandbox.commands[1][0]
+    assert "pandas==2.2.3" in provider.sandbox.commands[1][0]
+    assert result["installed_packages"] == ["pandas==2.2.3"]
+    assert result["retry_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_installs_missing_module_and_retries_once() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(
+                stdout="",
+                stderr="ModuleNotFoundError: No module named 'requests'",
+                exit_code=1,
+            ),
+            CommandResult(stdout="installed requests", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_install_policy(),
+        script="import requests\nprint('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    assert [job["operation"] for job in manager.created_jobs] == ["run_python", "install_dependencies"]
+    assert manager.created_jobs[1]["metadata"]["packages"] == ["requests"]
+    assert [command for command, _ in provider.sandbox.commands] == [
+        "test -x /workspace/.wenjin/env/python/bin/python || python -m venv /workspace/.wenjin/env/python",
+        "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",
+        "/workspace/.wenjin/env/python/bin/python -m pip install --disable-pip-version-check --no-input --cache-dir /workspace/.wenjin/cache/pip requests",
+        "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",
+    ]
+    assert result["status"] == "completed"
+    assert result["installed_packages"] == ["requests"]
+    assert result["retry_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_marks_run_job_failed_when_dependency_install_fails() -> None:
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(
+                stdout="",
+                stderr="ModuleNotFoundError: No module named 'requests'",
+                exit_code=1,
+            ),
+            CommandResult(stdout="", stderr="pip unavailable", exit_code=2),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    with pytest.raises(SandboxCommandExecutionError) as exc_info:
+        await run_python_script(
+            workspace_id="ws-1",
+            execution_id="exec-1",
+            node_id="analysis_probe",
+            sandbox_policy=_install_policy(),
+            script="import requests\n",
+            script_name="analysis_probe.py",
+            provider=provider,
+            manager=manager,
+        )
+
+    assert exc_info.value.output["operation"] == "install_dependencies"
+    failed_updates = [
+        update for update in manager.updated_jobs
+        if update["status"] == "failed"
+    ]
+    assert {update["job_id"] for update in failed_updates} == {"job-1", "job-2"}
+    assert manager.released_leases == [{"workspace_id": "ws-1", "lease_token": "lease-token-1"}]
+    assert provider.released == [provider.sandbox]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_preserves_setup_failure_exit_code() -> None:
+    provider = _FakeProvider(CommandResult(stdout="", stderr="venv unavailable", exit_code=127))
+    manager = _FakeWorkspaceSandboxManager()
+
+    with pytest.raises(SandboxCommandExecutionError):
+        await run_python_script(
+            workspace_id="ws-1",
+            execution_id="exec-1",
+            node_id="analysis_probe",
+            sandbox_policy=_policy(),
+            script="print('ok')",
+            script_name="analysis_probe.py",
+            provider=provider,
+            manager=manager,
+        )
+
+    run_failed_updates = [
+        update for update in manager.updated_jobs if update["job_id"] == "job-1" and update["status"] == "failed"
+    ]
+    assert run_failed_updates[-1]["exit_code"] == 127
 
 
 @pytest.mark.asyncio
 async def test_run_python_script_raises_billable_error_for_nonzero_exit() -> None:
-    provider = _FakeProvider(CommandResult(stdout="", stderr="boom", exit_code=2))
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout="", stderr="boom", exit_code=2),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
 
     with pytest.raises(SandboxCommandExecutionError) as exc_info:
         await run_python_script(
@@ -140,6 +355,7 @@ async def test_run_python_script_raises_billable_error_for_nonzero_exit() -> Non
             script="raise SystemExit(2)\n",
             script_name="analysis_probe.py",
             provider=provider,
+            manager=manager,
         )
 
     assert provider.released == [provider.sandbox]
@@ -212,9 +428,13 @@ async def test_sandbox_python_subagent_runs_through_lead_runtime_context(monkeyp
     assert calls[0]["execution_id"] == "exec-1"
     assert calls[0]["node_id"] == "phase__node"
     assert calls[0]["sandbox_policy"] == _policy()
+    assert calls[0]["billing_reservation_id"] == "reservation-1"
     assert result.output["status"] == "completed"
     assert result.output["billing"]["transaction_id"] == "credit-tx-1"
-    assert reservation_calls[0] == {
+    reservation_call = dict(reservation_calls[0])
+    assert reservation_call["expires_at"] is not None
+    reservation_call.pop("expires_at")
+    assert reservation_call == {
         "user_id": "user-1",
         "workspace_id": "ws-1",
         "execution_id": "exec-1",
@@ -352,6 +572,7 @@ async def test_sandbox_python_subagent_runs_declared_python_script(monkeypatch) 
             "user_id": "user-1",
             "script": "print('ok')",
             "script_name": "probe.py",
+            "dependency_hints": ["pandas==2.2.3"],
         },
         tools=[],
         capability_policy={"sandbox_policy": _policy()},
@@ -364,6 +585,8 @@ async def test_sandbox_python_subagent_runs_declared_python_script(monkeypatch) 
     assert calls[0]["node_id"] == "phase__probe"
     assert calls[0]["script"] == "print('ok')"
     assert calls[0]["script_name"] == "probe.py"
+    assert calls[0]["dependency_hints"] == ["pandas==2.2.3"]
+    assert calls[0]["billing_reservation_id"] == "reservation-2"
     assert result.output["operation"] == "python_script"
     assert result.tool_calls and result.tool_calls[0]["args"]["operation"] == "python_script"
 

@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-05-30
+更新时间：2026-05-31
 状态：Current
 适用项目：`wenjin`
 
@@ -46,6 +46,8 @@
 7. **Settings** — 工作区设置
 
 Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用的内部执行基座；用户只在 execution/run detail、ResultCard 和 review item 中查看只读计算记录、脚本摘要、日志、产物和 provenance。内部诊断 capability 可以被 Chat Agent 调度，但实际 Docker sandbox 运行必须发生在 LeadAgentRuntime 的 `sandbox_python` subagent。
+
+当前 sandbox 运行态已收敛为 workspace 级单环境：每个 workspace 最多一个 active sandbox environment，runtime provider key 为 `workspace-{workspace_id}`。Docker container 不跨任务常驻；每次 run 启动短生命周期容器，但挂载同一个 `/workspace`，保留数据集、脚本、outputs、Python venv 和 package cache。`sandbox_python` subagent 只声明 `dependency_hints` 和 Python 脚本，Lead-owned runtime 在 workspace lease 内自动确保 venv、安装依赖、缺包重试一次，并把安装记录为 unbilled `install_dependencies` sandbox job；实际 run job 仍通过 sandbox credit reservation 计费。
 
 ## 5. Result Card 闭环流程
 

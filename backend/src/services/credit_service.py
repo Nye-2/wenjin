@@ -208,6 +208,13 @@ class CreditService:
             raise ValueError("User not found")
         return summary.model_dump()
 
+    async def get_spendable_balance(self, user_id: str) -> int:
+        """Get credits not currently held by active reservations."""
+        summary = await self.get_credit_summary(user_id)
+        if "spendable_credits" in summary:
+            return int(summary["spendable_credits"])
+        return int(summary.get("credits", 0)) - int(summary.get("reserved_credits", 0))
+
     async def get_history(
         self,
         *,
@@ -283,7 +290,7 @@ class CreditService:
         if consumed_tokens < billing_policy.free_tokens:
             return True
 
-        return await self.get_balance(user_id) > 0
+        return await self.get_spendable_balance(user_id) > 0
 
     async def can_start_feature_task(self, user_id: str) -> bool:
         """Return whether the user can enqueue a billable feature task.
@@ -306,7 +313,7 @@ class CreditService:
         if consumed_tokens < billing_policy.free_tokens:
             return True
 
-        return await self.get_balance(user_id) > 0
+        return await self.get_spendable_balance(user_id) > 0
 
     async def can_start_sandbox_operation(self, user_id: str, operation: str) -> bool:
         """Return whether the user can start a fixed-credit sandbox operation."""
@@ -314,7 +321,7 @@ class CreditService:
         credits_to_charge = self._sandbox_operation_credits(policy, operation)
         if not policy.enabled or credits_to_charge <= 0:
             return True
-        return await self.get_balance(user_id) > 0
+        return await self.get_spendable_balance(user_id) > 0
 
     @staticmethod
     def _normalize_usage_dict(token_usage: TokenUsage | dict[str, int]) -> dict[str, int]:

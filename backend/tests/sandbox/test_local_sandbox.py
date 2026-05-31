@@ -139,6 +139,13 @@ class TestLocalSandbox:
         assert "outside sandbox" in result.stderr
 
     @pytest.mark.asyncio
+    async def test_execute_command_rejects_unmapped_workspace_root(self, sandbox):
+        """Virtual roots are only allowed when this sandbox mapped them."""
+        result = await sandbox.execute_command("cat /workspace/analysis.py")
+        assert not result.success
+        assert "outside sandbox" in result.stderr
+
+    @pytest.mark.asyncio
     async def test_execute_command_rejects_relative_escape_paths(self, sandbox, temp_dir):
         """Shell commands should not escape the sandbox via relative traversal."""
         Path(temp_dir, "secret.txt").write_text("host-secret", encoding="utf-8")

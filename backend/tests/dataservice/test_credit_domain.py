@@ -29,6 +29,11 @@ class _FakeCreditRepository:
             return None
         return self.user
 
+    async def get_user(self, user_id: str) -> SimpleNamespace | None:
+        if user_id != self.user.id:
+            return None
+        return self.user
+
     async def find_consumption_by_idempotency_key(
         self,
         *,
@@ -109,6 +114,30 @@ async def test_record_consumption_rejects_charge_beyond_overdraft_floor() -> Non
 
 
 @pytest.mark.asyncio
+async def test_credit_summary_exposes_reserved_and_spendable_balance() -> None:
+    user = SimpleNamespace(
+        id="user-1",
+        credits=10,
+        reserved_credits=7,
+        total_credits_earned=20,
+        total_credits_spent=10,
+    )
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+
+    summary = await service.get_credit_summary("user-1")
+
+    assert summary == {
+        "credits": 10,
+        "reserved_credits": 7,
+        "spendable_credits": 3,
+        "total_earned": 20,
+        "total_spent": 10,
+    }
+
+
+@pytest.mark.asyncio
 async def test_record_consumption_allows_charge_at_overdraft_floor() -> None:
     """A charge that lands exactly on the configured floor is valid."""
     user = SimpleNamespace(
@@ -133,6 +162,90 @@ async def test_record_consumption_allows_charge_at_overdraft_floor() -> None:
     assert user.credits == -2
     assert user.total_credits_spent == 3
     assert tx.amount == -3
+
+
+@pytest.mark.asyncio
+async def test_record_consumption_rejects_charge_that_spends_reserved_balance() -> None:
+    user = SimpleNamespace(
+        id="user-1",
+        credits=10,
+        reserved_credits=8,
+        total_credits_spent=0,
+    )
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+
+    with pytest.raises(CreditOverdraftLimitError, match="spendable"):
+        await service.record_consumption(
+            user_id="user-1",
+            transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
+            amount=3,
+            description="feature token billing",
+            metadata={"policy": {"max_overdraft_credits": 0}},
+        )
+
+    assert user.credits == 10
+    assert user.reserved_credits == 8
+    assert user.total_credits_spent == 0
+    assert repository.created_transactions == []
+
+
+@pytest.mark.asyncio
+async def test_record_consumption_rejects_reserved_balance_even_with_overdraft_policy() -> None:
+    user = SimpleNamespace(
+        id="user-1",
+        credits=10,
+        reserved_credits=8,
+        total_credits_spent=0,
+    )
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+
+    with pytest.raises(CreditOverdraftLimitError, match="spendable"):
+        await service.record_consumption(
+            user_id="user-1",
+            transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
+            amount=3,
+            description="feature token billing",
+            metadata={"policy": {"max_overdraft_credits": 100}},
+        )
+
+    assert user.credits == 10
+    assert user.reserved_credits == 8
+    assert user.total_credits_spent == 0
+    assert repository.created_transactions == []
+
+
+@pytest.mark.asyncio
+async def test_record_consumption_allows_charge_from_unreserved_spendable_balance() -> None:
+    user = SimpleNamespace(
+        id="user-1",
+        credits=10,
+        reserved_credits=8,
+        total_credits_spent=0,
+    )
+    repository = _FakeCreditRepository(user)
+    service = DataServiceCreditService(MagicMock(), autocommit=False)
+    service.repository = repository
+    service._finish = AsyncMock()
+
+    tx, balance_before = await service.record_consumption(
+        user_id="user-1",
+        transaction_type=CreditTransactionType.WORKFLOW_CONSUME,
+        amount=2,
+        description="feature token billing",
+        metadata={"policy": {"max_overdraft_credits": 0}},
+    )
+
+    assert balance_before == 10
+    assert user.credits == 8
+    assert user.reserved_credits == 8
+    assert user.total_credits_spent == 2
+    assert tx.amount == -2
 
 
 @pytest.mark.asyncio

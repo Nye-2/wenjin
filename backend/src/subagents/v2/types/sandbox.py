@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import time
+from datetime import UTC, datetime, timedelta
 
 from src.agents.lead_agent.v2.sandbox_runtime import (
     SandboxCommandExecutionError,
@@ -15,6 +16,8 @@ from src.services.credit_service import CreditService
 
 from ..base import SubagentBase, SubagentContext, SubagentResult
 from ..registry import subagent
+
+_SANDBOX_RESERVATION_TTL = timedelta(hours=1)
 
 
 @subagent("sandbox_python")
@@ -47,6 +50,7 @@ class SandboxPythonSubagent(SubagentBase):
             node_id=node_id,
             operation="run_python",
             estimated_credits=estimated_credits,
+            expires_at=datetime.now(UTC) + _SANDBOX_RESERVATION_TTL,
             metadata={"source": "sandbox_python_subagent"},
         )
         await ctx.emit("thinking", "正在启动隔离 Docker sandbox 运行受控 Python 任务。")
@@ -87,6 +91,7 @@ class SandboxPythonSubagent(SubagentBase):
                     execution_id=ctx.execution_id,
                     node_id=node_id,
                     sandbox_policy=sandbox_policy,
+                    billing_reservation_id=str(reservation.id),
                 )
             else:
                 output = await run_python_script(
@@ -96,6 +101,8 @@ class SandboxPythonSubagent(SubagentBase):
                     sandbox_policy=sandbox_policy,
                     script=str(ctx.inputs.get("script") or ""),
                     script_name=str(ctx.inputs.get("script_name") or "analysis.py"),
+                    dependency_hints=ctx.inputs.get("dependency_hints"),
+                    billing_reservation_id=str(reservation.id),
                 )
         except SandboxCommandExecutionError:
             await _settle_billing()

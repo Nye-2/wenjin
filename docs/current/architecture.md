@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-05-30
+更新时间：2026-05-31
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
@@ -124,6 +124,8 @@
 37. 生产运行时模型发现来自 DataService runtime model catalog cache；`LLM_MODELS` / `LLM_IMAGE_MODELS` 只作为 seed/test 输入，不得作为生产 fallback
 38. 模型 API Key 只允许 DataService 内部加密保存和 runtime 内部解密投递；admin/public projection 不得暴露明文 API Key
 39. Worker 执行 chat turn 或 capability execution 前必须刷新 runtime model cache；管理员后台模型变更应影响后续任务，不要求重启 worker
+40. Workspace sandbox 只能按 workspace 维度拥有一个 active environment；runtime provider key 为 `workspace-{workspace_id}`，不得再按 execution/node 生成独立 sandbox 基座
+41. Credit admission 和普通扣费必须以 `spendable_credits = credits - reserved_credits` 为边界；active reservation 不能被 thread/feature/sandbox 普通消费穿透使用
 
 ## 3. Execution-First Main Chain
 
@@ -388,6 +390,7 @@ User action
 - Pricing policy 由 DataService `pricing_policies` 持久化，当前 policy kinds 包括 `global_credit`、`model_usage`、`capability`、`tool`、`sandbox`。Pydantic config schema 使用 `extra="forbid"`，避免旧字段静默进入计费。
 - Model usage 计费采用 value-pricing：先计算 weighted tokens，再与 raw-cost guard 和 surface minimum 取最大值。`credits_per_cny` 只作为收入/成本锚点，不等于 token 直接兑换。
 - Credit reservation 用于 capability / sandbox 等可能长耗时任务的预授权、结算、释放/退款闭环；Execution 结果里保留 reservation/billing linkage。
+- User credit summary 暴露 `credits`、`reserved_credits`、`spendable_credits`；admission check 使用 spendable，DataService 扣费时也按 spendable + overdraft floor 做原子校验。
 - Admin pricing simulator 读取当前 enabled `global_credit` 与 `model_usage` policy；缺失时只用默认模板做 UI 估算，不改变 DataService 配置。
 
 ### 6.3 Rooms
@@ -402,11 +405,14 @@ User action
 - Tasks
 - Settings
 
-Sandbox 是 Lead Agent / subagent-operated infrastructure，不是用户可操作 room。公开 workspace API 不提供任意 sandbox exec；Chat Agent 不 acquire sandbox，也不暴露 bash/file execution tools。DataService sandbox environment / job / artifact 只作为 Lead Agent、subagent 和 Compute projection 的内部事实源。用户通过 execution/run detail 查看只读 sandbox traces、日志摘要、脚本、产物和 provenance。
+Sandbox 是 Lead Agent / subagent-operated infrastructure，不是用户可操作 room。公开 workspace API 不提供任意 sandbox exec；Chat Agent 不 acquire sandbox，也不暴露 bash/file execution tools。每个 workspace 最多一个 active sandbox environment，provider key 固定为 `workspace-{workspace_id}`。Docker container 仍是短生命周期任务容器，但 `/workspace`、`/workspace/.wenjin/env/python` 和 package cache 会随 workspace sandbox 持久化复用，用于长程实验的文件、数据集、脚本和依赖连续性。DataService sandbox environment / job / lease / artifact 只作为 Lead Agent、subagent 和 Compute projection 的内部事实源。用户通过 execution/run detail 查看只读 sandbox traces、日志摘要、脚本、产物和 provenance。
+
+Sandbox 依赖安装由 Lead-owned runtime 负责，不由 subagent 自行拼装系统命令。`sandbox_python` 只传 `dependency_hints`；runtime 在 workspace lease 内确保 Python venv 存在、按受控 pip command 自动安装 hints、遇到 `ModuleNotFoundError` 时最多安装缺失包并重试一次。安装 job 记录为 `operation=install_dependencies` 且 `billable=false`，实际 Python run / smoke check job 保持 billable 并通过 credit reservation 结算。安装网络只通过 `package_index_only` profile 开启，普通运行默认 `none`。
 
 当前代码边界：
 
 - sandbox provider primitives：`backend/src/sandbox/providers/`
+- workspace sandbox manager：`backend/src/agents/lead_agent/v2/workspace_sandbox.py`
 - Lead-owned sandbox runtime：`backend/src/agents/lead_agent/v2/sandbox_runtime.py`
 - sandbox subagent：`backend/src/subagents/v2/types/sandbox.py`
 - hidden diagnostic capability：`backend/seed/capabilities/sci/internal_sandbox_smoke.yaml`

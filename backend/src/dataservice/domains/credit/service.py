@@ -63,8 +63,12 @@ class DataServiceCreditService:
         user = await self.repository.get_user(user_id)
         if user is None:
             return None
+        credits = int(user.credits)
+        reserved_credits = max(int(getattr(user, "reserved_credits", 0) or 0), 0)
         return {
-            "credits": int(user.credits),
+            "credits": credits,
+            "reserved_credits": reserved_credits,
+            "spendable_credits": credits - reserved_credits,
             "total_earned": int(user.total_credits_earned),
             "total_spent": int(user.total_credits_spent),
         }
@@ -557,9 +561,12 @@ class DataServiceCreditService:
                 return existing_tx, balance_before
         credits_to_charge = max(int(amount), 0)
         if credits_to_charge > 0:
+            reserved_credits = max(int(getattr(user, "reserved_credits", 0) or 0), 0)
+            spendable_before = balance_before - reserved_credits
+            if reserved_credits > 0 and credits_to_charge > spendable_before:
+                raise CreditOverdraftLimitError("credit spendable balance exceeded")
             projected_balance = balance_before - credits_to_charge
-            overdraft_floor = -_max_overdraft_credits(metadata)
-            if projected_balance < overdraft_floor:
+            if projected_balance < -_max_overdraft_credits(metadata):
                 raise CreditOverdraftLimitError("credit overdraft limit exceeded")
         if credits_to_charge > 0:
             user.credits -= credits_to_charge
