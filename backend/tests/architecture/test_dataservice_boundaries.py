@@ -558,6 +558,25 @@ def test_latex_editor_shell_delegates_feedback_workflow() -> None:
     assert "applyRewriteCandidate" in workflow_source
 
 
+def test_retired_application_command_result_contracts_are_removed() -> None:
+    """Retired application command/result shells should not linger as dead code."""
+    assert not (SRC_ROOT / "application" / "commands.py").exists()
+
+    results_source = (SRC_ROOT / "application" / "results.py").read_text(encoding="utf-8")
+    retired_results = {
+        "FeatureLaunchResult",
+        "ThesisStatusResult",
+        "ThesisPreviewResult",
+        "ThesisCancelResult",
+    }
+    lingering = [
+        name
+        for name in sorted(retired_results)
+        if f"class {name}" in results_source
+    ]
+    assert not lingering, f"Remove retired application result contracts: {lingering}"
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"
