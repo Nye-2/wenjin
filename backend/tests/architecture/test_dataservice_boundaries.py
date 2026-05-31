@@ -537,6 +537,27 @@ def test_latex_editor_shell_composes_second_stage_views() -> None:
     assert "const renderPrismWorkspace =" not in source
 
 
+def test_latex_editor_shell_delegates_feedback_workflow() -> None:
+    """LatexEditorShell should keep feedback/rewrite orchestration in a focused hook."""
+    shell_path = REPO_ROOT / "frontend" / "components" / "latex" / "LatexEditorShell.tsx"
+    module_root = shell_path.parent / "latex-editor"
+    workflow_path = module_root / "useLatexFeedbackWorkflow.ts"
+
+    assert workflow_path.exists()
+
+    source = shell_path.read_text(encoding="utf-8")
+    workflow_source = workflow_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 800
+    assert 'from "@/components/latex/latex-editor/useLatexFeedbackWorkflow"' in source
+    assert "launchPrismOptimizationFromFeedback" not in source
+    assert "rewriteFromFeedback" not in source
+    assert "applyRewriteCandidate" not in source
+    assert "undoLastRewrite" not in source
+    assert "protectActiveFile" not in source
+    assert "launchPrismOptimizationFromFeedback" in workflow_source
+    assert "applyRewriteCandidate" in workflow_source
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"
