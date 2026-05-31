@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from src.config import dataservice_settings
+from src.dataservice_client.catalog_client import CatalogDataServiceClientMixin
 from src.dataservice_client.contracts.account import (
     AccountAdminStatsPayload,
     AccountRefreshTokenPayload,
@@ -28,21 +29,6 @@ from src.dataservice_client.contracts.asset import (
     WorkspaceAssetUpdatePayload,
 )
 from src.dataservice_client.contracts.audit import AuditLogCreatePayload, AuditLogPayload
-from src.dataservice_client.contracts.catalog import (
-    AdminLogCreatePayload as CatalogAdminLogCreatePayload,
-)
-from src.dataservice_client.contracts.catalog import (
-    AdminLogPayload as CatalogAdminLogPayload,
-)
-from src.dataservice_client.contracts.catalog import (
-    AgentTemplatePayload,
-    CapabilityDefinitionPayload,
-    CapabilitySkillPayload,
-    CatalogEnabledPayload,
-    CatalogSeedLoadPayload,
-    CatalogSeedLoadResultPayload,
-    CatalogUpsertPayload,
-)
 from src.dataservice_client.contracts.conversation import (
     ConversationMessageCreatePayload,
     ConversationMessagePayload,
@@ -92,17 +78,6 @@ from src.dataservice_client.contracts.review import (
     ReviewItemPayload,
     ReviewItemTransitionPayload,
 )
-from src.dataservice_client.contracts.rooms import (
-    DecisionPayload,
-    DecisionSetPayload,
-    MemoryFactCreatePayload,
-    MemoryFactPayload,
-    RoomCandidateApplyPayload,
-    RoomCandidatePayload,
-    WorkspaceTaskCreatePayload,
-    WorkspaceTaskPayload,
-    WorkspaceTaskUpdatePayload,
-)
 from src.dataservice_client.contracts.task import (
     TaskRecordCompletedPayload,
     TaskRecordCreateGuardedPayload,
@@ -112,20 +87,6 @@ from src.dataservice_client.contracts.task import (
     TaskRecordRuntimeStatePayload,
     TaskRecordStartedPayload,
 )
-from src.dataservice_client.contracts.template import (
-    WorkspaceTemplateCreatePayload,
-    WorkspaceTemplateDeactivatePayload,
-    WorkspaceTemplatePayload,
-)
-from src.dataservice_client.contracts.workspace import (
-    WorkspaceAdminStatsPayload,
-    WorkspaceCreatePayload,
-    WorkspacePayload,
-    WorkspaceSettingsPayload,
-    WorkspaceSettingsUpdatePayload,
-    WorkspaceStatsPayload,
-    WorkspaceUpdatePayload,
-)
 from src.dataservice_client.credit_client import CreditDataServiceClientMixin
 from src.dataservice_client.errors import DataServiceClientError
 from src.dataservice_client.execution_client import ExecutionDataServiceClientMixin
@@ -133,6 +94,7 @@ from src.dataservice_client.model_catalog_client import ModelCatalogDataServiceC
 from src.dataservice_client.pricing_client import PricingDataServiceClientMixin
 from src.dataservice_client.sandbox_client import SandboxDataServiceClientMixin
 from src.dataservice_client.source_client import SourceDataServiceClientMixin
+from src.dataservice_client.workspace_client import WorkspaceDataServiceClientMixin
 
 
 def _clean_request_params(params: Any) -> Any:
@@ -163,6 +125,8 @@ class AsyncDataServiceClient(
     ExecutionDataServiceClientMixin,
     SourceDataServiceClientMixin,
     CreditDataServiceClientMixin,
+    CatalogDataServiceClientMixin,
+    WorkspaceDataServiceClientMixin,
     ModelCatalogDataServiceClientMixin,
     PricingDataServiceClientMixin,
     SandboxDataServiceClientMixin,
@@ -231,81 +195,6 @@ class AsyncDataServiceClient(
             },
         )
         return [AuditLogPayload.model_validate(item) for item in payload["data"]]
-
-    async def get_workspace_template(
-        self,
-        template_id: str,
-    ) -> WorkspaceTemplatePayload | None:
-        payload = await self._request("GET", f"/internal/v1/templates/{template_id}")
-        data = payload.get("data")
-        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
-
-    async def get_active_workspace_template(
-        self,
-        workspace_id: str,
-    ) -> WorkspaceTemplatePayload | None:
-        payload = await self._request("GET", f"/internal/v1/templates/workspaces/{workspace_id}/active")
-        data = payload.get("data")
-        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
-
-    async def list_workspace_templates(
-        self,
-        workspace_id: str,
-    ) -> list[WorkspaceTemplatePayload]:
-        payload = await self._request("GET", f"/internal/v1/templates/workspaces/{workspace_id}")
-        return [WorkspaceTemplatePayload.model_validate(item) for item in payload["data"]]
-
-    async def create_workspace_template(
-        self,
-        command: WorkspaceTemplateCreatePayload,
-    ) -> WorkspaceTemplatePayload | None:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/templates",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
-
-    async def deactivate_active_workspace_templates(
-        self,
-        workspace_id: str,
-        command: WorkspaceTemplateDeactivatePayload | None = None,
-    ) -> bool:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/templates/workspaces/{workspace_id}/deactivate-active",
-            json=(command or WorkspaceTemplateDeactivatePayload()).model_dump(mode="json"),
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deactivated")) if isinstance(data, dict) else False
-
-    async def activate_workspace_template(
-        self,
-        *,
-        workspace_id: str,
-        template_id: str,
-    ) -> WorkspaceTemplatePayload | None:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/templates/workspaces/{workspace_id}/{template_id}/activate",
-        )
-        data = payload.get("data")
-        return WorkspaceTemplatePayload.model_validate(data) if data is not None else None
-
-    async def delete_workspace_template(
-        self,
-        template_id: str,
-        *,
-        workspace_id: str | None = None,
-    ) -> bool:
-        payload = await self._request(
-            "DELETE",
-            f"/internal/v1/templates/{template_id}",
-            params={"workspace_id": workspace_id},
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
 
     async def create_knowledge_memory(
         self,
@@ -926,36 +815,6 @@ class AsyncDataServiceClient(
         return AccountUserGrowthPayload.model_validate(payload["data"])
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     async def append_conversation_message(
         self,
         thread_id: str,
@@ -1082,263 +941,6 @@ class AsyncDataServiceClient(
         payload = await self._request("POST", f"/internal/v1/conversations/threads/{thread_id}/lock")
         data = payload.get("data") if isinstance(payload, dict) else None
         return bool(data.get("locked")) if isinstance(data, dict) else False
-
-    async def list_catalog_capabilities(
-        self,
-        *,
-        workspace_type: str | None = None,
-        enabled_only: bool = False,
-    ) -> list[CapabilityDefinitionPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/catalog/capabilities",
-            params={"workspace_type": workspace_type, "enabled_only": enabled_only},
-        )
-        return [CapabilityDefinitionPayload.model_validate(item) for item in payload["data"]]
-
-    async def has_catalog_capabilities(self) -> bool:
-        payload = await self._request("GET", "/internal/v1/catalog/capabilities/exists")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("exists")) if isinstance(data, dict) else False
-
-    async def get_catalog_capability(
-        self,
-        *,
-        workspace_type: str,
-        capability_id: str,
-        enabled_only: bool = False,
-    ) -> CapabilityDefinitionPayload | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}",
-            params={"enabled_only": enabled_only},
-        )
-        data = payload.get("data")
-        return CapabilityDefinitionPayload.model_validate(data) if data is not None else None
-
-    async def upsert_catalog_capability(
-        self,
-        *,
-        workspace_type: str,
-        capability_id: str,
-        command: CatalogUpsertPayload,
-    ) -> CapabilityDefinitionPayload:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}",
-            json=command.model_dump(mode="json"),
-        )
-        return CapabilityDefinitionPayload.model_validate(payload["data"])
-
-    async def delete_catalog_capability(
-        self,
-        *,
-        workspace_type: str,
-        capability_id: str,
-    ) -> bool:
-        payload = await self._request(
-            "DELETE",
-            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}",
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def set_catalog_capability_enabled(
-        self,
-        *,
-        workspace_type: str,
-        capability_id: str,
-        command: CatalogEnabledPayload,
-    ) -> CapabilityDefinitionPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/catalog/capabilities/{workspace_type}/{capability_id}/enabled",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CapabilityDefinitionPayload.model_validate(data) if data is not None else None
-
-    async def load_catalog_capability_seed_items(
-        self,
-        command: CatalogSeedLoadPayload,
-    ) -> CatalogSeedLoadResultPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/catalog/capabilities/seed-load",
-            json=command.model_dump(mode="json"),
-        )
-        return CatalogSeedLoadResultPayload.model_validate(payload["data"])
-
-    async def list_catalog_skills(self, *, enabled_only: bool = False) -> list[CapabilitySkillPayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/catalog/skills",
-            params={"enabled_only": enabled_only},
-        )
-        return [CapabilitySkillPayload.model_validate(item) for item in payload["data"]]
-
-    async def has_catalog_skills(self) -> bool:
-        payload = await self._request("GET", "/internal/v1/catalog/skills/exists")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("exists")) if isinstance(data, dict) else False
-
-    async def get_catalog_skill(
-        self,
-        skill_id: str,
-        *,
-        enabled_only: bool = False,
-    ) -> CapabilitySkillPayload | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/catalog/skills/{skill_id}",
-            params={"enabled_only": enabled_only},
-        )
-        data = payload.get("data")
-        return CapabilitySkillPayload.model_validate(data) if data is not None else None
-
-    async def upsert_catalog_skill(
-        self,
-        skill_id: str,
-        command: CatalogUpsertPayload,
-    ) -> CapabilitySkillPayload:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/catalog/skills/{skill_id}",
-            json=command.model_dump(mode="json"),
-        )
-        return CapabilitySkillPayload.model_validate(payload["data"])
-
-    async def delete_catalog_skill(self, skill_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/catalog/skills/{skill_id}")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def set_catalog_skill_enabled(
-        self,
-        skill_id: str,
-        command: CatalogEnabledPayload,
-    ) -> CapabilitySkillPayload | None:
-        payload = await self._request(
-            "PATCH",
-            f"/internal/v1/catalog/skills/{skill_id}/enabled",
-            json=command.model_dump(mode="json"),
-        )
-        data = payload.get("data")
-        return CapabilitySkillPayload.model_validate(data) if data is not None else None
-
-    async def load_catalog_skill_seed_items(
-        self,
-        command: CatalogSeedLoadPayload,
-    ) -> CatalogSeedLoadResultPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/catalog/skills/seed-load",
-            json=command.model_dump(mode="json"),
-        )
-        return CatalogSeedLoadResultPayload.model_validate(payload["data"])
-
-    async def list_agent_templates(self, *, enabled_only: bool = False) -> list[AgentTemplatePayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/catalog/agent-templates",
-            params={"enabled_only": enabled_only},
-        )
-        return [AgentTemplatePayload.model_validate(item) for item in payload["data"]]
-
-    async def has_agent_templates(self) -> bool:
-        payload = await self._request("GET", "/internal/v1/catalog/agent-templates/exists")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("exists")) if isinstance(data, dict) else False
-
-    async def get_agent_template(
-        self,
-        template_id: str,
-        *,
-        enabled_only: bool = False,
-    ) -> AgentTemplatePayload | None:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/catalog/agent-templates/{template_id}",
-            params={"enabled_only": enabled_only},
-        )
-        data = payload.get("data")
-        return AgentTemplatePayload.model_validate(data) if data is not None else None
-
-    async def upsert_agent_template(
-        self,
-        template_id: str,
-        command: CatalogUpsertPayload,
-    ) -> AgentTemplatePayload:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/catalog/agent-templates/{template_id}",
-            json=command.model_dump(mode="json"),
-        )
-        return AgentTemplatePayload.model_validate(payload["data"])
-
-    async def delete_agent_template(self, template_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/catalog/agent-templates/{template_id}")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def load_agent_template_seed_items(
-        self,
-        command: CatalogSeedLoadPayload,
-    ) -> CatalogSeedLoadResultPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/catalog/agent-templates/seed-load",
-            json=command.model_dump(mode="json"),
-        )
-        return CatalogSeedLoadResultPayload.model_validate(payload["data"])
-
-    async def record_catalog_admin_log(
-        self,
-        command: CatalogAdminLogCreatePayload,
-    ) -> CatalogAdminLogPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/catalog/admin-logs",
-            json=command.model_dump(mode="json"),
-        )
-        return CatalogAdminLogPayload.model_validate(payload["data"])
-
-    async def list_catalog_admin_logs(
-        self,
-        *,
-        action: str | None = None,
-        target_user_id: str | None = None,
-        offset: int = 0,
-        limit: int = 20,
-    ) -> tuple[list[CatalogAdminLogPayload], int]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/catalog/admin-logs",
-            params={
-                "action": action,
-                "target_user_id": target_user_id,
-                "offset": offset,
-                "limit": limit,
-            },
-        )
-        data = payload.get("data") or {}
-        return (
-            [CatalogAdminLogPayload.model_validate(item) for item in data.get("items", [])],
-            int(data.get("total", 0)),
-        )
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     async def create_review_batch(self, command: ReviewBatchCreatePayload) -> ReviewBatchDetailPayload:
         payload = await self._request(
@@ -1698,245 +1300,6 @@ class AsyncDataServiceClient(
         data = payload.get("data")
         return PrismFileVersionPayload.model_validate(data) if data is not None else None
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    async def list_room_decisions(self, workspace_id: str) -> list[DecisionPayload]:
-        payload = await self._request("GET", f"/internal/v1/rooms/workspaces/{workspace_id}/decisions")
-        return [DecisionPayload.model_validate(item) for item in payload["data"]]
-
-    async def set_room_decision(self, command: DecisionSetPayload) -> DecisionPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/rooms/decisions",
-            json=command.model_dump(mode="json"),
-        )
-        return DecisionPayload.model_validate(payload["data"])
-
-    async def delete_room_decision(self, decision_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/rooms/decisions/{decision_id}")
-        data = payload.get("data")
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def list_room_memory_facts(
-        self,
-        *,
-        workspace_id: str,
-        limit: int = 15,
-        category: str | None = None,
-    ) -> list[MemoryFactPayload]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/rooms/workspaces/{workspace_id}/memory",
-            params={"limit": limit, "category": category},
-        )
-        return [MemoryFactPayload.model_validate(item) for item in payload["data"]]
-
-    async def add_room_memory_facts(
-        self,
-        commands: list[MemoryFactCreatePayload],
-    ) -> list[MemoryFactPayload]:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/rooms/memory",
-            json=[command.model_dump(mode="json") for command in commands],
-        )
-        return [MemoryFactPayload.model_validate(item) for item in payload["data"]]
-
-    async def delete_room_memory_fact(self, *, workspace_id: str, fact_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/rooms/workspaces/{workspace_id}/memory/{fact_id}")
-        data = payload.get("data")
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def list_room_tasks(
-        self,
-        *,
-        workspace_id: str,
-        status: str | None = None,
-    ) -> list[WorkspaceTaskPayload]:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/rooms/workspaces/{workspace_id}/tasks",
-            params={"status": status},
-        )
-        return [WorkspaceTaskPayload.model_validate(item) for item in payload["data"]]
-
-    async def create_room_task(self, command: WorkspaceTaskCreatePayload) -> WorkspaceTaskPayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/rooms/tasks",
-            json=command.model_dump(mode="json"),
-        )
-        return WorkspaceTaskPayload.model_validate(payload["data"])
-
-    async def update_room_task(
-        self,
-        *,
-        workspace_id: str,
-        task_id: str,
-        command: WorkspaceTaskUpdatePayload,
-    ) -> WorkspaceTaskPayload | None:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/rooms/workspaces/{workspace_id}/tasks/{task_id}",
-            json=command.model_dump(mode="json", exclude_unset=True),
-        )
-        data = payload.get("data")
-        return WorkspaceTaskPayload.model_validate(data) if data is not None else None
-
-    async def delete_room_task(self, *, workspace_id: str, task_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/rooms/workspaces/{workspace_id}/tasks/{task_id}")
-        data = payload.get("data")
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
-
-    async def stage_and_apply_room_candidates(
-        self,
-        *,
-        workspace_id: str,
-        execution_id: str,
-        candidates: list[RoomCandidatePayload],
-    ) -> RoomCandidateApplyPayload:
-        payload = await self._request(
-            "POST",
-            f"/internal/v1/rooms/workspaces/{workspace_id}/candidate-apply",
-            params={"execution_id": execution_id},
-            json=[candidate.model_dump(mode="json") for candidate in candidates],
-        )
-        return RoomCandidateApplyPayload.model_validate(payload["data"])
-
-    async def create_workspace(self, command: WorkspaceCreatePayload) -> WorkspacePayload:
-        payload = await self._request(
-            "POST",
-            "/internal/v1/workspaces",
-            json=command.model_dump(mode="json"),
-        )
-        return WorkspacePayload.model_validate(payload["data"])
-
-    async def list_workspaces(self, *, member_user_id: str) -> list[WorkspacePayload]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/workspaces",
-            params={"member_user_id": member_user_id},
-        )
-        return [WorkspacePayload.model_validate(item) for item in payload["data"]]
-
-    async def get_workspace_stats_for_member(self, user_id: str) -> WorkspaceStatsPayload:
-        payload = await self._request("GET", f"/internal/v1/workspaces/stats/member/{user_id}")
-        return WorkspaceStatsPayload.model_validate(payload["data"])
-
-    async def get_admin_workspace_stats(self) -> WorkspaceAdminStatsPayload:
-        payload = await self._request("GET", "/internal/v1/workspaces/stats/admin")
-        return WorkspaceAdminStatsPayload.model_validate(payload["data"])
-
-    async def count_workspaces_by_member_ids(self, user_ids: list[str]) -> dict[str, int]:
-        payload = await self._request(
-            "GET",
-            "/internal/v1/workspaces/stats/member-counts",
-            params={"user_id": user_ids},
-        )
-        return {str(key): int(value) for key, value in dict(payload["data"]).items()}
-
-    async def get_workspace(self, workspace_id: str) -> WorkspacePayload | None:
-        payload = await self._request("GET", f"/internal/v1/workspaces/{workspace_id}")
-        data = payload.get("data")
-        return WorkspacePayload.model_validate(data) if data is not None else None
-
-    async def workspace_has_active_membership(
-        self,
-        *,
-        workspace_id: str,
-        user_id: str,
-    ) -> bool:
-        payload = await self._request(
-            "GET",
-            f"/internal/v1/workspaces/{workspace_id}/members/{user_id}/active",
-        )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("has_active_membership")) if isinstance(data, dict) else False
-
-    async def get_workspace_settings(self, workspace_id: str) -> WorkspaceSettingsPayload | None:
-        payload = await self._request("GET", f"/internal/v1/workspaces/{workspace_id}/settings")
-        data = payload.get("data")
-        return WorkspaceSettingsPayload.model_validate(data) if data is not None else None
-
-    async def update_workspace_settings(
-        self,
-        workspace_id: str,
-        command: WorkspaceSettingsUpdatePayload,
-    ) -> WorkspaceSettingsPayload | None:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/workspaces/{workspace_id}/settings",
-            json=command.model_dump(mode="json", exclude_none=True),
-        )
-        data = payload.get("data")
-        return WorkspaceSettingsPayload.model_validate(data) if data is not None else None
-
-    async def update_workspace(
-        self,
-        workspace_id: str,
-        command: WorkspaceUpdatePayload,
-    ) -> WorkspacePayload | None:
-        payload = await self._request(
-            "PUT",
-            f"/internal/v1/workspaces/{workspace_id}",
-            json=command.model_dump(mode="json", exclude_unset=True),
-        )
-        data = payload.get("data")
-        return WorkspacePayload.model_validate(data) if data is not None else None
-
-    async def delete_workspace(self, workspace_id: str) -> bool:
-        payload = await self._request("DELETE", f"/internal/v1/workspaces/{workspace_id}")
-        data = payload.get("data") if isinstance(payload, dict) else None
-        return bool(data.get("deleted")) if isinstance(data, dict) else False
 
     async def _request(
         self,

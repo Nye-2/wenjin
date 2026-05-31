@@ -316,6 +316,40 @@ def test_dataservice_client_domain_apis_live_in_dedicated_mixins() -> None:
             assert method not in client_source
 
 
+def test_dataservice_client_workspace_catalog_apis_live_in_dedicated_mixins() -> None:
+    """Keep workspace and catalog APIs out of the generic HTTP client shell."""
+    client_path = SRC_ROOT / "dataservice_client" / "client.py"
+    client_source = client_path.read_text(encoding="utf-8")
+    expected = {
+        "CatalogDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "catalog_client.py",
+            "forbidden_methods": [
+                "async def list_catalog_capabilities(",
+                "async def upsert_catalog_capability(",
+                "async def list_catalog_skills(",
+                "async def list_agent_templates(",
+                "async def record_catalog_admin_log(",
+            ],
+        },
+        "WorkspaceDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "workspace_client.py",
+            "forbidden_methods": [
+                "async def get_workspace_template(",
+                "async def list_room_decisions(",
+                "async def create_workspace(",
+                "async def get_workspace_settings(",
+                "async def delete_workspace(",
+            ],
+        },
+    }
+    assert len(client_source.splitlines()) < 1500
+    for mixin, config in expected.items():
+        assert config["file"].exists(), f"{mixin} module is missing"
+        assert mixin in client_source
+        for method in config["forbidden_methods"]:
+            assert method not in client_source
+
+
 def test_source_domain_service_is_facade_over_focused_services() -> None:
     """Source domain public service should stay a facade over focused services."""
     source_root = SRC_ROOT / "dataservice" / "domains" / "source"
