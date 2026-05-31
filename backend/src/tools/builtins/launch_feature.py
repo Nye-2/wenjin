@@ -63,6 +63,15 @@ def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str,
     return {str(param_key): param_value for param_key, param_value in value.items() if isinstance(param_key, str)}
 
 
+def _read_billing_params(params: Any) -> dict[str, Any]:
+    if not isinstance(params, Mapping):
+        return {}
+    billing = params.get("billing")
+    if not isinstance(billing, Mapping):
+        return {}
+    return {str(key): value for key, value in billing.items() if isinstance(key, str)}
+
+
 async def _mark_launch_execution_failed(
     execution_service: Any,
     execution_id: str,
@@ -245,6 +254,19 @@ async def launch_feature_tool(
                         "execution_id": execution_id,
                         "detail": "请求恢复的执行不存在，或不属于当前工作区。",
                     }
+                existing_billing = _read_billing_params(getattr(existing_execution, "params", None))
+                existing_reservation_id = str(existing_billing.get("credit_reservation_id") or "").strip()
+                if existing_reservation_id:
+                    credit_reservation_id = existing_reservation_id
+                    launch_billing = _read_billing_params(execution_params)
+                    execution_params = {
+                        **execution_params,
+                        "billing": {
+                            **launch_billing,
+                            **existing_billing,
+                            "credit_reservation_id": existing_reservation_id,
+                        },
+                    }
                 execution = await execution_service.update_execution(
                     execution_id,
                     status="pending",
@@ -270,12 +292,6 @@ async def launch_feature_tool(
                     completed_at=None,
                     commit=False,
                 )
-                existing_params = getattr(execution, "params", None)
-                if isinstance(existing_params, Mapping):
-                    existing_billing = existing_params.get("billing")
-                    if isinstance(existing_billing, Mapping):
-                        value = str(existing_billing.get("credit_reservation_id") or "").strip()
-                        credit_reservation_id = value or None
 
             if execution is None:
                 execution = await execution_service.create_execution(
