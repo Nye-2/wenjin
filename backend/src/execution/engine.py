@@ -15,6 +15,7 @@ from typing import Any
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.billing.reservation_metadata import reservation_id_from_params
 from src.dataservice_client.provider import dataservice_client
 from src.services.thread_billing import normalize_token_usage
 from src.services.workspace_prism_service import WorkspacePrismService
@@ -380,14 +381,7 @@ class ExecutionEngineV2:
 
     @staticmethod
     def _credit_reservation_id(execution: Any) -> str | None:
-        params = getattr(execution, "params", None)
-        if not isinstance(params, Mapping):
-            return None
-        billing = params.get("billing")
-        if not isinstance(billing, Mapping):
-            return None
-        value = str(billing.get("credit_reservation_id") or "").strip()
-        return value or None
+        return reservation_id_from_params(getattr(execution, "params", None))
 
     async def _mark_complete(
         self,

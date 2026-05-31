@@ -79,6 +79,7 @@ class _FakeLaunchDataServiceClient:
         return SimpleNamespace(
             id="reservation-1",
             user_id=command.user_id,
+            status="reserved",
             reserved_credits=command.reserved_credits,
             workspace_id=command.workspace_id,
             execution_id=command.execution_id,

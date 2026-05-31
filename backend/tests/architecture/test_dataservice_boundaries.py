@@ -170,6 +170,42 @@ class _RuntimeSqlVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+class _CreditReservationMetadataVisitor(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.violations: list[int] = []
+
+    def visit_Call(self, node: ast.Call) -> None:
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "credit_reservation_id"
+        ):
+            self.violations.append(node.lineno)
+        self.generic_visit(node)
+
+
+def test_credit_reservation_metadata_access_uses_canonical_helper() -> None:
+    """Production code should not hand-roll execution billing metadata parsing."""
+    allowed = {
+        (SRC_ROOT / "billing" / "reservation_metadata.py").resolve(),
+    }
+    violations: list[str] = []
+    for path in _python_files(SRC_ROOT):
+        if path.resolve() in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        visitor = _CreditReservationMetadataVisitor()
+        visitor.visit(tree)
+        relative = path.relative_to(SRC_ROOT)
+        violations.extend(f"{relative}:{line}" for line in visitor.violations)
+    assert not violations, (
+        "Use src.billing.reservation_metadata for credit reservation metadata access:\n"
+        + "\n".join(violations)
+    )
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"

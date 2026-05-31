@@ -15,6 +15,12 @@ from src.application.services.feature_launch_context import (
     build_missing_context_advisory,
     resolve_missing_context_fields,
 )
+from src.billing.reservation_metadata import (
+    feature_execution_reservation_key,
+    merge_reservation_billing,
+    reservation_id_from_params,
+    reservation_is_active,
+)
 from src.dataservice_client.errors import DataServiceClientError
 
 _FEATURE_RESERVATION_TTL = timedelta(hours=6)
@@ -61,15 +67,6 @@ def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str,
     if not isinstance(value, Mapping):
         return {}
     return {str(param_key): param_value for param_key, param_value in value.items() if isinstance(param_key, str)}
-
-
-def _read_billing_params(params: Any) -> dict[str, Any]:
-    if not isinstance(params, Mapping):
-        return {}
-    billing = params.get("billing")
-    if not isinstance(billing, Mapping):
-        return {}
-    return {str(key): value for key, value in billing.items() if isinstance(key, str)}
 
 
 async def _mark_launch_execution_failed(
@@ -182,7 +179,7 @@ async def launch_feature_tool(
         from src.services.credit_service import CreditService
 
         credit_service = CreditService()
-        if not await credit_service.can_start_feature_task(user_id):
+        if execution_id is None and not await credit_service.can_start_feature_task(user_id):
             policy = credit_service.get_feature_billing_policy()
             return {
                 "status": "advisory",
@@ -230,6 +227,7 @@ async def launch_feature_tool(
 
         try:
             execution = None
+            should_reset_existing_execution = False
             if execution_id:
                 existing_execution = await execution_service.get_by_id(execution_id)
                 existing_feature_id = (
@@ -254,44 +252,8 @@ async def launch_feature_tool(
                         "execution_id": execution_id,
                         "detail": "请求恢复的执行不存在，或不属于当前工作区。",
                     }
-                existing_billing = _read_billing_params(getattr(existing_execution, "params", None))
-                existing_reservation_id = str(existing_billing.get("credit_reservation_id") or "").strip()
-                if existing_reservation_id:
-                    credit_reservation_id = existing_reservation_id
-                    launch_billing = _read_billing_params(execution_params)
-                    execution_params = {
-                        **execution_params,
-                        "billing": {
-                            **launch_billing,
-                            **existing_billing,
-                            "credit_reservation_id": existing_reservation_id,
-                        },
-                    }
-                execution = await execution_service.update_execution(
-                    execution_id,
-                    status="pending",
-                    thread_id=thread_id,
-                    entry_skill_id=entry_skill_id,
-                    workspace_type=workspace_type,
-                    display_name=getattr(cap, "display_name", None),
-                    params=execution_params,
-                    result=None,
-                    error=None,
-                    result_summary=None,
-                    graph_structure=None,
-                    runtime_state=None,
-                    progress=0,
-                    message=None,
-                    artifact_ids=[],
-                    next_actions=[],
-                    advisory_code=None,
-                    last_error=None,
-                    dispatch_mode=None,
-                    worker_task_id=None,
-                    started_at=None,
-                    completed_at=None,
-                    commit=False,
-                )
+                execution = existing_execution
+                should_reset_existing_execution = True
 
             if execution is None:
                 execution = await execution_service.create_execution(
@@ -306,57 +268,87 @@ async def launch_feature_tool(
                     params=execution_params,
                     commit=False,
                 )
-            if credit_reservation_id is None:
-                try:
-                    estimated_credits = await credit_service.estimate_feature_reservation_credits(
-                        feature_id=feature_id,
-                        workspace_type=workspace_type,
+            try:
+                estimated_credits = await credit_service.estimate_feature_reservation_credits(
+                    feature_id=feature_id,
+                    workspace_type=workspace_type,
+                )
+                reservation = await credit_service.reserve_for_feature_execution(
+                    user_id=user_id,
+                    workspace_id=workspace_id,
+                    execution_id=str(execution.id),
+                    estimated_credits=estimated_credits,
+                    expires_at=datetime.now(UTC) + _FEATURE_RESERVATION_TTL,
+                    idempotency_key=feature_execution_reservation_key(str(execution.id)),
+                    metadata={
+                        "feature_id": feature_id,
+                        "workspace_type": workspace_type,
+                        "source": "launch_feature",
+                    },
+                )
+                if not reservation_is_active(reservation):
+                    await _mark_launch_execution_failed(
+                        execution_service,
+                        str(execution.id),
+                        error="Feature execution credit reservation is not active",
+                        result_summary="功能任务关联的积分预留已结束，执行未启动。",
                     )
-                    reservation = await credit_service.reserve_for_feature_execution(
-                        user_id=user_id,
-                        workspace_id=workspace_id,
-                        execution_id=str(execution.id),
-                        estimated_credits=estimated_credits,
-                        expires_at=datetime.now(UTC) + _FEATURE_RESERVATION_TTL,
-                        metadata={
-                            "feature_id": feature_id,
-                            "workspace_type": workspace_type,
-                            "source": "launch_feature",
-                        },
-                    )
-                    credit_reservation_id = str(reservation.id)
-                    execution_params = {
-                        **execution_params,
-                        "billing": {
-                            **(
-                                execution_params.get("billing")
-                                if isinstance(execution_params.get("billing"), dict)
-                                else {}
-                            ),
-                            "credit_reservation_id": credit_reservation_id,
-                            "reserved_credits": int(getattr(reservation, "reserved_credits", 0) or 0),
-                        },
+                    return {
+                        "status": "error",
+                        "code": "execution_reservation_unavailable",
+                        "feature_id": feature_id,
+                        "execution_id": str(execution.id),
+                        "detail": "请求恢复的执行关联的积分预留已结束，请重新发起任务。",
                     }
+                credit_reservation_id = str(reservation.id)
+                execution_params = merge_reservation_billing(execution_params, reservation)
+                if should_reset_existing_execution:
+                    await execution_service.update_execution(
+                        str(execution.id),
+                        status="pending",
+                        thread_id=thread_id,
+                        entry_skill_id=entry_skill_id,
+                        workspace_type=workspace_type,
+                        display_name=getattr(cap, "display_name", None),
+                        params=execution_params,
+                        result=None,
+                        error=None,
+                        result_summary=None,
+                        graph_structure=None,
+                        runtime_state=None,
+                        progress=0,
+                        message=None,
+                        artifact_ids=[],
+                        next_actions=[],
+                        advisory_code=None,
+                        last_error=None,
+                        dispatch_mode=None,
+                        worker_task_id=None,
+                        started_at=None,
+                        completed_at=None,
+                        commit=False,
+                    )
+                else:
                     await execution_service.update_execution(
                         str(execution.id),
                         params=execution_params,
                         commit=False,
                     )
-                except Exception:
-                    if credit_reservation_id:
-                        with suppress(Exception):
-                            await credit_service.release_reservation(
-                                credit_reservation_id,
-                                reason="执行启动失败释放预留积分",
-                            )
-                        credit_reservation_id = None
-                    await _mark_launch_execution_failed(
-                        execution_service,
-                        str(execution.id),
-                        error="Failed to reserve credits for feature execution",
-                        result_summary="功能任务积分预留失败，执行已终止。",
-                    )
-                    raise
+            except Exception:
+                if credit_reservation_id:
+                    with suppress(Exception):
+                        await credit_service.release_reservation(
+                            credit_reservation_id,
+                            reason="执行启动失败释放预留积分",
+                        )
+                    credit_reservation_id = None
+                await _mark_launch_execution_failed(
+                    execution_service,
+                    str(execution.id),
+                    error="Failed to reserve credits for feature execution",
+                    result_summary="功能任务积分预留失败，执行已终止。",
+                )
+                raise
         except DataServiceClientError as exc:
             if exc.status_code == 409:
                 return {
@@ -383,10 +375,7 @@ async def launch_feature_tool(
     worker_task_id: str | None = None
     reservation_id = credit_reservation_id
     params_after_reservation = getattr(execution, "params", None)
-    if isinstance(params_after_reservation, Mapping):
-        billing = params_after_reservation.get("billing")
-        if isinstance(billing, Mapping):
-            reservation_id = str(billing.get("credit_reservation_id") or "").strip() or None
+    reservation_id = reservation_id or reservation_id_from_params(params_after_reservation)
     try:
         worker_task = celery_app.send_task(
             "src.task.tasks.execute_execution",

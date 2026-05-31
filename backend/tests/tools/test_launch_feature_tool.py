@@ -226,6 +226,7 @@ async def test_launch_feature_creates_credit_reservation_before_dispatch():
         execution_id="exec-1",
         estimated_credits=120,
         expires_at=ANY,
+        idempotency_key="feature_execution:exec-1",
         metadata={
             "feature_id": "idea_to_thesis_manuscript",
             "workspace_type": "thesis",
@@ -338,6 +339,12 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
     fake_service.get_by_id = AsyncMock(return_value=fake_execution)
     fake_service.update_execution = AsyncMock(return_value=fake_execution)
     fake_service.create_execution = AsyncMock()
+    fake_credit_service = MagicMock()
+    fake_credit_service.can_start_feature_task = AsyncMock(return_value=True)
+    fake_credit_service.estimate_feature_reservation_credits = AsyncMock(return_value=120)
+    fake_credit_service.reserve_for_feature_execution = AsyncMock(
+        return_value=SimpleNamespace(id="reservation-1", reserved_credits=120, status="reserved")
+    )
     fake_celery = MagicMock()
     fake_celery.enabled = True
     fake_celery_app = MagicMock()
@@ -345,6 +352,7 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
 
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", return_value=fake_credit_service), \
          patch("src.config.app_config.celery_settings", fake_celery), \
          patch("src.task.celery_app.celery_app", fake_celery_app):
         result = await launch_feature_tool.ainvoke(
@@ -366,15 +374,18 @@ async def test_launch_feature_reuses_execution_id_from_runtime_config_for_resume
     assert result["status"] == "launched"
     assert result["execution_id"] == "exec-9"
     fake_service.create_execution.assert_not_called()
-    assert fake_service.update_execution.await_count == 3
+    fake_credit_service.reserve_for_feature_execution.assert_awaited_once()
+    reservation_call = fake_credit_service.reserve_for_feature_execution.await_args.kwargs
+    assert reservation_call["idempotency_key"] == "feature_execution:exec-9"
+    assert fake_service.update_execution.await_count == 2
     update_kwargs = fake_service.update_execution.await_args_list[0].kwargs
     assert update_kwargs["status"] == "pending"
     assert update_kwargs["thread_id"] == "th-1"
     assert update_kwargs["entry_skill_id"] == "manuscript-writer"
     assert update_kwargs["params"]["brief"]["capability_id"] == "idea_to_thesis_manuscript"
-    reservation_kwargs = fake_service.update_execution.await_args_list[1].kwargs
-    assert reservation_kwargs["params"]["billing"]["credit_reservation_id"] == "reservation-1"
-    dispatch_kwargs = fake_service.update_execution.await_args_list[2].kwargs
+    assert update_kwargs["params"]["billing"]["credit_reservation_id"] == "reservation-1"
+    assert update_kwargs["params"]["billing"]["reservation_status"] == "reserved"
+    dispatch_kwargs = fake_service.update_execution.await_args_list[1].kwargs
     assert dispatch_kwargs == {
         "dispatch_mode": "celery_worker",
         "worker_task_id": "worker-task-9",
@@ -410,7 +421,7 @@ async def test_launch_feature_resume_keeps_existing_credit_reservation():
     fake_credit_service.can_start_feature_task = AsyncMock(return_value=True)
     fake_credit_service.estimate_feature_reservation_credits = AsyncMock(return_value=33)
     fake_credit_service.reserve_for_feature_execution = AsyncMock(
-        return_value=SimpleNamespace(id="reservation-new", reserved_credits=33, status="reserved")
+        return_value=SimpleNamespace(id="reservation-existing", reserved_credits=77, status="reserved")
     )
     fake_celery = MagicMock()
     fake_celery.enabled = True
@@ -441,19 +452,83 @@ async def test_launch_feature_resume_keeps_existing_credit_reservation():
     assert result["status"] == "launched"
     assert result["execution_id"] == "exec-9"
     fake_service.create_execution.assert_not_called()
-    fake_credit_service.estimate_feature_reservation_credits.assert_not_awaited()
-    fake_credit_service.reserve_for_feature_execution.assert_not_awaited()
+    fake_credit_service.estimate_feature_reservation_credits.assert_awaited_once()
+    fake_credit_service.reserve_for_feature_execution.assert_awaited_once()
+    reservation_call = fake_credit_service.reserve_for_feature_execution.await_args.kwargs
+    assert reservation_call["idempotency_key"] == "feature_execution:exec-9"
     assert fake_service.update_execution.await_count == 2
     resume_update = fake_service.update_execution.await_args_list[0].kwargs
     assert resume_update["params"]["billing"] == {
         "credit_reservation_id": "reservation-existing",
         "reserved_credits": 77,
+        "reservation_status": "reserved",
     }
     dispatch_update = fake_service.update_execution.await_args_list[1].kwargs
     assert dispatch_update == {
         "dispatch_mode": "celery_worker",
         "worker_task_id": "worker-task-9",
     }
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_resume_rejects_terminal_credit_reservation():
+    """Resume should not dispatch work when the canonical reservation is no longer active."""
+    fake_execution = _StubExecution(id="exec-9")
+    fake_execution.workspace_id = "ws-1"  # type: ignore[attr-defined]
+    fake_execution.user_id = "user-1"  # type: ignore[attr-defined]
+    fake_execution.feature_id = "idea_to_thesis_manuscript"  # type: ignore[attr-defined]
+    fake_execution.params = {  # type: ignore[attr-defined]
+        "brief": {"capability_id": "idea_to_thesis_manuscript"},
+        "billing": {
+            "credit_reservation_id": "reservation-released",
+            "reserved_credits": 77,
+            "reservation_status": "released",
+        },
+    }
+
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.get_by_id = AsyncMock(return_value=fake_execution)
+    fake_service.update_execution = AsyncMock(return_value=fake_execution)
+    fake_service.complete_execution = AsyncMock()
+    fake_service.create_execution = AsyncMock()
+    fake_credit_service = MagicMock()
+    fake_credit_service.can_start_feature_task = AsyncMock(return_value=True)
+    fake_credit_service.estimate_feature_reservation_credits = AsyncMock(return_value=33)
+    fake_credit_service.reserve_for_feature_execution = AsyncMock(
+        return_value=SimpleNamespace(id="reservation-released", reserved_credits=77, status="released")
+    )
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_celery_app = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", return_value=fake_credit_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "idea_to_thesis_manuscript",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                    "selected_skill": "manuscript-writer",
+                    "execution_id": "exec-9",
+                }
+            },
+        )
+
+    assert result["status"] == "error"
+    assert result["code"] == "execution_reservation_unavailable"
+    fake_service.create_execution.assert_not_called()
+    fake_service.update_execution.assert_not_called()
+    fake_service.complete_execution.assert_awaited_once()
+    fake_celery_app.send_task.assert_not_called()
 
 
 @pytest.mark.asyncio

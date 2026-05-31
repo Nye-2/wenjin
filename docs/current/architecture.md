@@ -126,6 +126,7 @@
 39. Worker 执行 chat turn 或 capability execution 前必须刷新 runtime model cache；管理员后台模型变更应影响后续任务，不要求重启 worker
 40. Workspace sandbox 只能按 workspace 维度拥有一个 active environment；runtime provider key 为 `workspace-{workspace_id}`，不得再按 execution/node 生成独立 sandbox 基座
 41. Credit admission 和普通扣费必须以 `spendable_credits = credits - reserved_credits` 为边界；active reservation 不能被 thread/feature/sandbox 普通消费穿透使用
+42. Execution credit reservation metadata 只能通过 `src.billing.reservation_metadata` 读取和合并；feature launch、execution engine、DataService reconcile 不得各自手写 `billing.credit_reservation_id` 解析逻辑
 
 ## 3. Execution-First Main Chain
 

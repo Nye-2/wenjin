@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.billing.reservation_metadata import reservation_id_from_params
 from src.dataservice.domains.credit.service import DataServiceCreditService
 from src.dataservice.domains.execution.contracts import (
     ComputeSessionEnsureCommand,
@@ -34,16 +35,6 @@ from src.dataservice.domains.execution.projection import (
     node_to_projection,
 )
 from src.dataservice.domains.execution.repository import ExecutionRepository
-
-
-def _credit_reservation_id_from_params(params: Any) -> str | None:
-    if not isinstance(params, dict):
-        return None
-    billing = params.get("billing")
-    if not isinstance(billing, dict):
-        return None
-    value = str(billing.get("credit_reservation_id") or "").strip()
-    return value or None
 
 
 class DataServiceExecutionService:
@@ -222,7 +213,7 @@ class DataServiceExecutionService:
         interrupted_summary = "Execution interrupted by process restart"
         credit_service = DataServiceCreditService(self.session, autocommit=False)
         for record in records:
-            reservation_id = _credit_reservation_id_from_params(record.params)
+            reservation_id = reservation_id_from_params(record.params)
             if reservation_id:
                 with suppress(ValueError):
                     await credit_service.release_reservation(
