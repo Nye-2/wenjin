@@ -316,6 +316,33 @@ def test_dataservice_client_domain_apis_live_in_dedicated_mixins() -> None:
             assert method not in client_source
 
 
+def test_source_domain_service_is_facade_over_focused_services() -> None:
+    """Source domain public service should stay a facade over focused services."""
+    source_root = SRC_ROOT / "dataservice" / "domains" / "source"
+    expected_files = {
+        "context.py",
+        "helpers.py",
+        "import_service.py",
+        "asset_service.py",
+        "bibliography_service.py",
+        "index_service.py",
+        "projection_service.py",
+    }
+    missing = [name for name in sorted(expected_files) if not (source_root / name).exists()]
+    assert not missing, f"Missing focused source services: {missing}"
+
+    service_lines = (source_root / "service.py").read_text(encoding="utf-8").splitlines()
+    assert len(service_lines) < 350
+    service_source = "\n".join(service_lines)
+    assert "SourceImportService" in service_source
+    assert "SourceAssetService" in service_source
+    assert "SourceBibliographyService" in service_source
+    assert "SourceProjectionService" in service_source
+    assert "SourceIndexService" in service_source
+    assert "def _format_bibtex_entry(" not in service_source
+    assert "def _serialize_reference_projection(" not in service_source
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"
