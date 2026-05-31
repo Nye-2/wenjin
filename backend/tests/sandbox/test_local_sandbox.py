@@ -66,6 +66,16 @@ class TestLocalSandbox:
         content = await sandbox.read_file("/mnt/user-data/workspace/test.txt")
         assert content == "Hello, Sandbox!"
 
+    def test_allows_workspace_virtual_paths(self, temp_dir):
+        """Should support the canonical workspace sandbox mount."""
+        workspace = Path(temp_dir) / "workspace"
+        workspace.mkdir(parents=True)
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+
+        resolved = sandbox._resolve_path("/workspace/analysis.py")
+
+        assert resolved.endswith("analysis.py")
+
     @pytest.mark.asyncio
     async def test_write_file_append(self, sandbox):
         """Should append to existing file."""

@@ -37,9 +37,12 @@ async def test_docker_provider_acquire_creates_thread_directories(tmp_path):
     sandbox = await provider.acquire("thread-1")
 
     assert sandbox.sandbox_id == "thread-1"
-    assert (tmp_path / "thread-1" / "user-data" / "workspace").exists()
-    assert (tmp_path / "thread-1" / "user-data" / "uploads").exists()
-    assert (tmp_path / "thread-1" / "user-data" / "outputs").exists()
+    assert (tmp_path / "thread-1" / "workspace").exists()
+    assert (tmp_path / "thread-1" / "workspace" / ".wenjin" / "env").exists()
+    assert (tmp_path / "thread-1" / "workspace" / ".wenjin" / "cache").exists()
+    assert (tmp_path / "thread-1" / "workspace" / "datasets").exists()
+    assert (tmp_path / "thread-1" / "workspace" / "scripts").exists()
+    assert (tmp_path / "thread-1" / "workspace" / "outputs").exists()
     docker_client.cleanup_containers_by_label.assert_awaited_once()
     docker_client.ensure_image.assert_awaited_once_with("wenjin/sandbox:test")
 
@@ -63,13 +66,35 @@ async def test_docker_sandbox_executes_command_in_ephemeral_container(tmp_path):
     kwargs = docker_client.run_container.await_args.kwargs
     assert kwargs["image"] == "wenjin/sandbox:test"
     assert kwargs["command"] == ["/bin/sh", "-lc", "pwd"]
-    assert kwargs["working_dir"] == "/mnt/user-data/workspace"
+    assert kwargs["working_dir"] == "/workspace"
     assert kwargs["timeout"] == 45
     assert kwargs["network_disabled"] is True
+    assert "/workspace" in [volume["bind"] for volume in kwargs["volumes"].values()]
     assert kwargs["mem_limit"] == "512m"
     assert kwargs["labels"]["wenjin.sandbox.managed"] == "true"
     assert kwargs["labels"]["wenjin.sandbox.kind"] == "sandbox_exec"
     assert kwargs["labels"]["wenjin.sandbox.thread_id"] == "thread-2"
+    assert kwargs["labels"]["wenjin.sandbox.network_profile"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_docker_sandbox_install_command_uses_package_index_network(tmp_path):
+    docker_client = _FakeDockerClient()
+    provider = DockerSandboxProvider(
+        base_dir=str(tmp_path),
+        image="wenjin/sandbox:test",
+        docker_client=docker_client,
+    )
+    sandbox = await provider.acquire("workspace-ws-1")
+
+    await sandbox.execute_command(
+        "python -m pip show pandas",
+        network_profile="package_index_only",
+    )
+
+    kwargs = docker_client.run_container.await_args.kwargs
+    assert kwargs["network_disabled"] is False
+    assert kwargs["labels"]["wenjin.sandbox.network_profile"] == "package_index_only"
 
 
 @pytest.mark.asyncio

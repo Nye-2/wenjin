@@ -27,13 +27,13 @@ class LocalSandbox(Sandbox):
     Commands are executed directly on the host system.
 
     Security:
-        - Only paths under /mnt/user-data/* are accessible
+        - Only paths under configured sandbox virtual roots are accessible
         - Path traversal attempts (..) are blocked
         - Symbolic links are resolved and validated
     """
 
     # Allowed virtual path prefixes
-    ALLOWED_VIRTUAL_PREFIXES = frozenset(["/mnt/user-data"])
+    ALLOWED_VIRTUAL_PREFIXES = frozenset(["/mnt/user-data", "/workspace"])
     _COMMAND_ABSOLUTE_PATH_RE = re.compile(
         r"(?<![A-Za-z0-9_.:/])(\/(?!\/)[^ \t\r\n'\"`|&;<>(),]*)"
     )
@@ -57,7 +57,7 @@ class LocalSandbox(Sandbox):
         self._resolved_base_paths = {
             vp: str(Path(pp).resolve()) for vp, pp in path_mappings.items()
         }
-        self._workspace_path = path_mappings.get("/mnt/user-data/workspace")
+        self._workspace_path = path_mappings.get("/workspace") or path_mappings.get("/mnt/user-data/workspace")
 
     @staticmethod
     def _is_within_root(path: str, root: str) -> bool:
@@ -74,6 +74,9 @@ class LocalSandbox(Sandbox):
             self._is_within_root(resolved, root)
             for root in self._resolved_base_paths.values()
         )
+
+    def _is_allowed_virtual_path(self, path: str) -> bool:
+        return any(path.startswith(prefix) for prefix in self.ALLOWED_VIRTUAL_PREFIXES)
 
     def _resolve_path(self, path: str) -> str:
         """Resolve virtual path to physical path with security checks.
@@ -94,9 +97,7 @@ class LocalSandbox(Sandbox):
             raise SandboxSecurityError(f"Null byte in path: {path}")
 
         # Security: Reject paths outside virtual namespace
-        is_virtual_path = any(
-            path_str.startswith(prefix) for prefix in self.ALLOWED_VIRTUAL_PREFIXES
-        )
+        is_virtual_path = self._is_allowed_virtual_path(path_str)
         if path_str.startswith("/") and not is_virtual_path:
             logger.warning(f"Access denied to non-virtual path: {path}")
             raise SandboxSecurityError(
@@ -203,7 +204,7 @@ class LocalSandbox(Sandbox):
 
             for match in self._COMMAND_ABSOLUTE_PATH_RE.finditer(token):
                 fragment = match.group(1)
-                if not fragment.startswith("/mnt/user-data"):
+                if not self._is_allowed_virtual_path(fragment):
                     raise SandboxSecurityError(
                         f"Command references path outside sandbox: {fragment}"
                     )

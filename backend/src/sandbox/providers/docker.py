@@ -16,7 +16,7 @@ from src.execution.docker.client import (
 )
 from src.sandbox.base import CommandResult, Sandbox
 from src.sandbox.providers.base import SandboxProvider
-from src.sandbox.providers.local import LocalSandbox, LocalSandboxProvider, SandboxSecurityError
+from src.sandbox.providers.local import LocalSandbox, SandboxSecurityError
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 class DockerSandbox(LocalSandbox):
     """Sandbox that executes shell commands inside ephemeral Docker containers."""
 
-    _CONTAINER_USER_DATA_ROOT = "/mnt/user-data"
-    _CONTAINER_WORKSPACE_ROOT = f"{_CONTAINER_USER_DATA_ROOT}/workspace"
+    _CONTAINER_WORKSPACE_ROOT = "/workspace"
     _CONTAINER_KIND = "sandbox_exec"
+    _NETWORK_PROFILES = frozenset({"none", "restricted_egress", "package_index_only"})
 
     def __init__(
         self,
@@ -44,38 +44,47 @@ class DockerSandbox(LocalSandbox):
         self._memory = memory
         self._cpu_limit = cpu_limit
 
-    def _host_user_data_root(self) -> str:
-        workspace_path = self.path_mappings["/mnt/user-data/workspace"]
-        return str(Path(workspace_path).resolve().parent)
+    def _host_workspace_root(self) -> str:
+        return str(Path(self.path_mappings["/workspace"]).resolve())
 
     async def execute_command(
         self,
         command: str,
         timeout: int = 300,
+        *,
+        network_profile: str = "none",
     ) -> CommandResult:
+        if network_profile not in self._NETWORK_PROFILES:
+            return CommandResult(
+                stdout="",
+                stderr=f"Unsupported sandbox network profile: {network_profile}",
+                exit_code=1,
+            )
         try:
             self._validate_command(command)
         except SandboxSecurityError as exc:
             return CommandResult(stdout="", stderr=str(exc), exit_code=1)
 
+        network_disabled = network_profile == "none"
         try:
             exit_code, stdout, stderr = await self._docker_client.run_container(
                 image=self._image,
                 command=["/bin/sh", "-lc", command],
                 volumes=self._docker_client.build_volume_mapping(
-                    self._host_user_data_root(),
-                    self._CONTAINER_USER_DATA_ROOT,
+                    self._host_workspace_root(),
+                    self._CONTAINER_WORKSPACE_ROOT,
                 ),
                 working_dir=self._CONTAINER_WORKSPACE_ROOT,
                 timeout=timeout,
                 remove=True,
-                network_disabled=True,
+                network_disabled=network_disabled,
                 mem_limit=self._memory,
                 nano_cpus=int(self._cpu_limit * 1_000_000_000),
                 labels={
                     SANDBOX_MANAGED_LABEL: "true",
                     SANDBOX_KIND_LABEL: self._CONTAINER_KIND,
                     SANDBOX_THREAD_LABEL: self.sandbox_id,
+                    "wenjin.sandbox.network_profile": network_profile,
                 },
             )
             return CommandResult(
@@ -147,15 +156,14 @@ class DockerSandboxProvider(SandboxProvider):
 
             await self._reconcile_orphaned_exec_containers()
 
-            user_data_path = LocalSandboxProvider._get_user_data_root(self.base_dir, thread_id)
-            for subdir in ("workspace", "uploads", "outputs"):
-                (user_data_path / subdir).mkdir(parents=True, exist_ok=True)
+            workspace_path = Path(self.base_dir) / thread_id / "workspace"
+            for subdir in (".wenjin/env", ".wenjin/cache", "datasets", "scripts", "outputs"):
+                (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
 
             await self._docker_client.ensure_image(self.image)
 
             path_mappings = {
-                f"/mnt/user-data/{subdir}": str(user_data_path / subdir)
-                for subdir in ("workspace", "uploads", "outputs")
+                "/workspace": str(workspace_path),
             }
             sandbox = DockerSandbox(
                 id=thread_id,
