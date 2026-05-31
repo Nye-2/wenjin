@@ -431,6 +431,52 @@ def test_live_workflow_panel_uses_focused_local_modules() -> None:
     assert "function buildEvidenceItems(" not in source
 
 
+def test_live_workflow_panel_composes_focused_views() -> None:
+    """LiveWorkflowPanel view sections should stay in focused local components."""
+    panel_path = (
+        REPO_ROOT
+        / "frontend"
+        / "app"
+        / "(workbench)"
+        / "workspaces"
+        / "[id]"
+        / "components"
+        / "LiveWorkflowPanel.tsx"
+    )
+    module_root = panel_path.parent / "live-workflow"
+    expected_files = {
+        "WorkbenchHeader.tsx",
+        "InterventionBar.tsx",
+        "OverviewView.tsx",
+        "RunView.tsx",
+        "EvidenceView.tsx",
+        "ReviewView.tsx",
+        "ResultEditor.tsx",
+        "NodeInspector.tsx",
+        "shared.tsx",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing LiveWorkflowPanel focused view modules: {missing}"
+
+    source = panel_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 900
+    assert 'from "./live-workflow/WorkbenchHeader"' in source
+    assert 'from "./live-workflow/OverviewView"' in source
+    assert 'from "./live-workflow/RunView"' in source
+    assert 'from "./live-workflow/EvidenceView"' in source
+    assert 'from "./live-workflow/ReviewView"' in source
+    for local_view in (
+        "function WorkbenchHeader(",
+        "function OverviewView(",
+        "function RunView(",
+        "function EvidenceView(",
+        "function ReviewView(",
+        "function ResultEditor(",
+        "function NodeInspector(",
+    ):
+        assert local_view not in source
+
+
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:
     """Domain modules must stay below gateway/agent/runtime orchestration."""
     domain_root = SRC_ROOT / "dataservice" / "domains"

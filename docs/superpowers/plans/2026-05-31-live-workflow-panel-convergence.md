@@ -280,3 +280,69 @@ Expected: current branch contains the Phase 4 first-stage commit.
 - Placeholder scan: no TODO/TBD/fill-later markers.
 - Contract check: public `LiveWorkflowPanel` props and `execution-run-view.ts` projection contract remain unchanged.
 - Risk: moving the `styles` object is mechanical but large; typecheck plus existing panel smoke tests must verify no import/runtime breakage.
+
+---
+
+## Task 5: Second-Stage Component Split
+
+**Goal:** Finish the Phase 4 architecture-hotspot target for `LiveWorkflowPanel.tsx` by making it a composition shell below 900 lines.
+
+**Files:**
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/WorkbenchHeader.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/InterventionBar.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/OverviewView.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/RunView.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/EvidenceView.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/ReviewView.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/ResultEditor.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/NodeInspector.tsx`
+- Create: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/shared.tsx`
+- Modify: `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx`
+- Modify: `backend/tests/architecture/test_dataservice_boundaries.py`
+
+- [x] **Step 1: Add second-stage architecture guard**
+
+Add `test_live_workflow_panel_composes_focused_views` requiring focused view modules and `LiveWorkflowPanel.tsx` below 900 lines.
+
+- [x] **Step 2: Verify red**
+
+The guard fails before modules exist, proving it catches the unresolved hotspot.
+
+- [x] **Step 3: Extract focused view modules**
+
+Move current local JSX sections without behavior changes:
+
+- `WorkbenchHeader`
+- `InterventionBar`
+- `OverviewView`
+- `RunView` and team roster
+- `EvidenceView`
+- `ReviewView`
+- `ResultEditor`
+- `NodeInspector`
+- shared small display primitives
+
+- [x] **Step 4: Keep shell responsibilities narrow**
+
+`LiveWorkflowPanel.tsx` now owns store subscriptions, local state, effects, commit handling, intervention handling, and high-level tab composition only.
+
+- [x] **Step 5: Verify focused behavior**
+
+Run:
+
+```bash
+cd frontend && npx eslint 'app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx' 'app/(workbench)/workspaces/[id]/components/live-workflow/'*.tsx
+cd frontend && npm run typecheck
+cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/v2/live-workflow-view-model.test.ts tests/unit/v2/LiveWorkflowPanel.test.tsx
+cd backend && .venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_live_workflow_panel_composes_focused_views tests/architecture/test_dataservice_boundaries.py::test_live_workflow_panel_uses_focused_local_modules -q
+cd frontend && npx playwright test tests/e2e/v2/deep-research-flow.spec.ts --project=v2
+```
+
+Expected: all pass.
+
+## Second-Stage Self-Review
+
+- `LiveWorkflowPanel.tsx` target: below 900 lines; actual shell is about 530 lines after extraction.
+- Contract check: public props and store contracts remain unchanged.
+- Projection check: no duplicated `execution-run-view.ts` logic was added; view model remains the only derived-data layer.
+- Risk: mostly mechanical JSX moves; covered by existing panel interaction tests, typecheck, architecture guard, and workspace E2E.
