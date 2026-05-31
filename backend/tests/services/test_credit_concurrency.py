@@ -20,20 +20,20 @@ def _call_attrs(source: str) -> list[str]:
     return [node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)]
 
 
-def test_can_start_thread_turn_uses_dataservice_balance_projection() -> None:
+def test_can_start_thread_turn_uses_dataservice_spendable_balance_projection() -> None:
     source = inspect.getsource(CreditService.can_start_thread_turn)
     calls = _call_attrs(source)
 
-    assert "get_balance" in calls
+    assert "get_spendable_balance" in calls
     assert "_get_user_for_update" not in calls
     assert "with_for_update" not in source
 
 
-def test_can_start_feature_task_uses_dataservice_balance_projection() -> None:
+def test_can_start_feature_task_uses_dataservice_spendable_balance_projection() -> None:
     source = inspect.getsource(CreditService.can_start_feature_task)
     calls = _call_attrs(source)
 
-    assert "get_balance" in calls
+    assert "get_spendable_balance" in calls
     assert "_get_user_for_update" not in calls
     assert "with_for_update" not in source
 

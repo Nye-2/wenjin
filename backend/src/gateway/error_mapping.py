@@ -12,6 +12,7 @@ from src.application.errors import (
     PaymentRequiredError,
     TooManyRequestsError,
 )
+from src.dataservice_client.errors import DataServiceClientError
 
 
 def to_http_exception(error: ApplicationError) -> HTTPException:
@@ -33,3 +34,11 @@ def to_http_exception(error: ApplicationError) -> HTTPException:
     else:
         code = status.HTTP_500_INTERNAL_SERVER_ERROR
     return HTTPException(status_code=code, detail=error.message)
+
+
+def dataservice_client_to_http_exception(error: DataServiceClientError) -> HTTPException:
+    """Preserve DataService HTTP semantics at the gateway boundary."""
+    status_code = error.status_code
+    if status_code is None or status_code < 400 or status_code >= 600:
+        status_code = status.HTTP_502_BAD_GATEWAY
+    return HTTPException(status_code=status_code, detail=str(error))

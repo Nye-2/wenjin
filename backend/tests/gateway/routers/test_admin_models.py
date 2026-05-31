@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.dataservice_client.contracts.model_catalog import ModelCatalogPayload
+from src.dataservice_client.errors import DataServiceClientError
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
 from src.gateway.routers import admin_models
 
@@ -69,12 +70,22 @@ class _FakeModelCatalogService:
         return _model_payload(model_id=model_id, health_status="healthy")
 
 
-def _client(service: _FakeModelCatalogService) -> TestClient:
+class _FakeDataServiceErrorModelCatalogService(_FakeModelCatalogService):
+    async def set_default_model(self, model_id: str, *, admin_id: str):
+        _ = model_id, admin_id
+        raise DataServiceClientError("model provider rejected default switch", status_code=409)
+
+
+def _client(
+    service: _FakeModelCatalogService,
+    *,
+    raise_server_exceptions: bool = True,
+) -> TestClient:
     app = FastAPI()
     app.include_router(admin_models.router)
     app.dependency_overrides[admin_models._service] = lambda: service
     app.dependency_overrides[get_current_admin] = lambda: _admin()
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def test_admin_list_models_redacts_key() -> None:
@@ -134,3 +145,15 @@ def test_admin_disable_returns_backend_validation_error() -> None:
 
     assert response.status_code == 400
     assert "default model" in response.json()["detail"]
+
+
+def test_admin_model_routes_preserve_dataservice_client_status() -> None:
+    client = _client(
+        _FakeDataServiceErrorModelCatalogService(),
+        raise_server_exceptions=False,
+    )
+
+    response = client.post("/admin/models/deepseek-v3/set-default")
+
+    assert response.status_code == 409
+    assert "default switch" in response.json()["detail"]

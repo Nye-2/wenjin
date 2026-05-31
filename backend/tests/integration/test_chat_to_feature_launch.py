@@ -66,6 +66,15 @@ class _FakeLaunchDataServiceClient:
     async def get_credit_balance(self, user_id: str) -> int | None:
         return 10
 
+    async def get_credit_summary(self, user_id: str):
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "credits": 10,
+                "reserved_credits": 0,
+                "spendable_credits": 10,
+            }
+        )
+
     async def create_credit_reservation(self, command):
         return SimpleNamespace(
             id="reservation-1",

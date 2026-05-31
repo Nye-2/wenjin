@@ -12,8 +12,10 @@ from src.dataservice_client.contracts.pricing import (
     PricingPolicyUpdatePayload,
     PricingSimulationRequestPayload,
 )
+from src.dataservice_client.errors import DataServiceClientError
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
 from src.gateway.deps.core import get_dataservice_client
+from src.gateway.error_mapping import dataservice_client_to_http_exception
 from src.services.pricing_policy_service import PricingPolicyService
 
 router = APIRouter(prefix="/admin/pricing", tags=["admin", "pricing"])
@@ -32,7 +34,10 @@ async def simulate_pricing(
     service: PricingPolicyService = Depends(_service),
     _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
-    return await service.simulate(PricingSimulationRequestPayload.model_validate(payload))
+    try:
+        return await service.simulate(PricingSimulationRequestPayload.model_validate(payload))
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
 
 
 @policies_router.get("")
@@ -42,7 +47,10 @@ async def list_pricing_policies(
     service: PricingPolicyService = Depends(_service),
     _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
-    policies = await service.list_policies(policy_kind=policy_kind, enabled_only=enabled_only)
+    try:
+        policies = await service.list_policies(policy_kind=policy_kind, enabled_only=enabled_only)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     return {"items": [policy.model_dump(mode="json") for policy in policies], "total": len(policies)}
 
 
@@ -52,10 +60,13 @@ async def create_pricing_policy(
     service: PricingPolicyService = Depends(_service),
     admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
-    policy = await service.create_policy(
-        PricingPolicyCreatePayload.model_validate(payload),
-        admin_id=admin.id,
-    )
+    try:
+        policy = await service.create_policy(
+            PricingPolicyCreatePayload.model_validate(payload),
+            admin_id=admin.id,
+        )
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     return policy.model_dump(mode="json")
 
 
@@ -66,11 +77,14 @@ async def update_pricing_policy(
     service: PricingPolicyService = Depends(_service),
     admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any] | None:
-    policy = await service.update_policy(
-        policy_id_or_key,
-        PricingPolicyUpdatePayload.model_validate(payload),
-        admin_id=admin.id,
-    )
+    try:
+        policy = await service.update_policy(
+            policy_id_or_key,
+            PricingPolicyUpdatePayload.model_validate(payload),
+            admin_id=admin.id,
+        )
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     return policy.model_dump(mode="json") if policy else None
 
 
@@ -80,5 +94,8 @@ async def disable_pricing_policy(
     service: PricingPolicyService = Depends(_service),
     admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any] | None:
-    policy = await service.disable_policy(policy_id_or_key, admin_id=admin.id)
+    try:
+        policy = await service.disable_policy(policy_id_or_key, admin_id=admin.id)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     return policy.model_dump(mode="json") if policy else None

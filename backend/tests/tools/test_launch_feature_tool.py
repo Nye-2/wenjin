@@ -4,10 +4,11 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.dataservice_client.errors import DataServiceClientError
 from src.tools.builtins import launch_feature_tool
 
 
@@ -78,6 +79,15 @@ class _FakeDataServiceClient:
 
     async def get_credit_balance(self, user_id: str) -> int | None:
         return 10
+
+    async def get_credit_summary(self, user_id: str):
+        return SimpleNamespace(
+            model_dump=lambda: {
+                "credits": 10,
+                "reserved_credits": 0,
+                "spendable_credits": 10,
+            }
+        )
 
     async def create_credit_reservation(self, command):
         return SimpleNamespace(
@@ -215,12 +225,15 @@ async def test_launch_feature_creates_credit_reservation_before_dispatch():
         workspace_id="ws-1",
         execution_id="exec-1",
         estimated_credits=120,
+        expires_at=ANY,
         metadata={
             "feature_id": "idea_to_thesis_manuscript",
             "workspace_type": "thesis",
             "source": "launch_feature",
         },
     )
+    reservation_call = fake_credit_service.reserve_for_feature_execution.await_args.kwargs
+    assert reservation_call["expires_at"] is not None
     reservation_updates = [
         call.kwargs for call in fake_service.update_execution.await_args_list
         if call.kwargs.get("params")
@@ -507,6 +520,52 @@ async def test_launch_feature_blocks_when_feature_credits_are_exhausted():
     assert result["status"] == "advisory"
     assert result["code"] == "feature_credits_required"
     fake_service.create_execution.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_marks_execution_failed_when_reservation_is_denied():
+    """A failed credit reservation must not leave a pending execution locking the lead."""
+    fake_execution = _StubExecution(id="exec-denied")
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock(return_value=fake_execution)
+    fake_service.update_execution = AsyncMock()
+    fake_service.complete_execution = AsyncMock()
+    fake_credit_service = MagicMock()
+    fake_credit_service.can_start_feature_task = AsyncMock(return_value=True)
+    fake_credit_service.estimate_feature_reservation_credits = AsyncMock(return_value=120)
+    fake_credit_service.reserve_for_feature_execution = AsyncMock(
+        side_effect=DataServiceClientError("insufficient spendable credits", status_code=402)
+    )
+    fake_celery = MagicMock(enabled=True)
+    fake_celery_app = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", return_value=fake_credit_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "idea_to_thesis_manuscript",
+                "params": {"paper_title": "联邦学习结合大模型微调"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "advisory"
+    assert result["code"] == "feature_credits_required"
+    complete_call = fake_service.complete_execution.await_args
+    assert complete_call.args[0] == "exec-denied"
+    assert complete_call.kwargs["status"] == "failed"
+    assert "积分" in complete_call.kwargs["result_summary"]
     fake_celery_app.send_task.assert_not_called()
 
 

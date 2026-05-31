@@ -7,8 +7,10 @@ from typing import Any
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from src.dataservice_client import AsyncDataServiceClient
+from src.dataservice_client.errors import DataServiceClientError
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
 from src.gateway.deps.core import get_dataservice_client
+from src.gateway.error_mapping import dataservice_client_to_http_exception
 from src.services.model_catalog_service import ModelCatalogService
 
 router = APIRouter(prefix="/admin/models", tags=["admin", "models"])
@@ -31,7 +33,10 @@ async def list_models(
     service: ModelCatalogService = Depends(_service),
     _admin: AccountAuthSubject = Depends(get_current_admin),
 ) -> dict[str, Any]:
-    models = await service.list_models(category=category, enabled_only=enabled_only)
+    try:
+        models = await service.list_models(category=category, enabled_only=enabled_only)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     return {"items": [_to_dict(model) for model in models], "total": len(models)}
 
 
@@ -43,6 +48,8 @@ async def create_model(
 ) -> dict[str, Any]:
     try:
         model = await service.create_model(payload, admin_id=admin.id)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _to_dict(model)
@@ -57,6 +64,8 @@ async def update_model(
 ) -> dict[str, Any] | None:
     try:
         model = await service.update_model(model_id, payload, admin_id=admin.id)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _to_dict(model) if model else None
@@ -70,6 +79,8 @@ async def disable_model(
 ) -> dict[str, Any] | None:
     try:
         model = await service.disable_model(model_id, admin_id=admin.id)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _to_dict(model) if model else None
@@ -83,6 +94,8 @@ async def set_default_model(
 ) -> dict[str, Any] | None:
     try:
         model = await service.set_default_model(model_id, admin_id=admin.id)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _to_dict(model) if model else None
@@ -96,6 +109,8 @@ async def test_model(
 ) -> dict[str, Any] | None:
     try:
         model = await service.test_model(model_id)
+    except DataServiceClientError as exc:
+        raise dataservice_client_to_http_exception(exc) from exc
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
     return _to_dict(model) if model else None

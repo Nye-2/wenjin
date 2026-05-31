@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.dataservice_client.contracts.pricing import PricingPolicyPayload
+from src.dataservice_client.errors import DataServiceClientError
 from src.gateway.auth_dependencies import AccountAuthSubject, get_current_admin
 from src.gateway.routers import admin_pricing
 
@@ -85,6 +86,12 @@ class _FakePricingService:
         }
 
 
+class _FakeDataServiceErrorPricingService(_FakePricingService):
+    async def create_policy(self, command, *, admin_id: str):
+        _ = command, admin_id
+        raise DataServiceClientError("policy key already exists", status_code=409)
+
+
 def test_admin_pricing_simulator_returns_breakdown() -> None:
     app = FastAPI()
     app.include_router(admin_pricing.router)
@@ -134,3 +141,26 @@ def test_admin_pricing_policy_crud_routes() -> None:
     assert service.updated[2] == "admin-1"
     assert disable_response.json()["enabled"] is False
     assert service.disabled == ("model-standard", "admin-1")
+
+
+def test_admin_pricing_routes_preserve_dataservice_client_status() -> None:
+    app = FastAPI()
+    app.include_router(admin_pricing.policies_router)
+    app.dependency_overrides[admin_pricing._service] = (
+        lambda: _FakeDataServiceErrorPricingService()
+    )
+    app.dependency_overrides[get_current_admin] = lambda: _admin()
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        "/admin/pricing-policies",
+        json={
+            "policy_key": "model-standard",
+            "policy_kind": "model_usage",
+            "name": "Model standard",
+            "config": {"credits_per_1k_weighted_tokens": 6},
+        },
+    )
+
+    assert response.status_code == 409
+    assert "already exists" in response.json()["detail"]

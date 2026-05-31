@@ -408,6 +408,42 @@ async def test_reconcile_interrupted_executions_marks_in_flight_terminal() -> No
 
 
 @pytest.mark.asyncio
+async def test_reconcile_interrupted_executions_releases_credit_reservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    released: list[tuple[str, str | None]] = []
+
+    class FakeCreditService:
+        def __init__(self, session: FakeSession, *, autocommit: bool = True) -> None:
+            self.session = session
+            self.autocommit = autocommit
+
+        async def release_reservation(self, reservation_id: str, *, reason: str | None = None):
+            released.append((reservation_id, reason))
+            return SimpleNamespace(id=reservation_id, status="released")
+
+    monkeypatch.setattr(
+        "src.dataservice.domains.execution.service.DataServiceCreditService",
+        FakeCreditService,
+    )
+    service, repository, session = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-1",
+            "status": "running",
+            "params": {"billing": {"credit_reservation_id": "reservation-1"}},
+        }
+    )
+
+    reconciled = await service.reconcile_interrupted_executions()
+
+    assert reconciled == 1
+    assert repository.record.status == "failed"
+    assert released == [("reservation-1", "Execution interrupted by process restart")]
+    assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
 async def test_execution_analytics_are_aggregated_inside_domain() -> None:
     service, _, _ = _service()
 

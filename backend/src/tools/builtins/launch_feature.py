@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from contextlib import suppress
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -15,6 +16,8 @@ from src.application.services.feature_launch_context import (
     resolve_missing_context_fields,
 )
 from src.dataservice_client.errors import DataServiceClientError
+
+_FEATURE_RESERVATION_TTL = timedelta(hours=6)
 
 
 class LaunchFeatureInput(BaseModel):
@@ -58,6 +61,22 @@ def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str,
     if not isinstance(value, Mapping):
         return {}
     return {str(param_key): param_value for param_key, param_value in value.items() if isinstance(param_key, str)}
+
+
+async def _mark_launch_execution_failed(
+    execution_service: Any,
+    execution_id: str,
+    *,
+    error: str,
+    result_summary: str,
+) -> None:
+    with suppress(Exception):
+        await execution_service.complete_execution(
+            execution_id,
+            status="failed",
+            error=error,
+            result_summary=result_summary,
+        )
 
 
 @tool("launch_feature", args_schema=LaunchFeatureInput)
@@ -282,6 +301,7 @@ async def launch_feature_tool(
                         workspace_id=workspace_id,
                         execution_id=str(execution.id),
                         estimated_credits=estimated_credits,
+                        expires_at=datetime.now(UTC) + _FEATURE_RESERVATION_TTL,
                         metadata={
                             "feature_id": feature_id,
                             "workspace_type": workspace_type,
@@ -314,6 +334,12 @@ async def launch_feature_tool(
                                 reason="执行启动失败释放预留积分",
                             )
                         credit_reservation_id = None
+                    await _mark_launch_execution_failed(
+                        execution_service,
+                        str(execution.id),
+                        error="Failed to reserve credits for feature execution",
+                        result_summary="功能任务积分预留失败，执行已终止。",
+                    )
                     raise
         except DataServiceClientError as exc:
             if exc.status_code == 409:
