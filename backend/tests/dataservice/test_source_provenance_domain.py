@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from src.database.base import Base
+from src.dataservice.common.errors import DataServiceValidationError
 from src.dataservice.domains.provenance.contracts import ProvenanceLinkCreateCommand
 from src.dataservice.domains.provenance.models import ProvenanceLinkRecord, SourceAnchorRecord
 from src.dataservice.domains.provenance.service import ProvenanceDataDomainService
@@ -880,6 +881,56 @@ async def test_source_service_links_source_assets() -> None:
     assert assets[0]["workspace_asset_id"] == "workspace-asset-1"
     assert assets[0]["asset_type"] == "pdf"
     assert assets[0]["virtual_path"] == "references/paper.pdf"
+
+
+@pytest.mark.asyncio
+async def test_source_service_rejects_cross_workspace_source_asset_relink() -> None:
+    session = FakeSession()
+    service = SourceDataDomainService(session, autocommit=True)  # type: ignore[arg-type]
+    repository = FakeSourceRepository()
+    service.repository = repository  # type: ignore[assignment]
+
+    source = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-1",
+            title="Original Asset Paper",
+            citation_key="assetoriginal2026",
+        )
+    )
+    await service.link_source_asset(
+        workspace_id="ws-1",
+        source_id=source.id,
+        workspace_asset_id="workspace-asset-1",
+        source_asset_id="source-asset-1",
+        asset_type="pdf",
+        preprocess_status="pending",
+    )
+    other_source = await service.create_source(
+        SourceCreateCommand(
+            workspace_id="ws-2",
+            title="Other Asset Paper",
+            citation_key="assetother2026",
+        )
+    )
+
+    with pytest.raises(DataServiceValidationError, match="source asset does not belong"):
+        await service.link_source_asset(
+            workspace_id="ws-2",
+            source_id=other_source.id,
+            workspace_asset_id="workspace-asset-2",
+            source_asset_id="source-asset-1",
+            asset_type="pdf",
+            preprocess_status="pending",
+        )
+
+    asset = await service.get_source_asset(
+        workspace_id="ws-1",
+        source_asset_id="source-asset-1",
+    )
+    assert asset is not None
+    assert asset["workspace_id"] == "ws-1"
+    assert asset["source_id"] == source.id
+    assert asset["workspace_asset_id"] == "workspace-asset-1"
 
 
 @pytest.mark.asyncio

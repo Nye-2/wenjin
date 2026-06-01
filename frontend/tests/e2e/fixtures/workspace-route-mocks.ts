@@ -28,6 +28,7 @@ type MockOptions = {
   workspaceName?: string;
   workspaceType?: string;
   capabilities?: Array<Record<string, unknown>>;
+  executions?: Array<Record<string, unknown>>;
   prismReview?: {
     projectId?: string;
     logicalKey?: string;
@@ -231,6 +232,16 @@ export async function installWorkspaceRouteMocks(
 
     if (pathname === `/api/workspaces/${workspaceId}/compute/sessions`) {
       await route.fulfill(json({ items: [], count: 0 }));
+      return;
+    }
+
+    if (pathname === "/api/executions" && request.method() === "GET") {
+      await route.fulfill(
+        json({
+          items: options.executions ?? [],
+          count: options.executions?.length ?? 0,
+        }),
+      );
       return;
     }
 

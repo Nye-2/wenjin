@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from contextlib import ExitStack
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -80,11 +81,26 @@ def client(app):
 
 def _patch_storage_roots(app):
     temp_root = app.state.temp_root
-    return patch.multiple(
-        "src.gateway.routers.uploads",
-        _PERSISTED_UPLOAD_ROOT=temp_root / "workspace_uploads",
-        get_thread_data_root=lambda thread_id: temp_root / "threads" / thread_id / "user-data",
+    stack = ExitStack()
+    stack.enter_context(
+        patch(
+            "src.services.thread_upload_service.get_thread_data_root",
+            lambda thread_id: temp_root / "threads" / thread_id / "user-data",
+        )
     )
+    stack.enter_context(
+        patch(
+            "src.services.layout_preprocess_orchestrator._PERSISTED_UPLOAD_ROOT",
+            temp_root / "workspace_uploads",
+        )
+    )
+    stack.enter_context(
+        patch(
+            "src.services.workspace_upload_service._PERSISTED_UPLOAD_ROOT",
+            temp_root / "workspace_uploads",
+        )
+    )
+    return stack
 
 
 def test_transient_upload_returns_attachment_metadata(client):
@@ -110,7 +126,7 @@ def test_upload_rejects_oversized_file(client):
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads._MAX_UPLOAD_SIZE_BYTES",
+            "src.services.upload_preflight_policy.MAX_UPLOAD_SIZE_BYTES",
             8,
         ),
     ):
@@ -128,7 +144,7 @@ def test_upload_rejects_too_many_files(client):
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads._MAX_UPLOAD_FILES",
+            "src.services.upload_preflight_policy.MAX_UPLOAD_FILES",
             1,
         ),
     ):
@@ -172,11 +188,11 @@ def test_literature_upload_persists_pdf_to_reference_library(client):
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads.publish_workspace_event",
+            "src.application.services.upload_application_service.publish_workspace_event",
             AsyncMock(),
         ) as publish_workspace_event,
         patch(
-            "src.gateway.routers.uploads.SourceLibraryImportService",
+            "src.application.services.upload_application_service.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):
@@ -239,9 +255,9 @@ def test_literature_upload_preserves_reference_preprocess_metadata(client):
 
     with (
         _patch_storage_roots(client.app),
-        patch("src.gateway.routers.uploads.publish_workspace_event", AsyncMock()),
+        patch("src.application.services.upload_application_service.publish_workspace_event", AsyncMock()),
         patch(
-            "src.gateway.routers.uploads.SourceLibraryImportService",
+            "src.application.services.upload_application_service.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):
@@ -281,11 +297,11 @@ def test_large_literature_upload_returns_reference_preprocess_pending_state(clie
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads.publish_workspace_event",
+            "src.application.services.upload_application_service.publish_workspace_event",
             AsyncMock(),
         ),
         patch(
-            "src.gateway.routers.uploads.SourceLibraryImportService",
+            "src.application.services.upload_application_service.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):
@@ -323,7 +339,7 @@ def test_literature_upload_reports_reference_preprocess_queue_failure(client):
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads.SourceLibraryImportService",
+            "src.application.services.upload_application_service.SourceLibraryImportService",
             return_value=SimpleNamespace(import_uploaded_pdf=import_uploaded_pdf),
         ),
     ):
@@ -346,15 +362,15 @@ def test_workspace_context_upload_creates_artifact_and_memory_note(client):
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads.publish_workspace_event",
+            "src.application.services.upload_application_service.publish_workspace_event",
             AsyncMock(),
         ) as publish_workspace_event,
         patch(
-            "src.gateway.routers.uploads.KnowledgeService",
+            "src.application.services.upload_application_service.KnowledgeService",
             return_value=mock_knowledge_service,
         ),
         patch(
-            "src.gateway.routers.uploads.extract_document_preview",
+            "src.services.workspace_upload_service.extract_document_preview",
             return_value={
                 "title": "Opening Proposal",
                 "authors": [],
@@ -398,15 +414,15 @@ def test_workspace_context_upload_degrades_when_memory_write_fails(client):
     with (
         _patch_storage_roots(client.app),
         patch(
-            "src.gateway.routers.uploads.publish_workspace_event",
+            "src.application.services.upload_application_service.publish_workspace_event",
             AsyncMock(),
         ) as publish_workspace_event,
         patch(
-            "src.gateway.routers.uploads.KnowledgeService",
+            "src.application.services.upload_application_service.KnowledgeService",
             return_value=mock_knowledge_service,
         ),
         patch(
-            "src.gateway.routers.uploads.extract_document_preview",
+            "src.services.workspace_upload_service.extract_document_preview",
             return_value={
                 "title": "Opening Proposal",
                 "authors": [],

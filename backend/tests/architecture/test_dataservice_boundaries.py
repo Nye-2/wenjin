@@ -249,10 +249,366 @@ def test_dataservice_client_execution_api_lives_in_dedicated_mixin() -> None:
     client_source = client_path.read_text(encoding="utf-8")
 
     assert mixin_path.exists()
-    assert "class AsyncDataServiceClient(ExecutionDataServiceClientMixin)" in client_source
+    assert "ExecutionDataServiceClientMixin" in client_source
     assert "async def create_execution(" not in client_source
     assert "async def upsert_execution_node(" not in client_source
     assert "async def create_generation_record(" not in client_source
+
+
+def test_dataservice_client_domain_apis_live_in_dedicated_mixins() -> None:
+    """Keep domain DataService APIs out of the generic HTTP client shell."""
+    client_path = SRC_ROOT / "dataservice_client" / "client.py"
+    client_source = client_path.read_text(encoding="utf-8")
+    expected = {
+        "SourceDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "source_client.py",
+            "forbidden_methods": [
+                "async def create_source(",
+                "async def import_source(",
+                "async def list_sources(",
+                "async def build_source_bibliography(",
+                "async def create_provenance_link(",
+            ],
+        },
+        "CreditDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "credit_client.py",
+            "forbidden_methods": [
+                "async def get_credit_summary(",
+                "async def record_credit_consumption(",
+                "async def create_credit_reservation(",
+                "async def create_credit_redeem_code(",
+                "async def record_credit_referral(",
+            ],
+        },
+        "ModelCatalogDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "model_catalog_client.py",
+            "forbidden_methods": [
+                "async def list_model_catalog_models(",
+                "async def create_model_catalog_model(",
+                "async def update_model_catalog_health(",
+                "async def list_model_catalog_runtime_models(",
+            ],
+        },
+        "PricingDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "pricing_client.py",
+            "forbidden_methods": [
+                "async def simulate_pricing(",
+                "async def list_pricing_policies(",
+                "async def create_pricing_policy(",
+                "async def disable_pricing_policy(",
+            ],
+        },
+        "SandboxDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "sandbox_client.py",
+            "forbidden_methods": [
+                "async def create_sandbox_environment(",
+                "async def get_or_create_sandbox_environment(",
+                "async def create_sandbox_job(",
+                "async def acquire_sandbox_lease(",
+                "async def register_sandbox_artifact(",
+            ],
+        },
+    }
+    for mixin, config in expected.items():
+        assert config["file"].exists(), f"{mixin} module is missing"
+        assert mixin in client_source
+        for method in config["forbidden_methods"]:
+            assert method not in client_source
+
+
+def test_dataservice_client_workspace_catalog_apis_live_in_dedicated_mixins() -> None:
+    """Keep workspace and catalog APIs out of the generic HTTP client shell."""
+    client_path = SRC_ROOT / "dataservice_client" / "client.py"
+    client_source = client_path.read_text(encoding="utf-8")
+    expected = {
+        "CatalogDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "catalog_client.py",
+            "forbidden_methods": [
+                "async def list_catalog_capabilities(",
+                "async def upsert_catalog_capability(",
+                "async def list_catalog_skills(",
+                "async def list_agent_templates(",
+                "async def record_catalog_admin_log(",
+            ],
+        },
+        "WorkspaceDataServiceClientMixin": {
+            "file": SRC_ROOT / "dataservice_client" / "workspace_client.py",
+            "forbidden_methods": [
+                "async def get_workspace_template(",
+                "async def list_room_decisions(",
+                "async def create_workspace(",
+                "async def get_workspace_settings(",
+                "async def delete_workspace(",
+            ],
+        },
+    }
+    assert len(client_source.splitlines()) < 1500
+    for mixin, config in expected.items():
+        assert config["file"].exists(), f"{mixin} module is missing"
+        assert mixin in client_source
+        for method in config["forbidden_methods"]:
+            assert method not in client_source
+
+
+def test_source_domain_service_is_facade_over_focused_services() -> None:
+    """Source domain public service should stay a facade over focused services."""
+    source_root = SRC_ROOT / "dataservice" / "domains" / "source"
+    expected_files = {
+        "context.py",
+        "helpers.py",
+        "import_service.py",
+        "asset_service.py",
+        "bibliography_service.py",
+        "index_service.py",
+        "projection_service.py",
+    }
+    missing = [name for name in sorted(expected_files) if not (source_root / name).exists()]
+    assert not missing, f"Missing focused source services: {missing}"
+
+    service_lines = (source_root / "service.py").read_text(encoding="utf-8").splitlines()
+    assert len(service_lines) < 350
+    service_source = "\n".join(service_lines)
+    assert "SourceImportService" in service_source
+    assert "SourceAssetService" in service_source
+    assert "SourceBibliographyService" in service_source
+    assert "SourceProjectionService" in service_source
+    assert "SourceIndexService" in service_source
+    assert "def _format_bibtex_entry(" not in service_source
+    assert "def _serialize_reference_projection(" not in service_source
+
+
+def test_upload_gateway_is_protocol_adapter_over_application_services() -> None:
+    """Thread upload router should delegate orchestration to focused services."""
+    upload_router = SRC_ROOT / "gateway" / "routers" / "uploads.py"
+    expected_files = {
+        SRC_ROOT / "application" / "services" / "upload_application_service.py",
+        SRC_ROOT / "services" / "upload_preflight_policy.py",
+        SRC_ROOT / "services" / "thread_upload_service.py",
+        SRC_ROOT / "services" / "workspace_upload_service.py",
+        SRC_ROOT / "services" / "layout_preprocess_orchestrator.py",
+    }
+    missing = [str(path.relative_to(SRC_ROOT)) for path in sorted(expected_files) if not path.exists()]
+    assert not missing, f"Missing focused upload services: {missing}"
+
+    source = upload_router.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 300
+    assert "UploadApplicationService" in source
+    assert "SourceLibraryImportService" not in source
+    assert "KnowledgeService" not in source
+    assert "persist_workspace_upload(" not in source
+    assert "preprocess_file(" not in source
+
+
+def test_sandbox_runtime_is_facade_over_installer_runner_and_artifacts() -> None:
+    """Lead sandbox runtime should expose stable functions over focused helpers."""
+    runtime_root = SRC_ROOT / "agents" / "lead_agent" / "v2"
+    runtime_path = runtime_root / "sandbox_runtime.py"
+    expected_files = {
+        "sandbox_environment_installer.py",
+        "sandbox_job_runner.py",
+        "sandbox_artifact_collector.py",
+    }
+    missing = [name for name in sorted(expected_files) if not (runtime_root / name).exists()]
+    assert not missing, f"Missing focused sandbox runtime services: {missing}"
+
+    source = runtime_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 300
+    assert "SandboxEnvironmentInstaller" in source
+    assert "SandboxJobRunner" in source
+    assert "SandboxArtifactCollector" in source
+    assert "async def _install_dependencies(" not in source
+    assert "await sandbox.execute_command(" not in source
+
+
+def test_sandbox_runner_does_not_become_the_new_runtime_hotspot() -> None:
+    """Sandbox execution internals should stay split beyond the public facade."""
+    runtime_root = SRC_ROOT / "agents" / "lead_agent" / "v2"
+    expected_files = {
+        "sandbox_runtime_session.py",
+        "sandbox_script_executor.py",
+    }
+    missing = [name for name in sorted(expected_files) if not (runtime_root / name).exists()]
+    assert not missing, f"Missing focused sandbox runner helpers: {missing}"
+
+    runner_source = (runtime_root / "sandbox_job_runner.py").read_text(encoding="utf-8")
+    assert len(runner_source.splitlines()) < 350
+    assert "SandboxRuntimeSession" in runner_source
+    assert "SandboxScriptExecutor" in runner_source
+
+
+def test_live_workflow_panel_uses_focused_local_modules() -> None:
+    """LiveWorkflowPanel should stay a shell over local view-model modules."""
+    panel_path = (
+        REPO_ROOT
+        / "frontend"
+        / "app"
+        / "(workbench)"
+        / "workspaces"
+        / "[id]"
+        / "components"
+        / "LiveWorkflowPanel.tsx"
+    )
+    module_root = panel_path.parent / "live-workflow"
+    expected_files = {
+        "types.ts",
+        "utils.ts",
+        "useLiveWorkflowViewModel.ts",
+        "styles.ts",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing LiveWorkflowPanel focused modules: {missing}"
+
+    source = panel_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 1800
+    assert "useLiveWorkflowViewModel" in source
+    assert "const styles:" not in source
+    assert "function buildEvidenceItems(" not in source
+
+
+def test_live_workflow_panel_composes_focused_views() -> None:
+    """LiveWorkflowPanel view sections should stay in focused local components."""
+    panel_path = (
+        REPO_ROOT
+        / "frontend"
+        / "app"
+        / "(workbench)"
+        / "workspaces"
+        / "[id]"
+        / "components"
+        / "LiveWorkflowPanel.tsx"
+    )
+    module_root = panel_path.parent / "live-workflow"
+    expected_files = {
+        "WorkbenchHeader.tsx",
+        "InterventionBar.tsx",
+        "OverviewView.tsx",
+        "RunView.tsx",
+        "EvidenceView.tsx",
+        "ReviewView.tsx",
+        "ResultEditor.tsx",
+        "NodeInspector.tsx",
+        "shared.tsx",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing LiveWorkflowPanel focused view modules: {missing}"
+
+    source = panel_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 900
+    assert 'from "./live-workflow/WorkbenchHeader"' in source
+    assert 'from "./live-workflow/OverviewView"' in source
+    assert 'from "./live-workflow/RunView"' in source
+    assert 'from "./live-workflow/EvidenceView"' in source
+    assert 'from "./live-workflow/ReviewView"' in source
+    for local_view in (
+        "function WorkbenchHeader(",
+        "function OverviewView(",
+        "function RunView(",
+        "function EvidenceView(",
+        "function ReviewView(",
+        "function ResultEditor(",
+        "function NodeInspector(",
+    ):
+        assert local_view not in source
+
+
+def test_latex_editor_shell_uses_focused_local_modules() -> None:
+    """LatexEditorShell should shrink into a shell over local editor modules."""
+    shell_path = REPO_ROOT / "frontend" / "components" / "latex" / "LatexEditorShell.tsx"
+    module_root = shell_path.parent / "latex-editor"
+    expected_files = {
+        "fileKinds.ts",
+        "feedbackAnchors.ts",
+        "clientErrors.ts",
+        "rewriteDisplay.ts",
+        "prismOptimizationJobs.ts",
+        "PrismMonacoEditor.tsx",
+        "LatexRewritePreviewPanel.tsx",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing focused LatexEditorShell modules: {missing}"
+
+    source = shell_path.read_text(encoding="utf-8")
+    inspector_source = (module_root / "LatexInspector.tsx").read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 2400
+    assert 'from "@/components/latex/latex-editor/PrismMonacoEditor"' in source
+    assert (
+        'from "@/components/latex/latex-editor/LatexRewritePreviewPanel"' in source
+        or 'from "./LatexRewritePreviewPanel"' in inspector_source
+    )
+    assert "function buildFeedbackAnchor(" not in source
+    assert "function resolveFeedbackRange(" not in source
+    assert "const PrismMonacoEditor =" not in source
+
+
+def test_latex_editor_shell_composes_second_stage_views() -> None:
+    """LatexEditorShell should keep panes, inspector, and job/review orchestration local."""
+    shell_path = REPO_ROOT / "frontend" / "components" / "latex" / "LatexEditorShell.tsx"
+    module_root = shell_path.parent / "latex-editor"
+    expected_files = {
+        "types.ts",
+        "useLatexFeedbackCreation.ts",
+        "useLatexFeedbackPersistence.ts",
+        "useLatexPdfSelectionMapping.ts",
+        "usePrismOptimizationJobs.ts",
+        "usePrismReviewQueue.ts",
+        "LatexEditorProjectBar.tsx",
+        "LatexResourceRail.tsx",
+        "LatexEditorPanes.tsx",
+        "LatexInspector.tsx",
+        "LatexCompileLogDialog.tsx",
+    }
+    missing = [name for name in sorted(expected_files) if not (module_root / name).exists()]
+    assert not missing, f"Missing second-stage LatexEditorShell modules: {missing}"
+
+    source = shell_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 1200
+    assert 'from "@/components/latex/latex-editor/LatexEditorPanes"' in source
+    assert 'from "@/components/latex/latex-editor/LatexInspector"' in source
+    assert 'from "@/components/latex/latex-editor/usePrismOptimizationJobs"' in source
+    assert 'from "@/components/latex/latex-editor/usePrismReviewQueue"' in source
+    assert "const renderProjectBar =" not in source
+    assert "const renderFeedbackInspector =" not in source
+    assert "const renderPrismWorkspace =" not in source
+
+
+def test_latex_editor_shell_delegates_feedback_workflow() -> None:
+    """LatexEditorShell should keep feedback/rewrite orchestration in a focused hook."""
+    shell_path = REPO_ROOT / "frontend" / "components" / "latex" / "LatexEditorShell.tsx"
+    module_root = shell_path.parent / "latex-editor"
+    workflow_path = module_root / "useLatexFeedbackWorkflow.ts"
+
+    assert workflow_path.exists()
+
+    source = shell_path.read_text(encoding="utf-8")
+    workflow_source = workflow_path.read_text(encoding="utf-8")
+    assert len(source.splitlines()) < 800
+    assert 'from "@/components/latex/latex-editor/useLatexFeedbackWorkflow"' in source
+    assert "launchPrismOptimizationFromFeedback" not in source
+    assert "rewriteFromFeedback" not in source
+    assert "applyRewriteCandidate" not in source
+    assert "undoLastRewrite" not in source
+    assert "protectActiveFile" not in source
+    assert "launchPrismOptimizationFromFeedback" in workflow_source
+    assert "applyRewriteCandidate" in workflow_source
+
+
+def test_retired_application_command_result_contracts_are_removed() -> None:
+    """Retired application command/result shells should not linger as dead code."""
+    assert not (SRC_ROOT / "application" / "commands.py").exists()
+
+    results_source = (SRC_ROOT / "application" / "results.py").read_text(encoding="utf-8")
+    retired_results = {
+        "FeatureLaunchResult",
+        "ThesisStatusResult",
+        "ThesisPreviewResult",
+        "ThesisCancelResult",
+    }
+    lingering = [
+        name
+        for name in sorted(retired_results)
+        if f"class {name}" in results_source
+    ]
+    assert not lingering, f"Remove retired application result contracts: {lingering}"
 
 
 def test_dataservice_domains_do_not_import_runtime_layers() -> None:

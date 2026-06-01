@@ -31,12 +31,6 @@ FeatureExecutionOutcome = FeatureTaskSubmission | FeatureExecutionAdvisory
 
 
 @dataclass(frozen=True, slots=True)
-class FeatureLaunchResult:
-    execution_id: str
-    outcome: FeatureExecutionOutcome
-
-
-@dataclass(frozen=True, slots=True)
 class ThreadTurnAttachment:
     name: str
     path: str
@@ -84,47 +78,3 @@ class CompletedThreadTurn:
     thread: Any
     assistant_message: dict[str, Any]
     reply: GeneratedThreadReply
-
-
-@dataclass(frozen=True, slots=True)
-class ThesisStatusResult:
-    task_id: str
-    status: str
-    progress: float
-    current_phase: str | None = None
-    message: str | None = None
-    pdf_path: str | None = None
-    error: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    def __getitem__(self, key: str) -> Any:
-        return getattr(self, key)
-
-
-@dataclass(frozen=True, slots=True)
-class ThesisPreviewResult:
-    task_id: str
-    latex_content: str
-    sections_completed: int
-    sections_total: int
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    def __getitem__(self, key: str) -> Any:
-        return getattr(self, key)
-
-
-@dataclass(frozen=True, slots=True)
-class ThesisCancelResult:
-    task_id: str
-    status: str
-    message: str
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    def __getitem__(self, key: str) -> Any:
-        return getattr(self, key)
