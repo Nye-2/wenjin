@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from src.dataservice.common.errors import DataServiceValidationError
 from src.dataservice.domains.source.context import SourceDomainContext
 from src.dataservice.domains.source.contracts import SourceAssetUpdateCommand
 from src.dataservice.domains.source.helpers import serialize_source_asset
@@ -43,6 +44,15 @@ class SourceAssetService:
                 }
             )
         else:
+            if str(record.workspace_id) != workspace_id or str(record.source_id) != source_id:
+                raise DataServiceValidationError(
+                    "source asset does not belong to requested workspace/source",
+                    detail={
+                        "source_asset_id": source_asset_id,
+                        "workspace_id": workspace_id,
+                        "source_id": source_id,
+                    },
+                )
             for field, value in values.items():
                 setattr(record, field, value)
             record.updated_at = datetime.now(UTC)
