@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-05-31
+更新时间：2026-06-02
 状态：Current
 适用项目：`wenjin`
 
@@ -13,6 +13,7 @@
 3. capability 入口：通过 chat 面板对话触发，Chat Agent 根据 mission catalog 识别意图后调用 `launch_feature`
 4. 旧 `/chat` 语义已收敛到当前 workspace chat / execution 体系，不再作为独立 feature 流程事实源
 5. 旧 workspace-owned `/latex/{project_id}` 页面入口已移除；主稿只通过 workspace Prism surface 进入
+6. capability 卡片点击只代表“选择能力”；如果没有具体主题、问题、材料、query、keywords、dataset 或 source artifact，系统只返回需要补充上下文的 advisory，不创建执行、不扣积分、不启动外部检索
 
 ## 2. 双 Agent 拓扑
 
@@ -21,8 +22,9 @@
 3. 1:1 映射：lead-busy 时阻塞新的 dispatch
 4. Chat turn 本身通过 `/api/threads/{thread_id}/runs/stream` 运行；当 Chat Agent 调用 `launch_feature` 时，stream 会显式输出 `tool_invocation` 与 `tool_result`
 5. `launch_feature` 的 `tool_result.status == "launched"` 必须包含 canonical `execution_id`，前端据此建立 run receipt 与右侧 Current run 焦点
-6. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
-7. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
+6. `launch_feature` 的 `tool_result.status == "advisory"` 表示尚未进入执行链路；前端只展示补充信息提示，不设置 active run，也不打开 Current run
+7. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
+8. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
 
 ## 3. Capability 数据驱动
 
@@ -34,6 +36,7 @@
 6. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
 7. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
 8. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由 Lead runtime stage 到 DB-backed review item。
+9. Capability launch context 只能来自用户显式输入、query seed、route params、source artifact 和已提交的 room context；不得用 workspace 名称/描述、capability 名称、通用卡片提示词或“未命名任务”合成 goal。
 
 ## 4. User-Facing Workspace Rooms
 
@@ -52,15 +55,16 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 ## 5. Result Card 闭环流程
 
 1. Chat Agent 调用 `launch_feature` → chat stream 输出 `tool_invocation` / `tool_result`
-2. `tool_result.status == "launched"` → ChatPanel 渲染启动回执，`run-ui-store` 标记 active run
-3. capability 执行完成 → `TaskReport` 含 `outputs[]`
-4. SSE `execution.completed` 事件 → 前端 execution-store
-5. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
-6. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item
-7. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
-8. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
-9. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
-10. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
+2. `tool_result.status == "advisory"` → ChatPanel 渲染补充上下文提示，闭环停在 chat，不进入 execution / billing / external search
+3. `tool_result.status == "launched"` → ChatPanel 渲染启动回执，`run-ui-store` 标记 active run
+4. capability 执行完成 → `TaskReport` 含 `outputs[]`
+5. SSE `execution.completed` 事件 → 前端 execution-store
+6. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
+7. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item
+8. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
+9. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
+10. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
+11. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
 
 ## 5.1 Execution UX 当前收敛
 

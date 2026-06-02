@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-05-31
+更新时间：2026-06-02
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
@@ -152,7 +152,9 @@ User action
   -> thread run stream
   -> Chat Agent launch intent
   -> launch_feature tool
-  -> chat tool_result launch receipt
+  -> context gate
+      -> advisory: chat tool_result only, stop before execution/billing
+      -> launched: chat tool_result launch receipt
   -> ExecutionRecord create
   -> ComputeSession ensure
   -> Celery execute_execution
@@ -170,6 +172,9 @@ User action
 - lead-busy 通过 active execution 判定
 - Chat Agent 通过 thread run stream 调用 `launch_feature`；`tool_invocation` / `tool_result` 是 canonical chat block，不是模型文本约定
 - `launch_feature` 成功返回 `status=launched`、`execution_id`、`feature_id`、`capability_name`，前端据此建立 run receipt 和 Current run 焦点
+- workbench capability 卡片只负责选择 `capability_id`，卡片 prompt / follow-up 文案不等于任务 goal；缺少具体研究主题、材料、问题、query、keywords、dataset 或 source artifact 时，`launch_feature` 必须返回 `status=advisory`、`code=missing_params`
+- `status=advisory` 不创建 `ExecutionRecord`、不创建 credit reservation、不分发 Celery、不触发外部搜索；前端只把它渲染为 chat advisory，右侧 Current run 保持 idle
+- context gate 不得从 workspace name / description、capability name、generic launch prompt 或“未命名任务”合成 mission goal
 
 #### Launch 代码入口
 
@@ -185,9 +190,10 @@ User action
 
 1. 先看 `launch_feature`
 2. 再看 `feature_launch_context`
-3. 最后看 `execute_execution` / `ExecutionEngineV2`
+3. 再看 `launch_text`
+4. 最后看 `execute_execution` / `ExecutionEngineV2`
 
-不要绕过这条链直接在 router、前端或 graph 层创建 execution。
+不要绕过这条链直接在 router、前端或 graph 层创建 execution。改 capability 启动文案时必须同步检查“空上下文不会 launch”的测试。
 
 ### 3.2 Runtime
 
@@ -339,6 +345,8 @@ User action
 
 模型目录和定价策略的 canonical 写入面只在 admin API；公开模型发现只返回可展示能力，不返回 `api_key` 或 runtime secret。
 
+Admin dashboard token usage summary 是展示用近似聚合，必须遵守 DataService list API 的分页/limit 上限；当前服务侧使用受控采样上限 200 条 execution，不允许用超大 limit 穿透 DataService 边界。若后台需要全量 token / 成本汇总，应新增 DataService aggregate endpoint，而不是在 gateway facade 里循环或绕过数据库边界。
+
 ### 5.6 读取与写入面区分
 
 读取面：
@@ -372,6 +380,7 @@ User action
 - Compute 从 `sandbox_policy.mode` 推导 sandbox requirement
 - `OutputMappingResolver` 是结构化输出映射事实源
 - Chat Agent 不持有 sandbox provider、sandbox state、bash/file tools 或 sandbox middleware；它只能通过 `launch_feature` 调度 capability
+- Capability launch context 只从用户显式输入、query seed、route params、source artifact 和已提交的 room context 读取；generic workbench launch text 只能作为触发意图，不能作为执行参数
 - Sandbox execution 只能由 Lead Agent graph 内的 subagent 节点根据 `capability_policy.sandbox_policy` 显式触发
 
 当前工作台里 `feature_id` 仅为传输字段名，不再代表旧 workflow catalog。执行事实源为：

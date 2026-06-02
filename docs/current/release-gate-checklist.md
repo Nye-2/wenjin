@@ -1,6 +1,6 @@
 # Release Gate Checklist
 
-更新时间: 2026-05-30
+更新时间: 2026-06-02
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
 
@@ -31,6 +31,7 @@
 15. Execution UX convergence gate：
   - Chat stream 必须显示 `launch_feature` 的 `tool_invocation` 与 `tool_result`
   - `tool_result.status == "launched"` 必须驱动 chat run receipt、Current run 焦点、Runs toolbar 提示
+  - `tool_result.status == "advisory"` / `code == "missing_params"` 必须只渲染补充上下文提示，不得创建 execution、credit reservation、Current run 或外部搜索
   - LiveWorkflowPanel 与 Runs drawer 必须消费同一 `RunView` 投影，不得各自推导状态
   - `/api/workspaces/{workspace_id}/runs` 必须返回 Prism handoff、failure category、progress 等 RunView 所需字段
   - Browser smoke 必须覆盖 launch -> running -> completed -> Runs drawer，无需手动刷新
@@ -71,6 +72,7 @@
   - Gateway/worker runtime model cache 必须从 DataService runtime model catalog 刷新；生产路径不得从 `LLM_MODELS` env 自动 fallback
   - Admin model update 必须支持显式清空 `pricing_policy_id` / timeout / retry / headers 等可空字段，同时空 API Key 必须保持原密钥
   - Admin pricing simulator 必须读取当前 enabled `global_credit` / `model_usage` policy；缺失时只允许 UI 默认模板估算，不写回配置
+  - Admin dashboard token usage summary 必须遵守 DataService list 上限；全量统计需要 DataService aggregate endpoint，不得在 gateway facade 使用超大 limit 或绕过 DB 边界
 18. 统一门禁命令（发布前需要运行）：
   - `cd backend && uv run python -m src.quality.release_gate_cli`
 19. 当前 Core Gate 覆盖:
@@ -100,7 +102,7 @@
   - `npm run build`
 21. Execution UX 建议回归:
   - `cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/stores/chat-store.test.ts tests/unit/hooks/useWorkspaceEventStream.test.tsx tests/unit/v2/rooms/RunsDrawer.test.tsx tests/unit/v2/ExecutionCard.test.tsx`
-  - `cd backend && .venv/bin/python -m pytest tests/application/handlers/test_thread_turn_handler.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy tests/integration/test_chat_to_feature_launch.py tests/tools/test_launch_feature_tool.py -v`
+  - `cd backend && .venv/bin/python -m pytest tests/application/intents/test_launch_text.py tests/application/services/test_feature_launch_context.py tests/application/handlers/test_thread_turn_handler.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy tests/integration/test_chat_to_feature_launch.py tests/tools/test_launch_feature_tool.py -v`
 22. Prism writing review 建议回归:
   - `cd backend && .venv/bin/python -m pytest tests/dataservice/test_review_batch_service.py tests/dataservice/test_foundation.py::test_dataservice_client_prism_review_contract_methods tests/agents/lead_agent/v2/test_output_mapping.py tests/agents/lead_agent/v2/test_runtime.py tests/services/test_prism_review_workflow_gate.py tests/services/test_workspace_prism_service.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy -v`
   - `cd frontend && npm run test:e2e -- iteration.spec.ts prism-surface.spec.ts --project=chromium`
@@ -158,7 +160,8 @@ npm test
 
 - [x] 五个 workspace 页面路由可达，无 404
 - [x] capability 入口卡片、artifact follow-up、activity retry 均进入 `/workspaces/{workspace_id}?feature=...` 且首条消息保留 seed 上下文
-- [x] capability 可提交并返回 task_id
+- [x] 空上下文 capability 卡片点击返回 missing_params advisory，不创建 execution、不扣积分、不触发外部检索
+- [x] capability 可提交并返回 canonical `execution_id`
 - [x] 任务状态可从 pending/running 进入 success 或 failed
 - [x] 失败态有明确错误提示且可重试
 - [x] artifact 列表可反映最新产出
@@ -169,3 +172,4 @@ npm test
 - [x] workspace execution UX smoke：启动回执、Current run、完成态、Runs drawer 历史记录可见
 - [x] Admin 模型目录 smoke：新增/编辑/禁用/启用/设默认/测试配置可用，列表不暴露明文 API Key
 - [x] Admin 定价策略 smoke：global/model usage policy 可编辑，模拟器按当前启用策略估算积分与毛利
+- [x] Admin dashboard smoke：首页 overview 可加载，token usage summary 不因 DataService limit 抛错

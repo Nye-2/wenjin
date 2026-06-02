@@ -17,6 +17,8 @@ from src.dataservice_client.contracts.execution import ExecutionNodePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.thread_billing import combine_token_usage, normalize_token_usage
 
+_TOKEN_USAGE_EXECUTION_SAMPLE_LIMIT = 200
+
 
 class DashboardAdminAction(StrEnum):
     """Admin dashboard audit action contract."""
@@ -110,7 +112,7 @@ class AdminDashboardService:
             thread_summary = (await client.get_credit_thread_token_usage()).model_dump(mode="json")
 
         async with self._client() as client:
-            executions = await client.list_executions(limit=100000)
+            executions = await client.list_executions(limit=_TOKEN_USAGE_EXECUTION_SAMPLE_LIMIT)
         feature_usages = []
         for execution in executions:
             result = execution.result_json

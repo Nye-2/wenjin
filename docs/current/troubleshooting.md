@@ -1,6 +1,6 @@
 # Troubleshooting
 
-更新时间：2026-05-30
+更新时间：2026-06-02
 
 以下命令默认你已经设置：
 
@@ -237,6 +237,39 @@ curl -i http://localhost:2026/readyz
 - `task_backend` 就绪检查采用双探针：`inspect ping` 优先，失败时自动回退到 `worker:9153/metrics`；当 `inspect` 不可用但 metrics 可达时，`/readyz` 仍判定健康并在报告里给出 `warning`。
 - run 元数据已持久化到 Redis，网关重启后 `run_id` 可被重新查询；但重启前处于 `pending/running` 的 run 会被标记为 `interrupted`，需要前端重新发起执行。
 - runs 主执行默认在 Celery worker（`src.task.tasks.execute_run`）执行；如出现“run 一直 pending”，优先检查 `wenjin-worker` 日志与 `long_running` 队列消费状态。
+
+### 9.1 Gateway health 一直 `starting`，`/api/models?purpose=chat` 返回 500
+
+高频原因：
+
+- `backend/.env` 或 Docker 环境缺少 `MODEL_SECRET_KEY` / `MODEL_SECRET_KEY_FILE`，DataService 无法解密模型 API Key。
+- 管理员后台模型目录里没有 enabled default chat model。
+
+排查：
+
+```bash
+curl -i http://localhost:2026/api/models?purpose=chat
+docker compose logs -f gateway dataservice
+rg -n "MODEL_SECRET_KEY" backend/.env .env
+```
+
+修复：
+
+1. 为 `backend/.env` 和 Compose 运行环境配置同一个稳定的 `MODEL_SECRET_KEY`，重启 dataservice / gateway / worker。
+2. 进入管理员后台确认至少一个 chat-capable model 处于 enabled + default，且测试配置为 healthy。
+3. API Key 不应写入前端环境变量；只通过管理员后台或 DataService seed 写入，DataService 内部加密保存。
+
+### 9.2 Admin dashboard overview 出现 token usage 异常
+
+高频原因：
+
+- dashboard summary 读取 execution token usage 时请求超过 DataService list API 上限。
+- 大量历史 execution 需要全量统计，但 gateway facade 只做展示用采样汇总。
+
+当前边界：
+
+- admin overview token summary 只允许按 DataService 上限读取受控样本；不要把 list limit 调到超大值。
+- 如果需要全量成本 / token 审计，应新增 DataService aggregate endpoint，再由 admin dashboard 调用。
 
 ## 10. Worker 反复重启，日志出现 `cannot unpack non-iterable ExceptionInfo object`
 

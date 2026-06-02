@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-05-27
+更新时间: 2026-06-02
 
 本文档定义 workspace capability 入口兼容层的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
 
@@ -95,21 +95,48 @@
 - 后端职责:
   - 所有 chat turns 统一进入 Chat Agent（`create_react_agent`）
   - Chat Agent 根据 workspace mission catalog / skills 上下文判断是否调用 `launch_feature` tool
-  - `launch_feature` tool 创建或复用 `ExecutionRecord`，并分发 `execute_execution(execution_id)`
+  - `launch_feature` tool 先执行 context gate；上下文足够时创建或复用 `ExecutionRecord`，并分发 `execute_execution(execution_id)`
   - sandbox-backed work 不允许在 Chat Agent tool/middleware 中执行；它必须在 `execute_execution` 后进入 LeadAgentRuntime / subagent graph，根据 capability `sandbox_policy` 执行
   - thread run stream 必须把 `launch_feature` 的 `tool_invocation` / `tool_result` 发回前端
   - `tool_result.status == "launched"` 时必须携带 `execution_id`、`feature_id`，并尽量携带 `capability_name`
+  - `tool_result.status == "advisory"` 且 `code == "missing_params"` 时不得携带新的 `execution_id`，也不得触发 credit reservation、Celery dispatch 或外部检索
   - 在 `metadata.orchestration.execution_id` 存在时，走 ingress resume 继续同一 execution
   - assistant thread message 会持久化 `metadata.orchestration.execution_id`，供前端在刷新/恢复后将 result card 锚定回对应消息
 
-### 3.1 Launch / Resume Fact
+### 3.1 Capability Launch Context Gate
+
+Workbench capability 卡片、feature query seed 和 frontend-generated prompt 只负责把用户意图路由到对应 capability。它们不能代替具体任务上下文。
+
+后端必须按以下规则处理：
+
+- `metadata.orchestration.feature_id` 选择 capability；它不是 mission goal。
+- frontend 生成的通用 launch prompt 只作为意图触发文本；不得被解析成 `goal` / `query` / `topic`。
+- 需要具体上下文的 capability 必须从用户显式输入、query seed、route params、source artifact 或已提交 room context 中读取参数。
+- 缺少必要上下文时返回 advisory：
+
+```json
+{
+  "status": "advisory",
+  "code": "missing_params",
+  "feature_id": "sci_literature_positioning",
+  "required_context": ["topic", "query"]
+}
+```
+
+前端必须按以下规则处理：
+
+- advisory 只渲染为 chat 提示，不建立 run receipt。
+- advisory 不写入 `run-ui-store.activeRunId`，不打开 Current run，不订阅 execution stream。
+- 用户补充上下文后，以新的 chat turn 重新进入 Chat Agent / `launch_feature`。
+
+### 3.2 Launch / Resume Fact
 
 - 当前没有独立的 `POST /workspaces/{workspace_id}/features/{feature_id}/execute` 公共入口作为主链事实源。
 - capability 启动与恢复以 workspace thread orchestration + `launch_feature` 为准。
 - 返回给前端用于订阅、恢复、提交的 canonical 标识始终是 `execution_id`。
 - 用户可见启动确认来自标准 `tool_result` block，而不是模型自然语言承诺。
 
-### 3.2 RunView Projection Contract
+### 3.3 RunView Projection Contract
 
 前端所有 execution UX 展示必须先投影为 `RunView`：
 

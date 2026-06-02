@@ -146,6 +146,9 @@ async def test_get_dashboard_reports_real_credit_pool_and_overdraft_metrics() ->
     assert payload["summary"]["token_usage"]["thread"]["transactions"] == 1
     assert payload["summary"]["token_usage"]["feature_tasks"]["total_tokens"] == 140
     assert payload["summary"]["token_usage"]["subagents"]["total_tokens"] == 80
+    client = service._dataservice
+    assert client is not None
+    client.list_executions.assert_awaited_once_with(limit=200)
     assert "recent_users" not in payload
     assert "top_spenders" not in payload
     assert "recent_admin_logs" not in payload

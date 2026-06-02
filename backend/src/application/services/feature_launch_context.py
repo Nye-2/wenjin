@@ -34,7 +34,7 @@ FEATURE_CONTEXT_FIELD_LABELS: dict[str, str] = {
 
 def is_value_present(value: Any) -> bool:
     if isinstance(value, str):
-        return bool(value.strip())
+        return bool(value.strip()) and not is_generic_feature_launch_text(value)
     if isinstance(value, list):
         return any(is_value_present(item) for item in value)
     if isinstance(value, Mapping):

@@ -61,4 +61,4 @@ Progress on 2026-05-20: Prism loading, error, and empty states now use the share
 
 Local rollout gate on 2026-05-20: backend full suite passed with 1861 tests, frontend full Vitest passed with 200 tests, frontend typecheck passed, frontend lint passed, frontend production build passed, full Playwright E2E passed with 19 passed and 1 skipped, and `docker compose config --quiet` passed earlier in the rollout.
 
-Release notes: `docs/current/workspace-prism-surface-release-notes.md`.
+Current Prism contract: `docs/current/workspace-current-state.md` and `docs/current/architecture.md`.
