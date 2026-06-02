@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # 问津 Wenjin 一键启动脚本
-# 使用方法: ./start.sh [--backend | --worker | --frontend]
+# 使用方法: ./start.sh [--backend | --worker | --dataservice | --frontend]
 
 set -e
 set -o pipefail
@@ -18,6 +18,8 @@ PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_DIR="$PROJECT_ROOT/backend"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 ENSURE_TEXLIVE_SCRIPT="$PROJECT_ROOT/scripts/ensure_texlive_image.sh"
+ROOT_ENV_FILE="$PROJECT_ROOT/.env"
+BACKEND_ENV_FILE="$BACKEND_DIR/.env"
 
 # 本地兜底容器（当宿主机 PostgreSQL/Redis 不满足要求时）
 LOCAL_PGVECTOR_CONTAINER="${LOCAL_PGVECTOR_CONTAINER:-wenjin-local-postgres}"
@@ -29,6 +31,8 @@ LOCAL_REDIS_PORT="${LOCAL_REDIS_PORT:-56379}"
 RUNTIME_DATABASE_URL=""
 RUNTIME_DATABASE_PSQL_URL=""
 RUNTIME_REDIS_URL=""
+RUNTIME_DATASERVICE_URL=""
+RUNTIME_DATASERVICE_INTERNAL_TOKEN=""
 RUNTIME_DATABASE_URL_OVERRIDE=""
 RUNTIME_REDIS_URL_OVERRIDE=""
 PYTHON_CMD=()
@@ -47,6 +51,7 @@ mkdir -p "$LOG_DIR"
 
 # PID 文件
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
+DATASERVICE_PID_FILE="$LOG_DIR/dataservice.pid"
 WORKER_PID_FILE="$LOG_DIR/worker.pid"
 LANGGRAPH_PID_FILE="$LOG_DIR/langgraph.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
@@ -125,6 +130,37 @@ for raw_line in path.read_text(encoding="utf-8").splitlines():
 PY
 }
 
+read_config_value() {
+    local key="$1"
+    local default_value="$2"
+    local env_value="${!key:-}"
+
+    if [ -n "$env_value" ]; then
+        printf '%s\n' "$env_value"
+        return 0
+    fi
+
+    local backend_value=""
+    if [ -f "$BACKEND_ENV_FILE" ]; then
+        backend_value=$(read_env_value "$BACKEND_ENV_FILE" "$key" || true)
+    fi
+    if [ -n "$backend_value" ]; then
+        printf '%s\n' "$backend_value"
+        return 0
+    fi
+
+    local root_value=""
+    if [ -f "$ROOT_ENV_FILE" ]; then
+        root_value=$(read_env_value "$ROOT_ENV_FILE" "$key" || true)
+    fi
+    if [ -n "$root_value" ]; then
+        printf '%s\n' "$root_value"
+        return 0
+    fi
+
+    printf '%s\n' "$default_value"
+}
+
 parse_database_url() {
     local database_url="$1"
 
@@ -193,11 +229,45 @@ print(parsed.path.lstrip("/") or "0")
 PY
 }
 
+apply_database_url_parts() {
+    local database_url="$1"
+    local parsed
+
+    parsed=$(parse_database_url "$database_url")
+    DB_USER=$(printf '%s\n' "$parsed" | sed -n '1p')
+    DB_PASS=$(printf '%s\n' "$parsed" | sed -n '2p')
+    DB_HOST=$(printf '%s\n' "$parsed" | sed -n '3p')
+    DB_PORT=$(printf '%s\n' "$parsed" | sed -n '4p')
+    DB_NAME=$(printf '%s\n' "$parsed" | sed -n '5p')
+
+    DB_USER="${DB_USER:-postgres}"
+    DB_PASS="${DB_PASS:-postgres}"
+    DB_HOST="${DB_HOST:-localhost}"
+    DB_PORT="${DB_PORT:-5432}"
+    DB_NAME="${DB_NAME:-wenjin}"
+}
+
+apply_redis_url_parts() {
+    local redis_url="$1"
+    local parsed
+
+    parsed=$(parse_redis_url "$redis_url")
+    REDIS_HOST=$(printf '%s\n' "$parsed" | sed -n '1p')
+    REDIS_PORT=$(printf '%s\n' "$parsed" | sed -n '2p')
+    REDIS_DB=$(printf '%s\n' "$parsed" | sed -n '3p')
+
+    REDIS_HOST="${REDIS_HOST:-localhost}"
+    REDIS_PORT="${REDIS_PORT:-6379}"
+    REDIS_DB="${REDIS_DB:-0}"
+}
+
 # 从 backend/.env 读取运行时连接配置
 load_runtime_config() {
     RUNTIME_DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/wenjin"
     RUNTIME_DATABASE_PSQL_URL="postgresql://postgres:postgres@localhost:5432/wenjin"
     RUNTIME_REDIS_URL="redis://localhost:6379/0"
+    RUNTIME_DATASERVICE_URL=$(read_config_value "DATASERVICE_URL" "http://localhost:8080")
+    RUNTIME_DATASERVICE_INTERNAL_TOKEN=$(read_config_value "DATASERVICE_INTERNAL_TOKEN" "change-me-in-production")
 
     DB_HOST="localhost"
     DB_PORT="5432"
@@ -209,59 +279,33 @@ load_runtime_config() {
     REDIS_PORT="6379"
     REDIS_DB="0"
 
-    if [ -f "$BACKEND_DIR/.env" ]; then
+    if [ -f "$BACKEND_ENV_FILE" ]; then
         local db_url
-        db_url=$(read_env_value "$BACKEND_DIR/.env" "DATABASE_URL" || true)
+        db_url=$(read_env_value "$BACKEND_ENV_FILE" "DATABASE_URL" || true)
         local redis_url
-        redis_url=$(read_env_value "$BACKEND_DIR/.env" "REDIS_URL" || true)
+        redis_url=$(read_env_value "$BACKEND_ENV_FILE" "REDIS_URL" || true)
 
         if [ -n "$db_url" ]; then
             RUNTIME_DATABASE_URL="$db_url"
             RUNTIME_DATABASE_PSQL_URL=$(to_psql_database_url "$db_url")
-            local db_parts=()
-            mapfile -t db_parts < <(parse_database_url "$db_url")
-            DB_USER="${db_parts[0]:-postgres}"
-            DB_PASS="${db_parts[1]:-postgres}"
-            DB_HOST="${db_parts[2]:-localhost}"
-            DB_PORT="${db_parts[3]:-5432}"
-            DB_NAME="${db_parts[4]:-wenjin}"
+            apply_database_url_parts "$db_url"
         fi
 
         if [ -n "$redis_url" ]; then
             RUNTIME_REDIS_URL="$redis_url"
-            local redis_parts=()
-            mapfile -t redis_parts < <(parse_redis_url "$redis_url")
-            REDIS_HOST="${redis_parts[0]:-localhost}"
-            REDIS_PORT="${redis_parts[1]:-6379}"
-            REDIS_DB="${redis_parts[2]:-0}"
-            REDIS_HOST=${REDIS_HOST:-localhost}
-            REDIS_PORT=${REDIS_PORT:-6379}
-            REDIS_DB=${REDIS_DB:-0}
+            apply_redis_url_parts "$redis_url"
         fi
     fi
 
     if [ -n "$RUNTIME_DATABASE_URL_OVERRIDE" ]; then
         RUNTIME_DATABASE_URL="$RUNTIME_DATABASE_URL_OVERRIDE"
         RUNTIME_DATABASE_PSQL_URL=$(to_psql_database_url "$RUNTIME_DATABASE_URL")
-        local override_db_parts=()
-        mapfile -t override_db_parts < <(parse_database_url "$RUNTIME_DATABASE_URL")
-        DB_USER="${override_db_parts[0]:-postgres}"
-        DB_PASS="${override_db_parts[1]:-postgres}"
-        DB_HOST="${override_db_parts[2]:-localhost}"
-        DB_PORT="${override_db_parts[3]:-5432}"
-        DB_NAME="${override_db_parts[4]:-wenjin}"
+        apply_database_url_parts "$RUNTIME_DATABASE_URL"
     fi
 
     if [ -n "$RUNTIME_REDIS_URL_OVERRIDE" ]; then
         RUNTIME_REDIS_URL="$RUNTIME_REDIS_URL_OVERRIDE"
-        local override_redis_parts=()
-        mapfile -t override_redis_parts < <(parse_redis_url "$RUNTIME_REDIS_URL")
-        REDIS_HOST="${override_redis_parts[0]:-localhost}"
-        REDIS_PORT="${override_redis_parts[1]:-6379}"
-        REDIS_DB="${override_redis_parts[2]:-0}"
-        REDIS_HOST=${REDIS_HOST:-localhost}
-        REDIS_PORT=${REDIS_PORT:-6379}
-        REDIS_DB=${REDIS_DB:-0}
+        apply_redis_url_parts "$RUNTIME_REDIS_URL"
     fi
 }
 
@@ -565,8 +609,8 @@ init_backend() {
 
     # 安装依赖
     if check_command uv; then
-        log_info "使用 uv 安装依赖..."
-        uv sync
+        log_info "使用 uv 安装依赖（包含本地开发/测试工具）..."
+        uv sync --dev --extra dev
     else
         log_info "使用 pip 安装依赖..."
         python3 -m venv .venv
@@ -621,6 +665,78 @@ init_frontend() {
 }
 
 # 启动 LangGraph 服务
+dataservice_ready_url() {
+    printf '%s/readyz\n' "${RUNTIME_DATASERVICE_URL%/}"
+}
+
+start_dataservice() {
+    load_runtime_config
+
+    if is_running "$DATASERVICE_PID_FILE"; then
+        if is_http_ready "$(dataservice_ready_url)"; then
+            log_warn "DataService 已在运行中 (PID: $(cat $DATASERVICE_PID_FILE))"
+            return 0
+        fi
+        log_warn "检测到 DataService 进程存在但健康检查失败，尝试重启..."
+        rm -f "$DATASERVICE_PID_FILE"
+    fi
+
+    if is_http_ready "$(dataservice_ready_url)"; then
+        log_warn "DataService 已在外部运行: $RUNTIME_DATASERVICE_URL"
+        return 0
+    fi
+
+    log_info "启动 DataService..."
+
+    cd "$BACKEND_DIR"
+
+    if check_command uv; then
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" PYTHONUNBUFFERED=1 \
+            uv run python -m uvicorn src.dataservice_app.app:app --host 0.0.0.0 --port 8080 > "$LOG_DIR/dataservice.log" 2>&1 &
+        echo $! > "$DATASERVICE_PID_FILE"
+    else
+        source .venv/bin/activate
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" PYTHONUNBUFFERED=1 \
+            python -m uvicorn src.dataservice_app.app:app --host 0.0.0.0 --port 8080 > "$LOG_DIR/dataservice.log" 2>&1 &
+        echo $! > "$DATASERVICE_PID_FILE"
+    fi
+
+    if is_running "$DATASERVICE_PID_FILE" && wait_for_service "$(dataservice_ready_url)" "DataService"; then
+        log_success "DataService 已启动 (PID: $(cat $DATASERVICE_PID_FILE))"
+        log_info "DataService 地址: $RUNTIME_DATASERVICE_URL"
+    else
+        log_error "DataService 启动失败，查看日志: $LOG_DIR/dataservice.log"
+        rm -f "$DATASERVICE_PID_FILE"
+        tail -n 80 "$LOG_DIR/dataservice.log" || true
+        return 1
+    fi
+}
+
+bootstrap_admin() {
+    load_runtime_config
+
+    local admin_email
+    local admin_password
+    local admin_name
+    admin_email=$(read_config_value "ADMIN_EMAIL" "admin@wenjin.ai")
+    admin_password=$(read_config_value "ADMIN_PASSWORD" "admin123")
+    admin_name=$(read_config_value "ADMIN_NAME" "Admin")
+
+    log_info "执行 bootstrap-admin..."
+
+    cd "$BACKEND_DIR"
+    if check_command uv; then
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" ADMIN_EMAIL="$admin_email" ADMIN_PASSWORD="$admin_password" ADMIN_NAME="$admin_name" \
+            uv run python -m src.database.bootstrap_admin
+    else
+        source .venv/bin/activate
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" ADMIN_EMAIL="$admin_email" ADMIN_PASSWORD="$admin_password" ADMIN_NAME="$admin_name" \
+            python -m src.database.bootstrap_admin
+    fi
+
+    log_success "bootstrap-admin 完成"
+}
+
 start_langgraph() {
     if is_running "$LANGGRAPH_PID_FILE"; then
         if is_http_ready "http://localhost:2024/info"; then
@@ -644,7 +760,7 @@ start_langgraph() {
     load_runtime_config
 
     # 使用 langgraph dev 启动本地开发服务（避免 langgraph up 的部署构建阻塞）
-    nohup env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" \
+    nohup env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" \
         uv run langgraph dev --no-browser --no-reload --host 0.0.0.0 --port 2024 --config langgraph.json \
         > "$LOG_DIR/langgraph.log" 2>&1 &
     echo $! > "$LANGGRAPH_PID_FILE"
@@ -663,7 +779,7 @@ start_langgraph() {
 # 启动后端
 start_backend() {
     if is_running "$BACKEND_PID_FILE"; then
-        if is_http_ready "http://localhost:8001/readyz"; then
+        if is_http_ready "http://localhost:8001/api/models?purpose=chat"; then
             log_warn "后端服务已在运行中 (PID: $(cat $BACKEND_PID_FILE))"
             return 0
         fi
@@ -678,15 +794,15 @@ start_backend() {
 
     if check_command uv; then
         # 启动 Gateway
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" uv run uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     else
         source .venv/bin/activate
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" uvicorn src.gateway.app:app --host 0.0.0.0 --port 8001 > "$LOG_DIR/backend.log" 2>&1 &
         echo $! > "$BACKEND_PID_FILE"
     fi
 
-    if is_running "$BACKEND_PID_FILE" && wait_for_service "http://localhost:8001/readyz" "后端服务"; then
+    if is_running "$BACKEND_PID_FILE" && wait_for_service "http://localhost:8001/api/models?purpose=chat" "后端服务"; then
         log_success "后端服务已启动 (PID: $(cat $BACKEND_PID_FILE))"
         log_info "后端地址: http://localhost:8001"
         log_info "API 文档: http://localhost:8001/docs"
@@ -711,13 +827,13 @@ start_worker() {
     load_runtime_config
 
     if check_command uv; then
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" PYTHONUNBUFFERED=1 \
-            uv run python -m src.task.worker > "$LOG_DIR/worker.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" PROMETHEUS_WORKER_PORT="${PROMETHEUS_WORKER_PORT:-9153}" PYTHONUNBUFFERED=1 \
+            uv run python -m src.task.worker 1 --queues long_running,default,priority > "$LOG_DIR/worker.log" 2>&1 &
         echo $! > "$WORKER_PID_FILE"
     else
         source .venv/bin/activate
-        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" PYTHONUNBUFFERED=1 \
-            python -m src.task.worker > "$LOG_DIR/worker.log" 2>&1 &
+        env DATABASE_URL="$RUNTIME_DATABASE_URL" REDIS_ENABLED=true REDIS_URL="$RUNTIME_REDIS_URL" CELERY_ENABLED=true CELERY_BROKER_URL="redis://${REDIS_HOST}:${REDIS_PORT}/1" CELERY_RESULT_BACKEND="redis://${REDIS_HOST}:${REDIS_PORT}/2" DATASERVICE_URL="$RUNTIME_DATASERVICE_URL" DATASERVICE_INTERNAL_TOKEN="$RUNTIME_DATASERVICE_INTERNAL_TOKEN" PROMETHEUS_WORKER_PORT="${PROMETHEUS_WORKER_PORT:-9153}" PYTHONUNBUFFERED=1 \
+            python -m src.task.worker 1 --queues long_running,default,priority > "$LOG_DIR/worker.log" 2>&1 &
         echo $! > "$WORKER_PID_FILE"
     fi
 
@@ -766,7 +882,7 @@ start_frontend() {
 stop_services() {
     log_info "停止所有服务..."
 
-    for pid_file in "$BACKEND_PID_FILE" "$WORKER_PID_FILE" "$LANGGRAPH_PID_FILE" "$FRONTEND_PID_FILE"; do
+    for pid_file in "$BACKEND_PID_FILE" "$WORKER_PID_FILE" "$LANGGRAPH_PID_FILE" "$DATASERVICE_PID_FILE" "$FRONTEND_PID_FILE"; do
         if [ -f "$pid_file" ]; then
             pid=$(cat "$pid_file")
             if ps -p "$pid" > /dev/null 2>&1; then
@@ -779,6 +895,7 @@ stop_services() {
 
     # 额外清理可能残留的进程
     pkill -f "uvicorn src.gateway" 2>/dev/null || true
+    pkill -f "uvicorn src.dataservice_app.app:app" 2>/dev/null || true
     pkill -f "python -m src.task.worker" 2>/dev/null || true
     pkill -f "langgraph api" 2>/dev/null || true
     pkill -f "langgraph up" 2>/dev/null || true
@@ -795,7 +912,19 @@ show_status() {
     echo "         问津 Wenjin 状态"
     echo "======================================"
 
-    if is_running "$BACKEND_PID_FILE" && is_http_ready "http://localhost:8001/readyz"; then
+    load_runtime_config
+
+    if is_running "$DATASERVICE_PID_FILE" && is_http_ready "$(dataservice_ready_url)"; then
+        echo -e "DataService:${GREEN} 运行中${NC} (PID: $(cat $DATASERVICE_PID_FILE))"
+        echo "           $RUNTIME_DATASERVICE_URL"
+    elif is_http_ready "$(dataservice_ready_url)"; then
+        echo -e "DataService:${GREEN} 外部运行中${NC}"
+        echo "           $RUNTIME_DATASERVICE_URL"
+    else
+        echo -e "DataService:${RED} 未运行${NC}"
+    fi
+
+    if is_running "$BACKEND_PID_FILE" && is_http_ready "http://localhost:8001/api/models?purpose=chat"; then
         echo -e "后端服务:   ${GREEN}运行中${NC} (PID: $(cat $BACKEND_PID_FILE))"
         echo "           http://localhost:8001"
     else
@@ -832,8 +961,9 @@ show_help() {
     echo "问津 Wenjin 启动脚本"
     echo ""
     echo "使用方法:"
-    echo "  ./start.sh              # 启动默认服务（后端+worker+前端）"
+    echo "  ./start.sh              # 启动默认服务（DataService+后端+worker+前端）"
     echo "  ./start.sh --init       # 仅初始化环境（不启动服务）"
+    echo "  ./start.sh --dataservice # 仅启动 DataService"
     echo "  ./start.sh --backend    # 仅启动后端"
     echo "  ./start.sh --worker     # 仅启动 worker"
     echo "  ./start.sh --langgraph  # 仅启动 LangGraph"
@@ -847,6 +977,8 @@ show_help() {
     echo "  SKIP_TEXLIVE_IMAGE_ENSURE=1  # 跳过自动准备 TeXLive 镜像"
     echo "  LOCAL_PGVECTOR_PORT=55432    # 本地 pgvector 兜底容器端口"
     echo "  LOCAL_REDIS_PORT=56379       # 本地 Redis 兜底容器端口"
+    echo "  DATASERVICE_URL=http://localhost:8080"
+    echo "  DATASERVICE_INTERNAL_TOKEN=... # 内部调用令牌"
 }
 
 # 查看日志
@@ -855,6 +987,9 @@ show_logs() {
     case "$service" in
         backend)
             tail -f "$LOG_DIR/backend.log"
+            ;;
+        dataservice)
+            tail -f "$LOG_DIR/dataservice.log"
             ;;
         worker)
             tail -f "$LOG_DIR/worker.log"
@@ -866,7 +1001,7 @@ show_logs() {
             tail -f "$LOG_DIR/langgraph.log"
             ;;
         *)
-            echo "可用日志: backend, worker, frontend, langgraph"
+            echo "可用日志: backend, dataservice, worker, frontend, langgraph"
             ;;
     esac
 }
@@ -915,16 +1050,25 @@ main() {
         --backend)
             init_backend
             ensure_texlive_image
+            start_dataservice
+            bootstrap_admin
             start_backend
+            ;;
+        --dataservice)
+            init_backend
+            start_dataservice
             ;;
         --worker)
             init_backend
             ensure_texlive_image
+            start_dataservice
+            bootstrap_admin
             start_worker
             ;;
         --langgraph)
             init_backend
             ensure_texlive_image
+            start_dataservice
             start_langgraph
             ;;
         --frontend)
@@ -936,8 +1080,10 @@ main() {
             init_backend
             init_frontend
             ensure_texlive_image
-            start_backend
+            start_dataservice
+            bootstrap_admin
             start_worker
+            start_backend
             start_frontend
             ;;
     esac

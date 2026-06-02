@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-更新时间：2026-05-20
+更新时间：2026-06-02
 
 本手册覆盖两条标准链路：
 
@@ -42,6 +42,8 @@ cp backend/.env.example backend/.env
 - backend 依赖安装与 migration bootstrap
 - frontend 依赖安装
 
+`--init` 不常驻启动 DataService；真实运行时由 `./start.sh` 或 `./start.sh --dataservice` 启动。
+
 ### 2.2 启动默认链路
 
 ```bash
@@ -50,9 +52,11 @@ cp backend/.env.example backend/.env
 
 默认会启动：
 
-1. Gateway：`http://localhost:8001`
-2. Worker：后台长任务执行进程
-3. Frontend：`http://localhost:3000`
+1. DataService：`http://localhost:8080`
+2. bootstrap-admin：幂等创建/升级管理员并 seed 模型目录、skills、agent templates、capabilities
+3. Worker：后台长任务执行进程
+4. Gateway：`http://localhost:8001`
+5. Frontend：`http://localhost:3000`
 
 可选调试：
 
@@ -66,6 +70,7 @@ cp backend/.env.example backend/.env
 
 ```bash
 ./start.sh --status
+./start.sh --logs dataservice
 ./start.sh --logs backend
 ./start.sh --logs worker
 ./start.sh --logs frontend
@@ -152,9 +157,12 @@ scripts/docker-build-push-images.sh junze0514 "$(git rev-parse --short HEAD)"
 
 1. `postgres` + `redis`
 2. `migrate`
-3. `gateway` + `worker`
-4. `frontend`
-5. `nginx`
+3. `dataservice`
+4. `bootstrap-admin`
+5. `worker`
+6. `gateway`
+7. `frontend`
+8. `nginx`
 
 监控组件：
 

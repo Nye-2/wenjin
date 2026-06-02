@@ -22,6 +22,7 @@ cd "$REPO_ROOT"
 
 ```bash
 ./start.sh --status
+./start.sh --logs dataservice
 ./start.sh --logs worker
 ./start.sh --logs backend
 ```
@@ -41,7 +42,8 @@ Compose 场景补充：
 1. 确认状态页里 `Worker` 为运行中。
 2. 检查 `backend/.env` 的 `REDIS_URL`、`DATASERVICE_INTERNAL_TOKEN`、`MODEL_SECRET_KEY` 和数据库连接。
 3. 进入管理员后台确认模型管理里至少有一个 enabled default LLM 模型，且该模型绑定了可用 API URL/API Key。
-4. 单独重启 worker：`./start.sh --worker`。
+4. 单独重启 DataService：`./start.sh --dataservice`。
+5. 单独重启 worker：`./start.sh --worker`。
 
 ## 2. Compose 启动后 API 不可用
 
