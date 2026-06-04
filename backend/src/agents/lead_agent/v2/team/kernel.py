@@ -44,6 +44,19 @@ from .quality_gates import evaluate_quality_gates
 
 logger = logging.getLogger(__name__)
 
+BLACKBOARD_ACCUMULATING_FIELDS = (
+    "confirmed_findings",
+    "evidence_items",
+    "citation_gaps",
+    "experiment_gaps",
+    "data_gaps",
+    "figure_table_requirements",
+    "writing_risks",
+    "format_risks",
+    "pending_decisions",
+    "rejected_claims",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class RecruitmentCandidate:
@@ -591,6 +604,7 @@ class TeamKernelRuntime:
                 invocation.output_report = result.output
                 invocation.tool_calls = result.tool_calls or []
                 invocation.token_usage = result.token_usage
+                self._merge_output_into_blackboard(blackboard, result.output)
                 blackboard.latest_leader_summary = self._preview_output(result.output)
         except Exception as exc:
             invocation.status = "failed"
@@ -718,15 +732,37 @@ class TeamKernelRuntime:
                     id=f"team-output-{invocation.id}",
                     kind="document",
                     preview=f"{invocation.display_name}: {content[:80]}",
-                    default_checked=True,
+                    default_checked=False,
                     data=DocumentData(
-                        name=f"{invocation.display_name}产出.md",
-                        doc_kind="team_member_report",
+                        name=f"{invocation.display_name}内部诊断.md",
+                        doc_kind="team_diagnostic_report",
                         content=content,
                     ),
                 )
             )
         return outputs
+
+    @staticmethod
+    def _merge_output_into_blackboard(blackboard: TeamBlackboard, output: Any) -> None:
+        if not isinstance(output, dict):
+            return
+        for field_name in BLACKBOARD_ACCUMULATING_FIELDS:
+            value = output.get(field_name)
+            if not isinstance(value, list) or not value:
+                continue
+            target = getattr(blackboard, field_name)
+            seen = {
+                json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+                for item in target
+            }
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                key = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+                if key in seen:
+                    continue
+                target.append(item)
+                seen.add(key)
 
     def _mapped_outputs_from_graph_template(
         self,

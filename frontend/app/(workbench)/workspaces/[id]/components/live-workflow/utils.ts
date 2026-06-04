@@ -12,57 +12,12 @@ import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import { extractTaskReport } from "@/lib/workbench-result-editing";
 import type { WorkbenchDraftEdit } from "@/stores/workbench-layout-store";
 
-import type { EvidenceItem } from "./types";
-
 export const TERMINAL_STATUSES = new Set([
   "completed",
   "failed_partial",
   "failed",
   "cancelled",
 ]);
-
-export function buildEvidenceItems(
-  record: ExecutionRecord | null,
-  previews: WorkspaceResultPreview[],
-): EvidenceItem[] {
-  if (!record) {
-    return [];
-  }
-  const outputItems: EvidenceItem[] = previews.map((preview) => ({
-    id: preview.id,
-    source: "output",
-    title: preview.title,
-    kind: preview.kind,
-    summary: [preview.subtitle, preview.previewText, ...preview.metadataLines]
-      .filter(Boolean)
-      .join(" · "),
-    preview,
-  }));
-  const graphNodes = record.graph_structure?.nodes ?? [];
-  const nodeById = new Map(graphNodes.map((node) => [node.id, node]));
-  const nodeItems: EvidenceItem[] = Object.entries(record.node_states ?? {})
-    .filter(([, state]) => Boolean(state.output || state.output_preview || state.tool_calls?.length))
-    .map(([nodeId, state]) => {
-      const node = nodeById.get(nodeId);
-      const output = state.output ?? {};
-      const title = node?.label ?? node?.task ?? nodeId;
-      const sandbox = buildSandboxSummary(state);
-      return {
-        id: `node:${nodeId}`,
-        source: "node",
-        title,
-        kind: sandbox ? "sandbox" : node?.type ?? "node",
-        summary:
-          sandbox?.join(" · ") ??
-          state.output_preview ??
-          readString((output as Record<string, unknown>).summary) ??
-          truncate(formatJsonPreview(output), 180),
-        nodeId,
-        nodeState: state,
-      };
-    });
-  return [...outputItems, ...nodeItems];
-}
 
 export function readReviewItems(record: ExecutionRecord | null): WorkspacePrismReviewItem[] {
   if (!record) {

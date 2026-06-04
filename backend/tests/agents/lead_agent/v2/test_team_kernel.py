@@ -54,6 +54,51 @@ class TeamSchemaRepairSubagent(SubagentBase):
         )
 
 
+@subagent("team_blackboard_probe")
+class TeamBlackboardProbeSubagent(SubagentBase):
+    calls: dict[str, int] = {}
+
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        key = f"{ctx.execution_id}:{ctx.invocation['template_id']}"
+        count = self.calls.get(key, 0) + 1
+        self.calls[key] = count
+        blackboard = ctx.inputs["team_blackboard"]
+        output = (
+            {
+                "summary": "first pass records evidence gaps but misses text",
+                "evidence_items": [
+                    {
+                        "source_id": f"source-{ctx.invocation['template_id']}",
+                        "claim_id": f"claim-{ctx.invocation['template_id']}",
+                    }
+                ],
+                "citation_gaps": [
+                    {
+                        "claim_id": f"claim-{ctx.invocation['template_id']}",
+                        "reason": "missing citation",
+                    }
+                ],
+                "writing_risks": [
+                    {"risk": f"unsupported comparison by {ctx.invocation['template_id']}"}
+                ],
+            }
+            if count == 1
+            else {
+                "text": (
+                    "blackboard "
+                    f"evidence={len(blackboard['evidence_items'])} "
+                    f"gaps={len(blackboard['citation_gaps'])} "
+                    f"risks={len(blackboard['writing_risks'])}"
+                )
+            }
+        )
+        return SubagentResult(
+            output=output,
+            tool_calls=[{"name": "team_blackboard_probe.run", "status": "completed"}],
+            token_usage={"input": 1, "output": 1},
+        )
+
+
 @subagent("team_mapping_fake")
 class TeamMappingFakeSubagent(SubagentBase):
     async def run(self, ctx: SubagentContext) -> SubagentResult:
@@ -306,6 +351,25 @@ class SchemaRepairTeamCatalogClient(SchemaRequiredTeamCatalogClient):
         ]
 
 
+class BlackboardProbeTeamCatalogClient(SchemaRequiredTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            CapabilitySkillPayload(
+                id=record.id,
+                display_name=record.display_name,
+                worker_type=record.worker_type,
+                subagent_type="team_blackboard_probe",
+                prompt=record.prompt,
+                config=record.config,
+                skill_json=record.skill_json,
+            )
+            for record in records
+        ]
+
+
 class MappingTeamCatalogClient(FakeTeamCatalogClient):
     async def list_catalog_skills(self, *, enabled_only: bool = True):
         from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
@@ -388,6 +452,13 @@ async def test_team_kernel_runtime_publishes_team_events_and_report(monkeypatch)
     assert "团队调研" in report.narrative
     assert report.token_usage == {"input": 6, "output": 10}
     assert any(event["node_type"] == "agent_invocation" for event in node_events)
+    assert report.outputs
+    assert all(output.default_checked is False for output in report.outputs)
+    assert all(
+        getattr(output.data, "doc_kind", "") == "team_diagnostic_report"
+        for output in report.outputs
+        if output.kind == "document"
+    )
 
 
 @pytest.mark.asyncio
@@ -862,6 +933,48 @@ async def test_team_kernel_runtime_does_not_fail_report_after_successful_revisio
         and gate["next_action"] == "revise_existing"
         for gate in quality_gates
     )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_merges_structured_blackboard_between_iterations(monkeypatch) -> None:
+    TeamBlackboardProbeSubagent.calls = {}
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: BlackboardProbeTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["limits"]["max_iterations"] = 2
+    cap.definition_json["team_policy"]["limits"]["max_invocations_total"] = 4
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-blackboard", brief=_brief())
+
+    completed_invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation"
+        and payload["invocation"]["status"] == "succeeded"
+    ]
+    revision_outputs = [
+        item["output_report"]["text"]
+        for item in completed_invocations
+        if item["iteration"] == 2 and "text" in item["output_report"]
+    ]
+    assert report.status == "completed"
+    assert revision_outputs
+    assert any("evidence=2 gaps=2 risks=2" in text for text in revision_outputs)
 
 
 @pytest.mark.asyncio

@@ -192,6 +192,42 @@ class TestParseOutput:
             "decision_candidates": [],
         }
 
+    def test_strict_evidence_schema_parse_failure_returns_contract_error(self):
+        result = _parse_output(
+            "plain model text with unsupported claims",
+            {
+                "quality_gates": ["claim_source_binding_checked"],
+                "io_contract": {
+                    "output_schema": {
+                        "type": "object",
+                        "required": [
+                            "text",
+                            "quality_gates_checked",
+                            "claim_evidence_map",
+                        ],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "quality_gates_checked": {"type": "array"},
+                            "claim_evidence_map": {"type": "array"},
+                        },
+                    }
+                },
+            },
+        )
+
+        assert result["text"] == "plain model text with unsupported claims"
+        assert result["quality_gates_checked"] == []
+        assert "claim_evidence_map" not in result
+        assert result["contract_error"] == {
+            "code": "invalid_structured_output",
+            "message": "Model output did not contain a JSON object for a strict quality contract.",
+            "required_fields": [
+                "text",
+                "quality_gates_checked",
+                "claim_evidence_map",
+            ],
+        }
+
     def test_runtime_output_config_prefers_resolved_quality_contract(self):
         base_config = {
             "quality_gates": ["skill_gate"],

@@ -123,6 +123,54 @@ def test_quality_gates_request_recruit_for_missing_sources() -> None:
     ]
 
 
+def test_quality_gates_fail_claim_binding_without_structured_evidence_map() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "critical_reviewer.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_source_binding_checked", "no_fabricated_citations"],
+        "acknowledgement_required_gates": [
+            "claim_source_binding_checked",
+            "no_fabricated_citations",
+        ],
+        "recruitment_hints": {"unsupported_claims": ["critical_reviewer.v1"]},
+    }
+    gates = evaluate_quality_gates(
+        ["evidence_traceability"],
+        [
+            _invocation(
+                template_id="critical_reviewer.v1",
+                output_report={
+                    "text": "Several claims look supported.",
+                    "quality_gates_checked": [
+                        "claim_source_binding_checked",
+                        "no_fabricated_citations",
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(
+            core_templates=["critical_reviewer.v1"],
+            optional_templates=["critical_reviewer.v1"],
+            recruitment_triggers={"unsupported_claims": ["critical_reviewer.v1"]},
+        ),
+        counts=Counter({"critical_reviewer.v1": 1}),
+        latest_invocations=[],
+    )
+
+    integrity_gate = next(
+        gate for gate in gates if gate.gate_id == "evidence_contract_integrity"
+    )
+    assert integrity_gate.status == "fail"
+    assert integrity_gate.severity == "high"
+    assert integrity_gate.next_action == "revise_existing"
+    assert integrity_gate.findings[0]["missing_fields"] == [
+        "claim_evidence_map or citation_key_audit",
+        "fabrication_risks",
+    ]
+
+
 def test_quality_gates_fail_direct_commit_tool_call() -> None:
     gates = evaluate_quality_gates(
         ["evidence_traceability"],

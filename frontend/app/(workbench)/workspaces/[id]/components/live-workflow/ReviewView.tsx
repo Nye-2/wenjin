@@ -32,6 +32,7 @@ export function ReviewView({
   commitLinks,
   commitError,
   reviewItems,
+  highRiskOutputIds,
   isFullscreen,
   onSelectPreview,
   onEnterDetailMode,
@@ -54,6 +55,7 @@ export function ReviewView({
   commitLinks: CommittedRoomLink[];
   commitError: string | null;
   reviewItems: WorkspacePrismReviewItem[];
+  highRiskOutputIds: string[];
   isFullscreen: boolean;
   onSelectPreview: (id: string) => void;
   onEnterDetailMode: () => void;
@@ -69,6 +71,11 @@ export function ReviewView({
     [previews],
   );
   const [activeKind, setActiveKind] = useState<string>("all");
+  const highRiskOutputIdSet = useMemo(
+    () => new Set(highRiskOutputIds),
+    [highRiskOutputIds],
+  );
+  const hasHighRiskOutputs = highRiskOutputIds.length > 0;
   const effectiveKind =
     activeKind === "all" || previewGroups.some((group) => group.kind === activeKind)
       ? activeKind
@@ -185,6 +192,7 @@ export function ReviewView({
                 <div style={styles.previewGroupList}>
                   {group.items.map((preview) => {
                     const selected = selectedPreview?.id === preview.id;
+                    const highRisk = highRiskOutputIdSet.has(preview.id);
                     return (
                       <div
                         key={preview.id}
@@ -229,6 +237,7 @@ export function ReviewView({
                         {draftEdits[preview.id] ? (
                           <Edit3 size={13} color="var(--v2-accent-purple-700)" />
                         ) : null}
+                        {highRisk ? <span style={styles.riskBadge}>高风险</span> : null}
                       </div>
                     );
                   })}
@@ -248,10 +257,17 @@ export function ReviewView({
             onAcceptSelected={onAcceptSelected}
             onDiscard={onDiscard}
             acceptAllLabel="全部接受"
+            acceptAllDisabled={hasHighRiskOutputs}
+            acceptAllTitle={hasHighRiskOutputs ? "存在证据或引用风险，需逐项确认后保存" : undefined}
             acceptSelectedLabel="保存已勾选"
             discardLabel="暂不保存"
             committedLabel="已写入工作区"
           />
+          {hasHighRiskOutputs ? (
+            <div style={styles.commitWarning}>
+              发现 {highRiskOutputIds.length} 个证据或引用高风险候选，已取消默认勾选并暂停一键全部接受。
+            </div>
+          ) : null}
           {commitError ? <div style={styles.commitError}>{commitError}</div> : null}
           {commitLinks.length > 0 ? (
             <div style={styles.linkWrap}>

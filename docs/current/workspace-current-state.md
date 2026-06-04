@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-06-02
+更新时间：2026-06-04
 状态：Current
 适用项目：`wenjin`
 
@@ -25,6 +25,7 @@
 6. `launch_feature` 的 `tool_result.status == "advisory"` 表示尚未进入执行链路；前端只展示补充信息提示，不设置 active run，也不打开 Current run
 7. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
 8. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
+9. 前端 chat store 按 workspace 隔离 message state；`messages` 只代表 active workspace projection，不得用一个 workspace 的历史阻止另一个 workspace seed / history load。
 
 ## 3. Capability 数据驱动
 
@@ -61,10 +62,12 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 5. SSE `execution.completed` 事件 → 前端 execution-store
 6. `useWorkspaceEventStream` 统一拥有 execution 发现和 execution stream 订阅，从 ExecutionRecord 提取 TaskReport → 构造 ResultCardData → chat store
 7. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item
-8. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
-9. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
-10. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
-11. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
+8. LiveWorkflowPanel Review / Evidence Ledger 通过 `useLiveWorkflowViewModel` 和 `evidence-ledger.ts` 投影候选结果、节点输出、claim/citation 审计项、sandbox trace 和高风险 output ids
+9. 低风险 output 遵守 `default_checked`；证据/引用/claim 高风险 output 默认不勾选，并禁用一键“全部接受”，用户仍可逐项确认后保存已勾选
+10. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
+11. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
+12. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
+13. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
 
 ## 5.1 Execution UX 当前收敛
 
@@ -74,8 +77,9 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 4. Runs toolbar 按钮显示运行中/已完成提示；Runs drawer 合并 live execution store 与 `/api/workspaces/{workspace_id}/runs` 历史记录
 5. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`
 6. Prism tab / result card / Runs drawer 在存在 review items 时显示 pending handoff；Prism review state 仍以 canonical `review_items` 为准
-7. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
-8. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
+7. Evidence Ledger 高风险提示只作为审阅投影；后端质量门槛仍由 Lead Agent quality gate、schema contract 和 Prism/commit 后端约束兜底
+8. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
+9. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
 
 ## 6. Prism 主稿协作面
 

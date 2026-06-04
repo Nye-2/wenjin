@@ -30,6 +30,8 @@ io_contract:
     required:
     - text
     - quality_gates_checked
+    - citation_key_audit
+    - fabrication_risks
     properties:
       text:
         type: string
@@ -49,18 +51,89 @@ io_contract:
         type: array
         items:
           type: object
+          required:
+          - claim_id
+          - citation_key
+          - status
+          - evidence_refs
+          properties:
+            claim_id:
+              type: string
+            claim_text:
+              type: string
+            citation_key:
+              type: string
+            status:
+              type: string
+              enum:
+              - supported
+              - weakly_supported
+              - unsupported
+              - contradicted
+              - missing_from_library
+              - not_needing_citation
+            evidence_refs:
+              type: array
+              items:
+                type: object
+                required:
+                - ref_type
+                - ref_id
+                properties:
+                  ref_type:
+                    type: string
+                  ref_id:
+                    type: string
+                  note:
+                    type: string
+            required_fix:
+              type: string
       missing_sources:
         type: array
         items:
           type: object
+          required:
+          - claim_id
+          - claim_text
+          - required_source
+          properties:
+            claim_id:
+              type: string
+            claim_text:
+              type: string
+            required_source:
+              type: string
+            suggested_query:
+              type: string
       fabrication_risks:
         type: array
         items:
           type: object
+          required:
+          - citation_key
+          - risk
+          - required_fix
+          properties:
+            citation_key:
+              type: string
+            risk:
+              type: string
+            required_fix:
+              type: string
+            severity:
+              type: string
       bibtex_projection_notes:
         type: array
         items:
           type: object
+          required:
+          - citation_key
+          - note
+          properties:
+            citation_key:
+              type: string
+            note:
+              type: string
 context_access:
   room_reads:
     library: summary

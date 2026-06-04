@@ -44,9 +44,19 @@ export function EvidenceView({
     return items.filter((item) => {
       if (filter === "outputs" && item.source !== "output") return false;
       if (filter === "nodes" && item.source !== "node") return false;
+      if (filter === "claims" && item.source !== "claim") return false;
+      if (filter === "citations" && item.source !== "citation") return false;
       if (filter === "sandbox" && !item.summary.toLowerCase().includes("sandbox") && item.kind !== "sandbox") return false;
       if (!q) return true;
-      return `${item.title} ${item.kind} ${item.summary}`.toLowerCase().includes(q);
+      return [
+        item.title,
+        item.kind,
+        item.summary,
+        item.claimStatus,
+        item.riskReason,
+        ...(item.citationKeys ?? []),
+        ...(item.evidenceRefs ?? []),
+      ].join(" ").toLowerCase().includes(q);
     });
   }, [filter, items, query]);
   const selected =
@@ -72,6 +82,8 @@ export function EvidenceView({
               ["all", "全部"],
               ["outputs", "候选结果"],
               ["nodes", "节点输出"],
+              ["claims", "论断"],
+              ["citations", "引用"],
               ["sandbox", "Sandbox"],
             ].map(([key, label]) => (
               <button
@@ -95,6 +107,8 @@ export function EvidenceView({
                 <tr>
                   <th style={styles.th}>包含</th>
                   <th style={styles.th}>类型</th>
+                  <th style={styles.th}>状态</th>
+                  <th style={styles.th}>引用</th>
                   <th style={styles.th}>标题 / 节点</th>
                   <th style={styles.th}>摘要</th>
                 </tr>
@@ -131,6 +145,14 @@ export function EvidenceView({
                       <td style={styles.td}>
                         <ResultKindBadge kind={item.kind} />
                       </td>
+                      <td style={styles.td}>
+                        <span style={item.riskLevel === "high" ? styles.riskBadge : styles.readOnlyMark}>
+                          {evidenceStatusLabel(item)}
+                        </span>
+                      </td>
+                      <td style={styles.tdMuted}>
+                        {(item.citationKeys ?? []).join(", ") || "-"}
+                      </td>
                       <td style={styles.tdStrong}>{item.title}</td>
                       <td style={styles.tdMuted}>{truncate(item.summary, 140)}</td>
                     </tr>
@@ -158,10 +180,55 @@ export function EvidenceView({
             node={{ id: selected.nodeId, type: selected.kind, label: selected.title }}
             state={selected.nodeState}
           />
+        ) : selected?.source === "claim" || selected?.source === "citation" ? (
+          <StructuredEvidenceDetail item={selected} />
         ) : (
           <EmptyState title="选择证据项" detail="可在这里编辑候选结果字段，或查看节点输出摘要。" compact />
         )}
       </aside>
+    </div>
+  );
+}
+
+function evidenceStatusLabel(item: EvidenceItem): string {
+  if (item.claimStatus) {
+    return item.claimStatus;
+  }
+  if (item.riskLevel === "high") {
+    return "高风险";
+  }
+  if (item.riskLevel === "warning") {
+    return "提醒";
+  }
+  return "已记录";
+}
+
+function StructuredEvidenceDetail({ item }: { item: EvidenceItem }) {
+  return (
+    <div style={styles.editorPanel}>
+      <div style={styles.sectionTitleSmall}>{item.title}</div>
+      <div style={styles.sectionSubtitle}>{item.summary}</div>
+      <div style={styles.linkWrap}>
+        <span style={item.riskLevel === "high" ? styles.riskBadge : styles.readOnlyMark}>
+          {evidenceStatusLabel(item)}
+        </span>
+        <ResultKindBadge kind={item.kind} />
+      </div>
+      {(item.citationKeys?.length ?? 0) > 0 ? (
+        <div style={styles.fieldLabel}>
+          引用键
+          <div style={styles.tdMuted}>{item.citationKeys?.join(", ")}</div>
+        </div>
+      ) : null}
+      {(item.evidenceRefs?.length ?? 0) > 0 ? (
+        <div style={styles.fieldLabel}>
+          证据引用
+          <div style={styles.tdMuted}>{item.evidenceRefs?.join(", ")}</div>
+        </div>
+      ) : null}
+      {item.riskReason ? (
+        <div style={styles.commitWarning}>{item.riskReason}</div>
+      ) : null}
     </div>
   );
 }

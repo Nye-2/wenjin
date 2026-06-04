@@ -123,10 +123,11 @@ export function LiveWorkflowPanel({
   const {
     records,
     selectedRecord,
-    baseOutputs,
     previews,
     reviewItems,
     evidenceItems,
+    defaultCheckedOutputIds,
+    highRiskOutputIds,
     outputSignature,
     selectedPreview,
     selectedDraft,
@@ -203,14 +204,8 @@ export function LiveWorkflowPanel({
   }, [evidenceItems.length, previews.length, reviewItems.length, selectedRecord, setAutoWorkbenchTab]);
 
   useEffect(() => {
-    setCheckedIds(
-      new Set(
-        baseOutputs
-          .filter((output) => output.default_checked !== false)
-          .map((output) => output.id),
-      ),
-    );
-  }, [baseOutputs, outputSignature]);
+    setCheckedIds(new Set(defaultCheckedOutputIds));
+  }, [defaultCheckedOutputIds, outputSignature]);
 
   useEffect(() => {
     if (previews.length === 0) {
@@ -514,6 +509,7 @@ export function LiveWorkflowPanel({
             commitLinks={commitState.links}
             commitError={commitState.error}
             reviewItems={reviewItems}
+            highRiskOutputIds={highRiskOutputIds}
             isFullscreen={isFullscreen}
             onSelectPreview={setSelectedPreviewId}
             onEnterDetailMode={() => setWorkbenchFullscreen(true)}

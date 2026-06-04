@@ -226,6 +226,62 @@ describe("chat store", () => {
     expect(useChatStoreV2.getState().currentAssistantId).toBeNull();
   });
 
+  it("loads history independently per workspace instead of reusing existing messages", async () => {
+    mockAuthorizedFetch
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "thread-a",
+            messages: [
+              {
+                id: "a-user",
+                role: "user",
+                content: "workspace A question",
+                created_at: "2026-01-01",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "thread-b",
+            messages: [
+              {
+                id: "b-user",
+                role: "user",
+                content: "workspace B question",
+                created_at: "2026-01-02",
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    useChatStoreV2.getState().setActiveWorkspace("ws-a");
+    await expect(useChatStoreV2.getState().loadHistory("ws-a")).resolves.toBe("thread-a");
+
+    useChatStoreV2.getState().setActiveWorkspace("ws-b");
+    await expect(useChatStoreV2.getState().loadHistory("ws-b")).resolves.toBe("thread-b");
+
+    expect(mockAuthorizedFetch).toHaveBeenCalledTimes(2);
+    expect(useChatStoreV2.getState().getWorkspaceMessages("ws-a")[0].blocks[0]).toEqual({
+      kind: "text",
+      content: "workspace A question",
+    });
+    expect(useChatStoreV2.getState().getWorkspaceMessages("ws-b")[0].blocks[0]).toEqual({
+      kind: "text",
+      content: "workspace B question",
+    });
+    expect(useChatStoreV2.getState().messages[0].blocks[0]).toEqual({
+      kind: "text",
+      content: "workspace B question",
+    });
+  });
+
   it("forwards seeded skill and orchestration metadata to thread creation and run launch", async () => {
     const encoder = new TextEncoder();
     mockAuthorizedFetch

@@ -10,6 +10,8 @@ interface CommitActionBarProps {
   acceptSelectedLabel?: string;
   discardLabel?: string;
   committedLabel?: string;
+  acceptAllDisabled?: boolean;
+  acceptAllTitle?: string;
 }
 
 export function CommitActionBar({
@@ -22,6 +24,8 @@ export function CommitActionBar({
   acceptSelectedLabel = "保存勾选项",
   discardLabel = "暂不保存",
   committedLabel = "已保存到工作区",
+  acceptAllDisabled = false,
+  acceptAllTitle,
 }: CommitActionBarProps) {
   if (committed) {
     return (
@@ -48,8 +52,12 @@ export function CommitActionBar({
       <button
         type="button"
         onClick={onAcceptAll}
-        disabled={committing}
-        style={primaryButton}
+        disabled={committing || acceptAllDisabled}
+        title={acceptAllTitle}
+        style={{
+          ...primaryButton,
+          ...(committing || acceptAllDisabled ? disabledButton : null),
+        }}
       >
         {acceptAllLabel}
       </button>
@@ -104,4 +112,9 @@ const ghostButton: React.CSSProperties = {
   fontSize: 12.5,
   fontWeight: 500,
   cursor: "pointer",
+};
+
+const disabledButton: React.CSSProperties = {
+  opacity: 0.48,
+  cursor: "not-allowed",
 };

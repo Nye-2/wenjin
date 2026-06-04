@@ -209,40 +209,47 @@ graph_template:
         script: |
           import json
 
-          # Deterministic communication-cost probe for federated LLM
-          # fine-tuning manuscripts. This is a method sanity check and
-          # should not be written as experimental evidence without real data.
-          base_params = 7_000_000_000
-          adapter_params = 16_000_000
-          bytes_per_param = 2
-          client_counts = [10, 50, 100]
-          round_counts = [20, 50]
-          scenarios = []
-          for clients in client_counts:
-              for rounds in round_counts:
-                  full_transfer = base_params * bytes_per_param * clients * rounds
-                  adapter_transfer = adapter_params * bytes_per_param * clients * rounds
-                  scenarios.append({
-                      "clients": clients,
-                      "rounds": rounds,
-                      "full_tuning_gb": round(full_transfer / (1024 ** 3), 2),
-                      "adapter_tuning_gb": round(adapter_transfer / (1024 ** 3), 2),
-                      "communication_reduction": round(full_transfer / adapter_transfer, 1),
-                  })
+          # Topic-generic method sanity probe. This produces a reproducibility
+          # checklist and lightweight validation plan from upstream context; it
+          # must not be written as empirical evidence until real data/code runs.
+          upstream = """{{phases}}"""
+          method_probe_plan = [
+              {
+                  "check": "assumption_inventory",
+                  "purpose": "List method assumptions that must be true for the manuscript claims.",
+                  "requires_user_or_data_confirmation": True,
+              },
+              {
+                  "check": "data_and_metric_fit",
+                  "purpose": "Identify datasets, metrics, baselines, and evaluation splits required by the research question.",
+                  "requires_user_or_data_confirmation": True,
+              },
+              {
+                  "check": "minimal_reproducibility_artifact",
+                  "purpose": "Define the smallest code, table, figure, or calculation needed to verify each quantitative claim.",
+                  "requires_user_or_data_confirmation": True,
+              },
+              {
+                  "check": "claim_boundary_review",
+                  "purpose": "Separate confirmed evidence, plausible design rationale, and claims that must stay marked as NEEDS_EVIDENCE.",
+                  "requires_user_or_data_confirmation": False,
+              },
+          ]
           print(json.dumps({
-              "probe": "federated_instruction_tuning_adapter_cost",
-              "scenarios": scenarios,
+              "probe": "topic_generic_method_probe",
+              "method_probe_plan": method_probe_plan,
               "required_user_confirmation": [
-                  "target model size",
-                  "adapter rank/trainable parameters",
-                  "client count and round budget",
-                  "dataset and evaluation protocol",
+                  "research objective and claim scope",
+                  "available dataset, benchmark, or source material",
+                  "evaluation metric and baseline requirements",
+                  "code/data availability constraints",
               ],
+              "upstream_context_chars": len(upstream),
               "claim_boundary": "Sandbox probe is a reproducibility scaffold, not final empirical evidence.",
           }, ensure_ascii=False))
       outputs:
       - kind: document
-        default_checked: true
+        default_checked: false
         mapping:
           name: SCI 方法沙盒探针.md
           doc_kind: analysis_report

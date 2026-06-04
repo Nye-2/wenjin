@@ -1,6 +1,6 @@
 # Capability and Skill Content Optimization
 
-Date: 2026-05-27
+Date: 2026-06-04
 
 This record explains the upgraded Wenjin capability/skill seed content. It is intentionally about content contracts and workflow shape, not a new framework.
 
@@ -122,6 +122,8 @@ Quality gates:
   - role-specific operating rules;
   - a reviewable output contract;
   - quality gates stored in seed config.
+- Claim / citation audit skills expose item-level schemas for `claim_evidence_map`, `citation_key_audit`, `unsupported_claims`, `fabrication_risks`, `missing_sources`, `required_fixes`, and `residual_risks`; these fields feed the Lead Agent quality gates and frontend Evidence Ledger.
+- SCI `research_question_to_paper` uses a topic-generic sandbox method probe instead of hardcoded domain-specific probes; deterministic probes should remain method/assumption oriented unless a capability explicitly declares a domain.
 - Hidden/internal sandbox smoke capability is left as a single deterministic sandbox workflow.
 
 ## Guardrails
@@ -132,3 +134,5 @@ Tests in `backend/tests/integration/test_capability_skill_seeds.py` now enforce:
 - downstream tasks receive rendered upstream phase outputs;
 - each workspace declares domain-specific quality gates;
 - every skill prompt has operating rules and an output contract.
+- claim/citation audit skills keep renderable structured item schemas.
+- visible SCI writing probes stay topic-generic rather than embedding one specific research domain.

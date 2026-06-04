@@ -16,6 +16,9 @@ import { useRunUiStore } from "@/stores/run-ui-store";
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
+const DEFAULT_WORKSPACE_KEY = "__default__";
+const EMPTY_MESSAGES: Message[] = [];
+
 export type ResultCardData = {
   execution_id: string;
   capability_name?: string;
@@ -109,13 +112,17 @@ type ChatEvent =
 // ── Store interface ─────────────────────────────────────────────────────────
 
 interface ChatState {
+  activeWorkspaceId: string | null;
+  messagesByWorkspace: Record<string, Message[]>;
   messages: Message[];
   currentAssistantId: string | null;
   isSending: boolean;
   /** Tracks assistant message IDs that have received their first post-stream
    *  block — subsequent finalize_block events append, the first one replaces. */
   finalizedMessageIds: Set<string>;
-  handleEvent(event: ChatEvent): void;
+  setActiveWorkspace(workspaceId: string): void;
+  getWorkspaceMessages(workspaceId: string): Message[];
+  handleEvent(event: ChatEvent, workspaceId?: string): void;
   loadHistory(workspaceId: string): Promise<string | null>;
   sendMessage(
     workspaceId: string,
@@ -194,15 +201,87 @@ function appendBlockWithoutDuplicate(blocks: Block[], block: Block): Block[] {
   return [...blocks, block];
 }
 
+function normalizeWorkspaceKey(workspaceId: string | null | undefined): string {
+  const trimmed = typeof workspaceId === "string" ? workspaceId.trim() : "";
+  return trimmed || DEFAULT_WORKSPACE_KEY;
+}
+
+function hasWorkspaceMessages(
+  messagesByWorkspace: Record<string, Message[]>,
+  workspaceKey: string,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(messagesByWorkspace, workspaceKey);
+}
+
+function readWorkspaceMessages(state: ChatState, workspaceId: string): Message[] {
+  const workspaceKey = normalizeWorkspaceKey(workspaceId);
+  if (hasWorkspaceMessages(state.messagesByWorkspace, workspaceKey)) {
+    return state.messagesByWorkspace[workspaceKey];
+  }
+  if (!state.activeWorkspaceId || state.activeWorkspaceId === workspaceId) {
+    return state.messages;
+  }
+  return EMPTY_MESSAGES;
+}
+
+function syncActiveMessages(
+  state: ChatState,
+  messages: Message[],
+): Pick<ChatState, "messages" | "messagesByWorkspace"> {
+  const workspaceKey = normalizeWorkspaceKey(state.activeWorkspaceId);
+  return {
+    messages,
+    messagesByWorkspace: {
+      ...state.messagesByWorkspace,
+      [workspaceKey]: messages,
+    },
+  };
+}
+
 // ── Store implementation ────────────────────────────────────────────────────
 
 export const useChatStoreV2 = create<ChatState>((set, get) => ({
+  activeWorkspaceId: null,
+  messagesByWorkspace: {},
   messages: [],
   currentAssistantId: null,
   isSending: false,
   finalizedMessageIds: new Set<string>(),
 
-  handleEvent(event: ChatEvent) {
+  setActiveWorkspace(workspaceId: string) {
+    const workspaceKey = normalizeWorkspaceKey(workspaceId);
+    set((state) => {
+      const currentKey = normalizeWorkspaceKey(state.activeWorkspaceId);
+      const messagesByWorkspace = { ...state.messagesByWorkspace };
+      if (state.activeWorkspaceId || state.messages.length > 0) {
+        messagesByWorkspace[currentKey] = state.messages;
+      }
+      const shouldPromoteCurrentMessages =
+        !state.activeWorkspaceId &&
+        state.messages.length > 0 &&
+        !hasWorkspaceMessages(messagesByWorkspace, workspaceKey);
+      const nextMessages = shouldPromoteCurrentMessages
+        ? state.messages
+        : messagesByWorkspace[workspaceKey] ?? [];
+      if (shouldPromoteCurrentMessages) {
+        messagesByWorkspace[workspaceKey] = nextMessages;
+      }
+      return {
+        activeWorkspaceId: workspaceId,
+        messages: nextMessages,
+        messagesByWorkspace,
+      };
+    });
+  },
+
+  getWorkspaceMessages(workspaceId: string) {
+    return readWorkspaceMessages(get(), workspaceId);
+  },
+
+  handleEvent(event: ChatEvent, workspaceId?: string) {
+    if (workspaceId) {
+      get().setActiveWorkspace(workspaceId);
+    }
     switch (event.type) {
       // ── User message ──────────────────────────────────────────────────
       case "chat.user.message": {
@@ -221,7 +300,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               : undefined,
         };
 
-        set((state) => ({ messages: [...state.messages, message] }));
+        set((state) => syncActiveMessages(state, [...state.messages, message]));
         break;
       }
 
@@ -235,7 +314,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
         };
 
         set((state) => ({
-          messages: [...state.messages, message],
+          ...syncActiveMessages(state, [...state.messages, message]),
           currentAssistantId: event.data.message_id,
         }));
         break;
@@ -263,7 +342,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             };
             const updatedMessages = [...state.messages];
             updatedMessages[idx] = { ...msg, blocks: updatedBlocks };
-            return { messages: updatedMessages };
+            return syncActiveMessages(state, updatedMessages);
           }
 
           // Otherwise create a new thinking block — preserves arrival order
@@ -275,7 +354,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               { kind: "thinking", content: event.delta },
             ],
           };
-          return { messages: updatedMessages };
+          return syncActiveMessages(state, updatedMessages);
         });
         break;
       }
@@ -305,7 +384,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             };
             const updatedMessages = [...state.messages];
             updatedMessages[idx] = { ...msg, blocks: updatedBlocks };
-            return { messages: updatedMessages };
+            return syncActiveMessages(state, updatedMessages);
           }
 
           const updatedMessages = [...state.messages];
@@ -313,7 +392,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             ...msg,
             blocks: [...msg.blocks, event.block],
           };
-          return { messages: updatedMessages };
+          return syncActiveMessages(state, updatedMessages);
         });
         break;
       }
@@ -346,6 +425,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             newFinalized.add(currentAssistantId);
             return {
               messages: updatedMessages,
+              messagesByWorkspace: {
+                ...state.messagesByWorkspace,
+                [normalizeWorkspaceKey(state.activeWorkspaceId)]: updatedMessages,
+              },
               finalizedMessageIds: newFinalized,
             };
           }
@@ -355,7 +438,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             ...msg,
             blocks: appendBlockWithoutDuplicate(msg.blocks, event.block),
           };
-          return { messages: updatedMessages };
+          return syncActiveMessages(state, updatedMessages);
         });
         break;
       }
@@ -379,7 +462,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               { kind: "tool_invocation", data: event.data },
             ],
           };
-          return { messages: updatedMessages };
+          return syncActiveMessages(state, updatedMessages);
         });
         break;
       }
@@ -423,7 +506,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             metadata,
             blocks: [...msg.blocks, { kind: "tool_result", data: event.data }],
           };
-          return { messages: updatedMessages };
+          return syncActiveMessages(state, updatedMessages);
         });
         break;
       }
@@ -461,7 +544,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               { kind: "result_card", data: event.data },
             ],
           };
-          return { messages: updatedMessages };
+          return syncActiveMessages(state, updatedMessages);
         });
         break;
       }
@@ -473,6 +556,8 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
   reset() {
     set({
+      activeWorkspaceId: null,
+      messagesByWorkspace: {},
       messages: [],
       currentAssistantId: null,
       finalizedMessageIds: new Set<string>(),
@@ -480,8 +565,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   },
 
   async loadHistory(workspaceId: string): Promise<string | null> {
-    const { messages } = get();
-    if (messages.length > 0) return null; // already loaded
+    const workspaceKey = normalizeWorkspaceKey(workspaceId);
+    const state = get();
+    const existingMessages = readWorkspaceMessages(state, workspaceId);
+    if (existingMessages.length > 0) return null; // already loaded for this workspace
 
     try {
       const res = await authorizedFetch(
@@ -502,7 +589,20 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               ? (m.metadata as Record<string, unknown>)
               : undefined,
         }));
-        set({ messages: loaded });
+        set((current) => {
+          const messagesByWorkspace = {
+            ...current.messagesByWorkspace,
+            [workspaceKey]: loaded,
+          };
+          if (current.activeWorkspaceId === workspaceId || !current.activeWorkspaceId) {
+            return {
+              activeWorkspaceId: workspaceId,
+              messages: loaded,
+              messagesByWorkspace,
+            };
+          }
+          return { messagesByWorkspace };
+        });
       }
       return thread.id as string;
     } catch {
@@ -518,6 +618,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
   ) {
     const { isSending } = get();
     if (isSending || !content.trim()) return;
+    get().setActiveWorkspace(workspaceId);
     set({ isSending: true });
     let launchedResult: SendMessageResult | null = null;
 
@@ -552,7 +653,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       const threadId = thread.id;
 
       // Load existing messages if store is empty (first call after page load)
-      if (get().messages.length === 0 && thread.messages?.length > 0) {
+      if (get().getWorkspaceMessages(workspaceId).length === 0 && thread.messages?.length > 0) {
         const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => ({
           id: (m.id as string) || crypto.randomUUID(),
           role: (m.role as "user" | "assistant" | "system") || "assistant",
@@ -563,7 +664,9 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               ? (m.metadata as Record<string, unknown>)
               : undefined,
         }));
-        set({ messages: loaded });
+        set((state) => ({
+          ...syncActiveMessages(state, loaded),
+        }));
       }
 
       // Create assistant placeholder

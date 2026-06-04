@@ -9,7 +9,7 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 - **Two-agent topology**: Chat Agent (left panel, conversation/intent) + Lead Agent (right panel, runs LangGraph subagents). 1:1 mapping, lead-busy blocks new dispatches.
 - **8 workspace rooms**: Library, Documents, Decisions, Memory, Run History, Sandbox, Tasks, Settings — isolated data layer per workspace.
 - **Capability data-driven**: YAML seed + DB-backed capabilities. Admin can edit at runtime. No draft/review cycle — lead agent has runtime discretion.
-- **Curated result_card flow**: Execution outputs staged → user reviews via checkboxes → commit writes to rooms. Default all-checked + one-click "全部接受".
+- **Curated result_card flow**: Execution outputs staged → user reviews via checkboxes → commit writes to rooms. Low-risk outputs default checked + one-click "全部接受"; evidence/citation/claim high-risk outputs are unchecked by default and disable one-click accept-all until manually reviewed.
 - **Block protocol**: 7 block types — `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, `tool_result`. Blocks stored in arrival order (thinking never prepended).
 - **Execution UX projection**: Chat launch receipt, LiveWorkflowPanel Current run, and Runs drawer share `frontend/lib/execution-run-view.ts`; `run-ui-store` only tracks UI focus/badges.
 - **Frontend workspace UI**: Glass/visionOS design language. Left minimal white chat (ChatGPT-style) + right glassmorphism panel with purple/blue light orbs. `--v2-*` CSS tokens.
@@ -34,6 +34,7 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 | Execution store | `frontend/stores/execution-store.ts` |
 | Run view projection | `frontend/lib/execution-run-view.ts` |
 | Run UI focus store | `frontend/stores/run-ui-store.ts` |
+| Evidence ledger projection | `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/evidence-ledger.ts` |
 | Chat panel | `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx` |
 | Workflow panel | `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx` |
 | CSS variables (v2) | `frontend/app/globals.css` (`--v2-*` tokens) |

@@ -20,6 +20,12 @@ from ..registry import subagent
 
 logger = logging.getLogger(__name__)
 
+STRICT_EVIDENCE_QUALITY_GATES = {
+    "claim_evidence_map_required",
+    "claim_source_binding_checked",
+    "no_fabricated_citations",
+}
+
 
 # ---------------------------------------------------------------------------
 # Pure helper functions (testable without LLM)
@@ -148,6 +154,20 @@ def _schema_fallback_output(
     output_schema: dict[str, Any],
     config: dict[str, Any],
 ) -> dict[str, Any]:
+    if _requires_strict_structured_output(config):
+        required_fields = _schema_required_fields(output_schema)
+        return {
+            "text": final_text,
+            "quality_gates_checked": [],
+            "contract_error": {
+                "code": "invalid_structured_output",
+                "message": (
+                    "Model output did not contain a JSON object for a strict "
+                    "quality contract."
+                ),
+                "required_fields": required_fields,
+            },
+        }
     properties = output_schema.get("properties")
     if not isinstance(properties, dict):
         properties = {}
@@ -157,6 +177,10 @@ def _schema_fallback_output(
     if "text" not in output:
         output["text"] = final_text
     return output
+
+
+def _requires_strict_structured_output(config: dict[str, Any]) -> bool:
+    return bool(set(_string_list(config.get("quality_gates"))) & STRICT_EVIDENCE_QUALITY_GATES)
 
 
 def _schema_required_fields(output_schema: dict[str, Any]) -> list[str]:

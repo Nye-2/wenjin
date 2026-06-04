@@ -12,6 +12,9 @@ import type { WorkbenchDraftEdit, WorkbenchTab } from "@/stores/workbench-layout
 import type { EvidenceItem } from "./types";
 import {
   buildEvidenceItems,
+  buildHighRiskOutputIds,
+} from "./evidence-ledger";
+import {
   isTerminalStatus,
   readReviewItems,
 } from "./utils";
@@ -34,6 +37,8 @@ export interface LiveWorkflowViewModel {
   previews: WorkspaceResultPreview[];
   reviewItems: WorkspacePrismReviewItem[];
   evidenceItems: EvidenceItem[];
+  defaultCheckedOutputIds: string[];
+  highRiskOutputIds: string[];
   outputSignature: string;
   selectedPreview: WorkspaceResultPreview | null;
   selectedDraft: WorkbenchDraftEdit | undefined;
@@ -133,8 +138,16 @@ export function buildLiveWorkflowViewModel(
   const previews = buildWorkspaceResultPreviewsFromOutputs(editedOutputs);
   const reviewItems = readReviewItems(selectedRecord);
   const evidenceItems = buildEvidenceItems(selectedRecord, previews);
+  const highRiskOutputIds = buildHighRiskOutputIds(selectedRecord, previews);
+  const highRiskOutputIdSet = new Set(highRiskOutputIds);
+  const defaultCheckedOutputIds = baseOutputs
+    .filter((output) => output.default_checked !== false && !highRiskOutputIdSet.has(output.id))
+    .map((output) => output.id);
   const outputSignature = baseOutputs
-    .map((output) => `${output.id}:${output.default_checked !== false}`)
+    .map((output) => {
+      const risk = highRiskOutputIdSet.has(output.id) ? "risk" : "ok";
+      return `${output.id}:${output.default_checked !== false}:${risk}`;
+    })
     .join("|");
   const selectedPreview =
     previews.find((preview) => preview.id === input.selectedPreviewId) ??
@@ -156,6 +169,8 @@ export function buildLiveWorkflowViewModel(
     previews,
     reviewItems,
     evidenceItems,
+    defaultCheckedOutputIds,
+    highRiskOutputIds,
     outputSignature,
     selectedPreview,
     selectedDraft: selectedPreview ? input.draftEdits[selectedPreview.id] : undefined,

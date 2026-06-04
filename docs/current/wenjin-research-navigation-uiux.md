@@ -1,6 +1,6 @@
 # Wenjin Research Navigation UIUX
 
-更新时间：2026-05-29
+更新时间：2026-06-04
 
 Wenjin keeps the name, but the product interface should move from decorative glass toward an evidence-first research navigation system.
 
@@ -30,8 +30,8 @@ Wenjin is a research and writing workbench for Chinese academic, software copyri
 ## Signature Components
 
 - Trace Rail: current objective, node states, timing, tool/sandbox summaries, and artifact links.
-- Evidence Ledger: literature, uploaded files, experiment results, and agent-derived evidence in one filterable surface.
-- Review Queue: staged outputs, Prism file changes, accepted/rejected state, write links, and rollback affordances.
+- Evidence Ledger: literature, uploaded files, experiment results, claim/citation audit rows, sandbox trace, and agent-derived evidence in one filterable surface.
+- Review Queue: staged outputs, Prism file changes, accepted/rejected state, high-risk review state, write links, and rollback affordances.
 
 ## Interaction Density Rules
 
