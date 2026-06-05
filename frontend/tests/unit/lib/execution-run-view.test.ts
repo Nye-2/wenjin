@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ExecutionRecord } from "@/lib/api/types";
 import {
+  buildRunProgressItems,
   mergeRunViews,
   runViewFromExecution,
   runViewFromResultCard,
@@ -57,6 +58,18 @@ describe("execution run view projection", () => {
     expect(view.completedNodeCount).toBe(1);
     expect(view.tokenUsage).toEqual({ input: 3, output: 5 });
     expect(view.actions).toContain("open_live");
+  });
+
+  it("humanizes technical capability ids when a run has no display name", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        display_name: null,
+        feature_id: "sci_literature_positioning",
+      }),
+    );
+
+    expect(view.title).toBe("文献定位与创新点");
+    expect(view.title).not.toContain("sci_literature_positioning");
   });
 
   it("detects Prism changes from completed execution review items", () => {
@@ -181,6 +194,135 @@ describe("execution run view projection", () => {
         },
       ],
     });
+  });
+
+  it("humanizes technical graph nodes for the default run progress view", () => {
+    const progressItems = buildRunProgressItems(
+      makeExecution({
+        graph_structure: {
+          nodes: [
+            {
+              id: "step_02_literature_synthesizer",
+              type: "agent_invocation",
+              phase: "synthesis",
+              task: "literature_synthesizer",
+            },
+          ],
+          edges: [],
+        },
+        node_states: {
+          step_02_literature_synthesizer: {
+            status: "running",
+            node_type: "agent_invocation",
+            thinking: "正在把检索结果整理成主题矩阵。",
+          },
+        },
+      }),
+    );
+
+    expect(progressItems[0]).toMatchObject({
+      id: "step_02_literature_synthesizer",
+      title: "文献综合专家",
+      phaseTitle: "文献综合",
+      technicalName: "step_02_literature_synthesizer",
+    });
+    expect(progressItems[0].title).not.toContain("literature_synthesizer");
+    expect(progressItems[0].phaseTitle).not.toBe("synthesis");
+  });
+
+  it("uses user-facing team names when metadata only has a template id", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [],
+          edges: [],
+        } as ExecutionRecord["graph_structure"],
+        node_states: {
+          "literature_synthesizer.v1__1": {
+            status: "running",
+            node_type: "agent_invocation",
+            node_metadata: {
+              team: true,
+              template_id: "literature_synthesizer.v1",
+            },
+          },
+          "research_scholar.v1__1": {
+            status: "pending",
+            node_type: "agent_invocation",
+            node_metadata: {
+              team: true,
+              template_id: "research_scholar.v1",
+            },
+          },
+        } as ExecutionRecord["node_states"],
+      }),
+    );
+
+    expect(view.team?.members[0]?.displayName).toBe("文献综合专家");
+    expect(view.team?.members[0]?.displayName).not.toContain("literature_synthesizer");
+    expect(view.team?.members[1]?.displayName).toBe("文献专家");
+    expect(view.team?.members[1]?.displayName).not.toContain("research_scholar");
+  });
+
+  it("orders team members by graph node order instead of node state key order", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [
+            {
+              id: "step_01_research_scholar",
+              type: "agent_invocation",
+              task: "research_scholar",
+            },
+            {
+              id: "step_02_literature_synthesizer",
+              type: "agent_invocation",
+              task: "literature_synthesizer",
+            },
+            {
+              id: "step_03_quality_reviewer",
+              type: "agent_invocation",
+              task: "quality_reviewer",
+            },
+          ],
+          edges: [],
+        } as ExecutionRecord["graph_structure"],
+        node_states: {
+          step_03_quality_reviewer: {
+            status: "pending",
+            node_type: "agent_invocation",
+            node_metadata: {
+              team: true,
+              template_id: "quality_reviewer.v1",
+            },
+          },
+          step_01_research_scholar: {
+            status: "completed",
+            node_type: "agent_invocation",
+            node_metadata: {
+              team: true,
+              template_id: "research_scholar.v1",
+            },
+          },
+          step_02_literature_synthesizer: {
+            status: "running",
+            node_type: "agent_invocation",
+            node_metadata: {
+              team: true,
+              template_id: "literature_synthesizer.v1",
+            },
+          },
+        } as ExecutionRecord["node_states"],
+      }),
+    );
+
+    expect(view.team?.members.map((member) => member.displayName)).toEqual([
+      "文献专家",
+      "文献综合专家",
+      "质量审阅专家",
+    ]);
   });
 
   it("projects historical run records", () => {

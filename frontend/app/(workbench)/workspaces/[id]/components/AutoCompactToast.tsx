@@ -47,19 +47,19 @@ export function AutoCompactToast({
         transform: "translateX(-50%)",
         zIndex: 1000,
         padding: "12px 20px",
-        borderRadius: "var(--v2-radius-lg)",
+        borderRadius: "var(--wjn-radius-lg)",
         background: "rgba(255, 255, 255, 0.92)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         boxShadow: "0 8px 32px rgba(20, 20, 30, 0.12)",
-        border: "1px solid var(--v2-glass-border)",
+        border: "1px solid var(--wjn-line)",
         display: "flex",
         alignItems: "center",
         gap: 12,
-        fontFamily: "var(--v2-font-sans)",
+        fontFamily: "var(--wjn-font-sans)",
         fontSize: 13.5,
-        color: "var(--v2-text-primary)",
-        animation: "v2-glass-in 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+        color: "var(--wjn-text)",
+        animation: "wjn-panel-in 200ms cubic-bezier(0.16, 1, 0.3, 1)",
       }}
     >
       {done ? (
@@ -75,14 +75,14 @@ export function AutoCompactToast({
             disabled={compacting}
             style={{
               padding: "6px 14px",
-              borderRadius: "var(--v2-radius-sm)",
+              borderRadius: "var(--wjn-radius)",
               border: "none",
-              background: "var(--v2-accent-purple-700)",
+              background: "var(--wjn-blue)",
               color: "white",
               fontSize: 13,
               fontWeight: 500,
               cursor: compacting ? "wait" : "pointer",
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
             }}
           >
             {compacting ? "压缩中..." : "压缩"}
@@ -91,13 +91,13 @@ export function AutoCompactToast({
             onClick={onDismiss}
             style={{
               padding: "6px 10px",
-              borderRadius: "var(--v2-radius-sm)",
-              border: "1px solid var(--v2-border-default)",
+              borderRadius: "var(--wjn-radius)",
+              border: "1px solid var(--wjn-line)",
               background: "transparent",
-              color: "var(--v2-text-secondary)",
+              color: "var(--wjn-text-secondary)",
               fontSize: 13,
               cursor: "pointer",
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
             }}
           >
             稍后

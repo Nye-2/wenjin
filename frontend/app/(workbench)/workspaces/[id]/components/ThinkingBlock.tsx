@@ -40,9 +40,9 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
           background: "transparent",
           cursor: "pointer",
           fontSize: 12,
-          color: "var(--v2-text-tertiary)",
-          borderRadius: "var(--v2-radius-sm)",
-          fontFamily: "var(--v2-font-sans)",
+          color: "var(--wjn-text-muted)",
+          borderRadius: "var(--wjn-radius)",
+          fontFamily: "var(--wjn-font-sans)",
         }}
       >
         <span
@@ -61,8 +61,8 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
           style={{
             padding: "8px 12px",
             marginLeft: 12,
-            borderLeft: "2px solid var(--v2-border-default)",
-            color: "var(--v2-text-tertiary)",
+            borderLeft: "2px solid var(--wjn-line)",
+            color: "var(--wjn-text-muted)",
             fontSize: 12.5,
             lineHeight: 1.5,
             whiteSpace: "pre-wrap",

@@ -87,6 +87,24 @@ function withAuthorizationHeader(
 
 let refreshPromise: Promise<boolean> | null = null;
 
+export function normalizeAuthorizedFetchInput(
+  input: RequestInfo | URL
+): RequestInfo | URL {
+  if (typeof input !== "string") {
+    return input;
+  }
+
+  if (input === "/api") {
+    return API_BASE_URL;
+  }
+
+  if (input.startsWith("/api/") || input.startsWith("/api?")) {
+    return `${API_BASE_URL}${input.slice(4)}`;
+  }
+
+  return input;
+}
+
 async function refreshSession(): Promise<boolean> {
   if (typeof window === "undefined") {
     return false;
@@ -119,12 +137,13 @@ export async function authorizedFetch(
   options: { retryOn401?: boolean } = {}
 ): Promise<Response> {
   const { retryOn401 = true } = options;
+  const requestInput = normalizeAuthorizedFetchInput(input);
   const requestInit: RequestInit = {
     ...init,
     headers: withAuthorizationHeader(init.headers, getAccessToken()),
   };
 
-  let response = await fetch(input, requestInit);
+  let response = await fetch(requestInput, requestInit);
   if (!retryOn401 || response.status !== 401 || typeof window === "undefined") {
     return response;
   }
@@ -134,7 +153,7 @@ export async function authorizedFetch(
     return response;
   }
 
-  response = await fetch(input, {
+  response = await fetch(requestInput, {
     ...init,
     headers: withAuthorizationHeader(init.headers, getAccessToken()),
   });

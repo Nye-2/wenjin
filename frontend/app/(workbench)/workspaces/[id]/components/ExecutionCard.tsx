@@ -35,11 +35,11 @@ function deriveCardStatus(record: ExecutionRecord): CardStatus {
 
 function StatusIcon({ status }: { status: CardStatus }) {
   const config: Record<CardStatus, { symbol: string; color: string; animate: boolean }> = {
-    completed: { symbol: "✓", color: "var(--v2-status-success-deep)", animate: false },
+    completed: { symbol: "✓", color: "var(--wjn-success)", animate: false },
     partial: { symbol: "!", color: "var(--semantic-warning)", animate: false },
-    running: { symbol: "⟳", color: "var(--v2-accent-purple-700)", animate: true },
-    failed: { symbol: "✕", color: "var(--v2-status-error)", animate: false },
-    cancelled: { symbol: "×", color: "var(--v2-text-tertiary)", animate: false },
+    running: { symbol: "⟳", color: "var(--wjn-blue)", animate: true },
+    failed: { symbol: "✕", color: "var(--wjn-error)", animate: false },
+    cancelled: { symbol: "×", color: "var(--wjn-text-muted)", animate: false },
   };
   const { symbol, color, animate } = config[status];
 
@@ -58,15 +58,15 @@ function StatusIcon({ status }: { status: CardStatus }) {
             : status === "partial"
               ? "rgba(198, 138, 26, 0.12)"
             : status === "running"
-              ? "var(--v2-accent-purple-100)"
+              ? "var(--wjn-accent-soft)"
               : status === "failed"
                 ? "rgba(220, 38, 38, 0.1)"
                 : "rgba(20, 20, 30, 0.06)",
         color,
         fontSize: status === "running" ? 18 : 16,
         fontWeight: 700,
-        fontFamily: "var(--v2-font-sans)",
-        animation: animate ? "v2-pulse-soft 1.6s ease-in-out infinite" : "none",
+        fontFamily: "var(--wjn-font-sans)",
+        animation: animate ? "wjn-pulse-soft 1.6s ease-in-out infinite" : "none",
         flexShrink: 0,
       }}
     >
@@ -82,7 +82,7 @@ function StatusBadge({ status }: { status: CardStatus }) {
     completed: {
       label: "Completed",
       bg: "rgba(74, 222, 128, 0.12)",
-      color: "var(--v2-status-success-deep)",
+      color: "var(--wjn-success)",
     },
     partial: {
       label: "Partial",
@@ -91,18 +91,18 @@ function StatusBadge({ status }: { status: CardStatus }) {
     },
     running: {
       label: "Running",
-      bg: "var(--v2-accent-purple-100)",
-      color: "var(--v2-accent-purple-700)",
+      bg: "var(--wjn-accent-soft)",
+      color: "var(--wjn-blue)",
     },
     failed: {
       label: "Failed",
       bg: "rgba(220, 38, 38, 0.1)",
-      color: "var(--v2-status-error)",
+      color: "var(--wjn-error)",
     },
     cancelled: {
       label: "Cancelled",
       bg: "rgba(20, 20, 30, 0.06)",
-      color: "var(--v2-text-tertiary)",
+      color: "var(--wjn-text-muted)",
     },
   };
   const { label, bg, color } = config[status];
@@ -113,13 +113,13 @@ function StatusBadge({ status }: { status: CardStatus }) {
         display: "inline-flex",
         alignItems: "center",
         padding: "2px 10px",
-        borderRadius: "var(--v2-radius-pill)",
+        borderRadius: "var(--wjn-radius-pill)",
         background: bg,
         color,
         fontSize: 11,
         fontWeight: 600,
         lineHeight: "18px",
-        fontFamily: "var(--v2-font-sans)",
+        fontFamily: "var(--wjn-font-sans)",
       }}
     >
       {label}
@@ -155,10 +155,10 @@ export function ExecutionCard({
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         borderRadius: 16,
-        border: "1px solid var(--v2-glass-border)",
-        boxShadow: "var(--v2-glass-shadow)",
+        border: "1px solid var(--wjn-line)",
+        boxShadow: "var(--wjn-shadow-sm)",
         overflow: "hidden",
-        transition: "box-shadow var(--v2-duration-medium) var(--v2-ease-standard)",
+        transition: "box-shadow var(--wjn-duration-medium) var(--wjn-ease-standard)",
       }}
     >
       {/* ── Card Header ── */}
@@ -182,8 +182,8 @@ export function ExecutionCard({
             style={{
               fontSize: 14,
               fontWeight: 600,
-              color: "var(--v2-text-primary)",
-              fontFamily: "var(--v2-font-sans)",
+              color: "var(--wjn-text)",
+              fontFamily: "var(--wjn-font-sans)",
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
@@ -194,8 +194,8 @@ export function ExecutionCard({
           <div
             style={{
               fontSize: 12,
-              color: "var(--v2-text-tertiary)",
-              fontFamily: "var(--v2-font-sans)",
+              color: "var(--wjn-text-muted)",
+              fontFamily: "var(--wjn-font-sans)",
               marginTop: 2,
             }}
           >
@@ -213,9 +213,9 @@ export function ExecutionCard({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              color: "var(--v2-text-tertiary)",
+              color: "var(--wjn-text-muted)",
               fontSize: 12,
-              transition: "transform var(--v2-duration-medium) var(--v2-ease-standard)",
+              transition: "transform var(--wjn-duration-medium) var(--wjn-ease-standard)",
               transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
             }}
           >
@@ -228,9 +228,9 @@ export function ExecutionCard({
       {isExpanded && (
         <div
           style={{
-            borderTop: "1px solid var(--v2-border-soft)",
+            borderTop: "1px solid var(--wjn-line)",
             padding: "12px 16px 16px",
-            animation: "v2-glass-in 250ms var(--v2-ease-standard)",
+            animation: "wjn-panel-in 250ms var(--wjn-ease-standard)",
           }}
         >
           {isTerminalStatus(record.status) ? (

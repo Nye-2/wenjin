@@ -85,8 +85,8 @@ export function PricingSimulator() {
     <section className="route-card rounded-2xl p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-[var(--text-primary)]">定价模拟</h2>
-          <p className="text-sm text-[var(--text-muted)]">按{policySource}估算积分与毛利。</p>
+          <h2 className="text-base font-semibold text-[var(--wjn-text)]">定价模拟</h2>
+          <p className="text-sm text-[var(--wjn-text-muted)]">按{policySource}估算积分与毛利。</p>
         </div>
         <Button size="sm" onClick={handleSimulate} disabled={loading || policiesLoading}>
           {loading || policiesLoading ? (
@@ -116,22 +116,22 @@ export function PricingSimulator() {
             onChange={(event) => setCompletionTokens(event.target.value)}
           />
         </div>
-        <div className="rounded-lg border border-[var(--border-default)] px-3 py-2">
-          <div className="text-xs text-[var(--text-muted)]">应收</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">
+        <div className="rounded-lg border border-[var(--wjn-line)] px-3 py-2">
+          <div className="text-xs text-[var(--wjn-text-muted)]">应收</div>
+          <div className="text-lg font-semibold text-[var(--wjn-text)]">
             {result ? `${result.charge_credits} credits` : "-"}
           </div>
         </div>
-        <div className="rounded-lg border border-[var(--border-default)] px-3 py-2">
-          <div className="text-xs text-[var(--text-muted)]">毛利</div>
-          <div className="text-lg font-semibold text-[var(--text-primary)]">
+        <div className="rounded-lg border border-[var(--wjn-line)] px-3 py-2">
+          <div className="text-xs text-[var(--wjn-text-muted)]">毛利</div>
+          <div className="text-lg font-semibold text-[var(--wjn-text)]">
             {result ? `毛利 ${formatNumber(result.margin_cny ?? 0)} CNY` : "-"}
           </div>
         </div>
       </div>
       {error && <div className="mt-3 text-sm text-rose-600">{error}</div>}
       {result?.breakdown && (
-        <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-[var(--bg-elevated)] p-3 text-xs text-[var(--text-secondary)]">
+        <pre className="mt-3 max-h-40 overflow-auto rounded-lg bg-[var(--wjn-surface)] p-3 text-xs text-[var(--wjn-text-secondary)]">
           {JSON.stringify(result.breakdown, null, 2)}
         </pre>
       )}

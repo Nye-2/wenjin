@@ -97,15 +97,15 @@ export function UserDropdown() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-default)] hover:bg-[var(--bg-surface)] transition-colors"
+        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--wjn-surface)] border border-[var(--wjn-line)] hover:bg-[var(--wjn-surface-subtle)] transition-colors"
       >
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--accent-primary)] to-[#2563EB] flex items-center justify-center text-white font-medium text-sm">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--wjn-navy)] to-[#2563EB] flex items-center justify-center text-white font-medium text-sm">
           {userInitial}
         </div>
-        <span className="text-sm font-medium text-[var(--text-primary)] max-w-[120px] truncate">
+        <span className="text-sm font-medium text-[var(--wjn-text)] max-w-[120px] truncate">
           {displayName}
         </span>
-        <ChevronDown className={`w-4 h-4 text-[var(--text-muted)] transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <ChevronDown className={`w-4 h-4 text-[var(--wjn-text-muted)] transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       <AnimatePresence>
@@ -115,25 +115,25 @@ export function UserDropdown() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute right-0 mt-2 w-56 bg-[var(--bg-elevated)] rounded-xl border border-[var(--border-default)] shadow-xl overflow-hidden z-50"
+            className="absolute right-0 mt-2 w-56 bg-[var(--wjn-surface)] rounded-xl border border-[var(--wjn-line)] shadow-xl overflow-hidden z-50"
           >
             {/* User Info */}
-            <div className="px-4 py-3 border-b border-[var(--border-default)]">
-              <p className="font-medium text-[var(--text-primary)] truncate">{displayName}</p>
-              <p className="text-sm text-[var(--text-muted)] truncate">{user?.email}</p>
+            <div className="px-4 py-3 border-b border-[var(--wjn-line)]">
+              <p className="font-medium text-[var(--wjn-text)] truncate">{displayName}</p>
+              <p className="text-sm text-[var(--wjn-text-muted)] truncate">{user?.email}</p>
             </div>
 
-            <div className="border-b border-[var(--border-default)] bg-[var(--bg-surface)]/60 px-4 py-3">
+            <div className="border-b border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)]/60 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--wjn-accent-soft)] text-[var(--accent-primary)]">
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--wjn-accent-soft)] text-[var(--wjn-navy)]">
                     <Coins className="h-4 w-4" />
                   </span>
-                  <span className="text-sm font-medium text-[var(--text-secondary)]">
+                  <span className="text-sm font-medium text-[var(--wjn-text-secondary)]">
                     {t("nav.creditBalance")}
                   </span>
                 </div>
-                <span className="text-lg font-semibold tabular-nums text-[var(--text-primary)]">
+                <span className="text-lg font-semibold tabular-nums text-[var(--wjn-text)]">
                   {credits.toLocaleString()}
                 </span>
               </div>
@@ -143,7 +143,7 @@ export function UserDropdown() {
                   router.push("/dashboard/me");
                   setIsOpen(false);
                 }}
-                className="mt-3 w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-surface)]"
+                className="mt-3 w-full rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 py-2 text-left text-sm font-medium text-[var(--wjn-text)] transition-colors hover:bg-[var(--wjn-surface-subtle)]"
               >
                 {t("nav.creditDashboard")}
               </button>
@@ -155,16 +155,16 @@ export function UserDropdown() {
                 <button
                   key={index}
                   onClick={item.onClick}
-                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--bg-surface)] transition-colors"
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-[var(--wjn-surface-subtle)] transition-colors"
                 >
-                  <item.icon className="w-4 h-4 text-[var(--text-muted)]" />
-                  <span className="text-sm text-[var(--text-primary)]">{item.label}</span>
+                  <item.icon className="w-4 h-4 text-[var(--wjn-text-muted)]" />
+                  <span className="text-sm text-[var(--wjn-text)]">{item.label}</span>
                 </button>
               ))}
             </div>
 
             {/* Logout */}
-            <div className="border-t border-[var(--border-default)] py-2">
+            <div className="border-t border-[var(--wjn-line)] py-2">
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-red-500/10 transition-colors"

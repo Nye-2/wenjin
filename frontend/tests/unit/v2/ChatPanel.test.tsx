@@ -127,12 +127,12 @@ describe("ChatPanel v2", () => {
       data: {
         status: "advisory",
         code: "lead_busy",
-        detail: "Lead Agent 正在执行",
+        detail: "当前任务仍在执行",
       },
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
-    expect(screen.getByText(/Lead Agent 仍在执行/)).toBeInTheDocument();
+    expect(screen.getByText(/当前任务仍在执行/)).toBeInTheDocument();
     expect(screen.queryByText("✓ advisory")).not.toBeInTheDocument();
   });
 

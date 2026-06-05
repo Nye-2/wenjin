@@ -102,7 +102,7 @@ export default function AdminReleaseGatePage() {
 
       <section className="route-card rounded-[1.75rem] p-5">
         {!releaseGateReport ? (
-          <div className="rounded-lg border border-dashed border-[var(--border-default)] px-3 py-4 text-sm text-[var(--text-muted)]">
+          <div className="rounded-lg border border-dashed border-[var(--wjn-line)] px-3 py-4 text-sm text-[var(--wjn-text-muted)]">
             尚未执行门禁检查。点击上方按钮生成报告。
           </div>
         ) : (
@@ -122,15 +122,15 @@ export default function AdminReleaseGatePage() {
                 )}
                 {releaseGateReport.go_no_go.toUpperCase()}
               </span>
-              <span className="text-xs text-[var(--text-muted)]">
+              <span className="text-xs text-[var(--wjn-text-muted)]">
                 生成时间：{formatDate(releaseGateReport.generated_at)}
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+              <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-[var(--text-primary)]">核心门禁</span>
+                  <span className="text-sm font-medium text-[var(--wjn-text)]">核心门禁</span>
                   <span
                     className={`text-xs ${
                       releaseGateReport.core_gate.status === "passed"
@@ -141,13 +141,13 @@ export default function AdminReleaseGatePage() {
                     {releaseGateReport.core_gate.status}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
                   通过 {releaseGateReport.core_gate.passed} / 失败 {releaseGateReport.core_gate.failed} / 缺失 {releaseGateReport.core_gate.missing}
                 </p>
               </div>
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
+              <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-[var(--text-primary)]">扩展检查</span>
+                  <span className="text-sm font-medium text-[var(--wjn-text)]">扩展检查</span>
                   <span
                     className={`text-xs ${
                       releaseGateReport.extended_gate.status === "passed"
@@ -160,18 +160,18 @@ export default function AdminReleaseGatePage() {
                     {releaseGateReport.extended_gate.status}
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-[var(--text-muted)]">
+                <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
                   通过 {releaseGateReport.extended_gate.passed} / 失败 {releaseGateReport.extended_gate.failed} / 缺失 {releaseGateReport.extended_gate.missing}
                 </p>
               </div>
             </div>
 
             {releaseGateReport.recommendations.length > 0 && (
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <h3 className="text-sm font-medium text-[var(--text-primary)]">修复建议</h3>
+              <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
+                <h3 className="text-sm font-medium text-[var(--wjn-text)]">修复建议</h3>
                 <div className="mt-2 space-y-1">
                   {releaseGateReport.recommendations.slice(0, 5).map((item, index) => (
-                    <p key={`${item}-${index}`} className="text-xs text-[var(--text-secondary)]">
+                    <p key={`${item}-${index}`} className="text-xs text-[var(--wjn-text-secondary)]">
                       {index + 1}. {item}
                     </p>
                   ))}
@@ -179,11 +179,11 @@ export default function AdminReleaseGatePage() {
               </div>
             )}
 
-            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 space-y-3">
+            <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-sm font-medium text-[var(--text-primary)]">检查明细</h3>
+                <h3 className="text-sm font-medium text-[var(--wjn-text)]">检查明细</h3>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-[var(--text-muted)]">
+                  <span className="text-xs text-[var(--wjn-text-muted)]">
                     总计 {coreChecks.length + extendedChecks.length} 项，失败/缺失 {failedChecks.length} 项
                   </span>
                   <button
@@ -192,7 +192,7 @@ export default function AdminReleaseGatePage() {
                     className={`rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
                       filterFailed
                         ? "bg-rose-500/15 text-rose-600"
-                        : "bg-[var(--bg-muted)] text-[var(--text-muted)]"
+                        : "bg-[var(--bg-muted)] text-[var(--wjn-text-muted)]"
                     }`}
                   >
                     {filterFailed ? "仅失败/缺失" : "全部"}
@@ -200,7 +200,7 @@ export default function AdminReleaseGatePage() {
                   <button
                     type="button"
                     onClick={exportReleaseGateJSON}
-                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium bg-[var(--bg-muted)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                    className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium bg-[var(--bg-muted)] text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)] transition-colors"
                     title="导出 JSON 报告"
                   >
                     <Download className="w-3 h-3" />
@@ -211,48 +211,48 @@ export default function AdminReleaseGatePage() {
 
               {visibleCoreChecks.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-[var(--text-secondary)]">核心门禁</p>
+                  <p className="text-xs font-medium text-[var(--wjn-text-secondary)]">核心门禁</p>
                   <div className="space-y-2">
                     {visibleCoreChecks.map((check) => (
                       <details
                         key={`core-${check.id}`}
-                        className="rounded-lg border border-[var(--border-default)] px-3 py-2"
+                        className="rounded-lg border border-[var(--wjn-line)] px-3 py-2"
                       >
                         <summary className="cursor-pointer list-none">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-[var(--text-primary)]">
+                            <span className="text-xs font-medium text-[var(--wjn-text)]">
                               {check.id}
                             </span>
                             <span className={`rounded px-2 py-0.5 text-[11px] ${getCheckStatusClass(check.status)}`}>
                               {check.status}
                             </span>
                             {typeof check.runtime?.duration_seconds === "number" && (
-                              <span className="text-[11px] text-[var(--text-muted)]">
+                              <span className="text-[11px] text-[var(--wjn-text-muted)]">
                                 {check.runtime.duration_seconds}s
                               </span>
                             )}
                           </div>
-                          <p className="mt-1 text-xs text-[var(--text-muted)]">{check.description}</p>
+                          <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">{check.description}</p>
                         </summary>
                         {(check.runtime?.output_tail || check.fix_hint || check.runtime?.command) && (
-                          <div className="mt-2 space-y-2 border-t border-[var(--border-default)] pt-2">
+                          <div className="mt-2 space-y-2 border-t border-[var(--wjn-line)] pt-2">
                             {check.runtime?.command && (
-                              <p className="text-[11px] text-[var(--text-secondary)]">
+                              <p className="text-[11px] text-[var(--wjn-text-secondary)]">
                                 命令：<code>{check.runtime.command}</code>
                               </p>
                             )}
                             {check.runtime?.return_code !== undefined && (
-                              <p className="text-[11px] text-[var(--text-secondary)]">
+                              <p className="text-[11px] text-[var(--wjn-text-secondary)]">
                                 返回码：{check.runtime.return_code}
                               </p>
                             )}
                             {check.fix_hint && (
-                              <p className="text-[11px] text-[var(--text-secondary)]">
+                              <p className="text-[11px] text-[var(--wjn-text-secondary)]">
                                 建议：{check.fix_hint}
                               </p>
                             )}
                             {check.runtime?.output_tail && (
-                              <pre className="max-h-44 overflow-auto rounded-md bg-[var(--bg-base)] p-2 text-[11px] text-[var(--text-secondary)]">
+                              <pre className="max-h-44 overflow-auto rounded-md bg-[var(--wjn-bg-base)] p-2 text-[11px] text-[var(--wjn-text-secondary)]">
                                 {check.runtime.output_tail}
                               </pre>
                             )}
@@ -266,48 +266,48 @@ export default function AdminReleaseGatePage() {
 
               {visibleExtendedChecks.length > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-[var(--text-secondary)]">扩展检查</p>
+                  <p className="text-xs font-medium text-[var(--wjn-text-secondary)]">扩展检查</p>
                   <div className="space-y-2">
                     {visibleExtendedChecks.map((check) => (
                       <details
                         key={`extended-${check.id}`}
-                        className="rounded-lg border border-[var(--border-default)] px-3 py-2"
+                        className="rounded-lg border border-[var(--wjn-line)] px-3 py-2"
                       >
                         <summary className="cursor-pointer list-none">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-[var(--text-primary)]">
+                            <span className="text-xs font-medium text-[var(--wjn-text)]">
                               {check.id}
                             </span>
                             <span className={`rounded px-2 py-0.5 text-[11px] ${getCheckStatusClass(check.status)}`}>
                               {check.status}
                             </span>
                             {typeof check.runtime?.duration_seconds === "number" && (
-                              <span className="text-[11px] text-[var(--text-muted)]">
+                              <span className="text-[11px] text-[var(--wjn-text-muted)]">
                                 {check.runtime.duration_seconds}s
                               </span>
                             )}
                           </div>
-                          <p className="mt-1 text-xs text-[var(--text-muted)]">{check.description}</p>
+                          <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">{check.description}</p>
                         </summary>
                         {(check.runtime?.output_tail || check.fix_hint || check.runtime?.command) && (
-                          <div className="mt-2 space-y-2 border-t border-[var(--border-default)] pt-2">
+                          <div className="mt-2 space-y-2 border-t border-[var(--wjn-line)] pt-2">
                             {check.runtime?.command && (
-                              <p className="text-[11px] text-[var(--text-secondary)]">
+                              <p className="text-[11px] text-[var(--wjn-text-secondary)]">
                                 命令：<code>{check.runtime.command}</code>
                               </p>
                             )}
                             {check.runtime?.return_code !== undefined && (
-                              <p className="text-[11px] text-[var(--text-secondary)]">
+                              <p className="text-[11px] text-[var(--wjn-text-secondary)]">
                                 返回码：{check.runtime.return_code}
                               </p>
                             )}
                             {check.fix_hint && (
-                              <p className="text-[11px] text-[var(--text-secondary)]">
+                              <p className="text-[11px] text-[var(--wjn-text-secondary)]">
                                 建议：{check.fix_hint}
                               </p>
                             )}
                             {check.runtime?.output_tail && (
-                              <pre className="max-h-44 overflow-auto rounded-md bg-[var(--bg-base)] p-2 text-[11px] text-[var(--text-secondary)]">
+                              <pre className="max-h-44 overflow-auto rounded-md bg-[var(--wjn-bg-base)] p-2 text-[11px] text-[var(--wjn-text-secondary)]">
                                 {check.runtime.output_tail}
                               </pre>
                             )}

@@ -17,15 +17,15 @@ interface TasksDrawerProps {
 }
 
 const STATUS_COLORS: Record<WorkspaceTask["status"], string> = {
-  pending: "var(--v2-text-secondary)",
-  in_progress: "var(--v2-status-running-deep)",
-  completed: "var(--v2-status-success-deep)",
-  cancelled: "var(--v2-text-tertiary)",
+  pending: "var(--wjn-text-secondary)",
+  in_progress: "var(--wjn-blue)",
+  completed: "var(--wjn-success)",
+  cancelled: "var(--wjn-text-muted)",
 };
 
 const STATUS_BG: Record<WorkspaceTask["status"], string> = {
   pending: "rgba(100, 100, 120, 0.08)",
-  in_progress: "rgba(139, 92, 246, 0.1)",
+  in_progress: "var(--wjn-accent-soft)",
   completed: "rgba(34, 197, 94, 0.1)",
   cancelled: "rgba(100, 100, 120, 0.06)",
 };
@@ -147,7 +147,7 @@ export function TasksDrawer({
         zIndex: 10,
         transform: visible ? "translateX(0)" : "translateX(100%)",
         transition: "transform 200ms cubic-bezier(0.16, 1, 0.3, 1)",
-        fontFamily: "var(--v2-font-sans)",
+        fontFamily: "var(--wjn-font-sans)",
         fontSize: 13,
       }}
       data-testid="tasks-drawer"
@@ -168,7 +168,7 @@ export function TasksDrawer({
             style={{
               fontWeight: 600,
               fontSize: 15,
-              color: "var(--v2-text-primary)",
+              color: "var(--wjn-text)",
             }}
           >
             Tasks
@@ -183,7 +183,7 @@ export function TasksDrawer({
               background: "transparent",
               cursor: "pointer",
               fontSize: 18,
-              color: "var(--v2-accent-purple-700)",
+              color: "var(--wjn-blue)",
               lineHeight: 1,
               padding: 4,
             }}
@@ -198,7 +198,7 @@ export function TasksDrawer({
               background: "transparent",
               cursor: "pointer",
               fontSize: 16,
-              color: "var(--v2-text-tertiary)",
+              color: "var(--wjn-text-muted)",
               lineHeight: 1,
               padding: 4,
             }}
@@ -231,12 +231,12 @@ export function TasksDrawer({
             style={{
               flex: 1,
               padding: "8px 12px",
-              borderRadius: "var(--v2-radius-md)",
+              borderRadius: "var(--wjn-radius-md)",
               border: "1px solid rgba(20, 20, 30, 0.08)",
-              background: "var(--v2-glass-bg)",
+              background: "var(--wjn-surface-raised)",
               fontSize: 13,
-              fontFamily: "var(--v2-font-sans)",
-              color: "var(--v2-text-primary)",
+              fontFamily: "var(--wjn-font-sans)",
+              color: "var(--wjn-text)",
               outline: "none",
             }}
           />
@@ -245,13 +245,13 @@ export function TasksDrawer({
             data-testid="add-task-submit"
             style={{
               border: "none",
-              background: "var(--v2-accent-purple-700)",
+              background: "var(--wjn-blue)",
               color: "white",
-              borderRadius: "var(--v2-radius-md)",
+              borderRadius: "var(--wjn-radius-md)",
               padding: "8px 16px",
               fontSize: 13,
               cursor: "pointer",
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
               fontWeight: 500,
             }}
           >
@@ -272,12 +272,12 @@ export function TasksDrawer({
             width: "100%",
             boxSizing: "border-box",
             padding: "8px 12px",
-            borderRadius: "var(--v2-radius-md)",
+            borderRadius: "var(--wjn-radius-md)",
             border: "1px solid rgba(20, 20, 30, 0.08)",
-            background: "var(--v2-glass-bg)",
+            background: "var(--wjn-surface-raised)",
             fontSize: 13,
-            fontFamily: "var(--v2-font-sans)",
-            color: "var(--v2-text-primary)",
+            fontFamily: "var(--wjn-font-sans)",
+            color: "var(--wjn-text)",
             outline: "none",
           }}
         />
@@ -296,7 +296,7 @@ export function TasksDrawer({
             style={{
               textAlign: "center",
               padding: "40px 0",
-              color: "var(--v2-text-tertiary)",
+              color: "var(--wjn-text-muted)",
             }}
             data-testid="drawer-loading"
           >
@@ -309,7 +309,7 @@ export function TasksDrawer({
             style={{
               textAlign: "center",
               padding: "16px",
-              color: "var(--v2-status-error)",
+              color: "var(--wjn-error)",
             }}
             data-testid="drawer-error"
           >
@@ -322,7 +322,7 @@ export function TasksDrawer({
             style={{
               textAlign: "center",
               padding: "40px 0",
-              color: "var(--v2-text-tertiary)",
+              color: "var(--wjn-text-muted)",
             }}
             data-testid="drawer-empty"
           >
@@ -337,8 +337,8 @@ export function TasksDrawer({
               key={item.id}
               data-testid="task-item"
               style={{
-                background: "var(--v2-glass-bg)",
-                borderRadius: "var(--v2-radius-md)",
+                background: "var(--wjn-surface-raised)",
+                borderRadius: "var(--wjn-radius-md)",
                 border: "1px solid rgba(20, 20, 30, 0.06)",
                 padding: 12,
                 marginBottom: 8,
@@ -355,7 +355,7 @@ export function TasksDrawer({
                   <div
                     style={{
                       fontWeight: 600,
-                      color: "var(--v2-text-primary)",
+                      color: "var(--wjn-text)",
                       marginBottom: 4,
                       textDecoration:
                         item.status === "completed" ? "line-through" : "none",
@@ -383,7 +383,7 @@ export function TasksDrawer({
                         background: STATUS_BG[item.status],
                         border: "none",
                         cursor: "pointer",
-                        fontFamily: "var(--v2-font-sans)",
+                        fontFamily: "var(--wjn-font-sans)",
                       }}
                     >
                       {item.status.replace("_", " ")}
@@ -392,7 +392,7 @@ export function TasksDrawer({
                       <span
                         style={{
                           fontSize: 11,
-                          color: "var(--v2-text-tertiary)",
+                          color: "var(--wjn-text-muted)",
                         }}
                       >
                         P{item.priority}
@@ -407,7 +407,7 @@ export function TasksDrawer({
                     border: "none",
                     background: "transparent",
                     cursor: "pointer",
-                    color: "var(--v2-text-tertiary)",
+                    color: "var(--wjn-text-muted)",
                     fontSize: 12,
                     padding: "2px 4px",
                     flexShrink: 0,

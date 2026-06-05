@@ -3,22 +3,22 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/50",
+  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--wjn-blue)]/40",
   {
     variants: {
       variant: {
         default:
-          "border-transparent bg-[var(--accent-primary)]/15 text-[var(--accent-secondary)]",
+          "border-[var(--wjn-accent-line)] bg-[var(--wjn-accent-soft)] text-[var(--wjn-blue-strong)]",
         secondary:
-          "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)]",
+          "border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text-secondary)]",
         destructive:
-          "border-red-500/30 bg-red-500/10 text-red-400",
+          "border-[rgba(185,28,28,0.28)] bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]",
         success:
-          "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+          "border-[rgba(15,118,110,0.28)] bg-[var(--wjn-evidence-soft)] text-[var(--wjn-evidence)]",
         warning:
-          "border-amber-500/30 bg-amber-500/10 text-amber-400",
+          "border-[rgba(180,83,9,0.28)] bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]",
         outline:
-          "border-[var(--border-default)] bg-transparent text-[var(--text-secondary)]",
+          "border-[var(--wjn-line)] bg-transparent text-[var(--wjn-text-secondary)]",
       },
     },
     defaultVariants: {

@@ -11,14 +11,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LatexCompileLogDialog } from "@/components/latex/latex-editor/LatexCompileLogDialog";
 import { LatexEditorPanes } from "@/components/latex/latex-editor/LatexEditorPanes";
 import { LatexEditorProjectBar } from "@/components/latex/latex-editor/LatexEditorProjectBar";
-import { LatexInspector } from "@/components/latex/latex-editor/LatexInspector";
+import { PrismAssistPanel } from "@/components/latex/latex-editor/PrismAssistPanel";
+import { PrismFloatingAssist } from "@/components/latex/latex-editor/PrismFloatingAssist";
 import { LatexResourceRail } from "@/components/latex/latex-editor/LatexResourceRail";
 import {
   type PrismTextEditorHandle,
 } from "@/components/latex/latex-editor/PrismMonacoEditor";
 import { PrismOptimizationTraceDialog } from "@/components/latex/latex-editor/PrismOptimizationTraceDialog";
 import {
-  type PrismInspectorTab,
+  type PrismAssistIntent,
   type PrismSurfaceMode,
 } from "@/components/latex/latex-editor/types";
 import { usePrismOptimizationJobs } from "@/components/latex/latex-editor/usePrismOptimizationJobs";
@@ -102,12 +103,10 @@ export function LatexEditorShell({
   const [isCompileLogOpen, setIsCompileLogOpen] = useState(false);
   const [selectionRange, setSelectionRange] = useState<[number, number]>([0, 0]);
   const [surfaceMode, setSurfaceMode] = useState<PrismSurfaceMode>("edit");
-  const [isInspectorOpen, setIsInspectorOpen] = useState(true);
-  const [activeInspectorTab, setActiveInspectorTab] = useState<PrismInspectorTab>("assist");
+  const [isAssistOpen, setIsAssistOpen] = useState(false);
   const editorRef = useRef<PrismTextEditorHandle | null>(null);
   const {
     feedbackItems,
-    feedbackLoaded,
     feedbackStatus,
     feedbackError,
     setFeedbackItems,
@@ -136,11 +135,6 @@ export function LatexEditorShell({
   ]);
 
   const dirty = activeFileContent !== activeFileSavedContent;
-  const containsCjkContent = /[\u3000-\u303f\u3400-\u9fff\uff00-\uffef]/.test(activeFileContent);
-  const engineHint =
-    engine === "pdflatex" && containsCjkContent
-      ? "当前稿件包含中文或 CJK 标点，请切回 XeLaTeX。PDFLaTeX 在当前运行时不适合作为中文稿件编译器。"
-      : "中文或中英混排稿件默认使用 XeLaTeX。PDFLaTeX 主要用于英文模板兼容。";
   const effectiveSelectedPath = selectedPath || activeFilePath;
   const effectiveSelectedType = selectedPathType || (activeFilePath ? "file" : null);
   const currentFolder =
@@ -149,7 +143,6 @@ export function LatexEditorShell({
       : effectiveSelectedPath
         ? effectiveSelectedPath.split("/").slice(0, -1).join("/")
         : "";
-  const canOpenCompileLog = Boolean(compileResult || compileLog);
   const selectionText = activeFileKind === "text" && selectionRange[1] > selectionRange[0]
     ? activeFileContent.slice(selectionRange[0], selectionRange[1])
     : "";
@@ -233,36 +226,22 @@ export function LatexEditorShell({
   });
 
   useEffect(() => {
-    if (
-      feedbackWorkflow.hasFeedbackSelection
-      || feedbackWorkflow.view.feedbackDraftComment.trim()
-    ) {
-      setActiveInspectorTab("assist");
-      setIsInspectorOpen(true);
+    if (feedbackWorkflow.view.feedbackDraftComment.trim()) {
+      setIsAssistOpen(true);
     }
   }, [
-    feedbackWorkflow.hasFeedbackSelection,
     feedbackWorkflow.view.feedbackDraftComment,
   ]);
 
   useEffect(() => {
     if (fileChanges.length > 0) {
-      setActiveInspectorTab("review");
-      setIsInspectorOpen(true);
+      setIsAssistOpen(true);
     }
   }, [fileChanges.length]);
 
   useEffect(() => {
-    if (compileResult && !compileResult.ok) {
-      setActiveInspectorTab("compile");
-      setIsInspectorOpen(true);
-    }
-  }, [compileResult]);
-
-  useEffect(() => {
     if (prismOptimization.activeJobId) {
-      setActiveInspectorTab("agent");
-      setIsInspectorOpen(true);
+      setIsAssistOpen(true);
     }
   }, [prismOptimization.activeJobId]);
 
@@ -287,21 +266,32 @@ export function LatexEditorShell({
 
   const feedbackView = feedbackWorkflow.view;
   const feedbackActions = feedbackWorkflow.actions;
-  const inspectorTabs: Array<{
-    id: PrismInspectorTab;
-    label: string;
-    badge?: number;
-  }> = [
-    { id: "assist", label: "划词", badge: feedbackView.currentFileFeedbacks.length || undefined },
-    { id: "review", label: "审阅", badge: fileChanges.length || undefined },
-    { id: "compile", label: "编译" },
-    { id: "agent", label: "Agent", badge: prismOptimization.jobs.length || undefined },
-  ];
 
-  const openInspector = useCallback((tab: PrismInspectorTab) => {
-    setActiveInspectorTab(tab);
-    setIsInspectorOpen(true);
+  const openAssist = useCallback((intent: PrismAssistIntent) => {
+    if (intent === "compile") {
+      setIsCompileLogOpen(true);
+      return;
+    }
+    setIsAssistOpen(true);
   }, []);
+
+  const compileWithVisibleFeedback = useCallback(() => {
+    setSurfaceMode("compare");
+    void compileProject(engine);
+  }, [compileProject, engine]);
+
+  const selectedCharacterCount = feedbackWorkflow.selectionText.trim()
+    ? feedbackWorkflow.selectionText.trim().length
+    : pdfDraftSelection?.text.trim().length || 0;
+  const pendingRewriteCount = feedbackView.selectedRewriteCandidate ? 1 : 0;
+  const runningJobCount = prismOptimization.jobs.filter(
+    (job) => job.status === "launching" || job.status === "running",
+  ).length;
+  const assistStatus = feedbackStatus
+    || (isCompiling ? `正在编译：${engine} · ${project?.main_file || "main.tex"}` : "")
+    || (compileResult?.ok ? `最近一次编译：成功 · ${compileResult.engine} · ${compileResult.main_file}` : "");
+  const canUseDocumentAssist = Boolean(activeFilePath && activeFileKind === "text");
+  const canDeepAssist = canUseDocumentAssist && Boolean(feedbackView.feedbackDraftComment.trim());
 
   return (
     <main className="wjn-shell-bg flex h-full min-h-0 flex-col overflow-hidden text-[var(--wjn-text)]">
@@ -315,13 +305,11 @@ export function LatexEditorShell({
         isSaving={isSaving}
         isCompiling={isCompiling}
         activeFileKind={activeFileKind}
-        isInspectorOpen={isInspectorOpen}
         backLabel={workspaceId ? "Workbench" : "工作区"}
         onBack={() => router.push(workspaceId ? `/workspaces/${workspaceId}` : "/workspaces")}
         onEngineChange={setEngine}
         onSave={() => void saveActiveFile()}
-        onCompile={() => void compileProject(engine)}
-        onToggleInspector={() => setIsInspectorOpen((prev) => !prev)}
+        onCompile={compileWithVisibleFeedback}
       />
       {error ? (
         <div className="border-b border-red-500/20 bg-red-500/8 px-4 py-2 text-sm text-red-600">
@@ -329,41 +317,32 @@ export function LatexEditorShell({
         </div>
       ) : null}
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {surfaceMode !== "focus" ? (
-          <LatexResourceRail
-            tree={tree}
-            selectedPath={effectiveSelectedPath}
-            engine={engine}
-            isSaving={isSaving}
-            isCompiling={isCompiling}
-            isProjectLoading={isProjectLoading}
-            isDeletingProject={isDeletingProject}
-            projectName={project?.name}
-            currentFolderLabel={currentFolder || "项目根目录"}
-            engineHint={engineHint}
-            onOpenFile={(path) => {
-              setSelectedPath(path);
-              setSelectedPathType("file");
-              void openFile(path);
-            }}
-            onSelectPath={(path, type) => {
-              setSelectedPath(path);
-              setSelectedPathType(type);
-            }}
-            onRenamePath={(fromPath, toPath) => renamePath(fromPath, toPath)}
-            onDeletePath={(path) => deletePath(path)}
-            onReorder={(folder, order) => saveOrder(folder, order)}
-            onEngineChange={setEngine}
-            onSave={() => void saveActiveFile()}
-            onCompile={() => void compileProject(engine)}
-            onCreateFile={(path) => createFile(path)}
-            onCreateFolder={(path) => createFolder(path)}
-            onUploadFiles={(files) => uploadFiles(files, currentFolder || undefined)}
-            onUploadDirectory={(files) => uploadDirectory(files, currentFolder || undefined)}
-            onUploadArchive={(archive) => uploadArchive(archive, currentFolder || undefined)}
-            onDeleteProject={deleteCurrentProject}
-          />
-        ) : null}
+        <LatexResourceRail
+          tree={tree}
+          selectedPath={effectiveSelectedPath}
+          isProjectLoading={isProjectLoading}
+          isDeletingProject={isDeletingProject}
+          projectName={project?.name}
+          currentFolderLabel={currentFolder || "项目根目录"}
+          onOpenFile={(path) => {
+            setSelectedPath(path);
+            setSelectedPathType("file");
+            void openFile(path);
+          }}
+          onSelectPath={(path, type) => {
+            setSelectedPath(path);
+            setSelectedPathType(type);
+          }}
+          onRenamePath={(fromPath, toPath) => renamePath(fromPath, toPath)}
+          onDeletePath={(path) => deletePath(path)}
+          onReorder={(folder, order) => saveOrder(folder, order)}
+          onCreateFile={(path) => createFile(path)}
+          onCreateFolder={(path) => createFolder(path)}
+          onUploadFiles={(files) => uploadFiles(files, currentFolder || undefined)}
+          onUploadDirectory={(files) => uploadDirectory(files, currentFolder || undefined)}
+          onUploadArchive={(archive) => uploadArchive(archive, currentFolder || undefined)}
+          onDeleteProject={deleteCurrentProject}
+        />
         <LatexEditorPanes
           surfaceMode={surfaceMode}
           activeFilePath={activeFilePath}
@@ -385,92 +364,94 @@ export function LatexEditorShell({
           engine={engine}
           compileResult={compileResult}
           onSurfaceModeChange={setSurfaceMode}
-          onInspectorOpenChange={setIsInspectorOpen}
-          onOpenInspector={openInspector}
+          onAssistOpenChange={setIsAssistOpen}
+          onOpenAssist={openAssist}
           onFileContentChange={setActiveFileContent}
           onSelectionChange={setSelectionRange}
           onPdfSelection={(payload) => void handlePdfSelection(payload)}
-          onCompile={() => void compileProject(engine)}
+          onCompile={compileWithVisibleFeedback}
           onOpenCompileLog={() => setIsCompileLogOpen(true)}
-        />
-        <LatexInspector
-          isOpen={isInspectorOpen}
-          surfaceMode={surfaceMode}
-          activeTab={activeInspectorTab}
-          tabs={inspectorTabs}
-          feedbackContextText={feedbackView.feedbackContextText}
-          feedbackDraftComment={feedbackView.feedbackDraftComment}
-          feedbackScope={feedbackView.feedbackScope}
-          canCreateFeedback={feedbackView.canCreateFeedback}
-          isSaving={isSaving}
-          isChatSending={isChatSending}
-          feedbackBusyId={feedbackView.feedbackBusyId}
-          feedbackError={feedbackError}
-          feedbackStatus={feedbackStatus}
-          protectionStatus={feedbackView.protectionStatus}
-          protectionError={feedbackView.protectionError}
-          isProtectingActiveFile={feedbackView.isProtectingActiveFile}
-          activeFilePath={activeFilePath}
-          activeFileKind={activeFileKind}
-          lastRewriteUndo={feedbackView.lastRewriteUndo}
-          isApplyingRewrite={feedbackView.isApplyingRewrite}
-          selectedRewriteCandidate={feedbackView.selectedRewriteCandidate}
-          selectedRewriteCandidateIndex={feedbackView.selectedRewriteCandidateIndex}
-          rewriteCandidates={feedbackView.rewriteCandidates}
-          diffViewMode={feedbackView.diffViewMode}
-          showWhitespaceOnlyDiff={feedbackView.showWhitespaceOnlyDiff}
-          collapsedDiffHunks={feedbackView.collapsedDiffHunks}
-          previewFeedbackItem={feedbackView.previewFeedbackItem}
-          feedbackLoaded={feedbackLoaded}
-          currentFileFeedbacks={feedbackView.currentFileFeedbacks}
-          activeFeedbackId={feedbackView.activeFeedbackId}
-          optimizingFeedbackIds={prismOptimization.optimizingFeedbackIds}
-          fileChangesRef={reviewQueue.fileChangesRef}
-          fileChanges={fileChanges}
-          appliedFileChanges={appliedFileChanges}
-          pendingReviewItems={reviewQueue.pendingReviewItems}
-          appliedReviewItems={reviewQueue.appliedReviewItems}
-          focusedReviewItemId={reviewQueue.focusedReviewItemId}
-          focusedLogicalKey={reviewQueue.focusedLogicalKey}
-          fileChangePreviews={reviewQueue.fileChangePreviews}
-          busyFileChangeKey={reviewQueue.busyFileChangeKey}
-          fileChangeError={reviewQueue.fileChangeError}
-          engineHint={engineHint}
-          isCompiling={isCompiling}
-          engine={engine}
-          mainFile={project?.main_file}
-          compileResult={compileResult}
-          canOpenCompileLog={canOpenCompileLog}
-          activePrismOptimizationJob={prismOptimization.activeJob}
-          onTabChange={setActiveInspectorTab}
-          onClose={() => setIsInspectorOpen(false)}
-          onFeedbackDraftCommentChange={feedbackActions.setFeedbackDraftComment}
-          onFeedbackScopeChange={feedbackActions.setFeedbackScope}
-          onAddFeedbackAndRewrite={() => void feedbackActions.addFeedbackAndRewrite()}
-          onAddFeedbackOnly={() => void feedbackActions.addFeedbackOnly()}
-          onProtectActiveFile={() => void feedbackActions.protectFile()}
-          onUndoLastRewrite={() => void feedbackActions.undoRewrite()}
-          onSelectRewriteCandidate={feedbackActions.selectRewriteCandidate}
-          onRegenerateRewrite={() => void feedbackActions.regenerateRewrite()}
-          onDiffViewModeChange={feedbackActions.setDiffViewMode}
-          onToggleWhitespaceOnlyDiff={feedbackActions.toggleWhitespaceOnlyDiff}
-          onCollapseAllDiffHunks={feedbackActions.setAllDiffHunksCollapsed}
-          onToggleDiffHunkCollapsed={feedbackActions.toggleDiffHunkCollapsed}
-          onCopySelectedRewrite={() => void feedbackActions.copySelectedRewrite()}
-          onCancelRewritePreview={feedbackActions.cancelRewritePreview}
-          onApplyRewriteCandidate={() => void feedbackActions.applyRewrite()}
-          onFocusFeedback={feedbackActions.focusFeedback}
-          onRewriteFromFeedback={(item) => void feedbackActions.rewrite(item)}
-          onLaunchPrismOptimization={(item) => void feedbackActions.launchPrismOptimization(item)}
-          onRemoveFeedback={feedbackActions.removeFeedback}
-          onPreviewProjectFileChange={(change) => void reviewQueue.previewProjectFileChange(change)}
-          onDiscardPendingFileChange={(change) => void reviewQueue.discardPendingFileChange(change)}
-          onApplyPendingFileChange={(change) => void reviewQueue.applyPendingFileChange(change)}
-          onRevertAppliedFileChange={(change) => void reviewQueue.revertAppliedFileChange(change)}
-          onOpenCompileLog={() => setIsCompileLogOpen(true)}
-          onOpenTrace={() => prismOptimization.setTraceOpen(true)}
         />
       </div>
+
+      <PrismFloatingAssist
+        isPanelOpen={isAssistOpen}
+        selectedCharacterCount={selectedCharacterCount}
+        pendingRewriteCount={pendingRewriteCount}
+        runningJobCount={runningJobCount}
+        hasError={Boolean(feedbackError)}
+        onOpen={() => setIsAssistOpen(true)}
+        onAnnotate={() => setIsAssistOpen(true)}
+        onQuickRewrite={() => setIsAssistOpen(true)}
+        onDeepAssist={() => setIsAssistOpen(true)}
+      />
+
+      <PrismAssistPanel
+        open={isAssistOpen}
+        contextText={feedbackView.feedbackContextText}
+        draftComment={feedbackView.feedbackDraftComment}
+        scope={feedbackView.feedbackScope}
+        canCreate={feedbackView.canCreateFeedback}
+        canUseDocumentAssist={canUseDocumentAssist}
+        canDeepAssist={canDeepAssist}
+        hasSelectionContext={feedbackWorkflow.hasFeedbackSelection}
+        busy={Boolean(feedbackView.feedbackBusyId) || isSaving || isChatSending}
+        isSaving={isSaving}
+        status={assistStatus}
+        error={feedbackError}
+        annotations={feedbackView.currentFileFeedbacks}
+        activeFeedbackId={feedbackView.activeFeedbackId}
+        selectedRewriteCandidate={feedbackView.selectedRewriteCandidate}
+        selectedRewriteCandidateIndex={feedbackView.selectedRewriteCandidateIndex}
+        rewriteCandidates={feedbackView.rewriteCandidates}
+        diffViewMode={feedbackView.diffViewMode}
+        showWhitespaceOnlyDiff={feedbackView.showWhitespaceOnlyDiff}
+        collapsedDiffHunks={feedbackView.collapsedDiffHunks}
+        previewFeedbackItem={feedbackView.previewFeedbackItem}
+        feedbackBusyId={feedbackView.feedbackBusyId}
+        isApplyingRewrite={feedbackView.isApplyingRewrite}
+        runningJobCount={runningJobCount}
+        protectionStatus={feedbackView.protectionStatus}
+        protectionError={feedbackView.protectionError}
+        isProtectingActiveFile={feedbackView.isProtectingActiveFile}
+        canProtectActiveFile={Boolean(activeFilePath && activeFileKind === "text")}
+        hasUndoableRewrite={Boolean(feedbackView.lastRewriteUndo)}
+        fileChangesRef={reviewQueue.fileChangesRef}
+        fileChanges={fileChanges}
+        appliedFileChanges={appliedFileChanges}
+        pendingReviewItems={reviewQueue.pendingReviewItems}
+        appliedReviewItems={reviewQueue.appliedReviewItems}
+        focusedReviewItemId={reviewQueue.focusedReviewItemId}
+        focusedLogicalKey={reviewQueue.focusedLogicalKey}
+        fileChangePreviews={reviewQueue.fileChangePreviews}
+        busyFileChangeKey={reviewQueue.busyFileChangeKey}
+        fileChangeError={reviewQueue.fileChangeError}
+        onClose={() => setIsAssistOpen(false)}
+        onDraftChange={feedbackActions.setFeedbackDraftComment}
+        onScopeChange={feedbackActions.setFeedbackScope}
+        onSaveComment={() => void feedbackActions.addFeedbackOnly()}
+        onQuickRewrite={() => void feedbackActions.addFeedbackAndQuickRewrite()}
+        onDeepAssist={() => void feedbackActions.launchDocumentOptimization()}
+        onProtectActiveFile={() => void feedbackActions.protectFile()}
+        onUndoRewrite={() => void feedbackActions.undoRewrite()}
+        onFocusAnnotation={feedbackActions.focusFeedback}
+        onQuickRewriteAnnotation={(item) => void feedbackActions.rewrite(item)}
+        onDeepAssistAnnotation={(item) => void feedbackActions.launchPrismOptimization(item)}
+        onRemoveAnnotation={feedbackActions.removeFeedback}
+        onSelectCandidate={feedbackActions.selectRewriteCandidate}
+        onRegenerate={() => void feedbackActions.regenerateRewrite()}
+        onDiffViewModeChange={feedbackActions.setDiffViewMode}
+        onToggleWhitespaceOnlyDiff={feedbackActions.toggleWhitespaceOnlyDiff}
+        onCollapseAllDiffHunks={feedbackActions.setAllDiffHunksCollapsed}
+        onToggleDiffHunkCollapsed={feedbackActions.toggleDiffHunkCollapsed}
+        onCopyRewrite={() => void feedbackActions.copySelectedRewrite()}
+        onCancelRewrite={feedbackActions.cancelRewritePreview}
+        onApplyRewrite={() => void feedbackActions.applyRewrite()}
+        onPreviewProjectFileChange={(change) => void reviewQueue.previewProjectFileChange(change)}
+        onDiscardPendingFileChange={(change) => void reviewQueue.discardPendingFileChange(change)}
+        onApplyPendingFileChange={(change) => void reviewQueue.applyPendingFileChange(change)}
+        onRevertAppliedFileChange={(change) => void reviewQueue.revertAppliedFileChange(change)}
+      />
 
       <PrismOptimizationTraceDialog
         open={prismOptimization.isTraceOpen}

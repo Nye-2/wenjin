@@ -55,22 +55,22 @@ export function UserGrowthPanel({
         <div className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data?.time_series ?? []}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--wjn-line)" />
               <XAxis
                 dataKey="date"
                 tick={{ fontSize: 11 }}
-                stroke="var(--text-muted)"
+                stroke="var(--wjn-text-muted)"
                 tickFormatter={(v: string) => v.slice(5)}
               />
               <YAxis
                 tick={{ fontSize: 11 }}
-                stroke="var(--text-muted)"
+                stroke="var(--wjn-text-muted)"
                 width={40}
               />
               <Tooltip
                 contentStyle={{
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--border-default)",
+                  background: "var(--wjn-surface-subtle)",
+                  border: "1px solid var(--wjn-line)",
                   borderRadius: "0.75rem",
                   fontSize: 12,
                 }}
@@ -78,7 +78,7 @@ export function UserGrowthPanel({
               <Line
                 type="monotone"
                 dataKey="signups"
-                stroke="var(--accent-primary)"
+                stroke="var(--wjn-navy)"
                 strokeWidth={2}
                 dot={false}
                 name="注册数"

@@ -303,7 +303,7 @@ export function ChatPanel({
               justifyContent: "center",
               height: "100%",
               padding: "0 22px",
-              animation: "v2-glass-in 400ms var(--v2-ease-standard)",
+              animation: "wjn-panel-in 400ms var(--wjn-ease-standard)",
             }}
           >
             <div
@@ -367,7 +367,7 @@ export function ChatPanel({
               fontFamily: "var(--wjn-font-sans)",
             }}
           >
-            <span style={{ color: "var(--wjn-accent)", animation: "v2-pulse-soft 1.5s infinite" }}>●</span>
+            <span style={{ color: "var(--wjn-accent)", animation: "wjn-pulse-soft 1.5s infinite" }}>●</span>
             思考中...
           </div>
         )}

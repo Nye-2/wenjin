@@ -73,7 +73,7 @@ export default function CreditRulesPage() {
       <div className="route-card rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left border-b border-[var(--border-default)]">
+            <tr className="text-left border-b border-[var(--wjn-line)]">
               <th className="px-4 py-3 w-12"></th>
               <th className="px-4 py-3">规则名</th>
               <th className="px-4 py-3">类型</th>
@@ -84,27 +84,27 @@ export default function CreditRulesPage() {
           </thead>
           <tbody>
             {rules.map((rule) => (
-              <tr key={rule.id} className="border-t border-[var(--border-default)]/50">
+              <tr key={rule.id} className="border-t border-[var(--wjn-line)]/50">
                 <td className="px-4 py-3">
                   <button
                     onClick={() => handleToggle(rule)}
                     className={`inline-flex w-2.5 h-2.5 rounded-full ${rule.enabled ? "bg-emerald-500" : "bg-slate-400"}`}
                   />
                 </td>
-                <td className="px-4 py-3 text-[var(--text-primary)]">{rule.name}</td>
-                <td className="px-4 py-3 text-[var(--text-secondary)]">{RULE_TYPE_LABEL[rule.rule_type]}</td>
-                <td className="px-4 py-3 text-xs text-[var(--text-muted)] font-mono">
+                <td className="px-4 py-3 text-[var(--wjn-text)]">{rule.name}</td>
+                <td className="px-4 py-3 text-[var(--wjn-text-secondary)]">{RULE_TYPE_LABEL[rule.rule_type]}</td>
+                <td className="px-4 py-3 text-xs text-[var(--wjn-text-muted)] font-mono">
                   {summarizeConfig(rule)}
                 </td>
                 <td className="px-4 py-3 text-right font-medium">+{rule.amount}</td>
                 <td className="px-4 py-3 text-right space-x-2">
-                  <button onClick={() => { setEditing(rule); setDialogOpen(true); }} className="text-[var(--accent-primary)] hover:underline">编辑</button>
+                  <button onClick={() => { setEditing(rule); setDialogOpen(true); }} className="text-[var(--wjn-navy)] hover:underline">编辑</button>
                   <button onClick={() => handleDelete(rule)} className="text-rose-600 hover:underline">删除</button>
                 </td>
               </tr>
             ))}
             {!loading && rules.length === 0 && (
-              <tr><td colSpan={6} className="px-4 py-6 text-center text-[var(--text-muted)]">暂无规则</td></tr>
+              <tr><td colSpan={6} className="px-4 py-6 text-center text-[var(--wjn-text-muted)]">暂无规则</td></tr>
             )}
           </tbody>
         </table>

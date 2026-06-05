@@ -30,23 +30,25 @@ export function WorkspaceSurfaceState({
         "flex h-full min-h-[420px] items-center justify-center px-4 py-8 sm:px-6",
         className,
       )}
-      style={{ background: "var(--v2-bg-gradient)" }}
+      style={{ background: "var(--wjn-bg-material)" }}
     >
       <div
         data-testid={testId}
         className={cn(
-          "w-full max-w-md rounded-[var(--v2-radius-lg)] border px-5 py-5 text-center shadow-[var(--v2-glass-shadow)] backdrop-blur-xl",
+          "w-full max-w-md rounded-[var(--wjn-radius-lg)] border px-5 py-5 text-center shadow-[var(--wjn-shadow-md)]",
           tone === "error"
-            ? "border-red-500/20 bg-white/80"
-            : "border-[var(--v2-glass-border)] bg-[var(--v2-glass-bg-elevated)]",
+            ? "border-[rgba(185,28,28,0.24)] bg-[var(--wjn-surface)]"
+            : "border-[var(--wjn-line)] bg-[var(--wjn-surface)]",
         )}
       >
         <div
           className={cn(
             "mx-auto flex h-10 w-10 items-center justify-center rounded-full",
             tone === "error"
-              ? "bg-red-500/10 text-red-700"
-              : "bg-[var(--v2-accent-purple-100)] text-[var(--v2-accent-purple-700)]",
+              ? "bg-[var(--wjn-error-soft)] text-[var(--wjn-error)]"
+              : tone === "loading"
+                ? "bg-[var(--wjn-accent-soft)] text-[var(--wjn-blue)]"
+                : "bg-[var(--wjn-evidence-soft)] text-[var(--wjn-evidence)]",
           )}
         >
           <Icon
@@ -54,7 +56,7 @@ export function WorkspaceSurfaceState({
             aria-hidden="true"
           />
         </div>
-        <h2 className="mt-3 text-sm font-semibold text-[var(--v2-text-primary)]">
+        <h2 className="mt-3 text-sm font-semibold text-[var(--wjn-text)]">
           {title}
         </h2>
         {description ? (
@@ -62,8 +64,8 @@ export function WorkspaceSurfaceState({
             className={cn(
               "mt-2 text-xs leading-6",
               tone === "error"
-                ? "text-red-700"
-                : "text-[var(--v2-text-secondary)]",
+                ? "text-[var(--wjn-error)]"
+                : "text-[var(--wjn-text-secondary)]",
             )}
           >
             {description}

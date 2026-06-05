@@ -64,12 +64,12 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
             width: "100%",
             boxSizing: "border-box",
             padding: "8px 12px",
-            borderRadius: "var(--v2-radius-md)",
+            borderRadius: "var(--wjn-radius-md)",
             border: "1px solid rgba(20, 20, 30, 0.08)",
-            background: "var(--v2-glass-bg)",
+            background: "var(--wjn-surface-raised)",
             fontSize: 13,
-            fontFamily: "var(--v2-font-sans)",
-            color: "var(--v2-text-primary)",
+            fontFamily: "var(--wjn-font-sans)",
+            color: "var(--wjn-text)",
             outline: "none",
           }}
         />
@@ -79,7 +79,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
       <div style={{ flex: 1, overflowY: "auto", padding: "0 16px 16px" }}>
         {loading && (
           <div
-            style={{ textAlign: "center", padding: "40px 0", color: "var(--v2-text-tertiary)" }}
+            style={{ textAlign: "center", padding: "40px 0", color: "var(--wjn-text-muted)" }}
             data-testid="decisions-loading"
           >
             Loading decisions...
@@ -88,7 +88,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
 
         {error && (
           <div
-            style={{ textAlign: "center", padding: "16px", color: "var(--v2-status-error)" }}
+            style={{ textAlign: "center", padding: "16px", color: "var(--wjn-error)" }}
             data-testid="decisions-error"
           >
             {error}
@@ -97,7 +97,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
 
         {!loading && !error && filtered.length === 0 && (
           <div
-            style={{ textAlign: "center", padding: "40px 0", color: "var(--v2-text-tertiary)" }}
+            style={{ textAlign: "center", padding: "40px 0", color: "var(--wjn-text-muted)" }}
             data-testid="decisions-empty"
           >
             No decisions found
@@ -111,8 +111,8 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
               key={item.id}
               data-testid="decision-item"
               style={{
-                background: "var(--v2-glass-bg)",
-                borderRadius: "var(--v2-radius-md)",
+                background: "var(--wjn-surface-raised)",
+                borderRadius: "var(--wjn-radius-md)",
                 border: "1px solid rgba(20, 20, 30, 0.06)",
                 padding: 12,
                 marginBottom: 8,
@@ -121,7 +121,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
               <div
                 style={{
                   fontWeight: 600,
-                  color: "var(--v2-text-primary)",
+                  color: "var(--wjn-text)",
                   marginBottom: 4,
                   fontSize: 13,
                 }}
@@ -130,7 +130,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
               </div>
               <div
                 style={{
-                  color: "var(--v2-text-secondary)",
+                  color: "var(--wjn-text-secondary)",
                   fontSize: 13,
                   marginBottom: 6,
                   lineHeight: 1.5,
@@ -141,7 +141,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
               {item.rationale && (
                 <div
                   style={{
-                    color: "var(--v2-text-tertiary)",
+                    color: "var(--wjn-text-muted)",
                     fontSize: 12,
                     fontStyle: "italic",
                     marginBottom: 6,
@@ -157,7 +157,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
                   alignItems: "center",
                   gap: 8,
                   fontSize: 12,
-                  color: "var(--v2-text-tertiary)",
+                  color: "var(--wjn-text-muted)",
                 }}
               >
                 <span
@@ -167,8 +167,8 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
                     borderRadius: 10,
                     fontSize: 11,
                     fontWeight: 500,
-                    color: "var(--v2-accent-purple-700)",
-                    background: "var(--v2-accent-purple-100)",
+                    color: "var(--wjn-blue)",
+                    background: "var(--wjn-accent-soft)",
                   }}
                 >
                   {Math.round(item.confidence * 100)}% confidence

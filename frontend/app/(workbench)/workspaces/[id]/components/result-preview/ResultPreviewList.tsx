@@ -51,15 +51,15 @@ export function ResultPreviewList({
               width: "100%",
               textAlign: "left",
               padding: "10px 12px",
-              borderRadius: "var(--v2-radius-md)",
+              borderRadius: "var(--wjn-radius-md)",
               border: isSelected
-                ? "1px solid rgba(124, 58, 237, 0.24)"
+                ? "1px solid var(--wjn-accent-line)"
                 : "1px solid rgba(20, 20, 30, 0.08)",
               background: isSelected
-                ? "rgba(124, 58, 237, 0.06)"
+                ? "var(--wjn-accent-soft)"
                 : "rgba(255, 255, 255, 0.72)",
               boxShadow: isSelected
-                ? "0 0 0 3px rgba(124, 58, 237, 0.08)"
+                ? "0 0 0 3px var(--wjn-accent-soft)"
                 : "none",
             }}
           >
@@ -71,7 +71,7 @@ export function ResultPreviewList({
                 disabled={disabled}
                 style={{
                   marginTop: 3,
-                  accentColor: "var(--v2-accent-purple-700)",
+                  accentColor: "var(--wjn-blue)",
                   cursor: disabled ? "not-allowed" : "pointer",
                 }}
               />
@@ -101,7 +101,7 @@ export function ResultPreviewList({
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
-                  color: "var(--v2-text-primary)",
+                  color: "var(--wjn-text)",
                 }}
               >
                 {preview.title}
@@ -111,9 +111,9 @@ export function ResultPreviewList({
                   style={{
                     flexShrink: 0,
                     padding: "2px 8px",
-                    borderRadius: "var(--v2-radius-pill)",
+                    borderRadius: "var(--wjn-radius-pill)",
                     background: "rgba(20, 20, 30, 0.06)",
-                    color: "var(--v2-text-secondary)",
+                    color: "var(--wjn-text-secondary)",
                     fontSize: 11,
                     fontWeight: 500,
                   }}
@@ -126,7 +126,7 @@ export function ResultPreviewList({
               <div
                 style={{
                   fontSize: 12,
-                  color: "var(--v2-text-tertiary)",
+                  color: "var(--wjn-text-muted)",
                   marginBottom: 6,
                 }}
               >
@@ -138,7 +138,7 @@ export function ResultPreviewList({
                 style={{
                   fontSize: 12.5,
                   lineHeight: 1.5,
-                  color: "var(--v2-text-secondary)",
+                  color: "var(--wjn-text-secondary)",
                 }}
               >
                 {summarizePreviewText(preview.previewText)}

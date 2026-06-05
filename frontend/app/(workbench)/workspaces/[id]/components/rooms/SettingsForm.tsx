@@ -82,12 +82,12 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
     width: "100%",
     boxSizing: "border-box",
     padding: "8px 12px",
-    borderRadius: "var(--v2-radius-md)",
+    borderRadius: "var(--wjn-radius-md)",
     border: "1px solid rgba(20, 20, 30, 0.08)",
-    background: "var(--v2-glass-bg)",
+    background: "var(--wjn-surface-raised)",
     fontSize: 13,
-    fontFamily: "var(--v2-font-sans)",
-    color: "var(--v2-text-primary)",
+    fontFamily: "var(--wjn-font-sans)",
+    color: "var(--wjn-text)",
     outline: "none",
   };
 
@@ -96,7 +96,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
       <div
         style={{
           padding: 16,
-          color: "var(--v2-text-tertiary)",
+          color: "var(--wjn-text-muted)",
           textAlign: "center",
           fontSize: 13,
         }}
@@ -116,7 +116,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               display: "block",
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--v2-text-secondary)",
+              color: "var(--wjn-text-secondary)",
               marginBottom: 6,
             }}
           >
@@ -139,7 +139,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               display: "block",
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--v2-text-secondary)",
+              color: "var(--wjn-text-secondary)",
               marginBottom: 6,
             }}
           >
@@ -164,7 +164,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               display: "block",
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--v2-text-secondary)",
+              color: "var(--wjn-text-secondary)",
               marginBottom: 6,
             }}
           >
@@ -194,13 +194,13 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
           data-testid="settings-save"
           style={{
             padding: "10px 20px",
-            borderRadius: "var(--v2-radius-md)",
+            borderRadius: "var(--wjn-radius-md)",
             border: "none",
-            background: "var(--v2-accent-purple-700)",
+            background: "var(--wjn-blue)",
             color: "#fff",
             fontSize: 14,
             fontWeight: 600,
-            fontFamily: "var(--v2-font-sans)",
+            fontFamily: "var(--wjn-font-sans)",
             cursor: saving ? "not-allowed" : "pointer",
             opacity: saving ? 0.6 : 1,
             alignSelf: "flex-start",
@@ -211,7 +211,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
 
         {saved && (
           <div
-            style={{ color: "var(--v2-status-success-deep)", fontSize: 13 }}
+            style={{ color: "var(--wjn-success)", fontSize: 13 }}
             data-testid="settings-saved"
           >
             Settings saved successfully
@@ -220,7 +220,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
 
         {error && (
           <div
-            style={{ color: "var(--v2-status-error)", fontSize: 13 }}
+            style={{ color: "var(--wjn-error)", fontSize: 13 }}
             data-testid="settings-error"
           >
             {error}

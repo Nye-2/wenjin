@@ -19,9 +19,9 @@ export function AdminPageHeader({
   return (
     <div className="route-card rounded-[1.75rem] p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
       <div>
-        <h1 className="text-2xl font-bold text-[var(--text-primary)]">{title}</h1>
+        <h1 className="text-2xl font-bold text-[var(--wjn-text)]">{title}</h1>
         {description && (
-          <p className="text-[var(--text-secondary)] text-sm mt-1">{description}</p>
+          <p className="text-[var(--wjn-text-secondary)] text-sm mt-1">{description}</p>
         )}
       </div>
       <div className="flex items-center gap-2">

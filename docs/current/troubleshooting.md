@@ -72,7 +72,7 @@ docker compose logs -f worker
 常见原因：
 
 - Gateway 未启动或 `/readyz` 不健康
-- `NEXT_PUBLIC_API_URL` 配错
+- `NEXT_PUBLIC_API_URL` 或开发态代理目标配错
 - 反向代理没有正确转发 `/api`
 
 排查：
@@ -86,8 +86,9 @@ curl -i http://localhost:2026/api/auth/me
 
 补充：
 
-- 如果没有创建 `frontend/.env.local`，开发环境默认请求 `http://localhost:8001/api`
-- 如果走 Nginx，前端通常通过同源 `/api` 访问
+- 如果没有创建 `frontend/.env.local`，前端默认请求同源 `/api`
+- `npm run dev` 会把 `/api/*` 代理到 `WENJIN_DEV_API_PROXY_TARGET`，默认 `http://localhost:2026`
+- 连接手动启动的 gateway 时，可设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:8001`，继续让浏览器走同源 `/api`
 
 ## 4. SSE 不流动或前端长时间无更新
 

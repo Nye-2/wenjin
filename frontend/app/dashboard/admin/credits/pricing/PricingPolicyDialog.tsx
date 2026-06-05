@@ -129,7 +129,7 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
             <Input id="policy-name" value={name} onChange={(event) => setName(event.target.value)} />
           </div>
         </div>
-        <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+        <label className="flex items-center gap-2 text-sm text-[var(--wjn-text-secondary)]">
           <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
           启用
         </label>
@@ -139,7 +139,7 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
             id="policy-config"
             value={configText}
             onChange={(event) => setConfigText(event.target.value)}
-            className="h-64 w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 font-mono text-xs text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+            className="h-64 w-full rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3 font-mono text-xs text-[var(--wjn-text)] outline-none focus:border-[var(--wjn-navy)]"
           />
         </div>
         {error && <div className="text-sm text-rose-600">{error}</div>}

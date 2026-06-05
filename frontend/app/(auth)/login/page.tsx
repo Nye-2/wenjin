@@ -46,7 +46,7 @@ export default function LoginPage() {
           {t("auth.login.noAccount")}{" "}
           <Link
             href="/register"
-            className="font-semibold text-[var(--accent-primary)] hover:text-[var(--accent-secondary)]"
+            className="font-semibold text-[var(--wjn-navy)] hover:text-[var(--wjn-blue)]"
           >
             {t("auth.login.createOne")}
           </Link>
@@ -94,7 +94,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--wjn-text-muted)] transition-colors hover:text-[var(--wjn-text)]"
                 aria-label={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}

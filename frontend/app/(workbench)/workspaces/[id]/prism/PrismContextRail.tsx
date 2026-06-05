@@ -54,9 +54,9 @@ function ContextChip({
 }) {
   if (value <= 0) return null;
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-white/55 bg-white/70 px-2.5 py-1 text-xs text-[var(--v2-text-secondary)]">
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-white/55 bg-white/70 px-2.5 py-1 text-xs text-[var(--wjn-text-secondary)]">
       {icon}
-      <span className="text-[var(--v2-text-primary)]">{value}</span>
+      <span className="text-[var(--wjn-text)]">{value}</span>
       {label}
     </span>
   );
@@ -128,7 +128,7 @@ export function PrismContextRail({
           primarySourceHref ? (
             <a
               href={primarySourceHref}
-              className="inline-flex max-w-full items-center gap-1.5 truncate rounded-md px-2 py-1 text-xs text-[var(--v2-accent-blue-700)] hover:bg-white/70"
+              className="inline-flex max-w-full items-center gap-1.5 truncate rounded-md px-2 py-1 text-xs text-[var(--wjn-blue)] hover:bg-white/70"
             >
               <span className="truncate">
                 {displayText(primarySource.citation_key, primarySource.source_id)}
@@ -136,7 +136,7 @@ export function PrismContextRail({
               <ArrowUpRight className="h-3.5 w-3.5 shrink-0" />
             </a>
           ) : (
-            <span className="max-w-full truncate rounded-md px-2 py-1 text-xs text-[var(--v2-text-secondary)]">
+            <span className="max-w-full truncate rounded-md px-2 py-1 text-xs text-[var(--wjn-text-secondary)]">
               {displayText(primarySource.citation_key, primarySource.source_id)}
             </span>
           )

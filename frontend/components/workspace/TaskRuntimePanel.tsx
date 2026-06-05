@@ -15,11 +15,11 @@ function phaseStatusStyles(status: TaskRuntimePhase["status"]) {
     case "completed":
       return "bg-emerald-500 text-white";
     case "running":
-      return "bg-[var(--accent-primary)] text-white";
+      return "bg-[var(--wjn-navy)] text-white";
     case "failed":
       return "bg-red-500 text-white";
     default:
-      return "bg-[var(--bg-elevated)] text-[var(--text-muted)] border border-[var(--border-default)]";
+      return "bg-[var(--wjn-surface)] text-[var(--wjn-text-muted)] border border-[var(--wjn-line)]";
   }
 }
 
@@ -32,7 +32,7 @@ function activityToneStyles(tone?: TaskRuntimeActivityItem["tone"]) {
     case "danger":
       return "border-red-500/20 bg-red-500/10 text-red-700";
     default:
-      return "border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-secondary)]";
+      return "border-[var(--wjn-line)] bg-[var(--wjn-surface)] text-[var(--wjn-text-secondary)]";
   }
 }
 
@@ -96,12 +96,12 @@ function BlockRenderer({ block }: { block: TaskRuntimeBlock }) {
         {block.entries.map((entry) => (
           <div
             key={entry.label}
-            className="rounded-xl bg-[var(--bg-elevated)] px-3 py-3"
+            className="rounded-xl bg-[var(--wjn-surface)] px-3 py-3"
           >
-            <p className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
+            <p className="text-[11px] uppercase tracking-wide text-[var(--wjn-text-muted)]">
               {entry.label}
             </p>
-            <p className="mt-1 text-sm font-medium text-[var(--text-primary)]">
+            <p className="mt-1 text-sm font-medium text-[var(--wjn-text)]">
               {entry.value}
             </p>
           </div>
@@ -145,7 +145,7 @@ function BlockRenderer({ block }: { block: TaskRuntimeBlock }) {
 
   if (block.kind === "text") {
     return (
-      <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--text-secondary)]">
+      <p className="whitespace-pre-wrap text-sm leading-6 text-[var(--wjn-text-secondary)]">
         {block.content}
       </p>
     );
@@ -156,26 +156,26 @@ function BlockRenderer({ block }: { block: TaskRuntimeBlock }) {
       {block.items.map((item, index) => (
         <div
           key={`${item.title}-${index}`}
-          className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-3"
+          className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 py-3"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-[var(--text-primary)]">
+              <p className="text-sm font-medium text-[var(--wjn-text)]">
                 {item.title}
               </p>
               {item.description && (
-                <p className="mt-1 text-xs leading-5 text-[var(--text-secondary)]">
+                <p className="mt-1 text-xs leading-5 text-[var(--wjn-text-secondary)]">
                   {item.description}
                 </p>
               )}
               {item.meta && (
-                <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+                <p className="mt-2 text-[11px] text-[var(--wjn-text-muted)]">
                   {item.meta}
                 </p>
               )}
             </div>
             {item.badge && (
-              <span className="rounded-full bg-[var(--accent-primary)]/10 px-2 py-0.5 text-[11px] font-medium text-[var(--accent-primary)]">
+              <span className="rounded-full bg-[var(--wjn-navy)]/10 px-2 py-0.5 text-[11px] font-medium text-[var(--wjn-navy)]">
                 {item.badge}
               </span>
             )}
@@ -251,17 +251,17 @@ export function TaskRuntimePanel({
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <Activity className="h-4 w-4 text-[var(--accent-primary)]" />
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+            <Activity className="h-4 w-4 text-[var(--wjn-navy)]" />
+            <h3 className="text-sm font-semibold text-[var(--wjn-text)]">
               {title || runtime?.title || emptyTitle}
             </h3>
           </div>
-          <p className="mt-1 text-xs text-[var(--text-muted)]">
+          <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
             {error || status || focusPhase?.description || emptyDescription}
           </p>
         </div>
         {(isRunning || runtime) && (
-          <span className="shrink-0 rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-xs font-medium text-[var(--accent-primary)]">
+          <span className="shrink-0 rounded-full border border-[var(--wjn-line)] bg-white/80 px-2.5 py-1 text-xs font-medium text-[var(--wjn-navy)]">
             {overallProgress}%
           </span>
         )}
@@ -269,7 +269,7 @@ export function TaskRuntimePanel({
 
       {(isRunning || runtime) && (
         <div className="mt-4">
-          <Progress value={overallProgress} className="h-2 bg-[var(--bg-elevated)]" />
+          <Progress value={overallProgress} className="h-2 bg-[var(--wjn-surface)]" />
         </div>
       )}
 
@@ -289,11 +289,11 @@ export function TaskRuntimePanel({
                     {phaseIcon(phase.status)}
                   </span>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-[var(--text-primary)]">
+                    <p className="text-sm font-medium text-[var(--wjn-text)]">
                       {phase.label}
                     </p>
                     {phase.description && (
-                      <p className="text-[11px] text-[var(--text-muted)]">
+                      <p className="text-[11px] text-[var(--wjn-text-muted)]">
                         {phase.description}
                       </p>
                     )}
@@ -303,7 +303,7 @@ export function TaskRuntimePanel({
                   <div className="mt-3">
                     <Progress
                       value={phase.progress}
-                      className="h-1.5 bg-[var(--bg-surface)]"
+                      className="h-1.5 bg-[var(--wjn-surface-subtle)]"
                     />
                   </div>
                 )}
@@ -313,10 +313,10 @@ export function TaskRuntimePanel({
             const containerClass = cn(
               "rounded-2xl border bg-white/78 px-3 py-3",
               isSelected
-                ? "border-[var(--accent-primary)]/40 ring-1 ring-[var(--accent-primary)]/20"
-                : "border-[var(--border-default)]",
+                ? "border-[var(--wjn-navy)]/40 ring-1 ring-[var(--wjn-navy)]/20"
+                : "border-[var(--wjn-line)]",
               onSelectPhase
-                ? "cursor-pointer text-left transition-colors hover:border-[var(--accent-primary)]/25"
+                ? "cursor-pointer text-left transition-colors hover:border-[var(--wjn-navy)]/25"
                 : ""
             );
 
@@ -344,10 +344,10 @@ export function TaskRuntimePanel({
 
       {focusPhase && onSelectPhase ? (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-[var(--accent-primary)]/25 bg-[var(--accent-primary)]/10 px-2.5 py-1 text-[10px] text-[var(--accent-primary)]">
+          <span className="rounded-full border border-[var(--wjn-navy)]/25 bg-[var(--wjn-navy)]/10 px-2.5 py-1 text-[10px] text-[var(--wjn-navy)]">
             阶段聚焦: {focusPhase.label}
           </span>
-          <span className="rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--text-muted)]">
+          <span className="rounded-full border border-[var(--wjn-line)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--wjn-text-muted)]">
             {hasPhaseFilteredBlocks
               ? `匹配 ${matchedBlocks.length}/${blocks.length} 个运行块`
               : "未找到阶段专属运行块，已显示全部"}
@@ -355,7 +355,7 @@ export function TaskRuntimePanel({
           <button
             type="button"
             onClick={() => onSelectPhase(null)}
-            className="rounded-full border border-[var(--border-default)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-surface)]"
+            className="rounded-full border border-[var(--wjn-line)] bg-white/80 px-2.5 py-1 text-[10px] text-[var(--wjn-text-secondary)] transition-colors hover:bg-[var(--wjn-surface-subtle)]"
           >
             清除聚焦
           </button>
@@ -370,16 +370,16 @@ export function TaskRuntimePanel({
               className={cn(
                 "rounded-2xl border bg-white/76 p-4",
                 hasPhaseFilteredBlocks && focusPhase && blockMatchesPhase(block, focusPhase)
-                  ? "border-[var(--accent-primary)]/30 ring-1 ring-[var(--accent-primary)]/12"
-                  : "border-[var(--border-default)]"
+                  ? "border-[var(--wjn-navy)]/30 ring-1 ring-[var(--wjn-navy)]/12"
+                  : "border-[var(--wjn-line)]"
               )}
             >
               <div className="mb-3">
-                <p className="text-sm font-medium text-[var(--text-primary)]">
+                <p className="text-sm font-medium text-[var(--wjn-text)]">
                   {block.title}
                 </p>
                 {block.description && (
-                  <p className="mt-1 text-xs text-[var(--text-muted)]">
+                  <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
                     {block.description}
                   </p>
                 )}
@@ -391,8 +391,8 @@ export function TaskRuntimePanel({
       ) : (
         !isRunning &&
         !error && (
-          <div className="mt-4 rounded-2xl border border-dashed border-[var(--border-default)] px-4 py-6 text-center">
-            <p className="text-sm text-[var(--text-secondary)]">{emptyDescription}</p>
+          <div className="mt-4 rounded-2xl border border-dashed border-[var(--wjn-line)] px-4 py-6 text-center">
+            <p className="text-sm text-[var(--wjn-text-secondary)]">{emptyDescription}</p>
           </div>
         )
       )}

@@ -1,18 +1,27 @@
 "use client";
 
 import { use, useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { useOptionalI18n } from "@/components/i18n-provider";
 import { LatexEditorShell } from "@/components/latex/LatexEditorShell";
 import { WorkspaceSurfaceState } from "@/components/workspace/WorkspaceSurfaceState";
 import {
   ensureWorkspacePrismProject,
+  getWorkspace,
   getWorkspacePrismSurface,
 } from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
+import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
+import { syncCurrentAuthCookie } from "@/stores/auth";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { PrismContextRail } from "./PrismContextRail";
-import { SurfaceSwitch } from "../components/SurfaceSwitch";
+import { WorkspaceChrome } from "../components/shell/WorkspaceChrome";
+import {
+  WorkspaceHubDrawer,
+  type WorkspaceHubRoomKey,
+} from "../components/shell/WorkspaceHubDrawer";
+import { useWorkspaceChromeCounts } from "../components/shell/useWorkspaceChromeCounts";
 
 type PrismSurfaceLoadState = {
   workspaceId: string;
@@ -20,12 +29,17 @@ type PrismSurfaceLoadState = {
   error: string | null;
 };
 
+function safeCount(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
 export default function WorkspacePrismPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const router = useRouter();
   const i18n = useOptionalI18n();
   const t = i18n?.t;
   const [loadState, setLoadState] = useState<PrismSurfaceLoadState>({
@@ -33,6 +47,11 @@ export default function WorkspacePrismPage({
     surface: null,
     error: null,
   });
+  const [workspace, setWorkspace] = useState<{
+    name: string;
+    type: string;
+  } | null>(null);
+  const [hubOpen, setHubOpen] = useState(false);
   const [surfaceRefreshToken, setSurfaceRefreshToken] = useState(0);
   const prismRefreshCounter = useRoomRefreshStore(
     (state) => state.countersByWorkspace[id]?.prism ?? 0,
@@ -40,6 +59,14 @@ export default function WorkspacePrismPage({
 
   const surface = loadState.workspaceId === id ? loadState.surface : null;
   const error = loadState.workspaceId === id ? loadState.error : null;
+  const typeConfig = workspace
+    ? WORKSPACE_TYPE_CONFIG[workspace.type as keyof typeof WORKSPACE_TYPE_CONFIG]
+    : null;
+  const { pendingReviewCount, activeRunCount, completedRunCount } =
+    useWorkspaceChromeCounts(
+      id,
+      safeCount(surface?.review_summary?.pending_count),
+    );
 
   const refreshSurface = useCallback(() => {
     setSurfaceRefreshToken((token) => token + 1);
@@ -81,9 +108,50 @@ export default function WorkspacePrismPage({
     };
   }, [id, prismRefreshCounter, surfaceRefreshToken]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getWorkspace(id)
+      .then((nextWorkspace) => {
+        if (!cancelled) {
+          setWorkspace({
+            name: nextWorkspace.name,
+            type: nextWorkspace.type,
+          });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  const openWorkbenchRoom = useCallback(
+    (room: WorkspaceHubRoomKey) => {
+      syncCurrentAuthCookie();
+      router.push(`/workspaces/${id}?room=${room}`);
+    },
+    [id, router],
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <SurfaceSwitch workspaceId={id} active="prism" />
+      <WorkspaceChrome
+        workspaceId={id}
+        workspaceName={workspace?.name}
+        workspaceTypeLabel={typeConfig?.title}
+        activeSurface="prism"
+        pendingReviewCount={pendingReviewCount}
+        activeRunCount={activeRunCount}
+        onOpenHub={() => setHubOpen(true)}
+      />
+      <WorkspaceHubDrawer
+        open={hubOpen}
+        activeRoom={null}
+        pendingReviewCount={pendingReviewCount}
+        completedRunCount={completedRunCount}
+        onClose={() => setHubOpen(false)}
+        onRoomSelect={openWorkbenchRoom}
+      />
       <div className="min-h-0 flex-1 overflow-hidden">
         {surface?.latex_project_id ? (
           <div className="flex h-full min-h-0 flex-col">

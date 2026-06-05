@@ -33,7 +33,7 @@ graph_template:
           outputs: []
 ui_meta:
   icon: search
-  color: purple
+  color: blue
   order: 0
   stages: []
   follow_up_prompt: null

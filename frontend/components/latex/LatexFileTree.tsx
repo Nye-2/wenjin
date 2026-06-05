@@ -216,12 +216,12 @@ function FileTreeRow({
         }}
         className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${
           isActive
-            ? "bg-[rgba(31,66,99,0.08)] text-[var(--brand-navy)]"
-            : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+            ? "bg-[rgba(31,66,99,0.08)] text-[var(--wjn-navy)]"
+            : "text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface-subtle)]"
         }`}
         style={{ paddingLeft: `${12 + level * 16}px` }}
       >
-        <GripVertical className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
+        <GripVertical className="h-4 w-4 shrink-0 text-[var(--wjn-text-muted)]" />
         {isDirectory ? (
           hasChildren ? (
             isExpanded ? (
@@ -252,7 +252,7 @@ function FileTreeRow({
                 setEditingValue("");
               }
             }}
-            className="min-w-0 flex-1 rounded-md border border-[var(--border-default)] bg-white px-2 py-1 text-sm"
+            className="min-w-0 flex-1 rounded-md border border-[var(--wjn-line)] bg-white px-2 py-1 text-sm"
             onClick={(event) => event.stopPropagation()}
           />
         ) : (
@@ -263,7 +263,7 @@ function FileTreeRow({
             <DropdownMenu.Trigger asChild>
               <span
                 onClick={(event) => event.stopPropagation()}
-                className="ml-auto rounded-md p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--brand-navy)]"
+                className="ml-auto rounded-md p-1 text-[var(--wjn-text-muted)] transition-colors hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-navy)]"
               >
                 <MoreHorizontal className="h-4 w-4" />
               </span>
@@ -271,14 +271,14 @@ function FileTreeRow({
             <DropdownMenu.Portal>
               <DropdownMenu.Content
                 sideOffset={6}
-                className="z-50 min-w-[140px] rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-1 shadow-[0_12px_32px_rgba(19,34,53,0.14)]"
+                className="z-50 min-w-[140px] rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-1 shadow-[0_12px_32px_rgba(19,34,53,0.14)]"
               >
                 <DropdownMenu.Item
                   onSelect={() => {
                     setEditingPath(node.path);
                     setEditingValue(node.name);
                   }}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none transition-colors hover:bg-[var(--bg-surface)]"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-3 py-2 text-sm outline-none transition-colors hover:bg-[var(--wjn-surface-subtle)]"
                 >
                   <FilePenLine className="h-4 w-4" />
                   重命名
@@ -387,7 +387,7 @@ export function LatexFileTree({
       ))}
       {contextMenu ? (
         <div
-          className="fixed z-[80] min-w-[150px] rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] p-1 shadow-[0_12px_32px_rgba(19,34,53,0.14)]"
+          className="fixed z-[80] min-w-[150px] rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-1 shadow-[0_12px_32px_rgba(19,34,53,0.14)]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <button
@@ -397,7 +397,7 @@ export function LatexFileTree({
               setEditingValue(contextMenu.name);
               setContextMenu(null);
             }}
-            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--bg-surface)]"
+            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-[var(--wjn-surface-subtle)]"
           >
             <FilePenLine className="h-4 w-4" />
             重命名

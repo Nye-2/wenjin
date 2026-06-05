@@ -18,7 +18,7 @@ const markdownComponents = {
         fontSize: 18,
         lineHeight: 1.35,
         fontWeight: 700,
-        color: "var(--v2-text-primary)",
+        color: "var(--wjn-text)",
       }}
     >
       {children}
@@ -31,7 +31,7 @@ const markdownComponents = {
         fontSize: 15,
         lineHeight: 1.4,
         fontWeight: 650,
-        color: "var(--v2-text-primary)",
+        color: "var(--wjn-text)",
       }}
     >
       {children}
@@ -43,7 +43,7 @@ const markdownComponents = {
         margin: "0 0 10px",
         fontSize: 13.5,
         lineHeight: 1.7,
-        color: "var(--v2-text-secondary)",
+        color: "var(--wjn-text-secondary)",
       }}
     >
       {children}
@@ -54,7 +54,7 @@ const markdownComponents = {
       style={{
         margin: "0 0 10px 20px",
         padding: 0,
-        color: "var(--v2-text-secondary)",
+        color: "var(--wjn-text-secondary)",
       }}
     >
       {children}
@@ -65,7 +65,7 @@ const markdownComponents = {
       style={{
         margin: "0 0 10px 20px",
         padding: 0,
-        color: "var(--v2-text-secondary)",
+        color: "var(--wjn-text-secondary)",
       }}
     >
       {children}
@@ -85,12 +85,12 @@ const markdownComponents = {
   code: ({ children }: { children?: React.ReactNode }) => (
     <code
       style={{
-        fontFamily: "var(--v2-font-mono)",
+        fontFamily: "var(--wjn-font-mono)",
         fontSize: 12,
         padding: "2px 5px",
         borderRadius: 6,
         background: "rgba(20, 20, 30, 0.06)",
-        color: "var(--v2-text-primary)",
+        color: "var(--wjn-text)",
       }}
     >
       {children}
@@ -107,7 +107,7 @@ const markdownComponents = {
     <WorkspaceActionLink
       href={href}
       style={{
-        color: "var(--v2-accent-blue-700)",
+        color: "var(--wjn-blue)",
         textDecoration: "underline",
         textUnderlineOffset: 2,
       }}
@@ -129,7 +129,7 @@ export function ResultPreviewRenderer({
         style={{
           fontSize: 13,
           lineHeight: 1.6,
-          color: "var(--v2-text-tertiary)",
+          color: "var(--wjn-text-muted)",
         }}
       >
         No preview available yet.
@@ -160,11 +160,11 @@ export function ResultPreviewRenderer({
           wordBreak: "break-word",
           fontSize: 13,
           lineHeight: 1.7,
-          color: "var(--v2-text-secondary)",
+          color: "var(--wjn-text-secondary)",
           fontFamily:
             preview.previewMode === "json_fallback"
-              ? "var(--v2-font-mono)"
-              : "var(--v2-font-sans)",
+              ? "var(--wjn-font-mono)"
+              : "var(--wjn-font-sans)",
         }}
       >
         {content}
@@ -178,7 +178,7 @@ export function ResultPreviewRenderer({
       style={{
         fontSize: 13.5,
         lineHeight: 1.7,
-        color: "var(--v2-text-secondary)",
+        color: "var(--wjn-text-secondary)",
       }}
     >
       {content}

@@ -24,7 +24,7 @@ export function EmptyState({
 }) {
   return (
     <div style={{ ...styles.emptyState, padding: compact ? 16 : 28 }}>
-      <BookOpen size={compact ? 18 : 24} color="var(--v2-text-tertiary)" />
+      <BookOpen size={compact ? 18 : 24} color="var(--wjn-text-muted)" />
       <div style={styles.emptyTitle}>{title}</div>
       <div style={styles.emptyDetail}>{detail}</div>
     </div>
@@ -76,7 +76,7 @@ export function MetricCard({
 }) {
   return (
     <div style={styles.metricCard}>
-      <Icon size={17} color="var(--v2-accent-purple-700)" />
+      <Icon size={17} color="var(--wjn-blue)" />
       <div>
         <div style={styles.metricValue}>{value}</div>
         <div style={styles.metricLabel}>{label}</div>

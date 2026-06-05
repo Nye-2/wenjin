@@ -122,8 +122,8 @@ export default function MyDashboardPage() {
 
   if (authLoading || (isLoading && !dashboard)) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-[var(--bg-base)]">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-primary)]" />
+      <main className="min-h-screen flex items-center justify-center bg-[var(--wjn-bg-base)]">
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--wjn-navy)]" />
       </main>
     );
   }
@@ -139,23 +139,23 @@ export default function MyDashboardPage() {
   const recentTasks = dashboard?.recent_tasks ?? [];
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)]">
+    <div className="min-h-screen bg-[var(--wjn-bg-base)]">
       <Header />
       <div className="route-topography max-w-7xl mx-auto px-4 py-8 pt-24 space-y-6">
         <div className="route-card rounded-[1.75rem] p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--accent-secondary)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[var(--wjn-blue)]">
               账户总览
             </p>
-            <h1 className="mt-3 text-3xl font-bold text-[var(--text-primary)]">账户概览</h1>
-            <p className="text-[var(--text-secondary)] mt-1">
+            <h1 className="mt-3 text-3xl font-bold text-[var(--wjn-text)]">账户概览</h1>
+            <p className="text-[var(--wjn-text-secondary)] mt-1">
               查看积分、任务与工作空间状态，保持你的研究工作线索清晰可追踪。
             </p>
           </div>
           <button
             onClick={() => void loadDashboard(true)}
             disabled={isRefreshing}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-60"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface)] text-[var(--wjn-text)] hover:bg-[var(--wjn-surface-subtle)] transition-colors disabled:opacity-60"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
             刷新
@@ -177,17 +177,17 @@ export default function MyDashboardPage() {
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-secondary)]">当前积分</span>
-              <CreditCard className="w-5 h-5 text-[var(--accent-primary)]" />
+              <span className="text-sm text-[var(--wjn-text-secondary)]">当前积分</span>
+              <CreditCard className="w-5 h-5 text-[var(--wjn-navy)]" />
             </div>
             <div
               className={`mt-3 text-3xl font-bold ${
-                creditBalance < 0 ? "text-rose-600" : "text-[var(--text-primary)]"
+                creditBalance < 0 ? "text-rose-600" : "text-[var(--wjn-text)]"
               }`}
             >
               {creditBalance.toLocaleString()}
             </div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">
+            <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
               累计获得 {dashboard?.credits.total_earned ?? 0} / 累计消费 {dashboard?.credits.total_spent ?? 0}
             </div>
             {threadCredit?.overdraft_credits ? (
@@ -199,53 +199,53 @@ export default function MyDashboardPage() {
 
           <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-secondary)]">工作空间</span>
-              <FolderKanban className="w-5 h-5 text-[var(--accent-primary)]" />
+              <span className="text-sm text-[var(--wjn-text-secondary)]">工作空间</span>
+              <FolderKanban className="w-5 h-5 text-[var(--wjn-navy)]" />
             </div>
-            <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
+            <div className="mt-3 text-3xl font-bold text-[var(--wjn-text)]">
               {dashboard?.workspaces.total ?? 0}
             </div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">
+            <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
               近 7 天新增 {dashboard?.workspaces.created_last_7d ?? 0}
             </div>
           </div>
 
           <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-secondary)]">任务总数</span>
-              <ListChecks className="w-5 h-5 text-[var(--accent-primary)]" />
+              <span className="text-sm text-[var(--wjn-text-secondary)]">任务总数</span>
+              <ListChecks className="w-5 h-5 text-[var(--wjn-navy)]" />
             </div>
-            <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
+            <div className="mt-3 text-3xl font-bold text-[var(--wjn-text)]">
               {dashboard?.tasks.total ?? 0}
             </div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">
+            <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
               运行中 {dashboard?.tasks.running ?? 0} / 失败 {dashboard?.tasks.failed ?? 0}
             </div>
           </div>
 
           <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-secondary)]">任务完成率</span>
-              <TrendingUp className="w-5 h-5 text-[var(--accent-primary)]" />
+              <span className="text-sm text-[var(--wjn-text-secondary)]">任务完成率</span>
+              <TrendingUp className="w-5 h-5 text-[var(--wjn-navy)]" />
             </div>
-            <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
+            <div className="mt-3 text-3xl font-bold text-[var(--wjn-text)]">
               {completionRate}%
             </div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">
+            <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
               成功 {dashboard?.tasks.success ?? 0}
             </div>
           </div>
 
           <div className="route-card rounded-[1.5rem] p-5">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-secondary)]">主线状态</span>
-              <Gauge className="w-5 h-5 text-[var(--accent-primary)]" />
+              <span className="text-sm text-[var(--wjn-text-secondary)]">任务额度</span>
+              <Gauge className="w-5 h-5 text-[var(--wjn-navy)]" />
             </div>
-            <div className="mt-3 text-3xl font-bold text-[var(--text-primary)]">
-              {threadCredit?.can_start_thread ? "可用" : "暂停"}
+            <div className="mt-3 text-3xl font-bold text-[var(--wjn-text)]">
+              {threadCredit?.can_start_thread ? "可启动" : "需充值"}
             </div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">
-              按实际使用折算积分
+            <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
+              任务与 sandbox 按规则消耗积分
             </div>
           </div>
         </div>
@@ -254,12 +254,12 @@ export default function MyDashboardPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-2xl">
               <div className="flex items-center gap-2">
-                <span className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--wjn-accent-soft)] text-[var(--accent-primary)]">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-[var(--wjn-accent-soft)] text-[var(--wjn-navy)]">
                   <Gift className="h-4 w-4" />
                 </span>
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">兑换码充值</h2>
+                <h2 className="text-lg font-semibold text-[var(--wjn-text)]">兑换码充值</h2>
               </div>
-              <p className="mt-2 text-sm text-[var(--text-secondary)]">
+              <p className="mt-2 text-sm text-[var(--wjn-text-secondary)]">
                 输入管理员发放的 credits 兑换码，成功后会立即写入积分流水，并刷新账户余额。
               </p>
             </div>
@@ -267,7 +267,7 @@ export default function MyDashboardPage() {
             <form onSubmit={handleRedeemCode} className="w-full max-w-xl">
               <label
                 htmlFor="credit-redeem-code"
-                className="text-xs font-medium text-[var(--text-muted)]"
+                className="text-xs font-medium text-[var(--wjn-text-muted)]"
               >
                 兑换码
               </label>
@@ -277,12 +277,12 @@ export default function MyDashboardPage() {
                   value={redeemCode}
                   onChange={(event) => setRedeemCode(event.target.value)}
                   placeholder="输入兑换码"
-                  className="min-h-11 flex-1 rounded-xl border border-[var(--border-default)] bg-[var(--bg-elevated)] px-4 text-sm text-[var(--text-primary)] outline-none transition focus:border-[var(--accent-primary)] focus:ring-4 focus:ring-[var(--accent-primary)]/10"
+                  className="min-h-11 flex-1 rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-4 text-sm text-[var(--wjn-text)] outline-none transition focus:border-[var(--wjn-navy)] focus:ring-4 focus:ring-[var(--wjn-navy)]/10"
                 />
                 <button
                   type="submit"
                   disabled={isRedeeming}
-                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--accent-primary)] px-5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--wjn-navy)] px-5 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-60"
                 >
                   {isRedeeming ? "兑换中..." : "立即兑换"}
                 </button>
@@ -307,8 +307,8 @@ export default function MyDashboardPage() {
           >
             <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-[var(--text-primary)]">主线对话计费状态</h2>
-                <p className="mt-1 text-sm text-[var(--text-secondary)]">
+                <h2 className="text-lg font-semibold text-[var(--wjn-text)]">主线对话计费状态</h2>
+                <p className="mt-1 text-sm text-[var(--wjn-text-secondary)]">
                   主线对话按实际使用自动折算为积分，账单只展示积分扣减。
                 </p>
               </div>
@@ -323,21 +323,21 @@ export default function MyDashboardPage() {
               </div>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">计费单位</div>
-                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+              <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
+                <div className="text-xs text-[var(--wjn-text-muted)]">计费单位</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
                   积分
                 </div>
               </div>
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">扣费方式</div>
-                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+              <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
+                <div className="text-xs text-[var(--wjn-text-muted)]">扣费方式</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
                   自动折算
                 </div>
               </div>
-              <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-                <div className="text-xs text-[var(--text-muted)]">当前透支</div>
-                <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+              <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
+                <div className="text-xs text-[var(--wjn-text-muted)]">当前透支</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
                   {threadCredit.overdraft_credits.toLocaleString()} 积分
                 </div>
               </div>
@@ -352,20 +352,20 @@ export default function MyDashboardPage() {
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
           <section className="route-card rounded-[1.75rem] p-5">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">模块积分标准</h2>
+            <h2 className="text-lg font-semibold text-[var(--wjn-text)]">模块积分标准</h2>
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-default)]">
+                  <tr className="text-left text-[var(--wjn-text-muted)] border-b border-[var(--wjn-line)]">
                     <th className="py-2">模块</th>
                     <th className="py-2">消耗</th>
                   </tr>
                 </thead>
                 <tbody>
                   {Object.entries(costs).map(([key, value]) => (
-                    <tr key={key} className="border-b border-[var(--border-default)]/50">
-                      <td className="py-2 text-[var(--text-primary)]">{formatCreditCostLabel(key)}</td>
-                      <td className="py-2 text-[var(--text-secondary)]">{renderCostValue(value)}</td>
+                    <tr key={key} className="border-b border-[var(--wjn-line)]/50">
+                      <td className="py-2 text-[var(--wjn-text)]">{formatCreditCostLabel(key)}</td>
+                      <td className="py-2 text-[var(--wjn-text-secondary)]">{renderCostValue(value)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -374,36 +374,36 @@ export default function MyDashboardPage() {
           </section>
 
           <section className="route-card rounded-[1.75rem] p-5">
-            <h2 className="text-lg font-semibold text-[var(--text-primary)]">最近任务</h2>
+            <h2 className="text-lg font-semibold text-[var(--wjn-text)]">最近任务</h2>
             <div className="mt-4 space-y-3">
               {recentTasks.length ? (
                 recentTasks.map((task) => (
                   <div
                     key={task.id}
-                    className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3"
+                    className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-medium text-[var(--text-primary)]">{task.task_type}</span>
-                      <span className="text-xs text-[var(--text-muted)]">{task.status}</span>
+                      <span className="font-medium text-[var(--wjn-text)]">{task.task_type}</span>
+                      <span className="text-xs text-[var(--wjn-text-muted)]">{task.status}</span>
                     </div>
-                    <div className="mt-1 text-xs text-[var(--text-secondary)]">
+                    <div className="mt-1 text-xs text-[var(--wjn-text-secondary)]">
                       进度 {task.progress}% · {formatDate(task.created_at)}
                     </div>
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-[var(--text-muted)]">暂无任务记录</div>
+                <div className="text-sm text-[var(--wjn-text-muted)]">暂无任务记录</div>
               )}
             </div>
           </section>
         </div>
 
         <section className="route-card rounded-[1.75rem] p-5">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">积分流水</h2>
+          <h2 className="text-lg font-semibold text-[var(--wjn-text)]">积分流水</h2>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-default)]">
+                <tr className="text-left text-[var(--wjn-text-muted)] border-b border-[var(--wjn-line)]">
                   <th className="py-2">时间</th>
                   <th className="py-2">类型</th>
                   <th className="py-2">变动</th>
@@ -413,9 +413,9 @@ export default function MyDashboardPage() {
               </thead>
               <tbody>
                 {history.map((item) => (
-                  <tr key={item.id} className="border-b border-[var(--border-default)]/50">
-                    <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>
-                    <td className="py-2 text-[var(--text-primary)]">{formatCreditTransactionType(item.type)}</td>
+                  <tr key={item.id} className="border-b border-[var(--wjn-line)]/50">
+                    <td className="py-2 text-[var(--wjn-text-secondary)]">{formatDate(item.created_at)}</td>
+                    <td className="py-2 text-[var(--wjn-text)]">{formatCreditTransactionType(item.type)}</td>
                     <td
                       className={`py-2 font-medium ${
                         item.amount >= 0 ? "text-emerald-600" : "text-rose-600"
@@ -425,12 +425,12 @@ export default function MyDashboardPage() {
                     </td>
                     <td
                       className={`py-2 ${
-                        item.balance_after < 0 ? "text-rose-600" : "text-[var(--text-primary)]"
+                        item.balance_after < 0 ? "text-rose-600" : "text-[var(--wjn-text)]"
                       }`}
                     >
                       {item.balance_after}
                     </td>
-                    <td className="py-2 text-[var(--text-secondary)]">
+                    <td className="py-2 text-[var(--wjn-text-secondary)]">
                       {summarizeCreditTransaction(item)}
                     </td>
                   </tr>
@@ -438,7 +438,7 @@ export default function MyDashboardPage() {
               </tbody>
             </table>
             {history.length === 0 && (
-              <div className="text-sm text-[var(--text-muted)] py-3">暂无积分流水</div>
+              <div className="text-sm text-[var(--wjn-text-muted)] py-3">暂无积分流水</div>
             )}
           </div>
         </section>

@@ -236,6 +236,94 @@ def test_needs_library_context_when_citation_policy_uses_workspace_library():
     )
 
 
+def test_prism_context_requirements_keep_local_rewrite_lightweight():
+    brief = TaskBrief(
+        capability_id="prism_selection_optimize",
+        raw_message="Prism 局部改稿",
+        workspace_id="ws-001",
+        brief={
+            "context_requirements": {
+                "include_manuscript_context": True,
+                "include_workspace_history": False,
+                "include_related_documents": False,
+                "include_sandbox_artifacts": False,
+                "include_pending_review_summary": True,
+            },
+        },
+    )
+
+    requirements = LeadAgentRuntime._context_requirements_from_brief(brief)
+
+    assert requirements["include_manuscript_context"]
+    assert not LeadAgentRuntime._needs_workspace_context(
+        {"context_policy": {"room_reads": {"library": "summary"}}},
+        requirements,
+    )
+
+
+def test_explicit_context_requirements_do_not_disable_required_citation_library():
+    brief = TaskBrief(
+        capability_id="citation_required_capability",
+        raw_message="draft with citations",
+        workspace_id="ws-001",
+        brief={
+            "context_requirements": {
+                "include_manuscript_context": True,
+                "include_workspace_history": False,
+                "include_related_documents": False,
+                "include_sandbox_artifacts": False,
+            },
+        },
+    )
+
+    requirements = LeadAgentRuntime._context_requirements_from_brief(brief)
+
+    assert LeadAgentRuntime._needs_workspace_context(
+        {
+            "context_policy": {"room_reads": {"library": "none"}},
+            "citation_policy": {"source_scope": "workspace_library"},
+        },
+        requirements,
+    )
+
+
+def test_workspace_context_metadata_is_bounded_for_prompt_safety():
+    metadata = LeadAgentRuntime._compact_metadata(
+        {
+            "long": "x" * 500,
+            "nested": {"path": ["a", "b", "c"]},
+            "skip_extra": "kept within key limit",
+        },
+        limit=2,
+    )
+
+    assert set(metadata) == {"long", "nested"}
+    assert len(metadata["long"]) == 300
+    assert metadata["nested"].startswith("{")
+
+
+def test_prism_context_requirements_enable_document_rewrite_context():
+    brief = TaskBrief(
+        capability_id="prism_selection_optimize",
+        raw_message="Prism 全文改稿",
+        workspace_id="ws-001",
+        brief={
+            "context_requirements": {
+                "include_manuscript_context": True,
+                "include_workspace_history": True,
+                "include_related_documents": True,
+                "include_sandbox_artifacts": True,
+                "include_pending_review_summary": True,
+            },
+        },
+    )
+
+    requirements = LeadAgentRuntime._context_requirements_from_brief(brief)
+
+    assert requirements["include_workspace_history"]
+    assert LeadAgentRuntime._needs_workspace_context({}, requirements)
+
+
 def test_runtime_mode_ignores_definition_json_runtime_mode():
     cap = _make_fake_capability(
         definition_json={"runtime_mode": "team_kernel"},

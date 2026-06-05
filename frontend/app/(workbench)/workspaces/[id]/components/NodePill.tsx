@@ -18,10 +18,10 @@ const DOT_STYLES: Record<string, { bg: string; border: string; boxShadow: string
     animation: "none",
   },
   running: {
-    bg: "linear-gradient(135deg, #A78BFA, #7C3AED)",
+    bg: "linear-gradient(135deg, var(--wjn-blue), var(--wjn-blue-strong))",
     border: "none",
-    boxShadow: "0 2px 8px rgba(139, 92, 246, 0.4)",
-    animation: "v2-pulse-soft 1.6s ease-in-out infinite",
+    boxShadow: "0 2px 8px rgba(44, 93, 160, 0.35)",
+    animation: "wjn-pulse-soft 1.6s ease-in-out infinite",
   },
   failed: {
     bg: "linear-gradient(135deg, #F87171, #DC2626)",
@@ -43,12 +43,12 @@ export function NodePill({ label, state, isSelected, onClick }: NodePillProps) {
 
   const statusColor =
     status === "completed"
-      ? "var(--v2-status-success-deep)"
+      ? "var(--wjn-success)"
       : status === "running"
-        ? "var(--v2-status-running-deep)"
+        ? "var(--wjn-blue)"
         : status === "failed"
-          ? "var(--v2-status-error)"
-          : "var(--v2-status-idle)";
+          ? "var(--wjn-error)"
+          : "var(--wjn-text-muted)";
 
   return (
     <button
@@ -58,19 +58,19 @@ export function NodePill({ label, state, isSelected, onClick }: NodePillProps) {
         alignItems: "center",
         gap: 6,
         padding: "4px 10px 4px 6px",
-        borderRadius: "var(--v2-radius-pill)",
+        borderRadius: "var(--wjn-radius-pill)",
         background: isSelected
-          ? "rgba(139, 92, 246, 0.1)"
-          : "var(--v2-glass-bg-subtle)",
+          ? "var(--wjn-accent-soft)"
+          : "var(--wjn-surface-raised)",
         border: isSelected
-          ? "1px solid rgba(139, 92, 246, 0.25)"
-          : "1px solid var(--v2-border-soft)",
+          ? "1px solid var(--wjn-accent-line)"
+          : "1px solid var(--wjn-line)",
         cursor: "pointer",
-        fontFamily: "var(--v2-font-sans)",
+        fontFamily: "var(--wjn-font-sans)",
         fontSize: 12,
         fontWeight: 500,
-        color: isSelected ? statusColor : "var(--v2-text-primary)",
-        transition: "all var(--v2-duration-fast) var(--v2-ease-standard)",
+        color: isSelected ? statusColor : "var(--wjn-text)",
+        transition: "all var(--wjn-duration-fast) var(--wjn-ease-standard)",
         outline: "none",
         lineHeight: 1,
       }}

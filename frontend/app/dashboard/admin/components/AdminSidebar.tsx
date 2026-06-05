@@ -53,7 +53,7 @@ export function AdminSidebar() {
   };
 
   return (
-    <aside className="w-60 shrink-0 border-r border-[var(--border-default)] bg-[var(--bg-surface)] min-h-[calc(100vh-4rem)] hidden lg:block">
+    <aside className="w-60 shrink-0 border-r border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] min-h-[calc(100vh-4rem)] hidden lg:block">
       <nav className="flex flex-col gap-1 p-4 text-sm">
         {TOP.map(({ href, label, icon: Icon }) => (
           <Link
@@ -61,8 +61,8 @@ export function AdminSidebar() {
             href={href}
             className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
               isActive(href)
-                ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium"
-                : "text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+                ? "bg-[var(--wjn-navy)]/10 text-[var(--wjn-navy)] font-medium"
+                : "text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface)]"
             }`}
           >
             <Icon className="w-4 h-4" />
@@ -71,7 +71,7 @@ export function AdminSidebar() {
         ))}
 
         <div className="mt-2">
-          <div className="flex items-center gap-2 px-3 py-2 text-[var(--text-muted)] text-xs uppercase tracking-wide">
+          <div className="flex items-center gap-2 px-3 py-2 text-[var(--wjn-text-muted)] text-xs uppercase tracking-wide">
             <CREDIT_GROUP.icon className="w-4 h-4" />
             {CREDIT_GROUP.label}
           </div>
@@ -82,8 +82,8 @@ export function AdminSidebar() {
                 href={child.href}
                 className={`rounded-lg px-3 py-1.5 transition-colors ${
                   isActive(child.href)
-                    ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium"
-                    : "text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+                    ? "bg-[var(--wjn-navy)]/10 text-[var(--wjn-navy)] font-medium"
+                    : "text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface)]"
                 }`}
               >
                 {child.label}
@@ -98,8 +98,8 @@ export function AdminSidebar() {
             href={href}
             className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
               isActive(href)
-                ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium"
-                : "text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+                ? "bg-[var(--wjn-navy)]/10 text-[var(--wjn-navy)] font-medium"
+                : "text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface)]"
             }`}
           >
             <Icon className="w-4 h-4" />
@@ -107,7 +107,7 @@ export function AdminSidebar() {
           </Link>
         ))}
 
-        <div className="my-2 border-t border-[var(--border-default)]" />
+        <div className="my-2 border-t border-[var(--wjn-line)]" />
 
         {SYSTEM.map(({ href, label, icon: Icon }) => (
           <Link
@@ -115,8 +115,8 @@ export function AdminSidebar() {
             href={href}
             className={`flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
               isActive(href)
-                ? "bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] font-medium"
-                : "text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+                ? "bg-[var(--wjn-navy)]/10 text-[var(--wjn-navy)] font-medium"
+                : "text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface)]"
             }`}
           >
             <Icon className="w-4 h-4" />

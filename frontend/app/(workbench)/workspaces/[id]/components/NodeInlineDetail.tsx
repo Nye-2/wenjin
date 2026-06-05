@@ -35,20 +35,20 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
     <div
       style={{
         marginTop: 6,
-        borderRadius: "var(--v2-radius-md)",
-        background: "var(--v2-surface-soft)",
-        border: "1px solid var(--v2-border-soft)",
+        borderRadius: "var(--wjn-radius-md)",
+        background: "var(--wjn-bg-base)",
+        border: "1px solid var(--wjn-line)",
         overflow: "hidden",
-        fontFamily: "var(--v2-font-sans)",
+        fontFamily: "var(--wjn-font-sans)",
         fontSize: 12,
-        color: "var(--v2-text-primary)",
+        color: "var(--wjn-text)",
       }}
     >
       {/* Tab bar */}
       <div
         style={{
           display: "flex",
-          borderBottom: "1px solid var(--v2-border-soft)",
+          borderBottom: "1px solid var(--wjn-line)",
           background: "rgba(255, 255, 255, 0.5)",
         }}
       >
@@ -60,22 +60,22 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
               padding: "6px 12px",
               fontSize: 11,
               fontWeight: 500,
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
               color:
                 activeTab === tab.key
-                  ? "var(--v2-accent-purple-700)"
-                  : "var(--v2-text-secondary)",
+                  ? "var(--wjn-blue)"
+                  : "var(--wjn-text-secondary)",
               background:
                 activeTab === tab.key
-                  ? "rgba(139, 92, 246, 0.06)"
+                  ? "var(--wjn-accent-soft)"
                   : "transparent",
               border: "none",
               borderBottom:
                 activeTab === tab.key
-                  ? "2px solid var(--v2-accent-purple-700)"
+                  ? "2px solid var(--wjn-blue)"
                   : "2px solid transparent",
               cursor: "pointer",
-              transition: "all var(--v2-duration-fast) var(--v2-ease-standard)",
+              transition: "all var(--wjn-duration-fast) var(--wjn-ease-standard)",
               outline: "none",
             }}
           >
@@ -97,10 +97,10 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
           <pre
             style={{
               margin: 0,
-              fontFamily: "var(--v2-font-mono)",
+              fontFamily: "var(--wjn-font-mono)",
               fontSize: 11,
               lineHeight: 1.5,
-              color: "var(--v2-text-primary)",
+              color: "var(--wjn-text)",
               whiteSpace: "pre-wrap",
               wordBreak: "break-word",
             }}
@@ -110,9 +110,9 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
         ) : (
           <span
             style={{
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
               fontSize: 11,
-              color: "var(--v2-text-tertiary)",
+              color: "var(--wjn-text-muted)",
             }}
           >
             No data available

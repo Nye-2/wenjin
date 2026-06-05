@@ -121,7 +121,7 @@ export function CreditRuleDialog({ open, rule, onClose }: Props) {
               <div className="space-y-1">
                 <Label>Cron 表达式</Label>
                 <Input value={cron} onChange={(e) => setCron(e.target.value)} placeholder="0 0 * * 1" />
-                <p className="text-xs text-[var(--text-muted)]">每周一 00:00：<code>0 0 * * 1</code></p>
+                <p className="text-xs text-[var(--wjn-text-muted)]">每周一 00:00：<code>0 0 * * 1</code></p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">

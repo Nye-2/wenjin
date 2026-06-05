@@ -88,7 +88,8 @@
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
-| `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 开发环境默认 `http://localhost:8001/api`，生产默认 `/api` |
+| `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 默认 `/api`；生产走 nginx 同源入口，前端开发态由 Next rewrite 代理 |
+| `WENJIN_DEV_API_PROXY_TARGET` | 前端开发态 `/api/*` 代理目标 | 默认 `http://localhost:2026`；连接手动启动的 gateway 时可设为 `http://localhost:8001` |
 
 ## 3. Docker Compose image variables
 

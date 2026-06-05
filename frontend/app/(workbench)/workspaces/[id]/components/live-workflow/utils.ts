@@ -190,25 +190,25 @@ export function qualityGateLabel(status: string): string {
 
 export function qualityGateTone(status: string): CSSProperties {
   if (status === "pass") {
-    return { background: "rgba(34, 197, 94, 0.12)", color: "var(--v2-status-success-deep)" };
+    return { background: "var(--wjn-evidence-soft)", color: "var(--wjn-evidence)" };
   }
   if (status === "fail") {
-    return { background: "rgba(220, 38, 38, 0.1)", color: "var(--v2-status-error)" };
+    return { background: "var(--wjn-error-soft)", color: "var(--wjn-error)" };
   }
-  return { background: "rgba(245, 158, 11, 0.13)", color: "#92400E" };
+  return { background: "var(--wjn-review-soft)", color: "var(--wjn-review)" };
 }
 
 export function statusTone(status: RunViewStatus | string): CSSProperties {
   if (status === "completed") {
-    return { background: "rgba(34, 197, 94, 0.12)", color: "var(--v2-status-success-deep)" };
+    return { background: "var(--wjn-evidence-soft)", color: "var(--wjn-evidence)" };
   }
   if (status === "failed" || status === "failed_partial") {
-    return { background: "rgba(220, 38, 38, 0.1)", color: "var(--v2-status-error)" };
+    return { background: "var(--wjn-error-soft)", color: "var(--wjn-error)" };
   }
   if (status === "cancelled") {
-    return { background: "rgba(20, 20, 30, 0.06)", color: "var(--v2-text-tertiary)" };
+    return { background: "rgba(15,31,53,0.06)", color: "var(--wjn-text-muted)" };
   }
-  return { background: "var(--v2-accent-purple-100)", color: "var(--v2-accent-purple-700)" };
+  return { background: "var(--wjn-accent-soft)", color: "var(--wjn-blue)" };
 }
 
 export function kindLabel(kind: string): string {

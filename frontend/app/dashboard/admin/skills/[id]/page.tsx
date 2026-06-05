@@ -96,7 +96,7 @@ export default function SkillEditPage({
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <h1 className="text-xl font-bold text-[var(--text-primary)]">
+          <h1 className="text-xl font-bold text-[var(--wjn-text)]">
             {id}
           </h1>
         </div>

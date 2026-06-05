@@ -15,7 +15,7 @@ export function LanguageSwitcher({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "flex items-center gap-1 p-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-default)]",
+        "flex items-center gap-1 p-1 rounded-lg bg-[var(--wjn-surface-subtle)] border border-[var(--wjn-line)]",
         className
       )}
     >
@@ -26,8 +26,8 @@ export function LanguageSwitcher({ className }: { className?: string }) {
           className={cn(
             "px-3 py-1.5 rounded-md text-sm font-medium transition-all",
             locale === lang.code
-              ? "bg-[var(--accent-primary)] text-white shadow-sm"
-              : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-muted)]"
+              ? "bg-[var(--wjn-navy)] text-white shadow-sm"
+              : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)] hover:bg-[var(--bg-muted)]"
           )}
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}

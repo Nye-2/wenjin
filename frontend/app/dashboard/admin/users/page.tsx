@@ -225,7 +225,7 @@ export default function AdminUsersPage() {
             }}
           >
             <div className="min-w-52">
-              <Label htmlFor="users-keyword" className="text-xs text-[var(--text-muted)] mb-1 block">
+              <Label htmlFor="users-keyword" className="text-xs text-[var(--wjn-text-muted)] mb-1 block">
                 关键词（邮箱/用户名）
               </Label>
               <Input
@@ -237,7 +237,7 @@ export default function AdminUsersPage() {
               />
             </div>
             <div className="w-32">
-              <Label className="text-xs text-[var(--text-muted)] mb-1 block">角色</Label>
+              <Label className="text-xs text-[var(--wjn-text-muted)] mb-1 block">角色</Label>
               <Select
                 value={userRoleFilter}
                 onValueChange={(value) => {
@@ -256,7 +256,7 @@ export default function AdminUsersPage() {
               </Select>
             </div>
             <div className="w-32">
-              <Label className="text-xs text-[var(--text-muted)] mb-1 block">状态</Label>
+              <Label className="text-xs text-[var(--wjn-text-muted)] mb-1 block">状态</Label>
               <Select
                 value={userStatusFilter}
                 onValueChange={(value) => {
@@ -275,7 +275,7 @@ export default function AdminUsersPage() {
               </Select>
             </div>
             <div className="w-28">
-              <Label className="text-xs text-[var(--text-muted)] mb-1 block">每页条数</Label>
+              <Label className="text-xs text-[var(--wjn-text-muted)] mb-1 block">每页条数</Label>
               <Select
                 value={String(usersPageSize)}
                 onValueChange={(value) => {
@@ -317,7 +317,7 @@ export default function AdminUsersPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-default)]">
+              <tr className="text-left text-[var(--wjn-text-muted)] border-b border-[var(--wjn-line)]">
                 <th className="py-2">邮箱</th>
                 <th className="py-2">角色</th>
                 <th className="py-2">状态</th>
@@ -336,11 +336,11 @@ export default function AdminUsersPage() {
                 return (
                   <tr
                     key={item.id}
-                    className={`border-b border-[var(--border-default)]/50 ${
+                    className={`border-b border-[var(--wjn-line)]/50 ${
                       isOverdraft ? "bg-rose-500/5" : ""
                     }`}
                   >
-                    <td className="py-2 text-[var(--text-primary)]">
+                    <td className="py-2 text-[var(--wjn-text)]">
                       <div className="flex items-center gap-2">
                         <span>{item.email}</span>
                         {isOverdraft ? (
@@ -350,7 +350,7 @@ export default function AdminUsersPage() {
                         ) : null}
                       </div>
                     </td>
-                    <td className="py-2 text-[var(--text-secondary)]">{item.role}</td>
+                    <td className="py-2 text-[var(--wjn-text-secondary)]">{item.role}</td>
                     <td className="py-2">
                       <span
                         className={`px-2 py-1 rounded-md text-xs ${
@@ -364,15 +364,15 @@ export default function AdminUsersPage() {
                     </td>
                     <td
                       className={`py-2 font-medium ${
-                        isOverdraft ? "text-rose-600" : "text-[var(--text-primary)]"
+                        isOverdraft ? "text-rose-600" : "text-[var(--wjn-text)]"
                       }`}
                     >
                       {item.credits}
                     </td>
-                    <td className="py-2 text-[var(--text-primary)]">{item.workspace_count}</td>
-                    <td className="py-2 text-[var(--text-primary)]">{item.task_count}</td>
-                    <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>
-                    <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.last_login)}</td>
+                    <td className="py-2 text-[var(--wjn-text)]">{item.workspace_count}</td>
+                    <td className="py-2 text-[var(--wjn-text)]">{item.task_count}</td>
+                    <td className="py-2 text-[var(--wjn-text-secondary)]">{formatDate(item.created_at)}</td>
+                    <td className="py-2 text-[var(--wjn-text-secondary)]">{formatDate(item.last_login)}</td>
                     <td className="py-2">
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -428,16 +428,16 @@ export default function AdminUsersPage() {
             </tbody>
           </table>
           {isLoading && (
-            <div className="text-sm text-[var(--text-muted)] py-3 flex items-center gap-2">
+            <div className="text-sm text-[var(--wjn-text-muted)] py-3 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               正在加载用户数据
             </div>
           )}
           {users.length === 0 && (
-            <div className="text-sm text-[var(--text-muted)] py-3">暂无用户数据</div>
+            <div className="text-sm text-[var(--wjn-text-muted)] py-3">暂无用户数据</div>
           )}
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs text-[var(--text-muted)]">第 {usersPage} 页</span>
+            <span className="text-xs text-[var(--wjn-text-muted)]">第 {usersPage} 页</span>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"

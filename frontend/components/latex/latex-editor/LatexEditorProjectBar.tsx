@@ -1,8 +1,6 @@
 import {
   ArrowLeft,
   Loader2,
-  PanelRightClose,
-  PanelRightOpen,
   Sparkles,
 } from "lucide-react";
 
@@ -19,13 +17,11 @@ export function LatexEditorProjectBar({
   isSaving,
   isCompiling,
   activeFileKind,
-  isInspectorOpen,
   backLabel,
   onBack,
   onEngineChange,
   onSave,
   onCompile,
-  onToggleInspector,
 }: {
   projectName?: string | null;
   mainFile?: string | null;
@@ -36,13 +32,11 @@ export function LatexEditorProjectBar({
   isSaving: boolean;
   isCompiling: boolean;
   activeFileKind: "text" | "blob" | null;
-  isInspectorOpen: boolean;
   backLabel: string;
   onBack: () => void;
   onEngineChange: (engine: LatexCompileEngine) => void;
   onSave: () => void;
   onCompile: () => void;
-  onToggleInspector: () => void;
 }) {
   return (
     <div className="wjn-topbar flex min-h-16 shrink-0 flex-wrap items-center justify-between gap-3 px-3 py-2 md:px-4">
@@ -95,13 +89,6 @@ export function LatexEditorProjectBar({
         >
           {isCompiling ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
           {isCompiling ? "编译中" : "编译"}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onToggleInspector}
-        >
-          {isInspectorOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
         </Button>
       </div>
     </div>

@@ -40,7 +40,7 @@ export function riskFlagClass(flag: string): string {
   if (["math_structure_change", "math_change", "large_change"].includes(flag)) {
     return "border-amber-500/25 bg-amber-500/10 text-amber-800";
   }
-  return "border-[var(--border-default)] bg-white/80 text-[var(--text-muted)]";
+  return "border-[var(--wjn-line)] bg-white/80 text-[var(--wjn-text-muted)]";
 }
 
 export function riskFlagLabel(flag: string): string {

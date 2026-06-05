@@ -63,14 +63,14 @@ export function FileAttachButton({ threadId, workspaceId, onAttached, disabled }
         title={uploading ? "上传中..." : "添加附件"}
         style={{
           padding: "4px 8px",
-          borderRadius: "var(--v2-radius-md)",
+          borderRadius: "var(--wjn-radius-md)",
           border: "none",
           background: "transparent",
-          color: "var(--v2-text-tertiary)",
+          color: "var(--wjn-text-muted)",
           fontSize: 20,
           fontWeight: 300,
           cursor: disabled || uploading ? "not-allowed" : "pointer",
-          fontFamily: "var(--v2-font-sans)",
+          fontFamily: "var(--wjn-font-sans)",
           opacity: disabled || uploading || !threadId ? 0.3 : 0.7,
           lineHeight: 1,
           flexShrink: 0,

@@ -157,9 +157,9 @@
       "rewriting": {
         "badge": "Prism",
         "product": "WenjinPrism",
-        "tagline": "划词优化：从主稿到交付稿",
+        "tagline": "AI 改稿：从主稿到交付稿",
         "description": "把工作空间沉淀的内容带入主稿台，在编辑、编译和预览之间完成局部润色、结构修订与格式交付。",
-        "keywords": "划词优化 · 编译预览 · 审阅链路同步"
+        "keywords": "批注改稿 · 编译预览 · 审阅链路同步"
       }
     },
     "workspaceTypes": {

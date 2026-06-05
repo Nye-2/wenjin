@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
-import { LiquidGlassCard } from "@/components/glass/liquid-glass-card";
 import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore, Workspace } from "@/stores/workspace";
@@ -43,24 +42,24 @@ const workspaceTypeAccents: Record<
   { icon: string; chip: string }
 > = {
   sci: {
-    icon: "rgba(31, 66, 99, 0.14)",
-    chip: "text-[var(--brand-navy)] bg-[rgba(31,66,99,0.08)] border-[rgba(31,66,99,0.16)]",
+    icon: "rgba(44, 93, 160, 0.12)",
+    chip: "text-[var(--wjn-blue-strong)] bg-[var(--wjn-accent-soft)] border-[var(--wjn-accent-line)]",
   },
   thesis: {
-    icon: "rgba(92, 151, 165, 0.16)",
-    chip: "text-[var(--brand-cyan)] bg-[rgba(92,151,165,0.08)] border-[rgba(92,151,165,0.18)]",
+    icon: "rgba(15, 118, 110, 0.12)",
+    chip: "text-[var(--wjn-evidence)] bg-[var(--wjn-evidence-soft)] border-[rgba(15,118,110,0.24)]",
   },
   proposal: {
-    icon: "rgba(46, 111, 109, 0.14)",
-    chip: "text-[var(--brand-teal)] bg-[rgba(46,111,109,0.08)] border-[rgba(46,111,109,0.16)]",
+    icon: "rgba(180, 83, 9, 0.12)",
+    chip: "text-[var(--wjn-review)] bg-[var(--wjn-review-soft)] border-[rgba(180,83,9,0.24)]",
   },
   software_copyright: {
-    icon: "rgba(120, 135, 139, 0.16)",
-    chip: "text-[var(--text-secondary)] bg-[rgba(120,135,139,0.08)] border-[rgba(120,135,139,0.18)]",
+    icon: "rgba(15, 31, 53, 0.08)",
+    chip: "text-[var(--wjn-text-secondary)] bg-[var(--wjn-surface-subtle)] border-[var(--wjn-line)]",
   },
   patent: {
-    icon: "rgba(166, 124, 57, 0.16)",
-    chip: "text-[var(--brand-brass)] bg-[rgba(166,124,57,0.09)] border-[rgba(166,124,57,0.16)]",
+    icon: "rgba(231, 176, 8, 0.14)",
+    chip: "text-[var(--wjn-review)] bg-[rgba(231,176,8,0.10)] border-[rgba(231,176,8,0.24)]",
   },
 };
 
@@ -108,15 +107,15 @@ function WorkspaceRouteCard({
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 24 }}
+      initial={{ opacity: 0.88, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
       className="group h-full"
     >
       <div
         className={cn(
-          "route-card-hover relative flex h-full flex-col overflow-hidden rounded-[1.9rem] p-6",
+          "route-card-hover relative flex h-full flex-col overflow-hidden rounded-[var(--wjn-radius-xl)] p-6",
           featured && "route-card-featured"
         )}
       >
@@ -127,7 +126,7 @@ function WorkspaceRouteCard({
               event.stopPropagation();
               onDelete();
             }}
-            className="rounded-full border border-red-500/18 bg-white/80 p-2 text-red-500 transition-colors hover:bg-red-500/10"
+            className="rounded-full border border-[rgba(185,28,28,0.22)] bg-white p-2 text-[var(--wjn-error)] transition-colors hover:bg-[var(--wjn-error-soft)]"
             aria-label="Delete workspace"
           >
             <Trash2 className="h-4 w-4" />
@@ -141,10 +140,10 @@ function WorkspaceRouteCard({
         >
           <div className="flex items-start justify-between gap-3">
             <div
-              className="flex h-12 w-12 items-center justify-center rounded-2xl"
+              className="flex h-12 w-12 items-center justify-center rounded-[var(--wjn-radius-lg)]"
               style={{ background: accent.icon }}
             >
-              <Icon className="h-5 w-5 text-[var(--text-primary)]" />
+              <Icon className="h-5 w-5 text-[var(--wjn-text)]" />
             </div>
             <span
               className={cn(
@@ -158,14 +157,14 @@ function WorkspaceRouteCard({
 
           <div className="mt-5">
             {latestLabel ? (
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-brass)]">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--wjn-review)]">
                 {latestLabel}
               </p>
             ) : null}
-            <h3 className="mt-2 line-clamp-2 text-xl font-semibold text-[var(--text-primary)]">
+            <h3 className="mt-2 line-clamp-2 text-xl font-semibold tracking-[-0.015em] text-[var(--wjn-text)]">
               {workspace.name}
             </h3>
-            <p className="mt-3 line-clamp-2 min-h-[3.5rem] text-sm leading-7 text-[var(--text-secondary)]">
+            <p className="mt-3 line-clamp-2 min-h-[3.5rem] text-sm leading-7 text-[var(--wjn-text-secondary)]">
               {workspace.description?.trim() ||
                 workspace.discipline ||
                 targetOutput}
@@ -173,34 +172,34 @@ function WorkspaceRouteCard({
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-[var(--border-default)] bg-white/72 p-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+            <div className="rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-white p-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--wjn-text-muted)]">
                 {lastUpdatedLabel}
               </p>
-              <p className="mt-2 text-sm font-medium text-[var(--text-primary)]">
+              <p className="mt-2 text-sm font-medium text-[var(--wjn-text)]">
                 {formatWorkspaceDate(workspace.updated_at, locale)}
               </p>
             </div>
-            <div className="rounded-2xl border border-[var(--border-default)] bg-white/72 p-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+            <div className="rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-white p-3">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--wjn-text-muted)]">
                 {targetOutputLabel}
               </p>
-              <p className="mt-2 text-sm font-medium text-[var(--text-primary)]">
+              <p className="mt-2 text-sm font-medium text-[var(--wjn-text)]">
                 {targetOutput}
               </p>
             </div>
           </div>
 
-          <div className="mt-4 rounded-2xl border border-[var(--border-default)] bg-[rgba(31,66,99,0.03)] p-4">
-            <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--text-muted)]">
+          <div className="mt-4 rounded-[var(--wjn-radius-lg)] border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-[var(--wjn-text-muted)]">
               {nextActionLabel}
             </p>
-            <p className="mt-2 text-sm leading-7 text-[var(--text-secondary)]">
+            <p className="mt-2 text-sm leading-7 text-[var(--wjn-text-secondary)]">
               {nextAction}
             </p>
           </div>
 
-          <div className="mt-6 flex items-center justify-between text-sm font-medium text-[var(--brand-navy)]">
+          <div className="mt-6 flex items-center justify-between text-sm font-medium text-[var(--wjn-blue)]">
             <span>{continueLabel}</span>
             <ArrowRight className="h-4 w-4" />
           </div>
@@ -336,37 +335,37 @@ export default function WorkspacesPage() {
 
   if (authLoading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[var(--bg-base)]">
-        <Loader2 className="h-8 w-8 animate-spin text-[var(--accent-primary)]" />
+      <main className="flex min-h-screen items-center justify-center bg-[var(--wjn-bg-base)]">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--wjn-blue)]" />
       </main>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)]">
+    <div className="min-h-screen bg-[var(--wjn-bg-base)]">
       <Header />
 
-      <main className="route-topography atmosphere-mesh texture-noise relative overflow-hidden px-4 pb-16 pt-24 sm:px-6 lg:px-8">
-        <div className="route-grid absolute inset-x-6 bottom-8 top-24 rounded-[2rem] opacity-25" />
+      <main className="wjn-shell-bg relative overflow-hidden px-4 pb-16 pt-24 sm:px-6 lg:px-8">
+        <div className="pointer-events-none absolute inset-x-0 top-20 h-px bg-[var(--wjn-line)]" />
         <div className="relative mx-auto max-w-7xl space-y-8">
           <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4">
-              <h1 className="text-3xl font-semibold tracking-tight text-[var(--text-primary)]">
+              <h1 className="text-3xl font-semibold tracking-[-0.025em] text-[var(--wjn-text)]">
                 {t("workspace.title")}
               </h1>
-              <span className="rounded-full border border-[var(--border-default)] bg-white/78 px-3 py-1 text-sm text-[var(--text-secondary)]">
+              <span className="rounded-full border border-[var(--wjn-line)] bg-white px-3 py-1 text-sm text-[var(--wjn-text-secondary)] shadow-[var(--wjn-shadow-sm)]">
                 {sortedWorkspaces.length}
               </span>
             </div>
             <div className="flex items-center gap-3">
               <div className="relative min-w-[240px]">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--wjn-text-muted)]" />
                 <input
                   type="text"
                   placeholder={t("workspace.searchPlaceholder")}
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  className="w-full rounded-xl border border-[var(--border-default)] bg-white/78 py-2.5 pl-11 pr-4 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/15"
+                  className="w-full rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] bg-white py-2.5 pl-11 pr-4 text-sm text-[var(--wjn-text)] shadow-[var(--wjn-shadow-sm)] placeholder:text-[var(--wjn-text-muted)] focus:border-[var(--wjn-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--wjn-accent-soft)]"
                 />
               </div>
               <Button
@@ -384,7 +383,7 @@ export default function WorkspacesPage() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex items-center justify-between gap-4 rounded-2xl border border-red-500/20 bg-red-500/10 px-5 py-4 text-red-600"
+              className="flex items-center justify-between gap-4 rounded-[var(--wjn-radius-lg)] border border-[rgba(185,28,28,0.24)] bg-[var(--wjn-error-soft)] px-5 py-4 text-[var(--wjn-error)]"
             >
               <span>{error}</span>
               <button onClick={clearError} className="text-sm hover:underline">
@@ -401,33 +400,30 @@ export default function WorkspacesPage() {
                   key={type.value}
                   type="button"
                   onClick={() => openCreateModal(type.value)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-white/78 px-4 py-2.5 text-sm font-medium text-[var(--text-primary)] transition-colors hover:border-[var(--brand-navy)]/30 hover:bg-white"
+                  className="inline-flex items-center gap-2 rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] bg-white px-4 py-2.5 text-sm font-medium text-[var(--wjn-text)] shadow-[var(--wjn-shadow-sm)] transition-colors hover:border-[var(--wjn-accent-line)] hover:bg-[var(--wjn-surface-subtle)]"
                 >
-                  <Icon className="h-4 w-4 text-[var(--text-secondary)]" />
+                  <Icon className="h-4 w-4 text-[var(--wjn-text-secondary)]" />
                   {type.label}
-                  <Plus className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  <Plus className="h-3.5 w-3.5 text-[var(--wjn-text-muted)]" />
                 </button>
               );
             })}
           </div>
 
           {!isWorkspacesLoading && filteredWorkspaces.length === 0 ? (
-            <LiquidGlassCard
-              variant="elevated"
-              className="rounded-[1.75rem] border-[rgba(31,66,99,0.08)] bg-white/70 p-10 text-center"
-            >
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-[rgba(31,66,99,0.08)]">
-                <Search className="h-7 w-7 text-[var(--brand-navy)]" />
+            <section className="rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-white p-10 text-center shadow-[var(--wjn-shadow-md)]">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-[var(--wjn-radius-xl)] bg-[var(--wjn-accent-soft)]">
+                <Search className="h-7 w-7 text-[var(--wjn-blue)]" />
               </div>
-              <h3 className="mt-5 text-xl font-semibold text-[var(--text-primary)]">
+              <h3 className="mt-5 text-xl font-semibold text-[var(--wjn-text)]">
                 {t("workspace.empty.title")}
               </h3>
-              <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--text-secondary)]">
+              <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-[var(--wjn-text-secondary)]">
                 {searchQuery
                   ? t("workspace.empty.searchHint")
                   : t("workspace.empty.description")}
               </p>
-            </LiquidGlassCard>
+            </section>
           ) : (
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3">
               <AnimatePresence>
@@ -470,13 +466,13 @@ export default function WorkspacesPage() {
                 onClick={(event) => event.stopPropagation()}
                 className="w-full max-w-3xl"
               >
-                <div className="route-card atmosphere-mesh rounded-[2rem] p-8">
+                <div className="rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-white p-8 shadow-[var(--wjn-shadow-lg)]">
                   <div className="flex items-center justify-between gap-4">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[var(--accent-secondary)]">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--wjn-blue)]">
                         {t("brand.cn")} / {t("brand.en")}
                       </p>
-                      <h2 className="mt-3 text-2xl font-semibold text-[var(--text-primary)]">
+                      <h2 className="mt-3 text-2xl font-semibold tracking-[-0.02em] text-[var(--wjn-text)]">
                         {t("workspace.createModal.title")}
                       </h2>
                     </div>
@@ -484,7 +480,7 @@ export default function WorkspacesPage() {
 
                   <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
                     <div className="md:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
+                      <label className="mb-2 block text-sm font-medium text-[var(--wjn-text)]">
                         {t("workspace.createModal.name")}
                       </label>
                       <input
@@ -497,12 +493,12 @@ export default function WorkspacesPage() {
                           }))
                         }
                         placeholder={t("workspace.createModal.namePlaceholder")}
-                        className="w-full rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3.5 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/15"
+                        className="w-full rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] bg-white px-4 py-3.5 text-[var(--wjn-text)] placeholder:text-[var(--wjn-text-muted)] focus:border-[var(--wjn-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--wjn-accent-soft)]"
                       />
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
+                      <label className="mb-2 block text-sm font-medium text-[var(--wjn-text)]">
                         {t("workspace.createModal.type")}
                       </label>
                       <select
@@ -513,7 +509,7 @@ export default function WorkspacesPage() {
                             type: event.target.value as WorkspaceType,
                           }))
                         }
-                        className="w-full rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3.5 text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/15"
+                        className="w-full rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] bg-white px-4 py-3.5 text-[var(--wjn-text)] focus:border-[var(--wjn-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--wjn-accent-soft)]"
                       >
                         {workspaceTypes.map((type) => (
                           <option key={type.value} value={type.value}>
@@ -524,7 +520,7 @@ export default function WorkspacesPage() {
                     </div>
 
                     <div>
-                      <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
+                      <label className="mb-2 block text-sm font-medium text-[var(--wjn-text)]">
                         {t("workspace.createModal.discipline")}
                       </label>
                       <select
@@ -535,7 +531,7 @@ export default function WorkspacesPage() {
                             discipline: event.target.value,
                           }))
                         }
-                        className="w-full rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3.5 text-[var(--text-primary)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/15"
+                        className="w-full rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] bg-white px-4 py-3.5 text-[var(--wjn-text)] focus:border-[var(--wjn-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--wjn-accent-soft)]"
                       >
                         <option value="">
                           {t("workspace.createModal.disciplinePlaceholder")}
@@ -549,7 +545,7 @@ export default function WorkspacesPage() {
                     </div>
 
                     <div className="md:col-span-2">
-                      <label className="mb-2 block text-sm font-medium text-[var(--text-primary)]">
+                      <label className="mb-2 block text-sm font-medium text-[var(--wjn-text)]">
                         {t("workspace.createModal.description")}
                       </label>
                       <textarea
@@ -562,7 +558,7 @@ export default function WorkspacesPage() {
                         }
                         rows={4}
                         placeholder={t("workspace.createModal.descriptionPlaceholder")}
-                        className="w-full resize-none rounded-2xl border border-[var(--border-default)] bg-white/78 px-4 py-3.5 text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-focus)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)]/15"
+                        className="w-full resize-none rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] bg-white px-4 py-3.5 text-[var(--wjn-text)] placeholder:text-[var(--wjn-text-muted)] focus:border-[var(--wjn-blue)] focus:outline-none focus:ring-2 focus:ring-[var(--wjn-accent-soft)]"
                       />
                     </div>
                   </div>
@@ -571,7 +567,7 @@ export default function WorkspacesPage() {
                     <button
                       type="button"
                       onClick={() => setShowCreateModal(false)}
-                      className="flex-1 rounded-2xl border border-[var(--border-default)] px-6 py-3.5 text-sm font-medium text-[var(--text-secondary)] transition-colors hover:bg-white/80 hover:text-[var(--text-primary)]"
+                      className="flex-1 rounded-[var(--wjn-radius-md)] border border-[var(--wjn-line)] px-6 py-3.5 text-sm font-medium text-[var(--wjn-text-secondary)] transition-colors hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-text)]"
                     >
                       {t("common.cancel")}
                     </button>
@@ -579,7 +575,7 @@ export default function WorkspacesPage() {
                       type="button"
                       onClick={handleCreateWorkspace}
                       disabled={!newWorkspace.name.trim() || isWorkspaceMutating}
-                      className="h-auto flex-1 rounded-2xl px-6 py-3.5 text-sm"
+                      className="h-auto flex-1 rounded-[var(--wjn-radius-md)] px-6 py-3.5 text-sm"
                     >
                       {isWorkspaceMutating ? (
                         <Loader2 className="h-5 w-5 animate-spin" />

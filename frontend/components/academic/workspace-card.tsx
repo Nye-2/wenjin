@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import { FileText, Book, FileEdit, Lightbulb } from "lucide-react";
-import { LiquidGlassCard } from "@/components/glass";
 
 interface WorkspaceCardProps {
   id: string;
@@ -31,19 +30,19 @@ const typeLabels = {
 };
 
 const typeColors = {
-  sci: { bg: "bg-[var(--brand-navy)]", text: "text-white" },
-  thesis: { bg: "bg-[var(--brand-cyan)]", text: "text-white" },
-  proposal: { bg: "bg-[var(--brand-brass)]", text: "text-white" },
-  software_copyright: { bg: "bg-[var(--brand-teal)]", text: "text-white" },
-  patent: { bg: "bg-[var(--brand-line)]", text: "text-[var(--brand-ink)]" },
+  sci: { bg: "bg-[var(--wjn-accent-soft)]", text: "text-[var(--wjn-blue)]" },
+  thesis: { bg: "bg-[var(--wjn-evidence-soft)]", text: "text-[var(--wjn-evidence)]" },
+  proposal: { bg: "bg-[var(--wjn-review-soft)]", text: "text-[var(--wjn-review)]" },
+  software_copyright: { bg: "bg-[var(--wjn-surface-subtle)]", text: "text-[var(--wjn-text-secondary)]" },
+  patent: { bg: "bg-[rgba(231,176,8,0.12)]", text: "text-[var(--wjn-review)]" },
 };
 
 const typeBadgeColors = {
-  sci: "bg-[#1E3A8A]/10 text-[#1E3A8A]",
-  thesis: "bg-[#7C3AED]/10 text-[#7C3AED]",
-  proposal: "bg-[#059669]/10 text-[#059669]",
-  software_copyright: "bg-[#8B5CF6]/10 text-[#8B5CF6]",
-  patent: "bg-[#EC4899]/10 text-[#EC4899]",
+  sci: "border-[var(--wjn-accent-line)] bg-[var(--wjn-accent-soft)] text-[var(--wjn-blue-strong)]",
+  thesis: "border-[rgba(15,118,110,0.24)] bg-[var(--wjn-evidence-soft)] text-[var(--wjn-evidence)]",
+  proposal: "border-[rgba(180,83,9,0.24)] bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]",
+  software_copyright: "border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text-secondary)]",
+  patent: "border-[rgba(231,176,8,0.24)] bg-[rgba(231,176,8,0.10)] text-[var(--wjn-review)]",
 };
 
 export function WorkspaceCard({
@@ -59,30 +58,27 @@ export function WorkspaceCard({
 
   return (
     <motion.a href={`/workspaces/${id}`} className="block h-full">
-      <LiquidGlassCard
-        variant="floating"
-        className="p-6 cursor-pointer h-full hover:border-[var(--accent-primary)]/30"
-      >
+      <div className="h-full cursor-pointer rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-6 shadow-[var(--wjn-shadow-sm)] transition-[border-color,box-shadow,transform] duration-150 ease-[var(--wjn-ease-standard)] hover:-translate-y-px hover:border-[var(--wjn-accent-line)] hover:shadow-[var(--wjn-shadow-md)]">
         <div className="flex items-start justify-between mb-4">
-          <div className={`p-2.5 rounded-xl ${typeColors[type].bg} ${typeColors[type].text}`}>
+          <div className={`rounded-[var(--wjn-radius-lg)] p-2.5 ${typeColors[type].bg} ${typeColors[type].text}`}>
             <Icon className="w-5 h-5" />
           </div>
-          <span className={`text-xs font-semibold px-3 py-1.5 rounded-full ${typeBadgeColors[type]}`}>
+          <span className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${typeBadgeColors[type]}`}>
             {typeLabels[type]}
           </span>
         </div>
 
-        <h3 className="font-semibold text-lg mb-2 text-[var(--text-primary)] line-clamp-2 leading-tight">
+        <h3 className="mb-2 line-clamp-2 text-lg font-semibold leading-tight text-[var(--wjn-text)]">
           {name}
         </h3>
 
         {discipline && (
-          <p className="text-sm text-[var(--text-secondary)] mb-4">
+          <p className="mb-4 text-sm text-[var(--wjn-text-secondary)]">
             {discipline.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
           </p>
         )}
 
-        <div className="flex items-center gap-4 text-sm text-[var(--text-muted)]">
+        <div className="flex items-center gap-4 text-sm text-[var(--wjn-text-muted)]">
           <span className="flex items-center gap-1.5">
             <FileText className="w-4 h-4" />
             {referenceCount} references
@@ -93,12 +89,12 @@ export function WorkspaceCard({
           </span>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-[var(--border-default)]">
-          <p className="text-xs text-[var(--text-muted)]">
+        <div className="mt-4 border-t border-[var(--wjn-line)] pt-4">
+          <p className="text-xs text-[var(--wjn-text-muted)]">
             Created {createdAt}
           </p>
         </div>
-      </LiquidGlassCard>
+      </div>
     </motion.a>
   );
 }

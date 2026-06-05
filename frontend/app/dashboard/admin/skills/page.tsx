@@ -99,7 +99,7 @@ export default function SkillListPage() {
         />
 
         {isLoading ? (
-          <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm py-6">
+          <div className="flex items-center gap-2 text-[var(--wjn-text-muted)] text-sm py-6">
             <Loader2 className="w-4 h-4 animate-spin" /> 加载中
           </div>
         ) : (
@@ -108,7 +108,7 @@ export default function SkillListPage() {
               {filtered.map((item) => (
                 <tr
                   key={item.id}
-                  className="border-t border-[var(--border-default)]/50"
+                  className="border-t border-[var(--wjn-line)]/50"
                 >
                   <td className="px-4 py-2 w-10">
                     <button
@@ -121,19 +121,19 @@ export default function SkillListPage() {
                       }
                     />
                   </td>
-                  <td className="px-4 py-2 font-mono text-xs text-[var(--text-secondary)]">
+                  <td className="px-4 py-2 font-mono text-xs text-[var(--wjn-text-secondary)]">
                     {item.id}
                   </td>
-                  <td className="px-4 py-2 text-[var(--text-primary)]">
+                  <td className="px-4 py-2 text-[var(--wjn-text)]">
                     {item.display_name}
                   </td>
-                  <td className="px-4 py-2 text-[var(--text-secondary)] text-xs">
+                  <td className="px-4 py-2 text-[var(--wjn-text-secondary)] text-xs">
                     {item.subagent_type}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <Link
                       href={`/dashboard/admin/skills/${encodeURIComponent(item.id)}`}
-                      className="text-sm text-[var(--accent-primary)] hover:underline"
+                      className="text-sm text-[var(--wjn-navy)] hover:underline"
                     >
                       编辑
                     </Link>

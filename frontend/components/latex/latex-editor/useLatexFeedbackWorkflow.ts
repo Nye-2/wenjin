@@ -52,6 +52,22 @@ import { useLatexFeedbackCreation } from "./useLatexFeedbackCreation";
 
 type ActiveFileKind = "text" | "blob" | null;
 
+const LOCAL_REWRITE_CONTEXT_REQUIREMENTS = {
+  include_manuscript_context: true,
+  include_workspace_history: false,
+  include_related_documents: false,
+  include_sandbox_artifacts: false,
+  include_pending_review_summary: true,
+};
+
+const DOCUMENT_REWRITE_CONTEXT_REQUIREMENTS = {
+  include_manuscript_context: true,
+  include_workspace_history: true,
+  include_related_documents: true,
+  include_sandbox_artifacts: true,
+  include_pending_review_summary: true,
+};
+
 interface FeedbackPrismOptimizationBridge {
   addJob(job: PrismOptimizationJob): void;
   updateJob(
@@ -165,7 +181,7 @@ export function useLatexFeedbackWorkflow({
     ? `当前 TeX 已选中 ${selectionText.length} 个字符。`
     : hasPdfDraftSelection
       ? `当前 PDF 已选中 ${pdfDraftSelection?.text.trim().length || 0} 个字符。`
-      : "选择正文或 PDF 文本后添加点评，并交给 Agent 异步优化。";
+      : "直接说你想怎么改，问津会通读当前主稿并生成可确认的修改建议。";
   const currentFileFeedbacks = useMemo(
     () =>
       feedbackItems.filter(
@@ -318,7 +334,7 @@ export function useLatexFeedbackWorkflow({
   const launchPrismOptimizationFromFeedback = useCallback(async (item: LatexFeedbackItem) => {
     const effectiveWorkspaceId = workspaceId || project?.workspace_id || "";
     if (!effectiveWorkspaceId) {
-      setFeedbackError("当前 Prism 项目尚未关联 workspace，无法启动 Agent 优化。");
+      setFeedbackError("当前 Prism 项目尚未关联 workspace，无法启动智能优化。");
       return;
     }
     if (!project) {
@@ -326,13 +342,13 @@ export function useLatexFeedbackWorkflow({
       return;
     }
     if (isChatSending) {
-      setFeedbackError("左侧 Chat Agent 正在处理消息，请稍后再启动划词优化。");
+      setFeedbackError("左侧对话正在处理消息，请稍后再生成这段修改。");
       return;
     }
 
     setFeedbackBusyId(item.id);
     setFeedbackError("");
-    setFeedbackStatus("正在把划词优化交给右侧 Lead Agent。");
+    setFeedbackStatus("正在生成这段的修改建议。");
     try {
       if (activeFilePath !== item.file_path) {
         setSelectedPath(item.file_path);
@@ -342,7 +358,7 @@ export function useLatexFeedbackWorkflow({
 
       let latexState = useLatexStore.getState();
       if (latexState.activeFileKind !== "text" || !latexState.activeFilePath) {
-        throw new Error("当前文件不可执行 Prism 划词优化。");
+        throw new Error("当前文件不可生成这段修改。");
       }
       if (latexState.activeFileContent !== latexState.activeFileSavedContent) {
         await saveActiveFile();
@@ -376,12 +392,12 @@ export function useLatexFeedbackWorkflow({
       );
 
       const prompt = [
-        "请启动「Prism 划词优化」能力（prism_selection_optimize）。",
+        "请启动「Prism 局部改稿」能力（prism_selection_optimize）。",
         `目标文件：${item.file_path}`,
-        `优化范围：${feedbackScope === "section" ? "所在 section" : "仅选区"}`,
+        `改稿范围：${feedbackScope === "section" ? "所在 section" : "仅选区"}`,
         "用户指令：",
         item.comment,
-        "请由右侧 Lead Agent 异步处理，生成 Prism 待确认写入，不要直接覆盖正文。",
+        "请生成 Prism 待确认写入，不要直接覆盖正文。",
       ].join("\n");
       const result = await sendChatMessage(effectiveWorkspaceId, prompt, [], {
         metadata: {
@@ -393,8 +409,11 @@ export function useLatexFeedbackWorkflow({
           },
           orchestration: {
             params: {
-              goal: "Prism 划词优化",
+              goal: "Prism 局部改稿",
               source_surface: "prism",
+              rewrite_mode: feedbackScope === "section" ? "section" : "selection",
+              context_strategy: "local_manuscript_rewrite",
+              context_requirements: LOCAL_REWRITE_CONTEXT_REQUIREMENTS,
               latex_project_id: project.id,
               main_file: project.main_file,
               file_path: item.file_path,
@@ -418,14 +437,14 @@ export function useLatexFeedbackWorkflow({
           jobId,
           (entry) => ({ ...entry, executionId: result.executionId ?? undefined, status: "running" }),
         );
-        setFeedbackStatus("Agent 优化已启动，右下角可查看工作过程。");
+        setFeedbackStatus("这段修改已启动，右下角可查看生成过程。");
         return;
       }
 
       const detail =
         typeof result?.toolResult?.detail === "string" && result.toolResult.detail.trim()
           ? result.toolResult.detail.trim()
-          : "未能启动 Prism 划词优化，请稍后重试。";
+          : "未能生成这段修改，请稍后重试。";
       prismOptimization.updateJob(
         jobId,
         (entry) => ({
@@ -451,7 +470,7 @@ export function useLatexFeedbackWorkflow({
             : entry,
         ),
       );
-      setFeedbackError(`启动 Agent 优化失败: ${message}`);
+      setFeedbackError(`生成修改失败: ${message}`);
     } finally {
       setFeedbackBusyId(null);
     }
@@ -469,6 +488,158 @@ export function useLatexFeedbackWorkflow({
     setFeedbackStatus,
     setSelectedPath,
     setSelectedPathType,
+    workspaceId,
+  ]);
+
+  const launchDocumentOptimization = useCallback(async () => {
+    const instruction = feedbackDraftComment.trim();
+    const effectiveWorkspaceId = workspaceId || project?.workspace_id || "";
+    if (!effectiveWorkspaceId) {
+      setFeedbackError("当前 Prism 项目尚未关联 workspace，无法启动全文改稿。");
+      return;
+    }
+    if (!project) {
+      setFeedbackError("项目尚未加载完成。");
+      return;
+    }
+    if (!activeFilePath || activeFileKind !== "text") {
+      setFeedbackError("请先打开可编辑的 TeX 主稿。");
+      return;
+    }
+    if (!instruction) {
+      setFeedbackError("请先输入一句全文改稿指令。");
+      return;
+    }
+    if (isChatSending) {
+      setFeedbackError("左侧对话正在处理消息，请稍后再启动全文改稿。");
+      return;
+    }
+
+    const jobId = createPrismOptimizationJobId();
+    const feedbackId = `document:${jobId}`;
+    setFeedbackBusyId(feedbackId);
+    setFeedbackError("");
+    setFeedbackStatus("正在生成全文修改建议。");
+    try {
+      let latexState = useLatexStore.getState();
+      if (latexState.activeFileKind !== "text" || !latexState.activeFilePath) {
+        throw new Error("当前文件不可执行全文改稿。");
+      }
+      if (latexState.activeFileContent !== latexState.activeFileSavedContent) {
+        await saveActiveFile();
+        latexState = useLatexStore.getState();
+      }
+
+      const filePath = latexState.activeFilePath;
+      if (!filePath) {
+        throw new Error("当前文件不可执行全文改稿。");
+      }
+      const launchContent = latexState.activeFileContent;
+      if (!launchContent.trim()) {
+        throw new Error("当前主稿为空，无法执行全文改稿。");
+      }
+      const anchor = buildFeedbackAnchor(launchContent, 0, launchContent.length);
+      const job: PrismOptimizationJob = {
+        id: jobId,
+        feedbackId,
+        status: "launching",
+        filePath,
+        scope: "document",
+        instruction,
+        selectedText: launchContent,
+        createdAt: new Date().toISOString(),
+      };
+      prismOptimization.addJob(job);
+
+      const prompt = [
+        "请启动「Prism 全文改稿」能力（prism_selection_optimize）。",
+        `目标文件：${filePath}`,
+        "改稿范围：当前主稿全文",
+        "用户指令：",
+        instruction,
+        "请结合当前主稿、工作区上下文和可用研究材料生成 Prism 待确认写入，不要直接覆盖正文。",
+      ].join("\n");
+      const result = await sendChatMessage(effectiveWorkspaceId, prompt, [], {
+        metadata: {
+          prism_selection_optimize: {
+            job_id: jobId,
+            feedback_id: feedbackId,
+            latex_project_id: project.id,
+            file_path: filePath,
+          },
+          orchestration: {
+            params: {
+              goal: "Prism 全文改稿",
+              source_surface: "prism",
+              rewrite_mode: "document",
+              context_strategy: "workspace_manuscript_review",
+              context_requirements: DOCUMENT_REWRITE_CONTEXT_REQUIREMENTS,
+              latex_project_id: project.id,
+              main_file: project.main_file,
+              file_path: filePath,
+              file_content: launchContent,
+              selected_text: launchContent,
+              instruction,
+              comment: instruction,
+              selection_start: 0,
+              selection_end: launchContent.length,
+              anchor,
+              pdf_anchor: null,
+              scope: "selection",
+              feedback_id: feedbackId,
+            },
+          },
+        },
+      });
+
+      if (result?.executionId) {
+        prismOptimization.updateJob(
+          jobId,
+          (entry) => ({ ...entry, executionId: result.executionId ?? undefined, status: "running" }),
+        );
+        setFeedbackStatus("全文修改已启动，会生成待确认写入。");
+        setFeedbackDraftComment("");
+        return;
+      }
+
+      const detail =
+        typeof result?.toolResult?.detail === "string" && result.toolResult.detail.trim()
+          ? result.toolResult.detail.trim()
+          : "未能生成全文修改，请稍后重试。";
+      prismOptimization.updateJob(
+        jobId,
+        (entry) => ({
+          ...entry,
+          status: result?.status === "advisory" ? "advisory" : "failed",
+          error: detail,
+        }),
+      );
+      setFeedbackError(detail);
+    } catch (err) {
+      const message = readClientErrorMessage(err);
+      prismOptimization.updateJob(
+        jobId,
+        (entry) => ({
+          ...entry,
+          status: "failed",
+          error: message,
+        }),
+      );
+      setFeedbackError(`启动全文改稿失败: ${message}`);
+    } finally {
+      setFeedbackBusyId(null);
+    }
+  }, [
+    activeFileKind,
+    activeFilePath,
+    feedbackDraftComment,
+    isChatSending,
+    prismOptimization,
+    project,
+    saveActiveFile,
+    sendChatMessage,
+    setFeedbackError,
+    setFeedbackStatus,
     workspaceId,
   ]);
 
@@ -822,6 +993,23 @@ export function useLatexFeedbackWorkflow({
     setPdfDraftSelection,
   ]);
 
+  const addFeedbackAndQuickRewrite = useCallback(async () => {
+    const item = await createFeedbackFromSelection(true);
+    if (!item) {
+      return;
+    }
+    setFeedbackItems((prev) => [...prev, item]);
+    setActiveFeedbackId(item.id);
+    setFeedbackDraftComment("");
+    setPdfDraftSelection(null);
+    await rewriteFromFeedback(item);
+  }, [
+    createFeedbackFromSelection,
+    rewriteFromFeedback,
+    setFeedbackItems,
+    setPdfDraftSelection,
+  ]);
+
   const protectActiveFile = useCallback(async () => {
     if (!project || !activeFilePath || activeFileKind !== "text") {
       return;
@@ -872,7 +1060,9 @@ export function useLatexFeedbackWorkflow({
     actions: {
       setFeedbackDraftComment,
       setFeedbackScope,
+      addFeedbackAndQuickRewrite,
       addFeedbackAndRewrite,
+      launchDocumentOptimization,
       addFeedbackOnly,
       protectFile: protectActiveFile,
       undoRewrite: undoLastRewrite,

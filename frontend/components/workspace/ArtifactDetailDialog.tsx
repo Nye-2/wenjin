@@ -40,7 +40,7 @@ function formatPrimitive(value: string | number | boolean | null): string {
 function renderContent(value: unknown, depth: number = 0): ReactNode {
   if (value === null || value === undefined) {
     return (
-      <p className="text-sm text-[var(--text-muted)]">
+      <p className="text-sm text-[var(--wjn-text-muted)]">
         暂无内容
       </p>
     );
@@ -52,7 +52,7 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
     typeof value === "boolean"
   ) {
     return (
-      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[var(--text-secondary)]">
+      <p className="whitespace-pre-wrap break-words text-sm leading-6 text-[var(--wjn-text-secondary)]">
         {formatPrimitive(value)}
       </p>
     );
@@ -60,7 +60,7 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
 
   if (Array.isArray(value)) {
     if (value.length === 0) {
-      return <p className="text-sm text-[var(--text-muted)]">暂无内容</p>;
+      return <p className="text-sm text-[var(--wjn-text-muted)]">暂无内容</p>;
     }
 
     const primitiveArray = value.every(
@@ -74,7 +74,7 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
           {value.map((item, index) => (
             <span
               key={`${formatPrimitive(item as string | number | boolean | null)}-${index}`}
-              className="rounded-full bg-[var(--bg-elevated)] px-2.5 py-1 text-xs text-[var(--text-secondary)]"
+              className="rounded-full bg-[var(--wjn-surface)] px-2.5 py-1 text-xs text-[var(--wjn-text-secondary)]"
             >
               {formatPrimitive(item as string | number | boolean | null)}
             </span>
@@ -88,9 +88,9 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
         {value.map((item, index) => (
           <div
             key={index}
-            className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3"
+            className="rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-3"
           >
-            <p className="mb-2 text-xs font-medium text-[var(--text-primary)]">
+            <p className="mb-2 text-xs font-medium text-[var(--wjn-text)]">
               {Array.isArray(item)
                 ? `Item ${index + 1}`
                 : typeof item === "object" && item
@@ -116,7 +116,7 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
   if (typeof value === "object") {
     if (depth >= 3) {
       return (
-        <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-3 text-xs leading-6 text-[var(--text-secondary)]">
+        <pre className="overflow-x-auto rounded-lg bg-[var(--wjn-surface)] p-3 text-xs leading-6 text-[var(--wjn-text-secondary)]">
           {JSON.stringify(value, null, 2)}
         </pre>
       );
@@ -126,7 +126,7 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
       ([, entryValue]) => entryValue !== undefined
     );
     if (entries.length === 0) {
-      return <p className="text-sm text-[var(--text-muted)]">暂无内容</p>;
+      return <p className="text-sm text-[var(--wjn-text-muted)]">暂无内容</p>;
     }
 
     return (
@@ -134,9 +134,9 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
         {entries.map(([key, entryValue]) => (
           <div
             key={key}
-            className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3"
+            className="rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-3"
           >
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--text-primary)]">
+            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-[var(--wjn-text)]">
               {formatLabel(key)}
             </p>
             {renderContent(entryValue, depth + 1)}
@@ -147,7 +147,7 @@ function renderContent(value: unknown, depth: number = 0): ReactNode {
   }
 
   return (
-    <pre className="overflow-x-auto rounded-lg bg-[var(--bg-elevated)] p-3 text-xs leading-6 text-[var(--text-secondary)]">
+    <pre className="overflow-x-auto rounded-lg bg-[var(--wjn-surface)] p-3 text-xs leading-6 text-[var(--wjn-text-secondary)]">
       {JSON.stringify(value, null, 2)}
     </pre>
   );
@@ -228,12 +228,12 @@ export function ArtifactDetailDialog({
 
         <div className="overflow-y-auto pr-1">
           {fileUrl && (
-            <div className="mb-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+            <div className="mb-4 rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-3">
               <div className="flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={() => void openAuthorizedAsset(fileUrl)}
-                  className="rounded-md bg-[var(--accent-primary)] px-3 py-1.5 text-sm text-white"
+                  className="rounded-md bg-[var(--wjn-navy)] px-3 py-1.5 text-sm text-white"
                 >
                   打开文件
                 </button>
@@ -244,11 +244,11 @@ export function ArtifactDetailDialog({
                       `${fileUrl}${fileUrl.includes("?") ? "&" : "?"}download=true`
                     )
                   }
-                  className="rounded-md border border-[var(--border-default)] px-3 py-1.5 text-sm text-[var(--text-secondary)]"
+                  className="rounded-md border border-[var(--wjn-line)] px-3 py-1.5 text-sm text-[var(--wjn-text-secondary)]"
                 >
                   下载文件
                 </button>
-                <span className="text-xs text-[var(--text-muted)] break-all">
+                <span className="text-xs text-[var(--wjn-text-muted)] break-all">
                   {signedFileUrl ?? fileUrl}
                 </span>
               </div>
@@ -259,7 +259,7 @@ export function ArtifactDetailDialog({
           )}
 
           {showPdfPreview && (
-            <div className="mb-4 overflow-hidden rounded-lg border border-[var(--border-default)] bg-white">
+            <div className="mb-4 overflow-hidden rounded-lg border border-[var(--wjn-line)] bg-white">
               <iframe
                 src={signedFileUrl ?? undefined}
                 title={artifact?.title || "PDF Preview"}
@@ -269,7 +269,7 @@ export function ArtifactDetailDialog({
           )}
 
           {showImagePreview && (
-            <div className="mb-4 overflow-hidden rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] p-3">
+            <div className="mb-4 overflow-hidden rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface)] p-3">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={signedFileUrl!}

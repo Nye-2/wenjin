@@ -6,17 +6,17 @@ import type { Components } from "react-markdown";
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
-    <h1 className="mb-3 mt-4 text-lg font-semibold text-[var(--text-primary)] first:mt-0">
+    <h1 className="mb-3 mt-4 text-lg font-semibold text-[var(--wjn-text)] first:mt-0">
       {children}
     </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="mb-2 mt-3 text-base font-semibold text-[var(--text-primary)] first:mt-0">
+    <h2 className="mb-2 mt-3 text-base font-semibold text-[var(--wjn-text)] first:mt-0">
       {children}
     </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="mb-2 mt-3 text-sm font-semibold text-[var(--text-primary)] first:mt-0">
+    <h3 className="mb-2 mt-3 text-sm font-semibold text-[var(--wjn-text)] first:mt-0">
       {children}
     </h3>
   ),
@@ -39,7 +39,7 @@ const markdownComponents: Components = {
   ),
   em: ({ children }) => <em className="italic">{children}</em>,
   blockquote: ({ children }) => (
-    <blockquote className="mb-2 border-l-2 border-[var(--brand-teal)] pl-3 text-sm italic text-[var(--text-secondary)] last:mb-0">
+    <blockquote className="mb-2 border-l-2 border-[var(--wjn-evidence)] pl-3 text-sm italic text-[var(--wjn-text-secondary)] last:mb-0">
       {children}
     </blockquote>
   ),
@@ -47,13 +47,13 @@ const markdownComponents: Components = {
     const isBlock = className?.includes("language-");
     if (isBlock) {
       return (
-        <pre className="mb-2 overflow-x-auto rounded-xl bg-[var(--bg-surface)] p-3 text-xs leading-6 last:mb-0">
+        <pre className="mb-2 overflow-x-auto rounded-xl bg-[var(--wjn-surface-subtle)] p-3 text-xs leading-6 last:mb-0">
           <code className={className}>{children}</code>
         </pre>
       );
     }
     return (
-      <code className="rounded-md bg-[var(--bg-surface)] px-1.5 py-0.5 text-xs font-medium">
+      <code className="rounded-md bg-[var(--wjn-surface-subtle)] px-1.5 py-0.5 text-xs font-medium">
         {children}
       </code>
     );
@@ -65,17 +65,17 @@ const markdownComponents: Components = {
     </div>
   ),
   thead: ({ children }) => (
-    <thead className="border-b border-[var(--border-default)] text-left text-xs font-semibold text-[var(--text-secondary)]">
+    <thead className="border-b border-[var(--wjn-line)] text-left text-xs font-semibold text-[var(--wjn-text-secondary)]">
       {children}
     </thead>
   ),
   tbody: ({ children }) => <tbody>{children}</tbody>,
   tr: ({ children }) => (
-    <tr className="border-b border-[var(--border-subtle)]">{children}</tr>
+    <tr className="border-b border-[var(--wjn-line)]">{children}</tr>
   ),
   th: ({ children }) => <th className="px-2 py-1.5">{children}</th>,
   td: ({ children }) => (
-    <td className="px-2 py-1.5 text-[var(--text-primary)]">{children}</td>
+    <td className="px-2 py-1.5 text-[var(--wjn-text)]">{children}</td>
   ),
   hr: () => <hr className="ink-divider my-3" />,
   a: ({ href, children }) => (
@@ -83,7 +83,7 @@ const markdownComponents: Components = {
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-[var(--accent-secondary)] underline decoration-[var(--accent-secondary)]/30 underline-offset-2 hover:decoration-[var(--accent-secondary)]"
+      className="text-[var(--wjn-blue)] underline decoration-[var(--wjn-blue)]/30 underline-offset-2 hover:decoration-[var(--wjn-blue)]"
     >
       {children}
     </a>

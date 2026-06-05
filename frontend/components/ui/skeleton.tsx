@@ -31,7 +31,7 @@ export function MessageSkeleton() {
 
 export function WorkspaceCardSkeleton() {
   return (
-    <div className="glass-card space-y-4 p-6">
+    <div className="wjn-hairline-panel space-y-4 rounded-[var(--wjn-radius-lg)] p-6">
       <Skeleton className="h-6 w-2/3" />
       <Skeleton className="h-4 w-full" />
       <div className="flex gap-2">

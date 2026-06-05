@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { API_BASE_URL } from '@/lib/api-base';
 
-const AUTH_STORAGE_KEY = 'auth-storage';
+export const AUTH_STORAGE_KEY = 'auth-storage';
 const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 interface User {
@@ -34,7 +34,7 @@ interface AuthState {
   clearError: () => void;
 }
 
-function syncAuthCookie(
+export function syncAuthCookie(
   state:
     | Pick<AuthState, 'isAuthenticated'>
     | null
@@ -57,6 +57,10 @@ function syncAuthCookie(
     })
   );
   document.cookie = `${AUTH_STORAGE_KEY}=${payload}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
+}
+
+export function syncCurrentAuthCookie() {
+  syncAuthCookie(useAuthStore.getState());
 }
 
 async function parseErrorMessage(response: Response, fallback: string): Promise<string> {

@@ -1,11 +1,17 @@
 import { Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import PrismPage from "@/app/(workbench)/workspaces/[id]/prism/page";
 
 const mockGetWorkspacePrismSurface = vi.hoisted(() => vi.fn());
 const mockEnsureWorkspacePrismProject = vi.hoisted(() => vi.fn());
+const mockGetWorkspace = vi.hoisted(() => vi.fn());
+const mockRouterPush = vi.hoisted(() => vi.fn());
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: mockRouterPush }),
+}));
 
 vi.mock("@/components/latex/LatexEditorShell", () => ({
   LatexEditorShell: ({
@@ -24,6 +30,7 @@ vi.mock("@/components/latex/LatexEditorShell", () => ({
 vi.mock("@/lib/api/workspace", () => ({
   ensureWorkspacePrismProject: (...args: unknown[]) =>
     mockEnsureWorkspacePrismProject(...args),
+  getWorkspace: (...args: unknown[]) => mockGetWorkspace(...args),
   getWorkspacePrismSurface: (...args: unknown[]) =>
     mockGetWorkspacePrismSurface(...args),
 }));
@@ -62,6 +69,13 @@ describe("workspace prism surface", () => {
   beforeEach(() => {
     mockEnsureWorkspacePrismProject.mockReset();
     mockEnsureWorkspacePrismProject.mockResolvedValue({ latex_project_id: "latex-1" });
+    mockGetWorkspace.mockReset();
+    mockGetWorkspace.mockResolvedValue({
+      id: "ws-1",
+      name: "Federated LLM Study",
+      type: "sci",
+    });
+    mockRouterPush.mockReset();
     mockGetWorkspacePrismSurface.mockReset();
     mockGetWorkspacePrismSurface.mockResolvedValue(prismSurface);
   });
@@ -86,6 +100,21 @@ describe("workspace prism surface", () => {
     expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
       "latex-1:0",
     );
+  });
+
+  it("routes workspace hub entries back to the workbench rooms", async () => {
+    await act(async () => {
+      render(
+        <Suspense fallback={<div>Loading</div>}>
+          <PrismPage params={Promise.resolve({ id: "ws-1" })} />
+        </Suspense>,
+      );
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "资料库" }));
+    fireEvent.click(screen.getByRole("button", { name: "文献资料" }));
+
+    expect(mockRouterPush).toHaveBeenCalledWith("/workspaces/ws-1?room=library");
   });
 
   it("ensures a workspace Prism binding before loading the surface", async () => {

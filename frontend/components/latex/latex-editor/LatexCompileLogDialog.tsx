@@ -28,14 +28,14 @@ export function LatexCompileLogDialog({
           </DialogDescription>
         </DialogHeader>
         {compileResult ? (
-          <div className="grid gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 text-sm text-[var(--text-secondary)] md:grid-cols-2">
+          <div className="grid gap-2 rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3 text-sm text-[var(--wjn-text-secondary)] md:grid-cols-2">
             <p>状态：{compileResult.ok ? "成功" : "失败"}</p>
             <p>编译器：{compileResult.engine}</p>
             <p>主文件：{compileResult.main_file}</p>
             <p>退出码：{compileResult.status}</p>
           </div>
         ) : null}
-        <pre className="max-h-[56vh] overflow-auto rounded-xl bg-[rgba(19,34,53,0.05)] p-4 text-xs leading-6 text-[var(--text-secondary)]">
+        <pre className="max-h-[56vh] overflow-auto rounded-xl bg-[rgba(19,34,53,0.05)] p-4 text-xs leading-6 text-[var(--wjn-text-secondary)]">
           {compileLog || compileResult?.error || "暂无日志"}
         </pre>
       </DialogContent>

@@ -18,13 +18,13 @@ export function KpiCard({
   const formattedValue =
     typeof value === "number" ? value.toLocaleString() : value;
   return (
-    <div className="route-card rounded-2xl border border-[var(--border-default)] p-5">
+    <div className="route-card rounded-2xl border border-[var(--wjn-line)] p-5">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-[var(--text-secondary)]">{label}</span>
-        {icon && <div className="text-[var(--accent-primary)]">{icon}</div>}
+        <span className="text-sm text-[var(--wjn-text-secondary)]">{label}</span>
+        {icon && <div className="text-[var(--wjn-navy)]">{icon}</div>}
       </div>
       <div className="mt-2 flex items-baseline gap-2">
-        <span className="text-2xl font-bold text-[var(--text-primary)]">
+        <span className="text-2xl font-bold text-[var(--wjn-text)]">
           {formattedValue}
         </span>
         {trend === "up" && (
@@ -34,11 +34,11 @@ export function KpiCard({
           <TrendingDown className="w-4 h-4 text-rose-500" />
         )}
         {trend === "neutral" && (
-          <Minus className="w-4 h-4 text-[var(--text-muted)]" />
+          <Minus className="w-4 h-4 text-[var(--wjn-text-muted)]" />
         )}
       </div>
       {hint && (
-        <div className="mt-1 text-xs text-[var(--text-muted)]">{hint}</div>
+        <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">{hint}</div>
       )}
     </div>
   );
@@ -57,15 +57,15 @@ export function DateRangePicker({
     { label: "90 天", value: "90d" },
   ];
   return (
-    <div className="flex rounded-lg border border-[var(--border-default)] overflow-hidden">
+    <div className="flex rounded-lg border border-[var(--wjn-line)] overflow-hidden">
       {options.map((opt) => (
         <button
           key={opt.value}
           onClick={() => onChange(opt.value)}
           className={`px-3 py-1.5 text-xs font-medium transition-colors ${
             value === opt.value
-              ? "bg-[var(--accent-primary)] text-white"
-              : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
+              ? "bg-[var(--wjn-navy)] text-white"
+              : "bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text-secondary)] hover:bg-[var(--wjn-surface)]"
           }`}
         >
           {opt.label}
@@ -85,9 +85,9 @@ export function ChartContainer({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="route-card rounded-2xl border border-[var(--border-default)] p-5">
+    <div className="route-card rounded-2xl border border-[var(--wjn-line)] p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-semibold text-[var(--text-primary)]">
+        <h3 className="text-base font-semibold text-[var(--wjn-text)]">
           {title}
         </h3>
         {actions}

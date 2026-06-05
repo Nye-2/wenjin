@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { AuthCookieSync } from "@/components/auth/auth-cookie-sync";
 import { I18nProvider } from "@/components/i18n-provider";
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-scroll-behavior="smooth">
       <body
         className="font-sans antialiased"
         style={
@@ -30,7 +31,10 @@ export default function RootLayout({
           } as React.CSSProperties
         }
       >
-        <I18nProvider>{children}</I18nProvider>
+        <I18nProvider>
+          <AuthCookieSync />
+          {children}
+        </I18nProvider>
       </body>
     </html>
   );

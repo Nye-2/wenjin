@@ -16,5 +16,5 @@ export interface LastRewriteUndoState extends LatexFeedbackRewriteUndoPayload {
   feedback_id: string;
 }
 
-export type PrismSurfaceMode = "edit" | "compare" | "review" | "focus";
-export type PrismInspectorTab = "assist" | "review" | "compile" | "agent";
+export type PrismSurfaceMode = "edit" | "compare";
+export type PrismAssistIntent = "selection" | "compile";

@@ -19,10 +19,10 @@ export function ResultPreviewDetail({
       <div
         style={{
           padding: "16px",
-          borderRadius: "var(--v2-radius-lg)",
+          borderRadius: "var(--wjn-radius-lg)",
           border: "1px solid rgba(20, 20, 30, 0.08)",
           background: "rgba(255, 255, 255, 0.72)",
-          color: "var(--v2-text-tertiary)",
+          color: "var(--wjn-text-muted)",
           fontSize: 13,
         }}
       >
@@ -35,7 +35,7 @@ export function ResultPreviewDetail({
     <div
       style={{
         padding: "16px",
-        borderRadius: "var(--v2-radius-lg)",
+        borderRadius: "var(--wjn-radius-lg)",
         border: "1px solid rgba(20, 20, 30, 0.08)",
         background: "rgba(255, 255, 255, 0.84)",
         boxShadow: "0 12px 28px rgba(20, 20, 30, 0.05)",
@@ -47,7 +47,7 @@ export function ResultPreviewDetail({
             marginBottom: 8,
             fontSize: 11.5,
             fontWeight: 600,
-            color: "var(--v2-accent-purple-700)",
+            color: "var(--wjn-blue)",
             textTransform: "uppercase",
           }}
         >
@@ -59,7 +59,7 @@ export function ResultPreviewDetail({
           fontSize: 16,
           lineHeight: 1.4,
           fontWeight: 650,
-          color: "var(--v2-text-primary)",
+          color: "var(--wjn-text)",
           marginBottom: preview.subtitle ? 4 : 10,
         }}
       >
@@ -69,7 +69,7 @@ export function ResultPreviewDetail({
         <div
           style={{
             fontSize: 13,
-            color: "var(--v2-text-tertiary)",
+            color: "var(--wjn-text-muted)",
             marginBottom: 10,
           }}
         >
@@ -90,9 +90,9 @@ export function ResultPreviewDetail({
               key={line}
               style={{
                 padding: "2px 8px",
-                borderRadius: "var(--v2-radius-pill)",
+                borderRadius: "var(--wjn-radius-pill)",
                 background: "rgba(20, 20, 30, 0.06)",
-                color: "var(--v2-text-secondary)",
+                color: "var(--wjn-text-secondary)",
                 fontSize: 11.5,
               }}
             >

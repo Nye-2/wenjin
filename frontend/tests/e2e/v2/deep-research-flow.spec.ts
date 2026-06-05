@@ -110,47 +110,44 @@ test.describe("Workspace Deep Research Flow", () => {
   });
 
   test("renders workspace layout", async ({ page }) => {
-    // Verify the 3 primary zones of the workspace layout
     await expect(page.getByTestId("chat-panel")).toBeVisible();
     await expect(page.getByTestId("workflow-panel")).toBeVisible();
-    await expect(page.getByTestId("rooms-topbar")).toBeVisible();
+    await expect(page.getByRole("button", { name: "资料库" })).toBeVisible();
+    await expect(page.getByTestId("rooms-topbar")).toHaveCount(0);
   });
 
   test("shows empty state when no execution", async ({ page }) => {
-    await expect(
-      page.getByText("当前还没有进行中的工作面。先在对话里描述任务，问津会创建并打开对应工作面。"),
-    ).toBeVisible();
-    await expect(page.getByText("等待新的工作")).toBeVisible();
+    await expect(page.getByText("暂无可启动能力")).toBeVisible();
+    await expect(page.getByText("能力目录加载后会显示在这里。")).toBeVisible();
+    await expect(page.getByText("等待新的工作")).toHaveCount(0);
+    await expect(page.getByText("还没有运行记录")).toHaveCount(0);
   });
 
   test("renders chat input placeholder", async ({ page }) => {
-    await expect(page.getByPlaceholder("输入消息...")).toBeVisible();
+    await expect(page.getByPlaceholder("输入消息... Shift+Enter 换行")).toBeVisible();
   });
 
-  test("renders room buttons in topbar", async ({ page }) => {
-    // 7 user-facing room buttons: Library, Documents, Decisions, Memory, Runs, Tasks, Settings
-    const buttons = page.locator('[data-testid="rooms-topbar"] button');
-    await expect(buttons).toHaveCount(7);
+  test("keeps room actions inside the workspace hub", async ({ page }) => {
+    await expect(page.getByTestId("rooms-topbar")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "资料库" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Sandbox" })).toHaveCount(0);
   });
 
-  test("topbar room buttons are clickable", async ({ page }) => {
-    // Click Library button (first) — should open the drawer without crashing
-    await page.locator('[data-testid="rooms-topbar"] button').first().click();
+  test("workspace hub opens room drawers", async ({ page }) => {
+    await page.getByRole("button", { name: "资料库" }).click();
+    await expect(page.getByRole("dialog", { name: "资料库" })).toBeVisible();
+    await page.getByRole("button", { name: "文献资料" }).click();
     await expect(page.getByTestId("library-drawer")).toBeVisible();
-    await expect(page.getByTestId("drawer-empty")).toBeVisible();
   });
 
   test("chat input is enabled in current state", async ({ page }) => {
-    const input = page.getByPlaceholder("输入消息...");
+    const input = page.getByPlaceholder("输入消息... Shift+Enter 换行");
     await expect(input).toBeEnabled();
   });
 
-  test("topbar displays workspace label", async ({ page }) => {
-    // Scope to the rooms-topbar to avoid matching other "Workspace" text on the page
-    await expect(
-      page.getByTestId("rooms-topbar").getByText("Workspace"),
-    ).toBeVisible();
+  test("workspace chrome displays workspace identity", async ({ page }) => {
+    await expect(page.getByText("Test Workspace").first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Wenjin" })).toBeVisible();
   });
 
   test("sandbox room deep link is ignored", async ({ page }) => {

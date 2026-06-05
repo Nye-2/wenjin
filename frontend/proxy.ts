@@ -5,6 +5,7 @@ const AUTH_STORAGE_KEY = "auth-storage";
 
 const PUBLIC_PATHS = [
   "/",
+  "/docs",
   "/login",
   "/pricing",
   "/register",

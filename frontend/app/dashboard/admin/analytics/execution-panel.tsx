@@ -84,22 +84,22 @@ export function ExecutionPanel({
         <div className="h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-subtle)" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--wjn-line)" />
               <XAxis
                 dataKey="date"
                 tick={{ fontSize: 11 }}
-                stroke="var(--text-muted)"
+                stroke="var(--wjn-text-muted)"
                 tickFormatter={(v: string) => v.slice(5)}
               />
               <YAxis
                 tick={{ fontSize: 11 }}
-                stroke="var(--text-muted)"
+                stroke="var(--wjn-text-muted)"
                 width={40}
               />
               <Tooltip
                 contentStyle={{
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--border-default)",
+                  background: "var(--wjn-surface-subtle)",
+                  border: "1px solid var(--wjn-line)",
                   borderRadius: "0.75rem",
                   fontSize: 12,
                 }}

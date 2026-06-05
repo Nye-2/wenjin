@@ -123,6 +123,18 @@ function makeTeamRunningRecord(): ExecutionRecord {
           effective_skills: ["critical_review.v1"],
         },
       },
+      "literature_synthesizer.v1__1": {
+        status: "pending",
+        node_type: "agent_invocation",
+        label: "文献综合专家",
+        node_metadata: {
+          team: true,
+          template_id: "literature_synthesizer.v1",
+          display_name: "文献综合专家",
+          effective_tools: ["library_read"],
+          effective_skills: ["evidence_synthesis.v1"],
+        },
+      },
     },
     runtime_state: {
       quality_gates: [
@@ -133,6 +145,37 @@ function makeTeamRunningRecord(): ExecutionRecord {
           next_action: "revise_evidence_map",
         },
       ],
+    },
+  };
+}
+
+function makeTechnicalRunningRecord(): ExecutionRecord {
+  return {
+    ...makeRunningRecord(),
+    id: "exec-technical",
+    feature_id: "sci_literature_positioning",
+    display_name: "文献定位与创新点",
+    graph_structure: {
+      nodes: [
+        {
+          id: "step_02_literature_synthesizer",
+          type: "agent_invocation",
+          phase: "synthesis",
+          task: "literature_synthesizer",
+        },
+      ],
+      edges: [],
+    },
+    node_states: {
+      step_02_literature_synthesizer: {
+        status: "running",
+        node_type: "agent_invocation",
+        thinking: "正在把检索结果整理成主题矩阵。",
+        input: {
+          task_focus: "把检索结果和材料综合为主题矩阵、gap、可引用论断和后续写作素材。",
+          raw_message: "联邦学习结合大模型",
+        },
+      },
     },
   };
 }
@@ -306,9 +349,48 @@ describe("LiveWorkflowPanel", () => {
     const teamRegion = screen.getByRole("region", { name: "执行团队" });
     expect(within(teamRegion).getByText("文献专家")).toBeInTheDocument();
     expect(within(teamRegion).getByText("质量审稿人")).toBeInTheDocument();
-    expect(within(teamRegion).getByText("web_search")).toBeInTheDocument();
-    expect(within(teamRegion).getByText("evidence_traceability")).toBeInTheDocument();
+    expect(within(teamRegion).getAllByText("能力已就绪").length).toBeGreaterThan(0);
+    expect(within(teamRegion).getByText("证据可追溯")).toBeInTheDocument();
     expect(within(teamRegion).getByText("提醒")).toBeInTheDocument();
+  });
+
+  it("leaves run-level status to the workspace chrome and keeps interrupt action once", () => {
+    useExecutionStore.getState().upsertExecution(makeRunningRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.queryByText("运行中")).not.toBeInTheDocument();
+    expect(screen.getAllByText("中断并补充")).toHaveLength(1);
+  });
+
+  it("uses distinct member-level status labels in team runs", () => {
+    useExecutionStore.getState().upsertExecution(makeTeamRunningRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-team");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    const teamRegion = screen.getByRole("region", { name: "执行团队" });
+    expect(visibleOutsideClosedDetails("运行中")).toHaveLength(0);
+    expect(within(teamRegion).getByText("处理中")).toBeInTheDocument();
+    expect(within(teamRegion).getByText("待处理")).toBeInTheDocument();
+  });
+
+  it("keeps raw node ids and input payloads behind run details by default", () => {
+    useExecutionStore.getState().upsertExecution(makeTechnicalRunningRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-technical");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.getAllByText("文献综合专家").length).toBeGreaterThan(0);
+    expect(screen.getByText("文献综合")).toBeVisible();
+    expect(screen.getByText("输入预览")).not.toBeVisible();
+    for (const element of screen.getAllByText(/literature_synthesizer/)) {
+      expect(element).not.toBeVisible();
+    }
   });
 
   it("asks for a concrete topic before direct capability launch can run broad research", async () => {
@@ -330,11 +412,45 @@ describe("LiveWorkflowPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /文献定位与创新点/ }));
+    fireEvent.click(screen.getByRole("button", { name: "文献定位与创新点" }));
 
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
     const [, prompt] = sendMessage.mock.calls[0];
     expect(prompt).toContain("缺少具体研究主题");
     expect(prompt).toContain("先向用户确认");
   });
+
+  it("keeps the idle overview focused on task launch instead of empty dashboard controls", () => {
+    render(
+      <LiveWorkflowPanel
+        workspaceId="ws-1"
+        features={[
+          {
+            id: "sci_literature_positioning",
+            name: "文献定位与创新点",
+            description: "建立相关工作、gap 和 contribution positioning",
+            icon: "book-open",
+            stages: [],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "中断并补充" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "文献定位与创新点" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: /建立相关工作、gap 和 contribution positioning/,
+      }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("正在处理")).not.toBeInTheDocument();
+    expect(screen.queryByText("还没有运行记录")).not.toBeInTheDocument();
+  });
 });
+
+function visibleOutsideClosedDetails(text: string) {
+  return screen.getAllByText(text).filter((element) => {
+    const details = element.closest("details");
+    return !details || details.open;
+  });
+}

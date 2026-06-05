@@ -88,9 +88,9 @@ describe("RunsDrawer", () => {
 
     await screen.findByText("Literature Search");
     const statuses = screen.getAllByTestId("run-status");
-    expect(statuses[0]).toHaveTextContent("running");
-    expect(statuses[1]).toHaveTextContent("partial");
-    expect(statuses[2]).toHaveTextContent("completed");
+    expect(statuses[0]).toHaveTextContent("处理中");
+    expect(statuses[1]).toHaveTextContent("部分完成");
+    expect(statuses[2]).toHaveTextContent("已完成");
   });
 
   it("shows empty state when no items", async () => {

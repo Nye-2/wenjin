@@ -30,7 +30,7 @@ export function ModelSelector({
 
   return (
     <div className={cn("space-y-1", className)}>
-      <label className="block text-xs text-[var(--text-muted)]" htmlFor={id}>
+      <label className="block text-xs text-[var(--wjn-text-muted)]" htmlFor={id}>
         {label}
       </label>
       <select
@@ -38,7 +38,7 @@ export function ModelSelector({
         value={selectedModel ?? ""}
         onChange={(event) => onChange(event.target.value || null)}
         disabled={selectDisabled}
-        className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-elevated)] px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60"
+        className="w-full rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface)] px-3 py-2 text-sm text-[var(--wjn-text)] focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-60"
       >
         {isLoading ? (
           <option value="">模型加载中...</option>

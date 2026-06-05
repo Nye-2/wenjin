@@ -208,7 +208,7 @@ export function ModelDialog({ open, model, onClose }: Props) {
               (key === "is_default" && isEdit && (model?.is_default || !form.enabled))
               || (key === "enabled" && form.is_default);
             return (
-              <label key={key} className="flex items-center gap-2 text-[var(--text-secondary)]">
+              <label key={key} className="flex items-center gap-2 text-[var(--wjn-text-secondary)]">
                 <input
                   type="checkbox"
                   checked={Boolean(form[key as keyof typeof form])}

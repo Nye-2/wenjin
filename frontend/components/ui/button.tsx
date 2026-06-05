@@ -4,27 +4,27 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg-base)] disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-[var(--wjn-radius-md)] text-sm font-semibold transition-[background,color,border-color,box-shadow,transform] duration-150 ease-[var(--wjn-ease-standard)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--wjn-blue)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--wjn-bg-base)] disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
         default:
-          "bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] text-white shadow-md hover:shadow-lg hover:shadow-[var(--brand-navy)]/15 hover:scale-[1.02] active:scale-[0.98]",
+          "bg-[var(--wjn-navy)] text-white shadow-[0_8px_20px_rgba(15,31,53,0.16)] hover:bg-[var(--wjn-blue-strong)] active:translate-y-0",
         destructive:
-          "bg-red-500/15 text-[var(--semantic-error)] border border-red-500/30 hover:bg-red-500/25",
+          "border border-[rgba(185,28,28,0.28)] bg-[var(--wjn-error-soft)] text-[var(--wjn-error)] hover:bg-[rgba(185,28,28,0.16)]",
         outline:
-          "border border-[var(--border-default)] bg-transparent hover:bg-[var(--bg-surface)] hover:border-[var(--accent-secondary)] text-[var(--text-primary)]",
+          "border border-[var(--wjn-line)] bg-[var(--wjn-surface)] text-[var(--wjn-text)] shadow-[var(--wjn-shadow-sm)] hover:border-[var(--wjn-accent-line)] hover:bg-[var(--wjn-surface-subtle)]",
         secondary:
-          "bg-[var(--accent-primary)]/15 text-[var(--accent-secondary)] border border-[var(--accent-secondary)]/30 hover:bg-[var(--accent-primary)]/25",
+          "border border-[var(--wjn-accent-line)] bg-[var(--wjn-accent-soft)] text-[var(--wjn-blue-strong)] hover:bg-[rgba(44,93,160,0.16)]",
         ghost:
-          "hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+          "text-[var(--wjn-text-secondary)] hover:bg-[rgba(15,31,53,0.055)] hover:text-[var(--wjn-text)]",
         link:
-          "text-[var(--accent-secondary)] underline-offset-4 hover:underline hover:text-[var(--accent-primary)]",
+          "text-[var(--wjn-blue)] underline-offset-4 hover:underline hover:text-[var(--wjn-blue-strong)]",
       },
       size: {
         default: "h-10 px-4 py-2",
-        sm: "h-8 rounded-md px-3 text-xs",
-        lg: "h-12 rounded-lg px-8",
+        sm: "h-8 rounded-[var(--wjn-radius)] px-3 text-xs",
+        lg: "h-12 rounded-[var(--wjn-radius-md)] px-8",
         icon: "h-10 w-10",
       },
     },

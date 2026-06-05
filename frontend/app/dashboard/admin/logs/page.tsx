@@ -190,7 +190,7 @@ export default function AdminLogsPage() {
             <div className="min-w-52">
               <Label
                 htmlFor="logs-target-user-id"
-                className="text-xs text-[var(--text-muted)] mb-1 block"
+                className="text-xs text-[var(--wjn-text-muted)] mb-1 block"
               >
                 目标用户 ID
               </Label>
@@ -203,7 +203,7 @@ export default function AdminLogsPage() {
               />
             </div>
             <div className="w-44">
-              <Label className="text-xs text-[var(--text-muted)] mb-1 block">操作类型</Label>
+              <Label className="text-xs text-[var(--wjn-text-muted)] mb-1 block">操作类型</Label>
               <Select
                 value={logActionFilter}
                 onValueChange={(value) => {
@@ -224,7 +224,7 @@ export default function AdminLogsPage() {
               </Select>
             </div>
             <div className="w-28">
-              <Label className="text-xs text-[var(--text-muted)] mb-1 block">每页条数</Label>
+              <Label className="text-xs text-[var(--wjn-text-muted)] mb-1 block">每页条数</Label>
               <Select
                 value={String(logsPageSize)}
                 onValueChange={(value) => {
@@ -265,7 +265,7 @@ export default function AdminLogsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-default)]">
+              <tr className="text-left text-[var(--wjn-text-muted)] border-b border-[var(--wjn-line)]">
                 <th className="py-2">时间</th>
                 <th className="py-2">操作</th>
                 <th className="py-2">管理员</th>
@@ -275,31 +275,31 @@ export default function AdminLogsPage() {
             </thead>
             <tbody>
               {adminLogs.map((item) => (
-                <tr key={item.id} className="border-b border-[var(--border-default)]/50">
-                  <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>
-                  <td className="py-2 text-[var(--text-primary)]">{item.action}</td>
-                  <td className="py-2 text-[var(--text-secondary)]">
+                <tr key={item.id} className="border-b border-[var(--wjn-line)]/50">
+                  <td className="py-2 text-[var(--wjn-text-secondary)]">{formatDate(item.created_at)}</td>
+                  <td className="py-2 text-[var(--wjn-text)]">{item.action}</td>
+                  <td className="py-2 text-[var(--wjn-text-secondary)]">
                     {item.admin?.email ?? item.admin_id ?? "-"}
                   </td>
-                  <td className="py-2 text-[var(--text-secondary)]">
+                  <td className="py-2 text-[var(--wjn-text-secondary)]">
                     {item.target_user?.email ?? item.target_user_id ?? "-"}
                   </td>
-                  <td className="py-2 text-[var(--text-secondary)]">{formatLogDetails(item.details)}</td>
+                  <td className="py-2 text-[var(--wjn-text-secondary)]">{formatLogDetails(item.details)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {isLoading && (
-            <div className="text-sm text-[var(--text-muted)] py-3 flex items-center gap-2">
+            <div className="text-sm text-[var(--wjn-text-muted)] py-3 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               正在加载管理员日志
             </div>
           )}
           {adminLogs.length === 0 && (
-            <div className="text-sm text-[var(--text-muted)] py-3">暂无管理员日志</div>
+            <div className="text-sm text-[var(--wjn-text-muted)] py-3">暂无管理员日志</div>
           )}
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs text-[var(--text-muted)]">第 {logsPage} 页</span>
+            <span className="text-xs text-[var(--wjn-text-muted)]">第 {logsPage} 页</span>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"

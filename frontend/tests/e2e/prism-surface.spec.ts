@@ -31,8 +31,16 @@ test("workspace Prism surface stays usable on mobile without extra room reloads"
     "aria-selected",
     "true",
   );
-  await expect(page.getByText("Prism 审阅")).toBeVisible();
-  await expect(page.getByText("PDF 默认收起，可切换到对照查看")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "AI 改稿", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "AI 改稿" })).toBeVisible();
+  await expect(page.getByText("待确认写入")).toBeVisible();
+  await expect(page.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "对照", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "审阅", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "专注", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "打开 PDF 对照" })).toBeVisible();
   await expect(page.locator(".monaco-editor")).toBeVisible();
   await expect
     .poll(() =>

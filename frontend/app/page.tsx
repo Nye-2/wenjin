@@ -304,14 +304,14 @@ function QuickStartMenu({ copy }: { copy: LandingCopy }) {
       {isOpen ? (
         <div
           role="menu"
-          className="absolute right-0 top-14 z-50 w-56 rounded-3xl border border-[rgba(16,24,40,0.1)] bg-white p-2 shadow-[0_24px_70px_rgba(16,24,40,0.16)]"
+          className="absolute right-0 top-14 z-50 w-56 rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-white p-2 shadow-[var(--wjn-shadow-md)]"
         >
           {QUICK_START_ORDER.map((type) => (
             <Link
               key={type}
               role="menuitem"
               href={quickStartHref(type)}
-              className="flex min-h-11 items-center rounded-2xl px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f2f4f7]"
+              className="flex min-h-11 items-center rounded-[var(--wjn-radius-md)] px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f2f4f7]"
             >
               {copy.quickStartItems[type]}
             </Link>
@@ -424,7 +424,7 @@ function VideoPreview({ copy }: { copy: LandingCopy }) {
 
       <span className="absolute inset-0 z-10 grid place-items-center px-8 text-center">
         <span>
-          <span className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-white text-4xl font-black text-[#4f46e5] shadow-[0_24px_60px_rgba(0,0,0,0.28)] transition group-hover:scale-105">
+          <span className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-white text-4xl font-black text-[var(--wjn-blue)] shadow-[0_24px_60px_rgba(0,0,0,0.28)] transition group-hover:scale-105">
             ▶
           </span>
           <strong className="mt-6 block text-lg font-bold leading-snug">
@@ -488,7 +488,7 @@ export default function HomePage() {
             </p>
             <h1 className="mt-6 max-w-3xl text-6xl font-black leading-none text-[#101828] sm:text-7xl lg:text-8xl">
               {copy.hero.title}{" "}
-              <span className="relative inline-block after:absolute after:bottom-1 after:left-1 after:right-0 after:-z-10 after:h-3 after:rounded-full after:bg-[#4f46e5]/15">
+              <span className="relative inline-block after:absolute after:bottom-1 after:left-1 after:right-0 after:-z-10 after:h-3 after:rounded-full after:bg-[var(--wjn-accent-soft)]">
                 {copy.hero.accent}
               </span>
             </h1>
@@ -564,7 +564,7 @@ export default function HomePage() {
                 key={step.index}
                 className={`min-h-60 rounded-[1.75rem] border bg-white p-7 shadow-[0_18px_60px_rgba(16,24,40,0.06)] ${
                   index === 1
-                    ? "border-[#4f46e5]/20 shadow-[0_22px_80px_rgba(79,70,229,0.12)]"
+                    ? "border-[var(--wjn-accent-line)] shadow-[0_22px_80px_rgba(44,93,160,0.12)]"
                     : "border-[rgba(16,24,40,0.08)]"
                 }`}
               >

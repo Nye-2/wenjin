@@ -259,9 +259,14 @@ class LeadAgentRuntime:
                 logger.warning("Failed to persist graph_structure", exc_info=True)
 
         capability_policy = self._capability_policy(cap)
+        context_requirements = self._context_requirements_from_brief(brief)
         workspace_data = (
-            await self._load_workspace_data(brief.workspace_id)
-            if self._needs_library_context(capability_policy)
+            await self._load_workspace_data(
+                brief.workspace_id,
+                capability_policy=capability_policy,
+                context_requirements=context_requirements,
+            )
+            if self._needs_workspace_context(capability_policy, context_requirements)
             else {}
         )
 
@@ -395,6 +400,10 @@ class LeadAgentRuntime:
             room_reads = context_policy.get("room_reads")
             if isinstance(room_reads, dict) and "library" in room_reads:
                 return True
+        return LeadAgentRuntime._requires_citation_library_context(capability_policy)
+
+    @staticmethod
+    def _requires_citation_library_context(capability_policy: dict[str, Any]) -> bool:
         citation_policy = capability_policy.get("citation_policy")
         if not isinstance(citation_policy, dict):
             return False
@@ -404,56 +413,132 @@ class LeadAgentRuntime:
         )
 
     @staticmethod
+    def _context_requirements_from_brief(brief: TaskBrief) -> dict[str, bool]:
+        params = brief.brief if isinstance(brief.brief, Mapping) else {}
+        raw = params.get("context_requirements")
+        if not isinstance(raw, Mapping):
+            return {}
+        return {
+            "include_manuscript_context": bool(raw.get("include_manuscript_context")),
+            "include_workspace_history": bool(raw.get("include_workspace_history")),
+            "include_related_documents": bool(raw.get("include_related_documents")),
+            "include_sandbox_artifacts": bool(raw.get("include_sandbox_artifacts")),
+            "include_pending_review_summary": bool(raw.get("include_pending_review_summary")),
+        }
+
+    @classmethod
+    def _needs_workspace_context(
+        cls,
+        capability_policy: dict[str, Any],
+        context_requirements: dict[str, bool],
+    ) -> bool:
+        if cls._requires_citation_library_context(capability_policy):
+            return True
+        if context_requirements:
+            return any(
+                context_requirements.get(key)
+                for key in (
+                    "include_workspace_history",
+                    "include_related_documents",
+                    "include_sandbox_artifacts",
+                )
+            )
+        return cls._needs_library_context(capability_policy)
+
+    @staticmethod
     def _runtime_mode(cap: Any) -> str:
         runtime = getattr(cap, "runtime", None)
         if isinstance(runtime, dict) and runtime.get("mode") == "team_kernel":
             return "team_kernel"
         return "static_graph"
 
-    async def _load_workspace_data(self, workspace_id: str) -> dict[str, Any]:
+    async def _load_workspace_data(
+        self,
+        workspace_id: str,
+        *,
+        capability_policy: dict[str, Any] | None = None,
+        context_requirements: dict[str, bool] | None = None,
+    ) -> dict[str, Any]:
         """Load lightweight room data that subagents can safely consume."""
         normalized_workspace_id = str(workspace_id or "").strip()
         if not normalized_workspace_id:
             return {}
+        capability_policy = capability_policy or {}
+        context_requirements = context_requirements or {}
+        if context_requirements:
+            include_library = (
+                bool(context_requirements.get("include_related_documents"))
+                or self._requires_citation_library_context(capability_policy)
+            )
+        else:
+            include_library = self._needs_library_context(capability_policy)
+        include_workspace_history = bool(context_requirements.get("include_workspace_history"))
+        include_related_documents = bool(context_requirements.get("include_related_documents"))
+        include_sandbox_artifacts = bool(context_requirements.get("include_sandbox_artifacts"))
+
+        workspace_data: dict[str, Any] = {}
         try:
             async with dataservice_client() as client:
-                sources = await client.list_sources(
-                    workspace_id=normalized_workspace_id,
-                    include_deleted=False,
-                    include_excluded=False,
-                    limit=40,
-                )
-        except Exception:
-            logger.warning("Failed to load workspace source context", exc_info=True)
-            return {}
+                if include_library or include_related_documents:
+                    try:
+                        sources = await client.list_sources(
+                            workspace_id=normalized_workspace_id,
+                            include_deleted=False,
+                            include_excluded=False,
+                            limit=40,
+                        )
+                    except Exception:
+                        logger.warning("Failed to load workspace source context", exc_info=True)
+                        sources = []
+                    source_context = self._build_source_context(sources)
+                    workspace_data.update(source_context)
 
+                if include_workspace_history:
+                    workspace_data["workspace_history"] = await self._load_workspace_history_context(
+                        client,
+                        normalized_workspace_id,
+                    )
+
+                if include_sandbox_artifacts:
+                    workspace_data["sandbox_context"] = await self._load_sandbox_context(
+                        client,
+                        normalized_workspace_id,
+                    )
+        except Exception:
+            logger.warning("Failed to load workspace context", exc_info=True)
+        return workspace_data
+
+    @staticmethod
+    def _build_source_context(sources: list[Any]) -> dict[str, Any]:
         citable_sources: list[dict[str, Any]] = []
+        related_documents: list[dict[str, Any]] = []
         for source in sources:
             citation_key = str(getattr(source, "citation_key", "") or "").strip()
+            abstract = str(getattr(source, "abstract", "") or "").strip()
+            document = {
+                "id": str(getattr(source, "id", "") or ""),
+                "citation_key": citation_key,
+                "title": str(getattr(source, "title", "") or ""),
+                "authors": list(getattr(source, "authors_json", None) or [])[:12],
+                "year": getattr(source, "year", None),
+                "venue": getattr(source, "venue", None),
+                "doi": getattr(source, "doi", None),
+                "url": getattr(source, "url", None),
+                "library_status": str(getattr(source, "library_status", "") or ""),
+                "evidence_level": str(getattr(source, "evidence_level", "") or ""),
+                "abstract_excerpt": abstract[:500],
+            }
+            related_documents.append(document)
             if not citation_key:
                 continue
-            abstract = str(getattr(source, "abstract", "") or "").strip()
-            citable_sources.append(
-                {
-                    "id": str(getattr(source, "id", "") or ""),
-                    "citation_key": citation_key,
-                    "title": str(getattr(source, "title", "") or ""),
-                    "authors": list(getattr(source, "authors_json", None) or []),
-                    "year": getattr(source, "year", None),
-                    "venue": getattr(source, "venue", None),
-                    "doi": getattr(source, "doi", None),
-                    "url": getattr(source, "url", None),
-                    "library_status": str(getattr(source, "library_status", "") or ""),
-                    "evidence_level": str(getattr(source, "evidence_level", "") or ""),
-                    "abstract_excerpt": abstract[:500],
-                }
-            )
+            citable_sources.append(document)
 
-        if not citable_sources:
-            return {}
+        context: dict[str, Any] = {}
+        if related_documents:
+            context["related_documents"] = related_documents[:30]
 
-        return {
-            "library_context": {
+        if citable_sources:
+            context["library_context"] = {
                 "refs_bib_file": "refs.bib",
                 "bibliography_command": "\\bibliography{refs}",
                 "citation_command": "\\cite{citation_key}",
@@ -469,6 +554,158 @@ class LeadAgentRuntime:
                     "\\end{document}."
                 ),
             }
+        return context
+
+    @staticmethod
+    def _iso_timestamp(value: Any) -> str | None:
+        if value is None:
+            return None
+        if hasattr(value, "isoformat"):
+            return str(value.isoformat())
+        return str(value)
+
+    @staticmethod
+    def _compact_metadata(value: Any, *, limit: int = 8) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        result: dict[str, str] = {}
+        for key, item in list(value.items())[:limit]:
+            clean_key = str(key or "").strip()
+            if not clean_key:
+                continue
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                clean_value = "" if item is None else str(item)
+            else:
+                clean_value = json.dumps(item, ensure_ascii=False, default=str)
+            result[clean_key[:80]] = clean_value[:300]
+        return result
+
+    async def _load_workspace_history_context(
+        self,
+        client: Any,
+        workspace_id: str,
+    ) -> dict[str, Any]:
+        decisions: list[Any] = []
+        memory_facts: list[Any] = []
+        executions: list[Any] = []
+        threads: list[Any] = []
+        try:
+            decisions = await client.list_room_decisions(workspace_id)
+        except Exception:
+            logger.warning("Failed to load workspace decisions context", exc_info=True)
+        try:
+            memory_facts = await client.list_room_memory_facts(workspace_id=workspace_id, limit=12)
+        except Exception:
+            logger.warning("Failed to load workspace memory context", exc_info=True)
+        try:
+            executions = await client.list_executions(workspace_id=workspace_id, limit=8)
+        except Exception:
+            logger.warning("Failed to load workspace execution context", exc_info=True)
+        try:
+            threads = await client.list_workspace_conversation_thread_summaries(
+                workspace_id=workspace_id,
+                limit=8,
+            )
+        except Exception:
+            logger.warning("Failed to load workspace thread context", exc_info=True)
+
+        return {
+            "decisions": [
+                {
+                    "key": str(getattr(item, "key", "") or ""),
+                    "value": str(getattr(item, "value", "") or "")[:500],
+                    "confidence": getattr(item, "confidence", None),
+                    "created_at": self._iso_timestamp(getattr(item, "created_at", None)),
+                }
+                for item in decisions[:20]
+            ],
+            "memory": [
+                {
+                    "category": str(getattr(item, "category", "") or ""),
+                    "content": str(getattr(item, "content", "") or "")[:500],
+                    "confidence": getattr(item, "confidence", None),
+                    "reference_count": getattr(item, "reference_count", 0),
+                }
+                for item in memory_facts[:12]
+            ],
+            "recent_executions": [
+                {
+                    "id": str(getattr(item, "id", "") or ""),
+                    "capability_id": getattr(item, "capability_id", None),
+                    "display_name": getattr(item, "display_name", None),
+                    "status": getattr(item, "status", None),
+                    "summary": str(getattr(item, "result_summary", "") or "")[:700],
+                    "created_at": self._iso_timestamp(getattr(item, "created_at", None)),
+                    "completed_at": self._iso_timestamp(getattr(item, "completed_at", None)),
+                }
+                for item in executions[:8]
+            ],
+            "recent_threads": [
+                {
+                    "id": str(getattr(item, "id", "") or ""),
+                    "title": getattr(item, "title", None),
+                    "last_message_preview": str(
+                        getattr(item, "last_message_preview", "") or "",
+                    )[:500],
+                    "updated_at": self._iso_timestamp(getattr(item, "updated_at", None)),
+                }
+                for item in threads[:8]
+            ],
+        }
+
+    async def _load_sandbox_context(self, client: Any, workspace_id: str) -> dict[str, Any]:
+        environments: list[Any] = []
+        jobs: list[Any] = []
+        artifacts: list[Any] = []
+        try:
+            environments = await client.list_sandbox_environments(workspace_id=workspace_id, limit=3)
+        except Exception:
+            logger.warning("Failed to load sandbox environments context", exc_info=True)
+        try:
+            jobs = await client.list_sandbox_jobs(workspace_id=workspace_id, limit=8)
+        except Exception:
+            logger.warning("Failed to load sandbox jobs context", exc_info=True)
+        try:
+            artifacts = await client.list_sandbox_artifacts(workspace_id=workspace_id, limit=12)
+        except Exception:
+            logger.warning("Failed to load sandbox artifact context", exc_info=True)
+
+        return {
+            "environments": [
+                {
+                    "id": str(getattr(item, "id", "") or ""),
+                    "sandbox_id": getattr(item, "sandbox_id", None),
+                    "state": getattr(item, "state", None),
+                    "workspace_path": getattr(item, "workspace_path", None),
+                    "last_active_at": self._iso_timestamp(getattr(item, "last_active_at", None)),
+                }
+                for item in environments[:3]
+            ],
+            "recent_jobs": [
+                {
+                    "id": str(getattr(item, "id", "") or ""),
+                    "operation": getattr(item, "operation", None),
+                    "language": getattr(item, "language", None),
+                    "runtime_image": getattr(item, "runtime_image", None),
+                    "status": getattr(item, "status", None),
+                    "error_text": str(getattr(item, "error_text", "") or "")[:500],
+                    "started_at": self._iso_timestamp(getattr(item, "started_at", None)),
+                    "finished_at": self._iso_timestamp(getattr(item, "finished_at", None)),
+                }
+                for item in jobs[:8]
+            ],
+            "artifacts": [
+                {
+                    "id": str(getattr(item, "id", "") or ""),
+                    "artifact_kind": getattr(item, "artifact_kind", None),
+                    "path": getattr(item, "path", None),
+                    "mime_type": getattr(item, "mime_type", None),
+                    "materialization_status": getattr(item, "materialization_status", None),
+                    "metadata": self._compact_metadata(getattr(item, "metadata_json", {}) or {}),
+                    "created_at": self._iso_timestamp(getattr(item, "created_at", None)),
+                }
+                for item in artifacts[:12]
+            ],
         }
 
     async def _load_skills_for_template(self, template: dict) -> dict[str, Any]:

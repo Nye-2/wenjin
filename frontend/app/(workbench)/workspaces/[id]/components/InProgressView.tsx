@@ -33,8 +33,8 @@ function getSegmentStyle(status: string): {
       };
     case "running":
       return {
-        background: "linear-gradient(135deg, #A78BFA, #7C3AED)",
-        animation: "v2-pulse-soft 1.6s ease-in-out infinite",
+        background: "linear-gradient(135deg, var(--wjn-blue), var(--wjn-blue-strong))",
+        animation: "wjn-pulse-soft 1.6s ease-in-out infinite",
       };
     case "failed":
       return {
@@ -67,8 +67,8 @@ export function InProgressView({ phases, nodeStates, summary }: InProgressViewPr
   return (
     <div
       style={{
-        fontFamily: "var(--v2-font-sans)",
-        color: "var(--v2-text-primary)",
+        fontFamily: "var(--wjn-font-sans)",
+        color: "var(--wjn-text)",
       }}
     >
       {/* Progress bar */}
@@ -78,7 +78,7 @@ export function InProgressView({ phases, nodeStates, summary }: InProgressViewPr
           height: 4,
           borderRadius: 2,
           overflow: "hidden",
-          background: "var(--v2-border-default)",
+          background: "var(--wjn-line)",
           marginBottom: 8,
         }}
       >
@@ -92,7 +92,7 @@ export function InProgressView({ phases, nodeStates, summary }: InProgressViewPr
                 flex: 1,
                 background: segStyle.background,
                 animation: segStyle.animation,
-                transition: "background var(--v2-duration-medium) var(--v2-ease-standard)",
+                transition: "background var(--wjn-duration-medium) var(--wjn-ease-standard)",
               }}
             />
           );
@@ -103,7 +103,7 @@ export function InProgressView({ phases, nodeStates, summary }: InProgressViewPr
       <div
         style={{
           fontSize: 11,
-          color: "var(--v2-text-secondary)",
+          color: "var(--wjn-text-secondary)",
           marginBottom: 16,
         }}
       >
@@ -116,9 +116,9 @@ export function InProgressView({ phases, nodeStates, summary }: InProgressViewPr
           style={{
             marginBottom: 14,
             padding: "9px 10px",
-            borderRadius: "var(--v2-radius-md)",
-            background: "rgba(124, 58, 237, 0.06)",
-            color: "var(--v2-text-secondary)",
+            borderRadius: "var(--wjn-radius-md)",
+            background: "var(--wjn-accent-soft)",
+            color: "var(--wjn-text-secondary)",
             fontSize: 12.5,
             lineHeight: 1.5,
           }}
@@ -143,7 +143,7 @@ export function InProgressView({ phases, nodeStates, summary }: InProgressViewPr
         ) : (
           <div
             style={{
-              color: "var(--v2-text-tertiary)",
+              color: "var(--wjn-text-muted)",
               fontSize: 12,
               padding: "4px 0",
             }}

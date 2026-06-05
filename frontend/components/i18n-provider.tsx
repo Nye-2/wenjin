@@ -89,8 +89,8 @@ export function I18nProvider({ children }: I18nProviderProps) {
 
   if (!messages) {
     return (
-      <div className="min-h-screen bg-[var(--bg-base)] flex items-center justify-center">
-        <div className="w-6 h-6 border-2 border-[var(--accent-primary)] border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen bg-[var(--wjn-bg-base)] flex items-center justify-center">
+        <div className="w-6 h-6 border-2 border-[var(--wjn-navy)] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }

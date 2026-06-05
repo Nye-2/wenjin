@@ -1,6 +1,6 @@
 # Wenjin Current Docs Map
 
-更新时间：2026-06-02
+更新时间：2026-06-05
 状态：Current
 
 本目录是 Wenjin 当前实现的唯一事实源目录。后续开发、联调、review、发布前检查，优先只看这里。
@@ -14,6 +14,7 @@
 | `frontend-feature-plugin-contract.md` | capability entry / thread / execution 契约 |
 | `workspace-feature-catalog.md` | workspace type / capability entry / skill 当前目录 |
 | `workspace-reference-library.md` | Reference Library 当前事实源 |
+| `wenjin-research-navigation-uiux.md` | 当前 UIUX / 视觉系统事实源；System-Grade Research Workbench 与 2026-06-05 full-shell migration 基准 |
 | `release-gate-checklist.md` | 发布与回归门禁 |
 
 ## 2. 运维与环境
@@ -52,3 +53,4 @@
 8. 改发布验收口径：更新 `release-gate-checklist.md`
 9. 改 Chat run stream、`tool_invocation`/`tool_result`、RunView、Runs drawer、LiveWorkflowPanel：同步更新 `architecture.md`、`workspace-current-state.md`、`frontend-feature-plugin-contract.md`、`release-gate-checklist.md`
 10. 改 admin dashboard、模型目录、定价、积分、sandbox 计费：同步更新 `architecture.md`、`release-gate-checklist.md`、`troubleshooting.md`
+11. 改全局视觉基准、tokens、共享 UI primitives、Workbench/Prism/Admin 页面母版：同步更新 `wenjin-research-navigation-uiux.md`

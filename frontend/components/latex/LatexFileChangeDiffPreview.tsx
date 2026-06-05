@@ -31,7 +31,7 @@ function riskFlagClass(flag: string): string {
   if (["math_structure_change", "math_change", "large_change"].includes(flag)) {
     return "border-amber-500/25 bg-amber-500/10 text-amber-800";
   }
-  return "border-[var(--border-default)] bg-white/80 text-[var(--text-muted)]";
+  return "border-[var(--wjn-line)] bg-white/80 text-[var(--wjn-text-muted)]";
 }
 
 function tokenKindLabel(kind: string): string {
@@ -60,7 +60,7 @@ function diffOpTone(op: LatexDiffOp["op"]): string {
   if (op === "replace") {
     return "border-amber-500/20 bg-amber-500/10 text-amber-800";
   }
-  return "border-[var(--border-default)] bg-white/80 text-[var(--text-muted)]";
+  return "border-[var(--wjn-line)] bg-white/80 text-[var(--wjn-text-muted)]";
 }
 
 function isWhitespaceOnlyDiffOp(op: LatexDiffOp): boolean {
@@ -85,11 +85,11 @@ export function LatexFileChangeDiffPreview({
   return (
     <div
       className={cn(
-        "rounded-lg border border-[var(--border-default)] bg-white/80 p-2",
+        "rounded-lg border border-[var(--wjn-line)] bg-white/80 p-2",
         className,
       )}
     >
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+      <div className="flex flex-wrap items-center gap-2 text-[11px] text-[var(--wjn-text-muted)]">
         <span>token {preview.diff.stats.tokens_changed}</span>
         <span>+{preview.diff.stats.chars_added}</span>
         <span>-{preview.diff.stats.chars_deleted}</span>
@@ -112,17 +112,17 @@ export function LatexFileChangeDiffPreview({
           visibleOps.map((op, index) => (
             <div
               key={`${op.old_start}-${op.old_end}-${op.new_start}-${op.new_end}-${index}`}
-              className="rounded-md border border-[var(--border-default)] bg-[rgba(19,34,53,0.03)] p-2"
+              className="rounded-md border border-[var(--wjn-line)] bg-[rgba(19,34,53,0.03)] p-2"
             >
-              <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
+              <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--wjn-text-muted)]">
                 <span className={cn("rounded border px-1.5 py-0.5", diffOpTone(op.op))}>
                   {diffOpLabel(op.op)}
                 </span>
-                <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                <span className="rounded border border-[var(--wjn-line)] bg-white px-1.5 py-0.5">
                   {tokenKindLabel(op.token_kind)}
                 </span>
                 {isWhitespaceOnlyDiffOp(op) ? (
-                  <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                  <span className="rounded border border-[var(--wjn-line)] bg-white px-1.5 py-0.5">
                     仅空白
                   </span>
                 ) : null}
@@ -148,11 +148,11 @@ export function LatexFileChangeDiffPreview({
             </div>
           ))
         ) : (
-          <p className="text-xs text-[var(--text-muted)]">未检测到文本差异。</p>
+          <p className="text-xs text-[var(--wjn-text-muted)]">未检测到文本差异。</p>
         )}
       </div>
       {remainingOps > 0 ? (
-        <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+        <p className="mt-2 text-[11px] text-[var(--wjn-text-muted)]">
           另有 {remainingOps} 条 diff 操作，请在 Prism 中查看完整上下文。
         </p>
       ) : null}

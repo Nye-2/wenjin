@@ -11,14 +11,18 @@ import {
 import { useSearchParams } from "next/navigation";
 import { ChatPanel } from "./components/ChatPanel";
 import { LiveWorkflowPanel } from "./components/LiveWorkflowPanel";
-import { RoomsTopbar, type RoomKey } from "./components/RoomsTopbar";
 import { AutoCompactToast } from "./components/AutoCompactToast";
 import { LibraryDrawer } from "./components/rooms/LibraryDrawer";
 import { DocumentsDrawer } from "./components/rooms/DocumentsDrawer";
 import { RunsDrawer } from "./components/rooms/RunsDrawer";
 import { TasksDrawer } from "./components/rooms/TasksDrawer";
 import { SettingsPage } from "./components/rooms/SettingsPage";
-import { SurfaceSwitch } from "./components/SurfaceSwitch";
+import { WorkspaceChrome } from "./components/shell/WorkspaceChrome";
+import {
+  WorkspaceHubDrawer,
+  type WorkspaceHubRoomKey,
+} from "./components/shell/WorkspaceHubDrawer";
+import { useWorkspaceChromeCounts } from "./components/shell/useWorkspaceChromeCounts";
 import { getWorkspace } from "@/lib/api/workspace";
 import { authorizedFetch } from "@/lib/api/client";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
@@ -32,6 +36,7 @@ const SETTINGS_ROOMS = new Set<string>([
 ]);
 
 type SettingsTab = "memory" | "decisions" | "settings";
+type RoomKey = WorkspaceHubRoomKey;
 
 export default function V2Page({
   params,
@@ -60,6 +65,7 @@ export default function V2Page({
     [roomSeed.room],
   );
   const [compactToastVisible, setCompactToastVisible] = useState(false);
+  const [hubOpen, setHubOpen] = useState(false);
   const [workspace, setWorkspace] = useState<{
     name: string;
     type: string;
@@ -69,11 +75,22 @@ export default function V2Page({
   const isWorkbenchFullscreen = useWorkbenchLayoutStore(
     (state) => state.isWorkbenchFullscreen,
   );
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const setSplitRatio = useWorkbenchLayoutStore((state) => state.setSplitRatio);
   const resetSplitRatio = useWorkbenchLayoutStore(
     (state) => state.resetSplitRatio,
   );
+  const { pendingReviewCount, activeRunCount, completedRunCount } =
+    useWorkspaceChromeCounts(id);
   const splitRootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsNarrowViewport(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,19 +179,50 @@ export default function V2Page({
 
   return (
     <div className="wjn-shell-bg flex h-full min-h-0 flex-col text-[var(--wjn-text)]">
-      <SurfaceSwitch workspaceId={id} active="workbench" />
-      <RoomsTopbar
+      <WorkspaceChrome
         workspaceId={id}
-        data-testid="rooms-topbar"
+        workspaceName={workspace?.name}
+        workspaceTypeLabel={typeConfig?.title}
+        activeSurface="workbench"
+        pendingReviewCount={pendingReviewCount}
+        activeRunCount={activeRunCount}
+        onOpenHub={() => setHubOpen(true)}
+      />
+      <WorkspaceHubDrawer
+        open={hubOpen}
         activeRoom={activeRoom}
+        pendingReviewCount={pendingReviewCount}
+        completedRunCount={completedRunCount}
+        onClose={() => setHubOpen(false)}
         onRoomSelect={setActiveRoom}
       />
       <div
         ref={splitRootRef}
-        className="relative flex min-h-0 flex-1"
+        className={`relative flex min-h-0 flex-1 ${isNarrowViewport ? "flex-col" : ""}`}
         data-testid="workbench-split-root"
       >
-        {!isWorkbenchFullscreen ? (
+        {isNarrowViewport ? (
+          !isWorkbenchFullscreen ? (
+            <div
+              data-testid="chat-region"
+              style={{
+                height: "48%",
+                minHeight: 260,
+                minWidth: 0,
+                borderBottom: "1px solid var(--wjn-line)",
+              }}
+            >
+              <ChatPanel
+                workspaceId={id}
+                workspaceName={workspace?.name}
+                typeConfig={typeConfig ?? undefined}
+                features={features}
+                className="h-full"
+                data-testid="chat-panel"
+              />
+            </div>
+          ) : null
+        ) : !isWorkbenchFullscreen ? (
           <>
             <div
               data-testid="chat-region"
@@ -222,7 +270,7 @@ export default function V2Page({
           style={{
             flex: 1,
             minWidth: 0,
-            height: "100%",
+            height: isNarrowViewport && !isWorkbenchFullscreen ? undefined : "100%",
             minHeight: 0,
           }}
         >

@@ -13,7 +13,6 @@ import {
   type CommittedRoomLink,
   type ExecutionCommitRequest,
 } from "@/lib/execution-commit";
-import { runViewFromExecution } from "@/lib/execution-run-view";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
   buildOutputOverrides,
@@ -132,7 +131,6 @@ export function LiveWorkflowPanel({
     selectedDraft,
     runningRecord,
     pendingReviewCount,
-    sandboxCount,
   } = useLiveWorkflowViewModel({
     records: executionRecords,
     workspaceId,
@@ -318,7 +316,7 @@ export function LiveWorkflowPanel({
       `请启动「${feature.name}」能力。`,
       description ? `能力目标：${description}` : null,
       "如果当前对话缺少具体研究主题、材料或目标，请先向用户确认，不要用空泛主题启动检索、写作或实验。",
-      "请先判断是否需要实验或检索；若需要，请由右侧 Lead Agent/subagent 自主推进，并在右侧工作台展示关键证据、运行状态和可审阅结果。",
+      "请先判断是否需要实验或检索；若需要，请由右侧研究团队自主推进，并在右侧工作台展示关键证据、运行状态和可审阅结果。",
     ]
       .filter(Boolean)
       .join("\n");
@@ -433,10 +431,8 @@ export function LiveWorkflowPanel({
     >
       <WorkbenchHeader
         activeTab={activeWorkbenchTab}
-        status={selectedRecord ? runViewFromExecution(selectedRecord).status : null}
         pendingReviewCount={pendingReviewCount}
         evidenceCount={evidenceItems.length}
-        sandboxCount={sandboxCount}
         isFullscreen={isFullscreen}
         canInterrupt={Boolean(runningRecord)}
         interventionOpen={interventionOpen}
@@ -464,7 +460,6 @@ export function LiveWorkflowPanel({
             records={records}
             pendingReviewCount={pendingReviewCount}
             evidenceCount={evidenceItems.length}
-            sandboxCount={sandboxCount}
             isSending={isSending}
             onLaunchFeature={(feature) => void handleLaunchFeature(feature)}
             onOpenRun={(runId) => {
@@ -480,7 +475,6 @@ export function LiveWorkflowPanel({
             onSelectNode={selectNode}
             onOpenReview={() => setActiveWorkbenchTab("review")}
             onOpenEvidence={() => setActiveWorkbenchTab("evidence")}
-            onOpenIntervention={() => setInterventionOpen(true)}
           />
         ) : null}
         {activeWorkbenchTab === "evidence" ? (

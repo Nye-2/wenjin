@@ -11,8 +11,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isLoading) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-[var(--bg-base)]">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-primary)]" />
+      <main className="min-h-screen flex items-center justify-center bg-[var(--wjn-bg-base)]">
+        <Loader2 className="w-8 h-8 animate-spin text-[var(--wjn-navy)]" />
       </main>
     );
   }
@@ -22,7 +22,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   }
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)]">
+    <div className="min-h-screen bg-[var(--wjn-bg-base)]">
       <Header />
       <div className="flex pt-16">
         <AdminSidebar />

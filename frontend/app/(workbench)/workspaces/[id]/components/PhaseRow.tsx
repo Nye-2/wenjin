@@ -39,9 +39,9 @@ const PHASE_DOT_STYLES = {
     color: "white" as string,
   },
   running: {
-    bg: "linear-gradient(135deg, #A78BFA, #7C3AED)",
-    boxShadow: "0 3px 12px rgba(139, 92, 246, 0.4), inset 0 0 0 2px rgba(255, 255, 255, 0.4)",
-    animation: "v2-pulse-soft 1.6s ease-in-out infinite",
+    bg: "linear-gradient(135deg, var(--wjn-blue), var(--wjn-blue-strong))",
+    boxShadow: "0 3px 12px rgba(44, 93, 160, 0.35), inset 0 0 0 2px rgba(255, 255, 255, 0.4)",
+    animation: "wjn-pulse-soft 1.6s ease-in-out infinite",
     content: "" as string,
     color: "white" as string,
   },
@@ -50,7 +50,7 @@ const PHASE_DOT_STYLES = {
     boxShadow: "none",
     animation: "none",
     content: "" as string,
-    color: "var(--v2-text-tertiary)" as string,
+    color: "var(--wjn-text-muted)" as string,
   },
 };
 
@@ -126,7 +126,7 @@ export function PhaseRow({
               background:
                 phaseStatus === "completed"
                   ? "linear-gradient(180deg, rgba(74, 222, 128, 0.5), rgba(74, 222, 128, 0.1))"
-                  : "var(--v2-border-soft)",
+                  : "var(--wjn-line)",
               borderRadius: 1,
             }}
           />
@@ -139,10 +139,10 @@ export function PhaseRow({
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
           <span
             style={{
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
               fontSize: 13,
               fontWeight: 600,
-              color: "var(--v2-text-primary)",
+              color: "var(--wjn-text)",
             }}
           >
             {phaseName}
@@ -154,12 +154,12 @@ export function PhaseRow({
                 alignItems: "center",
                 gap: 3,
                 padding: "2px 8px",
-                borderRadius: "var(--v2-radius-pill)",
+                borderRadius: "var(--wjn-radius-pill)",
                 background: "rgba(250, 204, 21, 0.12)",
                 border: "1px solid rgba(250, 204, 21, 0.25)",
                 fontSize: 10,
                 fontWeight: 600,
-                fontFamily: "var(--v2-font-sans)",
+                fontFamily: "var(--wjn-font-sans)",
                 color: "#A16207",
               }}
             >
@@ -195,13 +195,13 @@ export function PhaseRow({
             style={{
               marginTop: 8,
               padding: "6px 10px",
-              borderRadius: "var(--v2-radius-sm)",
-              background: "rgba(139, 92, 246, 0.04)",
-              borderLeft: "3px solid var(--v2-accent-purple-300)",
-              fontFamily: "var(--v2-font-mono)",
+              borderRadius: "var(--wjn-radius)",
+              background: "rgba(44, 93, 160, 0.04)",
+              borderLeft: "3px solid var(--wjn-accent-line)",
+              fontFamily: "var(--wjn-font-mono)",
               fontSize: 11,
               lineHeight: 1.5,
-              color: "var(--v2-text-secondary)",
+              color: "var(--wjn-text-secondary)",
               display: "-webkit-box",
               WebkitLineClamp: 3,
               WebkitBoxOrient: "vertical",

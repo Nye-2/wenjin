@@ -177,7 +177,7 @@ export default function AdminCreditsPage() {
             <div className="min-w-52">
               <Label
                 htmlFor="credits-user-id"
-                className="text-xs text-[var(--text-muted)] mb-1 block"
+                className="text-xs text-[var(--wjn-text-muted)] mb-1 block"
               >
                 用户 ID
               </Label>
@@ -190,7 +190,7 @@ export default function AdminCreditsPage() {
               />
             </div>
             <div className="w-44">
-              <Label className="text-xs text-[var(--text-muted)] mb-1 block">交易类型</Label>
+              <Label className="text-xs text-[var(--wjn-text-muted)] mb-1 block">交易类型</Label>
               <Select
                 value={creditTypeFilter}
                 onValueChange={(value) => {
@@ -213,7 +213,7 @@ export default function AdminCreditsPage() {
               </Select>
             </div>
             <div className="w-28">
-              <Label className="text-xs text-[var(--text-muted)] mb-1 block">每页条数</Label>
+              <Label className="text-xs text-[var(--wjn-text-muted)] mb-1 block">每页条数</Label>
               <Select
                 value={String(creditPageSize)}
                 onValueChange={(value) => {
@@ -254,7 +254,7 @@ export default function AdminCreditsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left text-[var(--text-muted)] border-b border-[var(--border-default)]">
+              <tr className="text-left text-[var(--wjn-text-muted)] border-b border-[var(--wjn-line)]">
                 <th className="py-2">时间</th>
                 <th className="py-2">用户</th>
                 <th className="py-2">类型</th>
@@ -265,10 +265,10 @@ export default function AdminCreditsPage() {
             </thead>
             <tbody>
               {creditHistory.map((item) => (
-                <tr key={item.id} className="border-b border-[var(--border-default)]/50">
-                  <td className="py-2 text-[var(--text-secondary)]">{formatDate(item.created_at)}</td>
-                  <td className="py-2 text-[var(--text-primary)]">{item.user_email ?? item.user_id ?? "-"}</td>
-                  <td className="py-2 text-[var(--text-secondary)]">{formatCreditTransactionType(item.type)}</td>
+                <tr key={item.id} className="border-b border-[var(--wjn-line)]/50">
+                  <td className="py-2 text-[var(--wjn-text-secondary)]">{formatDate(item.created_at)}</td>
+                  <td className="py-2 text-[var(--wjn-text)]">{item.user_email ?? item.user_id ?? "-"}</td>
+                  <td className="py-2 text-[var(--wjn-text-secondary)]">{formatCreditTransactionType(item.type)}</td>
                   <td
                     className={`py-2 font-medium ${
                       item.amount >= 0 ? "text-emerald-600" : "text-rose-600"
@@ -278,27 +278,27 @@ export default function AdminCreditsPage() {
                   </td>
                   <td
                     className={`py-2 ${
-                      item.balance_after < 0 ? "text-rose-600" : "text-[var(--text-primary)]"
+                      item.balance_after < 0 ? "text-rose-600" : "text-[var(--wjn-text)]"
                     }`}
                   >
                     {item.balance_after}
                   </td>
-                  <td className="py-2 text-[var(--text-secondary)]">{summarizeCreditTransaction(item)}</td>
+                  <td className="py-2 text-[var(--wjn-text-secondary)]">{summarizeCreditTransaction(item)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           {isLoading && (
-            <div className="text-sm text-[var(--text-muted)] py-3 flex items-center gap-2">
+            <div className="text-sm text-[var(--wjn-text-muted)] py-3 flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
               正在加载积分流水
             </div>
           )}
           {creditHistory.length === 0 && (
-            <div className="text-sm text-[var(--text-muted)] py-3">暂无积分流水</div>
+            <div className="text-sm text-[var(--wjn-text-muted)] py-3">暂无积分流水</div>
           )}
           <div className="mt-4 flex items-center justify-between">
-            <span className="text-xs text-[var(--text-muted)]">第 {creditPage} 页</span>
+            <span className="text-xs text-[var(--wjn-text-muted)]">第 {creditPage} 页</span>
             <div className="flex items-center gap-2">
               <Button
                 variant="outline"

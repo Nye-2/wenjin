@@ -117,7 +117,7 @@ function makeLaunchingExecutionRecord(
     workspace_id: workspaceId,
     execution_type: "capability",
     feature_id: null,
-    display_name: "Lead Agent 执行中",
+    display_name: "研究团队处理中",
     status: "running",
     params: {},
     node_states: {},

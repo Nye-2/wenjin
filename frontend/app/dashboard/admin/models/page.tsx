@@ -105,7 +105,7 @@ export default function AdminModelsPage() {
       <div className="route-card rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left border-b border-[var(--border-default)]">
+            <tr className="text-left border-b border-[var(--wjn-line)]">
               <th className="px-4 py-3">模型</th>
               <th className="px-4 py-3">Provider</th>
               <th className="px-4 py-3">API</th>
@@ -116,10 +116,10 @@ export default function AdminModelsPage() {
           </thead>
           <tbody>
             {models.map((model) => (
-              <tr key={model.model_id} className="border-t border-[var(--border-default)]/50 align-top">
+              <tr key={model.model_id} className="border-t border-[var(--wjn-line)]/50 align-top">
                 <td className="px-4 py-3">
-                  <div className="font-medium text-[var(--text-primary)]">{model.display_name}</div>
-                  <div className="mt-1 flex flex-wrap gap-1 text-xs text-[var(--text-muted)]">
+                  <div className="font-medium text-[var(--wjn-text)]">{model.display_name}</div>
+                  <div className="mt-1 flex flex-wrap gap-1 text-xs text-[var(--wjn-text-muted)]">
                     <span>{model.model_id}</span>
                     <span>·</span>
                     <span>{model.model_name}</span>
@@ -131,24 +131,24 @@ export default function AdminModelsPage() {
                     )}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-[var(--text-secondary)]">
+                <td className="px-4 py-3 text-[var(--wjn-text-secondary)]">
                   <div>{model.provider_name}</div>
-                  <div className="text-xs text-[var(--text-muted)]">{model.category}</div>
+                  <div className="text-xs text-[var(--wjn-text-muted)]">{model.category}</div>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="max-w-56 truncate text-[var(--text-secondary)]">{model.base_url}</div>
-                  <div className="font-mono text-xs text-[var(--text-muted)]">
+                  <div className="max-w-56 truncate text-[var(--wjn-text-secondary)]">{model.base_url}</div>
+                  <div className="font-mono text-xs text-[var(--wjn-text-muted)]">
                     {model.api_key_redacted ?? "未设置"}
                   </div>
                 </td>
-                <td className="px-4 py-3 text-xs text-[var(--text-secondary)]">
+                <td className="px-4 py-3 text-xs text-[var(--wjn-text-secondary)]">
                   {summarizeCapabilities(model)}
                   <div className="mt-1 flex items-center gap-1">
                     {model.health_status === "healthy" && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
                     <span>{model.health_status}</span>
                   </div>
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-[var(--text-muted)]">
+                <td className="px-4 py-3 font-mono text-xs text-[var(--wjn-text-muted)]">
                   {model.pricing_policy_id || "未绑定"}
                 </td>
                 <td className="px-4 py-3">
@@ -157,7 +157,7 @@ export default function AdminModelsPage() {
                       type="button"
                       aria-label={`测试 ${model.model_id}`}
                       onClick={() => handleTest(model)}
-                      className="text-[var(--accent-primary)] hover:underline"
+                      className="text-[var(--wjn-navy)] hover:underline"
                     >
                       <FlaskConical className="inline h-3.5 w-3.5" /> 测试
                     </button>
@@ -168,7 +168,7 @@ export default function AdminModelsPage() {
                         setEditing(model);
                         setDialogOpen(true);
                       }}
-                      className="text-[var(--accent-primary)] hover:underline"
+                      className="text-[var(--wjn-navy)] hover:underline"
                     >
                       编辑
                     </button>
@@ -177,7 +177,7 @@ export default function AdminModelsPage() {
                         type="button"
                         aria-label={`设为默认 ${model.model_id}`}
                         onClick={() => handleDefault(model)}
-                        className="text-[var(--accent-primary)] hover:underline"
+                        className="text-[var(--wjn-navy)] hover:underline"
                       >
                         默认
                       </button>
@@ -196,7 +196,7 @@ export default function AdminModelsPage() {
                         type="button"
                         aria-label={`启用 ${model.model_id}`}
                         onClick={() => handleEnable(model)}
-                        className="text-[var(--accent-primary)] hover:underline"
+                        className="text-[var(--wjn-navy)] hover:underline"
                       >
                         启用
                       </button>
@@ -207,7 +207,7 @@ export default function AdminModelsPage() {
             ))}
             {!loading && models.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                <td colSpan={6} className="px-4 py-8 text-center text-[var(--wjn-text-muted)]">
                   暂无模型
                 </td>
               </tr>

@@ -71,39 +71,39 @@ export default function AdminOverviewPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-6">
         <SummaryCard
-          icon={<Users className="w-5 h-5 text-[var(--accent-primary)]" />}
+          icon={<Users className="w-5 h-5 text-[var(--wjn-navy)]" />}
           label="总用户数"
           value={dashboard?.summary.users.total ?? 0}
           hint={`活跃 ${dashboard?.summary.users.active ?? 0} / 管理员 ${dashboard?.summary.users.admins ?? 0}`}
         />
         <SummaryCard
-          icon={<FolderOpen className="w-5 h-5 text-[var(--accent-primary)]" />}
+          icon={<FolderOpen className="w-5 h-5 text-[var(--wjn-navy)]" />}
           label="工作空间"
           value={dashboard?.summary.workspaces.total ?? 0}
           hint={`任务运行中 ${dashboard?.summary.tasks.running ?? 0}`}
         />
         <SummaryCard
-          icon={<CreditCard className="w-5 h-5 text-[var(--accent-primary)]" />}
+          icon={<CreditCard className="w-5 h-5 text-[var(--wjn-navy)]" />}
           label="积分余额池"
           value={dashboard?.summary.credits.in_circulation ?? 0}
           hint={`发放 ${dashboard?.summary.credits.total_issued ?? 0} / 消费 ${dashboard?.summary.credits.total_spent ?? 0}`}
           variant={hasOverdraft ? "danger" : "default"}
         />
         <SummaryCard
-          icon={<TriangleAlert className="w-5 h-5 text-[var(--accent-primary)]" />}
+          icon={<TriangleAlert className="w-5 h-5 text-[var(--wjn-navy)]" />}
           label="透支用户"
           value={overdraftUsers}
           hint={`累计透支 ${dashboard?.summary.credits.overdraft_credits_total ?? 0} 积分`}
           variant={hasOverdraft ? "danger" : "default"}
         />
         <SummaryCard
-          icon={<TriangleAlert className="w-5 h-5 text-[var(--accent-primary)]" />}
+          icon={<TriangleAlert className="w-5 h-5 text-[var(--wjn-navy)]" />}
           label="24h 失败任务"
           value={dashboard?.summary.tasks.failed_last_24h ?? 0}
           hint={`全量任务 ${dashboard?.summary.tasks.total ?? 0}`}
         />
         <SummaryCard
-          icon={<Gauge className="w-5 h-5 text-[var(--accent-primary)]" />}
+          icon={<Gauge className="w-5 h-5 text-[var(--wjn-navy)]" />}
           label="Token 用量"
           value={tokenUsage?.thread.total_tokens ?? 0}
           hint="thread tokens（累计）"
@@ -112,32 +112,32 @@ export default function AdminOverviewPage() {
 
       {tokenUsage ? (
         <section className="route-card rounded-2xl border p-5 mb-6">
-          <h2 className="text-lg font-semibold text-[var(--text-primary)]">Token 用量观测</h2>
+          <h2 className="text-lg font-semibold text-[var(--wjn-text)]">Token 用量观测</h2>
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-              <div className="text-xs text-[var(--text-muted)]">主线对话</div>
-              <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+            <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
+              <div className="text-xs text-[var(--wjn-text-muted)]">主线对话</div>
+              <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
                 {tokenUsage.thread.total_tokens.toLocaleString()}
               </div>
-              <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+              <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
                 结算 {tokenUsage.thread.transactions} 笔 / 用户 {tokenUsage.thread.users}
               </div>
             </div>
-            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-              <div className="text-xs text-[var(--text-muted)]">功能执行（task）</div>
-              <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+            <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
+              <div className="text-xs text-[var(--wjn-text-muted)]">功能执行（task）</div>
+              <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
                 {tokenUsage.feature_tasks.total_tokens.toLocaleString()}
               </div>
-              <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+              <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
                 记录 {tokenUsage.feature_tasks.records_with_usage}/{tokenUsage.feature_tasks.records}
               </div>
             </div>
-            <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-3">
-              <div className="text-xs text-[var(--text-muted)]">子代理</div>
-              <div className="mt-1 text-lg font-semibold text-[var(--text-primary)]">
+            <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-3">
+              <div className="text-xs text-[var(--wjn-text-muted)]">子代理</div>
+              <div className="mt-1 text-lg font-semibold text-[var(--wjn-text)]">
                 {tokenUsage.subagents.total_tokens.toLocaleString()}
               </div>
-              <div className="mt-1 text-[11px] text-[var(--text-muted)]">
+              <div className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
                 记录 {tokenUsage.subagents.records_with_usage}/{tokenUsage.subagents.records}
               </div>
             </div>
@@ -179,13 +179,13 @@ function SummaryCard({
   return (
     <div className={`rounded-2xl border p-5 ${isDanger ? "border-rose-500/30 bg-rose-500/10" : "route-card"}`}>
       <div className="flex items-center justify-between">
-        <span className="text-sm text-[var(--text-secondary)]">{label}</span>
+        <span className="text-sm text-[var(--wjn-text-secondary)]">{label}</span>
         {icon}
       </div>
-      <div className={`mt-3 text-3xl font-bold ${isDanger ? "text-rose-600" : "text-[var(--text-primary)]"}`}>
+      <div className={`mt-3 text-3xl font-bold ${isDanger ? "text-rose-600" : "text-[var(--wjn-text)]"}`}>
         {value.toLocaleString()}
       </div>
-      <div className="mt-1 text-xs text-[var(--text-muted)]">{hint}</div>
+      <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">{hint}</div>
     </div>
   );
 }
@@ -194,10 +194,10 @@ function AnalyticsEntryCard({ href, title, icon }: { href: string; title: string
   return (
     <Link
       href={href}
-      className="route-card rounded-2xl p-5 flex items-center gap-3 hover:bg-[var(--bg-elevated)] transition-colors"
+      className="route-card rounded-2xl p-5 flex items-center gap-3 hover:bg-[var(--wjn-surface)] transition-colors"
     >
-      <div className="text-[var(--accent-primary)]">{icon}</div>
-      <div className="text-sm font-medium text-[var(--text-primary)]">{title}</div>
+      <div className="text-[var(--wjn-navy)]">{icon}</div>
+      <div className="text-sm font-medium text-[var(--wjn-text)]">{title}</div>
     </Link>
   );
 }

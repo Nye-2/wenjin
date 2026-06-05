@@ -2,28 +2,22 @@ import { Trash2 } from "lucide-react";
 
 import { LatexFileTree } from "@/components/latex/LatexFileTree";
 import { LatexToolbar } from "@/components/latex/LatexToolbar";
-import { Button } from "@/components/ui/button";
-import type { LatexCompileEngine, LatexFileItem } from "@/lib/api";
+import { DisclosureSection } from "@/components/ui/disclosure-section";
+import { OverflowMenu } from "@/components/ui/overflow-menu";
+import type { LatexFileItem } from "@/lib/api";
 
 export function LatexResourceRail({
   tree,
   selectedPath,
-  engine,
-  isSaving,
-  isCompiling,
   isProjectLoading,
   isDeletingProject,
   projectName,
   currentFolderLabel,
-  engineHint,
   onOpenFile,
   onSelectPath,
   onRenamePath,
   onDeletePath,
   onReorder,
-  onEngineChange,
-  onSave,
-  onCompile,
   onCreateFile,
   onCreateFolder,
   onUploadFiles,
@@ -33,22 +27,15 @@ export function LatexResourceRail({
 }: {
   tree: LatexFileItem[];
   selectedPath: string | null;
-  engine: LatexCompileEngine;
-  isSaving: boolean;
-  isCompiling: boolean;
   isProjectLoading: boolean;
   isDeletingProject: boolean;
   projectName?: string | null;
   currentFolderLabel: string;
-  engineHint: string;
   onOpenFile: (path: string) => void;
   onSelectPath: (path: string, type: "file" | "dir") => void;
   onRenamePath: (fromPath: string, toPath: string) => Promise<void>;
   onDeletePath: (path: string) => Promise<void>;
   onReorder: (folder: string, order: string[]) => Promise<void>;
-  onEngineChange: (engine: LatexCompileEngine) => void;
-  onSave: () => void;
-  onCompile: () => void;
   onCreateFile: (path: string) => Promise<void>;
   onCreateFolder: (path: string) => Promise<void>;
   onUploadFiles: (files: File[]) => Promise<void>;
@@ -76,39 +63,33 @@ export function LatexResourceRail({
         />
       </div>
       <div className="border-t border-[var(--wjn-line)] p-2">
-        <details>
-          <summary className="cursor-pointer rounded-[var(--wjn-radius)] px-2 py-1 text-xs text-[var(--wjn-text-muted)] hover:bg-white">
-            文件操作
-          </summary>
-          <div className="mt-2">
-            <LatexToolbar
-              engine={engine}
-              onEngineChange={onEngineChange}
-              onSave={onSave}
-              onCompile={onCompile}
-              onCreateFile={onCreateFile}
-              onCreateFolder={onCreateFolder}
-              onUploadFiles={onUploadFiles}
-              onUploadDirectory={onUploadDirectory}
-              onUploadArchive={onUploadArchive}
-              isSaving={isSaving}
-              isCompiling={isCompiling}
-              disableActions={isProjectLoading}
-              currentFolderLabel={currentFolderLabel}
-              engineHint={engineHint}
-            />
-          </div>
-        </details>
-        <Button
-          variant="destructive"
-          size="sm"
-          className="mt-2 w-full"
-          disabled={!projectName || isDeletingProject || isProjectLoading}
-          onClick={() => void onDeleteProject()}
-        >
-          <Trash2 className="mr-2 h-4 w-4" />
-          {isDeletingProject ? "删除中..." : "删除项目"}
-        </Button>
+        <div className="mb-2 flex items-center justify-between gap-2 px-1">
+          <p className="text-xs font-semibold text-[var(--wjn-text-secondary)]">
+            文件
+          </p>
+          <OverflowMenu
+            items={[
+              {
+                label: isDeletingProject ? "删除中..." : "删除项目",
+                icon: Trash2,
+                tone: "danger",
+                disabled: !projectName || isDeletingProject || isProjectLoading,
+                onClick: () => void onDeleteProject(),
+              },
+            ]}
+          />
+        </div>
+        <DisclosureSection label="添加文件">
+          <LatexToolbar
+            onCreateFile={onCreateFile}
+            onCreateFolder={onCreateFolder}
+            onUploadFiles={onUploadFiles}
+            onUploadDirectory={onUploadDirectory}
+            onUploadArchive={onUploadArchive}
+            disableActions={isProjectLoading}
+            currentFolderLabel={currentFolderLabel}
+          />
+        </DisclosureSection>
       </div>
     </aside>
   );

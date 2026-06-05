@@ -1,4 +1,9 @@
-import type { ExecutionRecord, ExecutionStatus } from "@/lib/api/types";
+import type {
+  ExecutionGraphNode,
+  ExecutionNodeState,
+  ExecutionRecord,
+  ExecutionStatus,
+} from "@/lib/api/types";
 import type { RunRecord } from "@/lib/api/v2/runs";
 import type { ResultCardData } from "@/stores/chat-store";
 
@@ -47,6 +52,20 @@ export interface RunViewTeam {
   mode: "team_kernel";
   members: RunViewTeamMember[];
   qualityGates: RunViewQualityGate[];
+}
+
+export interface RunProgressItem {
+  id: string;
+  title: string;
+  phaseTitle: string;
+  status: string;
+  detail: string | null;
+  technicalName: string;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  toolCount: number;
+  hasInput: boolean;
+  hasOutput: boolean;
 }
 
 export interface RunView {
@@ -109,11 +128,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     id: record.id,
     workspaceId: record.workspace_id ?? "",
     capabilityId: record.feature_id ?? stringValue(taskReport?.capability_id),
-    title:
-      record.display_name ??
-      stringValue(taskReport?.capability_id) ??
-      record.feature_id ??
-      "Execution",
+    title: runTitleFromExecution(record, taskReport),
     status,
     summary:
       record.result_summary ??
@@ -144,6 +159,79 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   };
 }
 
+export function buildRunProgressItems(record: ExecutionRecord): RunProgressItem[] {
+  const nodes = record.graph_structure?.nodes ?? [];
+  if (nodes.length === 0) {
+    return Object.entries(record.node_states ?? {}).map(([id, state]) =>
+      runProgressItemFromNode(
+        {
+          id,
+          type: state.node_type ?? "node",
+          label: state.label ?? undefined,
+        },
+        state,
+      ),
+    );
+  }
+  return nodes.map((node) =>
+    runProgressItemFromNode(node, record.node_states?.[node.id] ?? null),
+  );
+}
+
+export function executionNodeDisplayName(
+  node: Pick<
+    ExecutionGraphNode,
+    "id" | "type" | "label" | "task" | "subagent_type" | "metadata"
+  > | null,
+  state?: ExecutionNodeState | null,
+): string {
+  const metadata = objectValue(state?.node_metadata) ?? objectValue(node?.metadata);
+  const candidates = [
+    metadata?.display_name,
+    metadata?.role_name,
+    metadata?.persona_name,
+    metadata?.agent_name,
+    state?.label,
+    node?.label,
+    node?.task,
+  ];
+  for (const candidate of candidates) {
+    const value = stringValue(candidate);
+    if (value && !looksTechnicalName(value)) {
+      return value;
+    }
+  }
+
+  const technicalCandidate =
+    stringValue(metadata?.template_id) ??
+    stringValue(node?.subagent_type) ??
+    stringValue(node?.task) ??
+    stringValue(node?.label) ??
+    stringValue(node?.id);
+  return humanizeTechnicalName(
+    technicalCandidate,
+    stringValue(state?.node_type) ?? stringValue(node?.type),
+  );
+}
+
+export function executionPhaseDisplayName(phaseName?: string | null): string {
+  const raw = stringValue(phaseName);
+  if (!raw || raw === "default") return "执行过程";
+  if (containsCjk(raw) && !looksTechnicalName(raw)) return raw;
+
+  const normalized = normalizeTechnicalName(raw);
+  const phaseLabels: Array<[RegExp, string]> = [
+    [/research|retriev|search|scout|survey/, "资料检索"],
+    [/synth|literature|matrix|gap/, "文献综合"],
+    [/plan|outline|strategy/, "规划"],
+    [/writ|draft|compose/, "写作"],
+    [/review|critic|quality|gate|verify|check/, "质量检查"],
+    [/experiment|sandbox|code|compute|analysis/, "实验执行"],
+    [/commit|save|final|deliver/, "结果整理"],
+  ];
+  return phaseLabels.find(([pattern]) => pattern.test(normalized))?.[1] ?? "执行过程";
+}
+
 export function runViewFromRunRecord(record: RunRecord, workspaceId: string): RunView {
   const status = normalizeRunRecordStatus(record.status);
   const prismReviewCount =
@@ -161,7 +249,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     id: record.id,
     workspaceId: record.workspace_id ?? workspaceId,
     capabilityId: record.capability_id ?? null,
-    title: record.capability_name || record.capability_id || "Execution",
+    title: humanizeCapabilityName(record.capability_name || record.capability_id) ?? "Execution",
     status,
     summary: record.summary || statusSummary(status),
     startedAt: record.started_at,
@@ -203,7 +291,7 @@ export function runViewFromResultCard(
     id: data.execution_id,
     workspaceId,
     capabilityId: data.capability_name ?? null,
-    title: data.capability_name ?? "Execution",
+    title: humanizeCapabilityName(data.capability_name) ?? "Execution",
     status,
     summary: data.narrative ?? failureMessage ?? statusSummary(status),
     completedAt: null,
@@ -335,7 +423,10 @@ function countNodesByStatus(record: ExecutionRecord, status: string): number {
 
 function teamViewFromExecution(record: ExecutionRecord): RunViewTeam | null {
   const isTeamMode = record.graph_structure?.mode === "team_kernel";
-  const members = teamMembersFromNodeStates(record.node_states);
+  const members = teamMembersFromNodeStates(
+    record.node_states,
+    record.graph_structure?.nodes,
+  );
   const qualityGates = teamQualityGatesFromRuntimeState(record.runtime_state);
   if (!isTeamMode && members.length === 0 && qualityGates.length === 0) {
     return null;
@@ -349,6 +440,7 @@ function teamViewFromExecution(record: ExecutionRecord): RunViewTeam | null {
 
 function teamMembersFromNodeStates(
   nodes: ExecutionRecord["node_states"],
+  graphNodes?: ExecutionGraphNode[],
 ): RunViewTeamMember[] {
   const members: RunViewTeamMember[] = [];
   for (const [id, rawNode] of Object.entries(nodes ?? {})) {
@@ -359,11 +451,15 @@ function teamMembersFromNodeStates(
       continue;
     }
     const templateId = stringValue(metadata?.template_id);
-    const displayName =
-      stringValue(metadata?.display_name) ??
-      stringValue(node.label) ??
-      templateId ??
-      id;
+    const displayName = executionNodeDisplayName(
+      {
+        id,
+        type: nodeType ?? "agent_invocation",
+        label: stringValue(node.label) ?? undefined,
+        task: templateId ?? undefined,
+      },
+      rawNode,
+    );
     members.push({
       id,
       templateId,
@@ -371,6 +467,17 @@ function teamMembersFromNodeStates(
       status: stringValue(node.status) ?? "pending",
       effectiveTools: stringArrayValue(metadata?.effective_tools),
       effectiveSkills: stringArrayValue(metadata?.effective_skills),
+    });
+  }
+  if (graphNodes?.length) {
+    const graphOrder = new Map(
+      graphNodes.map((node, index) => [node.id, index]),
+    );
+    members.sort((left, right) => {
+      const leftIndex = graphOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightIndex = graphOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      if (leftIndex !== rightIndex) return leftIndex - rightIndex;
+      return left.id.localeCompare(right.id);
     });
   }
   return members;
@@ -454,12 +561,142 @@ function actionsForRun({
   return Array.from(new Set(actions));
 }
 
+function runTitleFromExecution(
+  record: ExecutionRecord,
+  taskReport: TaskReportProjection | null,
+): string {
+  const explicit = stringValue(record.display_name);
+  if (explicit) return explicit;
+  return (
+    humanizeCapabilityName(
+      stringValue(taskReport?.capability_name) ??
+        stringValue(taskReport?.capability_id) ??
+        stringValue(record.feature_id),
+    ) ?? "Execution"
+  );
+}
+
+function runProgressItemFromNode(
+  node: ExecutionGraphNode,
+  state: ExecutionNodeState | null,
+): RunProgressItem {
+  return {
+    id: node.id,
+    title: executionNodeDisplayName(node, state),
+    phaseTitle: executionPhaseDisplayName(node.phase),
+    status: state?.status ?? "pending",
+    detail: progressDetailFromNodeState(state),
+    technicalName: node.id,
+    startedAt: state?.started_at ?? null,
+    completedAt: state?.completed_at ?? null,
+    toolCount: state?.tool_calls?.length ?? 0,
+    hasInput: Boolean(state?.input),
+    hasOutput: Boolean(state?.output),
+  };
+}
+
+function progressDetailFromNodeState(state: ExecutionNodeState | null): string | null {
+  if (!state) return null;
+  if (state.error) return trimForDisplay(state.error, 120);
+  if (state.thinking) return trimForDisplay(state.thinking, 140);
+  if (state.output_preview) return trimForDisplay(state.output_preview, 140);
+  return null;
+}
+
+function humanizeCapabilityName(value: string | null | undefined): string | null {
+  const raw = stringValue(value);
+  if (!raw) return null;
+  if (!looksTechnicalName(raw)) return raw;
+
+  const normalized = normalizeTechnicalName(raw);
+  const rules: Array<[RegExp, string]> = [
+    [/literature.*position|position.*innovation|gap.*contribution|sci_literature_positioning/, "文献定位与创新点"],
+    [/reproduc|replication/, "可复现性检查"],
+    [/journal|venue|submission|submit/, "投稿策略"],
+    [/manuscript|draft|writing|writer/, "论文写作"],
+    [/experiment|empirical|result/, "实验实证结果包"],
+    [/outline|framework|structure/, "论文框架"],
+    [/review.*package|workspace.*review|synthesis/, "研究综述包"],
+    [/patent/, "专利工作流"],
+    [/proposal|grant/, "项目申报"],
+    [/software.*copyright|copyright/, "软著材料"],
+  ];
+  const matched = rules.find(([pattern]) => pattern.test(normalized));
+  if (matched) return matched[1];
+
+  return raw
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function humanizeTechnicalName(
+  value: string | null,
+  nodeType?: string | null,
+): string {
+  const normalized = normalizeTechnicalName(value ?? "");
+  const rules: Array<[RegExp, string]> = [
+    [/literature.*(synth|matrix|gap)|synth.*literature/, "文献综合专家"],
+    [/research.*scholar|scholar|literature.*expert/, "文献专家"],
+    [/(research|paper|semantic|scholar|literature).*(scout|search|retriev|collect|finder)|scout/, "文献检索专家"],
+    [/critical|reviewer|critic|quality.*review|peer.*review/, "质量审阅专家"],
+    [/quality|gate|verify|validation|checker/, "质量检查"],
+    [/experiment|runner|analysis|compute|simulation/, "实验工程师"],
+    [/sandbox.*(setup|prepare|env)|env.*setup|environment/, "实验环境准备"],
+    [/(code|coder|developer|programmer|engineer)/, "代码工程师"],
+    [/writ|draft|compose|editor/, "写作助理"],
+    [/outline|planner|strategy|plan/, "规划专家"],
+    [/citation|reference|bibliography/, "引文整理专家"],
+    [/data|dataset|statistic/, "数据分析师"],
+    [/patent/, "专利策略师"],
+    [/proposal|grant/, "项目申报顾问"],
+  ];
+  const matched = rules.find(([pattern]) => pattern.test(normalized));
+  if (matched) return matched[1];
+  if (nodeType === "agent_invocation") return "团队成员";
+  if (nodeType === "tool_invocation" || nodeType === "tool") return "工具执行";
+  return "工作步骤";
+}
+
+function looksTechnicalName(value: string): boolean {
+  if (containsCjk(value)) return false;
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  return (
+    /^[a-z0-9_.:-]+$/i.test(trimmed) ||
+    /(^|[_\-.])v\d+($|[_\-.])/.test(trimmed) ||
+    /__\d+$/.test(trimmed)
+  );
+}
+
+function normalizeTechnicalName(value: string): string {
+  return value
+    .trim()
+    .replace(/^step[_-]?\d+[_-]?/i, "")
+    .replace(/__\d+$/i, "")
+    .replace(/\.v\d+.*$/i, "")
+    .replace(/[^a-z0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function containsCjk(value: string): boolean {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function trimForDisplay(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1)}...`;
+}
+
 function statusSummary(status: RunViewStatus): string {
-  if (status === "launching") return "正在启动 Lead Agent...";
+  if (status === "launching") return "正在启动研究团队...";
   if (status === "queued") return "已进入执行队列。";
-  if (status === "running") return "Lead Agent 正在执行。";
+  if (status === "running") return "问津正在处理任务。";
   if (status === "completed") return "执行已完成。";
-  if (status === "failed_partial") return "执行部分完成，需要查看失败节点。";
+  if (status === "failed_partial") return "执行部分完成，需要查看失败步骤。";
   if (status === "failed") return "执行失败。";
   return "执行已取消。";
 }

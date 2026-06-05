@@ -14,7 +14,7 @@ export interface PrismOptimizationJob {
   executionId?: string | null;
   status: PrismOptimizationJobStatus;
   filePath: string;
-  scope: "selection" | "section";
+  scope: "selection" | "section" | "document";
   instruction: string;
   selectedText: string;
   createdAt: string;

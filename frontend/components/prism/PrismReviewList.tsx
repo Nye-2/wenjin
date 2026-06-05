@@ -126,7 +126,7 @@ export function PrismReviewList({
     return (
       <div
         className={cn(
-          "rounded-lg border border-[var(--v2-border-soft)] bg-white/65 px-3 py-3 text-xs text-[var(--v2-text-secondary)]",
+          "rounded-lg border border-[var(--wjn-line)] bg-white/65 px-3 py-3 text-xs text-[var(--wjn-text-secondary)]",
           className,
         )}
       >
@@ -151,16 +151,16 @@ export function PrismReviewList({
             data-review-item-id={item.id}
             data-review-logical-key={item.logical_key}
             className={cn(
-              "rounded-lg border border-[var(--v2-border-soft)] bg-white/75 px-3 py-3",
+              "rounded-lg border border-[var(--wjn-line)] bg-white/75 px-3 py-3",
               isFocused &&
-                "border-[var(--v2-accent-purple-300)] bg-white shadow-[0_0_0_3px_rgba(124,58,237,0.12)]",
+                "border-[var(--wjn-accent-line)] bg-white shadow-[0_0_0_3px_rgba(44,93,160,0.12)]",
             )}
           >
             <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-2">
-                  <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-[var(--v2-text-secondary)]" />
-                  <p className="truncate text-xs font-medium text-[var(--v2-text-primary)]">
+                  <FileCheck2 className="h-3.5 w-3.5 shrink-0 text-[var(--wjn-text-secondary)]" />
+                  <p className="truncate text-xs font-medium text-[var(--wjn-text)]">
                     {item.title || path}
                   </p>
                   <span
@@ -173,12 +173,12 @@ export function PrismReviewList({
                   </span>
                 </div>
                 {path && path !== item.title ? (
-                  <p className="mt-1 truncate text-[11px] text-[var(--v2-text-secondary)]">
+                  <p className="mt-1 truncate text-[11px] text-[var(--wjn-text-secondary)]">
                     {path}
                   </p>
                 ) : null}
                 {summary ? (
-                  <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-[var(--v2-text-secondary)]">
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-[var(--wjn-text-secondary)]">
                     {summary}
                   </p>
                 ) : null}

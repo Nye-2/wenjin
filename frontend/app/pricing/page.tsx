@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { PublicMarketingNav } from "@/components/layout/public-marketing-nav";
 import { useLocaleStore, type Locale } from "@/stores/locale";
 
 interface PricingCopy {
   nav: {
     product: string;
     docs: string;
+    pricing: string;
     workbench: string;
   };
   hero: {
@@ -33,6 +35,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
     nav: {
       product: "产品",
       docs: "文档",
+      pricing: "定价",
       workbench: "进入工作台",
     },
     hero: {
@@ -71,6 +74,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
     nav: {
       product: "Product",
       docs: "Docs",
+      pricing: "Pricing",
       workbench: "Enter Workbench",
     },
     hero: {
@@ -113,36 +117,13 @@ export default function PricingPage() {
 
   return (
     <main className="min-h-screen bg-[#fbfcfe] text-[#101828]">
-      <header className="border-b border-[rgba(16,24,40,0.08)] bg-[rgba(251,252,254,0.92)] backdrop-blur-xl">
-        <nav className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-6 px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-3 text-base font-bold">
-            <span className="grid h-10 w-10 place-items-center rounded-xl bg-[#101828] text-sm font-black text-white">
-              问
-            </span>
-            <span>问津 Wenjin</span>
-          </Link>
-          <div className="flex items-center gap-1">
-            <Link
-              href="/#product"
-              className="hidden min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7] sm:inline-flex"
-            >
-              {copy.nav.product}
-            </Link>
-            <Link
-              href="/docs"
-              className="hidden min-h-11 items-center rounded-full px-4 text-sm font-bold text-[#344054] transition hover:bg-[#f2f4f7] sm:inline-flex"
-            >
-              {copy.nav.docs}
-            </Link>
-            <Link
-              href="/workspaces"
-              className="inline-flex min-h-11 items-center rounded-full bg-[#101828] px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
-            >
-              {copy.nav.workbench}
-            </Link>
-          </div>
-        </nav>
-      </header>
+      <PublicMarketingNav
+        productLabel={copy.nav.product}
+        docsLabel={copy.nav.docs}
+        pricingLabel={copy.nav.pricing}
+        workbenchLabel={copy.nav.workbench}
+        active="pricing"
+      />
 
       <section className="px-4 py-24 sm:px-6 lg:py-32">
         <div className="mx-auto max-w-7xl">
@@ -174,7 +155,7 @@ export default function PricingPage() {
 
           <div className="mt-16 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
             <div className="rounded-[1.75rem] border border-[rgba(16,24,40,0.08)] bg-white p-7 shadow-[0_18px_60px_rgba(16,24,40,0.06)]">
-              <p className="text-sm font-bold text-[#4f46e5]">{copy.hero.badge}</p>
+              <p className="text-sm font-bold text-[var(--wjn-blue)]">{copy.hero.badge}</p>
               <h2 className="mt-6 text-3xl font-bold leading-tight text-[#101828]">
                 {copy.note.title}
               </h2>
@@ -193,7 +174,7 @@ export default function PricingPage() {
                     {card.title}
                   </h3>
                   <p className="mt-4 text-sm leading-7 text-[#667085]">{card.body}</p>
-                  <p className="mt-6 text-sm font-bold text-[#4f46e5]">{card.price}</p>
+                  <p className="mt-6 text-sm font-bold text-[var(--wjn-blue)]">{card.price}</p>
                 </article>
               ))}
             </div>

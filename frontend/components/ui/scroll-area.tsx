@@ -55,7 +55,7 @@ export function ScrollAreaOverlay({
             "pointer-events-none absolute left-0 right-0 top-0 z-10 h-4",
             theme === "compute"
               ? "bg-gradient-to-b from-compute-base to-transparent"
-              : "bg-gradient-to-b from-[var(--bg-base)] to-transparent"
+              : "bg-gradient-to-b from-[var(--wjn-bg-base)] to-transparent"
           )}
         />
       )}
@@ -68,7 +68,7 @@ export function ScrollAreaOverlay({
             "pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-4",
             theme === "compute"
               ? "bg-gradient-to-t from-compute-base to-transparent"
-              : "bg-gradient-to-t from-[var(--bg-base)] to-transparent"
+              : "bg-gradient-to-t from-[var(--wjn-bg-base)] to-transparent"
           )}
         />
       )}

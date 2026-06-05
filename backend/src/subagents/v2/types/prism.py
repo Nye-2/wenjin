@@ -33,6 +33,120 @@ def _safe_slice(text: str, limit: int = 160) -> str:
     return compact[: limit - 1].rstrip() + "…"
 
 
+def _read_context_requirements(inputs: dict[str, Any]) -> dict[str, bool]:
+    raw = inputs.get("context_requirements")
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        "include_workspace_history": bool(raw.get("include_workspace_history")),
+        "include_related_documents": bool(raw.get("include_related_documents")),
+        "include_sandbox_artifacts": bool(raw.get("include_sandbox_artifacts")),
+    }
+
+
+def _append_workspace_context_instruction(
+    instruction: str,
+    *,
+    inputs: dict[str, Any],
+    workspace_data: dict[str, Any],
+) -> tuple[str, dict[str, int]]:
+    rewrite_mode = _read_text_input(inputs, "rewrite_mode")
+    context_strategy = _read_text_input(inputs, "context_strategy")
+    requirements = _read_context_requirements(inputs)
+    if rewrite_mode != "document" and context_strategy != "workspace_manuscript_review":
+        return instruction, {}
+
+    lines: list[str] = []
+    usage = {
+        "related_documents": 0,
+        "decisions": 0,
+        "memory": 0,
+        "recent_executions": 0,
+        "sandbox_artifacts": 0,
+    }
+
+    if requirements.get("include_related_documents"):
+        documents = workspace_data.get("related_documents")
+        if not isinstance(documents, list):
+            library_context = workspace_data.get("library_context")
+            documents = (
+                library_context.get("citable_sources", [])
+                if isinstance(library_context, dict)
+                else []
+            )
+        if documents:
+            lines.append("相关文献/材料摘要：")
+            for item in documents[:8]:
+                if not isinstance(item, dict):
+                    continue
+                usage["related_documents"] += 1
+                title = _safe_slice(str(item.get("title") or "未命名材料"), 90)
+                citation_key = str(item.get("citation_key") or "").strip()
+                abstract = _safe_slice(str(item.get("abstract_excerpt") or ""), 160)
+                suffix = f"；摘要：{abstract}" if abstract else ""
+                key = f" [{citation_key}]" if citation_key else ""
+                lines.append(f"- {title}{key}{suffix}")
+
+    if requirements.get("include_workspace_history"):
+        history = workspace_data.get("workspace_history")
+        if isinstance(history, dict):
+            decisions = history.get("decisions")
+            if isinstance(decisions, list) and decisions:
+                lines.append("工作区已确认决策：")
+                for item in decisions[:8]:
+                    if not isinstance(item, dict):
+                        continue
+                    usage["decisions"] += 1
+                    lines.append(
+                        f"- {_safe_slice(str(item.get('key') or '决策'), 60)}："
+                        f"{_safe_slice(str(item.get('value') or ''), 160)}"
+                    )
+            memory = history.get("memory")
+            if isinstance(memory, list) and memory:
+                lines.append("长期记忆/偏好：")
+                for item in memory[:6]:
+                    if not isinstance(item, dict):
+                        continue
+                    usage["memory"] += 1
+                    lines.append(f"- {_safe_slice(str(item.get('content') or ''), 180)}")
+            executions = history.get("recent_executions")
+            if isinstance(executions, list) and executions:
+                lines.append("近期任务结果摘要：")
+                for item in executions[:5]:
+                    if not isinstance(item, dict):
+                        continue
+                    summary = _safe_slice(str(item.get("summary") or ""), 180)
+                    if not summary:
+                        continue
+                    usage["recent_executions"] += 1
+                    name = str(item.get("display_name") or item.get("capability_id") or "任务")
+                    lines.append(f"- {_safe_slice(name, 70)}：{summary}")
+
+    if requirements.get("include_sandbox_artifacts"):
+        sandbox = workspace_data.get("sandbox_context")
+        artifacts = sandbox.get("artifacts") if isinstance(sandbox, dict) else None
+        if isinstance(artifacts, list) and artifacts:
+            lines.append("Sandbox 产物线索：")
+            for item in artifacts[:8]:
+                if not isinstance(item, dict):
+                    continue
+                usage["sandbox_artifacts"] += 1
+                kind = str(item.get("artifact_kind") or "artifact")
+                path = str(item.get("path") or "")
+                lines.append(f"- {kind}: {_safe_slice(path, 130)}")
+
+    if not lines:
+        return instruction, {key: value for key, value in usage.items() if value}
+
+    context_block = "\n".join(lines)
+    return (
+        instruction.strip()
+        + "\n\n【工作区上下文，仅用于全文改稿判断；不要编造其中没有的事实】\n"
+        + context_block,
+        {key: value for key, value in usage.items() if value},
+    )
+
+
 @subagent("prism_selection_optimizer")
 class PrismSelectionOptimizerSubagent(SubagentBase):
     """Rewrite a Prism selection and stage it as a reviewable file change."""
@@ -45,6 +159,8 @@ class PrismSelectionOptimizerSubagent(SubagentBase):
         instruction = _read_text_input(inputs, "instruction") or _read_text_input(inputs, "comment")
         feedback_id = _read_text_input(inputs, "feedback_id")
         scope = _read_text_input(inputs, "scope") or "section"
+        rewrite_mode = _read_text_input(inputs, "rewrite_mode") or scope
+        context_strategy = _read_text_input(inputs, "context_strategy")
         if scope not in {"selection", "section"}:
             scope = "section"
 
@@ -62,9 +178,14 @@ class PrismSelectionOptimizerSubagent(SubagentBase):
         anchor = inputs.get("anchor") if isinstance(inputs.get("anchor"), dict) else None
 
         await ctx.emit("thinking", "正在定位 Prism 选区并读取上下文。")
+        rewrite_instruction, used_context = _append_workspace_context_instruction(
+            instruction,
+            inputs=inputs,
+            workspace_data=ctx.workspace_data or {},
+        )
         rewrite_result = await rewrite_with_feedback(
             content=file_content,
-            comment=instruction,
+            comment=rewrite_instruction,
             selected_text=selected_text,
             selection_start=selection_start,
             selection_end=selection_end,
@@ -97,10 +218,13 @@ class PrismSelectionOptimizerSubagent(SubagentBase):
             "pending_content": pending_content,
             "content_format": "raw",
             "logical_key": logical_key,
-            "reason": changes_summary or f"Prism 划词优化：{section_title or file_path}",
+            "reason": changes_summary or f"Prism 改稿建议：{section_title or file_path}",
             "current_hash": current_hash,
             "pending_hash": pending_hash,
             "scope": rewrite_result.get("scope") or scope,
+            "rewrite_mode": rewrite_mode,
+            "context_strategy": context_strategy,
+            "used_context": used_context,
             "section_title": section_title,
             "section_level": rewrite_result.get("section_level") or "",
             "resolved_selection_start": rewrite_result.get("resolved_selection_start"),

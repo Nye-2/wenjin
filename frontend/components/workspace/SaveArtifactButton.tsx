@@ -39,7 +39,7 @@ export function SaveArtifactButton({
       onClick={() => void handleClick()}
       disabled={disabled || isSaving}
       className={cn(
-        "inline-flex items-center gap-2 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-muted)] disabled:opacity-60",
+        "inline-flex items-center gap-2 rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] px-3 py-2 text-xs font-medium text-[var(--wjn-text)] transition-colors hover:bg-[var(--bg-muted)] disabled:opacity-60",
         className
       )}
     >

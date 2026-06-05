@@ -57,13 +57,13 @@ export function ConversationExportTrigger({
                 exportConversationAsMarkdown(thread, messages);
                 setOpen(false);
               }}
-              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"
+              className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"
             >
-              <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+              <div className="flex items-center gap-2 text-sm font-medium text-[var(--wjn-text)]">
                 <FileText className="h-4 w-4" />
                 Markdown
               </div>
-              <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+              <p className="mt-2 text-xs leading-5 text-[var(--wjn-text-secondary)]">
                 适合发给导师、评审或直接放入项目文档。
               </p>
             </button>
@@ -73,13 +73,13 @@ export function ConversationExportTrigger({
                 exportConversationAsJson(thread, messages);
                 setOpen(false);
               }}
-              className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"
+              className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4 text-left transition-colors hover:bg-[var(--bg-muted)]"
             >
-              <div className="flex items-center gap-2 text-sm font-medium text-[var(--text-primary)]">
+              <div className="flex items-center gap-2 text-sm font-medium text-[var(--wjn-text)]">
                 <FileJson className="h-4 w-4" />
                 JSON
               </div>
-              <p className="mt-2 text-xs leading-5 text-[var(--text-secondary)]">
+              <p className="mt-2 text-xs leading-5 text-[var(--wjn-text-secondary)]">
                 保留完整结构化消息，适合二次处理或导入别的系统。
               </p>
             </button>

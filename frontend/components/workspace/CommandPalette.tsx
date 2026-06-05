@@ -151,7 +151,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--wjn-text-muted)]" />
             <Input
               autoFocus
               value={query}
@@ -168,7 +168,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
           </div>
           <div className="max-h-[55vh] overflow-y-auto">
             {filteredActions.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-[var(--border-default)] px-4 py-8 text-center text-sm text-[var(--text-muted)]">
+              <div className="rounded-xl border border-dashed border-[var(--wjn-line)] px-4 py-8 text-center text-sm text-[var(--wjn-text-muted)]">
                 没有匹配项，试试导出、对话或总览等关键词。
               </div>
             ) : (
@@ -182,7 +182,7 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
                   }
                   return (
                     <div key={section}>
-                      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--wjn-text-muted)]">
                         {section}
                       </p>
                       <div className="space-y-2">
@@ -194,25 +194,25 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
                               type="button"
                               onClick={() => runAction(action)}
                               className={cn(
-                                "flex w-full items-start gap-3 rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] px-4 py-3 text-left transition-colors hover:bg-[var(--bg-muted)]",
-                                index === 0 && "border-[var(--accent-primary)]/35"
+                                "flex w-full items-start gap-3 rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] px-4 py-3 text-left transition-colors hover:bg-[var(--bg-muted)]",
+                                index === 0 && "border-[var(--wjn-navy)]/35"
                               )}
                             >
-                              <span className="mt-0.5 rounded-lg bg-[var(--bg-muted)] p-2 text-[var(--text-primary)]">
+                              <span className="mt-0.5 rounded-lg bg-[var(--bg-muted)] p-2 text-[var(--wjn-text)]">
                                 <Icon className="h-4 w-4" />
                               </span>
                               <span className="min-w-0 flex-1">
                                 <span className="flex items-center justify-between gap-3">
-                                  <span className="text-sm font-medium text-[var(--text-primary)]">
+                                  <span className="text-sm font-medium text-[var(--wjn-text)]">
                                     {action.title}
                                   </span>
                                   {action.shortcut ? (
-                                    <span className="rounded-md bg-[var(--bg-muted)] px-2 py-0.5 text-[11px] text-[var(--text-muted)]">
+                                    <span className="rounded-md bg-[var(--bg-muted)] px-2 py-0.5 text-[11px] text-[var(--wjn-text-muted)]">
                                       {action.shortcut}
                                     </span>
                                   ) : null}
                                 </span>
-                                <span className="mt-1 block text-xs leading-5 text-[var(--text-secondary)]">
+                                <span className="mt-1 block text-xs leading-5 text-[var(--wjn-text-secondary)]">
                                   {action.description}
                                 </span>
                               </span>
@@ -244,10 +244,10 @@ export function CommandPalette({ workspaceId }: CommandPaletteProps) {
             ].map((item) => (
               <div
                 key={item.keys}
-                className="flex items-center justify-between rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2"
+                className="flex items-center justify-between rounded-lg border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] px-3 py-2"
               >
-                <span className="text-sm text-[var(--text-primary)]">{item.label}</span>
-                <span className="rounded-md bg-[var(--bg-muted)] px-2 py-0.5 text-xs text-[var(--text-muted)]">
+                <span className="text-sm text-[var(--wjn-text)]">{item.label}</span>
+                <span className="rounded-md bg-[var(--bg-muted)] px-2 py-0.5 text-xs text-[var(--wjn-text-muted)]">
                   {item.keys}
                 </span>
               </div>

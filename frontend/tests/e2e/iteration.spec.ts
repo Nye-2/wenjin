@@ -234,7 +234,8 @@ test("Prism review links open the workspace surface before committing room outpu
   await expect(page).toHaveURL(
     /\/workspaces\/ws-1\/prism\?focus=file_changes&review_item_id=section%3Aintroduction&logical_key=section%3Aintroduction/,
   );
-  await expect(page.getByText("Prism 审阅")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "AI 改稿" })).toBeVisible();
+  await expect(page.getByText("待确认写入")).toBeVisible();
   await expect(page.getByText("main.tex").first()).toBeVisible();
   await expect(page.getByText(/Generated workspace manuscript/).first()).toBeVisible();
 
@@ -243,7 +244,6 @@ test("Prism review links open the workspace surface before committing room outpu
   await expect(page.getByText("已写入变更")).toBeVisible();
   await expect(page.getByText("已写入稿件修改: main.tex")).toBeVisible();
 
-  await page.getByRole("button", { name: "划词" }).click();
   await page.getByRole("button", { name: "保护当前文件" }).click();
   await expect(page.getByText("当前文件已保护")).toBeVisible();
   await expect(page.getByText("保护段落")).toBeVisible();

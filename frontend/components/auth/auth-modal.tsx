@@ -175,15 +175,15 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
             role="dialog"
             aria-modal="true"
             aria-labelledby="auth-modal-title"
-            className="w-full max-w-lg overflow-hidden rounded-3xl border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-[var(--glass-shadow-elevated)]"
+            className="w-full max-w-lg overflow-hidden rounded-[var(--wjn-radius-xl)] border border-[var(--wjn-line)] bg-[var(--wjn-surface)] shadow-[var(--wjn-shadow-md)]"
           >
-            <header className="space-y-4 border-b border-[var(--border-subtle)] px-6 py-5">
+            <header className="space-y-4 border-b border-[var(--wjn-line)] px-6 py-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
-                  <h2 id="auth-modal-title" className="text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
+                  <h2 id="auth-modal-title" className="text-2xl font-semibold tracking-tight text-[var(--wjn-text)]">
                     {mode === "login" ? t("auth.login.button") : t("auth.register.button")}
                   </h2>
-                  <p className="text-sm text-[var(--text-secondary)]">
+                  <p className="text-sm text-[var(--wjn-text-secondary)]">
                     {mode === "login" ? t("auth.login.subtitle") : t("auth.register.subtitle")}
                   </p>
                 </div>
@@ -192,20 +192,20 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                   type="button"
                   onClick={onClose}
                   aria-label="Close"
-                  className="rounded-lg p-2 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)]"
+                  className="rounded-lg p-2 text-[var(--wjn-text-muted)] transition-colors hover:bg-[var(--wjn-surface-subtle)] hover:text-[var(--wjn-text)]"
                 >
                   <X className="h-5 w-5" />
                 </button>
               </div>
 
-              <div className="inline-flex w-fit items-center rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] p-1">
+              <div className="inline-flex w-fit items-center rounded-full border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-1">
                 <button
                   type="button"
                   onClick={() => changeMode("login")}
                   className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
                     mode === "login"
-                      ? "bg-white text-[var(--text-primary)] shadow-sm"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      ? "bg-white text-[var(--wjn-text)] shadow-sm"
+                      : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)]"
                   }`}
                 >
                   {t("auth.login.button")}
@@ -215,8 +215,8 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                   onClick={() => changeMode("register")}
                   className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
                     mode === "register"
-                      ? "bg-white text-[var(--text-primary)] shadow-sm"
-                      : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                      ? "bg-white text-[var(--wjn-text)] shadow-sm"
+                      : "text-[var(--wjn-text-secondary)] hover:text-[var(--wjn-text)]"
                   }`}
                 >
                   {t("auth.register.button")}
@@ -278,7 +278,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                   <button
                     type="button"
                     onClick={() => setShowPassword((prev) => !prev)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-[var(--wjn-text-muted)] transition-colors hover:text-[var(--wjn-text)]"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -301,7 +301,7 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                       onChange={(e) => setFormData((prev) => ({ ...prev, confirmPassword: e.target.value }))}
                       placeholder={t("auth.login.passwordPlaceholder")}
                     />
-                    <p className="text-xs text-[var(--text-muted)]">{t("auth.register.passwordTooShort")}</p>
+                    <p className="text-xs text-[var(--wjn-text-muted)]">{t("auth.register.passwordTooShort")}</p>
                   </div>
 
                   <div className="space-y-2">
@@ -359,12 +359,12 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
                 )}
               </Button>
 
-              <p className="border-t border-[var(--border-subtle)] pt-4 text-center text-sm text-[var(--text-secondary)]">
+              <p className="border-t border-[var(--wjn-line)] pt-4 text-center text-sm text-[var(--wjn-text-secondary)]">
                 {mode === "login" ? t("auth.login.noAccount") : t("auth.register.hasAccount")}{" "}
                 <button
                   type="button"
                   onClick={switchMode}
-                  className="font-semibold text-[var(--accent-primary)] transition-colors hover:text-[var(--accent-secondary)]"
+                  className="font-semibold text-[var(--wjn-navy)] transition-colors hover:text-[var(--wjn-blue)]"
                 >
                   {mode === "login" ? t("auth.login.createOne") : t("auth.register.signIn")}
                 </button>

@@ -88,8 +88,8 @@ export function WorkspaceAdoptionPanel({
               </Pie>
               <Tooltip
                 contentStyle={{
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--border-default)",
+                  background: "var(--wjn-surface-subtle)",
+                  border: "1px solid var(--wjn-line)",
                   borderRadius: "0.75rem",
                   fontSize: 12,
                 }}

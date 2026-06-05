@@ -35,13 +35,13 @@ const artifactIconMap: Record<string, LucideIcon> = {
 
 // 颜色映射
 const artifactColorMap: Record<string, string> = {
-  outline: "text-purple-500 bg-purple-500/10",
-  abstract: "text-blue-500 bg-blue-500/10",
-  deep_research_report: "text-sky-500 bg-sky-500/10",
-  literature_review: "text-emerald-500 bg-emerald-500/10",
-  chapter: "text-amber-500 bg-amber-500/10",
-  figure: "text-rose-500 bg-rose-500/10",
-  table: "text-cyan-500 bg-cyan-500/10",
+  outline: "text-[var(--wjn-blue)] bg-[var(--wjn-accent-soft)]",
+  abstract: "text-[var(--wjn-blue)] bg-[var(--wjn-accent-soft)]",
+  deep_research_report: "text-[var(--wjn-blue)] bg-[var(--wjn-accent-soft)]",
+  literature_review: "text-[var(--wjn-evidence)] bg-[var(--wjn-evidence-soft)]",
+  chapter: "text-[var(--wjn-review)] bg-[var(--wjn-review-soft)]",
+  figure: "text-[var(--wjn-error)] bg-[var(--wjn-error-soft)]",
+  table: "text-[var(--wjn-evidence)] bg-[var(--wjn-evidence-soft)]",
 };
 
 interface ArtifactLibraryProps {
@@ -85,14 +85,14 @@ export function ArtifactLibrary({
       {/* 头部 */}
       <div
         className={cn(
-          "border-b border-[var(--border-default)]",
+          "border-b border-[var(--wjn-line)]",
           embedded ? "px-3 py-3" : "px-4 py-4"
         )}
       >
-        <h3 className="text-sm font-semibold text-[var(--text-primary)]">
+        <h3 className="text-sm font-semibold text-[var(--wjn-text)]">
           证据与成果
         </h3>
-        <p className="mt-1 text-xs text-[var(--text-muted)]">
+        <p className="mt-1 text-xs text-[var(--wjn-text-muted)]">
           {artifacts.length} 项已沉淀内容
         </p>
       </div>
@@ -100,7 +100,7 @@ export function ArtifactLibrary({
       {/* 成果列表 */}
       <div className={cn("flex-1 overflow-y-auto", embedded ? "p-1.5" : "p-2")}>
         {artifacts.length === 0 ? (
-          <div className="text-center py-8 text-[var(--text-muted)]">
+          <div className="text-center py-8 text-[var(--wjn-text-muted)]">
             <File className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p className="text-xs">还没有沉淀成果</p>
             <p className="text-xs">继续主线任务后，结果会汇总到这里</p>
@@ -115,7 +115,7 @@ export function ArtifactLibrary({
               const Icon = artifactIconMap[type] || File;
               const colorClass =
                 artifactColorMap[type] ||
-                "text-[var(--text-muted)] bg-[var(--bg-surface)]";
+                "text-[var(--wjn-text-muted)] bg-[var(--wjn-surface-subtle)]";
 
               return items.map((artifact) => (
                 <motion.button
@@ -123,7 +123,7 @@ export function ArtifactLibrary({
                   onClick={() => onSelectArtifact(artifact)}
                   className={cn(
                     "w-full flex items-center gap-3 rounded-2xl px-3 py-3",
-                    "text-left hover:bg-[var(--bg-surface)] transition-colors"
+                    "text-left hover:bg-[var(--wjn-surface-subtle)] transition-colors"
                   )}
                   whileHover={{ x: 2 }}
                 >
@@ -131,12 +131,12 @@ export function ArtifactLibrary({
                     <Icon className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-[var(--text-primary)] truncate">
+                    <p className="text-sm text-[var(--wjn-text)] truncate">
                       {artifact.title || type}
                     </p>
-                    <p className="text-xs text-[var(--text-muted)]">{type}</p>
+                    <p className="text-xs text-[var(--wjn-text-muted)]">{type}</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
+                  <ChevronRight className="w-4 h-4 text-[var(--wjn-text-muted)]" />
                 </motion.button>
               ));
             })}
@@ -151,20 +151,20 @@ export function ArtifactLibrary({
                     onClick={() => onSelectArtifact(artifact)}
                   className={cn(
                       "w-full flex items-center gap-3 rounded-2xl px-3 py-3",
-                      "text-left hover:bg-[var(--bg-surface)] transition-colors"
+                      "text-left hover:bg-[var(--wjn-surface-subtle)] transition-colors"
                     )}
                     whileHover={{ x: 2 }}
                   >
-                    <div className="p-1.5 rounded-lg text-[var(--text-muted)] bg-[var(--bg-surface)]">
+                    <div className="p-1.5 rounded-lg text-[var(--wjn-text-muted)] bg-[var(--wjn-surface-subtle)]">
                       <File className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-[var(--text-primary)] truncate">
+                      <p className="text-sm text-[var(--wjn-text)] truncate">
                         {artifact.title || type}
                       </p>
-                      <p className="text-xs text-[var(--text-muted)]">{type}</p>
+                      <p className="text-xs text-[var(--wjn-text-muted)]">{type}</p>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />
+                    <ChevronRight className="w-4 h-4 text-[var(--wjn-text-muted)]" />
                   </motion.button>
                 ))
               )}
@@ -174,10 +174,10 @@ export function ArtifactLibrary({
 
       {/* 导出按钮 */}
       {onExport && artifacts.length > 0 && (
-        <div className="p-3 border-t border-[var(--border-default)]">
+        <div className="p-3 border-t border-[var(--wjn-line)]">
           <button
             onClick={onExport}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-[var(--brand-navy)] to-[var(--brand-teal)] px-4 py-3 text-sm font-medium text-white transition-colors hover:opacity-95"
+            className="flex w-full items-center justify-center gap-2 rounded-[var(--wjn-radius-md)] bg-[var(--wjn-navy)] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[var(--wjn-blue-strong)]"
           >
             <Download className="w-4 h-4" />
             导出PDF

@@ -80,7 +80,9 @@ npm run test
 
 默认开发 API 基址：
 
-- `NEXT_PUBLIC_API_URL` 未设置时，使用 `http://localhost:8001/api`
+- `NEXT_PUBLIC_API_URL` 未设置时，使用同源 `/api`
+- `npm run dev` 会在开发态把 `/api/*` 代理到 `WENJIN_DEV_API_PROXY_TARGET`，默认 `http://localhost:2026`
+- 如需连接手动启动的 gateway，可设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:8001`
 
 ## 相关文档
 

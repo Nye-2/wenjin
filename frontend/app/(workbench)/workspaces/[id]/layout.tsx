@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useWorkspaceEventStream } from "@/hooks/useWorkspaceEventStream";
 import { useFeaturesStore } from "@/stores/features";
@@ -9,7 +9,6 @@ import { useComputeStore } from "@/stores/compute";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import { CommandPalette } from "@/components/workspace/CommandPalette";
-import { AppShellSidebar } from "@/components/workspace/AppShellSidebar";
 
 interface WorkbenchLayoutProps {
   children: ReactNode;
@@ -20,7 +19,6 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const workspaceId = params?.id ?? "";
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const workspaceNotFound = useWorkspaceStore(
     (state) => state.workspaceNotFound,
   );
@@ -83,12 +81,7 @@ export default function WorkbenchLayout({ children }: WorkbenchLayoutProps) {
   ]);
 
   return (
-    <div className="flex h-screen bg-[var(--bg-base)]">
-      <AppShellSidebar
-        workspaceId={workspaceId}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((prev) => !prev)}
-      />
+    <div className="flex h-screen bg-[var(--wjn-bg-base)]">
       <div className="flex-1 flex flex-col min-w-0">
         {children}
       </div>

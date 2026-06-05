@@ -102,7 +102,7 @@ export default function RegisterPage() {
           {t("auth.register.hasAccount")}{" "}
           <Link
             href="/login"
-            className="font-semibold text-[var(--accent-primary)] hover:text-[var(--accent-secondary)]"
+            className="font-semibold text-[var(--wjn-navy)] hover:text-[var(--wjn-blue)]"
           >
             {t("auth.register.signIn")}
           </Link>
@@ -198,7 +198,7 @@ export default function RegisterPage() {
               required
               minLength={8}
             />
-            <p className="text-xs text-[var(--text-muted)]">{t("auth.register.passwordTooShort")}</p>
+            <p className="text-xs text-[var(--wjn-text-muted)]">{t("auth.register.passwordTooShort")}</p>
           </div>
 
           <div className="space-y-2">

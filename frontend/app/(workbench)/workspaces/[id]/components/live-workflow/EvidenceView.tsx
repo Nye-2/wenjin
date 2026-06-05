@@ -63,7 +63,7 @@ export function EvidenceView({
             <input
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
-              placeholder="搜索标题、作者、节点或摘要"
+              placeholder="搜索标题、作者、来源或摘要"
               style={styles.searchInput}
             />
           </div>
@@ -71,7 +71,7 @@ export function EvidenceView({
             {[
               ["all", "全部"],
               ["outputs", "候选结果"],
-              ["nodes", "节点输出"],
+              ["nodes", "过程记录"],
               ["sandbox", "Sandbox"],
             ].map(([key, label]) => (
               <button
@@ -95,7 +95,7 @@ export function EvidenceView({
                 <tr>
                   <th style={styles.th}>包含</th>
                   <th style={styles.th}>类型</th>
-                  <th style={styles.th}>标题 / 节点</th>
+                  <th style={styles.th}>标题 / 来源</th>
                   <th style={styles.th}>摘要</th>
                 </tr>
               </thead>
@@ -159,7 +159,7 @@ export function EvidenceView({
             state={selected.nodeState}
           />
         ) : (
-          <EmptyState title="选择证据项" detail="可在这里编辑候选结果字段，或查看节点输出摘要。" compact />
+          <EmptyState title="选择证据项" detail="可在这里编辑候选结果字段，或查看过程摘要。" compact />
         )}
       </aside>
     </div>

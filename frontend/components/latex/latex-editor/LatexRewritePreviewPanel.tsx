@@ -58,11 +58,11 @@ export function LatexRewritePreviewPanel({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border-default)] bg-white p-3">
+    <div className="rounded-lg border border-[var(--wjn-line)] bg-white p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-medium">改写 diff 预览</p>
-          <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+          <p className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
             候选 {selectedRewriteCandidateIndex + 1}/{rewriteCandidates.length} · Cmd/Ctrl + Enter 应用 · Esc 取消
           </p>
         </div>
@@ -70,7 +70,7 @@ export function LatexRewritePreviewPanel({
           <select
             value={selectedRewriteCandidate.candidate_id}
             onChange={(event) => onSelectCandidate(event.target.value)}
-            className="h-8 rounded-md border border-[var(--border-default)] bg-white px-2 text-xs"
+            className="h-8 rounded-md border border-[var(--wjn-line)] bg-white px-2 text-xs"
           >
             {rewriteCandidates.map((candidate, index) => (
               <option key={candidate.candidate_id} value={candidate.candidate_id}>
@@ -89,7 +89,7 @@ export function LatexRewritePreviewPanel({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
+      <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--wjn-text-muted)]">
         <span>
           {selectedRewriteCandidate.scope === "section"
             ? `section：${selectedRewriteCandidate.section_title || "未命名"}`
@@ -105,7 +105,7 @@ export function LatexRewritePreviewPanel({
       </div>
 
       {selectedRewriteCandidate.changes_summary.trim() ? (
-        <p className="mt-2 rounded-md border border-[var(--border-default)] bg-[#f8f9fb] px-2 py-1 text-xs leading-5 text-[var(--text-secondary)]">
+        <p className="mt-2 rounded-md border border-[var(--wjn-line)] bg-[#f8f9fb] px-2 py-1 text-xs leading-5 text-[var(--wjn-text-secondary)]">
           模型摘要：{selectedRewriteCandidate.changes_summary.trim()}
         </p>
       ) : null}
@@ -155,9 +155,9 @@ export function LatexRewritePreviewPanel({
         </Button>
       </div>
 
-      <div className="mt-3 max-h-[360px] space-y-2 overflow-auto rounded-lg border border-[var(--border-default)] bg-[#f8f9fb] p-2">
+      <div className="mt-3 max-h-[360px] space-y-2 overflow-auto rounded-lg border border-[var(--wjn-line)] bg-[#f8f9fb] p-2">
         {selectedRewriteCandidate.diff.hunks.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">未检测到文本差异。</p>
+          <p className="text-xs text-[var(--wjn-text-muted)]">未检测到文本差异。</p>
         ) : (
           selectedRewriteCandidate.diff.hunks.map((hunk, index) => {
             const hunkKey = `${hunk.old_start}-${hunk.old_end}-${hunk.new_start}-${hunk.new_end}-${index}`;
@@ -168,9 +168,9 @@ export function LatexRewritePreviewPanel({
               : changedOps.filter((op) => !isWhitespaceOnlyDiffOp(op));
             const isCollapsed = Boolean(collapsedDiffHunks[hunkKey]);
             return (
-              <div key={hunkKey} className="rounded-md border border-[var(--border-default)] bg-white p-2">
+              <div key={hunkKey} className="rounded-md border border-[var(--wjn-line)] bg-white p-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-[11px] text-[var(--text-muted)]">
+                  <p className="text-[11px] text-[var(--wjn-text-muted)]">
                     Hunk #{index + 1} · old {hunk.old_start}-{hunk.old_end} · new {hunk.new_start}-{hunk.new_end}
                   </p>
                   <Button
@@ -181,7 +181,7 @@ export function LatexRewritePreviewPanel({
                     {isCollapsed ? "展开" : "折叠"}
                   </Button>
                 </div>
-                <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+                <p className="mt-1 text-[11px] text-[var(--wjn-text-muted)]">
                   token {hunk.stats.tokens_changed} · +{hunk.stats.chars_added} / -{hunk.stats.chars_deleted}
                   {hiddenWhitespaceCount > 0 && !showWhitespaceOnlyDiff
                     ? ` · 已隐藏空白改动 ${hiddenWhitespaceCount} 条`
@@ -201,25 +201,25 @@ export function LatexRewritePreviewPanel({
                     <div className="mt-2 space-y-2">
                       {visibleOps.map((op, opIndex) => (
                         <div key={`${op.old_start}-${op.new_start}-${opIndex}`} className="text-xs leading-5">
-                          <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-muted)]">
-                            <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--wjn-text-muted)]">
+                            <span className="rounded border border-[var(--wjn-line)] bg-white px-1.5 py-0.5">
                               {diffOpLabel(op.op)}
                             </span>
-                            <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                            <span className="rounded border border-[var(--wjn-line)] bg-white px-1.5 py-0.5">
                               {tokenKindLabel(op.token_kind)}
                             </span>
                             {isWhitespaceOnlyDiffOp(op) ? (
-                              <span className="rounded border border-[var(--border-default)] bg-white px-1.5 py-0.5">
+                              <span className="rounded border border-[var(--wjn-line)] bg-white px-1.5 py-0.5">
                                 仅空白
                               </span>
                             ) : null}
                           </div>
                           {diffViewMode === "side-by-side" ? (
                             <div className="grid gap-2 md:grid-cols-2">
-                              <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "insert" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-red-500/10 text-red-700"}`}>
+                              <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "insert" ? "bg-[rgba(19,34,53,0.04)] text-[var(--wjn-text-muted)]" : "bg-red-500/10 text-red-700"}`}>
                                 {op.op === "insert" ? "(空)" : op.old_text || "(空)"}
                               </pre>
-                              <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "delete" ? "bg-[rgba(19,34,53,0.04)] text-[var(--text-muted)]" : "bg-emerald-500/10 text-emerald-700"}`}>
+                              <pre className={`overflow-x-auto whitespace-pre-wrap break-words rounded px-2 py-1 font-mono text-[12px] ${op.op === "delete" ? "bg-[rgba(19,34,53,0.04)] text-[var(--wjn-text-muted)]" : "bg-emerald-500/10 text-emerald-700"}`}>
                                 {op.op === "delete" ? "(空)" : op.new_text || "(空)"}
                               </pre>
                             </div>
@@ -237,7 +237,7 @@ export function LatexRewritePreviewPanel({
                       ))}
                     </div>
                   ) : (
-                    <p className="mt-2 text-xs text-[var(--text-muted)]">当前 hunk 仅包含空白改动。</p>
+                    <p className="mt-2 text-xs text-[var(--wjn-text-muted)]">当前 hunk 仅包含空白改动。</p>
                   )
                 ) : null}
               </div>

@@ -145,7 +145,7 @@ export function TaskCard({
           )}
         />
 
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text-primary)]">
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--wjn-text)]">
           {displayName}
         </span>
 
@@ -167,7 +167,7 @@ export function TaskCard({
           <button
             type="button"
             onClick={onViewDetail}
-            className="shrink-0 rounded-lg p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--text-primary)]"
+            className="shrink-0 rounded-lg p-1 text-[var(--wjn-text-muted)] transition-colors hover:bg-[var(--bg-muted)] hover:text-[var(--wjn-text)]"
             aria-label="查看详情"
           >
             <ExternalLink className="h-3.5 w-3.5" />
@@ -177,7 +177,7 @@ export function TaskCard({
 
       {/* ---- Message subtitle -------------------------------------------- */}
       {message && (
-        <p className="truncate px-4 pb-2 text-xs leading-5 text-[var(--text-muted)]">
+        <p className="truncate px-4 pb-2 text-xs leading-5 text-[var(--wjn-text-muted)]">
           {message}
         </p>
       )}
@@ -201,7 +201,7 @@ export function TaskCard({
           onClick={() => setExpanded((prev) => !prev)}
           className={cn(
             "flex w-full items-center justify-center gap-1 border-t px-4 py-1.5 text-[11px] font-medium transition-colors",
-            "text-[var(--text-muted)] hover:bg-[var(--bg-muted)]/40",
+            "text-[var(--wjn-text-muted)] hover:bg-[var(--bg-muted)]/40",
             visual.borderColor
           )}
         >
@@ -232,7 +232,7 @@ export function TaskCard({
               )}
 
               {result && !error && (
-                <pre className="max-h-40 overflow-auto rounded-lg bg-[var(--bg-muted)] px-3 py-2 text-[11px] leading-5 text-[var(--text-secondary)]">
+                <pre className="max-h-40 overflow-auto rounded-lg bg-[var(--bg-muted)] px-3 py-2 text-[11px] leading-5 text-[var(--wjn-text-secondary)]">
                   {JSON.stringify(result, null, 2)}
                 </pre>
               )}

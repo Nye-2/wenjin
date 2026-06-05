@@ -103,9 +103,9 @@ export default function CapabilityEditPage({
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div>
-            <h1 className="text-xl font-bold text-[var(--text-primary)]">
+            <h1 className="text-xl font-bold text-[var(--wjn-text)]">
               {id}{" "}
-              <span className="text-sm text-[var(--text-muted)]">
+              <span className="text-sm text-[var(--wjn-text-muted)]">
                 / {workspaceType}
               </span>
             </h1>

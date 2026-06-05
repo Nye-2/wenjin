@@ -30,7 +30,7 @@ const markdownComponents = {
       <WorkspaceActionLink
         href={href}
         style={{
-          color: "var(--v2-accent-blue-700)",
+          color: "var(--wjn-blue)",
           textDecoration: "underline",
           textUnderlineOffset: 2,
         }}
@@ -82,9 +82,9 @@ function ActionPill({
   const palette =
     tone === "primary"
       ? {
-          background: "var(--v2-accent-purple-700)",
+          background: "var(--wjn-blue)",
           color: "#FFFFFF",
-          border: "var(--v2-accent-purple-700)",
+          border: "var(--wjn-blue)",
         }
       : tone === "warn"
         ? {
@@ -93,9 +93,9 @@ function ActionPill({
             border: "rgba(185, 28, 28, 0.16)",
           }
         : {
-            background: "var(--v2-surface-soft)",
-            color: "var(--v2-text-secondary)",
-            border: "var(--v2-border-default)",
+            background: "var(--wjn-bg-base)",
+            color: "var(--wjn-text-secondary)",
+            border: "var(--wjn-line)",
           };
 
   return (
@@ -105,7 +105,7 @@ function ActionPill({
       onClick={onClick}
       style={{
         padding: "6px 12px",
-        borderRadius: "var(--v2-radius-pill)",
+        borderRadius: "var(--wjn-radius-pill)",
         border: `1px solid ${palette.border}`,
         background: palette.background,
         color: palette.color,
@@ -136,24 +136,24 @@ function QuestionCard({
     <div
       style={{
         padding: "12px",
-        background: "var(--v2-surface-soft)",
-        borderRadius: "var(--v2-radius-md)",
+        background: "var(--wjn-bg-base)",
+        borderRadius: "var(--wjn-radius-md)",
         margin: "8px 0",
         fontSize: 13.5,
-        border: "1px solid var(--v2-border-soft)",
+        border: "1px solid var(--wjn-line)",
       }}
     >
       <div
         style={{
           fontSize: 11.5,
           fontWeight: 600,
-          color: "var(--v2-text-tertiary)",
+          color: "var(--wjn-text-muted)",
           marginBottom: 6,
         }}
       >
         {block.label}
       </div>
-      <div style={{ color: "var(--v2-text-primary)" }}>{block.question}</div>
+      <div style={{ color: "var(--wjn-text)" }}>{block.question}</div>
       {block.pills.length > 0 && (
         <div
           style={{
@@ -193,10 +193,10 @@ function AgentResultCard({
     <div
       style={{
         padding: "14px",
-        background: "var(--v2-glass-bg)",
-        borderRadius: "var(--v2-radius-lg)",
-        border: "1px solid var(--v2-glass-border)",
-        boxShadow: "var(--v2-glass-shadow)",
+        background: "var(--wjn-surface-raised)",
+        borderRadius: "var(--wjn-radius-lg)",
+        border: "1px solid var(--wjn-line)",
+        boxShadow: "var(--wjn-shadow-sm)",
         margin: "8px 0",
       }}
     >
@@ -204,7 +204,7 @@ function AgentResultCard({
         style={{
           fontSize: 15,
           fontWeight: 600,
-          color: "var(--v2-text-primary)",
+          color: "var(--wjn-text)",
           marginBottom: 6,
         }}
       >
@@ -213,7 +213,7 @@ function AgentResultCard({
       <div
         style={{
           fontSize: 13.5,
-          color: "var(--v2-text-secondary)",
+          color: "var(--wjn-text-secondary)",
           lineHeight: 1.6,
           marginBottom: block.findings.length > 0 ? 10 : 0,
         }}
@@ -229,14 +229,14 @@ function AgentResultCard({
                 display: "flex",
                 gap: 8,
                 alignItems: "flex-start",
-                color: "var(--v2-text-primary)",
+                color: "var(--wjn-text)",
                 fontSize: 13,
               }}
             >
               <span
                 style={{
                   minWidth: 18,
-                  color: "var(--v2-accent-purple-700)",
+                  color: "var(--wjn-blue)",
                   fontWeight: 600,
                 }}
               >
@@ -252,22 +252,22 @@ function AgentResultCard({
           style={{
             marginBottom: 10,
             padding: "10px 12px",
-            borderRadius: "var(--v2-radius-md)",
-            background: "rgba(124, 58, 237, 0.06)",
-            border: "1px solid rgba(124, 58, 237, 0.12)",
+            borderRadius: "var(--wjn-radius-md)",
+            background: "var(--wjn-accent-soft)",
+            border: "1px solid var(--wjn-accent-soft)",
           }}
         >
           <div
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--v2-accent-purple-700)",
+              color: "var(--wjn-blue)",
               marginBottom: 4,
             }}
           >
             {block.recommend.label}
           </div>
-          <div style={{ fontSize: 13, color: "var(--v2-text-secondary)" }}>
+          <div style={{ fontSize: 13, color: "var(--wjn-text-secondary)" }}>
             {block.recommend.body}
           </div>
         </div>
@@ -291,7 +291,7 @@ function AgentResultCard({
               key={`${link.href}:${link.label}`}
               href={link.href}
               style={{
-                color: "var(--v2-accent-blue-700)",
+                color: "var(--wjn-blue)",
                 fontSize: 12.5,
                 fontWeight: 500,
                 textDecoration: "none",
@@ -308,17 +308,17 @@ function AgentResultCard({
           gap: 10,
           flexWrap: "wrap",
           fontSize: 12,
-          color: "var(--v2-text-tertiary)",
+          color: "var(--wjn-text-muted)",
           marginBottom: 10,
         }}
       >
         <span>{formatDuration(block.stats.duration_ms)}</span>
-        <span>{block.stats.subagents} 个子代理</span>
+        <span>{block.stats.subagents} 个团队成员</span>
       </div>
       <div
         style={{
           fontSize: 12.5,
-          color: "var(--v2-text-secondary)",
+          color: "var(--wjn-text-secondary)",
           marginBottom: block.feedback.pills.length > 0 ? 8 : 0,
         }}
       >
@@ -365,9 +365,9 @@ function ToolResultBlock({
         data-testid="run-receipt"
         style={{
           padding: "12px 14px",
-          background: "rgba(124, 58, 237, 0.07)",
-          borderRadius: "var(--v2-radius-lg)",
-          border: "1px solid rgba(124, 58, 237, 0.16)",
+          background: "var(--wjn-accent-soft)",
+          borderRadius: "var(--wjn-radius-lg)",
+          border: "1px solid var(--wjn-accent-line)",
           margin: "8px 0",
         }}
       >
@@ -384,7 +384,7 @@ function ToolResultBlock({
             style={{
               fontSize: 14,
               fontWeight: 650,
-              color: "var(--v2-text-primary)",
+              color: "var(--wjn-text)",
             }}
           >
             已启动：{capabilityName}
@@ -393,30 +393,30 @@ function ToolResultBlock({
             style={{
               fontSize: 11,
               fontWeight: 600,
-              color: "var(--v2-accent-purple-700)",
-              background: "var(--v2-accent-purple-100)",
-              borderRadius: "var(--v2-radius-pill)",
+              color: "var(--wjn-blue)",
+              background: "var(--wjn-accent-soft)",
+              borderRadius: "var(--wjn-radius-pill)",
               padding: "2px 8px",
             }}
           >
-            running
+            处理中
           </span>
         </div>
         <div
           style={{
             fontSize: 12.5,
-            color: "var(--v2-text-secondary)",
+            color: "var(--wjn-text-secondary)",
             lineHeight: 1.5,
           }}
         >
-          Lead Agent 已接手执行。右侧面板会显示节点进度，完成后结果会回到这里。
+          问津已开始处理。右侧工作台会展示关键进展，完成后结果会回到这里。
         </div>
         {workspaceId ? (
           <div style={{ display: "flex", gap: 12, marginTop: 10, flexWrap: "wrap" }}>
             <WorkspaceActionLink
               href={`/workspaces/${workspaceId}`}
               style={{
-                color: "var(--v2-accent-blue-700)",
+                color: "var(--wjn-blue)",
                 fontSize: 12.5,
                 fontWeight: 600,
                 textDecoration: "none",
@@ -427,7 +427,7 @@ function ToolResultBlock({
             <WorkspaceActionLink
               href={`/workspaces/${workspaceId}?room=runs`}
               style={{
-                color: "var(--v2-accent-blue-700)",
+                color: "var(--wjn-blue)",
                 fontSize: 12.5,
                 fontWeight: 600,
                 textDecoration: "none",
@@ -447,13 +447,13 @@ function ToolResultBlock({
         style={{
           padding: "8px 10px",
           background: "rgba(198, 138, 26, 0.1)",
-          borderRadius: "var(--v2-radius-sm)",
+          borderRadius: "var(--wjn-radius)",
           fontSize: 12.5,
           color: "var(--semantic-warning)",
           margin: "6px 0",
         }}
       >
-        当前 Lead Agent 仍在执行，请先查看右侧进度或 Runs。
+        当前任务仍在执行，请先查看右侧进展或运行记录。
       </div>
     );
   }
@@ -464,9 +464,9 @@ function ToolResultBlock({
         style={{
           padding: "8px 10px",
           background: "rgba(220, 38, 38, 0.08)",
-          borderRadius: "var(--v2-radius-sm)",
+          borderRadius: "var(--wjn-radius)",
           fontSize: 12.5,
-          color: "var(--v2-status-error)",
+          color: "var(--wjn-error)",
           margin: "6px 0",
         }}
       >
@@ -481,10 +481,10 @@ function ToolResultBlock({
     <div
       style={{
         padding: "6px 10px",
-        background: "var(--v2-surface-soft)",
-        borderRadius: "var(--v2-radius-sm)",
+        background: "var(--wjn-bg-base)",
+        borderRadius: "var(--wjn-radius)",
         fontSize: 12,
-        color: "var(--v2-text-secondary)",
+        color: "var(--wjn-text-secondary)",
         margin: "4px 0",
       }}
     >
@@ -526,10 +526,10 @@ export const MessageBlock = memo(function MessageBlock({
         <div
           style={{
             padding: "6px 10px",
-            background: "var(--v2-accent-purple-100)",
-            borderRadius: "var(--v2-radius-sm)",
+            background: "var(--wjn-accent-soft)",
+            borderRadius: "var(--wjn-radius)",
             fontSize: 12,
-            color: "var(--v2-accent-purple-700)",
+            color: "var(--wjn-blue)",
             margin: "4px 0",
           }}
         >

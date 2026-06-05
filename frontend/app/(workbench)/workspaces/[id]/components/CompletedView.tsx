@@ -150,8 +150,8 @@ export function CompletedView({
   return (
     <div
       style={{
-        fontFamily: "var(--v2-font-sans)",
-        color: "var(--v2-text-primary)",
+        fontFamily: "var(--wjn-font-sans)",
+        color: "var(--wjn-text)",
       }}
     >
       {/* Summary text */}
@@ -159,7 +159,7 @@ export function CompletedView({
         style={{
           fontSize: 13,
           lineHeight: 1.5,
-          color: "var(--v2-text-secondary)",
+          color: "var(--wjn-text-secondary)",
           marginBottom: previews.length > 0 ? 12 : 8,
         }}
       >
@@ -209,7 +209,7 @@ export function CompletedView({
                         style={{
                           fontSize: 12,
                           fontWeight: 600,
-                          color: "var(--v2-text-primary)",
+                          color: "var(--wjn-text)",
                           marginBottom: 8,
                         }}
                       >
@@ -260,7 +260,7 @@ export function CompletedView({
                       style={{
                         fontSize: 12,
                         fontWeight: 600,
-                        color: "var(--v2-text-primary)",
+                        color: "var(--wjn-text)",
                         marginBottom: actionContext.reviewItems.length > 0 ? 8 : 6,
                       }}
                     >
@@ -344,10 +344,10 @@ export function CompletedView({
                 key={i}
                 style={{
                   padding: "6px 10px",
-                  borderRadius: "var(--v2-radius-md)",
+                  borderRadius: "var(--wjn-radius-md)",
                   background: "rgba(220, 38, 38, 0.06)",
                   border: "1px solid rgba(220, 38, 38, 0.12)",
-                  color: "var(--v2-status-error)",
+                  color: "var(--wjn-error)",
                   fontSize: 11.5,
                   lineHeight: 1.45,
                 }}
@@ -365,16 +365,16 @@ export function CompletedView({
           style={{
             marginBottom: 12,
             padding: "10px 12px",
-            borderRadius: "var(--v2-radius-md)",
-            background: "rgba(124, 58, 237, 0.06)",
-            border: "1px solid rgba(124, 58, 237, 0.12)",
+            borderRadius: "var(--wjn-radius-md)",
+            background: "var(--wjn-accent-soft)",
+            border: "1px solid var(--wjn-accent-soft)",
           }}
         >
           <div
             style={{
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--v2-text-primary)",
+              color: "var(--wjn-text)",
               marginBottom: actionContext.reviewItems.length > 0 ? 8 : 0,
             }}
           >
@@ -440,11 +440,11 @@ export function CompletedView({
               background: "none",
               border: "none",
               padding: 0,
-              color: "var(--v2-accent-purple-700)",
+              color: "var(--wjn-blue)",
               fontSize: 12,
               fontWeight: 500,
               cursor: "pointer",
-              fontFamily: "var(--v2-font-sans)",
+              fontFamily: "var(--wjn-font-sans)",
               textDecoration: "none",
             }}
           >
@@ -456,12 +456,12 @@ export function CompletedView({
               style={{
                 marginTop: 8,
                 padding: 12,
-                borderRadius: "var(--v2-radius-md)",
-                background: "var(--v2-surface-card)",
-                border: "1px solid var(--v2-border-soft)",
+                borderRadius: "var(--wjn-radius-md)",
+                background: "var(--wjn-surface-subtle)",
+                border: "1px solid var(--wjn-line)",
                 fontSize: 11.5,
-                fontFamily: "var(--v2-font-mono)",
-                color: "var(--v2-text-secondary)",
+                fontFamily: "var(--wjn-font-mono)",
+                color: "var(--wjn-text-secondary)",
                 maxHeight: 300,
                 overflow: "auto",
                 lineHeight: 1.5,
@@ -584,10 +584,10 @@ const styles: Record<string, React.CSSProperties> = {
   commitError: {
     marginTop: 10,
     padding: "8px 10px",
-    borderRadius: "var(--v2-radius-md)",
+    borderRadius: "var(--wjn-radius-md)",
     background: "rgba(220, 38, 38, 0.06)",
     border: "1px solid rgba(220, 38, 38, 0.12)",
-    color: "var(--v2-status-error)",
+    color: "var(--wjn-error)",
     fontSize: 11.5,
     lineHeight: 1.45,
   },
@@ -595,9 +595,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: "inline-flex",
     alignItems: "center",
     padding: "4px 10px",
-    borderRadius: "var(--v2-radius-pill)",
-    background: "var(--v2-accent-purple-100)",
-    color: "var(--v2-accent-purple-700)",
+    borderRadius: "var(--wjn-radius-pill)",
+    background: "var(--wjn-accent-soft)",
+    color: "var(--wjn-blue)",
     fontSize: 11.5,
     fontWeight: 500,
     lineHeight: "18px",
@@ -607,9 +607,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: "inline-flex",
     alignItems: "center",
     padding: "4px 10px",
-    borderRadius: "var(--v2-radius-pill)",
+    borderRadius: "var(--wjn-radius-pill)",
     background: "rgba(20, 20, 30, 0.06)",
-    color: "var(--v2-text-secondary)",
+    color: "var(--wjn-text-secondary)",
     fontSize: 11.5,
     fontWeight: 500,
     lineHeight: "18px",

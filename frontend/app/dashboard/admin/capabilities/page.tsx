@@ -107,7 +107,7 @@ export default function CapabilityListPage() {
         />
 
         {isLoading ? (
-          <div className="flex items-center gap-2 text-[var(--text-muted)] text-sm py-6">
+          <div className="flex items-center gap-2 text-[var(--wjn-text-muted)] text-sm py-6">
             <Loader2 className="w-4 h-4 animate-spin" /> 加载中
           </div>
         ) : (
@@ -119,9 +119,9 @@ export default function CapabilityListPage() {
                 <details
                   key={wsType}
                   open
-                  className="rounded-xl border border-[var(--border-default)]"
+                  className="rounded-xl border border-[var(--wjn-line)]"
                 >
-                  <summary className="cursor-pointer list-none px-4 py-3 font-medium text-[var(--text-primary)]">
+                  <summary className="cursor-pointer list-none px-4 py-3 font-medium text-[var(--wjn-text)]">
                     {WS_LABEL[wsType] ?? wsType} · {wsType} · {filtered.length}{" "}
                     个
                   </summary>
@@ -130,7 +130,7 @@ export default function CapabilityListPage() {
                       {filtered.map((item) => (
                         <tr
                           key={item.id}
-                          className="border-t border-[var(--border-default)]/50"
+                          className="border-t border-[var(--wjn-line)]/50"
                         >
                           <td className="px-4 py-2 w-10">
                             <button
@@ -145,16 +145,16 @@ export default function CapabilityListPage() {
                               }
                             />
                           </td>
-                          <td className="px-4 py-2 font-mono text-xs text-[var(--text-secondary)]">
+                          <td className="px-4 py-2 font-mono text-xs text-[var(--wjn-text-secondary)]">
                             {item.id}
                           </td>
-                          <td className="px-4 py-2 text-[var(--text-primary)]">
+                          <td className="px-4 py-2 text-[var(--wjn-text)]">
                             {item.display_name}
                           </td>
                           <td className="px-4 py-2 text-right">
                             <Link
                               href={`/dashboard/admin/capabilities/${encodeURIComponent(item.id)}?workspace_type=${item.workspace_type}`}
-                              className="text-sm text-[var(--accent-primary)] hover:underline"
+                              className="text-sm text-[var(--wjn-navy)] hover:underline"
                             >
                               编辑
                             </Link>

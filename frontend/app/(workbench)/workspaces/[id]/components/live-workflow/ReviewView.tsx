@@ -227,7 +227,7 @@ export function ReviewView({
                           </span>
                         </button>
                         {draftEdits[preview.id] ? (
-                          <Edit3 size={13} color="var(--v2-accent-purple-700)" />
+                          <Edit3 size={13} color="var(--wjn-blue)" />
                         ) : null}
                       </div>
                     );

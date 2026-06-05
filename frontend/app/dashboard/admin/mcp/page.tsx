@@ -166,38 +166,38 @@ export default function AdminMcpPage() {
 
       <section className="route-card rounded-[1.75rem] p-5">
         <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-          <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-            <div className="text-xs text-[var(--text-muted)]">服务数量</div>
-            <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
+          <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4">
+            <div className="text-xs text-[var(--wjn-text-muted)]">服务数量</div>
+            <div className="mt-2 text-2xl font-semibold text-[var(--wjn-text)]">
               {mcpServerEntries.length}
             </div>
           </div>
-          <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-            <div className="text-xs text-[var(--text-muted)]">启用中的服务</div>
-            <div className="mt-2 text-2xl font-semibold text-[var(--text-primary)]">
+          <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4">
+            <div className="text-xs text-[var(--wjn-text-muted)]">启用中的服务</div>
+            <div className="mt-2 text-2xl font-semibold text-[var(--wjn-text)]">
               {enabledMcpCount}
             </div>
           </div>
-          <div className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
-            <div className="text-xs text-[var(--text-muted)]">当前草稿状态</div>
-            <div className="mt-2 text-sm font-medium text-[var(--text-primary)]">
+          <div className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4">
+            <div className="text-xs text-[var(--wjn-text-muted)]">当前草稿状态</div>
+            <div className="mt-2 text-sm font-medium text-[var(--wjn-text)]">
               {hasMcpChanges ? "有未保存改动" : "与已加载配置一致"}
             </div>
-            <div className="mt-1 text-xs text-[var(--text-muted)]">
+            <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
               {mcpDraftPreviewError ? "JSON 需修复后才能保存" : "可直接保存并触发 runtime 热更新"}
             </div>
           </div>
         </div>
 
         {isLoading ? (
-          <div className="mt-4 text-sm text-[var(--text-muted)] flex items-center gap-2">
+          <div className="mt-4 text-sm text-[var(--wjn-text-muted)] flex items-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
             正在加载 MCP 配置
           </div>
         ) : mcpServerEntries.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-[var(--border-default)] px-4 py-5 text-sm text-[var(--text-muted)]">
+          <div className="mt-4 rounded-xl border border-dashed border-[var(--wjn-line)] px-4 py-5 text-sm text-[var(--wjn-text-muted)]">
             当前没有配置任何 MCP 服务。可在下方 JSON 草稿中添加，例如：
-            <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--bg-base)] p-3 text-[11px] text-[var(--text-secondary)]">
+            <pre className="mt-2 overflow-x-auto rounded-lg bg-[var(--wjn-bg-base)] p-3 text-[11px] text-[var(--wjn-text-secondary)]">
 {`{
   "github": {
     "enabled": true,
@@ -213,17 +213,17 @@ export default function AdminMcpPage() {
             {mcpServerEntries.map(([name, server]) => (
               <div
                 key={name}
-                className="rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4"
+                className="rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] p-4"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <h3 className="text-sm font-semibold text-[var(--text-primary)]">{name}</h3>
-                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                    <h3 className="text-sm font-semibold text-[var(--wjn-text)]">{name}</h3>
+                    <p className="text-xs text-[var(--wjn-text-muted)] mt-1">
                       {server.description?.trim() || "未填写说明"}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="rounded-md bg-[var(--bg-muted)] px-2 py-1 text-[11px] text-[var(--text-secondary)]">
+                    <span className="rounded-md bg-[var(--bg-muted)] px-2 py-1 text-[11px] text-[var(--wjn-text-secondary)]">
                       {server.type ?? "stdio"}
                     </span>
                     <span
@@ -237,7 +237,7 @@ export default function AdminMcpPage() {
                     </span>
                   </div>
                 </div>
-                <div className="mt-3 space-y-2 text-xs text-[var(--text-secondary)]">
+                <div className="mt-3 space-y-2 text-xs text-[var(--wjn-text-secondary)]">
                   {server.command ? <p>命令: <code>{server.command}</code></p> : null}
                   {server.url ? <p>地址: <code>{server.url}</code></p> : null}
                   {server.args?.length ? <p>参数: <code>{server.args.join(" ")}</code></p> : null}
@@ -259,7 +259,7 @@ export default function AdminMcpPage() {
         )}
 
         <div className="mt-5 space-y-2">
-          <Label htmlFor="mcp-config-draft" className="text-sm font-medium text-[var(--text-primary)]">
+          <Label htmlFor="mcp-config-draft" className="text-sm font-medium text-[var(--wjn-text)]">
             MCP Server 草稿
           </Label>
           <textarea
@@ -272,9 +272,9 @@ export default function AdminMcpPage() {
               }
             }}
             spellCheck={false}
-            className="min-h-[320px] w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-base)] px-4 py-3 font-mono text-xs text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--accent-primary)]"
+            className="min-h-[320px] w-full rounded-xl border border-[var(--wjn-line)] bg-[var(--wjn-bg-base)] px-4 py-3 font-mono text-xs text-[var(--wjn-text)] outline-none transition-colors focus:border-[var(--wjn-navy)]"
           />
-          <p className="text-[11px] text-[var(--text-muted)]">
+          <p className="text-[11px] text-[var(--wjn-text-muted)]">
             保存后会写入后端 `extensions_config.json`，并立即刷新 MCP runtime 与工具缓存。
           </p>
           {(mcpDraftError || mcpDraftPreviewError) && (

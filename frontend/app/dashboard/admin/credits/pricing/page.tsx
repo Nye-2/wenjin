@@ -78,7 +78,7 @@ export default function AdminPricingPage() {
       <div className="route-card rounded-2xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-left border-b border-[var(--border-default)]">
+            <tr className="text-left border-b border-[var(--wjn-line)]">
               <th className="px-4 py-3">策略</th>
               <th className="px-4 py-3">类型</th>
               <th className="px-4 py-3">配置摘要</th>
@@ -87,17 +87,17 @@ export default function AdminPricingPage() {
           </thead>
           <tbody>
             {policies.map((policy) => (
-              <tr key={policy.policy_key} className="border-t border-[var(--border-default)]/50 align-top">
+              <tr key={policy.policy_key} className="border-t border-[var(--wjn-line)]/50 align-top">
                 <td className="px-4 py-3">
-                  <div className="font-medium text-[var(--text-primary)]">{policy.name}</div>
-                  <div className="mt-1 flex gap-2 text-xs text-[var(--text-muted)]">
+                  <div className="font-medium text-[var(--wjn-text)]">{policy.name}</div>
+                  <div className="mt-1 flex gap-2 text-xs text-[var(--wjn-text-muted)]">
                     <span className="font-mono">{policy.policy_key}</span>
                     <span>v{policy.version}</span>
                     {!policy.enabled && <span className="text-slate-500">停用</span>}
                   </div>
                 </td>
-                <td className="px-4 py-3 font-mono text-[var(--text-secondary)]">{policy.policy_kind}</td>
-                <td className="px-4 py-3 text-xs text-[var(--text-muted)]">
+                <td className="px-4 py-3 font-mono text-[var(--wjn-text-secondary)]">{policy.policy_kind}</td>
+                <td className="px-4 py-3 text-xs text-[var(--wjn-text-muted)]">
                   {summarizeConfig(policy.config)}
                 </td>
                 <td className="px-4 py-3">
@@ -108,7 +108,7 @@ export default function AdminPricingPage() {
                         setEditing(policy);
                         setDialogOpen(true);
                       }}
-                      className="text-[var(--accent-primary)] hover:underline"
+                      className="text-[var(--wjn-navy)] hover:underline"
                     >
                       编辑
                     </button>
@@ -125,7 +125,7 @@ export default function AdminPricingPage() {
             ))}
             {!loading && policies.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-[var(--text-muted)]">
+                <td colSpan={4} className="px-4 py-8 text-center text-[var(--wjn-text-muted)]">
                   暂无定价策略
                 </td>
               </tr>

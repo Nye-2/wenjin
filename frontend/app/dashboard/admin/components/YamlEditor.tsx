@@ -44,7 +44,7 @@ export function YamlEditor({
 
   return (
     <div className="space-y-2">
-      <div className="rounded-xl border border-[var(--border-default)] overflow-hidden">
+      <div className="rounded-xl border border-[var(--wjn-line)] overflow-hidden">
         <MonacoEditor
           height={height}
           defaultLanguage="yaml"

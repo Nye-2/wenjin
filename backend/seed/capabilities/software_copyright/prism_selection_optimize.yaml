@@ -3,25 +3,25 @@ id: prism_selection_optimize
 workspace_type: software_copyright
 enabled: true
 display:
-  name: Prism 划词优化
-  description: 根据用户在 Prism 中划选的片段和补充指令，异步生成可审阅的软著材料修改
+  name: Prism 改稿建议
+  description: 根据用户在 Prism 中的批注或全文指令，生成可审阅的软著材料修改
   icon: highlighter
   color: violet
   order: 900
   entry_tier: hidden
 intent:
-  description: Prism 编辑器内的划词优化、软著材料表述修订、局部重写和审阅式写入
+  description: Prism 编辑器内的批注改稿、软著材料表述修订、局部重写和审阅式写入
   trigger_phrases:
-  - Prism 划词优化
+  - Prism 改稿
   - prism_selection_optimize
-  - 划词优化
-  - 划词改写
+  - 局部改稿
+  - 全文改稿
   disambiguation: {}
 mission:
-  goal: optimize_prism_selection
+  goal: optimize_prism_manuscript_feedback
   primary_surface: prism
   document_role: primary_manuscript
-  user_promise: 根据划选文本和点评生成待确认的 Prism 修改，不直接覆盖正文
+  user_promise: 根据批注或全文指令生成待确认的 Prism 修改，不直接覆盖正文
   allowed_deliverables:
   - prism_file_change
 inputs:
@@ -48,6 +48,16 @@ inputs:
         enum:
         - selection
         - section
+      rewrite_mode:
+        type: string
+        enum:
+        - selection
+        - section
+        - document
+      context_strategy:
+        type: string
+      context_requirements:
+        type: object
       feedback_id:
         type: string
       anchor:
@@ -112,6 +122,9 @@ graph_template:
         anchor: '{{anchor}}'
         pdf_anchor: '{{pdf_anchor}}'
         scope: '{{scope|default("section")}}'
+        rewrite_mode: '{{rewrite_mode}}'
+        context_strategy: '{{context_strategy}}'
+        context_requirements: '{{context_requirements}}'
         feedback_id: '{{feedback_id}}'
         model_id: '{{model_id}}'
         raw_message: '{{raw_message}}'
@@ -128,5 +141,5 @@ graph_template:
       prompt_template: '{{raw_message}}'
 extensions:
   content_strategy:
-    workflow_pattern: prism_inline_async_review
-    strategy: 先定位划词，再按材料准确性、逻辑完整性、登记规范适配度、功能描述完整性和表达清晰度决定局部优化重点；产物进入 Prism 审阅链路。
+    workflow_pattern: prism_inline_review
+    strategy: 先定位批注或全文目标，再按材料准确性、逻辑完整性、登记规范适配度、功能描述完整性和表达清晰度决定改稿重点；产物进入 Prism 审阅链路。
