@@ -6,7 +6,7 @@ import pytest
 
 # Ensure subagent types are registered before importing compiler
 import src.subagents.v2.types  # noqa: F401
-from src.agents.lead_agent.v2.compiler import compile_graph
+from src.agents.lead_agent.v2.compiler import _default_runner_factory, compile_graph
 from src.subagents.v2.base import SubagentContext, SubagentResult
 
 
@@ -218,3 +218,29 @@ async def test_compile_actually_runs():
     result = final_state["node_results"]["make_outline"]
     assert "output" in result
     assert "text" in result["output"]
+
+
+@pytest.mark.asyncio
+async def test_default_runner_passes_publish_event_to_subagent_context():
+    """Harness tools need the existing execution-event publisher in static graphs."""
+
+    captured_publish = None
+
+    class CapturingSubagent:
+        async def run(self, ctx: SubagentContext) -> SubagentResult:
+            nonlocal captured_publish
+            captured_publish = ctx.publish_event
+            return SubagentResult(output={"ok": True})
+
+    async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+        pass
+
+    run_node = _default_runner_factory(
+        CapturingSubagent,
+        {"name": "capture", "subagent_type": "react"},
+        publish_event=publish_event,
+    )
+    result_state = await run_node(_make_state())
+
+    assert result_state["node_results"]["capture"]["output"] == {"ok": True}
+    assert captured_publish is publish_event

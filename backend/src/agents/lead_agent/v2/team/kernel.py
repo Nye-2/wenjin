@@ -585,6 +585,7 @@ class TeamKernelRuntime:
                     skill=skill,
                     team_context=blackboard.model_dump(mode="json"),
                     invocation=invocation.model_dump(mode="json"),
+                    publish_event=self.publish_event,
                 )
                 result: SubagentResult = await subagent_cls().run(ctx)
                 invocation.status = "succeeded"

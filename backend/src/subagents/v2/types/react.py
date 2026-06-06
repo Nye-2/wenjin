@@ -275,6 +275,10 @@ class ReactSubagent(SubagentBase):
         user_template = config.get("user_template")
         user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)
         user_message = _render_user_message(user_template, user_inputs)
+        tool_records: list[dict[str, Any]] = []
+        if ctx.tools:
+            ctx.workspace_data = dict(ctx.workspace_data or {})
+            ctx.workspace_data["_harness_tool_records"] = tool_records
 
         # Run the ReAct loop (or plain invoke if no tools)
         try:
@@ -282,6 +286,7 @@ class ReactSubagent(SubagentBase):
                 system_prompt=system_prompt,
                 user_message=user_message,
                 tools=ctx.tools,
+                harness_context=ctx,
                 emit_delta=ctx.emit_delta,
             )
         except Exception as exc:
@@ -299,7 +304,7 @@ class ReactSubagent(SubagentBase):
 
         return SubagentResult(
             output=output,
-            tool_calls=[],
+            tool_calls=tool_records,
             token_usage=None,
         )
 
@@ -308,6 +313,7 @@ async def _run_react_loop(
     system_prompt: str,
     user_message: str,
     tools: list[str] | None = None,
+    harness_context: SubagentContext | None = None,
     emit_delta: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> str:
     """Run the MiMo ReAct loop (or plain model invoke if no tools).
@@ -325,7 +331,7 @@ async def _run_react_loop(
     ]
 
     if tools:
-        resolved_tools = _resolve_tools(tools)
+        resolved_tools = _resolve_tools(tools, harness_context)
         if not resolved_tools:
             requested = ", ".join(str(tool).strip() for tool in tools if str(tool).strip())
             raise RuntimeError(
@@ -408,13 +414,17 @@ async def _run_react_loop(
     return "".join(collected_content)
 
 
-def _resolve_tools(tool_names: list[str]) -> list:
+def _resolve_tools(tool_names: list[str], harness_context: SubagentContext | None = None) -> list:
     """Resolve tool names to callables.
 
-    The current runtime has no React tool registry bridge. Callers that request
-    tools must receive an explicit failure instead of a plain-LLM execution.
+    Callers that request tools must receive an explicit failure instead of a
+    plain-LLM execution when no harness-backed callable can be resolved.
     """
-    return []
+    if harness_context is None:
+        return []
+    from src.agents.harness.langchain_adapter import build_langchain_tools
+
+    return build_langchain_tools(harness_context, tool_names)
 
 
 def _is_transient_model_error(exc: Exception) -> bool:

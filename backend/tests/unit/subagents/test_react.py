@@ -15,6 +15,7 @@ from src.subagents.v2.types.react import (
     _build_degraded_react_text,
     _parse_output,
     _render_user_message,
+    _resolve_tools,
     _run_react_loop,
     _runtime_output_config,
 )
@@ -30,6 +31,7 @@ def _make_ctx(
     tools=None,
     prompt: str = "",
     capability_policy: dict | None = None,
+    workspace_data: dict | None = None,
 ) -> SubagentContext:
     return SubagentContext(
         workspace_id="ws-test",
@@ -37,7 +39,7 @@ def _make_ctx(
         prompt=prompt,
         inputs=inputs or {},
         tools=tools or [],
-        workspace_data={},
+        workspace_data=workspace_data or {},
         capability_policy=capability_policy or {},
         skill=skill,
     )
@@ -339,7 +341,116 @@ class TestMockLLM:
                 await _run_react_loop(
                     system_prompt="system",
                     user_message="user",
-                    tools=["sandbox_python"],
+                    tools=["unknown.tool"],
                 )
 
         fake_model.astream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resolve_tools_returns_harness_backed_read_file_tool(self):
+        class FakeSandbox:
+            async def read_file(self, path: str) -> str:
+                assert path == "/workspace/main.tex"
+                return "hello harness"
+
+        tool_records = []
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+        )
+
+        tools = _resolve_tools(["sandbox.read_file"], ctx)
+
+        assert len(tools) == 1
+        result = await tools[0].ainvoke({"path": "/workspace/main.tex"})
+        assert "hello harness" in result
+        assert tool_records == [
+            {
+                "name": "sandbox.read_file",
+                "status": "completed",
+                "args": {"path": "/workspace/main.tex"},
+                "result_preview": result[:500],
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_loop_guard_blocks_repeated_calls(self):
+        class FakeSandbox:
+            async def read_file(self, path: str) -> str:
+                return f"content from {path}"
+
+        tool_records = []
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+                "sandbox_policy": {"max_tool_calls": 3},
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+        )
+        tool = _resolve_tools(["sandbox.read_file"], ctx)[0]
+
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        with pytest.raises(RuntimeError, match="repeated tool call"):
+            await tool.ainvoke({"path": "/workspace/main.tex"})
+
+        assert tool_records[-1]["status"] == "failed"
+        assert tool_records[-1]["error"] == "tool_loop_hard_stop"
+
+    @pytest.mark.asyncio
+    async def test_react_subagent_returns_harness_tool_records(self):
+        async def fake_loop(**kwargs):
+            harness_context = kwargs["harness_context"]
+            harness_context.workspace_data["_harness_tool_records"].append(
+                {"name": "sandbox.read_file", "status": "completed"}
+            )
+            return "final text"
+
+        skill = _make_skill(
+            prompt="Use tools",
+            config={"output_kind": "text"},
+            allowed_tools=["sandbox.read_file"],
+        )
+        ctx = _make_ctx(
+            skill=skill,
+            tools=["sandbox.read_file"],
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+            },
+        )
+
+        with patch("src.subagents.v2.types.react._run_react_loop", side_effect=fake_loop):
+            result = await ReactSubagent().run(ctx)
+
+        assert result.output == {"text": "final text"}
+        assert result.tool_calls == [{"name": "sandbox.read_file", "status": "completed"}]
+
+    def test_resolve_tools_accepts_existing_sandbox_python_alias(self):
+        ctx = _make_ctx(
+            tools=["sandbox_python"],
+            capability_policy={"allowed_tools": ["sandbox_python"]},
+            skill=MagicMock(
+                allowed_tools=[],
+                config={},
+                skill_json={"sandbox_access": {"mode": "required", "profiles": ["analysis"]}},
+            ),
+        )
+
+        tools = _resolve_tools(["sandbox_python"], ctx)
+
+        assert [tool.name for tool in tools] == ["sandbox_run_python"]

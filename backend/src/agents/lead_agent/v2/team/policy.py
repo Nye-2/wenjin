@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.agents.harness.policy import CANONICAL_TOOL_ALIASES
+
 from .contracts import AgentInvocation, AgentTemplate, CapabilityTeamPolicy
 
 DIRECT_COMMIT_TOOLS = {"room_commit", "workspace_room_write", "prism_apply"}
@@ -43,7 +45,7 @@ def build_capability_team_policy(
     runtime = getattr(capability, "runtime", None)
     if not isinstance(runtime, dict):
         runtime = {}
-    capability_tools = list(raw_policy.get("capability_tools") or runtime.get("allowed_tools") or [])
+    capability_tools = _canonicalize_tools(raw_policy.get("capability_tools") or runtime.get("allowed_tools") or [])
     capability_skills = list(raw_policy.get("capability_skills") or [])
     contract_overlay_skills = list(raw_policy.get("contract_overlay_skills") or [])
     contract_overlay_categories = list(raw_policy.get("contract_overlay_categories") or [])
@@ -61,8 +63,8 @@ def build_capability_team_policy(
         limits=raw_limits,
         budget=raw_budget,
         capability_tools=capability_tools,
-        workspace_tools=list(capability_tools if workspace_tools is None else workspace_tools),
-        user_tools=list(capability_tools if user_tools is None else user_tools),
+        workspace_tools=list(capability_tools if workspace_tools is None else _canonicalize_tools(workspace_tools)),
+        user_tools=list(capability_tools if user_tools is None else _canonicalize_tools(user_tools)),
         capability_skills=capability_skills,
         contract_overlay_skills=contract_overlay_skills,
         contract_overlay_categories=contract_overlay_categories,
@@ -101,8 +103,8 @@ def _normalize_trigger_templates(raw_templates: Any) -> list[str]:
 def resolve_effective_tools(template: AgentTemplate, policy: CapabilityTeamPolicy) -> list[str]:
     affinity = template.tool_affinity or {}
     requested = [
-        *list(affinity.get("preferred") or []),
-        *list(affinity.get("can_request") or []),
+        *_canonicalize_tools(affinity.get("preferred") or []),
+        *_canonicalize_tools(affinity.get("can_request") or []),
     ]
     allowed = set(policy.capability_tools or requested)
     allowed &= set(policy.workspace_tools)
@@ -113,6 +115,24 @@ def resolve_effective_tools(template: AgentTemplate, policy: CapabilityTeamPolic
             continue
         if tool in allowed and tool not in result:
             result.append(tool)
+    return result
+
+
+def _canonicalize_tools(raw_tools: Any) -> list[str]:
+    if raw_tools is None:
+        return []
+    if isinstance(raw_tools, str):
+        items = [raw_tools]
+    elif isinstance(raw_tools, (list, tuple, set, frozenset)):
+        items = list(raw_tools)
+    else:
+        return []
+    result: list[str] = []
+    for item in items:
+        text = str(item).strip()
+        text = CANONICAL_TOOL_ALIASES.get(text, text)
+        if text and text not in result:
+            result.append(text)
     return result
 
 

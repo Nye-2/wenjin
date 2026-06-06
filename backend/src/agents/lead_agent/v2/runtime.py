@@ -849,7 +849,12 @@ class LeadAgentRuntime:
                 if event_type == "thinking":
                     await _emit_delta(meta["node_id"], content)
 
-            inner = _default_runner_factory(subagent_cls, task_spec, emit_delta=_node_emit_delta)
+            inner = _default_runner_factory(
+                subagent_cls,
+                task_spec,
+                emit_delta=_node_emit_delta,
+                publish_event=publish,
+            )
             raw_inputs_template = task_spec.get("inputs") or {}
 
             async def persisting_run(state: dict) -> dict:
