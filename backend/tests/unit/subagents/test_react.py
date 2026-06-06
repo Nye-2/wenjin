@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.agents.harness.contracts import HarnessToolResult
 from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.react import (
@@ -446,6 +447,62 @@ class TestMockLLM:
         assert completed_events[-1][2]["payload"]["output_refs"] == payload["output_refs"]
         assert externalized_events
         assert externalized_events[-1][2]["payload"]["output_refs"] == payload["output_refs"]
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_record_and_events_include_generated_artifacts(self, monkeypatch):
+        artifact = {
+            "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
+            "path": "/workspace/reports/summary.md",
+            "root": "reports",
+            "artifact_kind": "sandbox_report",
+            "mime_type": "text/markdown",
+            "size": 18,
+            "content_hash": "sha256:abc",
+            "review_surface": "sandbox_artifact",
+            "materialization_status": "candidate",
+        }
+
+        async def fake_run_python(self, **kwargs):
+            return HarnessToolResult(
+                preview_text="Python execution completed",
+                structured_payload={"generated_artifacts": [artifact]},
+            )
+
+        monkeypatch.setattr(
+            "src.agents.harness.sandbox_execution_tools.SandboxExecutionTools.run_python",
+            fake_run_python,
+        )
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        skill = _make_skill()
+        skill.skill_json = {"sandbox_access": {"mode": "required", "profiles": ["analysis"]}}
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            workspace_data={"_harness_tool_records": tool_records},
+            capability_policy={
+                "sandbox_policy": {
+                    "mode": "required",
+                    "allowed_operations": ["run_python"],
+                }
+            },
+            skill=skill,
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.run_python"], ctx)[0]
+        result = await tool.ainvoke({"script": "print('ok')", "script_name": "analysis.py"})
+        payload = json.loads(result)
+
+        assert payload["payload"]["generated_artifacts"] == [artifact]
+        assert tool_records[-1]["generated_artifacts"] == [artifact]
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["generated_artifacts"] == [artifact]
 
     @pytest.mark.asyncio
     async def test_harness_tool_loop_guard_blocks_repeated_calls(self):

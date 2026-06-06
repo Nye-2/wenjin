@@ -369,7 +369,24 @@ def _tool_result_metadata(result: str) -> dict[str, Any]:
         value = payload.get(key)
         if isinstance(value, bool) and value:
             metadata[key] = value
+    generated_artifacts = _generated_artifact_metadata(payload)
+    if generated_artifacts:
+        metadata["generated_artifacts"] = generated_artifacts
     return metadata
+
+
+def _generated_artifact_metadata(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    structured_payload = payload.get("payload")
+    if not isinstance(structured_payload, dict):
+        return []
+    artifacts = structured_payload.get("generated_artifacts")
+    if not isinstance(artifacts, list):
+        return []
+    return [
+        dict(artifact)
+        for artifact in artifacts[:50]
+        if isinstance(artifact, dict) and str(artifact.get("path") or "").strip()
+    ]
 
 
 def _skill_snapshot(skill: Any | None) -> dict[str, Any]:
