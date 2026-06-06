@@ -325,9 +325,9 @@ class LocalSandbox(Sandbox):
         Returns:
             List of FileInfo for directory contents.
         """
-        # For recursion, path might already be physical
-        # Check if it's a virtual path or already resolved
-        if path.startswith("/mnt/user-data"):
+        # For recursion, path might already be physical. Public callers may pass
+        # any configured virtual root, including the older /mnt/user-data root.
+        if self._is_allowed_virtual_path(path):
             resolved = self._resolve_path(path)
         else:
             # Already a physical path from recursion

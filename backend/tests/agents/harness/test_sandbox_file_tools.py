@@ -96,6 +96,17 @@ async def test_grep_and_glob_stay_inside_workspace(sandbox: LocalSandbox) -> Non
 
 
 @pytest.mark.asyncio
+async def test_list_dir_accepts_current_virtual_workspace_root(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main.py", "print('ok')\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=HarnessPolicy())
+
+    result = await tools.list_dir(path="/workspace", max_depth=1)
+
+    assert "/workspace/main.py" in result.preview_text
+    assert result.structured_payload["entries"][0]["path"] == "/workspace/main.py"
+
+
+@pytest.mark.asyncio
 async def test_protected_paths_are_blocked(sandbox: LocalSandbox) -> None:
     tools = SandboxFileTools(
         sandbox=sandbox,
