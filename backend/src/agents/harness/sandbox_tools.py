@@ -12,7 +12,7 @@ from src.sandbox.workspace_layout import WORKSPACE_ROOT
 
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .diff_tracker import build_file_change
-from .output_budget import cap_text, select_lines
+from .output_budget import budget_text_output, select_lines
 
 DEFAULT_READ_MAX_CHARS = 12_000
 DEFAULT_SEARCH_MAX_MATCHES = 50
@@ -41,16 +41,26 @@ class SandboxFileTools:
         safe_path = self._validate_virtual_path(path, operation="read")
         content = await self.sandbox.read_file(safe_path)
         selected = select_lines(content, start_line=start_line, end_line=end_line)
-        preview, truncated = cap_text(selected, max_chars or self._read_max_chars())
+        budgeted = await budget_text_output(
+            text=selected,
+            tool_name="sandbox.read_file",
+            context=self.context,
+            sandbox=self.sandbox,
+            output_budget=self.policy.output_budget,
+            fallback_max_chars=max_chars or self._read_max_chars(),
+        )
         return HarnessToolResult(
-            preview_text=preview,
+            preview_text=budgeted.preview_text,
             structured_payload={
                 "path": safe_path,
                 "start_line": start_line,
                 "end_line": end_line,
                 "bytes": len(content.encode("utf-8")),
+                "selected_bytes": len(selected.encode("utf-8")),
             },
-            truncated=truncated,
+            output_refs=budgeted.output_refs,
+            truncated=budgeted.truncated,
+            externalized=budgeted.externalized,
         )
 
     async def list_dir(self, *, path: str = WORKSPACE_ROOT, max_depth: int = 1) -> HarnessToolResult:

@@ -72,10 +72,17 @@ class SandboxArtifactCollector:
         install_job_ids: list[str],
         retry_count: int,
         script_path: str,
+        stdout_preview: str | None = None,
+        stderr_preview: str | None = None,
+        stdout_ref: str | None = None,
+        stderr_ref: str | None = None,
     ) -> dict[str, Any]:
-        stdout = result.stdout.strip()
-        stderr = result.stderr.strip()
-        parsed_stdout = self._parse_stdout_json(stdout)
+        raw_stdout = result.stdout.strip()
+        raw_stderr = result.stderr.strip()
+        parsed_stdout = self._parse_stdout_json(raw_stdout)
+        stdout = stdout_preview if stdout_preview is not None else raw_stdout
+        stderr = stderr_preview if stderr_preview is not None else raw_stderr
+        output_refs = [ref for ref in (stdout_ref, stderr_ref) if ref]
         report_markdown = (
             "# Sandbox Python 执行报告\n\n"
             "- 执行位置：LeadAgentRuntime / subagent node\n"
@@ -106,6 +113,11 @@ class SandboxArtifactCollector:
             "docker_image": runtime_image,
             "sandbox_environment_id": environment_id,
             "sandbox_job_id": job_id,
+            "stdout_externalized": stdout_ref is not None,
+            "stderr_externalized": stderr_ref is not None,
+            "stdout_ref": stdout_ref,
+            "stderr_ref": stderr_ref,
+            "output_refs": output_refs,
             "dependency_hints": dependency_hints,
             "installed_packages": installed_packages,
             "install_job_ids": install_job_ids,

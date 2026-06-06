@@ -201,6 +201,45 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_python_script_externalizes_large_stdout_before_returning_payload() -> None:
+    stdout = "\n".join(f"row {index:03d} {'x' * 20}" for index in range(1, 31))
+    provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy={
+            **_policy(),
+            "output_budget": {
+                "externalize_above_chars": 120,
+                "preview_head_chars": 60,
+                "preview_tail_chars": 40,
+                "stdout_max_chars": 80,
+            },
+        },
+        script="print('large')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    assert result["stdout_externalized"]
+    assert len(result["output_refs"]) == 1
+    stdout_ref = result["output_refs"][0]
+    assert stdout_ref.startswith(
+        "/workspace/outputs/harness/exec-1/analysis_probe/analysis_probe/sandbox.run_python.stdout-"
+    )
+    assert stdout_ref.endswith(".txt")
+    assert provider.sandbox.files[stdout_ref] == stdout
+    assert "Full sandbox.run_python.stdout output saved to" in result["stdout"]
+    assert "row 001" in result["stdout"]
+    assert "row 030" in result["stdout"]
+    assert stdout not in result["report_markdown"]
+
+
+@pytest.mark.asyncio
 async def test_run_python_script_installs_declared_dependency_hints_before_execution() -> None:
     stdout = json.dumps({"ok": True, "rows": 3})
     provider = _FakeProvider(

@@ -53,6 +53,58 @@ async def test_read_file_returns_bounded_preview(sandbox: LocalSandbox) -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_file_externalizes_large_selected_output(sandbox: LocalSandbox) -> None:
+    content = "".join(f"line {index:03d}: {'x' * 20}\n" for index in range(1, 31))
+    await sandbox.write_file("/workspace/main/large.txt", content)
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(
+            output_budget={
+                "read_max_chars": 120,
+                "externalize_above_chars": 200,
+                "preview_head_chars": 60,
+                "preview_tail_chars": 40,
+            }
+        ),
+    )
+
+    result = await tools.read_file(path="/workspace/main/large.txt")
+
+    assert result.truncated
+    assert result.externalized
+    assert len(result.output_refs) == 1
+    assert result.output_refs[0].startswith(
+        "/workspace/outputs/harness/exec-1/node-1/invocation-1/sandbox.read_file-"
+    )
+    assert result.output_refs[0].endswith(".txt")
+    assert "Full sandbox.read_file output saved to" in result.preview_text
+    assert "line 001" in result.preview_text
+    assert "line 030" in result.preview_text
+    assert await sandbox.read_file(result.output_refs[0]) == content
+
+
+@pytest.mark.asyncio
+async def test_read_file_externalized_refs_do_not_overwrite_same_invocation(sandbox: LocalSandbox) -> None:
+    first = "first\n" * 80
+    second = "second\n" * 80
+    await sandbox.write_file("/workspace/main/first.txt", first)
+    await sandbox.write_file("/workspace/main/second.txt", second)
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(output_budget={"externalize_above_chars": 100}),
+    )
+
+    first_result = await tools.read_file(path="/workspace/main/first.txt")
+    second_result = await tools.read_file(path="/workspace/main/second.txt")
+
+    assert first_result.output_refs != second_result.output_refs
+    assert await sandbox.read_file(first_result.output_refs[0]) == first
+    assert await sandbox.read_file(second_result.output_refs[0]) == second
+
+
+@pytest.mark.asyncio
 async def test_write_file_records_diff_and_hashes(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.tex", "old\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())

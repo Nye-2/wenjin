@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from types import SimpleNamespace
 from typing import Any
 
 from src.agents.harness.command_audit import CommandAuditPolicy, HarnessCommand, audit_command
+from src.agents.harness.output_budget import BudgetedText, budget_text_output
 from src.agents.lead_agent.v2.sandbox_artifact_collector import SandboxArtifactCollector
 from src.agents.lead_agent.v2.sandbox_environment_installer import SandboxEnvironmentInstaller
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
@@ -182,6 +184,15 @@ class SandboxJobRunner:
                     sandbox_policy=dict(sandbox_policy),
                     plan=plan,
                 )
+                stdout_budget, stderr_budget = await _budget_script_streams(
+                    sandbox=sandbox,
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    node_id=node_id,
+                    sandbox_policy=sandbox_policy,
+                    stdout=script_state.result.stdout.strip(),
+                    stderr=script_state.result.stderr.strip(),
+                )
         except Exception as exc:
             await mark_job_failed(
                 ctx.manager,
@@ -207,6 +218,10 @@ class SandboxJobRunner:
             install_job_ids=script_state.install_job_ids,
             retry_count=script_state.retry_count,
             script_path=plan.script_path,
+            stdout_preview=stdout_budget.preview_text if stdout_budget.truncated else None,
+            stderr_preview=stderr_budget.preview_text if stderr_budget.truncated else None,
+            stdout_ref=stdout_budget.output_refs[0] if stdout_budget.output_refs else None,
+            stderr_ref=stderr_budget.output_refs[0] if stderr_budget.output_refs else None,
         )
         if not script_state.result.success:
             output["status"] = "failed"
@@ -240,3 +255,52 @@ def _runtime_job_metadata(
     if command_audit is not None:
         metadata["command_audit"] = command_audit
     return metadata
+
+
+async def _budget_script_streams(
+    *,
+    sandbox: Any,
+    workspace_id: str,
+    execution_id: str,
+    node_id: str,
+    sandbox_policy: Mapping[str, Any],
+    stdout: str,
+    stderr: str,
+) -> tuple[BudgetedText, BudgetedText]:
+    output_budget = _output_budget(sandbox_policy)
+    context = SimpleNamespace(
+        workspace_id=workspace_id,
+        execution_id=execution_id,
+        node_id=node_id,
+        invocation_id=node_id,
+    )
+    stdout_budget = await budget_text_output(
+        text=stdout,
+        tool_name="sandbox.run_python.stdout",
+        context=context,
+        sandbox=sandbox,
+        output_budget=output_budget,
+        fallback_max_chars=_stream_max_chars(output_budget, "stdout"),
+    )
+    stderr_budget = await budget_text_output(
+        text=stderr,
+        tool_name="sandbox.run_python.stderr",
+        context=context,
+        sandbox=sandbox,
+        output_budget=output_budget,
+        fallback_max_chars=_stream_max_chars(output_budget, "stderr"),
+    )
+    return stdout_budget, stderr_budget
+
+
+def _output_budget(sandbox_policy: Mapping[str, Any]) -> dict[str, Any]:
+    value = sandbox_policy.get("output_budget")
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _stream_max_chars(output_budget: Mapping[str, Any], stream: str) -> int:
+    return int(
+        output_budget.get(f"{stream}_max_chars")
+        or output_budget.get("stream_max_chars")
+        or 12_000
+    )

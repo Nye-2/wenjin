@@ -53,14 +53,18 @@ class SandboxExecutionTools:
         status = str(payload.get("status") or "completed")
         preview = f"Python execution {status}"
         parsed = payload.get("parsed_stdout")
-        if parsed is not None:
+        if parsed:
             preview = f"{preview}: {str(parsed)[:500]}"
         elif payload.get("stdout"):
             preview = f"{preview}: {str(payload['stdout'])[:500]}"
+        output_refs = tuple(str(ref) for ref in payload.get("output_refs") or () if str(ref).strip())
+        externalized = bool(output_refs or payload.get("stdout_externalized") or payload.get("stderr_externalized"))
         return HarnessToolResult(
             preview_text=preview,
             structured_payload=dict(payload),
-            truncated=False,
+            output_refs=output_refs,
+            truncated=externalized,
+            externalized=externalized,
         )
 
     def _sandbox_policy(self) -> dict[str, Any]:

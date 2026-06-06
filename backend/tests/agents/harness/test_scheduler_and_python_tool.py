@@ -115,6 +115,41 @@ async def test_run_python_uses_existing_sandbox_job_runner_through_scheduler() -
 
 
 @pytest.mark.asyncio
+async def test_run_python_propagates_externalized_output_refs() -> None:
+    class ExternalizedRunner:
+        async def run_python_script(self, **kwargs):
+            return {
+                "status": "completed",
+                "stdout": "Total output lines: 30\n\nrow 001\n\n[Full sandbox.run_python.stdout output saved to /workspace/outputs/harness/exec-1/node-1/node-1/sandbox.run_python.stdout.txt]\n\nrow 030",
+                "stderr": "",
+                "parsed_stdout": {},
+                "sandbox_job_id": "job-1",
+                "stdout_externalized": True,
+                "output_refs": [
+                    "/workspace/outputs/harness/exec-1/node-1/node-1/sandbox.run_python.stdout.txt"
+                ],
+            }
+
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+        ),
+        runner=ExternalizedRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(script="print('large')", script_name="analysis.py")
+
+    assert result.externalized
+    assert result.truncated
+    assert result.output_refs == (
+        "/workspace/outputs/harness/exec-1/node-1/node-1/sandbox.run_python.stdout.txt",
+    )
+
+
+@pytest.mark.asyncio
 async def test_run_python_requires_explicit_permission() -> None:
     tool = SandboxExecutionTools(
         context=_ctx(),
