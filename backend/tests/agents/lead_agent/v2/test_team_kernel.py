@@ -28,6 +28,33 @@ class TeamFakeSubagent(SubagentBase):
         )
 
 
+@subagent("team_sandbox_fake")
+class TeamSandboxFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        return SubagentResult(
+            output={
+                "summary": f"{ctx.invocation['display_name']} updated workspace file",
+                "team_role": ctx.inputs["team_role"],
+            },
+            tool_calls=[
+                {
+                    "name": "sandbox.write_file",
+                    "status": "completed",
+                    "file_changes": [
+                        {
+                            "path": "/workspace/main.tex",
+                            "operation": "update",
+                            "before_hash": "sha256:old",
+                            "after_hash": "sha256:new",
+                            "unified_diff": "--- a/workspace/main.tex\n+++ b/workspace/main.tex\n",
+                        }
+                    ],
+                }
+            ],
+            token_usage={"input": 3, "output": 5},
+        )
+
+
 @subagent("team_failing")
 class TeamFailingSubagent(SubagentBase):
     async def run(self, ctx: SubagentContext) -> SubagentResult:
@@ -324,6 +351,24 @@ class MappingTeamCatalogClient(FakeTeamCatalogClient):
         ]
 
 
+class SandboxToolTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            CapabilitySkillPayload(
+                id=record.id,
+                display_name=record.display_name,
+                worker_type=record.worker_type,
+                subagent_type="team_sandbox_fake",
+                prompt=record.prompt,
+                config=record.config,
+            )
+            for record in records
+        ]
+
+
 class FakeFailingTeamCatalogClient(FakeTeamCatalogClient):
     async def list_catalog_skills(self, *, enabled_only: bool = True):
         from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
@@ -388,6 +433,47 @@ async def test_team_kernel_runtime_publishes_team_events_and_report(monkeypatch)
     assert "团队调研" in report.narrative
     assert report.token_usage == {"input": 6, "output": 10}
     assert any(event["node_type"] == "agent_invocation" for event in node_events)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_records_harness_file_change_summary(monkeypatch) -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SandboxToolTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-sandbox-summary", brief=_brief())
+
+    completed_events = [
+        event
+        for event in node_events
+        if event["node_type"] == "agent_invocation" and event["status"] == "completed"
+    ]
+    summaries = [
+        event["node_metadata"]["harness"]["file_change_summary"]
+        for event in completed_events
+        if event["node_metadata"].get("harness")
+    ]
+    assert report.status == "completed"
+    assert summaries
+    assert summaries[0]["schema"] == "wenjin.harness.file_change_summary.v1"
+    assert summaries[0]["changed_paths"] == ["/workspace/main.tex"]
+    assert summaries[0]["changes"][0]["after_hash"] == "sha256:new"
 
 
 @pytest.mark.asyncio

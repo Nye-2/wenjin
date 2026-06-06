@@ -19,6 +19,7 @@ from src.agents.contracts.task_report import (
     ResultOutput,
     TaskReport,
 )
+from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
 from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
 from src.dataservice_client.provider import dataservice_client
 from src.subagents.v2 import types as _types  # noqa: F401
@@ -612,6 +613,19 @@ class TeamKernelRuntime:
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
     ) -> None:
+        node_metadata = {
+            "team": True,
+            "template_id": invocation.template_id,
+            "display_name": invocation.display_name,
+            "assigned_role": invocation.assigned_role,
+            "recruitment_reason": invocation.recruitment_reason,
+            "effective_tools": invocation.effective_tools,
+            "effective_skills": invocation.effective_skills,
+        }
+        harness_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+        if harness_metadata:
+            node_metadata.update(harness_metadata)
+
         await self.record_node_event(
             execution_id=invocation.execution_id or "",
             node_id=invocation.id,
@@ -623,15 +637,7 @@ class TeamKernelRuntime:
             tool_calls=invocation.tool_calls,
             token_usage=invocation.token_usage,
             error=invocation.error["message"] if invocation.error else None,
-            node_metadata={
-                "team": True,
-                "template_id": invocation.template_id,
-                "display_name": invocation.display_name,
-                "assigned_role": invocation.assigned_role,
-                "recruitment_reason": invocation.recruitment_reason,
-                "effective_tools": invocation.effective_tools,
-                "effective_skills": invocation.effective_skills,
-            },
+            node_metadata=node_metadata,
             started_at=started_at,
             completed_at=completed_at,
         )

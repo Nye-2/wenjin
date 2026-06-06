@@ -18,6 +18,7 @@ from src.agents.contracts.task_report import (
     ResultOutput,
     TaskReport,
 )
+from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
 from src.agents.lead_agent.v2.compiler import compile_graph
 from src.agents.lead_agent.v2.output_mapping import (
     OutputMappingResolver,
@@ -953,6 +954,7 @@ class LeadAgentRuntime:
                         thinking = node_result.get("thinking") if isinstance(node_result, dict) else None
                         tool_calls = node_result.get("tool_calls") if isinstance(node_result, dict) else None
                         token_usage = node_result.get("token_usage") if isinstance(node_result, dict) else None
+                        node_metadata = build_harness_node_metadata_from_tool_calls(tool_calls)
                         await recorder(
                             execution_id=execution_id,
                             node_id=meta["node_id"],
@@ -963,6 +965,7 @@ class LeadAgentRuntime:
                             thinking=thinking,
                             tool_calls=tool_calls,
                             token_usage=token_usage,
+                            node_metadata=node_metadata,
                             completed_at=completed_at,
                         )
                         await _emit(
@@ -973,6 +976,7 @@ class LeadAgentRuntime:
                             thinking=thinking,
                             tool_calls=tool_calls,
                             token_usage=token_usage,
+                            node_metadata=node_metadata,
                             completed_at=completed_at.isoformat(),
                         )
                 except Exception:

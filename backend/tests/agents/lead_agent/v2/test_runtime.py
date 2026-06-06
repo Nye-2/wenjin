@@ -604,6 +604,81 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
     ]
 
 
+@pytest.mark.asyncio
+async def test_node_recording_adds_harness_file_change_summary_metadata():
+    graph_template = {
+        "phases": [
+            {
+                "name": "analysis",
+                "tasks": [
+                    {
+                        "name": "writer",
+                        "subagent_type": "react",
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+        record_node_event=record_node_event,
+    )
+    file_change = {
+        "path": "/workspace/main.tex",
+        "operation": "update",
+        "before_hash": "sha256:old",
+        "after_hash": "sha256:new",
+        "unified_diff": "--- a/workspace/main.tex\n+++ b/workspace/main.tex\n",
+    }
+
+    async def fake_inner(state):
+        return {
+            **state,
+            "node_results": {
+                "writer": {
+                    "output": {"text": "updated"},
+                    "tool_calls": [
+                        {
+                            "name": "sandbox.write_file",
+                            "status": "completed",
+                            "file_changes": [file_change],
+                        }
+                    ],
+                }
+            },
+        }
+
+    with patch(
+        "src.agents.lead_agent.v2.compiler._default_runner_factory",
+        return_value=fake_inner,
+    ):
+        runner_factory = runtime._build_persisting_runner_factory(
+            execution_id="exec-file-summary",
+            graph_template=graph_template,
+        )
+        run_node = runner_factory(object, {"name": "writer", "subagent_type": "react"})
+        await run_node(
+            {
+                "inputs_for_tasks": {"writer": {"topic": "quantum computing"}},
+                "node_results": {},
+            }
+        )
+
+    completed = [event for event in node_events if event["status"] == "completed"]
+    assert completed
+    summary = completed[-1]["node_metadata"]["harness"]["file_change_summary"]
+    assert summary["schema"] == "wenjin.harness.file_change_summary.v1"
+    assert summary["changed_paths"] == ["/workspace/main.tex"]
+    assert summary["changes"][0]["after_hash"] == "sha256:new"
+
+
 def test_collect_sandbox_artifact_candidates_rejects_internal_and_traversal_paths():
     node_results = {
         "experiment_runner": {
