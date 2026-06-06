@@ -8,6 +8,7 @@ from src.agents.lead_agent.v2.sandbox_runtime import (
     run_python_script,
     run_python_smoke_check,
 )
+from src.agents.lead_agent.v2.workspace_sandbox import ENSURE_WORKSPACE_VENV_COMMAND
 from src.sandbox.base import CommandResult, FileInfo
 from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
@@ -210,6 +211,7 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
     assert provider.sandbox.files["/workspace/scripts/analysis_probe.py"].startswith("import json")
     [(venv_command, _), (command, timeout)] = provider.sandbox.commands
     assert "python -m venv /workspace/.wenjin/env/python" in venv_command
+    assert "python3 -m venv /workspace/.wenjin/env/python" in venv_command
     assert command == "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py"
     assert timeout == 60
     assert result["status"] == "completed"
@@ -436,7 +438,7 @@ async def test_run_python_script_installs_missing_module_and_retries_once() -> N
     assert [job["operation"] for job in manager.created_jobs] == ["run_python", "install_dependencies"]
     assert manager.created_jobs[1]["metadata"]["packages"] == ["requests"]
     assert [command for command, _ in provider.sandbox.commands] == [
-        "test -x /workspace/.wenjin/env/python/bin/python || python -m venv /workspace/.wenjin/env/python",
+        ENSURE_WORKSPACE_VENV_COMMAND,
         "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",
         "/workspace/.wenjin/env/python/bin/python -m pip install --disable-pip-version-check --no-input --cache-dir /workspace/.wenjin/cache/pip requests",
         "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",

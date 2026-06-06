@@ -8,8 +8,7 @@ import mimetypes
 from collections.abc import Iterable
 from typing import Any
 
-from src.agents.harness.output_budget import HARNESS_OUTPUTS_ROOT
-from src.sandbox.workspace_layout import WORKSPACE_ROOT
+from src.sandbox.workspace_layout import WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT, WORKSPACE_ROOT
 
 DISCOVERY_SCHEMA = "wenjin.sandbox.generated_artifact_candidate.v1"
 DISCOVERY_ROOTS: tuple[tuple[str, str, str], ...] = (
@@ -99,7 +98,9 @@ def _normalize_virtual_path(path: str) -> str:
 
 
 def _is_internal_harness_output(path: str) -> bool:
-    return path == HARNESS_OUTPUTS_ROOT or path.startswith(f"{HARNESS_OUTPUTS_ROOT}/")
+    return path == WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT or path.startswith(
+        f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/"
+    )
 
 
 def _coerce_size(value: Any) -> int | None:

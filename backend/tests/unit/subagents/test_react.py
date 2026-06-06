@@ -19,6 +19,7 @@ from src.subagents.v2.types.react import (
     _resolve_tools,
     _run_react_loop,
     _runtime_output_config,
+    _with_sandbox_workspace_contract,
 )
 
 # ---------------------------------------------------------------------------
@@ -108,6 +109,52 @@ class TestDefaultUserPayload:
             "quality_gates": ["claim_source_binding_checked"]
         }
         assert payload["_skill_quality_gates"] == ["no_fabrication"]
+
+    def test_includes_sandbox_workspace_contract_for_sandbox_tools(self):
+        ctx = _make_ctx(
+            inputs={"topic": "federated LLM experiments"},
+            tools=["sandbox.run_python"],
+            capability_policy={
+                "sandbox_policy": {"allowed_operations": ["run_python"]},
+            },
+        )
+
+        payload = _build_default_user_payload(ctx, {})
+
+        contract = payload["_sandbox_workspace"]
+        assert contract["virtual_root"] == "/workspace"
+        assert contract["directories"]["scripts"]["purpose"] == "reusable_experiment_scripts"
+        assert contract["artifact_roots"] == {
+            "outputs": "/workspace/outputs",
+            "reports": "/workspace/reports",
+        }
+        assert "/workspace/outputs/harness/**" in contract["internal_paths"]
+        assert ".wenjin/env/**" in contract["protected_paths"]
+        assert "Write reusable scripts under /workspace/scripts." in contract["rules"]
+        assert (
+            "Do not register or cite /workspace/outputs/harness/** as user-facing artifacts."
+            in contract["rules"]
+        )
+
+
+class TestSandboxWorkspaceContractPrompt:
+    def test_appends_contract_to_system_prompt_for_sandbox_tool_agents(self):
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            inputs={"workspace_type": "sci"},
+        )
+
+        prompt = _with_sandbox_workspace_contract("你是实验专家", ctx)
+
+        assert "你是实验专家" in prompt
+        assert "Sandbox workspace contract" in prompt
+        assert "/workspace/scripts" in prompt
+        assert "/workspace/reports" in prompt
+
+    def test_leaves_system_prompt_unchanged_without_sandbox_tools(self):
+        ctx = _make_ctx(tools=[])
+
+        assert _with_sandbox_workspace_contract("你是综述专家", ctx) == "你是综述专家"
 
 
 # ---------------------------------------------------------------------------

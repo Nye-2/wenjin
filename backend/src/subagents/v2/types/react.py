@@ -12,6 +12,7 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.models import create_chat_model
+from src.sandbox.workspace_layout import build_agent_workspace_contract
 from src.services.thread_billing import extract_message_usage
 from src.services.token_usage_collector import record_token_usage
 
@@ -205,6 +206,25 @@ def _with_output_contract(system_prompt: str, config: dict[str, Any]) -> str:
     return f"{system_prompt}{contract}" if system_prompt else contract.strip()
 
 
+def _with_sandbox_workspace_contract(system_prompt: str, ctx: SubagentContext) -> str:
+    """Append the workspace sandbox filesystem contract for sandbox-capable agents."""
+
+    if not _uses_sandbox_tools(ctx):
+        return system_prompt
+    workspace_type = str((ctx.inputs or {}).get("workspace_type") or "")
+    contract = build_agent_workspace_contract(
+        workspace_id=ctx.workspace_id,
+        workspace_type=workspace_type,
+    )
+    contract_text = json.dumps(contract, ensure_ascii=False, sort_keys=True)
+    section = (
+        "\n\nSandbox workspace contract:\n"
+        "- Follow this filesystem contract whenever using sandbox tools.\n"
+        f"- Contract JSON: {contract_text}"
+    )
+    return f"{system_prompt}{section}" if system_prompt else section.strip()
+
+
 def _string_list(value: Any) -> list[str]:
     if value is None:
         return []
@@ -237,11 +257,25 @@ def _build_default_user_payload(ctx: SubagentContext, config: dict[str, Any]) ->
     if ctx.capability_policy:
         payload["_capability_policy"] = ctx.capability_policy
 
+    if _uses_sandbox_tools(ctx):
+        payload["_sandbox_workspace"] = build_agent_workspace_contract(
+            workspace_id=ctx.workspace_id,
+            workspace_type=str(payload.get("workspace_type") or ""),
+        )
+
     quality_gates = config.get("quality_gates")
     if quality_gates:
         payload["_skill_quality_gates"] = quality_gates
 
     return payload
+
+
+def _uses_sandbox_tools(ctx: SubagentContext) -> bool:
+    tools = [str(tool).strip() for tool in ctx.tools or []]
+    if any(tool.startswith("sandbox.") or tool in {"sandbox_python", "sandbox_exec"} for tool in tools):
+        return True
+    sandbox_policy = ctx.capability_policy.get("sandbox_policy")
+    return isinstance(sandbox_policy, dict) and bool(sandbox_policy.get("allowed_operations"))
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +306,7 @@ class ReactSubagent(SubagentBase):
         # Assemble prompts
         config = _runtime_output_config(ctx.skill.config or {}, ctx.inputs or {})
         system_prompt = _with_output_contract(ctx.skill.prompt or "", config)
+        system_prompt = _with_sandbox_workspace_contract(system_prompt, ctx)
         user_template = config.get("user_template")
         user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)
         user_message = _render_user_message(user_template, user_inputs)

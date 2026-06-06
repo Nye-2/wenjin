@@ -12,6 +12,8 @@ WORKSPACE_LAYOUT_SCHEMA = "wenjin.workspace_sandbox.layout.v1"
 WORKSPACE_LAYOUT_VERSION = 1
 WORKSPACE_MANIFEST_RELATIVE_PATH = ".wenjin/manifest.json"
 WORKSPACE_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_MANIFEST_RELATIVE_PATH}"
+WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH = "outputs/harness"
+WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH}"
 
 WORKSPACE_STANDARD_DIRS = (
     "main",
@@ -32,6 +34,10 @@ WORKSPACE_PROTECTED_PATHS = (
     ".wenjin/env/**",
     ".wenjin/cache/**",
     WORKSPACE_MANIFEST_RELATIVE_PATH,
+)
+
+WORKSPACE_INTERNAL_PATHS = (
+    f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/**",
 )
 
 _DIRECTORY_CONTRACTS: dict[str, dict[str, Any]] = {
@@ -131,6 +137,48 @@ def build_workspace_sandbox_manifest(
             "python_env": f"{WORKSPACE_ROOT}/.wenjin/env",
             "cache": f"{WORKSPACE_ROOT}/.wenjin/cache",
         },
+        "internal_paths": list(WORKSPACE_INTERNAL_PATHS),
+    }
+
+
+def build_agent_workspace_contract(
+    *,
+    workspace_id: str | None = None,
+    workspace_type: str | None = None,
+) -> dict[str, Any]:
+    """Return the compact sandbox filesystem contract shown to tool-using agents."""
+
+    manifest = build_workspace_sandbox_manifest(
+        workspace_id=workspace_id,
+        workspace_type=workspace_type,
+    )
+    directories = {
+        name: {
+            "path": contract["virtual_path"],
+            "purpose": contract["purpose"],
+            "review_surface": contract["review_surface"],
+        }
+        for name, contract in manifest["directories"].items()
+    }
+    return {
+        "schema": WORKSPACE_LAYOUT_SCHEMA,
+        "version": WORKSPACE_LAYOUT_VERSION,
+        "virtual_root": WORKSPACE_ROOT,
+        "workspace_id": workspace_id,
+        "workspace_type": workspace_type,
+        "directories": directories,
+        "artifact_roots": manifest["artifact_roots"],
+        "runtime_roots": manifest["runtime_roots"],
+        "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
+        "internal_paths": list(WORKSPACE_INTERNAL_PATHS),
+        "rules": [
+            "Use only /workspace virtual paths when calling sandbox tools.",
+            "Write reusable scripts under /workspace/scripts.",
+            "Write user-reviewable generated files under /workspace/outputs or /workspace/reports.",
+            "Use /workspace/tmp only for scratch data that should not be surfaced by default.",
+            "Do not read or write protected paths.",
+            "Do not register or cite /workspace/outputs/harness/** as user-facing artifacts.",
+        ],
     }
 
 

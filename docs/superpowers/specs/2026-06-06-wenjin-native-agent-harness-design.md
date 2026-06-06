@@ -234,6 +234,7 @@ Implementation rules:
 
 - `backend/src/sandbox/workspace_layout.py` is the single source of truth for `WORKSPACE_ROOT`, standard directories, protected paths, manifest path, and helper virtual-path construction.
 - Every provider that creates a workspace sandbox calls `ensure_workspace_sandbox_layout()` during acquire.
+- Tool-using ReactSubagents receive the same compact filesystem contract in both `_sandbox_workspace` default payload data and a `Sandbox workspace contract` system prompt section, so custom `user_template` skills still know where scripts, reports, outputs, scratch files, protected paths, and internal harness refs belong.
 - Harness tools accept only `/workspace` virtual paths. New harness code must not introduce `/mnt/user-data` aliases.
 - Existing thread artifact/upload helpers that still use `/mnt/user-data` are legacy non-harness boundaries and should be migrated deliberately when that product surface is touched.
 - `.wenjin/env/**`, `.wenjin/cache/**`, `.wenjin/manifest.json`, `.git/**`, `.env`, `*.pem`, and `*.key` are protected by default policy.

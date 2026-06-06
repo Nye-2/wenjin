@@ -5,11 +5,10 @@ from __future__ import annotations
 from pathlib import PurePosixPath
 from typing import Any
 
-from src.agents.harness.output_budget import HARNESS_OUTPUTS_ROOT
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import DISCOVERY_SCHEMA
 from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.sandbox import SandboxArtifactCreatePayload
-from src.sandbox.workspace_layout import WORKSPACE_ROOT
+from src.sandbox.workspace_layout import WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT, WORKSPACE_ROOT
 
 REVIEW_TARGET_DOMAIN = "sandbox"
 REVIEW_TARGET_KIND = "sandbox_artifact"
@@ -215,7 +214,9 @@ def _candidate_metadata(candidate: dict[str, Any], *, execution_id: str) -> dict
 def _is_user_reviewable_sandbox_path(path: str) -> bool:
     if ".." in PurePosixPath(path).parts:
         return False
-    if path == HARNESS_OUTPUTS_ROOT or path.startswith(f"{HARNESS_OUTPUTS_ROOT}/"):
+    if path == WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT or path.startswith(
+        f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/"
+    ):
         return False
     return any(path.startswith(root) for root in _USER_REVIEWABLE_ROOTS)
 

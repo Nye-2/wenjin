@@ -24,7 +24,12 @@ from src.dataservice_client.provider import dataservice_client
 WORKSPACE_VENV_DIR = "/workspace/.wenjin/env/python"
 WORKSPACE_VENV_PYTHON = f"{WORKSPACE_VENV_DIR}/bin/python"
 WORKSPACE_PIP_CACHE_DIR = "/workspace/.wenjin/cache/pip"
-ENSURE_WORKSPACE_VENV_COMMAND = f"test -x {WORKSPACE_VENV_PYTHON} || python -m venv {WORKSPACE_VENV_DIR}"
+ENSURE_WORKSPACE_VENV_COMMAND = (
+    f"test -x {WORKSPACE_VENV_PYTHON} || "
+    f"{{ command -v python > /workspace/tmp/python-bootstrap-check.txt 2>&1 "
+    f"&& python -m venv {WORKSPACE_VENV_DIR} || "
+    f"python3 -m venv {WORKSPACE_VENV_DIR}; }}"
+)
 
 _MAX_DEPENDENCY_HINTS = 20
 _SAFE_PACKAGE_RE = re.compile(

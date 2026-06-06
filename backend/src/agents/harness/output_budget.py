@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
-from src.sandbox.workspace_layout import WORKSPACE_ROOT
+from src.sandbox.workspace_layout import WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT
 
-HARNESS_OUTPUTS_ROOT = f"{WORKSPACE_ROOT}/outputs/harness"
+HARNESS_OUTPUTS_ROOT = WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT
 DEFAULT_EXTERNALIZE_ABOVE_CHARS = 12_000
 DEFAULT_PREVIEW_HEAD_CHARS = 4_000
 DEFAULT_PREVIEW_TAIL_CHARS = 2_000
