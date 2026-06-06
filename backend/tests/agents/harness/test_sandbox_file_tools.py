@@ -230,6 +230,25 @@ async def test_list_dir_accepts_current_virtual_workspace_root(sandbox: LocalSan
 
 
 @pytest.mark.asyncio
+async def test_list_dir_caps_structured_entries(sandbox: LocalSandbox) -> None:
+    for index in range(1, 9):
+        await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"item {index}\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(output_budget={"search_max_matches": 5}),
+    )
+
+    result = await tools.list_dir(path="/workspace/main", max_depth=1)
+
+    assert result.truncated
+    assert result.structured_payload["total_entries"] == 8
+    assert result.structured_payload["returned_entries"] == 5
+    assert len(result.structured_payload["entries"]) == 5
+    assert len(result.preview_text.splitlines()) == 5
+
+
+@pytest.mark.asyncio
 async def test_protected_paths_are_blocked(sandbox: LocalSandbox) -> None:
     tools = SandboxFileTools(
         sandbox=sandbox,

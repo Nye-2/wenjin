@@ -71,7 +71,7 @@ class SandboxFileTools:
     async def list_dir(self, *, path: str = WORKSPACE_ROOT, max_depth: int = 1) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="read")
         entries = await self.sandbox.list_dir(safe_path, max_depth=max_depth)
-        payload_entries = [
+        visible_entries = [
             {
                 "name": entry.name,
                 "path": virtual_path,
@@ -81,14 +81,21 @@ class SandboxFileTools:
             for entry in entries
             if self._is_tool_visible_path(virtual_path := _virtualize_path(entry.path))
         ]
+        limit = self._max_matches()
+        payload_entries = visible_entries[:limit]
         lines = [
             f"{item['path']}{'/' if item['is_dir'] else ''}"
-            for item in payload_entries[: self._max_matches()]
+            for item in payload_entries
         ]
         return HarnessToolResult(
             preview_text="\n".join(lines),
-            structured_payload={"path": safe_path, "entries": payload_entries},
-            truncated=len(payload_entries) > self._max_matches(),
+            structured_payload={
+                "path": safe_path,
+                "entries": payload_entries,
+                "total_entries": len(visible_entries),
+                "returned_entries": len(payload_entries),
+            },
+            truncated=len(visible_entries) > limit,
         )
 
     async def glob(self, *, pattern: str, max_matches: int | None = None) -> HarnessToolResult:
