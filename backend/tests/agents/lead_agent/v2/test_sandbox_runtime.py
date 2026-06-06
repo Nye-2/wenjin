@@ -8,7 +8,7 @@ from src.agents.lead_agent.v2.sandbox_runtime import (
     run_python_script,
     run_python_smoke_check,
 )
-from src.sandbox.base import CommandResult
+from src.sandbox.base import CommandResult, FileInfo
 from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.sandbox import SandboxPythonSubagent
@@ -30,6 +30,36 @@ class _FakeSandbox:
 
     async def write_file(self, path: str, content: str, append: bool = False) -> None:
         self.files[path] = self.files.get(path, "") + content if append else content
+
+    async def read_file(self, path: str) -> str:
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
+
+    async def list_dir(self, path: str, max_depth: int = 2) -> list[FileInfo]:
+        root = path.rstrip("/")
+        entries: dict[str, FileInfo] = {}
+        for file_path, content in self.files.items():
+            if not file_path.startswith(f"{root}/"):
+                continue
+            relative = file_path[len(root) + 1 :]
+            parts = relative.split("/")
+            if len(parts) > max_depth + 1:
+                continue
+            current = root
+            for part in parts[:-1]:
+                current = f"{current}/{part}"
+                entries.setdefault(
+                    current,
+                    FileInfo(name=part, path=current, is_dir=True, size=None),
+                )
+            entries[file_path] = FileInfo(
+                name=parts[-1],
+                path=file_path,
+                is_dir=False,
+                size=len(content.encode("utf-8")),
+            )
+        return [entries[key] for key in sorted(entries)]
 
 
 class _FakeProvider:
@@ -237,6 +267,95 @@ async def test_run_python_script_externalizes_large_stdout_before_returning_payl
     assert "row 001" in result["stdout"]
     assert "row 030" in result["stdout"]
     assert stdout not in result["report_markdown"]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_discovers_user_reviewable_generated_artifacts() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    original_execute = provider.sandbox.execute_command
+
+    async def _execute_and_generate(command: str, timeout: int = 300, **kwargs) -> CommandResult:
+        result = await original_execute(command, timeout=timeout, **kwargs)
+        if command == "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py":
+            provider.sandbox.files["/workspace/outputs/figure.png"] = "fake image bytes"
+            provider.sandbox.files["/workspace/outputs/data/metrics.json"] = '{"accuracy": 0.91}'
+            provider.sandbox.files["/workspace/reports/summary.md"] = "# Summary\n\nDone."
+            provider.sandbox.files["/workspace/outputs/harness/exec-1/internal/tool.txt"] = "internal"
+        return result
+
+    provider.sandbox.execute_command = _execute_and_generate  # type: ignore[method-assign]
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    generated = result["generated_artifacts"]
+    assert [artifact["path"] for artifact in generated] == [
+        "/workspace/outputs/data/metrics.json",
+        "/workspace/outputs/figure.png",
+        "/workspace/reports/summary.md",
+    ]
+    assert [artifact["artifact_kind"] for artifact in generated] == [
+        "sandbox_output",
+        "sandbox_output",
+        "sandbox_report",
+    ]
+    assert all(artifact["materialization_status"] == "candidate" for artifact in generated)
+    assert all(artifact["review_surface"] == "sandbox_artifact" for artifact in generated)
+    assert all("content_hash" in artifact for artifact in generated)
+    assert "/workspace/outputs/harness/exec-1/internal/tool.txt" not in {
+        artifact["path"] for artifact in generated
+    }
+    assert "Generated artifacts" in result["report_markdown"]
+    assert "/workspace/reports/summary.md" in result["report_markdown"]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_keeps_success_when_artifact_discovery_fails() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    async def _broken_list_dir(path: str, max_depth: int = 2) -> list[FileInfo]:
+        raise PermissionError(path)
+
+    provider.sandbox.list_dir = _broken_list_dir  # type: ignore[method-assign]
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    assert result["status"] == "completed"
+    assert result["parsed_stdout"] == {"ok": True}
+    assert result["generated_artifacts"] == []
+    assert manager.updated_jobs[-1] == {"job_id": "job-1", "status": "succeeded", "exit_code": 0}
 
 
 @pytest.mark.asyncio

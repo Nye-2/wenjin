@@ -387,6 +387,7 @@ Sandbox：
 | `sandbox_environment_installer.py` | 自动环境安装、依赖计划、幂等安装记录 |
 | `sandbox_job_runner.py` | command/script execution、timeout、stdout/stderr |
 | `sandbox_artifact_collector.py` | generated files/artifacts collection |
+| `sandbox_artifact_discovery.py` | `/workspace/outputs`、`/workspace/reports` 候选产物发现 |
 | `sandbox_runtime_session.py` | provider/manager resolve、environment context、lease acquire/release |
 | `sandbox_script_executor.py` | script validate/write、declared dependency install、missing-module retry |
 | `sandbox_runtime.py` | facade，保留现有外部调用入口 |
@@ -398,7 +399,8 @@ Sandbox：
 - `sandbox_environment_installer.py` 负责 declared dependency、missing-module retry 前置安装、安装 job 记录；安装操作 `billable=False`。
 - `sandbox_script_executor.py` 负责脚本内容校验、临时脚本写入、hash/path 生成、依赖 retry 触发。
 - `sandbox_job_runner.py` 负责真正执行 command、timeout、stdout/stderr、job 状态映射；它不解析 artifact payload。
-- `sandbox_artifact_collector.py` 负责 stdout JSON、markdown report、generated file 列表的结构化输出。
+- `sandbox_artifact_discovery.py` 负责扫描用户可审阅候选产物，排除 `/workspace/outputs/harness/**` 内部大输出引用，并在扫描异常时降级为空列表。
+- `sandbox_artifact_collector.py` 负责 stdout JSON、markdown report、generated artifact candidate 列表的结构化输出。
 - 计费入口仍在 sandbox task/run admission：启动 sandbox 任务计费，安装不单独计费，subagent 不能绕过 runtime 自行扣费。
 
 边界规则：

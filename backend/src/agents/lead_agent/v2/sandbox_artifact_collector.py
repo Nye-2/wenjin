@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from src.agents.lead_agent.v2.sandbox_artifact_discovery import summarize_generated_artifacts
 from src.sandbox.base import CommandResult
 
 
@@ -76,6 +77,7 @@ class SandboxArtifactCollector:
         stderr_preview: str | None = None,
         stdout_ref: str | None = None,
         stderr_ref: str | None = None,
+        generated_artifacts: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         raw_stdout = result.stdout.strip()
         raw_stderr = result.stderr.strip()
@@ -83,6 +85,7 @@ class SandboxArtifactCollector:
         stdout = stdout_preview if stdout_preview is not None else raw_stdout
         stderr = stderr_preview if stderr_preview is not None else raw_stderr
         output_refs = [ref for ref in (stdout_ref, stderr_ref) if ref]
+        artifact_candidates = list(generated_artifacts or [])
         report_markdown = (
             "# Sandbox Python 执行报告\n\n"
             "- 执行位置：LeadAgentRuntime / subagent node\n"
@@ -102,6 +105,7 @@ class SandboxArtifactCollector:
             "```text\n"
             f"{stderr}\n"
             "```\n"
+            f"{summarize_generated_artifacts(artifact_candidates)}"
         )
         return {
             "status": "completed",
@@ -125,6 +129,7 @@ class SandboxArtifactCollector:
             "script_path": script_path,
             "script_name": safe_name,
             "script_hash": script_hash,
+            "generated_artifacts": artifact_candidates,
             "report_markdown": report_markdown,
         }
 

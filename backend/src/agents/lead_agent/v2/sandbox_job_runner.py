@@ -9,6 +9,7 @@ from typing import Any
 from src.agents.harness.command_audit import CommandAuditPolicy, HarnessCommand, audit_command
 from src.agents.harness.output_budget import BudgetedText, budget_text_output
 from src.agents.lead_agent.v2.sandbox_artifact_collector import SandboxArtifactCollector
+from src.agents.lead_agent.v2.sandbox_artifact_discovery import discover_generated_artifacts
 from src.agents.lead_agent.v2.sandbox_environment_installer import SandboxEnvironmentInstaller
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.sandbox_runtime_session import (
@@ -193,6 +194,7 @@ class SandboxJobRunner:
                     stdout=script_state.result.stdout.strip(),
                     stderr=script_state.result.stderr.strip(),
                 )
+                generated_artifacts = await discover_generated_artifacts(sandbox)
         except Exception as exc:
             await mark_job_failed(
                 ctx.manager,
@@ -222,6 +224,7 @@ class SandboxJobRunner:
             stderr_preview=stderr_budget.preview_text if stderr_budget.truncated else None,
             stdout_ref=stdout_budget.output_refs[0] if stdout_budget.output_refs else None,
             stderr_ref=stderr_budget.output_refs[0] if stderr_budget.output_refs else None,
+            generated_artifacts=generated_artifacts,
         )
         if not script_state.result.success:
             output["status"] = "failed"
