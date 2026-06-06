@@ -41,6 +41,7 @@ class SandboxScriptExecutionState:
     result: Any
     installed_packages: list[str]
     install_job_ids: list[str]
+    install_command_audits: list[dict[str, Any]]
     retry_count: int
 
 
@@ -88,7 +89,7 @@ class SandboxScriptExecutor:
             run_job_id=run_job_id,
             plan=plan,
         )
-        installed_packages, install_job_ids = await self._install_declared_dependencies(
+        installed_packages, install_job_ids, install_command_audits = await self._install_declared_dependencies(
             sandbox=sandbox,
             ctx=ctx,
             workspace_id=workspace_id,
@@ -116,12 +117,14 @@ class SandboxScriptExecutor:
             dependency_hints=plan.dependency_hints,
             installed_packages=installed_packages,
             install_job_ids=install_job_ids,
+            install_command_audits=install_command_audits,
             result=result,
         )
         return SandboxScriptExecutionState(
             result=final_result,
             installed_packages=installed_packages,
             install_job_ids=install_job_ids,
+            install_command_audits=install_command_audits,
             retry_count=retry_count,
         )
 
@@ -158,12 +161,13 @@ class SandboxScriptExecutor:
         run_job_id: str,
         sandbox_policy: dict[str, Any],
         dependency_hints: list[str],
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], list[dict[str, Any]]]:
         installed_packages: list[str] = []
         install_job_ids: list[str] = []
+        install_command_audits: list[dict[str, Any]] = []
         if not dependency_hints:
-            return installed_packages, install_job_ids
-        packages, install_job_id = await self._install_dependency_packages(
+            return installed_packages, install_job_ids, install_command_audits
+        packages, install_job_id, command_audit = await self._install_dependency_packages(
             sandbox=sandbox,
             ctx=ctx,
             workspace_id=workspace_id,
@@ -176,7 +180,8 @@ class SandboxScriptExecutor:
         )
         installed_packages.extend(packages)
         install_job_ids.append(install_job_id)
-        return installed_packages, install_job_ids
+        install_command_audits.append(command_audit)
+        return installed_packages, install_job_ids, install_command_audits
 
     async def _retry_missing_dependency_once(
         self,
@@ -192,6 +197,7 @@ class SandboxScriptExecutor:
         dependency_hints: list[str],
         installed_packages: list[str],
         install_job_ids: list[str],
+        install_command_audits: list[dict[str, Any]],
         result: Any,
     ) -> tuple[int, Any]:
         missing_package = _resolve_missing_package(result, dependency_hints)
@@ -201,7 +207,7 @@ class SandboxScriptExecutor:
             or not self.installer.package_not_installed(missing_package, installed_packages)
         ):
             return 0, result
-        packages, install_job_id = await self._install_dependency_packages(
+        packages, install_job_id, command_audit = await self._install_dependency_packages(
             sandbox=sandbox,
             ctx=ctx,
             workspace_id=workspace_id,
@@ -214,6 +220,7 @@ class SandboxScriptExecutor:
         )
         installed_packages.extend(packages)
         install_job_ids.append(install_job_id)
+        install_command_audits.append(command_audit)
         retry_result = await sandbox.execute_command(
             command,
             timeout=ctx.sandbox_timeout,
@@ -233,7 +240,7 @@ class SandboxScriptExecutor:
         sandbox_policy: dict[str, Any],
         packages: list[str],
         reason: str,
-    ) -> tuple[list[str], str]:
+    ) -> tuple[list[str], str, dict[str, Any]]:
         return await self.installer.install_dependencies(
             sandbox=sandbox,
             manager=ctx.manager,

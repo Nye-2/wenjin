@@ -9,7 +9,7 @@ from src.agents.harness.sandbox_execution_tools import SandboxExecutionTools
 from src.agents.harness.scheduler import WorkspaceToolQueueTimeout, WorkspaceToolScheduler
 
 
-def _ctx() -> HarnessRunContext:
+def _ctx(publish_event=None) -> HarnessRunContext:
     return HarnessRunContext(
         workspace_id="ws-1",
         user_id="user-1",
@@ -26,6 +26,7 @@ def _ctx() -> HarnessRunContext:
                 "resource_limits": {"timeout_seconds": 60},
             }
         },
+        publish_event=publish_event,
     )
 
 
@@ -41,6 +42,34 @@ class _FakeRunner:
             "stderr": "",
             "parsed_stdout": {"ok": True},
             "sandbox_job_id": "job-1",
+        }
+
+
+class _AuditedRunner:
+    async def run_python_script(self, **kwargs):
+        return {
+            "status": "completed",
+            "stdout": "{\"ok\": true}",
+            "stderr": "",
+            "parsed_stdout": {"ok": True},
+            "sandbox_job_id": "job-1",
+            "command_audit": {
+                "verdict": "pass",
+                "risk_level": "low",
+                "reasons": [],
+                "command": {
+                    "argv": [
+                        "/workspace/.wenjin/env/python/bin/python",
+                        "/workspace/scripts/analysis.py",
+                    ],
+                    "shell_command": None,
+                    "cwd": "/workspace",
+                    "env": {},
+                    "network_profile": "none",
+                    "timeout_seconds": None,
+                    "output_bytes_cap": None,
+                },
+            },
         }
 
 
@@ -147,6 +176,36 @@ async def test_run_python_propagates_externalized_output_refs() -> None:
     assert result.output_refs == (
         "/workspace/outputs/harness/exec-1/node-1/node-1/sandbox.run_python.stdout.txt",
     )
+
+
+@pytest.mark.asyncio
+async def test_run_python_publishes_command_audit_event() -> None:
+    events: list[tuple[str, str, dict]] = []
+
+    async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+        events.append((execution_id, event_type, payload))
+
+    tool = SandboxExecutionTools(
+        context=_ctx(publish_event=publish_event),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+        ),
+        runner=_AuditedRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(script="print({'ok': True})", script_name="analysis.py")
+
+    assert result.structured_payload["command_audit"]["verdict"] == "pass"
+    audit_events = [event for event in events if event[1] == "execution.harness.command_audit"]
+    assert audit_events
+    _, _, payload = audit_events[-1]
+    assert payload["visibility"] == "team_visible"
+    assert payload["sequence_kind"] == "audit"
+    assert payload["payload"]["name"] == "sandbox.run_python"
+    assert payload["payload"]["sandbox_job_id"] == "job-1"
+    assert payload["payload"]["command_audit"]["risk_level"] == "low"
 
 
 @pytest.mark.asyncio

@@ -561,6 +561,69 @@ class TestMockLLM:
         assert completed_events[-1][2]["payload"]["generated_artifacts"] == [expected_artifact]
 
     @pytest.mark.asyncio
+    async def test_harness_run_python_record_and_events_include_command_audit(self, monkeypatch):
+        command_audit = {
+            "verdict": "pass",
+            "risk_level": "low",
+            "reasons": [],
+            "command": {
+                "argv": [
+                    "/workspace/.wenjin/env/python/bin/python",
+                    "/workspace/scripts/analysis.py",
+                ],
+                "shell_command": None,
+                "cwd": "/workspace",
+                "env": {},
+                "network_profile": "none",
+                "timeout_seconds": None,
+                "output_bytes_cap": None,
+            },
+        }
+
+        async def fake_run_python(self, **kwargs):
+            return HarnessToolResult(
+                preview_text="Python execution completed",
+                structured_payload={
+                    "sandbox_job_id": "job-1",
+                    "command_audit": command_audit,
+                },
+            )
+
+        monkeypatch.setattr(
+            "src.agents.harness.sandbox_execution_tools.SandboxExecutionTools.run_python",
+            fake_run_python,
+        )
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        skill = _make_skill()
+        skill.skill_json = {"sandbox_access": {"mode": "required", "profiles": ["analysis"]}}
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            workspace_data={"_harness_tool_records": tool_records},
+            capability_policy={
+                "sandbox_policy": {
+                    "mode": "required",
+                    "allowed_operations": ["run_python"],
+                }
+            },
+            skill=skill,
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.run_python"], ctx)[0]
+        await tool.ainvoke({"script": "print('ok')", "script_name": "analysis.py"})
+
+        assert tool_records[-1]["command_audit"] == command_audit
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["command_audit"] == command_audit
+
+    @pytest.mark.asyncio
     async def test_harness_tool_record_and_events_include_file_changes(self):
         class FakeSandbox:
             def __init__(self) -> None:

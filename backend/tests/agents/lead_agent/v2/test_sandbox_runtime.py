@@ -230,6 +230,7 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
         "/workspace/.wenjin/env/python/bin/python",
         "/workspace/scripts/analysis_probe.py",
     ]
+    assert result["command_audit"] == run_audit
 
 
 @pytest.mark.asyncio
@@ -393,6 +394,7 @@ async def test_run_python_script_installs_declared_dependency_hints_before_execu
     assert install_audit["risk_level"] == "medium"
     assert "package_install" in install_audit["reasons"]
     assert install_audit["command"]["network_profile"] == "package_index_only"
+    assert result["install_command_audits"] == [install_audit]
     assert [options["network_profile"] for options in provider.sandbox.command_options] == [
         "none",
         "package_index_only",

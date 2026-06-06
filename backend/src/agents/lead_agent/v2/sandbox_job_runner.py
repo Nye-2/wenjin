@@ -145,6 +145,10 @@ class SandboxJobRunner:
             dependency_hints=dependency_hints,
         )
         ctx = await self.session.build_context(workspace_id=workspace_id, sandbox_policy=sandbox_policy)
+        command_audit = audit_command(
+            HarnessCommand(argv=plan.command_argv),
+            CommandAuditPolicy(allowed_network_profiles=("none",)),
+        ).model_dump()
         job = await ctx.manager.create_job(
             workspace_id=workspace_id,
             environment_id=str(ctx.environment.id),
@@ -159,10 +163,7 @@ class SandboxJobRunner:
             metadata=_runtime_job_metadata(
                 script_name=plan.safe_name,
                 billing_reservation_id=billing_reservation_id,
-                command_audit=audit_command(
-                    HarnessCommand(argv=plan.command_argv),
-                    CommandAuditPolicy(allowed_network_profiles=("none",)),
-                ).model_dump(),
+                command_audit=command_audit,
             ),
             script_hash=plan.script_hash,
             network_policy="none",
@@ -218,6 +219,8 @@ class SandboxJobRunner:
             dependency_hints=plan.dependency_hints,
             installed_packages=script_state.installed_packages,
             install_job_ids=script_state.install_job_ids,
+            command_audit=command_audit,
+            install_command_audits=script_state.install_command_audits,
             retry_count=script_state.retry_count,
             script_path=plan.script_path,
             stdout_preview=stdout_budget.preview_text if stdout_budget.truncated else None,

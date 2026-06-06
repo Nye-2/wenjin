@@ -399,9 +399,28 @@ def _tool_result_metadata(result: str) -> dict[str, Any]:
     generated_artifacts = _generated_artifact_metadata(payload)
     if generated_artifacts:
         metadata["generated_artifacts"] = generated_artifacts
+    command_audit = _command_audit_metadata(payload)
+    if command_audit:
+        metadata.update(command_audit)
     file_changes = _file_change_metadata(payload)
     if file_changes:
         metadata["file_changes"] = file_changes
+    return metadata
+
+
+def _command_audit_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    structured_payload = payload.get("payload")
+    if not isinstance(structured_payload, dict):
+        return {}
+    metadata: dict[str, Any] = {}
+    command_audit = structured_payload.get("command_audit")
+    if isinstance(command_audit, dict):
+        metadata["command_audit"] = dict(command_audit)
+    install_command_audits = structured_payload.get("install_command_audits")
+    if isinstance(install_command_audits, list):
+        audits = [dict(item) for item in install_command_audits if isinstance(item, dict)]
+        if audits:
+            metadata["install_command_audits"] = audits
     return metadata
 
 

@@ -8,6 +8,7 @@ from typing import Any
 from src.agents.lead_agent.v2.sandbox_job_runner import SandboxJobRunner
 
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
+from .events import publish_harness_event
 from .scheduler import WorkspaceToolScheduler, default_workspace_tool_scheduler
 
 
@@ -50,6 +51,7 @@ class SandboxExecutionTools:
             _run,
             timeout_seconds=min(self.policy.max_sandbox_seconds, 30),
         )
+        await self._publish_command_audit_events(payload)
         status = str(payload.get("status") or "completed")
         preview = f"Python execution {status}"
         parsed = payload.get("parsed_stdout")
@@ -66,6 +68,41 @@ class SandboxExecutionTools:
             truncated=externalized,
             externalized=externalized,
         )
+
+    async def _publish_command_audit_events(self, payload: dict[str, Any]) -> None:
+        sandbox_job_id = str(payload.get("sandbox_job_id") or "").strip()
+        command_audit = payload.get("command_audit")
+        if isinstance(command_audit, dict):
+            await publish_harness_event(
+                self.context,
+                "command_audit",
+                visibility="team_visible",
+                sequence_kind="audit",
+                payload={
+                    "name": "sandbox.run_python",
+                    "sandbox_job_id": sandbox_job_id,
+                    "command_audit": dict(command_audit),
+                },
+            )
+        install_job_ids = [str(item) for item in payload.get("install_job_ids") or [] if str(item).strip()]
+        install_audits = payload.get("install_command_audits")
+        if not isinstance(install_audits, list):
+            return
+        for index, raw_audit in enumerate(install_audits):
+            if not isinstance(raw_audit, dict):
+                continue
+            await publish_harness_event(
+                self.context,
+                "command_audit",
+                visibility="team_visible",
+                sequence_kind="audit",
+                payload={
+                    "name": "sandbox.install_dependencies",
+                    "sandbox_job_id": install_job_ids[index] if index < len(install_job_ids) else "",
+                    "run_sandbox_job_id": sandbox_job_id,
+                    "command_audit": dict(raw_audit),
+                },
+            )
 
     def _sandbox_policy(self) -> dict[str, Any]:
         raw = self.context.capability_policy.get("sandbox_policy")

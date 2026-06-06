@@ -48,7 +48,7 @@ class SandboxEnvironmentInstaller:
         packages: list[str],
         reason: str,
         timeout: int,
-    ) -> tuple[list[str], str]:
+    ) -> tuple[list[str], str, dict[str, Any]]:
         if not policy_allows_package_install(sandbox_policy):
             raise PermissionError("capability sandbox_policy does not allow package installation")
 
@@ -114,7 +114,7 @@ class SandboxEnvironmentInstaller:
             )
 
         await manager.update_job(str(install_job.id), status="succeeded", exit_code=result.exit_code)
-        return normalized_packages, str(install_job.id)
+        return normalized_packages, str(install_job.id), command_audit
 
     def package_not_installed(self, package_spec: str, installed_packages: list[str]) -> bool:
         normalized = normalize_dependency_hints([package_spec])[0].lower().replace("_", "-")
