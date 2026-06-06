@@ -160,7 +160,8 @@ async def _invoke_recorded(
 ) -> str:
     records = ctx.context_bundle.get("_harness_tool_records")
     args_summary = _summarize_args(args)
-    loop_decision = _loop_guard(ctx, policy).record(canonical_name, args_summary)
+    loop_guard = _loop_guard(ctx, policy)
+    loop_decision = loop_guard.record(canonical_name, args_summary)
     if not loop_decision.allowed:
         error = loop_decision.stop_reason or "tool_loop_hard_stop"
         if isinstance(records, list):
@@ -180,6 +181,19 @@ async def _invoke_recorded(
             payload={"name": canonical_name, "args": args_summary, "error": error},
         )
         raise RuntimeError(f"repeated tool call stopped by harness loop guard: {error}")
+    if loop_decision.should_warn and loop_decision.count == loop_guard.warn_threshold:
+        await publish_harness_event(
+            ctx,
+            "loop_warning",
+            visibility="team_visible",
+            sequence_kind="loop",
+            payload={
+                "name": canonical_name,
+                "args": args_summary,
+                "repeat_count": loop_decision.count,
+                "warn_threshold": loop_guard.warn_threshold,
+            },
+        )
     await publish_harness_event(
         ctx,
         "tool_call.started",

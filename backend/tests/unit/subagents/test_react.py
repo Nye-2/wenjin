@@ -640,6 +640,51 @@ class TestMockLLM:
         assert tool_records[-1]["error"] == "tool_loop_hard_stop"
 
     @pytest.mark.asyncio
+    async def test_harness_tool_loop_guard_publishes_warning_event_without_blocking(self):
+        class FakeSandbox:
+            async def read_file(self, path: str) -> str:
+                return f"content from {path}"
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+                "sandbox_policy": {"max_tool_calls": 5},
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+            publish_event=publish_event,
+        )
+        tool = _resolve_tools(["sandbox.read_file"], ctx)[0]
+
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+
+        warning_events = [event for event in events if event[1] == "execution.harness.loop_warning"]
+        assert warning_events
+        payload = warning_events[-1][2]
+        assert payload["visibility"] == "team_visible"
+        assert payload["sequence_kind"] == "loop"
+        assert payload["payload"] == {
+            "name": "sandbox.read_file",
+            "args": {"path": "/workspace/main.tex"},
+            "repeat_count": 3,
+            "warn_threshold": 3,
+        }
+        assert tool_records[-1]["status"] == "completed"
+
+    @pytest.mark.asyncio
     async def test_react_subagent_returns_harness_tool_records(self):
         async def fake_loop(**kwargs):
             harness_context = kwargs["harness_context"]

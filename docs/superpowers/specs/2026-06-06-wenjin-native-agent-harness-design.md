@@ -15,6 +15,7 @@ Implementation note:
 - Lead-owned `sandbox.run_python` now discovers user-reviewable generated artifact candidates under `/workspace/outputs` and `/workspace/reports`, excludes `/workspace/outputs/harness/**`, and returns `generated_artifacts[]` with `materialization_status=candidate`; ReactSubagent tool records and completed events retain these candidates plus job ownership, and Lead runtime registers trusted candidates as DataService sandbox artifact review items.
 - `sandbox.write_file` and `sandbox.str_replace` now return hash + unified-diff `file_change` records; ReactSubagent tool records, `execution.harness.tool_call.completed`, and dedicated `execution.harness.file_change` events retain these file changes so Lead/runtime surfaces do not need to parse raw tool JSON.
 - Lead runtime and TeamKernel now aggregate those per-tool records into `ExecutionNodeRecord.node_metadata.harness.file_change_summary` (`wenjin.harness.file_change_summary.v1`), giving each static graph node or team-member invocation a path/hash-level net summary without adding a harness run table.
+- Repeated identical tool calls now publish `execution.harness.loop_warning` as `team_visible` when the loop guard warning threshold is reached. The event does not inject messages between assistant tool calls and tool results.
 - Command audit / argv-first contract foundation is implemented in `backend/src/agents/harness/command_audit.py`; Lead-owned `run_python` and `install_dependencies` sandbox jobs now include `metadata.command_audit`. General `sandbox.run_command`, full diff externalization, and frontend debug surfaces remain future work and are not enabled by this slice.
 
 ## 1. Objective
@@ -49,7 +50,7 @@ Main gaps:
 - `ReactSubagent` tool execution is now wired through the Wenjin-native harness for sandbox file/search/write and Python tools.
 - Team members can use the shared audited harness runtime when their capability/skill policy grants tools, but more role templates still need to be migrated onto tool-based workflows.
 - Sandbox execution is exposed through `sandbox.run_python`; arbitrary `sandbox.run_command` is intentionally not exposed yet.
-- Runtime events now capture harness tool start/completion/failure, output externalization refs, generated artifact candidates, per-tool file changes, and node-level path/hash file change summaries. Content-level net diff externalization, command-audit events, loop-warning events, and frontend debug projections still need further convergence.
+- Runtime events now capture harness tool start/completion/failure, output externalization refs, generated artifact candidates, per-tool file changes, node-level path/hash file change summaries, and loop warnings. Content-level net diff externalization, command-audit events, and frontend debug projections still need further convergence.
 - Workspace sandbox tool calls are serialized through the workspace scheduler; long-running whole-team orchestration still needs higher-level queue UX and cancellation polish.
 - DataService sandbox policy currently validates a Python-job contract, not arbitrary shell execution. This is a useful safety boundary and should not be bypassed by the first harness slice.
 
