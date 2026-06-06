@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 from copy import deepcopy
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, Literal
 
 WORKSPACE_ROOT = "/workspace"
 WORKSPACE_LAYOUT_SCHEMA = "wenjin.workspace_sandbox.layout.v1"
@@ -38,6 +39,21 @@ WORKSPACE_PROTECTED_PATHS = (
 
 WORKSPACE_INTERNAL_PATHS = (
     f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/**",
+)
+
+WorkspacePathClass = Literal["protected", "internal", "artifact", "hidden", "workspace"]
+
+WORKSPACE_ARTIFACT_ROOTS = (
+    {
+        "name": "outputs",
+        "virtual_path": f"{WORKSPACE_ROOT}/outputs",
+        "artifact_kind": "sandbox_output",
+    },
+    {
+        "name": "reports",
+        "virtual_path": f"{WORKSPACE_ROOT}/reports",
+        "artifact_kind": "sandbox_report",
+    },
 )
 
 _DIRECTORY_CONTRACTS: dict[str, dict[str, Any]] = {
@@ -130,8 +146,8 @@ def build_workspace_sandbox_manifest(
         "directories": deepcopy(_DIRECTORY_CONTRACTS),
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "artifact_roots": {
-            "outputs": f"{WORKSPACE_ROOT}/outputs",
-            "reports": f"{WORKSPACE_ROOT}/reports",
+            root["name"]: root["virtual_path"]
+            for root in WORKSPACE_ARTIFACT_ROOTS
         },
         "runtime_roots": {
             "python_env": f"{WORKSPACE_ROOT}/.wenjin/env",
@@ -189,3 +205,116 @@ def workspace_virtual_path(relative_path: str) -> str:
     if not normalized:
         return WORKSPACE_ROOT
     return f"{WORKSPACE_ROOT}/{normalized}"
+
+
+def normalize_workspace_virtual_path(path: str) -> str:
+    """Normalize a path into the canonical `/workspace` virtual namespace.
+
+    Providers may return physical paths that contain the mounted `/workspace`
+    segment. Harness-facing code should convert those back to virtual paths
+    before policy, review, or artifact decisions.
+    """
+
+    text = str(path or "").strip()
+    if "\x00" in text:
+        raise ValueError("workspace path contains null byte")
+    if text == WORKSPACE_ROOT:
+        normalized = text
+    elif text.startswith(f"{WORKSPACE_ROOT}/"):
+        normalized = text
+    elif f"{WORKSPACE_ROOT}/" in text:
+        normalized = f"{WORKSPACE_ROOT}/{text.split(f'{WORKSPACE_ROOT}/', 1)[1]}"
+    else:
+        raise ValueError(f"path must be under {WORKSPACE_ROOT}")
+
+    pure = PurePosixPath(normalized)
+    if ".." in pure.parts:
+        raise ValueError("workspace path traversal is not allowed")
+    return pure.as_posix()
+
+
+def workspace_relative_path(path: str) -> str:
+    """Return the path relative to `/workspace` after validation."""
+
+    normalized = normalize_workspace_virtual_path(path)
+    if normalized == WORKSPACE_ROOT:
+        return ""
+    return normalized.removeprefix(WORKSPACE_ROOT).lstrip("/")
+
+
+def is_workspace_protected_path(
+    path: str,
+    *,
+    protected_paths: tuple[str, ...] = WORKSPACE_PROTECTED_PATHS,
+) -> bool:
+    """Return whether a workspace path is protected from model tools."""
+
+    try:
+        relative = workspace_relative_path(path)
+    except ValueError:
+        return False
+    for pattern in protected_paths:
+        if _matches_workspace_pattern(relative, pattern):
+            return True
+    return False
+
+
+def is_workspace_internal_path(path: str) -> bool:
+    """Return whether a path is internal harness/runtime state."""
+
+    try:
+        normalized = normalize_workspace_virtual_path(path)
+    except ValueError:
+        return False
+    return any(_matches_workspace_pattern(normalized, pattern) for pattern in WORKSPACE_INTERNAL_PATHS)
+
+
+def workspace_artifact_root_for_path(path: str) -> dict[str, str] | None:
+    """Return the user-reviewable artifact root metadata for a workspace path."""
+
+    if is_workspace_internal_path(path):
+        return None
+    try:
+        normalized = normalize_workspace_virtual_path(path)
+    except ValueError:
+        return None
+    for root in WORKSPACE_ARTIFACT_ROOTS:
+        root_path = root["virtual_path"]
+        if normalized.startswith(f"{root_path}/"):
+            return dict(root)
+    return None
+
+
+def is_user_reviewable_workspace_artifact_path(path: str) -> bool:
+    """Return whether a sandbox path can be staged as a user-reviewable artifact."""
+
+    return workspace_artifact_root_for_path(path) is not None
+
+
+def classify_workspace_path(path: str) -> WorkspacePathClass:
+    """Classify a workspace path for harness policy and UI projection."""
+
+    normalized = normalize_workspace_virtual_path(path)
+    if is_workspace_protected_path(normalized):
+        return "protected"
+    if is_workspace_internal_path(normalized):
+        return "internal"
+    if workspace_artifact_root_for_path(normalized) is not None:
+        return "artifact"
+    relative = workspace_relative_path(normalized)
+    for directory, contract in _DIRECTORY_CONTRACTS.items():
+        if relative == directory or relative.startswith(f"{directory}/"):
+            surface = str(contract.get("review_surface") or "workspace")
+            return "hidden" if surface == "hidden" else "workspace"
+    return "workspace"
+
+
+def _matches_workspace_pattern(path: str, pattern: str) -> bool:
+    text = str(path).strip("/")
+    pattern_text = str(pattern).strip("/")
+    if fnmatch.fnmatch(text, pattern_text):
+        return True
+    if pattern_text.endswith("/**"):
+        base = pattern_text.removesuffix("/**")
+        return text == base or text.startswith(f"{base}/")
+    return False

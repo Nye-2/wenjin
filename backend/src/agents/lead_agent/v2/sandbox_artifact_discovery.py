@@ -8,12 +8,16 @@ import mimetypes
 from collections.abc import Iterable
 from typing import Any
 
-from src.sandbox.workspace_layout import WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT, WORKSPACE_ROOT
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ARTIFACT_ROOTS,
+    is_workspace_internal_path,
+    normalize_workspace_virtual_path,
+)
 
 DISCOVERY_SCHEMA = "wenjin.sandbox.generated_artifact_candidate.v1"
-DISCOVERY_ROOTS: tuple[tuple[str, str, str], ...] = (
-    (f"{WORKSPACE_ROOT}/outputs", "outputs", "sandbox_output"),
-    (f"{WORKSPACE_ROOT}/reports", "reports", "sandbox_report"),
+DISCOVERY_ROOTS: tuple[tuple[str, str, str], ...] = tuple(
+    (root["virtual_path"], root["name"], root["artifact_kind"])
+    for root in WORKSPACE_ARTIFACT_ROOTS
 )
 
 logger = logging.getLogger(__name__)
@@ -45,7 +49,7 @@ async def discover_generated_artifacts(
             continue
         for entry in entries:
             path = _normalize_virtual_path(getattr(entry, "path", ""))
-            if not path or getattr(entry, "is_dir", False) or _is_internal_harness_output(path):
+            if not path or getattr(entry, "is_dir", False) or is_workspace_internal_path(path):
                 continue
             size = _coerce_size(getattr(entry, "size", None))
             candidates[path] = {
@@ -86,21 +90,10 @@ def summarize_generated_artifacts(artifacts: list[dict[str, Any]]) -> str:
 
 
 def _normalize_virtual_path(path: str) -> str:
-    text = str(path or "").strip()
-    marker = f"{WORKSPACE_ROOT}/"
-    if text == WORKSPACE_ROOT:
-        return text
-    if text.startswith(marker):
-        return text
-    if marker in text:
-        return f"{WORKSPACE_ROOT}/{text.split(marker, 1)[1]}"
-    return ""
-
-
-def _is_internal_harness_output(path: str) -> bool:
-    return path == WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT or path.startswith(
-        f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/"
-    )
+    try:
+        return normalize_workspace_virtual_path(path)
+    except ValueError:
+        return ""
 
 
 def _coerce_size(value: Any) -> int | None:

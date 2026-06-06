@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import src.sandbox.workspace_layout as layout
 from src.sandbox.workspace_layout import (
     WORKSPACE_MANIFEST_RELATIVE_PATH,
     WORKSPACE_PROTECTED_PATHS,
@@ -66,3 +67,58 @@ def test_workspace_protected_paths_include_runtime_and_secret_material():
         ".wenjin/cache/**",
         ".wenjin/manifest.json",
     )
+
+
+def test_workspace_virtual_path_normalization_rejects_outside_and_traversal_paths():
+    assert (
+        layout.normalize_workspace_virtual_path("/workspace/main/paper.tex")
+        == "/workspace/main/paper.tex"
+    )
+    assert (
+        layout.normalize_workspace_virtual_path("/tmp/ws/workspace/reports/summary.md")
+        == "/workspace/reports/summary.md"
+    )
+    assert layout.workspace_relative_path("/workspace/reports/summary.md") == "reports/summary.md"
+
+    for invalid in (
+        "/mnt/user-data/outputs/report.md",
+        "/workspace/outputs/../secrets.txt",
+        "/workspace/main\x00.tex",
+    ):
+        try:
+            layout.normalize_workspace_virtual_path(invalid)
+        except ValueError:
+            pass
+        else:  # pragma: no cover - assertion clarity
+            raise AssertionError(f"expected invalid workspace path: {invalid}")
+
+
+def test_workspace_path_classification_is_centralized_for_harness_boundaries():
+    assert layout.is_workspace_protected_path("/workspace/.wenjin/env/python/bin/python")
+    assert layout.is_workspace_protected_path("/workspace/.env")
+    assert layout.is_workspace_internal_path(
+        "/workspace/outputs/harness/exec-1/node/tool.txt"
+    )
+    assert not layout.is_user_reviewable_workspace_artifact_path(
+        "/workspace/outputs/harness/exec-1/node/tool.txt"
+    )
+    assert layout.is_user_reviewable_workspace_artifact_path("/workspace/outputs/figure.png")
+    assert layout.is_user_reviewable_workspace_artifact_path("/workspace/reports/summary.md")
+    assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/main/analysis.py")
+    assert layout.workspace_artifact_root_for_path("/workspace/reports/summary.md") == {
+        "name": "reports",
+        "virtual_path": "/workspace/reports",
+        "artifact_kind": "sandbox_report",
+    }
+
+    assert (
+        layout.classify_workspace_path("/workspace/.wenjin/cache/pip/index")
+        == "protected"
+    )
+    assert (
+        layout.classify_workspace_path("/workspace/outputs/harness/exec/tool.txt")
+        == "internal"
+    )
+    assert layout.classify_workspace_path("/workspace/reports/summary.md") == "artifact"
+    assert layout.classify_workspace_path("/workspace/tmp/scratch.json") == "hidden"
+    assert layout.classify_workspace_path("/workspace/main/paper.tex") == "workspace"

@@ -433,7 +433,7 @@ Admin dashboard token usage summary 是展示用近似聚合，必须遵守 Data
 
 Sandbox 是 Lead Agent / subagent-operated infrastructure，不是用户可操作 room。公开 workspace API 不提供任意 sandbox exec；Chat Agent 不 acquire sandbox，也不暴露 bash/file execution tools。每个 workspace 最多一个 active sandbox environment，provider key 固定为 `workspace-{workspace_id}`。Docker container 仍是短生命周期任务容器，但 `/workspace`、`/workspace/.wenjin/env/python` 和 package cache 会随 workspace sandbox 持久化复用，用于长程实验的文件、数据集、脚本和依赖连续性。DataService sandbox environment / job / lease / artifact 只作为 Lead Agent、subagent、agent harness 和 Compute projection 的内部事实源。用户通过 execution/run detail 查看只读 sandbox traces、日志摘要、脚本、产物和 provenance。
 
-Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py` 统一定义，provider acquire 时必须调用 `ensure_workspace_sandbox_layout()`，不得在 Docker/Local provider 或 harness tool 内重复硬编码目录。Agent 可见根目录固定为 `/workspace`，标准目录为：
+Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py` 统一定义，provider acquire 时必须调用 `ensure_workspace_sandbox_layout()`，不得在 Docker/Local provider 或 harness tool 内重复硬编码目录。这个模块也是路径分类事实源：`normalize_workspace_virtual_path()`、`classify_workspace_path()`、`is_workspace_protected_path()`、`is_workspace_internal_path()` 和 `is_user_reviewable_workspace_artifact_path()` 统一约束文件工具、artifact discovery 和 sandbox review staging。Agent 可见根目录固定为 `/workspace`，标准目录为：
 
 - `/workspace/main`：主项目文件，承载论文、代码、实验入口等混合型工作内容
 - `/workspace/datasets`：数据集与用户上传后进入 sandbox 的输入材料
@@ -445,7 +445,7 @@ Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py
 - `/workspace/.wenjin/cache`：受控 package/runtime cache，model tools 不可读写
 - `/workspace/.wenjin/manifest.json`：机器可读 layout manifest，作为 runtime 契约文件而非项目文件
 
-受保护路径由同一 layout 常量下发给 harness policy：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。新 harness 链路不再引入 `/mnt/user-data` alias；旧 thread artifact / upload helper 若仍出现该路径，只能作为待迁移的非 harness 历史边界存在。
+受保护路径由同一 layout 常量下发给 harness policy：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。`/workspace/outputs/harness/**` 统一分类为 internal，只能作为 tool 大输出引用，不可注册为用户产物；`/workspace/outputs/**` 和 `/workspace/reports/**` 的非 internal 文件才可进入 sandbox artifact review。新 harness 链路不再引入 `/mnt/user-data` alias；旧 thread artifact / upload helper 若仍出现该路径，只能作为待迁移的非 harness 历史边界存在。
 
 带 sandbox 工具的 ReactSubagent 会接收同一份 agent-facing workspace contract：默认 user payload 中包含 `_sandbox_workspace`，system prompt 也会追加 `Sandbox workspace contract`。因此即使 skill 使用自定义 `user_template`，模型仍能看到 `/workspace/scripts`、`/workspace/outputs`、`/workspace/reports`、protected paths 和 `/workspace/outputs/harness/**` 内部路径规则。文件系统规范不得只停留在 provider 建目录层，必须进入 tool-using agent 的运行上下文。
 

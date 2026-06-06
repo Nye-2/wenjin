@@ -8,14 +8,14 @@ from typing import Any
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import DISCOVERY_SCHEMA
 from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.sandbox import SandboxArtifactCreatePayload
-from src.sandbox.workspace_layout import WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT, WORKSPACE_ROOT
+from src.sandbox.workspace_layout import (
+    is_user_reviewable_workspace_artifact_path,
+    normalize_workspace_virtual_path,
+    workspace_artifact_root_for_path,
+)
 
 REVIEW_TARGET_DOMAIN = "sandbox"
 REVIEW_TARGET_KIND = "sandbox_artifact"
-_USER_REVIEWABLE_ROOTS = (
-    f"{WORKSPACE_ROOT}/outputs/",
-    f"{WORKSPACE_ROOT}/reports/",
-)
 
 
 def collect_sandbox_artifact_candidates(node_results: Any) -> list[dict[str, Any]]:
@@ -73,7 +73,11 @@ def normalize_sandbox_artifact_candidate(
     sandbox_job_id = _clean_text(artifact.get("sandbox_job_id"))
     if not path or not sandbox_job_id:
         return None
-    if not _is_user_reviewable_sandbox_path(path):
+    try:
+        path = normalize_workspace_virtual_path(path)
+    except ValueError:
+        return None
+    if not is_user_reviewable_workspace_artifact_path(path):
         return None
 
     artifact_kind = _clean_text(artifact.get("artifact_kind")) or _artifact_kind_for_path(path)
@@ -211,26 +215,14 @@ def _candidate_metadata(candidate: dict[str, Any], *, execution_id: str) -> dict
     return {key: value for key, value in metadata.items() if value is not None}
 
 
-def _is_user_reviewable_sandbox_path(path: str) -> bool:
-    if ".." in PurePosixPath(path).parts:
-        return False
-    if path == WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT or path.startswith(
-        f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/"
-    ):
-        return False
-    return any(path.startswith(root) for root in _USER_REVIEWABLE_ROOTS)
-
-
 def _root_name_for_path(path: str) -> str:
-    if path.startswith(f"{WORKSPACE_ROOT}/reports/"):
-        return "reports"
-    return "outputs"
+    root = workspace_artifact_root_for_path(path)
+    return root["name"] if root else "outputs"
 
 
 def _artifact_kind_for_path(path: str) -> str:
-    if path.startswith(f"{WORKSPACE_ROOT}/reports/"):
-        return "sandbox_report"
-    return "sandbox_output"
+    root = workspace_artifact_root_for_path(path)
+    return root["artifact_kind"] if root else "sandbox_output"
 
 
 def _clean_text(value: Any) -> str | None:

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import fnmatch
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from src.sandbox.workspace_layout import WORKSPACE_ROOT
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ROOT,
+    is_workspace_protected_path,
+    normalize_workspace_virtual_path,
+)
 
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .diff_tracker import build_file_change
@@ -168,15 +171,10 @@ class SandboxFileTools:
         )
 
     def _validate_virtual_path(self, path: str, *, operation: str) -> str:
-        path_text = str(path or "").strip()
-        if "\x00" in path_text:
-            raise HarnessPathError("path contains null byte")
-        if not path_text.startswith(f"{WORKSPACE_ROOT}/") and path_text != WORKSPACE_ROOT:
-            raise HarnessPathError(f"path must be under {WORKSPACE_ROOT}")
-        pure = PurePosixPath(path_text)
-        if ".." in pure.parts:
-            raise HarnessPathError("path traversal is not allowed")
-        normalized = pure.as_posix()
+        try:
+            normalized = normalize_workspace_virtual_path(path)
+        except ValueError as exc:
+            raise HarnessPathError(str(exc)) from exc
         if self._is_protected(normalized):
             raise HarnessPathError(f"protected path is not accessible: {normalized}")
         if operation == "write" and not self._can_write():
@@ -199,11 +197,10 @@ class SandboxFileTools:
         raise RuntimeError("sandbox does not expose a workspace root")
 
     def _is_protected(self, virtual_path: str) -> bool:
-        relative = virtual_path.removeprefix(WORKSPACE_ROOT).lstrip("/")
-        for pattern in self.policy.protected_paths:
-            if fnmatch.fnmatch(relative, pattern):
-                return True
-        return False
+        return is_workspace_protected_path(
+            virtual_path,
+            protected_paths=tuple(self.policy.protected_paths),
+        )
 
     def _read_max_chars(self) -> int:
         return int(self.policy.output_budget.get("read_max_chars") or DEFAULT_READ_MAX_CHARS)
