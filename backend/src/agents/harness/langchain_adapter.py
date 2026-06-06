@@ -213,13 +213,20 @@ async def _invoke_recorded(
         )
         raise
     if isinstance(records, list):
-        records.append(
-            {
+        records.append(_completed_tool_record(canonical_name, args_summary, result))
+    metadata = _tool_result_metadata(result)
+    if metadata.get("externalized") and metadata.get("output_refs"):
+        await publish_harness_event(
+            ctx,
+            "output_externalized",
+            visibility="debug_only",
+            sequence_kind="budget",
+            payload={
                 "name": canonical_name,
-                "status": "completed",
                 "args": args_summary,
                 "result_preview": result[:500],
-            }
+                **metadata,
+            },
         )
     await publish_harness_event(
         ctx,
@@ -230,6 +237,7 @@ async def _invoke_recorded(
             "name": canonical_name,
             "args": args_summary,
             "result_preview": result[:500],
+            **metadata,
         },
     )
     return result
@@ -329,6 +337,39 @@ def _format_tool_result(result: HarnessToolResult) -> str:
     if result.error:
         payload["error"] = result.error
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _completed_tool_record(canonical_name: str, args_summary: dict[str, Any], result: str) -> dict[str, Any]:
+    record = {
+        "name": canonical_name,
+        "status": "completed",
+        "args": args_summary,
+        "result_preview": result[:500],
+    }
+    record.update(_tool_result_metadata(result))
+    return record
+
+
+def _tool_result_metadata(result: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(result)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    metadata: dict[str, Any] = {}
+    output_refs = payload.get("output_refs")
+    if isinstance(output_refs, list):
+        refs = [str(ref) for ref in output_refs if str(ref).strip()]
+        if refs:
+            metadata["output_refs"] = refs
+
+    for key in ("truncated", "externalized"):
+        value = payload.get(key)
+        if isinstance(value, bool) and value:
+            metadata[key] = value
+    return metadata
 
 
 def _skill_snapshot(skill: Any | None) -> dict[str, Any]:

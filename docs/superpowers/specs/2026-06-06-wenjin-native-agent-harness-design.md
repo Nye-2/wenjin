@@ -11,7 +11,7 @@ Implementation note:
 - TeamKernel tool policy canonicalizes `sandbox_python` / `sandbox_exec` to `sandbox.run_python`.
 - `sandbox.run_python` reuses the existing DataService sandbox job/lease/environment path. File tools operate on the existing workspace sandbox provider with the same workspace key and scheduler; they do not create a new execution fact source.
 - Workspace sandbox filesystem contract is now centralized in `backend/src/sandbox/workspace_layout.py`. Docker and Local providers call `ensure_workspace_sandbox_layout()` and expose `/workspace` as the only new harness virtual root.
-- Tool output budget now externalizes oversized `sandbox.read_file` output and Lead-owned `sandbox.run_python` stdout/stderr into `/workspace/outputs/harness/{execution_id}/{node_id}/{invocation_id}/`, returning compact previews plus `output_refs`.
+- Tool output budget now externalizes oversized `sandbox.read_file` output and Lead-owned `sandbox.run_python` stdout/stderr into `/workspace/outputs/harness/{execution_id}/{node_id}/{invocation_id}/`, returning compact previews plus `output_refs`; ReactSubagent tool records and `execution.harness.output_externalized` events retain those refs.
 - Command audit / argv-first contract foundation is implemented in `backend/src/agents/harness/command_audit.py`; Lead-owned `run_python` and `install_dependencies` sandbox jobs now include `metadata.command_audit`. General `sandbox.run_command`, full diff externalization, and frontend debug surfaces remain future work and are not enabled by this slice.
 
 ## 1. Objective
@@ -46,7 +46,7 @@ Main gaps:
 - `ReactSubagent` still behaves mostly like a single model call. If a skill declares tools, `_resolve_tools()` returns an empty list and execution fails explicitly.
 - Team members can be recruited, but they cannot yet use a shared, audited tool runtime.
 - Sandbox execution exists as `run_python_script` and smoke check, but it is not exposed through a general agent tool protocol.
-- Runtime events do not yet capture per-tool call, output budget, file diff, loop guard, and command audit as a unified harness stream.
+- Runtime events now capture harness tool start/completion/failure and output externalization refs. File diff, command audit, loop warnings, and frontend debug projections still need further convergence.
 - Concurrent team invocations can race for the one workspace sandbox unless sandbox tool calls are serialized or queued above the DataService lease.
 - DataService sandbox policy currently validates a Python-job contract, not arbitrary shell execution. This is a useful safety boundary and should not be bypassed by the first harness slice.
 

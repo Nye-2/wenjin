@@ -447,7 +447,7 @@ Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py
 
 受保护路径由同一 layout 常量下发给 harness policy：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。新 harness 链路不再引入 `/mnt/user-data` alias；旧 thread artifact / upload helper 若仍出现该路径，只能作为待迁移的非 harness 历史边界存在。
 
-工具大输出统一写入 `/workspace/outputs/harness/{execution_id}/{node_id}/{invocation_id}/`，模型只接收 bounded preview、`output_refs`、`truncated` 和 `externalized` 标记。当前已覆盖 `sandbox.read_file` 的大文件读取，以及 Lead-owned `sandbox.run_python` 的 stdout/stderr；完整内容留在 workspace sandbox 内，后续 DataService `sandbox_artifact` materialization 再把需要展示/提交的文件纳入 review-card 流。实现上不得把完整 stdout/stderr 或大文件内容重新塞进 model-visible tool payload。
+工具大输出统一写入 `/workspace/outputs/harness/{execution_id}/{node_id}/{invocation_id}/`，模型只接收 bounded preview、`output_refs`、`truncated` 和 `externalized` 标记。当前已覆盖 `sandbox.read_file` 的大文件读取，以及 Lead-owned `sandbox.run_python` 的 stdout/stderr；完整内容留在 workspace sandbox 内，后续 DataService `sandbox_artifact` materialization 再把需要展示/提交的文件纳入 review-card 流。ReactSubagent harness adapter 会把外部化 refs 投影到 tool call record 与 `execution.harness.output_externalized` 事件。实现上不得把完整 stdout/stderr 或大文件内容重新塞进 model-visible tool payload。
 
 Sandbox 依赖安装由 Lead-owned runtime 负责，不由 subagent 自行拼装系统命令。`sandbox_python` 只传 `dependency_hints`；runtime 在 workspace lease 内确保 Python venv 存在、按受控 pip command 自动安装 hints、遇到 `ModuleNotFoundError` 时最多安装缺失包并重试一次。安装 job 记录为 `operation=install_dependencies` 且 `billable=false`，实际 Python run / smoke check job 保持 billable 并通过 credit reservation 结算。安装网络只通过 `package_index_only` profile 开启，普通运行默认 `none`。
 

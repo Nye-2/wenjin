@@ -32,6 +32,7 @@ def _make_ctx(
     prompt: str = "",
     capability_policy: dict | None = None,
     workspace_data: dict | None = None,
+    publish_event=None,
 ) -> SubagentContext:
     return SubagentContext(
         workspace_id="ws-test",
@@ -42,6 +43,7 @@ def _make_ctx(
         workspace_data=workspace_data or {},
         capability_policy=capability_policy or {},
         skill=skill,
+        publish_event=publish_event,
     )
 
 
@@ -380,6 +382,70 @@ class TestMockLLM:
                 "result_preview": result[:500],
             }
         ]
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_record_and_events_include_externalized_output_refs(self):
+        class FakeSandbox:
+            def __init__(self) -> None:
+                self.files: dict[str, str] = {}
+
+            async def read_file(self, path: str) -> str:
+                assert path == "/workspace/main/large.txt"
+                return "large line\n" * 80
+
+            async def write_file(self, path: str, content: str, append: bool = False) -> None:
+                self.files[path] = self.files.get(path, "") + content if append else content
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+                "sandbox_policy": {
+                    "output_budget": {
+                        "externalize_above_chars": 100,
+                        "preview_head_chars": 40,
+                        "preview_tail_chars": 40,
+                    }
+                },
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.read_file"], ctx)[0]
+        result = await tool.ainvoke({"path": "/workspace/main/large.txt"})
+        payload = json.loads(result)
+
+        assert payload["externalized"] is True
+        assert payload["output_refs"]
+        assert tool_records == [
+            {
+                "name": "sandbox.read_file",
+                "status": "completed",
+                "args": {"path": "/workspace/main/large.txt"},
+                "result_preview": result[:500],
+                "output_refs": payload["output_refs"],
+                "truncated": True,
+                "externalized": True,
+            }
+        ]
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        externalized_events = [event for event in events if event[1] == "execution.harness.output_externalized"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["output_refs"] == payload["output_refs"]
+        assert externalized_events
+        assert externalized_events[-1][2]["payload"]["output_refs"] == payload["output_refs"]
 
     @pytest.mark.asyncio
     async def test_harness_tool_loop_guard_blocks_repeated_calls(self):
