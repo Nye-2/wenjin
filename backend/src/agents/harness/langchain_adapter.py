@@ -228,6 +228,19 @@ async def _invoke_recorded(
                 **metadata,
             },
         )
+    if metadata.get("file_changes"):
+        await publish_harness_event(
+            ctx,
+            "file_change",
+            visibility="debug_only",
+            sequence_kind="file_change",
+            payload={
+                "name": canonical_name,
+                "args": args_summary,
+                "result_preview": result[:500],
+                "file_changes": metadata["file_changes"],
+            },
+        )
     await publish_harness_event(
         ctx,
         "tool_call.completed",
@@ -372,7 +385,20 @@ def _tool_result_metadata(result: str) -> dict[str, Any]:
     generated_artifacts = _generated_artifact_metadata(payload)
     if generated_artifacts:
         metadata["generated_artifacts"] = generated_artifacts
+    file_changes = _file_change_metadata(payload)
+    if file_changes:
+        metadata["file_changes"] = file_changes
     return metadata
+
+
+def _file_change_metadata(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    file_change = payload.get("file_change")
+    if not isinstance(file_change, dict):
+        return []
+    path = str(file_change.get("path") or "").strip()
+    if not path:
+        return []
+    return [dict(file_change)]
 
 
 def _generated_artifact_metadata(payload: dict[str, Any]) -> list[dict[str, Any]]:

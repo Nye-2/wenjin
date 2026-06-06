@@ -561,6 +561,55 @@ class TestMockLLM:
         assert completed_events[-1][2]["payload"]["generated_artifacts"] == [expected_artifact]
 
     @pytest.mark.asyncio
+    async def test_harness_tool_record_and_events_include_file_changes(self):
+        class FakeSandbox:
+            def __init__(self) -> None:
+                self.files = {"/workspace/main.tex": "old\n"}
+
+            async def read_file(self, path: str) -> str:
+                if path not in self.files:
+                    raise FileNotFoundError(path)
+                return self.files[path]
+
+            async def write_file(self, path: str, content: str, append: bool = False) -> None:
+                self.files[path] = self.files.get(path, "") + content if append else content
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        ctx = _make_ctx(
+            tools=["sandbox.write_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.write_file"],
+                "permissions": ["filesystem.write", "filesystem.diff"],
+            },
+            skill=_make_skill(allowed_tools=["sandbox.write_file"]),
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.write_file"], ctx)[0]
+        result = await tool.ainvoke({"path": "/workspace/main.tex", "content": "new\n"})
+        payload = json.loads(result)
+
+        file_change = payload["file_change"]
+        assert file_change["path"] == "/workspace/main.tex"
+        assert file_change["operation"] == "update"
+        assert tool_records[-1]["file_changes"] == [file_change]
+        file_change_events = [event for event in events if event[1] == "execution.harness.file_change"]
+        assert file_change_events
+        assert file_change_events[-1][2]["payload"]["file_changes"] == [file_change]
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["file_changes"] == [file_change]
+
+    @pytest.mark.asyncio
     async def test_harness_tool_loop_guard_blocks_repeated_calls(self):
         class FakeSandbox:
             async def read_file(self, path: str) -> str:
