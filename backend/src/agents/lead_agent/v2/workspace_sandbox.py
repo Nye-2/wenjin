@@ -100,13 +100,28 @@ def policy_allows_package_install(policy: dict[str, Any]) -> bool:
 def build_pip_install_command(package_specs: list[str]) -> str:
     """Build the controlled pip install command run inside the workspace venv."""
 
-    packages = normalize_dependency_hints(package_specs)
-    if not packages:
-        raise ValueError("package install requires at least one package")
+    packages = _normalized_install_packages(package_specs)
     quoted = " ".join(shlex.quote(package) for package in packages)
     return (
         f"{WORKSPACE_VENV_PYTHON} -m pip install --disable-pip-version-check "
         f"--no-input --cache-dir {WORKSPACE_PIP_CACHE_DIR} {quoted}"
+    )
+
+
+def build_pip_install_argv(package_specs: list[str]) -> tuple[str, ...]:
+    """Build the argv form used for command audit and future exec contracts."""
+
+    packages = _normalized_install_packages(package_specs)
+    return (
+        WORKSPACE_VENV_PYTHON,
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "--no-input",
+        "--cache-dir",
+        WORKSPACE_PIP_CACHE_DIR,
+        *packages,
     )
 
 
@@ -146,6 +161,13 @@ def _package_key(package_spec: str) -> str:
     base = re.split(r"\s*(?:==|!=|~=|>=|<=|>|<)\s*", package_spec, maxsplit=1)[0]
     base = base.split("[", 1)[0]
     return base.lower().replace("_", "-")
+
+
+def _normalized_install_packages(package_specs: list[str]) -> list[str]:
+    packages = normalize_dependency_hints(package_specs)
+    if not packages:
+        raise ValueError("package install requires at least one package")
+    return packages
 
 
 class WorkspaceSandboxManager:

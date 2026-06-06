@@ -31,6 +31,7 @@ class SandboxScriptPlan:
     script_path: str
     script_hash: str
     command: str
+    command_argv: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,7 @@ class SandboxScriptExecutor:
             script_path=script_path,
             script_hash=hashlib.sha256(script_bytes).hexdigest(),
             command=f"{WORKSPACE_VENV_PYTHON} {script_path}",
+            command_argv=(WORKSPACE_VENV_PYTHON, script_path),
         )
 
     async def execute(

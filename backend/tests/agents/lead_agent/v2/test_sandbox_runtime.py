@@ -191,6 +191,13 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
     assert "analysis_probe.py" in result["report_markdown"]
     assert manager.created_jobs[0]["operation"] == "run_python"
     assert manager.created_jobs[0]["metadata"]["credit_reservation_id"] == "reservation-1"
+    run_audit = manager.created_jobs[0]["metadata"]["command_audit"]
+    assert run_audit["verdict"] == "pass"
+    assert run_audit["risk_level"] == "low"
+    assert run_audit["command"]["argv"] == [
+        "/workspace/.wenjin/env/python/bin/python",
+        "/workspace/scripts/analysis_probe.py",
+    ]
 
 
 @pytest.mark.asyncio
@@ -221,6 +228,11 @@ async def test_run_python_script_installs_declared_dependency_hints_before_execu
     install_job = manager.created_jobs[1]
     assert install_job["billable"] is False
     assert install_job["metadata"]["packages"] == ["pandas==2.2.3"]
+    install_audit = install_job["metadata"]["command_audit"]
+    assert install_audit["verdict"] == "warn"
+    assert install_audit["risk_level"] == "medium"
+    assert "package_install" in install_audit["reasons"]
+    assert install_audit["command"]["network_profile"] == "package_index_only"
     assert [options["network_profile"] for options in provider.sandbox.command_options] == [
         "none",
         "package_index_only",

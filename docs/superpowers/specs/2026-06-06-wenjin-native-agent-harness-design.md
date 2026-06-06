@@ -11,7 +11,7 @@ Implementation note:
 - TeamKernel tool policy canonicalizes `sandbox_python` / `sandbox_exec` to `sandbox.run_python`.
 - `sandbox.run_python` reuses the existing DataService sandbox job/lease/environment path. File tools operate on the existing workspace sandbox provider with the same workspace key and scheduler; they do not create a new execution fact source.
 - Workspace sandbox filesystem contract is now centralized in `backend/src/sandbox/workspace_layout.py`. Docker and Local providers call `ensure_workspace_sandbox_layout()` and expose `/workspace` as the only new harness virtual root.
-- General `sandbox.run_command`, command audit, full diff externalization, and frontend debug surfaces remain future work and are not enabled by this slice.
+- Command audit / argv-first contract foundation is implemented in `backend/src/agents/harness/command_audit.py`; Lead-owned `run_python` and `install_dependencies` sandbox jobs now include `metadata.command_audit`. General `sandbox.run_command`, full diff externalization, and frontend debug surfaces remain future work and are not enabled by this slice.
 
 ## 1. Objective
 
@@ -457,13 +457,20 @@ Caps tool outputs before they return to the model:
 
 ### 6.7 `backend/src/agents/harness/command_audit.py`
 
-Classifies commands before execution. This module should be implemented before `sandbox.run_command` is enabled, but it can also audit internal installer and Python commands for observability.
+Classifies commands before execution. The current implementation is a policy/tested foundation, not an exposed command tool.
 
-- Block: host/container control, docker socket, privileged/network-host, system paths, curl|sh, `/dev/tcp`, process env leakage, fork bombs, destructive root operations.
-- Warn: package installs outside controlled installer, chmod 777, PATH mutation, sudo/su.
-- Pass: normal workspace-local commands.
+- Input is `HarnessCommand`: argv-first by default, optional `shell_command` only when `CommandAuditPolicy.allow_shell` is true.
+- `CommandAuditResult` returns `verdict` (`pass` / `warn` / `block`), `risk_level`, machine-readable reasons, and masked metadata.
+- Block: empty argv, mixed shell/argv shape, shell when not allowed, forbidden network profile, cwd/path outside `/workspace`, host/container control programs, dangerous shell patterns such as `curl|bash`, and destructive root operations.
+- Warn: controlled package installation when `allow_package_install` is true.
+- Pass: normal workspace-local argv commands.
 
-The audit result is stored as a harness event and included in tool metadata.
+Current persistence:
+
+- `run_python` sandbox jobs store `metadata.command_audit` for the Python execution argv.
+- `install_dependencies` sandbox jobs store `metadata.command_audit` for the controlled pip install argv and record it as medium risk / warning.
+- Smoke check stores shell audit metadata because the command is an internal fixed shell snippet.
+- General `sandbox.run_command` is still absent; command audit is the prerequisite boundary.
 
 General command requirements for the later slice:
 

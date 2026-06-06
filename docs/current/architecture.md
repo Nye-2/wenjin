@@ -449,7 +449,7 @@ Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py
 
 Sandbox 依赖安装由 Lead-owned runtime 负责，不由 subagent 自行拼装系统命令。`sandbox_python` 只传 `dependency_hints`；runtime 在 workspace lease 内确保 Python venv 存在、按受控 pip command 自动安装 hints、遇到 `ModuleNotFoundError` 时最多安装缺失包并重试一次。安装 job 记录为 `operation=install_dependencies` 且 `billable=false`，实际 Python run / smoke check job 保持 billable 并通过 credit reservation 结算。安装网络只通过 `package_index_only` profile 开启，普通运行默认 `none`。
 
-Agent harness 是 Lead/subagent 的工具执行层，不是新的 agent framework。当前第一版内置 `sandbox.list_dir`、`sandbox.glob`、`sandbox.grep`、`sandbox.read_file`、`sandbox.write_file`、`sandbox.str_replace` 和 `sandbox.run_python`；`sandbox_python` / `sandbox_exec` 在 TeamKernel 与 ReactSubagent 入口 canonicalize 为 `sandbox.run_python`。Capability policy 是最大权限包络，skill/template 只能收窄；未知或禁用工具显式失败，不降级成 plain LLM。文件工具只允许 `/workspace` 下路径，并复用 workspace layout 的 protected path 常量；写入会记录 hash + unified diff。`sandbox.run_python` 复用 DataService sandbox job / lease / environment；通用 `sandbox.run_command` 未启用，需 command audit、argv-first contract 和 DataService command policy 评审后再加。
+Agent harness 是 Lead/subagent 的工具执行层，不是新的 agent framework。当前第一版内置 `sandbox.list_dir`、`sandbox.glob`、`sandbox.grep`、`sandbox.read_file`、`sandbox.write_file`、`sandbox.str_replace` 和 `sandbox.run_python`；`sandbox_python` / `sandbox_exec` 在 TeamKernel 与 ReactSubagent 入口 canonicalize 为 `sandbox.run_python`。Capability policy 是最大权限包络，skill/template 只能收窄；未知或禁用工具显式失败，不降级成 plain LLM。文件工具只允许 `/workspace` 下路径，并复用 workspace layout 的 protected path 常量；写入会记录 hash + unified diff。`backend/src/agents/harness/command_audit.py` 已提供 argv-first command audit 基座，Lead-owned `run_python`、`install_dependencies` 和 smoke check sandbox jobs 会写入 `metadata.command_audit`；通用 `sandbox.run_command` 仍未启用，需完整 DataService command policy、输出预算和事件投影评审后再加。
 
 当前代码边界：
 
@@ -458,6 +458,7 @@ Agent harness 是 Lead/subagent 的工具执行层，不是新的 agent framewor
 - workspace sandbox manager：`backend/src/agents/lead_agent/v2/workspace_sandbox.py`
 - Lead-owned sandbox runtime：`backend/src/agents/lead_agent/v2/sandbox_runtime.py`
 - Lead/subagent harness：`backend/src/agents/harness/`
+- command audit contract：`backend/src/agents/harness/command_audit.py`
 - sandbox subagent：`backend/src/subagents/v2/types/sandbox.py`
 - hidden diagnostic capability：`backend/seed/capabilities/sci/internal_sandbox_smoke.yaml`
 

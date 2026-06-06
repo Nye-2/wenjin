@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from src.agents.harness.command_audit import CommandAuditPolicy, HarnessCommand, audit_command
 from src.agents.lead_agent.v2.sandbox_artifact_collector import SandboxArtifactCollector
 from src.agents.lead_agent.v2.sandbox_environment_installer import SandboxEnvironmentInstaller
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
@@ -65,7 +66,13 @@ class SandboxJobRunner:
             runtime_image=ctx.runtime_image,
             sandbox_policy=dict(sandbox_policy),
             resource_limits=dict(ctx.limits),
-            metadata=_runtime_job_metadata(billing_reservation_id=billing_reservation_id),
+            metadata=_runtime_job_metadata(
+                billing_reservation_id=billing_reservation_id,
+                command_audit=audit_command(
+                    HarnessCommand(shell_command=SMOKE_COMMAND),
+                    CommandAuditPolicy(allow_shell=True),
+                ).model_dump(),
+            ),
             network_policy="none",
         )
 
@@ -149,6 +156,10 @@ class SandboxJobRunner:
             metadata=_runtime_job_metadata(
                 script_name=plan.safe_name,
                 billing_reservation_id=billing_reservation_id,
+                command_audit=audit_command(
+                    HarnessCommand(argv=plan.command_argv),
+                    CommandAuditPolicy(allowed_network_profiles=("none",)),
+                ).model_dump(),
             ),
             script_hash=plan.script_hash,
             network_policy="none",
@@ -219,10 +230,13 @@ def _runtime_job_metadata(
     *,
     script_name: str | None = None,
     billing_reservation_id: str | None = None,
+    command_audit: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata = {"source": "lead_agent_sandbox_runtime"}
     if script_name is not None:
         metadata["script_name"] = script_name
     if billing_reservation_id:
         metadata["credit_reservation_id"] = billing_reservation_id
+    if command_audit is not None:
+        metadata["command_audit"] = command_audit
     return metadata

@@ -54,7 +54,7 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 
 Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py` 统一定义，Local/Docker provider acquire 时创建同一套布局。Agent 可见根目录固定为 `/workspace`：`main` 放主项目文件，`datasets` 放数据集，`scripts` 放实验脚本，`outputs` 放可展示产物，`reports` 放阶段报告，`tmp` 放临时 scratch，`.wenjin/env` 和 `.wenjin/cache` 由 Lead-owned runtime 管理，`.wenjin/manifest.json` 记录机器可读 layout 契约。harness 新链路只使用 `/workspace`，不再新增 `/mnt/user-data` alias。
 
-Agent harness 第一版把 ReactSubagent 的工具请求接到同一条执行链：`sandbox.list_dir/glob/grep/read_file/write_file/str_replace/run_python` 由 capability/skill policy 过滤，sandbox 工具通过 workspace scheduler 串行，tool calls 写回对应 `ExecutionNodeRecord.tool_calls`，debug 事件走现有 `execution.harness.*` stream。文件工具只允许访问 `/workspace`，受保护路径来自 workspace layout：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。默认 UI 仍展示团队成员进度和交付物，不直接展示 raw tool JSON。
+Agent harness 第一版把 ReactSubagent 的工具请求接到同一条执行链：`sandbox.list_dir/glob/grep/read_file/write_file/str_replace/run_python` 由 capability/skill policy 过滤，sandbox 工具通过 workspace scheduler 串行，tool calls 写回对应 `ExecutionNodeRecord.tool_calls`，debug 事件走现有 `execution.harness.*` stream。文件工具只允许访问 `/workspace`，受保护路径来自 workspace layout：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。command audit 基座已落在 `backend/src/agents/harness/command_audit.py`：当前只给 Lead-owned `run_python`、`install_dependencies` 和 smoke check sandbox jobs 写入 `metadata.command_audit`，不向 subagent 暴露通用 `sandbox.run_command`。默认 UI 仍展示团队成员进度和交付物，不直接展示 raw tool JSON。
 
 ## 5. Result Card 闭环流程
 
