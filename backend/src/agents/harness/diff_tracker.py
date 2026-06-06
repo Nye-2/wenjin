@@ -137,12 +137,22 @@ def _net_operation(summary: dict[str, Any]) -> str:
 
 
 def _compact_diff(change: dict[str, Any]) -> dict[str, Any]:
-    return {
+    diff = {
         "operation": str(change.get("operation") or ""),
         "before_hash": change.get("before_hash"),
         "after_hash": change.get("after_hash"),
         "unified_diff": str(change.get("unified_diff") or ""),
     }
+    output_refs = change.get("diff_output_refs")
+    if isinstance(output_refs, list):
+        refs = [str(ref) for ref in output_refs if str(ref).strip()]
+        if refs:
+            diff["diff_output_refs"] = refs
+    for key in ("diff_externalized", "diff_truncated"):
+        value = change.get(key)
+        if isinstance(value, bool):
+            diff[key] = value
+    return diff
 
 
 def _sha256(text: str | None) -> str | None:

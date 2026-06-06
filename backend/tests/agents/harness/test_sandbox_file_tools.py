@@ -120,6 +120,42 @@ async def test_write_file_records_diff_and_hashes(sandbox: LocalSandbox) -> None
 
 
 @pytest.mark.asyncio
+async def test_write_file_externalizes_large_diff(sandbox: LocalSandbox) -> None:
+    before = "".join(f"old line {index:03d}: {'x' * 20}\n" for index in range(1, 41))
+    after = "".join(f"new line {index:03d}: {'y' * 20}\n" for index in range(1, 41))
+    await sandbox.write_file("/workspace/main/large.tex", before)
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=_write_policy(
+            output_budget={
+                "diff_externalize_above_chars": 200,
+                "diff_preview_head_chars": 90,
+                "diff_preview_tail_chars": 70,
+            }
+        ),
+    )
+
+    result = await tools.write_file(path="/workspace/main/large.tex", content=after)
+
+    assert result.file_change is not None
+    change = result.file_change
+    assert change["diff_externalized"] is True
+    assert change["diff_truncated"] is True
+    assert len(change["diff_output_refs"]) == 1
+    diff_ref = change["diff_output_refs"][0]
+    assert diff_ref.startswith(
+        "/workspace/outputs/harness/exec-1/node-1/invocation-1/sandbox.write_file.diff-"
+    )
+    assert diff_ref.endswith(".diff")
+    assert "Full sandbox.write_file.diff output saved to" in change["unified_diff"]
+    full_diff = await sandbox.read_file(diff_ref)
+    assert "-old line 001" in full_diff
+    assert "+new line 040" in full_diff
+    assert full_diff != change["unified_diff"]
+
+
+@pytest.mark.asyncio
 async def test_str_replace_requires_unique_match(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.tex", "same\nsame\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())

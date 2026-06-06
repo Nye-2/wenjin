@@ -95,6 +95,39 @@ def test_file_change_summary_does_not_treat_missing_hashes_as_reverted() -> None
     assert summary["changes"][0]["operation"] == "update"
 
 
+def test_file_change_summary_preserves_externalized_diff_refs() -> None:
+    summary = build_file_change_summary_from_tool_calls(
+        [
+            {
+                "name": "sandbox.write_file",
+                "status": "completed",
+                "file_changes": [
+                    {
+                        "path": "/workspace/main/large.tex",
+                        "operation": "update",
+                        "before_hash": "sha256:old",
+                        "after_hash": "sha256:new",
+                        "unified_diff": "Total output lines: 100\n\n[preview]",
+                        "diff_output_refs": [
+                            "/workspace/outputs/harness/exec/node/invocation/sandbox.write_file.diff-abc.diff"
+                        ],
+                        "diff_externalized": True,
+                        "diff_truncated": True,
+                    }
+                ],
+            }
+        ]
+    )
+
+    diff = summary["changes"][0]["diffs"][0]
+    assert diff["unified_diff"] == "Total output lines: 100\n\n[preview]"
+    assert diff["diff_externalized"] is True
+    assert diff["diff_truncated"] is True
+    assert diff["diff_output_refs"] == [
+        "/workspace/outputs/harness/exec/node/invocation/sandbox.write_file.diff-abc.diff"
+    ]
+
+
 def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:
     guard = HarnessLoopGuard(warn_threshold=3, hard_limit=5)
     args = {"path": "/workspace/main.tex"}

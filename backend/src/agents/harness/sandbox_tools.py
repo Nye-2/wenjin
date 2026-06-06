@@ -18,6 +18,7 @@ from .diff_tracker import build_file_change
 from .output_budget import budget_text_output, select_lines
 
 DEFAULT_READ_MAX_CHARS = 12_000
+DEFAULT_DIFF_MAX_CHARS = 12_000
 DEFAULT_SEARCH_MAX_MATCHES = 50
 
 
@@ -140,15 +141,19 @@ class SandboxFileTools:
         safe_path = self._validate_virtual_path(path, operation="write")
         before = await self._read_existing(safe_path)
         await self.sandbox.write_file(safe_path, content)
-        return HarnessToolResult(
-            preview_text=f"Wrote {safe_path}",
-            structured_payload={"path": safe_path, "bytes": len(content.encode("utf-8"))},
-            file_change=build_file_change(
+        file_change = await self._budget_file_change_diff(
+            build_file_change(
                 path=safe_path,
                 before=before,
                 after=content,
                 operation="add" if before is None else "update",
             ),
+            tool_name="sandbox.write_file",
+        )
+        return HarnessToolResult(
+            preview_text=f"Wrote {safe_path}",
+            structured_payload={"path": safe_path, "bytes": len(content.encode("utf-8"))},
+            file_change=file_change,
         )
 
     async def str_replace(self, *, path: str, old: str, new: str) -> HarnessToolResult:
@@ -159,15 +164,19 @@ class SandboxFileTools:
             raise ValueError(f"str_replace expected exactly one match, found {count}")
         after = before.replace(old, new, 1)
         await self.sandbox.write_file(safe_path, after)
-        return HarnessToolResult(
-            preview_text=f"Updated {safe_path}",
-            structured_payload={"path": safe_path, "replacement_count": 1},
-            file_change=build_file_change(
+        file_change = await self._budget_file_change_diff(
+            build_file_change(
                 path=safe_path,
                 before=before,
                 after=after,
                 operation="update",
             ),
+            tool_name="sandbox.str_replace",
+        )
+        return HarnessToolResult(
+            preview_text=f"Updated {safe_path}",
+            structured_payload={"path": safe_path, "replacement_count": 1},
+            file_change=file_change,
         )
 
     def _validate_virtual_path(self, path: str, *, operation: str) -> str:
@@ -205,6 +214,21 @@ class SandboxFileTools:
     def _read_max_chars(self) -> int:
         return int(self.policy.output_budget.get("read_max_chars") or DEFAULT_READ_MAX_CHARS)
 
+    def _diff_max_chars(self) -> int:
+        return int(self.policy.output_budget.get("diff_max_chars") or DEFAULT_DIFF_MAX_CHARS)
+
+    def _diff_output_budget(self) -> dict[str, Any]:
+        budget = dict(self.policy.output_budget or {})
+        remaps = {
+            "diff_externalize_above_chars": "externalize_above_chars",
+            "diff_preview_head_chars": "preview_head_chars",
+            "diff_preview_tail_chars": "preview_tail_chars",
+        }
+        for source, target in remaps.items():
+            if source in budget:
+                budget[target] = budget[source]
+        return budget
+
     def _max_matches(self) -> int:
         return int(self.policy.output_budget.get("search_max_matches") or DEFAULT_SEARCH_MAX_MATCHES)
 
@@ -216,6 +240,28 @@ class SandboxFileTools:
             return await self.sandbox.read_file(path)
         except FileNotFoundError:
             return None
+
+    async def _budget_file_change_diff(self, change: dict[str, Any], *, tool_name: str) -> dict[str, Any]:
+        diff = str(change.get("unified_diff") or "")
+        budgeted = await budget_text_output(
+            text=diff,
+            tool_name=f"{tool_name}.diff",
+            context=self.context,
+            sandbox=self.sandbox,
+            output_budget=self._diff_output_budget(),
+            fallback_max_chars=self._diff_max_chars(),
+            extension="diff",
+        )
+        if not budgeted.truncated and not budgeted.externalized:
+            return change
+
+        bounded = dict(change)
+        bounded["unified_diff"] = budgeted.preview_text
+        bounded["diff_truncated"] = budgeted.truncated
+        bounded["diff_externalized"] = budgeted.externalized
+        if budgeted.output_refs:
+            bounded["diff_output_refs"] = list(budgeted.output_refs)
+        return bounded
 
     @staticmethod
     def _grep_result(pattern: str, glob_pattern: str, matches: list[dict[str, Any]], *, truncated: bool) -> HarnessToolResult:
