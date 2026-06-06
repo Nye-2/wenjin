@@ -115,7 +115,12 @@ class SandboxFileTools:
             matches.append(virtual_path)
         return HarnessToolResult(
             preview_text="\n".join(matches),
-            structured_payload={"pattern": pattern, "matches": matches},
+            structured_payload={
+                "pattern": pattern,
+                "matches": matches,
+                "returned_matches": len(matches),
+                "match_limit": limit,
+            },
             truncated=truncated,
         )
 
@@ -150,8 +155,14 @@ class SandboxFileTools:
                         }
                     )
                     if len(matches) >= limit:
-                        return self._grep_result(pattern, glob, matches, truncated=True)
-        return self._grep_result(pattern, glob, matches, truncated=False)
+                        return self._grep_result(
+                            pattern,
+                            glob,
+                            matches,
+                            match_limit=limit,
+                            truncated=True,
+                        )
+        return self._grep_result(pattern, glob, matches, match_limit=limit, truncated=False)
 
     async def write_file(self, *, path: str, content: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
@@ -283,14 +294,27 @@ class SandboxFileTools:
         return bounded
 
     @staticmethod
-    def _grep_result(pattern: str, glob_pattern: str, matches: list[dict[str, Any]], *, truncated: bool) -> HarnessToolResult:
+    def _grep_result(
+        pattern: str,
+        glob_pattern: str,
+        matches: list[dict[str, Any]],
+        *,
+        match_limit: int,
+        truncated: bool,
+    ) -> HarnessToolResult:
         preview = "\n".join(
             f"{item['path']}:{item['line']}: {item['text']}"
             for item in matches
         )
         return HarnessToolResult(
             preview_text=preview,
-            structured_payload={"pattern": pattern, "glob": glob_pattern, "matches": matches},
+            structured_payload={
+                "pattern": pattern,
+                "glob": glob_pattern,
+                "matches": matches,
+                "returned_matches": len(matches),
+                "match_limit": match_limit,
+            },
             truncated=truncated,
         )
 

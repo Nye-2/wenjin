@@ -249,6 +249,44 @@ async def test_list_dir_caps_structured_entries(sandbox: LocalSandbox) -> None:
 
 
 @pytest.mark.asyncio
+async def test_glob_reports_returned_matches_and_limit(sandbox: LocalSandbox) -> None:
+    for index in range(1, 9):
+        await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"item {index}\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(output_budget={"search_max_matches": 5}),
+    )
+
+    result = await tools.glob(pattern="main/*.txt")
+
+    assert result.truncated
+    assert result.structured_payload["match_limit"] == 5
+    assert result.structured_payload["returned_matches"] == 5
+    assert len(result.structured_payload["matches"]) == 5
+    assert len(result.preview_text.splitlines()) == 5
+
+
+@pytest.mark.asyncio
+async def test_grep_reports_returned_matches_and_limit(sandbox: LocalSandbox) -> None:
+    for index in range(1, 9):
+        await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"alpha {index}\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(output_budget={"search_max_matches": 5}),
+    )
+
+    result = await tools.grep(pattern="alpha", glob="main/*.txt")
+
+    assert result.truncated
+    assert result.structured_payload["match_limit"] == 5
+    assert result.structured_payload["returned_matches"] == 5
+    assert len(result.structured_payload["matches"]) == 5
+    assert len(result.preview_text.splitlines()) == 5
+
+
+@pytest.mark.asyncio
 async def test_protected_paths_are_blocked(sandbox: LocalSandbox) -> None:
     tools = SandboxFileTools(
         sandbox=sandbox,
