@@ -37,21 +37,21 @@ class TestSandboxIntegration:
 
         # 4. Write file
         await sandbox.write_file(
-            "/mnt/user-data/workspace/document.tex",
+            "/workspace/main/document.tex",
             r"\documentclass{article}\begin{document}Test\end{document}",
         )
 
         # 5. Read file back
-        content = await sandbox.read_file("/mnt/user-data/workspace/document.tex")
+        content = await sandbox.read_file("/workspace/main/document.tex")
         assert "documentclass" in content
 
         # 6. List directory
-        entries = await sandbox.list_dir("/mnt/user-data/workspace")
+        entries = await sandbox.list_dir("/workspace/main")
         names = [e.name for e in entries]
         assert "document.tex" in names
 
         # 7. Verify physical files exist
-        physical_path = Path(temp_dir) / "integration-test" / "user-data" / "workspace" / "document.tex"
+        physical_path = Path(temp_dir).resolve() / "integration-test" / "workspace" / "main" / "document.tex"
         assert physical_path.exists()
 
         # 8. Release sandbox
@@ -70,12 +70,12 @@ class TestSandboxIntegration:
         sandbox2 = await provider.acquire("thread-2")
 
         # Write different content to each
-        await sandbox1.write_file("/mnt/user-data/workspace/file.txt", "Thread 1")
-        await sandbox2.write_file("/mnt/user-data/workspace/file.txt", "Thread 2")
+        await sandbox1.write_file("/workspace/main/file.txt", "Thread 1")
+        await sandbox2.write_file("/workspace/main/file.txt", "Thread 2")
 
         # Verify isolation
-        content1 = await sandbox1.read_file("/mnt/user-data/workspace/file.txt")
-        content2 = await sandbox2.read_file("/mnt/user-data/workspace/file.txt")
+        content1 = await sandbox1.read_file("/workspace/main/file.txt")
+        content2 = await sandbox2.read_file("/workspace/main/file.txt")
 
         assert content1 == "Thread 1"
         assert content2 == "Thread 2"
@@ -118,10 +118,10 @@ class TestSandboxIntegration:
         sandbox = await provider.acquire("cmd-test")
 
         # Create a file
-        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "Hello")
+        await sandbox.write_file("/workspace/main/test.txt", "Hello")
 
         # Use command with virtual path
-        result = await sandbox.execute_command("cat /mnt/user-data/workspace/test.txt")
+        result = await sandbox.execute_command("cat /workspace/main/test.txt")
         assert "Hello" in result.stdout
 
         await provider.release(sandbox)
@@ -154,7 +154,7 @@ class TestErrorHandling:
         sandbox = await provider.acquire("error-test")
 
         with pytest.raises(FileNotFoundError):
-            await sandbox.read_file("/mnt/user-data/workspace/nonexistent.txt")
+            await sandbox.read_file("/workspace/main/nonexistent.txt")
 
         await provider.release(sandbox)
 
@@ -165,7 +165,7 @@ class TestErrorHandling:
         sandbox = await provider.acquire("error-test-2")
 
         with pytest.raises(FileNotFoundError):
-            await sandbox.list_dir("/mnt/user-data/workspace/nonexistent")
+            await sandbox.list_dir("/workspace/main/nonexistent")
 
         await provider.release(sandbox)
 

@@ -52,7 +52,9 @@ Sandbox 不再是用户可操作 room。Sandbox 是 Lead Agent / subagent 使用
 
 当前 sandbox 运行态已收敛为 workspace 级单环境：每个 workspace 最多一个 active sandbox environment，runtime provider key 为 `workspace-{workspace_id}`。Docker container 不跨任务常驻；每次 run 启动短生命周期容器，但挂载同一个 `/workspace`，保留数据集、脚本、outputs、Python venv 和 package cache。`sandbox_python` subagent 只声明 `dependency_hints` 和 Python 脚本，Lead-owned runtime 在 workspace lease 内自动确保 venv、安装依赖、缺包重试一次，并把安装记录为 unbilled `install_dependencies` sandbox job；实际 run job 仍通过 sandbox credit reservation 计费。
 
-Agent harness 第一版把 ReactSubagent 的工具请求接到同一条执行链：`sandbox.list_dir/glob/grep/read_file/write_file/str_replace/run_python` 由 capability/skill policy 过滤，sandbox 工具通过 workspace scheduler 串行，tool calls 写回对应 `ExecutionNodeRecord.tool_calls`，debug 事件走现有 `execution.harness.*` stream。默认 UI 仍展示团队成员进度和交付物，不直接展示 raw tool JSON。
+Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py` 统一定义，Local/Docker provider acquire 时创建同一套布局。Agent 可见根目录固定为 `/workspace`：`main` 放主项目文件，`datasets` 放数据集，`scripts` 放实验脚本，`outputs` 放可展示产物，`reports` 放阶段报告，`tmp` 放临时 scratch，`.wenjin/env` 和 `.wenjin/cache` 由 Lead-owned runtime 管理，`.wenjin/manifest.json` 记录机器可读 layout 契约。harness 新链路只使用 `/workspace`，不再新增 `/mnt/user-data` alias。
+
+Agent harness 第一版把 ReactSubagent 的工具请求接到同一条执行链：`sandbox.list_dir/glob/grep/read_file/write_file/str_replace/run_python` 由 capability/skill policy 过滤，sandbox 工具通过 workspace scheduler 串行，tool calls 写回对应 `ExecutionNodeRecord.tool_calls`，debug 事件走现有 `execution.harness.*` stream。文件工具只允许访问 `/workspace`，受保护路径来自 workspace layout：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。默认 UI 仍展示团队成员进度和交付物，不直接展示 raw tool JSON。
 
 ## 5. Result Card 闭环流程
 

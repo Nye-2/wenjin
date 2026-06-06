@@ -433,13 +433,28 @@ Admin dashboard token usage summary 是展示用近似聚合，必须遵守 Data
 
 Sandbox 是 Lead Agent / subagent-operated infrastructure，不是用户可操作 room。公开 workspace API 不提供任意 sandbox exec；Chat Agent 不 acquire sandbox，也不暴露 bash/file execution tools。每个 workspace 最多一个 active sandbox environment，provider key 固定为 `workspace-{workspace_id}`。Docker container 仍是短生命周期任务容器，但 `/workspace`、`/workspace/.wenjin/env/python` 和 package cache 会随 workspace sandbox 持久化复用，用于长程实验的文件、数据集、脚本和依赖连续性。DataService sandbox environment / job / lease / artifact 只作为 Lead Agent、subagent、agent harness 和 Compute projection 的内部事实源。用户通过 execution/run detail 查看只读 sandbox traces、日志摘要、脚本、产物和 provenance。
 
+Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py` 统一定义，provider acquire 时必须调用 `ensure_workspace_sandbox_layout()`，不得在 Docker/Local provider 或 harness tool 内重复硬编码目录。Agent 可见根目录固定为 `/workspace`，标准目录为：
+
+- `/workspace/main`：主项目文件，承载论文、代码、实验入口等混合型工作内容
+- `/workspace/datasets`：数据集与用户上传后进入 sandbox 的输入材料
+- `/workspace/scripts`：可复用实验脚本和 agent 生成的执行脚本
+- `/workspace/outputs`：图表、实验结果、编译产物和可展示 artifacts
+- `/workspace/reports`：阶段性分析记录、运行总结和交付报告
+- `/workspace/tmp`：临时 scratch，不默认作为用户可审阅产物
+- `/workspace/.wenjin/env`：Lead-owned Python/runtime 环境，model tools 不可读写
+- `/workspace/.wenjin/cache`：受控 package/runtime cache，model tools 不可读写
+- `/workspace/.wenjin/manifest.json`：机器可读 layout manifest，作为 runtime 契约文件而非项目文件
+
+受保护路径由同一 layout 常量下发给 harness policy：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。新 harness 链路不再引入 `/mnt/user-data` alias；旧 thread artifact / upload helper 若仍出现该路径，只能作为待迁移的非 harness 历史边界存在。
+
 Sandbox 依赖安装由 Lead-owned runtime 负责，不由 subagent 自行拼装系统命令。`sandbox_python` 只传 `dependency_hints`；runtime 在 workspace lease 内确保 Python venv 存在、按受控 pip command 自动安装 hints、遇到 `ModuleNotFoundError` 时最多安装缺失包并重试一次。安装 job 记录为 `operation=install_dependencies` 且 `billable=false`，实际 Python run / smoke check job 保持 billable 并通过 credit reservation 结算。安装网络只通过 `package_index_only` profile 开启，普通运行默认 `none`。
 
-Agent harness 是 Lead/subagent 的工具执行层，不是新的 agent framework。当前第一版内置 `sandbox.list_dir`、`sandbox.glob`、`sandbox.grep`、`sandbox.read_file`、`sandbox.write_file`、`sandbox.str_replace` 和 `sandbox.run_python`；`sandbox_python` / `sandbox_exec` 在 TeamKernel 与 ReactSubagent 入口 canonicalize 为 `sandbox.run_python`。Capability policy 是最大权限包络，skill/template 只能收窄；未知或禁用工具显式失败，不降级成 plain LLM。文件工具只允许 `/workspace` 下路径，保护 `.git/**`、`.env`、密钥文件和 `.wenjin/env/cache`；写入会记录 hash + unified diff。`sandbox.run_python` 复用 DataService sandbox job / lease / environment；通用 `sandbox.run_command` 未启用，需 command audit、argv-first contract 和 DataService command policy 评审后再加。
+Agent harness 是 Lead/subagent 的工具执行层，不是新的 agent framework。当前第一版内置 `sandbox.list_dir`、`sandbox.glob`、`sandbox.grep`、`sandbox.read_file`、`sandbox.write_file`、`sandbox.str_replace` 和 `sandbox.run_python`；`sandbox_python` / `sandbox_exec` 在 TeamKernel 与 ReactSubagent 入口 canonicalize 为 `sandbox.run_python`。Capability policy 是最大权限包络，skill/template 只能收窄；未知或禁用工具显式失败，不降级成 plain LLM。文件工具只允许 `/workspace` 下路径，并复用 workspace layout 的 protected path 常量；写入会记录 hash + unified diff。`sandbox.run_python` 复用 DataService sandbox job / lease / environment；通用 `sandbox.run_command` 未启用，需 command audit、argv-first contract 和 DataService command policy 评审后再加。
 
 当前代码边界：
 
 - sandbox provider primitives：`backend/src/sandbox/providers/`
+- workspace sandbox filesystem contract：`backend/src/sandbox/workspace_layout.py`
 - workspace sandbox manager：`backend/src/agents/lead_agent/v2/workspace_sandbox.py`
 - Lead-owned sandbox runtime：`backend/src/agents/lead_agent/v2/sandbox_runtime.py`
 - Lead/subagent harness：`backend/src/agents/harness/`

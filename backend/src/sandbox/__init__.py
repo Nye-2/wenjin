@@ -29,6 +29,14 @@ from .providers.base import SandboxProvider
 # Providers
 from .providers.docker import DockerSandbox, DockerSandboxProvider
 from .providers.local import LocalSandbox, LocalSandboxProvider
+from .workspace_layout import (
+    WORKSPACE_MANIFEST_RELATIVE_PATH,
+    WORKSPACE_PROTECTED_PATHS,
+    WORKSPACE_ROOT,
+    WORKSPACE_STANDARD_DIRS,
+    ensure_workspace_sandbox_layout,
+    workspace_virtual_path,
+)
 
 __all__ = [
     # Core
@@ -42,6 +50,12 @@ __all__ = [
     "SandboxTimeoutError",
     # Path management
     "VirtualPathMapper",
+    "WORKSPACE_ROOT",
+    "WORKSPACE_STANDARD_DIRS",
+    "WORKSPACE_PROTECTED_PATHS",
+    "WORKSPACE_MANIFEST_RELATIVE_PATH",
+    "ensure_workspace_sandbox_layout",
+    "workspace_virtual_path",
     # Configuration
     "SandboxSettings",
     "get_sandbox_settings",

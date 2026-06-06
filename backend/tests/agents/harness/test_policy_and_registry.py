@@ -5,6 +5,7 @@ import pytest
 from src.agents.harness.contracts import HarnessRunContext, HarnessToolSpec
 from src.agents.harness.policy import resolve_harness_policy
 from src.agents.harness.tool_registry import HarnessToolRegistry, UnknownHarnessToolError
+from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
 
 
 def _ctx(
@@ -100,6 +101,17 @@ def test_policy_canonicalizes_existing_sandbox_python_alias() -> None:
     )
 
     assert policy.allowed_tools == ("sandbox.run_python",)
+
+
+def test_policy_uses_workspace_layout_protected_paths() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={"allowed_tools": ["sandbox.read_file"]},
+            skill={"allowed_tools": ["sandbox.read_file"]},
+        )
+    )
+
+    assert policy.protected_paths == WORKSPACE_PROTECTED_PATHS
 
 
 def test_registry_rejects_duplicate_tool_names() -> None:

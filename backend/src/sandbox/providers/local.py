@@ -10,6 +10,7 @@ from pathlib import Path
 
 from src.sandbox.base import CommandResult, FileInfo, Sandbox
 from src.sandbox.providers.base import SandboxProvider
+from src.sandbox.workspace_layout import WORKSPACE_ROOT, ensure_workspace_sandbox_layout
 
 logger = logging.getLogger(__name__)
 
@@ -372,7 +373,7 @@ class LocalSandbox(Sandbox):
 class LocalSandboxProvider(SandboxProvider):
     """Provider for LocalSandbox instances.
 
-    Manages sandbox lifecycle with thread-isolated directories.
+    Manages sandbox lifecycle with workspace-isolated directories.
     """
 
     def __init__(self, base_dir: str, cleanup_on_release: bool = False):
@@ -388,9 +389,9 @@ class LocalSandboxProvider(SandboxProvider):
         self._cleanup_on_release = cleanup_on_release
 
     @staticmethod
-    def _get_user_data_root(base_dir: str, thread_id: str) -> Path:
-        """Resolve the persistent per-thread user-data directory."""
-        return Path(base_dir) / thread_id / "user-data"
+    def _get_workspace_root(base_dir: str, sandbox_id: str) -> Path:
+        """Resolve the persistent workspace sandbox directory."""
+        return Path(base_dir) / sandbox_id / "workspace"
 
     async def acquire(self, thread_id: str) -> LocalSandbox:
         """Acquire or create sandbox for thread."""
@@ -398,15 +399,15 @@ class LocalSandboxProvider(SandboxProvider):
             if thread_id in self._sandboxes:
                 return self._sandboxes[thread_id]
 
-            # Create thread directories
-            user_data_path = self._get_user_data_root(self.base_dir, thread_id)
-            for subdir in ["workspace", "uploads", "outputs"]:
-                (user_data_path / subdir).mkdir(parents=True, exist_ok=True)
+            workspace_path = self._get_workspace_root(self.base_dir, thread_id)
+            ensure_workspace_sandbox_layout(
+                workspace_path,
+                sandbox_id=thread_id,
+                workspace_id=thread_id.removeprefix("workspace-"),
+            )
 
-            # Create path mappings
             path_mappings = {
-                f"/mnt/user-data/{subdir}": str(user_data_path / subdir)
-                for subdir in ["workspace", "uploads", "outputs"]
+                WORKSPACE_ROOT: str(workspace_path),
             }
 
             sandbox = LocalSandbox(id=thread_id, path_mappings=path_mappings)

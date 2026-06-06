@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.sandbox.providers.docker import DockerSandboxProvider
+from src.sandbox.workspace_layout import WORKSPACE_MANIFEST_RELATIVE_PATH, WORKSPACE_STANDARD_DIRS
 
 
 class _FakeDockerClient:
@@ -38,11 +39,9 @@ async def test_docker_provider_acquire_creates_thread_directories(tmp_path):
 
     assert sandbox.sandbox_id == "thread-1"
     assert (tmp_path / "thread-1" / "workspace").exists()
-    assert (tmp_path / "thread-1" / "workspace" / ".wenjin" / "env").exists()
-    assert (tmp_path / "thread-1" / "workspace" / ".wenjin" / "cache").exists()
-    assert (tmp_path / "thread-1" / "workspace" / "datasets").exists()
-    assert (tmp_path / "thread-1" / "workspace" / "scripts").exists()
-    assert (tmp_path / "thread-1" / "workspace" / "outputs").exists()
+    for relative_path in WORKSPACE_STANDARD_DIRS:
+        assert (tmp_path / "thread-1" / "workspace" / relative_path).exists()
+    assert (tmp_path / "thread-1" / "workspace" / WORKSPACE_MANIFEST_RELATIVE_PATH).exists()
     docker_client.cleanup_containers_by_label.assert_awaited_once()
     docker_client.ensure_image.assert_awaited_once_with("wenjin/sandbox:test")
 

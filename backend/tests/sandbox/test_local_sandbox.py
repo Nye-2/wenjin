@@ -10,6 +10,7 @@ from src.sandbox.providers.local import (
     LocalSandboxProvider,
     SandboxSecurityError,
 )
+from src.sandbox.workspace_layout import WORKSPACE_MANIFEST_RELATIVE_PATH, WORKSPACE_STANDARD_DIRS
 
 
 class TestLocalSandbox:
@@ -220,14 +221,14 @@ class TestLocalSandboxProvider:
 
     @pytest.mark.asyncio
     async def test_acquire_creates_directories(self, provider, temp_dir):
-        """Should create thread directories on acquire."""
-        await provider.acquire("thread-dirs")
+        """Should create the canonical workspace sandbox layout on acquire."""
+        sandbox = await provider.acquire("thread-dirs")
 
-        thread_path = Path(temp_dir) / "thread-dirs" / "user-data"
-        assert thread_path.exists()
-        assert (thread_path / "workspace").exists()
-        assert (thread_path / "uploads").exists()
-        assert (thread_path / "outputs").exists()
+        workspace_path = Path(temp_dir).resolve() / "thread-dirs" / "workspace"
+        assert sandbox.path_mappings == {"/workspace": str(workspace_path)}
+        for relative_path in WORKSPACE_STANDARD_DIRS:
+            assert (workspace_path / relative_path).exists()
+        assert (workspace_path / WORKSPACE_MANIFEST_RELATIVE_PATH).exists()
 
 
 class TestLocalSandboxSecurity:
@@ -325,7 +326,7 @@ class TestLocalSandboxProviderCleanup:
         sandbox = await provider.acquire("thread-cleanup-1")
 
         # Write a file
-        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+        await sandbox.write_file("/workspace/main/test.txt", "content")
 
         # Release sandbox
         await provider.release(sandbox)
@@ -340,7 +341,7 @@ class TestLocalSandboxProviderCleanup:
         sandbox = await provider.acquire("thread-cleanup-2")
 
         # Write a file
-        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+        await sandbox.write_file("/workspace/main/test.txt", "content")
 
         # Release sandbox
         await provider.release(sandbox)
@@ -355,7 +356,7 @@ class TestLocalSandboxProviderCleanup:
         sandbox = await provider.acquire("thread-cleanup-3")
 
         # Write a file
-        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+        await sandbox.write_file("/workspace/main/test.txt", "content")
 
         # Release with cleanup=True override
         await provider.release(sandbox, cleanup=True)

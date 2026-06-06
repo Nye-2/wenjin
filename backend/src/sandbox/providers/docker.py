@@ -17,6 +17,7 @@ from src.execution.docker.client import (
 from src.sandbox.base import CommandResult, Sandbox
 from src.sandbox.providers.base import SandboxProvider
 from src.sandbox.providers.local import LocalSandbox, SandboxSecurityError
+from src.sandbox.workspace_layout import WORKSPACE_ROOT, ensure_workspace_sandbox_layout
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 class DockerSandbox(LocalSandbox):
     """Sandbox that executes shell commands inside ephemeral Docker containers."""
 
-    _CONTAINER_WORKSPACE_ROOT = "/workspace"
+    _CONTAINER_WORKSPACE_ROOT = WORKSPACE_ROOT
     _CONTAINER_KIND = "sandbox_exec"
     _NETWORK_PROFILES = frozenset({"none", "restricted_egress", "package_index_only"})
 
@@ -157,8 +158,11 @@ class DockerSandboxProvider(SandboxProvider):
             await self._reconcile_orphaned_exec_containers()
 
             workspace_path = Path(self.base_dir) / thread_id / "workspace"
-            for subdir in (".wenjin/env", ".wenjin/cache", "datasets", "scripts", "outputs"):
-                (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
+            ensure_workspace_sandbox_layout(
+                workspace_path,
+                sandbox_id=thread_id,
+                workspace_id=thread_id.removeprefix("workspace-"),
+            )
 
             await self._docker_client.ensure_image(self.image)
 

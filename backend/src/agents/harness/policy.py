@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
+
 from .contracts import HarnessPolicy, HarnessRunContext
 
 READ_ONLY_TOOLS = frozenset(
@@ -30,14 +32,7 @@ CANONICAL_TOOL_ALIASES = {
     "sandbox_exec": "sandbox.run_python",
 }
 
-PROTECTED_PATHS = (
-    ".git/**",
-    ".env",
-    "*.pem",
-    "*.key",
-    ".wenjin/env/**",
-    ".wenjin/cache/**",
-)
+PROTECTED_PATHS = WORKSPACE_PROTECTED_PATHS
 
 
 def resolve_harness_policy(ctx: HarnessRunContext) -> HarnessPolicy:

@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.sandbox.workspace_layout import workspace_virtual_path
+
 from ..base import ExecutionProvider
 from ..types import ProviderResult
 
@@ -37,6 +39,7 @@ class PythonVizProvider(ExecutionProvider):
         Returns:
             Command list for Docker execution.
         """
+        outputs_path = workspace_virtual_path("outputs")
         # Wrap code with matplotlib setup and save
         wrapped_code = f'''
 import matplotlib
@@ -50,7 +53,7 @@ plt.rcParams['axes.unicode_minus'] = False
 
 # Save figure
 import os
-os.makedirs('/workspace/output', exist_ok=True)
+os.makedirs('{outputs_path}', exist_ok=True)
 '''
 
         return ["python", "-c", wrapped_code]
@@ -99,14 +102,14 @@ os.makedirs('/workspace/output', exist_ok=True)
             ProviderResult with output files and metadata.
         """
         work_path = Path(work_dir)
-        output_dir = work_path / "output"
+        output_dir = work_path / "outputs"
 
         if exit_code == 0 and output_dir.exists():
             images = list(output_dir.glob("*.png")) + list(output_dir.glob("*.svg"))
             if images:
                 return ProviderResult(
                     success=True,
-                    output_files=[f"output/{img.name}" for img in images],
+                    output_files=[f"outputs/{img.name}" for img in images],
                     metadata={"format": options.get("format", "png")},
                     logs=stdout,
                 )

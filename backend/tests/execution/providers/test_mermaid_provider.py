@@ -30,7 +30,7 @@ class TestMermaidProviderContract:
         command = provider.build_command("graph TD; A-->B", {})
         cmd_str = " ".join(command)
         assert "input" in cmd_str or "-i" in cmd_str
-        assert "output" in cmd_str or "-o" in cmd_str
+        assert "/workspace/outputs/diagram.svg" in cmd_str
 
 
 class TestMermaidProviderProcessResult:
@@ -39,7 +39,7 @@ class TestMermaidProviderProcessResult:
     @pytest.mark.asyncio
     async def test_success_with_svg_output(self, tmp_path: Path):
         provider = MermaidProvider()
-        output_dir = tmp_path / "output"
+        output_dir = tmp_path / "outputs"
         output_dir.mkdir()
         (output_dir / "diagram.svg").write_text("<svg>test</svg>")
 
@@ -51,13 +51,12 @@ class TestMermaidProviderProcessResult:
             options={},
         )
         assert result.success is True
-        assert result.output_files
-        assert any("svg" in f for f in result.output_files)
+        assert result.output_files == ["outputs/diagram.svg"]
 
     @pytest.mark.asyncio
     async def test_success_with_png_output(self, tmp_path: Path):
         provider = MermaidProvider()
-        output_dir = tmp_path / "output"
+        output_dir = tmp_path / "outputs"
         output_dir.mkdir()
         (output_dir / "diagram.png").write_bytes(b"\x89PNG")
 
@@ -87,7 +86,7 @@ class TestMermaidProviderProcessResult:
     @pytest.mark.asyncio
     async def test_failure_on_no_output_files(self, tmp_path: Path):
         provider = MermaidProvider()
-        (tmp_path / "output").mkdir()
+        (tmp_path / "outputs").mkdir()
         result = await provider.process_result(
             exit_code=0,
             stdout="",

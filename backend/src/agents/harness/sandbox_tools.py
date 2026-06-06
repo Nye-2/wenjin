@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from src.sandbox.workspace_layout import WORKSPACE_ROOT
+
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .diff_tracker import build_file_change
 from .output_budget import cap_text, select_lines
 
-WORKSPACE_ROOT = "/workspace"
 DEFAULT_READ_MAX_CHARS = 12_000
 DEFAULT_SEARCH_MAX_MATCHES = 50
 
