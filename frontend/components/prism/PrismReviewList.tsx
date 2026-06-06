@@ -7,7 +7,12 @@ import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
 
 export function prismReviewItemPath(item: WorkspacePrismReviewItem): string {
-  return item.target?.file_path?.trim() || item.logical_key;
+  return (
+    item.target?.file_path?.trim() ||
+    item.target?.path?.trim() ||
+    item.logical_key?.trim() ||
+    item.title
+  );
 }
 
 export function prismReviewItemHref(
@@ -27,6 +32,14 @@ export function prismReviewItemHref(
 export function prismReviewItemSummary(item: WorkspacePrismReviewItem): string | null {
   const summary = item.summary?.trim();
   return summary || null;
+}
+
+function reviewItemSummaryForDisplay(item: WorkspacePrismReviewItem, path: string): string | null {
+  const summary = prismReviewItemSummary(item);
+  if (!summary || summary === path || summary === item.title) {
+    return null;
+  }
+  return summary;
 }
 
 function statusLabel(status: string): string {
@@ -139,7 +152,7 @@ export function PrismReviewList({
     <div className={cn("space-y-2", className)}>
       {items.map((item) => {
         const path = prismReviewItemPath(item);
-        const summary = prismReviewItemSummary(item);
+        const summary = reviewItemSummaryForDisplay(item, path);
         const isFocused = isFocusedReviewItem(
           item,
           focusedItemId,

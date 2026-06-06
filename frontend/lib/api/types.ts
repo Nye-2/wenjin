@@ -138,7 +138,7 @@ export interface WorkspacePrismReviewSummary {
 export interface WorkspacePrismReviewItem {
   id: string;
   kind: string;
-  logical_key: string;
+  logical_key?: string | null;
   status: string;
   title: string;
   summary?: string | null;
@@ -146,15 +146,23 @@ export interface WorkspacePrismReviewItem {
     type?: string | null;
     execution_id?: string | null;
     task_id?: string | null;
+    job_id?: string | null;
   };
   target?: {
     kind?: string | null;
     file_path?: string | null;
+    path?: string | null;
+    artifact_kind?: string | null;
+    asset_id?: string | null;
+    sandbox_artifact_id?: string | null;
     room?: string | null;
     item_id?: string | null;
   };
   preview?: {
     mode?: string | null;
+    path?: string | null;
+    mime_type?: string | null;
+    content_hash?: string | null;
     pending_hash?: string | null;
     current_hash?: string | null;
     applied_hash?: string | null;

@@ -10,6 +10,8 @@ import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.agents.lead_agent.v2.sandbox_artifact_discovery import DISCOVERY_SCHEMA
+from src.agents.lead_agent.v2.sandbox_artifact_review import collect_sandbox_artifact_candidates
 from src.services.token_usage_collector import record_token_usage
 
 # ---------------------------------------------------------------------------
@@ -415,6 +417,233 @@ async def test_stage_prism_review_items_from_writer_output():
     assert command.source_task_id == "manuscript_writer"
     assert "Draft" in command.pending_content
     assert command.pending_hash
+
+
+@pytest.mark.asyncio
+async def test_run_session_stages_sandbox_artifact_review_items_from_harness_tool_calls():
+    graph_template = {
+        "phases": [
+            {
+                "name": "analysis",
+                "tasks": [
+                    {
+                        "name": "experiment_runner",
+                        "subagent_type": "react",
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+    registered_assets: list[object] = []
+    registered_artifacts: list[object] = []
+
+    class _FakeGraph:
+        async def ainvoke(self, state):
+            return {
+                **state,
+                "node_results": {
+                    "experiment_runner": {
+                        "output": {"text": "experiment complete"},
+                        "tool_calls": [
+                            {
+                                "name": "sandbox.run_python",
+                                "status": "completed",
+                                "generated_artifacts": [
+                                    {
+                                        "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
+                                        "path": "/workspace/reports/analysis.md",
+                                        "root": "reports",
+                                        "artifact_kind": "sandbox_report",
+                                        "mime_type": "text/markdown",
+                                        "size": 42,
+                                        "content_hash": "sha256:analysis",
+                                        "sandbox_job_id": "job-1",
+                                        "sandbox_environment_id": "env-1",
+                                        "review_surface": "sandbox_artifact",
+                                        "materialization_status": "candidate",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            }
+
+    class _FakeClient:
+        async def register_asset(self, command):
+            registered_assets.append(command)
+            return SimpleNamespace(id="asset-1")
+
+        async def register_sandbox_artifact(self, command):
+            registered_artifacts.append(command)
+            return SimpleNamespace(id="artifact-1", review_item_id="review-1")
+
+        async def list_review_items(self, **kwargs):
+            if kwargs.get("target_domain") != "sandbox":
+                return []
+            return [
+                SimpleNamespace(
+                    id="review-1",
+                    batch_id="batch-1",
+                    workspace_id="ws-001",
+                    source_item_id="artifact-1",
+                    item_kind="sandbox_artifact",
+                    target_domain="sandbox",
+                    target_kind="sandbox_artifact",
+                    target_ref_json={
+                        "sandbox_artifact_id": "artifact-1",
+                        "workspace_asset_id": "asset-1",
+                    },
+                    status="pending",
+                    title="Accept sandbox artifact: sandbox_report",
+                    summary="/workspace/reports/analysis.md",
+                    payload_json={
+                        "sandbox_artifact_id": "artifact-1",
+                        "workspace_asset_id": "asset-1",
+                        "artifact_kind": "sandbox_report",
+                        "path": "/workspace/reports/analysis.md",
+                    },
+                    preview_json={
+                        "path": "/workspace/reports/analysis.md",
+                        "mime_type": "text/markdown",
+                        "content_hash": "sha256:analysis",
+                    },
+                    provenance_json={
+                        "source_kind": "sandbox_job",
+                        "source_id": "job-1",
+                        "execution_id": "exec-sandbox-artifact",
+                    },
+                    result_json=None,
+                    error_text=None,
+                    sort_order=0,
+                    applied_at=None,
+                    created_at=None,
+                    updated_at=None,
+                )
+            ]
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with (
+        patch(
+            "src.agents.lead_agent.v2.runtime.compile_graph",
+            return_value=_FakeGraph(),
+        ),
+        patch(
+            "src.dataservice_client.provider.dataservice_client",
+            return_value=_FakeClientContext(),
+        ),
+    ):
+        report = await runtime.run_session(
+            execution_id="exec-sandbox-artifact",
+            brief=_make_brief(),
+        )
+
+    assert len(registered_assets) == 1
+    asset_payload = registered_assets[0]
+    assert asset_payload.workspace_id == "ws-001"
+    assert asset_payload.asset_kind == "sandbox_report"
+    assert asset_payload.name == "analysis.md"
+    assert asset_payload.storage_backend == "sandbox"
+    assert asset_payload.storage_path == "/workspace/reports/analysis.md"
+    assert asset_payload.source_kind == "sandbox_job"
+    assert asset_payload.source_id == "job-1"
+
+    assert len(registered_artifacts) == 1
+    artifact_payload = registered_artifacts[0]
+    assert artifact_payload.workspace_id == "ws-001"
+    assert artifact_payload.sandbox_job_id == "job-1"
+    assert artifact_payload.workspace_asset_id == "asset-1"
+    assert artifact_payload.artifact_kind == "sandbox_report"
+    assert artifact_payload.path == "/workspace/reports/analysis.md"
+    assert artifact_payload.metadata_json["source_task_id"] == "experiment_runner"
+
+    assert report.review_items == [
+        {
+            "id": "review-1",
+            "kind": "sandbox_artifact",
+            "status": "pending",
+            "title": "Accept sandbox artifact: sandbox_report",
+            "summary": "/workspace/reports/analysis.md",
+            "source": {
+                "type": "sandbox_job",
+                "execution_id": "exec-sandbox-artifact",
+                "job_id": "job-1",
+            },
+            "target": {
+                "kind": "sandbox_artifact",
+                "path": "/workspace/reports/analysis.md",
+                "artifact_kind": "sandbox_report",
+                "asset_id": "asset-1",
+                "sandbox_artifact_id": "artifact-1",
+            },
+            "preview": {
+                "mode": "artifact",
+                "path": "/workspace/reports/analysis.md",
+                "mime_type": "text/markdown",
+                "content_hash": "sha256:analysis",
+            },
+            "actions": [
+                {"action": "accept_sandbox_artifact", "label": "保存到产物库"},
+                {"action": "reject_sandbox_artifact", "label": "忽略"},
+            ],
+            "created_at": None,
+            "updated_at": None,
+            "applied_at": None,
+        }
+    ]
+
+
+def test_collect_sandbox_artifact_candidates_rejects_internal_and_traversal_paths():
+    node_results = {
+        "experiment_runner": {
+            "tool_calls": [
+                {
+                    "status": "completed",
+                    "generated_artifacts": [
+                        {
+                            "schema": DISCOVERY_SCHEMA,
+                            "path": "/workspace/reports/analysis.md",
+                            "artifact_kind": "sandbox_report",
+                            "review_surface": "sandbox_artifact",
+                            "materialization_status": "candidate",
+                            "sandbox_job_id": "job-1",
+                        },
+                        {
+                            "schema": DISCOVERY_SCHEMA,
+                            "path": "/workspace/outputs/harness/exec/node/tool.txt",
+                            "artifact_kind": "sandbox_output",
+                            "review_surface": "sandbox_artifact",
+                            "materialization_status": "candidate",
+                            "sandbox_job_id": "job-1",
+                        },
+                        {
+                            "schema": DISCOVERY_SCHEMA,
+                            "path": "/workspace/outputs/../secrets.txt",
+                            "artifact_kind": "sandbox_output",
+                            "review_surface": "sandbox_artifact",
+                            "materialization_status": "candidate",
+                            "sandbox_job_id": "job-1",
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+
+    assert [
+        candidate["path"] for candidate in collect_sandbox_artifact_candidates(node_results)
+    ] == ["/workspace/reports/analysis.md"]
 
 
 def test_collect_outputs_adds_policy_memory_candidates_from_brief():

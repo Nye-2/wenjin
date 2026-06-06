@@ -465,7 +465,11 @@ class TestMockLLM:
         async def fake_run_python(self, **kwargs):
             return HarnessToolResult(
                 preview_text="Python execution completed",
-                structured_payload={"generated_artifacts": [artifact]},
+                structured_payload={
+                    "sandbox_job_id": "job-1",
+                    "sandbox_environment_id": "env-1",
+                    "generated_artifacts": [artifact],
+                },
             )
 
         monkeypatch.setattr(
@@ -498,11 +502,16 @@ class TestMockLLM:
         result = await tool.ainvoke({"script": "print('ok')", "script_name": "analysis.py"})
         payload = json.loads(result)
 
+        expected_artifact = {
+            **artifact,
+            "sandbox_job_id": "job-1",
+            "sandbox_environment_id": "env-1",
+        }
         assert payload["payload"]["generated_artifacts"] == [artifact]
-        assert tool_records[-1]["generated_artifacts"] == [artifact]
+        assert tool_records[-1]["generated_artifacts"] == [expected_artifact]
         completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
         assert completed_events
-        assert completed_events[-1][2]["payload"]["generated_artifacts"] == [artifact]
+        assert completed_events[-1][2]["payload"]["generated_artifacts"] == [expected_artifact]
 
     @pytest.mark.asyncio
     async def test_harness_tool_loop_guard_blocks_repeated_calls(self):

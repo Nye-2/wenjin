@@ -189,6 +189,47 @@ describe("ResultCard", () => {
     );
   });
 
+  it("renders sandbox artifact review items without Prism-specific copy or links", () => {
+    render(
+      <ResultCard
+        data={{
+          ...SAMPLE_DATA,
+          review_items: [
+            {
+              id: "review-artifact-1",
+              kind: "sandbox_artifact",
+              status: "pending",
+              title: "Accept sandbox artifact: sandbox_report",
+              summary: "/workspace/reports/analysis.md",
+              target: {
+                kind: "sandbox_artifact",
+                path: "/workspace/reports/analysis.md",
+                artifact_kind: "sandbox_report",
+                asset_id: "asset-1",
+                sandbox_artifact_id: "artifact-1",
+              },
+              preview: {
+                mode: "artifact",
+                path: "/workspace/reports/analysis.md",
+                mime_type: "text/markdown",
+                content_hash: "sha256:analysis",
+              },
+            },
+          ],
+        }}
+        workspaceId="ws-1"
+      />,
+    );
+
+    expect(screen.getByText("产物有 1 项待确认保存")).toBeInTheDocument();
+    expect(screen.getByText("Accept sandbox artifact: sandbox_report")).toBeInTheDocument();
+    expect(screen.getByText("/workspace/reports/analysis.md")).toBeInTheDocument();
+    expect(screen.queryByText(/Prism 有/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "预览待确认修改" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows an inline error when saving fails", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

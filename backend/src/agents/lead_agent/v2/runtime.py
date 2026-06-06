@@ -23,6 +23,12 @@ from src.agents.lead_agent.v2.output_mapping import (
     OutputMappingResolver,
     resolve_output_mapping_value,
 )
+from src.agents.lead_agent.v2.sandbox_artifact_review import (
+    collect_sandbox_artifact_candidates,
+    sandbox_artifact_payload_for_candidate,
+    sandbox_review_item_projection,
+    workspace_asset_payload_for_candidate,
+)
 from src.dataservice_client.contracts.source import SourceCitationUsageCreatePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.capability_resolver import CapabilityResolver
@@ -344,6 +350,11 @@ class LeadAgentRuntime:
             await self._stage_prism_review_items(
                 final_state,
                 cap,
+                brief=brief,
+                execution_id=execution_id,
+            )
+            await self._stage_sandbox_artifact_review_items(
+                final_state,
                 brief=brief,
                 execution_id=execution_id,
             )
@@ -734,24 +745,35 @@ class LeadAgentRuntime:
         workspace_id: str,
         execution_id: str,
     ) -> list[dict[str, Any]]:
-        """Load canonical Prism review items produced by this execution."""
+        """Load canonical review items produced by this execution."""
         from src.dataservice_client.provider import dataservice_client
         from src.services.prism_review_projection import prism_review_item_projection
 
+        review_items: list[dict[str, Any]] = []
         try:
             async with dataservice_client() as client:
-                items = await client.list_review_items(
+                prism_items = await client.list_review_items(
                     workspace_id=workspace_id,
                     execution_id=execution_id,
                     target_domain="prism",
                 )
-                return [
+                review_items.extend(
                     prism_review_item_projection(item, execution_id=execution_id)
-                    for item in items
-                ]
+                    for item in prism_items
+                )
+                sandbox_items = await client.list_review_items(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    target_domain="sandbox",
+                    target_kind="sandbox_artifact",
+                )
+                review_items.extend(
+                    sandbox_review_item_projection(item, execution_id=execution_id)
+                    for item in sandbox_items
+                )
         except Exception:
-            logger.warning("Failed to load Prism review items", exc_info=True)
-            return []
+            logger.warning("Failed to load execution review items", exc_info=True)
+        return review_items
 
     async def _check_abort(self, execution_id: str) -> bool:
         """Return True if a Redis abort signal exists for this execution."""
@@ -1257,6 +1279,42 @@ class LeadAgentRuntime:
                     )
         except Exception:
             logger.warning("Failed to stage Prism review items", exc_info=True)
+
+    async def _stage_sandbox_artifact_review_items(
+        self,
+        state: dict,
+        *,
+        brief: TaskBrief,
+        execution_id: str,
+    ) -> None:
+        """Register sandbox-generated artifact candidates as review items."""
+
+        candidates = collect_sandbox_artifact_candidates(state.get("node_results", {}))
+        if not candidates:
+            return
+
+        from src.dataservice_client.provider import dataservice_client
+
+        try:
+            async with dataservice_client() as client:
+                for candidate in candidates:
+                    asset = await client.register_asset(
+                        workspace_asset_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            candidate=candidate,
+                        )
+                    )
+                    await client.register_sandbox_artifact(
+                        sandbox_artifact_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            workspace_asset_id=str(asset.id),
+                            candidate=candidate,
+                        )
+                    )
+        except Exception:
+            logger.warning("Failed to stage sandbox artifact review items", exc_info=True)
 
     @staticmethod
     def _library_citation_keys(library_context: Any) -> set[str]:

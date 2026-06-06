@@ -13,6 +13,7 @@ import {
   PrismReviewList,
   prismReviewItemHref,
 } from "@/components/prism/PrismReviewList";
+import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import type { ResultCardData } from "@/stores/chat-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
@@ -26,6 +27,22 @@ function generateUUID(): string {
     const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
+}
+
+function isPrismReviewItem(item: WorkspacePrismReviewItem): boolean {
+  return item.kind === "prism_file_change" || item.target?.kind === "prism_file_change";
+}
+
+function reviewNotice(items: WorkspacePrismReviewItem[]): string {
+  const prismCount = items.filter(isPrismReviewItem).length;
+  const artifactCount = items.filter((item) => item.kind === "sandbox_artifact").length;
+  if (prismCount === items.length) {
+    return `Prism 有 ${items.length} 项待确认修改`;
+  }
+  if (artifactCount === items.length) {
+    return `产物有 ${items.length} 项待确认保存`;
+  }
+  return `有 ${items.length} 项待确认`;
 }
 
 interface ResultCardProps {
@@ -52,6 +69,8 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     [previews],
   );
   const representativePreviews = useMemo(() => previews.slice(0, 3), [previews]);
+  const reviewItems = data.review_items ?? [];
+  const firstPrismReviewItem = reviewItems.find(isPrismReviewItem);
   const selectRun = useWorkbenchLayoutStore((state) => state.selectRun);
   const setActiveWorkbenchTab = useWorkbenchLayoutStore(
     (state) => state.setActiveWorkbenchTab,
@@ -121,15 +140,15 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
 
       {narrative ? <div style={styles.narrative}>{narrative}</div> : null}
 
-      {data.review_items?.length ? (
+      {reviewItems.length ? (
         <div style={styles.reviewItems}>
           <div style={styles.prismNotice}>
-            Prism 有 {data.review_items.length} 项待确认修改
+            {reviewNotice(reviewItems)}
           </div>
-          <PrismReviewList items={data.review_items} />
-          {workspaceId ? (
+          <PrismReviewList items={reviewItems} />
+          {workspaceId && firstPrismReviewItem ? (
             <WorkspaceActionLink
-              href={prismReviewItemHref(workspaceId, data.review_items[0])}
+              href={prismReviewItemHref(workspaceId, firstPrismReviewItem)}
               style={styles.savedLink}
             >
               预览待确认修改

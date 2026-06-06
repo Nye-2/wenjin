@@ -447,9 +447,9 @@ Workspace sandbox 文件系统契约由 `backend/src/sandbox/workspace_layout.py
 
 受保护路径由同一 layout 常量下发给 harness policy：`.git/**`、`.env`、`*.pem`、`*.key`、`.wenjin/env/**`、`.wenjin/cache/**`、`.wenjin/manifest.json`。新 harness 链路不再引入 `/mnt/user-data` alias；旧 thread artifact / upload helper 若仍出现该路径，只能作为待迁移的非 harness 历史边界存在。
 
-工具大输出统一写入 `/workspace/outputs/harness/{execution_id}/{node_id}/{invocation_id}/`，模型只接收 bounded preview、`output_refs`、`truncated` 和 `externalized` 标记。当前已覆盖 `sandbox.read_file` 的大文件读取，以及 Lead-owned `sandbox.run_python` 的 stdout/stderr；完整内容留在 workspace sandbox 内，后续 DataService `sandbox_artifact` materialization 再把需要展示/提交的文件纳入 review-card 流。ReactSubagent harness adapter 会把外部化 refs 投影到 tool call record 与 `execution.harness.output_externalized` 事件。实现上不得把完整 stdout/stderr 或大文件内容重新塞进 model-visible tool payload。
+工具大输出统一写入 `/workspace/outputs/harness/{execution_id}/{node_id}/{invocation_id}/`，模型只接收 bounded preview、`output_refs`、`truncated` 和 `externalized` 标记。当前已覆盖 `sandbox.read_file` 的大文件读取，以及 Lead-owned `sandbox.run_python` 的 stdout/stderr；完整内容留在 workspace sandbox 内。ReactSubagent harness adapter 会把外部化 refs 投影到 tool call record 与 `execution.harness.output_externalized` 事件。实现上不得把完整 stdout/stderr 或大文件内容重新塞进 model-visible tool payload。
 
-Lead-owned `sandbox.run_python` 在同一个 workspace lease 内发现用户可审阅产物：扫描 `/workspace/outputs` 与 `/workspace/reports`，排除 `/workspace/outputs/harness/**` 内部大输出引用，并在 job payload 中返回 `generated_artifacts[]`。候选项字段包括 `schema=wenjin.sandbox.generated_artifact_candidate.v1`、`path`、`root`、`artifact_kind`、`mime_type`、`size`、可选 `content_hash`、`review_surface=sandbox_artifact` 与 `materialization_status=candidate`。ReactSubagent harness adapter 会把这些候选项投影到 tool call record 和 `execution.harness.tool_call.completed` 事件，前端/运行历史不需要解析 raw tool JSON。这只是 discovery contract，不直接注册 DataService `sandbox_artifacts` 或创建 review item；后续物化服务必须从这些候选项进入既有 review/commit 流。
+Lead-owned `sandbox.run_python` 在同一个 workspace lease 内发现用户可审阅产物：扫描 `/workspace/outputs` 与 `/workspace/reports`，排除 `/workspace/outputs/harness/**` 内部大输出引用，并在 job payload 中返回 `generated_artifacts[]`。候选项字段包括 `schema=wenjin.sandbox.generated_artifact_candidate.v1`、`path`、`root`、`artifact_kind`、`mime_type`、`size`、可选 `content_hash`、`review_surface=sandbox_artifact` 与 `materialization_status=candidate`。ReactSubagent harness adapter 会把这些候选项连同 `sandbox_job_id` / `sandbox_environment_id` 投影到 tool call record 和 `execution.harness.tool_call.completed` 事件，前端/运行历史不需要解析 raw tool JSON。Lead runtime 完成 graph 后会把可信候选注册为 DataService `workspace_asset(storage_backend=sandbox)` 和 `sandbox_artifact`，由 DataService 自动生成 `target_domain=sandbox,target_kind=sandbox_artifact` 的 review item；用户接受后才 mark materialized。
 
 Sandbox 依赖安装由 Lead-owned runtime 负责，不由 subagent 自行拼装系统命令。`sandbox_python` 只传 `dependency_hints`；runtime 在 workspace lease 内确保 Python venv 存在、按受控 pip command 自动安装 hints、遇到 `ModuleNotFoundError` 时最多安装缺失包并重试一次。安装 job 记录为 `operation=install_dependencies` 且 `billable=false`，实际 Python run / smoke check job 保持 billable 并通过 credit reservation 结算。安装网络只通过 `package_index_only` profile 开启，普通运行默认 `none`。
 
@@ -462,6 +462,7 @@ Agent harness 是 Lead/subagent 的工具执行层，不是新的 agent framewor
 - workspace sandbox manager：`backend/src/agents/lead_agent/v2/workspace_sandbox.py`
 - Lead-owned sandbox runtime：`backend/src/agents/lead_agent/v2/sandbox_runtime.py`
 - sandbox artifact discovery：`backend/src/agents/lead_agent/v2/sandbox_artifact_discovery.py`
+- sandbox artifact review staging：`backend/src/agents/lead_agent/v2/sandbox_artifact_review.py`
 - Lead/subagent harness：`backend/src/agents/harness/`
 - command audit contract：`backend/src/agents/harness/command_audit.py`
 - sandbox subagent：`backend/src/subagents/v2/types/sandbox.py`

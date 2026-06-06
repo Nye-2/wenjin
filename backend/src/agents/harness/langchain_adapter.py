@@ -382,11 +382,19 @@ def _generated_artifact_metadata(payload: dict[str, Any]) -> list[dict[str, Any]
     artifacts = structured_payload.get("generated_artifacts")
     if not isinstance(artifacts, list):
         return []
-    return [
-        dict(artifact)
-        for artifact in artifacts[:50]
-        if isinstance(artifact, dict) and str(artifact.get("path") or "").strip()
-    ]
+    sandbox_job_id = str(structured_payload.get("sandbox_job_id") or "").strip()
+    sandbox_environment_id = str(structured_payload.get("sandbox_environment_id") or "").strip()
+    enriched: list[dict[str, Any]] = []
+    for artifact in artifacts[:50]:
+        if not isinstance(artifact, dict) or not str(artifact.get("path") or "").strip():
+            continue
+        candidate = dict(artifact)
+        if sandbox_job_id:
+            candidate.setdefault("sandbox_job_id", sandbox_job_id)
+        if sandbox_environment_id:
+            candidate.setdefault("sandbox_environment_id", sandbox_environment_id)
+        enriched.append(candidate)
+    return enriched
 
 
 def _skill_snapshot(skill: Any | None) -> dict[str, Any]:
