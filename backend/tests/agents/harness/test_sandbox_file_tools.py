@@ -11,6 +11,7 @@ from src.agents.harness.sandbox_tools import (
     SandboxFileTools,
 )
 from src.sandbox.providers.local import LocalSandbox
+from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
 
 
 @pytest.fixture
@@ -181,6 +182,40 @@ async def test_grep_and_glob_stay_inside_workspace(sandbox: LocalSandbox) -> Non
         "/workspace/a.txt",
         "/workspace/nested/b.txt",
     ]
+
+
+@pytest.mark.asyncio
+async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
+    await sandbox.write_file("/workspace/outputs/result.txt", "alpha artifact\n")
+    await sandbox.write_file("/workspace/.env", "alpha secret\n")
+    await sandbox.write_file("/workspace/.wenjin/env/python/bin/python", "alpha runtime\n")
+    await sandbox.write_file("/workspace/outputs/harness/exec/node/tool.txt", "alpha internal\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(protected_paths=WORKSPACE_PROTECTED_PATHS),
+    )
+
+    list_result = await tools.list_dir(path="/workspace", max_depth=3)
+    listed_paths = [item["path"] for item in list_result.structured_payload["entries"]]
+    glob_result = await tools.glob(pattern="**/*.txt")
+    grep_result = await tools.grep(pattern="alpha", glob="**/*")
+    searched_paths = [item["path"] for item in grep_result.structured_payload["matches"]]
+
+    assert "/workspace/main/visible.txt" in listed_paths
+    assert "/workspace/outputs/result.txt" in listed_paths
+    assert "/workspace/main/visible.txt" in glob_result.structured_payload["matches"]
+    assert "/workspace/outputs/result.txt" in searched_paths
+    assert all(not path.startswith("/workspace/.env") for path in listed_paths)
+    assert all(not path.startswith("/workspace/.wenjin/env") for path in listed_paths)
+    assert all(not path.startswith("/workspace/outputs/harness") for path in listed_paths)
+    assert all(not path.startswith("/workspace/.env") for path in glob_result.structured_payload["matches"])
+    assert all(not path.startswith("/workspace/.wenjin/env") for path in glob_result.structured_payload["matches"])
+    assert all(not path.startswith("/workspace/outputs/harness") for path in glob_result.structured_payload["matches"])
+    assert all(not path.startswith("/workspace/.env") for path in searched_paths)
+    assert all(not path.startswith("/workspace/.wenjin/env") for path in searched_paths)
+    assert all(not path.startswith("/workspace/outputs/harness") for path in searched_paths)
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from typing import Any
 
 from src.sandbox.workspace_layout import (
     WORKSPACE_ROOT,
+    is_workspace_internal_path,
     is_workspace_protected_path,
     normalize_workspace_virtual_path,
 )
@@ -73,11 +74,12 @@ class SandboxFileTools:
         payload_entries = [
             {
                 "name": entry.name,
-                "path": _virtualize_path(entry.path),
+                "path": virtual_path,
                 "is_dir": entry.is_dir,
                 "size": entry.size,
             }
             for entry in entries
+            if self._is_tool_visible_path(virtual_path := _virtualize_path(entry.path))
         ]
         lines = [
             f"{item['path']}{'/' if item['is_dir'] else ''}"
@@ -92,15 +94,22 @@ class SandboxFileTools:
     async def glob(self, *, pattern: str, max_matches: int | None = None) -> HarnessToolResult:
         safe_pattern = self._validate_glob_pattern(pattern)
         limit = max_matches or self._max_matches()
-        matches = [
-            _virtualize_path(str(path))
-            for path in sorted(self._workspace_physical_root().glob(safe_pattern))
-            if path.is_file()
-        ][:limit]
+        matches: list[str] = []
+        truncated = False
+        for path in sorted(self._workspace_physical_root().glob(safe_pattern)):
+            if not path.is_file():
+                continue
+            virtual_path = _virtualize_path(str(path))
+            if not self._is_tool_visible_path(virtual_path):
+                continue
+            if len(matches) >= limit:
+                truncated = True
+                break
+            matches.append(virtual_path)
         return HarnessToolResult(
             preview_text="\n".join(matches),
             structured_payload={"pattern": pattern, "matches": matches},
-            truncated=len(matches) >= limit,
+            truncated=truncated,
         )
 
     async def grep(
@@ -118,7 +127,7 @@ class SandboxFileTools:
             if not path.is_file():
                 continue
             virtual_path = _virtualize_path(str(path))
-            if self._is_protected(virtual_path):
+            if not self._is_tool_visible_path(virtual_path):
                 continue
             try:
                 text = path.read_text(encoding="utf-8")
@@ -210,6 +219,9 @@ class SandboxFileTools:
             virtual_path,
             protected_paths=tuple(self.policy.protected_paths),
         )
+
+    def _is_tool_visible_path(self, virtual_path: str) -> bool:
+        return not self._is_protected(virtual_path) and not is_workspace_internal_path(virtual_path)
 
     def _read_max_chars(self) -> int:
         return int(self.policy.output_budget.get("read_max_chars") or DEFAULT_READ_MAX_CHARS)
