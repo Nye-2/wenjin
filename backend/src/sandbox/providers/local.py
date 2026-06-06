@@ -42,6 +42,7 @@ class LocalSandbox(Sandbox):
     _COMMAND_HOME_PATH_RE = re.compile(
         r"(?<![A-Za-z0-9_])(~(?:\/[^ \t\r\n'\"`|&;<>(),]*)?)"
     )
+    _NETWORK_PROFILES = frozenset({"none", "restricted_egress", "package_index_only"})
 
     def __init__(self, id: str, path_mappings: dict[str, str]):
         """Initialize local sandbox.
@@ -218,8 +219,16 @@ class LocalSandbox(Sandbox):
         self,
         command: str,
         timeout: int = 300,
+        *,
+        network_profile: str = "none",
     ) -> CommandResult:
         """Execute shell command."""
+        if network_profile not in self._NETWORK_PROFILES:
+            return CommandResult(
+                stdout="",
+                stderr=f"Unsupported sandbox network profile: {network_profile}",
+                exit_code=1,
+            )
         try:
             self._validate_command(command)
         except SandboxSecurityError as exc:

@@ -10,6 +10,7 @@ from src.agents.lead_agent.v2.sandbox_runtime import (
 )
 from src.agents.lead_agent.v2.workspace_sandbox import ENSURE_WORKSPACE_VENV_COMMAND
 from src.sandbox.base import CommandResult, FileInfo
+from src.sandbox.providers.local import LocalSandbox
 from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.sandbox import SandboxPythonSubagent
@@ -76,6 +77,22 @@ class _FakeProvider:
         return self.sandbox
 
     async def release(self, sandbox: _FakeSandbox) -> None:
+        self.released.append(sandbox)
+
+
+class _LocalProvider:
+    image = "local-python:3.13"
+
+    def __init__(self, sandbox: LocalSandbox) -> None:
+        self.sandbox = sandbox
+        self.acquired: list[str] = []
+        self.released: list[LocalSandbox] = []
+
+    async def acquire(self, thread_id: str) -> LocalSandbox:
+        self.acquired.append(thread_id)
+        return self.sandbox
+
+    async def release(self, sandbox: LocalSandbox) -> None:
         self.released.append(sandbox)
 
 
@@ -231,6 +248,41 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
         "/workspace/scripts/analysis_probe.py",
     ]
     assert result["command_audit"] == run_audit
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_runs_with_local_sandbox_provider_interface(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-local",
+        execution_id="exec-local",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="import json\nprint(json.dumps({'ok': True, 'rows': 2}, sort_keys=True))\n",
+        script_name="probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    assert provider.acquired == ["workspace-ws-local"]
+    assert provider.released == [sandbox]
+    assert await sandbox.read_file("/workspace/scripts/probe.py")
+    assert result["status"] == "completed"
+    assert result["parsed_stdout"] == {"ok": True, "rows": 2}
+    assert manager.created_jobs[0]["operation"] == "run_python"
+    assert manager.updated_jobs[-1] == {
+        "job_id": "job-1",
+        "status": "succeeded",
+        "exit_code": 0,
+    }
 
 
 @pytest.mark.asyncio

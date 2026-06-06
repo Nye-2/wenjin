@@ -70,12 +70,15 @@ class Sandbox(ABC):
         self,
         command: str,
         timeout: int = 300,
+        *,
+        network_profile: str = "none",
     ) -> CommandResult:
         """Execute a shell command in the sandbox.
 
         Args:
             command: Shell command to execute.
             timeout: Maximum execution time in seconds.
+            network_profile: Requested network policy for this command.
 
         Returns:
             CommandResult with stdout, stderr, and exit code.
