@@ -316,6 +316,24 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
 
 
 @pytest.mark.asyncio
+async def test_direct_file_tools_block_internal_harness_output_paths(sandbox: LocalSandbox) -> None:
+    internal_path = "/workspace/outputs/harness/exec-1/node-1/invocation-1/full-output.txt"
+    await sandbox.write_file(internal_path, "internal full output\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="internal path"):
+        await tools.read_file(path=internal_path)
+
+    with pytest.raises(HarnessPathError, match="internal path"):
+        await tools.write_file(path=internal_path, content="changed\n")
+
+    with pytest.raises(HarnessPathError, match="internal path"):
+        await tools.str_replace(path=internal_path, old="internal", new="changed")
+
+    assert await sandbox.read_file(internal_path) == "internal full output\n"
+
+
+@pytest.mark.asyncio
 async def test_default_policy_hides_workspace_runtime_paths(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
     await sandbox.write_file("/workspace/.env", "alpha secret\n")

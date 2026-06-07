@@ -268,6 +268,8 @@ class SandboxFileTools:
             raise HarnessPathError(str(exc)) from exc
         if self._is_protected(normalized):
             raise HarnessPathError(f"protected path is not accessible: {normalized}")
+        if is_workspace_internal_path(normalized):
+            raise HarnessPathError(f"internal path is not accessible: {normalized}")
         if operation == "write":
             self._require_write_permissions()
         return normalized
