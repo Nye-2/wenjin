@@ -1,4 +1,5 @@
 import json
+import sys
 from unittest.mock import AsyncMock
 
 import pytest
@@ -187,6 +188,37 @@ async def test_run_python_smoke_check_uses_fixed_command_and_releases_sandbox() 
     assert "LeadAgentRuntime / subagent node" in result["report_markdown"]
     assert manager.created_jobs[0]["operation"] == "smoke_check"
     assert manager.created_jobs[0]["metadata"]["credit_reservation_id"] == "reservation-1"
+
+
+@pytest.mark.asyncio
+async def test_run_python_smoke_check_runs_when_only_python3_is_on_path(tmp_path, monkeypatch) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_smoke_check(
+        workspace_id="ws-local",
+        execution_id="exec-local",
+        node_id="sandbox_validation__python_smoke",
+        sandbox_policy=_policy(),
+        provider=provider,
+        manager=manager,
+    )
+
+    assert result["status"] == "completed"
+    assert result["mean"] == 5
+    assert result["engine"] == "lead_agent_docker_sandbox"
+    assert provider.acquired == ["workspace-ws-local"]
+    assert provider.released == [sandbox]
 
 
 @pytest.mark.asyncio

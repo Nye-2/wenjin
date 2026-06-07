@@ -23,7 +23,8 @@ from src.agents.lead_agent.v2.workspace_sandbox import WorkspaceSandboxManager
 from src.sandbox.providers.docker import DockerSandboxProvider
 
 SMOKE_COMMAND = (
-    "python -c \"import json, platform, statistics; "
+    "PYTHON_BIN=$(command -v python || command -v python3) && "
+    "\"$PYTHON_BIN\" -c \"import json, platform, statistics; "
     "data=[2,4,6,8]; "
     "print(json.dumps({'ok': True, 'mean': statistics.mean(data), "
     "'python': platform.python_version(), 'engine': 'lead_agent_docker_sandbox'}, "
