@@ -152,7 +152,6 @@ class LocalSandbox(Sandbox):
     def _reverse_resolve_path(self, path: str) -> str:
         """Resolve physical path back to virtual path."""
         resolved = str(Path(path).resolve())
-
         for virtual_path, physical_path in sorted(
             self.path_mappings.items(),
             key=lambda x: len(x[1]),
@@ -161,6 +160,23 @@ class LocalSandbox(Sandbox):
             physical_resolved = str(Path(physical_path).resolve())
             if self._is_within_root(resolved, physical_resolved):
                 relative = resolved[len(physical_resolved):].lstrip("/")
+                if relative:
+                    return f"{virtual_path}/{relative}"
+                return virtual_path
+
+        return path
+
+    def _reverse_resolve_literal_path(self, path: str) -> str:
+        """Resolve a physical path to virtual path without following final symlinks."""
+        absolute = str(Path(path).absolute())
+        for virtual_path, physical_path in sorted(
+            self.path_mappings.items(),
+            key=lambda x: len(x[1]),
+            reverse=True,
+        ):
+            physical_absolute = str(Path(physical_path).absolute())
+            if self._is_within_root(absolute, physical_absolute):
+                relative = absolute[len(physical_absolute):].lstrip("/")
                 if relative:
                     return f"{virtual_path}/{relative}"
                 return virtual_path
@@ -362,7 +378,7 @@ class LocalSandbox(Sandbox):
 
                 entries.append(FileInfo(
                     name=entry.name,
-                    path=self._reverse_resolve_path(entry_path),
+                    path=self._reverse_resolve_literal_path(entry_path),
                     is_dir=is_dir,
                     size=size,
                 ))

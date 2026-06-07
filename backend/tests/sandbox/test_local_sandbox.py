@@ -145,6 +145,23 @@ class TestLocalSandbox:
         assert all(path.startswith("/mnt/user-data/workspace") for path in paths)
 
     @pytest.mark.asyncio
+    async def test_list_dir_reports_internal_symlink_path_not_target_path(self, sandbox):
+        """Directory listing should preserve symlink entry paths inside the virtual namespace."""
+        await sandbox.write_file("/mnt/user-data/workspace/target.txt", "target")
+        workspace_root = Path(sandbox.path_mappings["/mnt/user-data/workspace"])
+        link_path = workspace_root / "linked.txt"
+        try:
+            link_path.symlink_to(workspace_root / "target.txt")
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlink creation is not available: {exc}")
+
+        entries = await sandbox.list_dir("/mnt/user-data/workspace")
+
+        path_by_name = {entry.name: entry.path for entry in entries}
+        assert path_by_name["linked.txt"] == "/mnt/user-data/workspace/linked.txt"
+        assert path_by_name["target.txt"] == "/mnt/user-data/workspace/target.txt"
+
+    @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, sandbox):
         """Should raise FileNotFoundError for missing file."""
         with pytest.raises(FileNotFoundError):
