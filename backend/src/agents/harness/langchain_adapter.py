@@ -27,6 +27,7 @@ class ReadFileInput(BaseModel):
     path: str
     start_line: int | None = Field(default=None, ge=1)
     end_line: int | None = Field(default=None, ge=1)
+    max_chars: int | None = Field(default=None, ge=1)
 
 
 class ListDirInput(BaseModel):
