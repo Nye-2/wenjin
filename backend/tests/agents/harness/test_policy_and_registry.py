@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.agents.harness.contracts import HarnessRunContext, HarnessToolSpec
+from src.agents.harness.contracts import HarnessPolicy, HarnessRunContext, HarnessToolSpec
 from src.agents.harness.policy import resolve_harness_policy
 from src.agents.harness.tool_registry import HarnessToolRegistry, UnknownHarnessToolError
 from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
@@ -110,6 +110,12 @@ def test_policy_uses_workspace_layout_protected_paths() -> None:
             skill={"allowed_tools": ["sandbox.read_file"]},
         )
     )
+
+    assert policy.protected_paths == WORKSPACE_PROTECTED_PATHS
+
+
+def test_harness_policy_defaults_to_workspace_layout_protected_paths() -> None:
+    policy = HarnessPolicy()
 
     assert policy.protected_paths == WORKSPACE_PROTECTED_PATHS
 

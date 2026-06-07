@@ -316,6 +316,36 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
 
 
 @pytest.mark.asyncio
+async def test_default_policy_hides_workspace_runtime_paths(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
+    await sandbox.write_file("/workspace/.env", "alpha secret\n")
+    await sandbox.write_file("/workspace/.wenjin/env/python/bin/python", "alpha runtime\n")
+    await sandbox.write_file("/workspace/.wenjin/cache/package.txt", "alpha cache\n")
+    await sandbox.write_file("/workspace/.wenjin/manifest.json", "alpha manifest\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(permissions=frozenset({"filesystem.read"})),
+    )
+
+    list_result = await tools.list_dir(path="/workspace", max_depth=3)
+    glob_result = await tools.glob(pattern="**/*")
+    grep_result = await tools.grep(pattern="alpha", glob="**/*")
+
+    listed_paths = [item["path"] for item in list_result.structured_payload["entries"]]
+    glob_paths = glob_result.structured_payload["matches"]
+    grep_paths = [item["path"] for item in grep_result.structured_payload["matches"]]
+    assert "/workspace/main/visible.txt" in listed_paths
+    assert "/workspace/main/visible.txt" in glob_paths
+    assert "/workspace/main/visible.txt" in grep_paths
+    for paths in (listed_paths, glob_paths, grep_paths):
+        assert all(not path.startswith("/workspace/.env") for path in paths)
+        assert all(not path.startswith("/workspace/.wenjin/env") for path in paths)
+        assert all(not path.startswith("/workspace/.wenjin/cache") for path in paths)
+        assert all(path != "/workspace/.wenjin/manifest.json" for path in paths)
+
+
+@pytest.mark.asyncio
 async def test_listing_and_search_hide_symlink_escapes(sandbox: LocalSandbox) -> None:
     workspace_root = Path(sandbox.path_mappings["/workspace"])
     outside_dir = workspace_root.parent / "outside"

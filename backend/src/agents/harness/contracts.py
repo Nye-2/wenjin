@@ -6,6 +6,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
+
 HarnessRiskLevel = Literal["read", "write", "execute", "network", "review"]
 HarnessVisibility = Literal["user_visible", "team_visible", "debug_only"]
 HarnessStopReason = Literal[
@@ -50,7 +52,7 @@ class HarnessPolicy:
     denied_tools: frozenset[str] = frozenset()
     permissions: frozenset[str] = frozenset()
     filesystem_roots: tuple[str, ...] = ("/workspace",)
-    protected_paths: tuple[str, ...] = ()
+    protected_paths: tuple[str, ...] = WORKSPACE_PROTECTED_PATHS
     network_profile: str = "none"
     allow_package_install: bool = False
     max_tool_calls: int = 30
