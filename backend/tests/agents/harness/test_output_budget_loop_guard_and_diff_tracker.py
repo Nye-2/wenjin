@@ -5,7 +5,11 @@ from src.agents.harness.diff_tracker import (
     build_file_change_summary_from_tool_calls,
 )
 from src.agents.harness.loop_guard import HarnessLoopGuard
-from src.agents.harness.output_budget import cap_text, select_lines
+from src.agents.harness.output_budget import (
+    bounded_externalized_preview_budget,
+    cap_text,
+    select_lines,
+)
 
 
 def test_output_budget_caps_text_and_selects_line_window() -> None:
@@ -14,6 +18,19 @@ def test_output_budget_caps_text_and_selects_line_window() -> None:
     assert select_lines(content, start_line=2, end_line=2) == "line 2\n"
     assert cap_text("abcdef", 3) == ("abc", True)
     assert cap_text("abc", 3) == ("abc", False)
+
+
+def test_externalized_preview_budget_keeps_head_tail_within_content_limit() -> None:
+    assert bounded_externalized_preview_budget(
+        head_chars=60,
+        tail_chars=40,
+        max_content_chars=20,
+    ) == (12, 8)
+    assert bounded_externalized_preview_budget(
+        head_chars=5,
+        tail_chars=5,
+        max_content_chars=20,
+    ) == (5, 5)
 
 
 def test_diff_tracker_records_hashes_and_unified_diff() -> None:

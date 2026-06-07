@@ -87,12 +87,17 @@ async def budget_text_output(
             preview, truncated = cap_text(text, fallback_max_chars)
             return BudgetedText(preview_text=preview, truncated=truncated, externalized=False)
 
+        head_chars, tail_chars = bounded_externalized_preview_budget(
+            head_chars=int(output_budget.get("preview_head_chars") or DEFAULT_PREVIEW_HEAD_CHARS),
+            tail_chars=int(output_budget.get("preview_tail_chars") or DEFAULT_PREVIEW_TAIL_CHARS),
+            max_content_chars=fallback_max_chars,
+        )
         preview = externalized_preview(
             text,
             tool_name=tool_name,
             output_ref=output_ref,
-            head_chars=int(output_budget.get("preview_head_chars") or DEFAULT_PREVIEW_HEAD_CHARS),
-            tail_chars=int(output_budget.get("preview_tail_chars") or DEFAULT_PREVIEW_TAIL_CHARS),
+            head_chars=head_chars,
+            tail_chars=tail_chars,
         )
         return BudgetedText(
             preview_text=preview,
@@ -156,6 +161,35 @@ def externalized_preview(
         f"{omitted} chars omitted from this preview.]\n\n"
     )
     return "".join((f"Total output lines: {total_lines}\n\n", head, ref, tail))
+
+
+def bounded_externalized_preview_budget(
+    *,
+    head_chars: int,
+    tail_chars: int,
+    max_content_chars: int,
+) -> tuple[int, int]:
+    """Clamp externalized head/tail snippets to the model-visible content budget."""
+
+    budget = max(max_content_chars, 0)
+    head = max(head_chars, 0)
+    tail = max(tail_chars, 0)
+    requested = head + tail
+    if requested <= budget:
+        return head, tail
+    if requested == 0 or budget == 0:
+        return 0, 0
+
+    bounded_head = min(head, (budget * head) // requested)
+    bounded_tail = min(tail, budget - bounded_head)
+    remaining = budget - bounded_head - bounded_tail
+    if remaining > 0 and bounded_head < head:
+        add = min(remaining, head - bounded_head)
+        bounded_head += add
+        remaining -= add
+    if remaining > 0 and bounded_tail < tail:
+        bounded_tail += min(remaining, tail - bounded_tail)
+    return bounded_head, bounded_tail
 
 
 def _safe_segment(value: Any, default: str) -> str:

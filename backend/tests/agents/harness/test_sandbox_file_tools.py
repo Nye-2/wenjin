@@ -129,6 +129,30 @@ async def test_read_file_request_cannot_exceed_policy_max_chars(sandbox: LocalSa
 
 
 @pytest.mark.asyncio
+async def test_externalized_read_file_preview_cannot_exceed_policy_content_budget(sandbox: LocalSandbox) -> None:
+    content = "~" * 100
+    await sandbox.write_file("/workspace/main/large.txt", content)
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(
+            output_budget={
+                "read_max_chars": 20,
+                "externalize_above_chars": 30,
+                "preview_head_chars": 60,
+                "preview_tail_chars": 40,
+            }
+        ),
+    )
+
+    result = await tools.read_file(path="/workspace/main/large.txt")
+
+    assert result.externalized
+    assert result.preview_text.count("~") == 20
+    assert await sandbox.read_file(result.output_refs[0]) == content
+
+
+@pytest.mark.asyncio
 async def test_write_file_records_diff_and_hashes(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.tex", "old\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
