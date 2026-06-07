@@ -46,6 +46,7 @@ class SandboxFileTools:
         end_line: int | None = None,
         max_chars: int | None = None,
     ) -> HarnessToolResult:
+        self._require_read_permission()
         safe_path = self._validate_virtual_path(path, operation="read")
         content = await self.sandbox.read_file(safe_path)
         selected = select_lines(content, start_line=start_line, end_line=end_line)
@@ -72,6 +73,7 @@ class SandboxFileTools:
         )
 
     async def list_dir(self, *, path: str = WORKSPACE_ROOT, max_depth: int = 1) -> HarnessToolResult:
+        self._require_read_permission()
         safe_path = self._validate_virtual_path(path, operation="read")
         entries = await self.sandbox.list_dir(safe_path, max_depth=max_depth)
         visible_entries = [
@@ -102,6 +104,7 @@ class SandboxFileTools:
         )
 
     async def glob(self, *, pattern: str, max_matches: int | None = None) -> HarnessToolResult:
+        self._require_read_permission()
         safe_pattern = self._validate_glob_pattern(pattern)
         limit = self._effective_max_matches(max_matches)
         matches: list[str] = []
@@ -134,6 +137,7 @@ class SandboxFileTools:
         glob: str = "**/*",
         max_matches: int | None = None,
     ) -> HarnessToolResult:
+        self._require_read_permission()
         safe_glob = self._validate_glob_pattern(glob)
         regex = re.compile(pattern)
         limit = self._effective_max_matches(max_matches)
@@ -317,6 +321,10 @@ class SandboxFileTools:
 
     def _can_write(self) -> bool:
         return "filesystem.write" in self.policy.permissions
+
+    def _require_read_permission(self) -> None:
+        if "filesystem.read" not in self.policy.permissions:
+            raise PermissionError("harness policy does not allow filesystem reads")
 
     def _grep_file_too_large(self, path: Path) -> bool:
         max_bytes = self._grep_max_file_bytes()

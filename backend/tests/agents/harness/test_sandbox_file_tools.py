@@ -36,7 +36,14 @@ def _ctx() -> HarnessRunContext:
 
 def _write_policy(**overrides) -> HarnessPolicy:
     return HarnessPolicy(
-        permissions=frozenset({"filesystem.write", "filesystem.diff"}),
+        permissions=frozenset({"filesystem.read", "filesystem.write", "filesystem.diff"}),
+        **overrides,
+    )
+
+
+def _read_policy(**overrides) -> HarnessPolicy:
+    return HarnessPolicy(
+        permissions=frozenset({"filesystem.read"}),
         **overrides,
     )
 
@@ -44,7 +51,7 @@ def _write_policy(**overrides) -> HarnessPolicy:
 @pytest.mark.asyncio
 async def test_read_file_returns_bounded_preview(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.tex", "line 1\nline 2\nline 3\n")
-    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
 
     result = await tools.read_file(path="/workspace/main.tex", start_line=2, end_line=2)
 
@@ -54,13 +61,31 @@ async def test_read_file_returns_bounded_preview(sandbox: LocalSandbox) -> None:
 
 
 @pytest.mark.asyncio
+async def test_read_tools_require_filesystem_read_permission(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main.tex", "alpha\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=HarnessPolicy())
+
+    with pytest.raises(PermissionError, match="filesystem reads"):
+        await tools.read_file(path="/workspace/main.tex")
+
+    with pytest.raises(PermissionError, match="filesystem reads"):
+        await tools.list_dir(path="/workspace")
+
+    with pytest.raises(PermissionError, match="filesystem reads"):
+        await tools.glob(pattern="**/*.tex")
+
+    with pytest.raises(PermissionError, match="filesystem reads"):
+        await tools.grep(pattern="alpha", glob="**/*.tex")
+
+
+@pytest.mark.asyncio
 async def test_read_file_externalizes_large_selected_output(sandbox: LocalSandbox) -> None:
     content = "".join(f"line {index:03d}: {'x' * 20}\n" for index in range(1, 31))
     await sandbox.write_file("/workspace/main/large.txt", content)
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(
+        policy=_read_policy(
             output_budget={
                 "read_max_chars": 120,
                 "externalize_above_chars": 200,
@@ -94,7 +119,7 @@ async def test_read_file_externalized_refs_do_not_overwrite_same_invocation(sand
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(output_budget={"externalize_above_chars": 100}),
+        policy=_read_policy(output_budget={"externalize_above_chars": 100}),
     )
 
     first_result = await tools.read_file(path="/workspace/main/first.txt")
@@ -111,7 +136,7 @@ async def test_read_file_request_cannot_exceed_policy_max_chars(sandbox: LocalSa
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(
+        policy=_read_policy(
             output_budget={
                 "read_max_chars": 20,
                 "externalize_above_chars": 200,
@@ -135,7 +160,7 @@ async def test_externalized_read_file_preview_cannot_exceed_policy_content_budge
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(
+        policy=_read_policy(
             output_budget={
                 "read_max_chars": 20,
                 "externalize_above_chars": 30,
@@ -216,7 +241,7 @@ async def test_str_replace_requires_unique_match(sandbox: LocalSandbox) -> None:
 async def test_grep_and_glob_stay_inside_workspace(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/a.txt", "alpha\n")
     await sandbox.write_file("/workspace/nested/b.txt", "beta alpha\n")
-    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=HarnessPolicy())
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
 
     glob_result = await tools.glob(pattern="**/*.txt")
     grep_result = await tools.grep(pattern="alpha", glob="**/*.txt")
@@ -241,7 +266,7 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(protected_paths=WORKSPACE_PROTECTED_PATHS),
+        policy=_read_policy(protected_paths=WORKSPACE_PROTECTED_PATHS),
     )
 
     list_result = await tools.list_dir(path="/workspace", max_depth=3)
@@ -268,7 +293,7 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
 @pytest.mark.asyncio
 async def test_list_dir_accepts_current_virtual_workspace_root(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.py", "print('ok')\n")
-    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=HarnessPolicy())
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
 
     result = await tools.list_dir(path="/workspace", max_depth=1)
 
@@ -283,7 +308,7 @@ async def test_list_dir_caps_structured_entries(sandbox: LocalSandbox) -> None:
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(output_budget={"search_max_matches": 5}),
+        policy=_read_policy(output_budget={"search_max_matches": 5}),
     )
 
     result = await tools.list_dir(path="/workspace/main", max_depth=1)
@@ -302,7 +327,7 @@ async def test_glob_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(output_budget={"search_max_matches": 5}),
+        policy=_read_policy(output_budget={"search_max_matches": 5}),
     )
 
     result = await tools.glob(pattern="main/*.txt")
@@ -321,7 +346,7 @@ async def test_grep_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(output_budget={"search_max_matches": 5}),
+        policy=_read_policy(output_budget={"search_max_matches": 5}),
     )
 
     result = await tools.grep(pattern="alpha", glob="main/*.txt")
@@ -340,7 +365,7 @@ async def test_search_request_cannot_exceed_policy_max_matches(sandbox: LocalSan
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(output_budget={"search_max_matches": 3}),
+        policy=_read_policy(output_budget={"search_max_matches": 3}),
     )
 
     glob_oversized = await tools.glob(pattern="main/*.txt", max_matches=20)
@@ -365,7 +390,7 @@ async def test_grep_skips_files_over_policy_size_limit(sandbox: LocalSandbox) ->
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(output_budget={"grep_max_file_bytes": 20}),
+        policy=_read_policy(output_budget={"grep_max_file_bytes": 20}),
     )
 
     result = await tools.grep(pattern="alpha", glob="main/*.txt")
@@ -381,7 +406,7 @@ async def test_grep_skips_files_over_policy_size_limit(sandbox: LocalSandbox) ->
 async def test_grep_skips_binary_files(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main/binary.dat", "alpha\x00binary\n")
     await sandbox.write_file("/workspace/main/text.dat", "alpha text\n")
-    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=HarnessPolicy())
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
 
     result = await tools.grep(pattern="alpha", glob="main/*.dat")
 
@@ -398,7 +423,7 @@ async def test_grep_skips_lines_over_policy_line_limit(sandbox: LocalSandbox) ->
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
-        policy=HarnessPolicy(output_budget={"grep_max_line_chars": 20}),
+        policy=_read_policy(output_budget={"grep_max_line_chars": 20}),
     )
 
     result = await tools.grep(pattern="alpha", glob="main/*.txt")

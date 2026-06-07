@@ -427,6 +427,8 @@ Principles:
 - Use DataService sandbox environment and jobs; do not create a second sandbox identity model.
 - Preserve one active sandbox per workspace.
 - All file paths are workspace-virtual paths under `/workspace`.
+- `sandbox.list_dir`, `sandbox.glob`, `sandbox.grep`, and `sandbox.read_file` require `filesystem.read` inside the tool implementation boundary, not only at schema-filter time.
+- `sandbox.write_file` and `sandbox.str_replace` require `filesystem.write` / `filesystem.diff` inside the tool implementation boundary; diff generation may read the existing target only as part of the write operation.
 - File reads and search return bounded previews.
 - File writes and replacements record before/after hashes and diffs.
 - Python execution uses the existing virtualenv and installer path.
