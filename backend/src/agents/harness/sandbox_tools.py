@@ -139,7 +139,10 @@ class SandboxFileTools:
     ) -> HarnessToolResult:
         self._require_read_permission()
         safe_glob = self._validate_glob_pattern(glob)
-        regex = re.compile(pattern)
+        try:
+            regex = re.compile(pattern)
+        except re.error as exc:
+            return _invalid_regex_result(pattern=pattern, glob_pattern=glob, error=exc)
         limit = self._effective_max_matches(max_matches)
         matches: list[dict[str, Any]] = []
         scanned_files = 0
@@ -395,6 +398,27 @@ class SandboxFileTools:
             },
             truncated=truncated,
         )
+
+
+def _invalid_regex_result(*, pattern: str, glob_pattern: str, error: re.error) -> HarnessToolResult:
+    error_text = str(error).strip() or type(error).__name__
+    return HarnessToolResult(
+        preview_text=f"invalid regular expression for sandbox.grep: {error_text}",
+        structured_payload={
+            "pattern": pattern,
+            "glob": glob_pattern,
+            "matches": [],
+            "returned_matches": 0,
+            "match_limit": 0,
+            "scanned_files": 0,
+            "skipped_large_files": 0,
+            "skipped_binary_files": 0,
+            "skipped_long_lines": 0,
+            "error_code": "invalid_regex",
+            "error": error_text,
+        },
+        error=f"invalid_regex: {error_text}",
+    )
 
 
 def _virtualize_path(path: str) -> str:

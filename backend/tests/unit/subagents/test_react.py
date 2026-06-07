@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -430,6 +432,55 @@ class TestMockLLM:
                 "result_preview": result[:500],
             }
         ]
+
+    @pytest.mark.asyncio
+    async def test_harness_grep_invalid_regex_returns_recoverable_json_error(self):
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            main_dir = workspace / "main"
+            main_dir.mkdir(parents=True)
+            (main_dir / "file.txt").write_text("alpha\n", encoding="utf-8")
+
+            class FakeSandbox:
+                path_mappings = {"/workspace": str(workspace)}
+
+            tool_records = []
+            ctx = _make_ctx(
+                tools=["sandbox.grep"],
+                workspace_data={
+                    "_harness_sandbox": FakeSandbox(),
+                    "_harness_tool_records": tool_records,
+                },
+                capability_policy={
+                    "allowed_tools": ["sandbox.grep"],
+                    "permissions": ["filesystem.read"],
+                },
+                skill=_make_skill(allowed_tools=["sandbox.grep"]),
+                publish_event=publish_event,
+            )
+
+            tool = _resolve_tools(["sandbox.grep"], ctx)[0]
+            result = await tool.ainvoke({"pattern": "[", "glob": "main/*.txt"})
+
+        payload = json.loads(result)
+
+        assert payload["error"].startswith("invalid_regex:")
+        assert payload["payload"]["error_code"] == "invalid_regex"
+        assert payload["payload"]["matches"] == []
+        assert payload["payload"]["scanned_files"] == 0
+        assert tool_records[-1]["status"] == "completed"
+        assert tool_records[-1]["recoverable_error"].startswith("invalid_regex:")
+        assert tool_records[-1]["error_code"] == "invalid_regex"
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        completed_payload = completed_events[-1][2]["payload"]
+        assert completed_payload["recoverable_error"].startswith("invalid_regex:")
+        assert completed_payload["error_code"] == "invalid_regex"
 
     @pytest.mark.asyncio
     async def test_harness_tool_record_and_events_include_externalized_output_refs(self):

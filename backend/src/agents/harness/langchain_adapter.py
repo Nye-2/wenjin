@@ -396,6 +396,14 @@ def _tool_result_metadata(result: str) -> dict[str, Any]:
         value = payload.get(key)
         if isinstance(value, bool) and value:
             metadata[key] = value
+    error = payload.get("error")
+    if isinstance(error, str) and error.strip():
+        metadata["recoverable_error"] = error.strip()
+        structured_payload = payload.get("payload")
+        if isinstance(structured_payload, dict):
+            error_code = structured_payload.get("error_code")
+            if isinstance(error_code, str) and error_code.strip():
+                metadata["error_code"] = error_code.strip()
     generated_artifacts = _generated_artifact_metadata(payload)
     if generated_artifacts:
         metadata["generated_artifacts"] = generated_artifacts

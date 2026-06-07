@@ -359,6 +359,24 @@ async def test_grep_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
 
 
 @pytest.mark.asyncio
+async def test_grep_invalid_regex_returns_recoverable_tool_error(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/file.txt", "alpha\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    result = await tools.grep(pattern="[", glob="main/*.txt")
+
+    assert result.error is not None
+    assert "invalid regular expression" in result.preview_text
+    assert result.structured_payload["error_code"] == "invalid_regex"
+    assert result.structured_payload["pattern"] == "["
+    assert result.structured_payload["glob"] == "main/*.txt"
+    assert result.structured_payload["matches"] == []
+    assert result.structured_payload["scanned_files"] == 0
+    assert result.truncated is False
+    assert result.externalized is False
+
+
+@pytest.mark.asyncio
 async def test_search_request_cannot_exceed_policy_max_matches(sandbox: LocalSandbox) -> None:
     for index in range(1, 9):
         await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"alpha {index}\n")
