@@ -376,6 +376,33 @@ async def test_listing_and_search_hide_symlink_escapes(sandbox: LocalSandbox) ->
 
 
 @pytest.mark.asyncio
+async def test_direct_file_tools_block_symlink_escapes_at_harness_boundary(sandbox: LocalSandbox) -> None:
+    workspace_root = Path(sandbox.path_mappings["/workspace"])
+    outside_dir = workspace_root.parent / "outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "secret.txt"
+    outside_file.write_text("outside secret\n", encoding="utf-8")
+    link_path = workspace_root / "main" / "outside-secret.txt"
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link_path.symlink_to(outside_file)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink creation is not available: {exc}")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="outside workspace"):
+        await tools.read_file(path="/workspace/main/outside-secret.txt")
+
+    with pytest.raises(HarnessPathError, match="outside workspace"):
+        await tools.write_file(path="/workspace/main/outside-secret.txt", content="changed\n")
+
+    with pytest.raises(HarnessPathError, match="outside workspace"):
+        await tools.str_replace(path="/workspace/main/outside-secret.txt", old="outside", new="changed")
+
+    assert outside_file.read_text(encoding="utf-8") == "outside secret\n"
+
+
+@pytest.mark.asyncio
 async def test_list_dir_accepts_current_virtual_workspace_root(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.py", "print('ok')\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())

@@ -49,6 +49,7 @@ class SandboxFileTools:
     ) -> HarnessToolResult:
         self._require_read_permission()
         safe_path = self._validate_virtual_path(path, operation="read")
+        self._require_workspace_physical_target(safe_path)
         content = await self.sandbox.read_file(safe_path)
         selected = select_lines(content, start_line=start_line, end_line=end_line)
         budgeted = await budget_text_output(
@@ -218,6 +219,7 @@ class SandboxFileTools:
 
     async def write_file(self, *, path: str, content: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
+        self._require_workspace_physical_target(safe_path)
         before = await self._read_existing(safe_path)
         await self.sandbox.write_file(safe_path, content)
         file_change = await self._budget_file_change_diff(
@@ -237,6 +239,7 @@ class SandboxFileTools:
 
     async def str_replace(self, *, path: str, old: str, new: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
+        self._require_workspace_physical_target(safe_path)
         before = await self.sandbox.read_file(safe_path)
         count = before.count(old)
         if count != 1:
@@ -311,6 +314,17 @@ class SandboxFileTools:
             return os.path.commonpath([resolved_path, resolved_root]) == resolved_root
         except (OSError, RuntimeError, ValueError):
             return False
+
+    def _require_workspace_physical_target(self, virtual_path: str) -> None:
+        resolver = getattr(self.sandbox, "_resolve_path", None)
+        if not callable(resolver):
+            return
+        try:
+            physical_path = Path(resolver(virtual_path))
+        except Exception as exc:  # noqa: BLE001 - provider-specific path safety failures are normalized here.
+            raise HarnessPathError(f"path resolves outside workspace: {virtual_path}") from exc
+        if not self._is_workspace_physical_path(physical_path):
+            raise HarnessPathError(f"path resolves outside workspace: {virtual_path}")
 
     def _read_max_chars(self) -> int:
         return int(self.policy.output_budget.get("read_max_chars") or DEFAULT_READ_MAX_CHARS)
