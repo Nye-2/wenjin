@@ -41,6 +41,13 @@ def _write_policy(**overrides) -> HarnessPolicy:
     )
 
 
+def _write_without_diff_policy(**overrides) -> HarnessPolicy:
+    return HarnessPolicy(
+        permissions=frozenset({"filesystem.write"}),
+        **overrides,
+    )
+
+
 def _read_policy(**overrides) -> HarnessPolicy:
     return HarnessPolicy(
         permissions=frozenset({"filesystem.read"}),
@@ -190,6 +197,24 @@ async def test_write_file_records_diff_and_hashes(sandbox: LocalSandbox) -> None
     assert "-old" in result.file_change["unified_diff"]
     assert "+new" in result.file_change["unified_diff"]
     assert result.file_change["before_hash"] != result.file_change["after_hash"]
+
+
+@pytest.mark.asyncio
+async def test_write_tools_require_diff_permission_before_mutating(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main.tex", "old\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=_write_without_diff_policy(),
+    )
+
+    with pytest.raises(PermissionError, match="filesystem diff"):
+        await tools.write_file(path="/workspace/main.tex", content="new\n")
+    assert await sandbox.read_file("/workspace/main.tex") == "old\n"
+
+    with pytest.raises(PermissionError, match="filesystem diff"):
+        await tools.str_replace(path="/workspace/main.tex", old="old", new="new")
+    assert await sandbox.read_file("/workspace/main.tex") == "old\n"
 
 
 @pytest.mark.asyncio

@@ -255,8 +255,8 @@ class SandboxFileTools:
             raise HarnessPathError(str(exc)) from exc
         if self._is_protected(normalized):
             raise HarnessPathError(f"protected path is not accessible: {normalized}")
-        if operation == "write" and not self._can_write():
-            raise PermissionError("harness policy does not allow filesystem writes")
+        if operation == "write":
+            self._require_write_permissions()
         return normalized
 
     def _validate_glob_pattern(self, pattern: str) -> str:
@@ -325,9 +325,18 @@ class SandboxFileTools:
     def _can_write(self) -> bool:
         return "filesystem.write" in self.policy.permissions
 
+    def _can_diff(self) -> bool:
+        return "filesystem.diff" in self.policy.permissions
+
     def _require_read_permission(self) -> None:
         if "filesystem.read" not in self.policy.permissions:
             raise PermissionError("harness policy does not allow filesystem reads")
+
+    def _require_write_permissions(self) -> None:
+        if not self._can_write():
+            raise PermissionError("harness policy does not allow filesystem writes")
+        if not self._can_diff():
+            raise PermissionError("harness policy does not allow filesystem diff tracking")
 
     def _grep_file_too_large(self, path: Path) -> bool:
         max_bytes = self._grep_max_file_bytes()
