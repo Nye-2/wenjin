@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -76,16 +77,21 @@ class SandboxFileTools:
         self._require_read_permission()
         safe_path = self._validate_virtual_path(path, operation="read")
         entries = await self.sandbox.list_dir(safe_path, max_depth=max_depth)
-        visible_entries = [
-            {
-                "name": entry.name,
-                "path": virtual_path,
-                "is_dir": entry.is_dir,
-                "size": entry.size,
-            }
-            for entry in entries
-            if self._is_tool_visible_path(virtual_path := _virtualize_path(entry.path))
-        ]
+        visible_entries = []
+        for entry in entries:
+            virtual_path = _virtualize_path(entry.path)
+            if not self._is_tool_visible_path(virtual_path):
+                continue
+            if not self._is_tool_visible_entry(entry.path, virtual_path):
+                continue
+            visible_entries.append(
+                {
+                    "name": entry.name,
+                    "path": virtual_path,
+                    "is_dir": entry.is_dir,
+                    "size": entry.size,
+                }
+            )
         limit = self._max_matches()
         payload_entries = visible_entries[:limit]
         lines = [
@@ -110,6 +116,8 @@ class SandboxFileTools:
         matches: list[str] = []
         truncated = False
         for path in sorted(self._workspace_physical_root().glob(safe_pattern)):
+            if not self._is_workspace_physical_path(path):
+                continue
             if not path.is_file():
                 continue
             virtual_path = _virtualize_path(str(path))
@@ -150,6 +158,8 @@ class SandboxFileTools:
         skipped_binary_files = 0
         skipped_long_lines = 0
         for path in sorted(self._workspace_physical_root().glob(safe_glob)):
+            if not self._is_workspace_physical_path(path):
+                continue
             if not path.is_file():
                 continue
             virtual_path = _virtualize_path(str(path))
@@ -282,6 +292,25 @@ class SandboxFileTools:
 
     def _is_tool_visible_path(self, virtual_path: str) -> bool:
         return not self._is_protected(virtual_path) and not is_workspace_internal_path(virtual_path)
+
+    def _is_tool_visible_entry(self, raw_path: str, virtual_path: str) -> bool:
+        if virtual_path != WORKSPACE_ROOT and not virtual_path.startswith(f"{WORKSPACE_ROOT}/"):
+            return False
+        resolver = getattr(self.sandbox, "_resolve_path", None)
+        if callable(resolver):
+            try:
+                return self._is_workspace_physical_path(Path(resolver(virtual_path)))
+            except Exception:  # noqa: BLE001 - provider-specific path safety failures are hidden from tools.
+                return False
+        return self._is_workspace_physical_path(Path(raw_path))
+
+    def _is_workspace_physical_path(self, path: Path) -> bool:
+        try:
+            resolved_path = str(path.resolve())
+            resolved_root = str(self._workspace_physical_root().resolve())
+            return os.path.commonpath([resolved_path, resolved_root]) == resolved_root
+        except (OSError, RuntimeError, ValueError):
+            return False
 
     def _read_max_chars(self) -> int:
         return int(self.policy.output_budget.get("read_max_chars") or DEFAULT_READ_MAX_CHARS)

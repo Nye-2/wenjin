@@ -341,6 +341,8 @@ class LocalSandbox(Sandbox):
             resolved = self._resolve_path(path)
         else:
             # Already a physical path from recursion
+            if not self._is_within_allowed_roots(path):
+                raise SandboxSecurityError(f"Path escape detected: {path}")
             resolved = path
 
         if not os.path.exists(resolved):
@@ -351,13 +353,15 @@ class LocalSandbox(Sandbox):
 
         entries = []
         try:
-            for entry in sorted(os.listdir(resolved)):
-                entry_path = os.path.join(resolved, entry)
-                is_dir = os.path.isdir(entry_path)
-                size = None if is_dir else os.path.getsize(entry_path)
+            for entry in sorted(os.scandir(resolved), key=lambda item: item.name):
+                entry_path = entry.path
+                if entry.is_symlink() and not self._is_within_allowed_roots(entry_path):
+                    continue
+                is_dir = entry.is_dir(follow_symlinks=False)
+                size = None if is_dir else entry.stat(follow_symlinks=False).st_size
 
                 entries.append(FileInfo(
-                    name=entry,
+                    name=entry.name,
                     path=self._reverse_resolve_path(entry_path),
                     is_dir=is_dir,
                     size=size,

@@ -121,6 +121,30 @@ class TestLocalSandbox:
         assert subdir_entries[0].is_dir
 
     @pytest.mark.asyncio
+    async def test_list_dir_does_not_follow_symlink_escape(self, sandbox, temp_dir):
+        """Directory listing should not expose files through symlinks outside sandbox roots."""
+        outside_dir = Path(temp_dir) / "outside"
+        outside_dir.mkdir()
+        outside_file = outside_dir / "secret.txt"
+        outside_file.write_text("host-secret", encoding="utf-8")
+        workspace_root = Path(sandbox.path_mappings["/mnt/user-data/workspace"])
+        link_path = workspace_root / "linked-secret.txt"
+        try:
+            link_path.symlink_to(outside_file)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlink creation is not available: {exc}")
+        await sandbox.write_file("/mnt/user-data/workspace/visible.txt", "visible")
+
+        entries = await sandbox.list_dir("/mnt/user-data/workspace")
+
+        paths = [entry.path for entry in entries]
+        assert "/mnt/user-data/workspace/visible.txt" in paths
+        assert "/mnt/user-data/workspace/linked-secret.txt" not in paths
+        assert str(link_path) not in paths
+        assert str(outside_file) not in paths
+        assert all(path.startswith("/mnt/user-data/workspace") for path in paths)
+
+    @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, sandbox):
         """Should raise FileNotFoundError for missing file."""
         with pytest.raises(FileNotFoundError):
