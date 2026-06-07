@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.agents.lead_agent.v2.sandbox_job_runner import SandboxJobRunner
+from src.agents.lead_agent.v2.sandbox_script_executor import sanitize_script_name
 
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .events import publish_harness_event
@@ -32,6 +33,7 @@ class SandboxExecutionTools:
         if "sandbox.run_python" not in self.policy.permissions:
             raise PermissionError("harness policy does not allow sandbox.run_python")
 
+        safe_script_name = sanitize_script_name(script_name)
         runner = self.runner or SandboxJobRunner()
 
         async def _run() -> dict[str, Any]:
@@ -41,7 +43,7 @@ class SandboxExecutionTools:
                 node_id=self.context.node_id,
                 sandbox_policy=self._sandbox_policy(),
                 script=script,
-                script_name=script_name,
+                script_name=safe_script_name,
                 dependency_hints=dependency_hints,
                 billing_reservation_id=billing_reservation_id,
             )

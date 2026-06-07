@@ -17,6 +17,7 @@ Implementation note:
 - Lead runtime and TeamKernel now aggregate those per-tool records into `ExecutionNodeRecord.node_metadata.harness.file_change_summary` (`wenjin.harness.file_change_summary.v1`), giving each static graph node or team-member invocation a path/hash-level net summary and preserving large-diff refs without adding a harness run table.
 - Repeated identical tool calls now publish `execution.harness.loop_warning` as `team_visible` when the loop guard warning threshold is reached. The event does not inject messages between assistant tool calls and tool results.
 - Command audit / argv-first contract foundation is implemented in `backend/src/agents/harness/command_audit.py`; Lead-owned `run_python` and `install_dependencies` sandbox jobs now include `metadata.command_audit`, and harness `sandbox.run_python` publishes those audits through `execution.harness.command_audit` plus tool record metadata. General `sandbox.run_command` and frontend debug surfaces remain future work and are not enabled by this slice.
+- Harness `sandbox.run_python` and the Lead-owned runner share the same script-name sanitizer before writing under `/workspace/scripts/{safe_name}`, so unsafe or path-like tool input cannot reach runner adapters as a raw filename.
 
 ## 1. Objective
 

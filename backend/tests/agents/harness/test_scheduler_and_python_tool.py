@@ -144,6 +144,25 @@ async def test_run_python_uses_existing_sandbox_job_runner_through_scheduler() -
 
 
 @pytest.mark.asyncio
+async def test_run_python_sanitizes_script_name_before_runner_boundary() -> None:
+    runner = _FakeRunner()
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(permissions=frozenset({"sandbox.run_python"})),
+        runner=runner,
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    await tool.run_python(
+        script="print('ok')",
+        script_name="../../bad script",
+    )
+
+    [call] = runner.calls
+    assert call["script_name"] == ".._.._bad_script.py"
+
+
+@pytest.mark.asyncio
 async def test_run_python_propagates_externalized_output_refs() -> None:
     class ExternalizedRunner:
         async def run_python_script(self, **kwargs):

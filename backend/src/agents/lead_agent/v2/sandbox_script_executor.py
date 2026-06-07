@@ -59,7 +59,7 @@ class SandboxScriptExecutor:
         dependency_hints: list[str] | str | None,
     ) -> SandboxScriptPlan:
         script_bytes = _validate_script(script)
-        safe_name = _safe_script_name(script_name)
+        safe_name = sanitize_script_name(script_name)
         script_path = f"/workspace/scripts/{safe_name}"
         return SandboxScriptPlan(
             script=script,
@@ -304,7 +304,7 @@ def _validate_script(script: str) -> bytes:
     return script_bytes
 
 
-def _safe_script_name(value: str) -> str:
+def sanitize_script_name(value: str) -> str:
     name = SCRIPT_NAME_RE.sub("_", str(value or "").strip())
     if not name or name in {".", ".."}:
         name = "analysis.py"
