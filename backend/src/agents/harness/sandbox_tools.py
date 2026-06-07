@@ -21,6 +21,9 @@ from .output_budget import budget_text_output, select_lines
 DEFAULT_READ_MAX_CHARS = 12_000
 DEFAULT_DIFF_MAX_CHARS = 12_000
 DEFAULT_SEARCH_MAX_MATCHES = 50
+DEFAULT_GREP_MAX_FILE_BYTES = 1_000_000
+DEFAULT_GREP_MAX_LINE_CHARS = 2_000
+DEFAULT_GREP_BINARY_SAMPLE_BYTES = 8192
 
 
 class HarnessPathError(ValueError):
@@ -135,6 +138,10 @@ class SandboxFileTools:
         regex = re.compile(pattern)
         limit = self._effective_max_matches(max_matches)
         matches: list[dict[str, Any]] = []
+        scanned_files = 0
+        skipped_large_files = 0
+        skipped_binary_files = 0
+        skipped_long_lines = 0
         for path in sorted(self._workspace_physical_root().glob(safe_glob)):
             if not path.is_file():
                 continue
@@ -142,27 +149,55 @@ class SandboxFileTools:
             if not self._is_tool_visible_path(virtual_path):
                 continue
             try:
-                text = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
+                if self._grep_file_too_large(path):
+                    skipped_large_files += 1
+                    continue
+                if self._is_binary_file(path):
+                    skipped_binary_files += 1
+                    continue
+            except OSError:
                 continue
-            for index, line in enumerate(text.splitlines(), start=1):
-                if regex.search(line):
-                    matches.append(
-                        {
-                            "path": virtual_path,
-                            "line": index,
-                            "text": line[:500],
-                        }
-                    )
-                    if len(matches) >= limit:
-                        return self._grep_result(
-                            pattern,
-                            glob,
-                            matches,
-                            match_limit=limit,
-                            truncated=True,
-                        )
-        return self._grep_result(pattern, glob, matches, match_limit=limit, truncated=False)
+            scanned_files += 1
+            try:
+                with path.open(encoding="utf-8", errors="replace") as handle:
+                    for index, line in enumerate(handle, start=1):
+                        if len(line) > self._grep_max_line_chars():
+                            skipped_long_lines += 1
+                            continue
+                        text = line.rstrip("\r\n")[:500]
+                        if regex.search(line):
+                            matches.append(
+                                {
+                                    "path": virtual_path,
+                                    "line": index,
+                                    "text": text,
+                                }
+                            )
+                            if len(matches) >= limit:
+                                return self._grep_result(
+                                    pattern,
+                                    glob,
+                                    matches,
+                                    match_limit=limit,
+                                    truncated=True,
+                                    scanned_files=scanned_files,
+                                    skipped_large_files=skipped_large_files,
+                                    skipped_binary_files=skipped_binary_files,
+                                    skipped_long_lines=skipped_long_lines,
+                                )
+            except OSError:
+                continue
+        return self._grep_result(
+            pattern,
+            glob,
+            matches,
+            match_limit=limit,
+            truncated=False,
+            scanned_files=scanned_files,
+            skipped_large_files=skipped_large_files,
+            skipped_binary_files=skipped_binary_files,
+            skipped_long_lines=skipped_long_lines,
+        )
 
     async def write_file(self, *, path: str, content: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
@@ -262,6 +297,12 @@ class SandboxFileTools:
     def _max_matches(self) -> int:
         return int(self.policy.output_budget.get("search_max_matches") or DEFAULT_SEARCH_MAX_MATCHES)
 
+    def _grep_max_file_bytes(self) -> int:
+        return int(self.policy.output_budget.get("grep_max_file_bytes") or DEFAULT_GREP_MAX_FILE_BYTES)
+
+    def _grep_max_line_chars(self) -> int:
+        return int(self.policy.output_budget.get("grep_max_line_chars") or DEFAULT_GREP_MAX_LINE_CHARS)
+
     def _effective_read_max_chars(self, requested: int | None) -> int:
         policy_limit = self._read_max_chars()
         if requested is None or requested <= 0:
@@ -276,6 +317,15 @@ class SandboxFileTools:
 
     def _can_write(self) -> bool:
         return "filesystem.write" in self.policy.permissions
+
+    def _grep_file_too_large(self, path: Path) -> bool:
+        max_bytes = self._grep_max_file_bytes()
+        return max_bytes > 0 and path.stat().st_size > max_bytes
+
+    @staticmethod
+    def _is_binary_file(path: Path) -> bool:
+        with path.open("rb") as handle:
+            return b"\0" in handle.read(DEFAULT_GREP_BINARY_SAMPLE_BYTES)
 
     async def _read_existing(self, path: str) -> str | None:
         try:
@@ -313,6 +363,10 @@ class SandboxFileTools:
         *,
         match_limit: int,
         truncated: bool,
+        scanned_files: int,
+        skipped_large_files: int,
+        skipped_binary_files: int,
+        skipped_long_lines: int,
     ) -> HarnessToolResult:
         preview = "\n".join(
             f"{item['path']}:{item['line']}: {item['text']}"
@@ -326,6 +380,10 @@ class SandboxFileTools:
                 "matches": matches,
                 "returned_matches": len(matches),
                 "match_limit": match_limit,
+                "scanned_files": scanned_files,
+                "skipped_large_files": skipped_large_files,
+                "skipped_binary_files": skipped_binary_files,
+                "skipped_long_lines": skipped_long_lines,
             },
             truncated=truncated,
         )

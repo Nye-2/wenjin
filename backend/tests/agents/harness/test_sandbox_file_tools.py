@@ -335,6 +335,57 @@ async def test_search_request_cannot_exceed_policy_max_matches(sandbox: LocalSan
 
 
 @pytest.mark.asyncio
+async def test_grep_skips_files_over_policy_size_limit(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/large.txt", "alpha\n" + ("x" * 80))
+    await sandbox.write_file("/workspace/main/small.txt", "alpha small\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(output_budget={"grep_max_file_bytes": 20}),
+    )
+
+    result = await tools.grep(pattern="alpha", glob="main/*.txt")
+
+    assert [item["path"] for item in result.structured_payload["matches"]] == [
+        "/workspace/main/small.txt",
+    ]
+    assert result.structured_payload["skipped_large_files"] == 1
+    assert result.structured_payload["scanned_files"] == 1
+
+
+@pytest.mark.asyncio
+async def test_grep_skips_binary_files(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/binary.dat", "alpha\x00binary\n")
+    await sandbox.write_file("/workspace/main/text.dat", "alpha text\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=HarnessPolicy())
+
+    result = await tools.grep(pattern="alpha", glob="main/*.dat")
+
+    assert [item["path"] for item in result.structured_payload["matches"]] == [
+        "/workspace/main/text.dat",
+    ]
+    assert result.structured_payload["skipped_binary_files"] == 1
+    assert result.structured_payload["scanned_files"] == 1
+
+
+@pytest.mark.asyncio
+async def test_grep_skips_lines_over_policy_line_limit(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/lines.txt", f"{'x' * 40} alpha\nalpha short\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(output_budget={"grep_max_line_chars": 20}),
+    )
+
+    result = await tools.grep(pattern="alpha", glob="main/*.txt")
+
+    assert result.structured_payload["matches"] == [
+        {"path": "/workspace/main/lines.txt", "line": 2, "text": "alpha short"},
+    ]
+    assert result.structured_payload["skipped_long_lines"] == 1
+
+
+@pytest.mark.asyncio
 async def test_protected_paths_are_blocked(sandbox: LocalSandbox) -> None:
     tools = SandboxFileTools(
         sandbox=sandbox,
