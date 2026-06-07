@@ -106,6 +106,29 @@ async def test_read_file_externalized_refs_do_not_overwrite_same_invocation(sand
 
 
 @pytest.mark.asyncio
+async def test_read_file_request_cannot_exceed_policy_max_chars(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/large.txt", "x" * 80)
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(
+            output_budget={
+                "read_max_chars": 20,
+                "externalize_above_chars": 200,
+            }
+        ),
+    )
+
+    oversized = await tools.read_file(path="/workspace/main/large.txt", max_chars=60)
+    narrower = await tools.read_file(path="/workspace/main/large.txt", max_chars=8)
+
+    assert oversized.truncated
+    assert len(oversized.preview_text) == 20
+    assert narrower.truncated
+    assert len(narrower.preview_text) == 8
+
+
+@pytest.mark.asyncio
 async def test_write_file_records_diff_and_hashes(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.tex", "old\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
@@ -284,6 +307,31 @@ async def test_grep_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
     assert result.structured_payload["returned_matches"] == 5
     assert len(result.structured_payload["matches"]) == 5
     assert len(result.preview_text.splitlines()) == 5
+
+
+@pytest.mark.asyncio
+async def test_search_request_cannot_exceed_policy_max_matches(sandbox: LocalSandbox) -> None:
+    for index in range(1, 9):
+        await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"alpha {index}\n")
+    tools = SandboxFileTools(
+        sandbox=sandbox,
+        context=_ctx(),
+        policy=HarnessPolicy(output_budget={"search_max_matches": 3}),
+    )
+
+    glob_oversized = await tools.glob(pattern="main/*.txt", max_matches=20)
+    glob_narrower = await tools.glob(pattern="main/*.txt", max_matches=2)
+    grep_oversized = await tools.grep(pattern="alpha", glob="main/*.txt", max_matches=20)
+    grep_narrower = await tools.grep(pattern="alpha", glob="main/*.txt", max_matches=2)
+
+    assert glob_oversized.structured_payload["match_limit"] == 3
+    assert glob_oversized.structured_payload["returned_matches"] == 3
+    assert glob_narrower.structured_payload["match_limit"] == 2
+    assert glob_narrower.structured_payload["returned_matches"] == 2
+    assert grep_oversized.structured_payload["match_limit"] == 3
+    assert grep_oversized.structured_payload["returned_matches"] == 3
+    assert grep_narrower.structured_payload["match_limit"] == 2
+    assert grep_narrower.structured_payload["returned_matches"] == 2
 
 
 @pytest.mark.asyncio

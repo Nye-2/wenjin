@@ -52,7 +52,7 @@ class SandboxFileTools:
             context=self.context,
             sandbox=self.sandbox,
             output_budget=self.policy.output_budget,
-            fallback_max_chars=max_chars or self._read_max_chars(),
+            fallback_max_chars=self._effective_read_max_chars(max_chars),
         )
         return HarnessToolResult(
             preview_text=budgeted.preview_text,
@@ -100,7 +100,7 @@ class SandboxFileTools:
 
     async def glob(self, *, pattern: str, max_matches: int | None = None) -> HarnessToolResult:
         safe_pattern = self._validate_glob_pattern(pattern)
-        limit = max_matches or self._max_matches()
+        limit = self._effective_max_matches(max_matches)
         matches: list[str] = []
         truncated = False
         for path in sorted(self._workspace_physical_root().glob(safe_pattern)):
@@ -133,7 +133,7 @@ class SandboxFileTools:
     ) -> HarnessToolResult:
         safe_glob = self._validate_glob_pattern(glob)
         regex = re.compile(pattern)
-        limit = max_matches or self._max_matches()
+        limit = self._effective_max_matches(max_matches)
         matches: list[dict[str, Any]] = []
         for path in sorted(self._workspace_physical_root().glob(safe_glob)):
             if not path.is_file():
@@ -261,6 +261,18 @@ class SandboxFileTools:
 
     def _max_matches(self) -> int:
         return int(self.policy.output_budget.get("search_max_matches") or DEFAULT_SEARCH_MAX_MATCHES)
+
+    def _effective_read_max_chars(self, requested: int | None) -> int:
+        policy_limit = self._read_max_chars()
+        if requested is None or requested <= 0:
+            return policy_limit
+        return min(requested, policy_limit)
+
+    def _effective_max_matches(self, requested: int | None) -> int:
+        policy_limit = self._max_matches()
+        if requested is None or requested <= 0:
+            return policy_limit
+        return min(requested, policy_limit)
 
     def _can_write(self) -> bool:
         return "filesystem.write" in self.policy.permissions
