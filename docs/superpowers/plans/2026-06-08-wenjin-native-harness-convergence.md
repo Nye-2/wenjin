@@ -239,10 +239,11 @@ git commit -m "feat: harden workspace sandbox layout contract"
 - Modify: `backend/src/agents/harness/diff_tracker.py`
 - Modify: `backend/src/agents/lead_agent/v2/runtime.py`
 - Modify: `backend/src/agents/lead_agent/v2/team/kernel.py`
-- Test: `backend/tests/agents/harness/test_diff_tracker.py`
-- Test: `backend/tests/agents/lead_agent/v2/test_runtime_harness_metadata.py`
+- Test: `backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_runtime.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_team_kernel.py`
 
-- [ ] **Step 1: Write failing summary test**
+- [x] **Step 1: Write failing summary test**
 
 Expected node metadata shape:
 
@@ -265,7 +266,7 @@ Expected node metadata shape:
 
 The summary should be derived from existing tool records, not a new persistence model.
 
-- [ ] **Step 2: Implement pure summary builder**
+- [x] **Step 2: Implement pure summary builder**
 
 Add a pure function near the existing metadata aggregation logic:
 
@@ -282,11 +283,11 @@ Rules:
 - Bound all string lists.
 - Return `None` when no sandbox execution evidence exists.
 
-- [ ] **Step 3: Attach summary in static graph and TeamKernel paths**
+- [x] **Step 3: Attach summary in static graph and TeamKernel paths**
 
 Add the summary beside the existing `file_change_summary` and `tool_failure_summary` under `node_metadata.harness`.
 
-- [ ] **Step 4: Run metadata tests**
+- [x] **Step 4: Run metadata tests**
 
 Run:
 
@@ -297,7 +298,7 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 

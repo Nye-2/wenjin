@@ -8,6 +8,7 @@ from typing import Any
 
 FILE_CHANGE_SUMMARY_SCHEMA = "wenjin.harness.file_change_summary.v1"
 TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
+SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
 
 
 def build_file_change(
@@ -98,6 +99,9 @@ def build_harness_node_metadata_from_tool_calls(
     tool_failure_summary = build_tool_failure_summary_from_tool_calls(tool_calls)
     if tool_failure_summary is not None:
         harness["tool_failure_summary"] = tool_failure_summary
+    sandbox_execution_summary = build_sandbox_execution_summary_from_tool_calls(tool_calls)
+    if sandbox_execution_summary is not None:
+        harness["sandbox_execution_summary"] = sandbox_execution_summary
     if not harness:
         return None
     return {"harness": harness}
@@ -154,6 +158,72 @@ def build_tool_failure_summary_from_tool_calls(
         "failed_tools": failed_tools,
         "recoverable_error_codes": recoverable_error_codes,
         "failures": failures,
+    }
+
+
+def build_sandbox_execution_summary_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Build a compact summary of sandbox Python execution evidence."""
+
+    if not tool_calls:
+        return None
+
+    python_runs = 0
+    failed_python_runs = 0
+    recoverable_failures = 0
+    generated_artifact_count = 0
+    sandbox_job_ids: list[str] = []
+    sandbox_environment_ids: list[str] = []
+    failure_codes: list[str] = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        name = str(tool_call.get("name") or "").strip()
+        if name != "sandbox.run_python":
+            continue
+        python_runs += 1
+        metadata = tool_call.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        manifest = _first_dict(tool_call.get("execution_manifest"), metadata.get("execution_manifest"))
+        if manifest is not None:
+            _append_unique(sandbox_job_ids, str(manifest.get("sandbox_job_id") or ""))
+            _append_unique(sandbox_environment_ids, str(manifest.get("sandbox_environment_id") or ""))
+        classification = _first_dict(
+            tool_call.get("failure_classification"),
+            metadata.get("failure_classification"),
+        )
+        error_code = str(
+            (classification or {}).get("failure_code")
+            or tool_call.get("error_code")
+            or metadata.get("error_code")
+            or ""
+        ).strip()
+        has_failure = (
+            classification is not None
+            or str(tool_call.get("status") or "").strip() == "failed"
+            or bool(tool_call.get("recoverable_error") or metadata.get("recoverable_error"))
+        )
+        if has_failure:
+            failed_python_runs += 1
+        if error_code:
+            _append_unique(failure_codes, error_code)
+        if _is_recoverable_failure(tool_call, metadata, classification):
+            recoverable_failures += 1
+        generated_artifact_count += len(_list_of_dicts(tool_call.get("generated_artifacts")))
+        generated_artifact_count += len(_list_of_dicts(metadata.get("generated_artifacts")))
+
+    if python_runs == 0:
+        return None
+    return {
+        "schema": SANDBOX_EXECUTION_SUMMARY_SCHEMA,
+        "python_runs": python_runs,
+        "failed_python_runs": failed_python_runs,
+        "recoverable_failures": recoverable_failures,
+        "sandbox_job_ids": sandbox_job_ids[:20],
+        "sandbox_environment_ids": sandbox_environment_ids[:20],
+        "failure_codes": failure_codes[:20],
+        "generated_artifact_count": generated_artifact_count,
     }
 
 
@@ -241,6 +311,29 @@ def _append_unique(values: list[str], value: str) -> None:
     text = str(value or "").strip()
     if text and text not in values:
         values.append(text)
+
+
+def _first_dict(*values: Any) -> dict[str, Any] | None:
+    for value in values:
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _is_recoverable_failure(
+    tool_call: dict[str, Any],
+    metadata: dict[str, Any],
+    classification: dict[str, Any] | None,
+) -> bool:
+    if classification is not None and classification.get("recoverable") is True:
+        return True
+    return bool(tool_call.get("recoverable_error") or metadata.get("recoverable_error"))
 
 
 def _sha256(text: str | None) -> str | None:

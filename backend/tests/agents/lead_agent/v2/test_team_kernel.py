@@ -84,6 +84,39 @@ class TeamSandboxFailureFakeSubagent(SubagentBase):
         )
 
 
+@subagent("team_sandbox_python_fake")
+class TeamSandboxPythonFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        return SubagentResult(
+            output={
+                "summary": f"{ctx.invocation['display_name']} ran sandbox Python",
+                "team_role": ctx.inputs["team_role"],
+            },
+            tool_calls=[
+                {
+                    "name": "sandbox.run_python",
+                    "status": "completed",
+                    "recoverable_error": "python_exit_nonzero: exit_code=2",
+                    "error_code": "python_exit_nonzero",
+                    "execution_manifest": {
+                        "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                        "sandbox_job_id": "job-team-1",
+                        "sandbox_environment_id": "env-team-1",
+                    },
+                    "failure_classification": {
+                        "schema": "wenjin.harness.run_python.failure_classification.v1",
+                        "failure_code": "python_exit_nonzero",
+                        "recoverable": True,
+                    },
+                    "generated_artifacts": [
+                        {"path": "/workspace/reports/team-analysis.md"},
+                    ],
+                }
+            ],
+            token_usage={"input": 3, "output": 5},
+        )
+
+
 @subagent("team_failing")
 class TeamFailingSubagent(SubagentBase):
     async def run(self, ctx: SubagentContext) -> SubagentResult:
@@ -416,6 +449,24 @@ class SandboxToolFailureTeamCatalogClient(FakeTeamCatalogClient):
         ]
 
 
+class SandboxPythonTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            CapabilitySkillPayload(
+                id=record.id,
+                display_name=record.display_name,
+                worker_type=record.worker_type,
+                subagent_type="team_sandbox_python_fake",
+                prompt=record.prompt,
+                config=record.config,
+            )
+            for record in records
+        ]
+
+
 class FakeFailingTeamCatalogClient(FakeTeamCatalogClient):
     async def list_catalog_skills(self, *, enabled_only: bool = True):
         from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
@@ -562,6 +613,52 @@ async def test_team_kernel_runtime_records_harness_tool_failure_summary(monkeypa
     assert summaries[0]["schema"] == "wenjin.harness.tool_failure_summary.v1"
     assert summaries[0]["failed_tools"] == ["sandbox.read_file"]
     assert summaries[0]["failures"][0]["error_code"] == "tool_error"
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_records_harness_sandbox_execution_summary(monkeypatch) -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SandboxPythonTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-sandbox-execution-summary", brief=_brief())
+
+    completed_events = [
+        event
+        for event in node_events
+        if event["node_type"] == "agent_invocation" and event["status"] == "completed"
+    ]
+    summaries = [
+        event["node_metadata"]["harness"]["sandbox_execution_summary"]
+        for event in completed_events
+        if event["node_metadata"].get("harness")
+    ]
+    assert report.status == "completed"
+    assert summaries
+    assert summaries[0]["schema"] == "wenjin.harness.sandbox_execution_summary.v1"
+    assert summaries[0]["python_runs"] == 1
+    assert summaries[0]["failed_python_runs"] == 1
+    assert summaries[0]["recoverable_failures"] == 1
+    assert summaries[0]["sandbox_job_ids"] == ["job-team-1"]
+    assert summaries[0]["sandbox_environment_ids"] == ["env-team-1"]
+    assert summaries[0]["failure_codes"] == ["python_exit_nonzero"]
+    assert summaries[0]["generated_artifact_count"] == 1
 
 
 @pytest.mark.asyncio

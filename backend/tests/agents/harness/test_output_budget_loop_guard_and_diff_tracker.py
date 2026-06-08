@@ -186,6 +186,56 @@ def test_harness_node_metadata_includes_tool_failure_summary() -> None:
     }
 
 
+def test_harness_node_metadata_includes_sandbox_execution_summary() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "execution_manifest": {
+                    "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                    "sandbox_job_id": "job-1",
+                    "sandbox_environment_id": "env-1",
+                },
+                "generated_artifacts": [
+                    {"path": "/workspace/outputs/result.json"},
+                    {"path": "/workspace/reports/analysis.md"},
+                ],
+            },
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "recoverable_error": "python_exit_nonzero: exit_code=2",
+                "error_code": "python_exit_nonzero",
+                "execution_manifest": {
+                    "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                    "sandbox_job_id": "job-2",
+                    "sandbox_environment_id": "env-1",
+                },
+                "failure_classification": {
+                    "schema": "wenjin.harness.run_python.failure_classification.v1",
+                    "category": "user_code",
+                    "reason": "nonzero_exit",
+                    "failure_code": "python_exit_nonzero",
+                    "recoverable": True,
+                },
+            },
+        ]
+    )
+
+    summary = metadata["harness"]["sandbox_execution_summary"]
+    assert summary == {
+        "schema": "wenjin.harness.sandbox_execution_summary.v1",
+        "python_runs": 2,
+        "failed_python_runs": 1,
+        "recoverable_failures": 1,
+        "sandbox_job_ids": ["job-1", "job-2"],
+        "sandbox_environment_ids": ["env-1"],
+        "failure_codes": ["python_exit_nonzero"],
+        "generated_artifact_count": 2,
+    }
+
+
 def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:
     guard = HarnessLoopGuard(warn_threshold=3, hard_limit=5)
     args = {"path": "/workspace/main.tex"}

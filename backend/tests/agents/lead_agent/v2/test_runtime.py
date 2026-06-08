@@ -679,6 +679,93 @@ async def test_node_recording_adds_harness_file_change_summary_metadata():
     assert summary["changes"][0]["after_hash"] == "sha256:new"
 
 
+@pytest.mark.asyncio
+async def test_node_recording_adds_harness_sandbox_execution_summary_metadata():
+    graph_template = {
+        "phases": [
+            {
+                "name": "analysis",
+                "tasks": [
+                    {
+                        "name": "experiment_runner",
+                        "subagent_type": "react",
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="sci"),
+        record_node_event=record_node_event,
+    )
+
+    async def fake_inner(state):
+        return {
+            **state,
+            "node_results": {
+                "experiment_runner": {
+                    "output": {"text": "experiment completed with one recoverable failure"},
+                    "tool_calls": [
+                        {
+                            "name": "sandbox.run_python",
+                            "status": "completed",
+                            "recoverable_error": "python_exit_nonzero: exit_code=2",
+                            "error_code": "python_exit_nonzero",
+                            "execution_manifest": {
+                                "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                                "sandbox_job_id": "job-1",
+                                "sandbox_environment_id": "env-1",
+                            },
+                            "failure_classification": {
+                                "schema": "wenjin.harness.run_python.failure_classification.v1",
+                                "failure_code": "python_exit_nonzero",
+                                "recoverable": True,
+                            },
+                            "generated_artifacts": [
+                                {"path": "/workspace/outputs/result.json"},
+                            ],
+                        }
+                    ],
+                }
+            },
+        }
+
+    with patch(
+        "src.agents.lead_agent.v2.compiler._default_runner_factory",
+        return_value=fake_inner,
+    ):
+        runner_factory = runtime._build_persisting_runner_factory(
+            execution_id="exec-sandbox-execution-summary",
+            graph_template=graph_template,
+        )
+        run_node = runner_factory(object, {"name": "experiment_runner", "subagent_type": "react"})
+        await run_node(
+            {
+                "inputs_for_tasks": {"experiment_runner": {"topic": "quantum computing"}},
+                "node_results": {},
+            }
+        )
+
+    completed = [event for event in node_events if event["status"] == "completed"]
+    assert completed
+    summary = completed[-1]["node_metadata"]["harness"]["sandbox_execution_summary"]
+    assert summary["schema"] == "wenjin.harness.sandbox_execution_summary.v1"
+    assert summary["python_runs"] == 1
+    assert summary["failed_python_runs"] == 1
+    assert summary["recoverable_failures"] == 1
+    assert summary["sandbox_job_ids"] == ["job-1"]
+    assert summary["sandbox_environment_ids"] == ["env-1"]
+    assert summary["failure_codes"] == ["python_exit_nonzero"]
+    assert summary["generated_artifact_count"] == 1
+
+
 def test_collect_sandbox_artifact_candidates_rejects_internal_and_traversal_paths():
     node_results = {
         "experiment_runner": {
