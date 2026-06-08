@@ -39,8 +39,7 @@ def test_ensure_workspace_sandbox_layout_creates_standard_tree(tmp_path):
     assert persisted["directories"]["main"]["virtual_path"] == "/workspace/main"
     assert persisted["directories"]["outputs"]["review_surface"] == "artifact"
     assert persisted["datasets_manifest_path"] == "/workspace/datasets/manifest.json"
-    assert ".wenjin/env/**" in persisted["protected_paths"]
-    assert ".wenjin/cache/**" in persisted["protected_paths"]
+    assert ".wenjin/**" in persisted["protected_paths"]
 
 
 def test_workspace_sandbox_layout_manifest_is_stable_when_recreated(tmp_path):
@@ -236,9 +235,7 @@ def test_workspace_protected_paths_include_runtime_and_secret_material():
         "**/.env.*",
         "*.pem",
         "*.key",
-        ".wenjin/env/**",
-        ".wenjin/cache/**",
-        ".wenjin/manifest.json",
+        ".wenjin/**",
     )
 
 
@@ -285,6 +282,8 @@ def test_workspace_virtual_path_helper_is_strict_and_idempotent():
 
 
 def test_workspace_path_classification_is_centralized_for_harness_boundaries():
+    assert layout.is_workspace_protected_path("/workspace/.wenjin")
+    assert layout.is_workspace_protected_path("/workspace/.wenjin/state/debug.json")
     assert layout.is_workspace_protected_path("/workspace/.wenjin/env/python/bin/python")
     assert layout.is_workspace_protected_path("/workspace/.env")
     assert layout.is_workspace_protected_path("/workspace/.env.local")
@@ -309,6 +308,7 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
         layout.classify_workspace_path("/workspace/.wenjin/cache/pip/index")
         == "protected"
     )
+    assert layout.classify_workspace_path("/workspace/.wenjin/state/debug.json") == "protected"
     assert layout.classify_workspace_path("/workspace/main/.env") == "protected"
     assert layout.classify_workspace_path("/workspace/scripts/.env.local") == "protected"
     assert (

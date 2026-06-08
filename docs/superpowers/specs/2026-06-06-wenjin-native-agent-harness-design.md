@@ -255,7 +255,7 @@ Implementation rules:
 - Harness tools accept only `/workspace` virtual paths. New harness code must not introduce `/mnt/user-data` aliases.
 - Provider outputs must preserve the same virtual path contract. Local sandbox command stdout/stderr is reverse-mapped from configured physical workspace roots back to `/workspace`; host filesystem paths must not enter harness results, run records, or agent context.
 - Existing thread artifact/upload helpers that still use `/mnt/user-data` are legacy non-harness boundaries and should be migrated deliberately when that product surface is touched.
-- `.wenjin/env/**`, `.wenjin/cache/**`, `.wenjin/manifest.json`, `.git/**`, root or nested `.env` / `.env.*`, `*.pem`, and `*.key` are protected by default policy.
+- `.wenjin/**`, `.git/**`, root or nested `.env` / `.env.*`, `*.pem`, and `*.key` are protected by default policy. Lead-owned runtime code can still use explicit command-audit exceptions for `/workspace/.wenjin/env/python/**` and installer cache paths; model file tools cannot list, read, or mutate any `.wenjin` metadata path.
 - `/workspace/outputs/harness/**` is internal runtime state. It can be returned as an `output_ref`, but it must not be staged as a user-facing sandbox artifact.
 - `sandbox.list_dir`, `sandbox.glob`, and `sandbox.grep` filter protected/internal paths and symlinks whose resolved targets classify as protected/internal; protected/internal files must not be discoverable through search/listing, and direct `read_file` / `write_file` / `str_replace` must also block them even through visible symlink aliases.
 - Tool-call sizing arguments such as `read_file.max_chars`, `glob.max_matches`, and `grep.max_matches` may only narrow the policy budget; effective values must never exceed `read_max_chars` or `search_max_matches`.
@@ -457,8 +457,7 @@ Protected paths:
 
 - Block `.git/**`.
 - Block `.env`, `*.pem`, `*.key`, and obvious secret files.
-- Block `/workspace/.wenjin/env/**` writes from model tools; only installer/runtime may write there.
-- Block `/workspace/.wenjin/cache/**` writes except controlled installer/cache operations.
+- Block `/workspace/.wenjin/**` reads and writes from model tools; only installer/runtime may touch explicit audited runtime paths.
 - Block Docker socket and host-control paths even if a provider bug exposes them.
 - Prism protected sections are handled by Prism review/apply services, not raw file tools.
 

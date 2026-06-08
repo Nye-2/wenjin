@@ -305,13 +305,13 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
     assert "/workspace/main/visible.txt" in glob_result.structured_payload["matches"]
     assert "/workspace/outputs/result.txt" in searched_paths
     assert all(not path.startswith("/workspace/.env") for path in listed_paths)
-    assert all(not path.startswith("/workspace/.wenjin/env") for path in listed_paths)
+    assert all(not path.startswith("/workspace/.wenjin") for path in listed_paths)
     assert all(not path.startswith("/workspace/outputs/harness") for path in listed_paths)
     assert all(not path.startswith("/workspace/.env") for path in glob_result.structured_payload["matches"])
-    assert all(not path.startswith("/workspace/.wenjin/env") for path in glob_result.structured_payload["matches"])
+    assert all(not path.startswith("/workspace/.wenjin") for path in glob_result.structured_payload["matches"])
     assert all(not path.startswith("/workspace/outputs/harness") for path in glob_result.structured_payload["matches"])
     assert all(not path.startswith("/workspace/.env") for path in searched_paths)
-    assert all(not path.startswith("/workspace/.wenjin/env") for path in searched_paths)
+    assert all(not path.startswith("/workspace/.wenjin") for path in searched_paths)
     assert all(not path.startswith("/workspace/outputs/harness") for path in searched_paths)
 
 
@@ -339,6 +339,7 @@ async def test_default_policy_hides_workspace_runtime_paths(sandbox: LocalSandbo
     await sandbox.write_file("/workspace/.env", "alpha secret\n")
     await sandbox.write_file("/workspace/main/.env", "alpha nested secret\n")
     await sandbox.write_file("/workspace/scripts/.env.local", "alpha local secret\n")
+    await sandbox.write_file("/workspace/.wenjin/state/debug.json", "alpha state\n")
     await sandbox.write_file("/workspace/.wenjin/env/python/bin/python", "alpha runtime\n")
     await sandbox.write_file("/workspace/.wenjin/cache/package.txt", "alpha cache\n")
     await sandbox.write_file("/workspace/.wenjin/manifest.json", "alpha manifest\n")
@@ -360,13 +361,17 @@ async def test_default_policy_hides_workspace_runtime_paths(sandbox: LocalSandbo
     assert "/workspace/main/visible.txt" in grep_paths
     for paths in (listed_paths, glob_paths, grep_paths):
         assert all(not path.startswith("/workspace/.env") for path in paths)
-        assert all(not path.startswith("/workspace/.wenjin/env") for path in paths)
-        assert all(not path.startswith("/workspace/.wenjin/cache") for path in paths)
-        assert all(path != "/workspace/.wenjin/manifest.json" for path in paths)
+        assert all(not path.startswith("/workspace/.wenjin") for path in paths)
         assert all(path != "/workspace/main/.env" for path in paths)
         assert all(path != "/workspace/scripts/.env.local" for path in paths)
     with pytest.raises(HarnessPathError, match="protected path"):
         await tools.read_file(path="/workspace/main/.env")
+    with pytest.raises(HarnessPathError, match="protected path"):
+        await tools.read_file(path="/workspace/.wenjin/state/debug.json")
+    with pytest.raises(HarnessPathError, match="protected path"):
+        await tools.write_file(path="/workspace/.wenjin/state/debug.json", content="bad\n")
+    with pytest.raises(HarnessPathError, match="protected path"):
+        await tools.str_replace(path="/workspace/.wenjin/state/debug.json", old="alpha", new="bad")
 
 
 @pytest.mark.asyncio

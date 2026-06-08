@@ -210,10 +210,10 @@ Keep the public helpers in `workspace_layout.py`; do not scatter path constants 
 
 Add tests covering:
 
-- visible symlink to `.wenjin/env/**` is not listed as readable content.
+- visible symlink to `.wenjin/**` is not listed as readable content.
 - visible symlink to external host path is rejected.
 - direct `/workspace/outputs/harness/**` read is rejected.
-- direct writes to `.wenjin/cache/**`, `.wenjin/env/**`, `.env`, `*.pem`, `*.key` are rejected.
+- direct reads/writes to `.wenjin/**`, `.env`, `*.pem`, `*.key` are rejected.
 - root and nested `.env` / `.env.*` files are protected, hidden from list/search, and rejected by direct file reads.
 
 - [x] **Step 4: Run sandbox and harness path tests**
@@ -3077,6 +3077,62 @@ Observed:
 ```text
 3 passed
 All checks passed!
+```
+
+### Task 19: Protect the Whole Workspace Metadata Tree
+
+**Goal:** close the gap between the design contract and implementation by making the entire `/workspace/.wenjin/**` metadata tree invisible and immutable to model-facing file tools, not just known `env`, `cache`, and `manifest` paths.
+
+**External reference:** Codex treats agent/runtime metadata directories as protected state, and deer-flow keeps thread/runtime directories out of normal model-visible file operations. Wenjin's single-workspace sandbox should follow the same rule: runtime metadata is managed by Lead-owned services, while model tools operate only on user/project paths.
+
+**Architecture:** keep `backend/src/sandbox/workspace_layout.py` as the only protected-path source of truth. Replace the narrower `.wenjin/env/**`, `.wenjin/cache/**`, and `.wenjin/manifest.json` patterns with `.wenjin/**`; command audit keeps explicit runtime exceptions for Lead-owned Python and pip cache commands, so `sandbox.run_python` and dependency install remain functional while file tools block all `.wenjin` reads/writes/list/search.
+
+**Files:**
+- Modified: `backend/src/sandbox/workspace_layout.py`
+- Modified: `backend/tests/sandbox/test_workspace_layout.py`
+- Modified: `backend/tests/agents/harness/test_sandbox_file_tools.py`
+- Modified: `backend/tests/unit/subagents/test_react.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED tests**
+
+Added assertions that:
+
+- `WORKSPACE_PROTECTED_PATHS` exposes `.wenjin/**` as the canonical pattern.
+- `/workspace/.wenjin` and `/workspace/.wenjin/state/debug.json` classify as protected.
+- `sandbox.list_dir`, `sandbox.glob`, and `sandbox.grep` hide arbitrary `.wenjin/**` paths.
+- direct `sandbox.read_file`, `sandbox.write_file`, and `sandbox.str_replace` reject arbitrary `.wenjin/**` paths.
+
+Observed RED:
+
+```text
+2 failed
+1 failed
+```
+
+- [x] **Step 2: Collapse protected metadata patterns**
+
+`WORKSPACE_PROTECTED_PATHS` now contains `.wenjin/**` instead of separate runtime/cache/manifest patterns. `_matches_workspace_pattern()` already treats `/**` patterns as matching both the base directory and descendants, so `.wenjin` itself is protected.
+
+- [x] **Step 3: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/sandbox/test_workspace_layout.py::test_workspace_protected_paths_include_runtime_and_secret_material backend/tests/sandbox/test_workspace_layout.py::test_workspace_path_classification_is_centralized_for_harness_boundaries -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_sandbox_file_tools.py::test_default_policy_hides_workspace_runtime_paths -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_command_audit.py -q
+```
+
+Observed:
+
+```text
+2 passed
+1 passed
+21 passed
 ```
 
 ## Review Checklist After Each Task

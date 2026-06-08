@@ -95,9 +95,7 @@ WORKSPACE_PROTECTED_PATHS = (
     "**/.env.*",
     "*.pem",
     "*.key",
-    ".wenjin/env/**",
-    ".wenjin/cache/**",
-    WORKSPACE_MANIFEST_RELATIVE_PATH,
+    ".wenjin/**",
 )
 
 WORKSPACE_INTERNAL_PATHS = (
