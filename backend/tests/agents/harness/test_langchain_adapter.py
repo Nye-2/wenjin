@@ -160,3 +160,29 @@ def test_summarize_args_redacts_large_tool_text_payloads() -> None:
     dumped = json.dumps(summary, ensure_ascii=False)
     assert "sk-secret-script" not in dumped
     assert "sk-secret-content" not in dumped
+
+
+def test_summarize_args_redacts_dependency_hints_before_validation() -> None:
+    dependency_hints = [
+        "pandas",
+        "https://token.example.invalid/simple?api_key=sk-secret-dependency",
+    ]
+
+    summary = _summarize_args(
+        {
+            "script_name": "analysis.py",
+            "dependency_hints": dependency_hints,
+        }
+    )
+
+    encoded = json.dumps(dependency_hints, ensure_ascii=False, sort_keys=True, default=str)
+    assert summary["script_name"] == "analysis.py"
+    assert summary["dependency_hints"] == {
+        "redacted": True,
+        "kind": "list",
+        "items": 2,
+        "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }
+    dumped = json.dumps(summary, ensure_ascii=False)
+    assert "pandas" not in dumped
+    assert "sk-secret-dependency" not in dumped

@@ -2966,6 +2966,58 @@ Observed:
 All checks passed!
 ```
 
+### Task 18B: Redact Pre-Validation Dependency Hints in Debug Args
+
+**Goal:** prevent unvalidated `dependency_hints` input from leaking into harness debug records before the runner rejects unsafe package specs.
+
+**External reference:** Codex/deer-flow style audit metadata keeps potentially sensitive execution input bounded and separated from validated reproducibility evidence. Wenjin's reproducibility manifest can keep validated dependency evidence, but raw pre-validation tool args should not store private index URLs or tokens.
+
+**Architecture:** extend the same LangChain adapter args summarization boundary from Task 18. This does not alter dependency installation, package validation, reproducibility manifests, or command audit. `dependency_hints` records a deterministic kind/item-count/hash summary.
+
+**Files:**
+- Modified: `backend/src/agents/harness/langchain_adapter.py`
+- Modified: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED test**
+
+Added `test_summarize_args_redacts_dependency_hints_before_validation`.
+
+Observed RED:
+
+```text
+AssertionError: ['pandas', 'https://...sk-secret-dependency'] == {'redacted': True, ...}
+```
+
+- [x] **Step 2: Digest structured dependency hints**
+
+`_summarize_args()` now records `dependency_hints` as:
+
+```json
+{"redacted": true, "kind": "list", "items": 2, "sha256": "..."}
+```
+
+- [x] **Step 3: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py::test_summarize_args_redacts_dependency_hints_before_validation backend/tests/agents/harness/test_langchain_adapter.py::test_summarize_args_redacts_large_tool_text_payloads -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/langchain_adapter.py backend/tests/agents/harness/test_langchain_adapter.py
+```
+
+Observed:
+
+```text
+2 passed
+5 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:
