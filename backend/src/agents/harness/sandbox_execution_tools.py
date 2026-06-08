@@ -46,6 +46,7 @@ class SandboxExecutionTools:
         async def _run() -> dict[str, Any]:
             return await runner.run_python_script(
                 workspace_id=self.context.workspace_id,
+                workspace_type=self.context.workspace_type,
                 execution_id=self.context.execution_id,
                 node_id=self.context.node_id,
                 sandbox_policy=self._sandbox_policy(),

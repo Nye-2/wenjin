@@ -450,6 +450,38 @@ async def test_run_python_script_runs_with_local_sandbox_provider_interface(tmp_
 
 
 @pytest.mark.asyncio
+async def test_run_python_script_persists_workspace_type_profile_in_layout_manifest(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-local",
+        workspace_type="sci",
+        execution_id="exec-local",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="import json\nprint(json.dumps({'ok': True}, sort_keys=True))\n",
+        script_name="probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    manifest = json.loads((workspace / ".wenjin" / "manifest.json").read_text(encoding="utf-8"))
+    assert result["status"] == "completed"
+    assert manifest["workspace_id"] == "ws-local"
+    assert manifest["sandbox_id"] == "workspace-ws-local"
+    assert manifest["workspace_type"] == "sci"
+    assert manifest["workspace_profile"]["workspace_type"] == "sci"
+    assert "/workspace/main/main.tex" in manifest["workspace_profile"]["primary_files"]
+
+
+@pytest.mark.asyncio
 async def test_run_python_script_externalizes_large_stdout_before_returning_payload() -> None:
     stdout = "\n".join(f"row {index:03d} {'x' * 20}" for index in range(1, 31))
     provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))

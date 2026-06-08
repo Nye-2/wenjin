@@ -5,6 +5,7 @@ import hashlib
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -48,6 +49,17 @@ def _ctx(
     )
 
 
+class _Provider:
+    def __init__(self, sandbox: LocalSandbox) -> None:
+        self.sandbox = sandbox
+
+    async def acquire(self, _sandbox_key: str) -> LocalSandbox:
+        return self.sandbox
+
+    async def release(self, _sandbox: LocalSandbox) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -67,6 +79,51 @@ async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> 
     payload = json.loads(raw)
     assert payload["preview"] == "abcd"
     assert payload["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_langchain_file_tools_refresh_workspace_type_profile_without_injected_sandbox(
+    monkeypatch,
+) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+        provider = _Provider(sandbox)
+
+        class _Session:
+            async def build_context(self, *, workspace_id, workspace_type, sandbox_policy):
+                return SimpleNamespace(
+                    provider=provider,
+                    sandbox_key=f"workspace-{workspace_id}",
+                    workspace_type=workspace_type,
+                )
+
+        monkeypatch.setattr(
+            "src.agents.harness.langchain_adapter.SandboxRuntimeSession",
+            _Session,
+        )
+        ctx = SubagentContext(
+            workspace_id="ws-1",
+            execution_id="exec-1",
+            prompt="list workspace",
+            inputs={"user_id": "user-1", "workspace_type": "sci", "capability_id": "capability-1"},
+            tools=["sandbox.list_dir"],
+            workspace_data={},
+            capability_policy={
+                "allowed_tools": ["sandbox.list_dir"],
+                "sandbox_policy": {},
+            },
+        )
+        [tool] = build_langchain_tools(ctx, ["sandbox.list_dir"])
+
+        raw = await tool.ainvoke({"path": "/workspace/main"})
+
+        payload = json.loads(raw)
+        manifest = json.loads((workspace / ".wenjin" / "manifest.json").read_text(encoding="utf-8"))
+        assert payload["payload"]["path"] == "/workspace/main"
+        assert manifest["workspace_type"] == "sci"
+        assert manifest["workspace_profile"]["workspace_type"] == "sci"
 
 
 @pytest.mark.asyncio

@@ -64,12 +64,17 @@ class SandboxJobRunner:
         self,
         *,
         workspace_id: str,
+        workspace_type: str | None = None,
         execution_id: str,
         node_id: str,
         sandbox_policy: Mapping[str, Any],
         billing_reservation_id: str | None = None,
     ) -> dict[str, Any]:
-        ctx = await self.session.build_context(workspace_id=workspace_id, sandbox_policy=sandbox_policy)
+        ctx = await self.session.build_context(
+            workspace_id=workspace_id,
+            workspace_type=workspace_type,
+            sandbox_policy=sandbox_policy,
+        )
         command_audit = audit_command(
             HarnessCommand(shell_command=SMOKE_COMMAND),
             CommandAuditPolicy(allow_shell=True),
@@ -145,6 +150,7 @@ class SandboxJobRunner:
         self,
         *,
         workspace_id: str,
+        workspace_type: str | None = None,
         execution_id: str,
         node_id: str,
         sandbox_policy: Mapping[str, Any],
@@ -159,7 +165,11 @@ class SandboxJobRunner:
             script_name=script_name,
             dependency_hints=dependency_hints,
         )
-        ctx = await self.session.build_context(workspace_id=workspace_id, sandbox_policy=sandbox_policy)
+        ctx = await self.session.build_context(
+            workspace_id=workspace_id,
+            workspace_type=workspace_type,
+            sandbox_policy=sandbox_policy,
+        )
         command_audit_result = audit_command(
             HarnessCommand(argv=plan.command_argv),
             CommandAuditPolicy(allowed_network_profiles=("none",)),

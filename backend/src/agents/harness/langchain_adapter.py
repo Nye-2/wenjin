@@ -12,7 +12,10 @@ from langchain_core.tools import StructuredTool
 from langgraph.errors import GraphBubbleUp
 from pydantic import BaseModel, Field
 
-from src.agents.lead_agent.v2.sandbox_runtime_session import SandboxRuntimeSession
+from src.agents.lead_agent.v2.sandbox_runtime_session import (
+    SandboxRuntimeSession,
+    ensure_runtime_workspace_layout,
+)
 from src.subagents.v2.base import SubagentContext
 
 from .args_summary import summarize_tool_args
@@ -410,9 +413,16 @@ async def _with_file_tools(
         session = SandboxRuntimeSession()
         runtime_ctx = await session.build_context(
             workspace_id=ctx.workspace_id,
+            workspace_type=ctx.workspace_type,
             sandbox_policy=dict(ctx.capability_policy.get("sandbox_policy") or {}),
         )
         sandbox = await runtime_ctx.provider.acquire(runtime_ctx.sandbox_key)
+        ensure_runtime_workspace_layout(
+            sandbox=sandbox,
+            workspace_id=ctx.workspace_id,
+            sandbox_id=runtime_ctx.sandbox_key,
+            workspace_type=runtime_ctx.workspace_type,
+        )
         try:
             return await getattr(SandboxFileTools(sandbox=sandbox, context=ctx, policy=policy), method_name)(**kwargs)
         finally:
