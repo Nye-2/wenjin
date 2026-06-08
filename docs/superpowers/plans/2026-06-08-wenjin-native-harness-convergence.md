@@ -1619,7 +1619,7 @@ git commit -m "fix: stabilize native harness browser flow"
   - `docs/current/frontend-feature-plugin-contract.md`
   - `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
 
-- [ ] **Step 1: External-reference regression scan**
+- [x] **Step 1: External-reference regression scan**
 
 ```bash
 cd /Users/ze/wenjin
@@ -1628,7 +1628,9 @@ rg "codex|cc-switch|ccswitch|deer-flow|deerflow|Codex SDK|sandbox\\.run_command"
 
 Expected: no production dependency/reference except intentional documentation.
 
-- [ ] **Step 2: Full targeted verification**
+Observed 2026-06-08: production scan returned no matches in `backend/src` or `frontend` for Codex SDK, cc-switch, deer-flow runtime, or `sandbox.run_command`.
+
+- [x] **Step 2: Full targeted verification**
 
 ```bash
 cd /Users/ze/wenjin/backend
@@ -1643,7 +1645,7 @@ cd /Users/ze/wenjin
 git diff --check
 ```
 
-- [ ] **Step 3: Write final audit**
+- [x] **Step 3: Write final audit**
 
 The audit must answer:
 
@@ -1651,6 +1653,16 @@ The audit must answer:
 - Which DeerFlow patterns were adopted: sandbox filesystem, skill/tool declarative contracts, run journal, middleware-like bounded context.
 - Which Wenjin-specific choices remain different: one workspace/one sandbox, capability DataService SSOT, review-first artifacts, Prism/rooms integration.
 - Remaining weaknesses by severity, especially model reliability, source quality, tool latency, sandbox install experience, and frontend complexity.
+
+Observed 2026-06-08:
+
+- Backend targeted pytest: 269 passed.
+- Backend targeted ruff: all checks passed.
+- Frontend typecheck: passed.
+- Frontend targeted vitest: 37 passed.
+- Docker browser smoke covered Workbench team task, TeamKernel five-step progress, quality gate dedupe, Prism compile/PDF contrast, and Prism AI assist discoverability.
+
+Final audit written to `docs/current/native-harness-convergence-audit.md` and linked from `docs/current/documentation-map.md`.
 
 Commit boundary:
 
