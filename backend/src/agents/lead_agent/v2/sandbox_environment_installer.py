@@ -10,6 +10,7 @@ from src.agents.harness.command_audit import (
     audit_command,
     require_command_policy_allowed,
 )
+from src.agents.lead_agent.v2.sandbox_artifact_collector import build_dependency_install_failure_report
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.workspace_sandbox import (
     ENSURE_WORKSPACE_VENV_COMMAND,
@@ -98,6 +99,7 @@ class SandboxEnvironmentInstaller:
             network_profile="package_index_only",
         )
         if not result.success:
+            stdout = result.stdout.strip()
             stderr = result.stderr.strip()
             await manager.update_job(
                 str(install_job.id),
@@ -112,11 +114,21 @@ class SandboxEnvironmentInstaller:
                     "status": "failed",
                     "operation": "install_dependencies",
                     "packages": normalized_packages,
-                    "stdout": result.stdout.strip(),
+                    "stdout": stdout,
                     "stderr": stderr,
                     "exit_code": result.exit_code,
                     "sandbox_environment_id": environment_id,
                     "sandbox_job_id": str(install_job.id),
+                    "run_sandbox_job_id": run_job_id,
+                    "install_job_ids": [str(install_job.id)],
+                    "report_markdown": build_dependency_install_failure_report(
+                        packages=normalized_packages,
+                        run_job_id=run_job_id,
+                        install_job_id=str(install_job.id),
+                        stdout=stdout,
+                        stderr=stderr,
+                        exit_code=result.exit_code,
+                    ),
                 },
             )
 

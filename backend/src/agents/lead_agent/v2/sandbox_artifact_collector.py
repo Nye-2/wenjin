@@ -88,6 +88,16 @@ class SandboxArtifactCollector:
         stderr = stderr_preview if stderr_preview is not None else raw_stderr
         output_refs = [ref for ref in (stdout_ref, stderr_ref) if ref]
         artifact_candidates = list(generated_artifacts or [])
+        reproducibility_section = build_reproducibility_report_section(
+            script_path=script_path,
+            dependency_hints=dependency_hints,
+            installed_packages=installed_packages,
+            install_job_ids=install_job_ids,
+            retry_count=retry_count,
+            command_audit=command_audit,
+            install_command_audits=install_command_audits,
+            generated_artifacts=artifact_candidates,
+        )
         report_markdown = (
             "# Sandbox Python 执行报告\n\n"
             "- 执行位置：LeadAgentRuntime / subagent node\n"
@@ -107,6 +117,7 @@ class SandboxArtifactCollector:
             "```text\n"
             f"{stderr}\n"
             "```\n"
+            f"{reproducibility_section}"
             f"{summarize_generated_artifacts(artifact_candidates)}"
         )
         return {
@@ -146,3 +157,84 @@ class SandboxArtifactCollector:
         except json.JSONDecodeError:
             return {}
         return loaded if isinstance(loaded, dict) else {}
+
+
+def build_reproducibility_report_section(
+    *,
+    script_path: str,
+    dependency_hints: list[str],
+    installed_packages: list[str],
+    install_job_ids: list[str],
+    retry_count: int,
+    command_audit: dict[str, Any],
+    install_command_audits: list[dict[str, Any]],
+    generated_artifacts: list[dict[str, Any]],
+) -> str:
+    """Render bounded human-readable experiment reproducibility evidence."""
+
+    run_verdict = _audit_pair(command_audit)
+    install_risks = [_audit_pair(audit) for audit in install_command_audits if isinstance(audit, dict)]
+    lines = [
+        "\n\n## Reproducibility\n",
+        f"- Script path: `{script_path}`",
+        f"- Requested dependencies: {_inline_code_list(dependency_hints)}",
+        f"- Installed dependencies: {_inline_code_list(installed_packages)}",
+        f"- Install job ids: {_inline_code_list(install_job_ids)}",
+        f"- Retry count: {max(0, int(retry_count or 0))}",
+        f"- Run command audit: {run_verdict}",
+    ]
+    if install_risks:
+        lines.append(f"- Install command audits: {', '.join(install_risks)}")
+    if generated_artifacts:
+        lines.append(
+            "- Reviewable artifact paths: "
+            f"{_inline_code_list([str(item.get('path') or '') for item in generated_artifacts])}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def build_dependency_install_failure_report(
+    *,
+    packages: list[str],
+    run_job_id: str,
+    install_job_id: str,
+    stdout: str,
+    stderr: str,
+    exit_code: int,
+) -> str:
+    """Render recovery guidance for dependency installation failures."""
+
+    return (
+        "# Sandbox dependency installation failed\n\n"
+        "Dependency installation failed before the Python script could be retried.\n\n"
+        "## Reproducibility\n\n"
+        f"- Requested dependencies: {_inline_code_list(packages)}\n"
+        f"- Run job id: `{run_job_id}`\n"
+        f"- Install job ids: {_inline_code_list([install_job_id])}\n"
+        f"- Exit code: {exit_code}\n\n"
+        "## Recovery guidance\n\n"
+        "- Check dependency_hints for a valid pinned package spec.\n"
+        "- Prefer stable package versions already compatible with the workspace Python environment.\n"
+        "- If the package requires system libraries, produce a pure-Python fallback or ask Lead Agent to revise the experiment plan.\n\n"
+        "## stdout\n\n"
+        "```text\n"
+        f"{stdout}\n"
+        "```\n\n"
+        "## stderr\n\n"
+        "```text\n"
+        f"{stderr}\n"
+        "```\n"
+    )
+
+
+def _inline_code_list(values: list[str]) -> str:
+    clean = [str(value).strip() for value in values if str(value).strip()]
+    if not clean:
+        return "`none`"
+    return ", ".join(f"`{value}`" for value in clean[:20])
+
+
+def _audit_pair(audit: dict[str, Any]) -> str:
+    verdict = str(audit.get("verdict") or "unknown").strip() or "unknown"
+    risk = str(audit.get("risk_level") or "unknown").strip() or "unknown"
+    return f"{verdict} / {risk}"

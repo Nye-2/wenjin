@@ -30,7 +30,7 @@ Chat Agent
 - **命令策略审计**：`backend/src/agents/harness/command_audit.py` 使用 argv-first 结构记录 `policy_decision(schema=wenjin.harness.command_policy_decision.v1)`，在创建 sandbox job 前阻断高风险命令、host path、protected/internal path 和不规范 pip spec。
 - **bounded output**：大文件读取、搜索、Python stdout/stderr 和 diff 只给模型 bounded preview，完整内容外部化到 `/workspace/outputs/harness/**`，并作为内部 refs 进入 tool record / event。
 - **文件变更证据**：`sandbox.write_file` / `sandbox.str_replace` 记录 hash + unified diff，节点聚合 `file_change_summary`，用户仍通过 review-first flow 接受结果。
-- **运行证据而非文本猜测**：`execution_manifest`、`reproducibility_manifest`、`failure_classification`、`sandbox_execution_summary`、`reproducibility_summary`、`run_journal_summary` 都挂回 harness payload / `ExecutionNodeRecord.node_metadata.harness`，RunView 不解析 raw tool JSON。
+- **运行证据而非文本猜测**：`execution_manifest`、`reproducibility_manifest`、`failure_classification`、`sandbox_execution_summary`、`reproducibility_summary`、`run_journal_summary` 都挂回 harness payload / `ExecutionNodeRecord.node_metadata.harness`，RunView 不解析 raw tool JSON；`report_markdown` 已包含用户可读的 Reproducibility 段落和依赖安装失败恢复建议。
 - **明确失败边界**：unknown/forbidden tools 显式失败，不把工具型节点静默降级为 plain LLM。
 
 未吸收的 Codex 部分是有意取舍：不引入 SDK、app-server/thread 模型、泛 shell、approval console 或 provider protocol bridge。
@@ -77,7 +77,7 @@ Chat Agent
 
 ### P1: sandbox 安装与实验体验仍偏基础
 
-自动安装、缺包重试、command audit 和 `reproducibility_manifest` 已经具备；每次 `sandbox.run_python` 会留下脚本、依赖、sandbox job/environment、生成产物和命令风险摘要。但还缺少用户可理解的环境摘要、安装失败恢复建议、数据集 provenance、面向长程实验的复现实验报告模板，以及把这些证据更轻地展示到默认 UI 的方式。
+自动安装、缺包重试、command audit、`reproducibility_manifest` 和用户可读 `report_markdown` 已经具备；每次 `sandbox.run_python` 会留下脚本、依赖、sandbox job/environment、生成产物、命令风险摘要和安装失败恢复建议。但还缺少数据集 provenance、面向长程实验的更完整报告模板，以及把这些证据更轻地展示到默认 UI 的方式。
 
 ### P2: TeamKernel 质量门显示还有压缩空间
 

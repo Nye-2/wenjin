@@ -2106,6 +2106,86 @@ Expected: one clean commit for reproducibility evidence only.
 
 **Stop condition for this task:** do not expand into `sandbox.run_command`, frontend UI redesign, new sandbox lifecycle policy, or model-routing work. If the tests reveal a real integration issue, fix only the existing `sandbox.run_python`/adapter/node-metadata path.
 
+---
+
+### Task 17: Make Sandbox Python Reports User-Readable
+
+**Goal:** turn existing sandbox `report_markdown` into a readable experiment handoff that explains how to reproduce the run and what to do when dependency installation fails.
+
+**Architecture:** keep the report inside the existing Lead-owned `SandboxArtifactCollector` / installer output path. Do not add a new report table, new review item kind, frontend stream, or generic shell command surface.
+
+**External reference patterns adopted:**
+
+- From Codex: keep command/policy evidence summarized, not dumped as raw argv or environment.
+- From deer-flow: present generated output paths as a concise user-facing artifact section.
+- Wenjin-specific constraint: use `/workspace` paths, existing `report_markdown`, and DataService sandbox jobs only.
+
+**Files:**
+
+- Modify: `backend/src/agents/lead_agent/v2/sandbox_artifact_collector.py`
+- Modify: `backend/src/agents/lead_agent/v2/sandbox_environment_installer.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py`
+- Docs: `docs/current/native-harness-convergence-audit.md`
+- Docs: `docs/current/workspace-current-state.md`
+- Docs: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Docs: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add failing report tests**
+
+Added tests requiring successful Python runs with dependency installation to include:
+
+```text
+## Reproducibility
+Script path
+Requested dependencies
+Installed dependencies
+Install job ids
+Retry count
+Run command audit
+```
+
+Added tests requiring dependency-install failure output to include:
+
+```text
+## Recovery guidance
+Dependency installation failed before the Python script could be retried.
+Check dependency_hints for a valid pinned package spec
+Install job ids
+```
+
+Verified both tests failed before implementation.
+
+- [x] **Step 2: Implement report sections in the existing collector path**
+
+`SandboxArtifactCollector.script_output()` now appends a bounded Reproducibility section to `report_markdown` with script path, dependency hints, installed packages, install job ids, retry count, run/install command audit risk summaries, and reviewable artifact paths.
+
+The report intentionally excludes raw command argv, environment variables, API keys, host paths, and protected/internal refs.
+
+- [x] **Step 3: Add dependency-install failure reports**
+
+`SandboxEnvironmentInstaller.install_dependencies()` now includes bounded `report_markdown` in `SandboxCommandExecutionError.output` when pip install fails. The report includes requested packages, run/install job ids, exit code, stdout/stderr, and recovery guidance.
+
+- [x] **Step 4: Update docs**
+
+Updated current state, convergence audit, and harness design spec to state that `report_markdown` now includes human-readable reproducibility evidence and install-failure recovery guidance.
+
+- [x] **Step 5: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/agents/harness/test_scheduler_and_python_tool.py -q
+.venv/bin/ruff check src/agents/lead_agent/v2/sandbox_artifact_collector.py src/agents/lead_agent/v2/sandbox_environment_installer.py tests/agents/lead_agent/v2/test_sandbox_runtime.py
+```
+
+Observed:
+
+```text
+29 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

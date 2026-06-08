@@ -521,6 +521,14 @@ async def test_run_python_script_installs_declared_dependency_hints_before_execu
     assert "pandas==2.2.3" in provider.sandbox.commands[1][0]
     assert result["installed_packages"] == ["pandas==2.2.3"]
     assert result["retry_count"] == 0
+    report = result["report_markdown"]
+    assert "## Reproducibility" in report
+    assert "/workspace/scripts/analysis_probe.py" in report
+    assert "Requested dependencies: `pandas==2.2.3`" in report
+    assert "Installed dependencies: `pandas==2.2.3`" in report
+    assert "Install job ids: `job-2`" in report
+    assert "Retry count: 0" in report
+    assert "Run command audit: pass / low" in report
 
 
 @pytest.mark.asyncio
@@ -592,6 +600,11 @@ async def test_run_python_script_marks_run_job_failed_when_dependency_install_fa
         )
 
     assert exc_info.value.output["operation"] == "install_dependencies"
+    report = exc_info.value.output["report_markdown"]
+    assert "## Recovery guidance" in report
+    assert "Dependency installation failed before the Python script could be retried." in report
+    assert "Check dependency_hints for a valid pinned package spec" in report
+    assert "Install job ids: `job-2`" in report
     failed_updates = [
         update for update in manager.updated_jobs
         if update["status"] == "failed"
