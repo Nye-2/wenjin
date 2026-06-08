@@ -120,6 +120,29 @@ Do not migrate:
 
 Reason: those layers would introduce a second agent runtime and a second thread/execution model, conflicting with Wenjin's ExecutionRecord, DataService, TeamKernel, and workspace-scoped sandbox architecture.
 
+### 3.1.1 Codex Gap Audit After Task 28
+
+Current Wenjin absorption:
+
+- Command shape: Wenjin `sandbox.run_python` now carries argv-first `command_audit` evidence for run/install jobs, but still exposes only Python execution to subagents.
+- Output budget: Wenjin externalizes large read/stdout/stderr/diff output into `/workspace/outputs/harness/**` and keeps model-visible payloads bounded.
+- Diff tracking: Wenjin tracks harness file changes through tool records, `execution.harness.file_change`, and `file_change_summary`.
+- Protected paths: Wenjin blocks `.git/**`, `.wenjin/**`, env/secret files, internal harness refs, and symlink escapes at the tool boundary.
+- Runtime evidence: Wenjin uses existing `ExecutionNodeRecord`, DataService execution events, sandbox jobs, review items, and artifact candidates instead of a second run table.
+
+Still weaker than Codex, intentionally deferred:
+
+- No generic process protocol like Codex `process/start/read/write/terminate` yet. Wenjin should only add this after a DataService command policy can express argv, cwd, timeout, env, network, output caps, cancellation, and approval/rejection evidence.
+- No broad exec-policy rule amendment UI. Wenjin currently uses capability/skill policy plus command audit; admin-adjusted execution policy can come later, but not as Codex approval flow transplanted into the product.
+- No turn-level diff tracker for every possible filesystem mutation. Wenjin tracks harness write/replace diffs and sandbox artifacts; full net-diff across arbitrary command execution belongs with the future bounded command tool.
+
+Rejected from Codex remains unchanged:
+
+- Codex SDK / app-server thread model.
+- Rust exec-server daemon.
+- cc-switch / Responses-to-Chat protocol bridge.
+- General approval UX as the first safety layer.
+
 ### 3.2 deer-flow: Borrow Harness Patterns, Not App Factory
 
 Useful ideas:
@@ -149,6 +172,31 @@ Do not migrate:
 - Legacy allow-all semantics for dangerous tools.
 
 Reason: Wenjin's DataService rooms, capability catalog, TeamKernel, and execution stream already own those responsibilities.
+
+### 3.2.1 deer-flow Gap Audit After Task 28
+
+Current Wenjin absorption:
+
+- Tool-call integrity: ReactSubagent now repairs dangling structured/raw/invalid tool calls with a local LangGraph `pre_model_hook`.
+- Tool error recovery: LangChain adapter downgrades tool exceptions and validation failures into bounded recoverable tool results and failed events.
+- Loop guard: repeated identical tool calls publish a team-visible warning and eventually hard stop without injecting messages between assistant tool calls and tool results.
+- Sandbox tool shape: Wenjin has `list_dir`, `glob`, `grep`, `read_file`, `write_file`, `str_replace`, and Python execution, all scoped to `/workspace`.
+- Harness context: Wenjin now exposes a stable `wenjin.harness.context_bundle.v1` package for team members instead of scattered prompt fragments.
+- Concurrency: Wenjin keeps LLM member execution parallel where allowed but serializes sandbox-affecting calls per workspace through the scheduler and DataService lease.
+
+Still weaker than deer-flow, intentionally scoped:
+
+- No pluggable guardrail provider stack. Wenjin's safety boundary is capability/skill policy plus command audit; adding a provider abstraction is only justified when there are multiple policy backends.
+- No deferred external tool schema promotion. Built-in research/sandbox tools are low-noise and policy-scoped; deferred discovery should be reserved for external/high-cardinality tool catalogs.
+- No general bash tool. Scientific workflows should keep using `sandbox.run_python` until command policy, output budgeting, cancellation, and review projection are all ready.
+- No per-thread sandbox gallery or ACP workspace. Wenjin's product invariant is one active sandbox environment per workspace, not one sandbox per chat thread or subagent.
+
+Rejected from deer-flow remains unchanged:
+
+- `create_deerflow_agent` factory.
+- Thread-local user-data filesystem model.
+- Full middleware stack as a dependency.
+- Skills/gallery/ACP surfaces that duplicate Wenjin Catalog, DataService rooms, or TeamKernel.
 
 ## 4. Recommended Direction
 

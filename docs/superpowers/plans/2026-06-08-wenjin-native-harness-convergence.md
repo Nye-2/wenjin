@@ -3860,6 +3860,13 @@ ruff: All checks passed!
 - deer-flow loop guard: confirm repeated-call warning does not break provider message pairing.
 - deer-flow tracing: confirm Wenjin uses existing execution events and node metadata only.
 
+**Audit result:**
+
+- Rechecked `/Users/ze/deer-flow/backend/CLAUDE.md` middleware and sandbox sections: Wenjin has absorbed dangling tool-call repair, recoverable tool errors, sandbox audit, loop warning/hard stop, bounded context, and provider virtual-path hygiene, while rejecting deer-flow's full agent factory/thread-local filesystem/runtime stack.
+- Rechecked `/Users/ze/codex/codex-rs/core/src/exec_policy.rs`, `turn_diff_tracker.rs`, and `exec-server/src/protocol.rs`: Wenjin has absorbed protected path/output budget/file-change evidence/argv-audit ideas where they fit; generic process lifecycle, exec policy amendments, and turn-wide arbitrary command diffs remain deferred until a bounded command tool is designed through DataService policy.
+- Updated `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md` with post-Task-28 Codex/deer-flow gap matrices.
+- Updated `docs/current/architecture.md` with a non-negotiable boundary that Codex/deer-flow are references only, not runtime dependencies or second execution sources.
+
 ### Task 31: Full Verification and Product Smoke
 
 **Goal:** prove this branch works end to end before merge.
