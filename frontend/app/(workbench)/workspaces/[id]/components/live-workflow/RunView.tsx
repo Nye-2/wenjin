@@ -241,6 +241,7 @@ function groupProgressItems(items: RunProgressItem[]): Array<{
 }
 
 function memberCapabilitySummary(member: RunViewTeam["members"][number]): string {
+  if (member.activityLabel) return member.activityLabel;
   const count = member.effectiveTools.length + member.effectiveSkills.length;
   if (count > 0) return "能力已就绪";
   if (member.status === "running" || member.status === "launching") return "正在处理";

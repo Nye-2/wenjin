@@ -39,6 +39,9 @@ export interface RunViewTeamMember {
   status: string;
   effectiveTools: string[];
   effectiveSkills: string[];
+  activityLabel?: string;
+  artifactCount?: number;
+  debugToolCount?: number;
 }
 
 export interface RunViewQualityGate {
@@ -85,7 +88,9 @@ export interface RunView {
   tokenUsage?: { input: number; output: number } | null;
   primarySurface?: "prism" | "rooms" | "sandbox" | "none";
   prismReviewCount?: number;
+  sandboxReviewCount?: number;
   hasPrismChanges: boolean;
+  hasSandboxArtifacts?: boolean;
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
   team?: RunViewTeam | null;
@@ -107,6 +112,9 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     tokenUsageFromUnknown(taskReport?.token_usage) ??
     tokenUsageFromNodes(record.node_states);
   const prismReviewCount = countPrismReviewItems(
+    record.review_items ?? reviewItemsFromTaskReport(taskReport),
+  );
+  const sandboxReviewCount = countSandboxReviewItems(
     record.review_items ?? reviewItemsFromTaskReport(taskReport),
   );
   const status = normalizeExecutionStatus(record.status);
@@ -144,16 +152,19 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     completedNodeCount,
     failedNodeCount,
     tokenUsage,
-    primarySurface: prismReviewCount > 0 ? "prism" : "rooms",
+    primarySurface:
+      prismReviewCount > 0 ? "prism" : sandboxReviewCount > 0 ? "sandbox" : "rooms",
     prismReviewCount,
+    sandboxReviewCount,
     hasPrismChanges: prismReviewCount > 0,
+    hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
     team,
     actions: actionsForRun({
       status,
       hasPrismChanges: prismReviewCount > 0,
-      hasResults: Boolean(record.result || taskReport),
+      hasResults: Boolean(record.result || taskReport || sandboxReviewCount > 0),
       failureCategory,
     }),
   };
@@ -240,6 +251,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
       : record.has_prism_changes
         ? 1
         : 0;
+  const sandboxReviewCount = record.primary_surface === "sandbox" ? 1 : 0;
   const failureMessage = record.failure_message ?? null;
   const failureCategory =
     record.failure_category ??
@@ -259,9 +271,15 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     tokenUsage: record.token_usage ?? null,
     primarySurface:
       record.primary_surface ??
-      (prismReviewCount > 0 || record.has_prism_changes ? "prism" : "rooms"),
+      (prismReviewCount > 0 || record.has_prism_changes
+        ? "prism"
+        : sandboxReviewCount > 0
+          ? "sandbox"
+          : "rooms"),
     prismReviewCount,
+    sandboxReviewCount,
     hasPrismChanges: Boolean(record.has_prism_changes || prismReviewCount > 0),
+    hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
     actions: actionsForRun({
@@ -279,6 +297,7 @@ export function runViewFromResultCard(
 ): RunView {
   const status = normalizeRunRecordStatus(data.status);
   const prismReviewCount = countPrismReviewItems(data.review_items ?? []);
+  const sandboxReviewCount = countSandboxReviewItems(data.review_items ?? []);
   const failureMessage = data.errors?.[0]?.message ?? null;
   const failureCategory =
     status === "failed_partial" || status === "failed"
@@ -300,9 +319,12 @@ export function runViewFromResultCard(
         ? formatSeconds(data.duration_seconds)
         : null,
     tokenUsage: tokenUsageFromUnknown(data.token_usage),
-    primarySurface: prismReviewCount > 0 ? "prism" : "rooms",
+    primarySurface:
+      prismReviewCount > 0 ? "prism" : sandboxReviewCount > 0 ? "sandbox" : "rooms",
     prismReviewCount,
+    sandboxReviewCount,
     hasPrismChanges: prismReviewCount > 0,
+    hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
     actions: actionsForRun({
@@ -336,7 +358,12 @@ export function mergeRunViews(
       live.prismReviewCount ?? 0,
       historical.prismReviewCount ?? 0,
     ),
+    sandboxReviewCount: Math.max(
+      live.sandboxReviewCount ?? 0,
+      historical.sandboxReviewCount ?? 0,
+    ),
     hasPrismChanges: live.hasPrismChanges || historical.hasPrismChanges,
+    hasSandboxArtifacts: Boolean(live.hasSandboxArtifacts || historical.hasSandboxArtifacts),
     failureCategory: live.failureCategory ?? historical.failureCategory,
     failureMessage: live.failureMessage ?? historical.failureMessage,
     team: live.team ?? historical.team,
@@ -387,6 +414,20 @@ function countPrismReviewItems(items: unknown[]): number {
       (entry.target &&
         typeof entry.target === "object" &&
         (entry.target as Record<string, unknown>).kind === "prism_file_change")
+    );
+  }).length;
+}
+
+function countSandboxReviewItems(items: unknown[]): number {
+  return items.filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const entry = item as Record<string, unknown>;
+    return (
+      entry.kind === "sandbox_artifact" ||
+      entry.target_domain === "sandbox" ||
+      (entry.target &&
+        typeof entry.target === "object" &&
+        (entry.target as Record<string, unknown>).kind === "sandbox_artifact")
     );
   }).length;
 }
@@ -460,6 +501,8 @@ function teamMembersFromNodeStates(
       },
       rawNode,
     );
+    const activity = harnessActivityFromNodeState(rawNode);
+    const debugToolCount = rawNode.tool_calls?.length ?? 0;
     members.push({
       id,
       templateId,
@@ -467,6 +510,9 @@ function teamMembersFromNodeStates(
       status: stringValue(node.status) ?? "pending",
       effectiveTools: stringArrayValue(metadata?.effective_tools),
       effectiveSkills: stringArrayValue(metadata?.effective_skills),
+      ...(activity.label ? { activityLabel: activity.label } : {}),
+      ...(activity.artifactCount > 0 ? { artifactCount: activity.artifactCount } : {}),
+      ...(debugToolCount > 0 ? { debugToolCount } : {}),
     });
   }
   if (graphNodes?.length) {
@@ -598,9 +644,48 @@ function runProgressItemFromNode(
 function progressDetailFromNodeState(state: ExecutionNodeState | null): string | null {
   if (!state) return null;
   if (state.error) return trimForDisplay(state.error, 120);
+  const harnessActivity = harnessActivityFromNodeState(state).label;
+  if (harnessActivity) return harnessActivity;
   if (state.thinking) return trimForDisplay(state.thinking, 140);
   if (state.output_preview) return trimForDisplay(state.output_preview, 140);
   return null;
+}
+
+function harnessActivityFromNodeState(
+  state: ExecutionNodeState | null | undefined,
+): { label: string | null; artifactCount: number } {
+  const harness = objectValue(objectValue(state?.node_metadata)?.harness);
+  if (!harness) return { label: null, artifactCount: 0 };
+  const sandboxSummary = objectValue(harness.sandbox_execution_summary);
+  const failureSummary = objectValue(harness.tool_failure_summary);
+  const fileSummary = objectValue(harness.file_change_summary);
+  const failedTools = Number(failureSummary?.total_failed_calls ?? 0);
+  if (Number.isFinite(failedTools) && failedTools > 0) {
+    return { label: "工具异常待处理", artifactCount: 0 };
+  }
+  const failedPythonRuns = Number(sandboxSummary?.failed_python_runs ?? 0);
+  if (Number.isFinite(failedPythonRuns) && failedPythonRuns > 0) {
+    return { label: "实验需要修订", artifactCount: 0 };
+  }
+  const artifactCount = Number(sandboxSummary?.generated_artifact_count ?? 0);
+  if (Number.isFinite(artifactCount) && artifactCount > 0) {
+    return {
+      label: `已生成 ${artifactCount} 个产物`,
+      artifactCount,
+    };
+  }
+  const pythonRuns = Number(sandboxSummary?.python_runs ?? 0);
+  if (Number.isFinite(pythonRuns) && pythonRuns > 0) {
+    return {
+      label: state?.status === "running" ? "正在运行实验" : "已完成实验",
+      artifactCount: 0,
+    };
+  }
+  const changedPaths = arrayValue(fileSummary?.changed_paths).length;
+  if (changedPaths > 0) {
+    return { label: `已更新 ${changedPaths} 个文件`, artifactCount: 0 };
+  }
+  return { label: null, artifactCount: 0 };
 }
 
 function humanizeCapabilityName(value: string | null | undefined): string | null {

@@ -96,6 +96,33 @@ describe("execution run view projection", () => {
     expect(view.actions).toContain("open_prism");
   });
 
+  it("detects sandbox artifacts from completed execution review items", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        review_items: [
+          {
+            id: "review-1",
+            kind: "sandbox_artifact",
+            status: "pending",
+            title: "Sandbox result",
+            target: {
+              kind: "sandbox_artifact",
+              path: "/workspace/outputs/result.json",
+              artifact_kind: "sandbox_output",
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(view.primarySurface).toBe("sandbox");
+    expect(view.hasPrismChanges).toBe(false);
+    expect(view.hasSandboxArtifacts).toBe(true);
+    expect(view.sandboxReviewCount).toBe(1);
+    expect(view.actions).toContain("preview_results");
+  });
+
   it("classifies partial node failures", () => {
     const view = runViewFromExecution(
       makeExecution({
@@ -194,6 +221,70 @@ describe("execution run view projection", () => {
         },
       ],
     });
+  });
+
+  it("projects team harness activity without exposing raw tool payload by default", () => {
+    const record = makeExecution({
+      graph_structure: {
+        mode: "team_kernel",
+        nodes: [
+          {
+            id: "team.1.evidence_analyst_v1.1",
+            type: "agent_invocation",
+            phase: "analysis",
+            task: "evidence_analyst",
+          },
+        ],
+        edges: [],
+      } as ExecutionRecord["graph_structure"],
+      node_states: {
+        "team.1.evidence_analyst_v1.1": {
+          status: "completed",
+          node_type: "agent_invocation",
+          label: "实验分析工程师",
+          tool_calls: [
+            {
+              name: "sandbox.run_python",
+              status: "completed",
+              args: {
+                script: "print('raw script should stay technical')",
+              },
+              result_preview: "stdout: raw output should stay hidden",
+            },
+          ],
+          node_metadata: {
+            team: true,
+            template_id: "evidence_analyst.v1",
+            display_name: "实验分析工程师",
+            effective_tools: ["sandbox.run_python"],
+            effective_skills: ["evidence-analyst"],
+            harness: {
+              sandbox_execution_summary: {
+                schema: "wenjin.harness.sandbox_execution_summary.v1",
+                python_runs: 1,
+                failed_python_runs: 0,
+                recoverable_failures: 0,
+                sandbox_job_ids: ["job-1"],
+                sandbox_environment_ids: ["env-1"],
+                failure_codes: [],
+                generated_artifact_count: 1,
+              },
+            },
+          },
+        },
+      } as ExecutionRecord["node_states"],
+    });
+
+    const view = runViewFromExecution(record);
+    const progressItems = buildRunProgressItems(record);
+
+    expect(view.team?.members[0]?.displayName).toBe("实验分析工程师");
+    expect(view.team?.members[0]?.activityLabel).toBe("已生成 1 个产物");
+    expect(view.team?.members[0]?.artifactCount).toBe(1);
+    expect(view.team?.members[0]?.debugToolCount).toBe(1);
+    expect(progressItems[0]?.detail).toBe("已生成 1 个产物");
+    expect(JSON.stringify(view.team?.members[0])).not.toContain("raw output");
+    expect(JSON.stringify(progressItems[0])).not.toContain("raw script");
   });
 
   it("humanizes technical graph nodes for the default run progress view", () => {

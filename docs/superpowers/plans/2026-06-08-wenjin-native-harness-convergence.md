@@ -666,7 +666,7 @@ Commit boundary: `docs: update harness architecture state`.
 - Modify: `frontend/stores/run-ui-store.ts`
 - Test: `frontend/lib/execution-run-view.test.ts`
 
-- [ ] **Step 1: Write failing projection tests**
+- [x] **Step 1: Write failing projection tests**
 
 Default user-facing execution projection should show:
 
@@ -675,11 +675,11 @@ Default user-facing execution projection should show:
 - generated artifact candidates if reviewable.
 - no raw JSON args, no full stdout/stderr, no debug-only command details.
 
-- [ ] **Step 2: Implement projection only from existing execution events**
+- [x] **Step 2: Implement projection only from existing execution events**
 
 Do not add a new frontend harness store. `execution-run-view.ts` remains the shared projection source.
 
-- [ ] **Step 3: Run frontend tests and browser smoke**
+- [x] **Step 3: Run frontend tests**
 
 Run:
 
@@ -689,7 +689,7 @@ npm run typecheck
 npx vitest run frontend/lib/execution-run-view.test.ts
 ```
 
-Then run a browser smoke against Docker/local stack for:
+Browser smoke stays in Phase D against the Docker/local stack for:
 
 - create workspace.
 - trigger team-agent task.
@@ -750,7 +750,7 @@ cd /Users/ze/wenjin/backend
 
 Expected: all backend tests pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Commit message:
 
