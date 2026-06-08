@@ -77,7 +77,7 @@ Chat Agent
 
 ### P1: sandbox 安装与实验体验仍偏基础
 
-自动安装、缺包重试、command audit、`reproducibility_manifest` 和用户可读 `report_markdown` 已经具备；每次 `sandbox.run_python` 会留下脚本、依赖、sandbox job/environment、生成产物、命令风险摘要和安装失败恢复建议。`/workspace/datasets/manifest.json` 与 context-level `dataset_provenance` 已经提供数据集来源规范，但还缺少自动从上传/source asset 填充 dataset manifest、面向长程实验的更完整报告模板，以及把这些证据更轻地展示到默认 UI 的方式。
+自动安装、缺包重试、command audit、`reproducibility_manifest` 和用户可读 `report_markdown` 已经具备；每次 `sandbox.run_python` 会留下脚本、依赖、sandbox job/environment、生成产物、命令风险摘要和安装失败恢复建议。`/workspace/datasets/manifest.json` 与 context-level `dataset_provenance` 已经打通：DataService source page asset 若显式位于 `/workspace/datasets/**`，会进入 bounded context，并在下一次 `sandbox.run_python` 执行前安全合并进 sandbox 内 dataset manifest，保留用户已有条目优先权。剩余不足是面向长程实验的更完整报告模板，以及把这些证据更轻地展示到默认 UI 的方式。
 
 ### P2: TeamKernel 质量门显示还有压缩空间
 

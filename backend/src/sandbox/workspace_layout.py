@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
@@ -68,6 +69,22 @@ WORKSPACE_DATASET_PROVENANCE_RULES = (
     "Use /workspace/datasets virtual paths only.",
     "Keep secrets, API keys, credentials, and raw private tokens out of this manifest.",
     "Prefer stable source_id, content_hash, license, and preparation notes when known.",
+)
+
+DATASET_PROVENANCE_MANIFEST_ALLOWED_FIELDS = (
+    "path",
+    "source_id",
+    "name",
+    "title",
+    "description",
+    "format",
+    "mime_type",
+    "size_bytes",
+    "content_hash",
+    "license",
+    "preparation",
+    "created_at",
+    "updated_at",
 )
 
 WORKSPACE_PROTECTED_PATHS = (
@@ -236,6 +253,116 @@ def build_dataset_provenance_manifest(*, datasets: list[dict[str, Any]] | None =
         "datasets": list(datasets or []),
         "rules": list(WORKSPACE_DATASET_PROVENANCE_RULES),
     }
+
+
+def merge_dataset_provenance_manifest(
+    manifest: Mapping[str, Any] | None,
+    datasets: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Merge safe runtime dataset refs into the editable dataset manifest.
+
+    Existing manifest entries are user-authored state. They are preserved as-is
+    and win over incoming DataService/runtime provenance for the same path.
+    """
+
+    merged = deepcopy(dict(manifest)) if isinstance(manifest, Mapping) else build_dataset_provenance_manifest()
+    existing_datasets = merged.get("datasets")
+    if not isinstance(existing_datasets, list):
+        existing_datasets = []
+    merged["datasets"] = existing_datasets
+
+    existing_paths = {
+        path
+        for item in existing_datasets
+        if isinstance(item, Mapping)
+        for path in (_safe_dataset_manifest_path(item.get("path")),)
+        if path
+    }
+    for raw_entry in datasets or []:
+        entry = _safe_dataset_manifest_entry(raw_entry)
+        if not entry:
+            continue
+        path = entry["path"]
+        if path in existing_paths:
+            continue
+        existing_datasets.append(entry)
+        existing_paths.add(path)
+    return merged
+
+
+def _safe_dataset_manifest_entry(raw_entry: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_entry, Mapping):
+        return None
+    path = _safe_dataset_manifest_path(raw_entry.get("path"))
+    if not path:
+        return None
+    entry: dict[str, Any] = {"path": path}
+    for key in DATASET_PROVENANCE_MANIFEST_ALLOWED_FIELDS:
+        if key == "path" or key not in raw_entry:
+            continue
+        value = _safe_dataset_manifest_value(raw_entry.get(key))
+        if value is not None:
+            entry[key] = value
+    return entry
+
+
+def _safe_dataset_manifest_path(raw_path: Any) -> str | None:
+    try:
+        path = normalize_workspace_virtual_path(str(raw_path or ""))
+    except ValueError:
+        return None
+    if not path.startswith(f"{WORKSPACE_ROOT}/datasets/"):
+        return None
+    if is_workspace_protected_path(path) or is_workspace_internal_path(path):
+        return None
+    relative = workspace_relative_path(path)
+    if relative in {
+        WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH,
+        WORKSPACE_DATASETS_README_RELATIVE_PATH,
+        "datasets/.gitkeep",
+    }:
+        return None
+    return path
+
+
+def _safe_dataset_manifest_value(value: Any) -> Any | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return max(value, 0)
+    if isinstance(value, float):
+        return value if value >= 0 else None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or "\x00" in text or _contains_workspace_secret_ref(text) or _contains_host_path_ref(text):
+        return None
+    if len(text) > 1000:
+        return text[:1000]
+    return text
+
+
+def _contains_workspace_secret_ref(text: str) -> bool:
+    return any(
+        marker in text
+        for marker in (
+            f"{WORKSPACE_ROOT}/.wenjin",
+            f"{WORKSPACE_ROOT}/outputs/harness",
+            f"{WORKSPACE_ROOT}/.env",
+            "/.env",
+            ".pem",
+            ".key",
+        )
+    )
+
+
+def _contains_host_path_ref(text: str) -> bool:
+    for token in text.translate(str.maketrans({"(": " ", ")": " ", ",": " ", ";": " "})).split():
+        if token.startswith("/") and not token.startswith(f"{WORKSPACE_ROOT}/"):
+            return True
+    return False
 
 
 def build_agent_workspace_contract(

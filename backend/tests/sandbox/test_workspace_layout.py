@@ -9,6 +9,7 @@ from src.sandbox.workspace_layout import (
     WORKSPACE_PROTECTED_PATHS,
     WORKSPACE_ROOT,
     WORKSPACE_STANDARD_DIRS,
+    build_dataset_provenance_manifest,
     build_workspace_sandbox_manifest,
     ensure_workspace_sandbox_layout,
 )
@@ -105,6 +106,116 @@ def test_ensure_workspace_sandbox_layout_preserves_existing_dataset_manifest(tmp
     assert manifest_path.read_text(encoding="utf-8") == (
         '{"schema":"custom","datasets":[{"path":"/workspace/datasets/raw.csv"}]}\n'
     )
+
+
+def test_merge_dataset_provenance_manifest_adds_safe_refs_without_overwriting_existing():
+    existing = build_dataset_provenance_manifest(
+        datasets=[
+            {
+                "path": "/workspace/datasets/raw/survey.csv",
+                "title": "User-curated survey",
+                "source_id": "user-source",
+                "custom_note": "kept",
+            }
+        ]
+    )
+
+    merged = layout.merge_dataset_provenance_manifest(
+        existing,
+        [
+            {
+                "path": "/workspace/datasets/raw/survey.csv",
+                "title": "Runtime title should not overwrite",
+                "source_id": "runtime-source",
+            },
+            {
+                "path": "/workspace/datasets/clean/panel.csv",
+                "source_id": "source-2",
+                "name": "panel.csv",
+                "title": "Clean panel",
+                "description": "Prepared source data",
+                "format": "csv",
+                "mime_type": "text/csv",
+                "size_bytes": 2048,
+                "content_hash": "sha256:abc",
+                "license": "CC-BY-4.0",
+                "preparation": "normalized columns",
+                "created_at": "2026-06-08T00:00:00Z",
+                "updated_at": "2026-06-08T01:00:00Z",
+                "private_token": "must not persist",
+            },
+        ],
+    )
+
+    assert merged["datasets"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "title": "User-curated survey",
+            "source_id": "user-source",
+            "custom_note": "kept",
+        },
+        {
+            "path": "/workspace/datasets/clean/panel.csv",
+            "source_id": "source-2",
+            "name": "panel.csv",
+            "title": "Clean panel",
+            "description": "Prepared source data",
+            "format": "csv",
+            "mime_type": "text/csv",
+            "size_bytes": 2048,
+            "content_hash": "sha256:abc",
+            "license": "CC-BY-4.0",
+            "preparation": "normalized columns",
+            "created_at": "2026-06-08T00:00:00Z",
+            "updated_at": "2026-06-08T01:00:00Z",
+        },
+    ]
+
+
+def test_merge_dataset_provenance_manifest_rejects_non_dataset_and_guidance_refs():
+    merged = layout.merge_dataset_provenance_manifest(
+        build_dataset_provenance_manifest(),
+        [
+            {"path": "/workspace/datasets"},
+            {"path": "/workspace/datasets/manifest.json"},
+            {"path": "/workspace/datasets/README.md"},
+            {"path": "/workspace/datasets/.gitkeep"},
+            {"path": "/workspace/outputs/result.csv"},
+            {"path": "/workspace/outputs/harness/exec/tool.txt"},
+            {"path": "/workspace/main/.env"},
+            {"path": "/mnt/user-data/datasets/raw.csv"},
+            {"path": "/workspace/datasets/raw/valid.csv", "source_id": "source-1"},
+        ],
+    )
+
+    assert merged["datasets"] == [
+        {
+            "path": "/workspace/datasets/raw/valid.csv",
+            "source_id": "source-1",
+        }
+    ]
+
+
+def test_merge_dataset_provenance_manifest_drops_host_path_values():
+    merged = layout.merge_dataset_provenance_manifest(
+        build_dataset_provenance_manifest(),
+        [
+            {
+                "path": "/workspace/datasets/raw/valid.csv",
+                "source_id": "source-1",
+                "description": "copied from /Users/ze/private/raw.csv",
+                "preparation": "safe preparation note",
+            },
+        ],
+    )
+
+    assert merged["datasets"] == [
+        {
+            "path": "/workspace/datasets/raw/valid.csv",
+            "source_id": "source-1",
+            "preparation": "safe preparation note",
+        }
+    ]
 
 
 def test_workspace_sandbox_manifest_does_not_expose_mutable_contract_state():

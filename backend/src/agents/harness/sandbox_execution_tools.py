@@ -47,6 +47,7 @@ class SandboxExecutionTools:
                 script=script,
                 script_name=safe_script_name,
                 dependency_hints=dependency_hints,
+                dataset_provenance=_dataset_provenance_from_context(self.context),
                 billing_reservation_id=billing_reservation_id,
             )
 
@@ -166,6 +167,16 @@ def _execution_manifest(
         "network_profile": str(sandbox_policy.get("network_profile") or "none"),
         "timeout_seconds": timeout_seconds,
     }
+
+
+def _dataset_provenance_from_context(context: HarnessRunContext) -> list[dict[str, Any]] | None:
+    workspace_summary = context.context_bundle.get("workspace_file_summary")
+    if not isinstance(workspace_summary, dict):
+        return None
+    dataset_provenance = workspace_summary.get("dataset_provenance")
+    if not isinstance(dataset_provenance, list):
+        return None
+    return [dict(item) for item in dataset_provenance if isinstance(item, dict)]
 
 
 def _reproducibility_manifest(

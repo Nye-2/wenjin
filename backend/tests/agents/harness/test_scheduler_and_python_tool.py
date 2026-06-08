@@ -10,7 +10,7 @@ from src.agents.harness.scheduler import WorkspaceToolQueueTimeout, WorkspaceToo
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 
 
-def _ctx(publish_event=None) -> HarnessRunContext:
+def _ctx(publish_event=None, context_bundle: dict | None = None) -> HarnessRunContext:
     return HarnessRunContext(
         workspace_id="ws-1",
         user_id="user-1",
@@ -19,6 +19,7 @@ def _ctx(publish_event=None) -> HarnessRunContext:
         invocation_id="invocation-1",
         workspace_type="sci",
         capability_id="capability-1",
+        context_bundle=context_bundle or {},
         capability_policy={
             "sandbox_policy": {
                 "mode": "required",
@@ -229,6 +230,47 @@ async def test_run_python_uses_existing_sandbox_job_runner_through_scheduler() -
     assert call["node_id"] == "node-1"
     assert call["sandbox_policy"]["allowed_operations"] == ["run_python", "install_python_packages"]
     assert call["dependency_hints"] == ["pandas"]
+
+
+@pytest.mark.asyncio
+async def test_run_python_passes_dataset_provenance_from_context_bundle() -> None:
+    runner = _FakeRunner()
+    tool = SandboxExecutionTools(
+        context=_ctx(
+            context_bundle={
+                "workspace_file_summary": {
+                    "dataset_provenance": [
+                        {
+                            "path": "/workspace/datasets/raw/survey.csv",
+                            "source_id": "source-1",
+                            "title": "Survey data",
+                        }
+                    ]
+                }
+            }
+        ),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+        ),
+        runner=runner,
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    await tool.run_python(
+        script="print({'ok': True})",
+        script_name="analysis.py",
+        dependency_hints=["pandas"],
+    )
+
+    [call] = runner.calls
+    assert call["dataset_provenance"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_id": "source-1",
+            "title": "Survey data",
+        }
+    ]
 
 
 @pytest.mark.asyncio

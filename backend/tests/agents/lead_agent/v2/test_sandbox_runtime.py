@@ -284,6 +284,61 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_python_script_syncs_dataset_manifest_before_script_execution() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+    original_execute = provider.sandbox.execute_command
+
+    async def _assert_manifest_before_script(command: str, timeout: int = 300, **kwargs) -> CommandResult:
+        if command == "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py":
+            manifest = json.loads(provider.sandbox.files["/workspace/datasets/manifest.json"])
+            assert manifest["datasets"] == [
+                {
+                    "path": "/workspace/datasets/raw/survey.csv",
+                    "source_id": "source-1",
+                    "title": "Survey data",
+                }
+            ]
+        return await original_execute(command, timeout=timeout, **kwargs)
+
+    provider.sandbox.execute_command = _assert_manifest_before_script  # type: ignore[method-assign]
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+        dataset_provenance=[
+            {
+                "path": "/workspace/datasets/raw/survey.csv",
+                "source_id": "source-1",
+                "title": "Survey data",
+            },
+            {"path": "/workspace/outputs/result.csv", "source_id": "bad"},
+        ],
+    )
+
+    assert result["status"] == "completed"
+    assert json.loads(provider.sandbox.files["/workspace/datasets/manifest.json"])["datasets"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_id": "source-1",
+            "title": "Survey data",
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_run_python_script_blocks_forbidden_command_policy_before_job(monkeypatch) -> None:
     provider = _FakeProvider(CommandResult(stdout="", stderr="", exit_code=0))
     manager = _FakeWorkspaceSandboxManager()

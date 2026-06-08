@@ -69,6 +69,7 @@ async def run_python_script(
     script: str,
     script_name: str = "analysis.py",
     dependency_hints: list[str] | str | None = None,
+    dataset_provenance: list[dict[str, Any]] | None = None,
     provider: DockerSandboxProvider | None = None,
     manager: WorkspaceSandboxManager | None = None,
     billing_reservation_id: str | None = None,
@@ -89,5 +90,6 @@ async def run_python_script(
         script=script,
         script_name=script_name,
         dependency_hints=dependency_hints,
+        dataset_provenance=dataset_provenance,
         billing_reservation_id=billing_reservation_id,
     )

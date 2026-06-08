@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
@@ -26,6 +27,11 @@ from src.agents.lead_agent.v2.sandbox_runtime_session import (
 from src.agents.lead_agent.v2.sandbox_script_executor import SandboxScriptExecutor
 from src.agents.lead_agent.v2.workspace_sandbox import WorkspaceSandboxManager
 from src.sandbox.providers.docker import DockerSandboxProvider
+from src.sandbox.workspace_layout import (
+    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+    build_dataset_provenance_manifest,
+    merge_dataset_provenance_manifest,
+)
 
 SMOKE_COMMAND = (
     "PYTHON_BIN=$(command -v python || command -v python3) && "
@@ -145,6 +151,7 @@ class SandboxJobRunner:
         script: str,
         script_name: str = "analysis.py",
         dependency_hints: list[str] | str | None = None,
+        dataset_provenance: list[dict[str, Any]] | None = None,
         billing_reservation_id: str | None = None,
     ) -> dict[str, Any]:
         plan = self.script_executor.build_plan(
@@ -186,6 +193,10 @@ class SandboxJobRunner:
                 execution_id=execution_id,
                 job_id=str(job.id),
             ) as sandbox:
+                await _sync_dataset_manifest(
+                    sandbox=sandbox,
+                    dataset_provenance=dataset_provenance,
+                )
                 script_state = await self.script_executor.execute(
                     sandbox=sandbox,
                     ctx=ctx,
@@ -255,6 +266,27 @@ class SandboxJobRunner:
 
         await ctx.manager.update_job(str(job.id), status="succeeded", exit_code=script_state.result.exit_code)
         return output
+
+
+async def _sync_dataset_manifest(
+    *,
+    sandbox: Any,
+    dataset_provenance: list[dict[str, Any]] | None,
+) -> None:
+    if not dataset_provenance:
+        return
+    try:
+        existing_text = await sandbox.read_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH)
+        existing = json.loads(existing_text)
+    except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+        existing = build_dataset_provenance_manifest()
+    merged = merge_dataset_provenance_manifest(existing, dataset_provenance)
+    if merged == existing:
+        return
+    await sandbox.write_file(
+        WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+        json.dumps(merged, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+    )
 
 
 def _runtime_job_metadata(

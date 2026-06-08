@@ -2339,6 +2339,86 @@ Observed:
 14 passed
 ```
 
+### Task 12A: Sync Dataset Provenance Into the Sandbox Manifest
+
+**Goal:** close the gap between context-visible `workspace_file_summary.dataset_provenance` and the actual long-lived `/workspace/datasets/manifest.json` inside the workspace sandbox.
+
+**Architecture:** keep the merge rules in `backend/src/sandbox/workspace_layout.py`, pass context provenance through the existing harness `sandbox.run_python` wrapper, and sync the manifest inside the existing `SandboxJobRunner` workspace lease before script execution. Do not add a second dataset registry, source scanner, sandbox job, frontend stream, or compatibility layer.
+
+**Files:**
+- Modified: `backend/src/sandbox/workspace_layout.py`
+- Modified: `backend/src/agents/harness/sandbox_execution_tools.py`
+- Modified: `backend/src/agents/lead_agent/v2/sandbox_job_runner.py`
+- Modified: `backend/src/agents/lead_agent/v2/sandbox_runtime.py`
+- Modified: `backend/tests/sandbox/test_workspace_layout.py`
+- Modified: `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py`
+- Modified: `docs/current/architecture.md`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/current/native-harness-convergence-audit.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED tests for manifest merge and runner propagation**
+
+Added:
+
+- `test_merge_dataset_provenance_manifest_adds_safe_refs_without_overwriting_existing`
+- `test_merge_dataset_provenance_manifest_rejects_non_dataset_and_guidance_refs`
+- `test_run_python_passes_dataset_provenance_from_context_bundle`
+- `test_run_python_script_syncs_dataset_manifest_before_script_execution`
+
+Observed RED:
+
+```text
+AttributeError: module 'src.sandbox.workspace_layout' has no attribute 'merge_dataset_provenance_manifest'
+KeyError: 'dataset_provenance'
+TypeError: run_python_script() got an unexpected keyword argument 'dataset_provenance'
+```
+
+- [x] **Step 2: Implement append-only safe manifest merge**
+
+`merge_dataset_provenance_manifest()` now preserves existing user-authored dataset rows, appends only safe runtime rows by path, and stores a bounded allowlist of fields. It accepts only `/workspace/datasets/**` data files and rejects dataset manifest/README/.gitkeep, protected/internal paths, non-workspace refs, ordinary outputs, host-ish paths, non-scalar values, and fields that look like secrets or credentials.
+
+- [x] **Step 3: Wire context provenance into `sandbox.run_python`**
+
+`SandboxExecutionTools.run_python()` now extracts `context.context_bundle.workspace_file_summary.dataset_provenance` and passes it to `SandboxJobRunner.run_python_script(...)`. The runner reads or creates `/workspace/datasets/manifest.json`, merges the safe rows, and writes the manifest before `SandboxScriptExecutor.execute()` writes/runs the script in the same lease.
+
+- [x] **Step 4: Verify targeted behavior**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/sandbox/test_workspace_layout.py::test_merge_dataset_provenance_manifest_adds_safe_refs_without_overwriting_existing backend/tests/sandbox/test_workspace_layout.py::test_merge_dataset_provenance_manifest_rejects_non_dataset_and_guidance_refs -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_scheduler_and_python_tool.py::test_run_python_passes_dataset_provenance_from_context_bundle -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py::test_run_python_script_syncs_dataset_manifest_before_script_execution -q
+backend/.venv/bin/python -m pytest backend/tests/sandbox/test_workspace_layout.py backend/tests/agents/harness/test_scheduler_and_python_tool.py backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py -q
+backend/.venv/bin/ruff check backend/src/sandbox/workspace_layout.py backend/src/agents/harness/sandbox_execution_tools.py backend/src/agents/lead_agent/v2/sandbox_job_runner.py backend/src/agents/lead_agent/v2/sandbox_runtime.py backend/tests/sandbox/test_workspace_layout.py backend/tests/agents/harness/test_scheduler_and_python_tool.py backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py
+```
+
+Observed:
+
+```text
+2 passed
+1 passed
+1 passed
+43 passed
+All checks passed!
+```
+
+The broader dataset/source-context verification also passed:
+
+```bash
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_runtime.py::test_load_workspace_data_projects_dataset_assets_into_file_summary backend/tests/agents/lead_agent/v2/test_runtime.py::test_load_workspace_data_uses_source_page_assets_without_n_plus_one_calls backend/tests/agents/harness/test_context_assembly.py backend/tests/sandbox/test_workspace_layout.py backend/tests/agents/harness/test_scheduler_and_python_tool.py backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py -q
+```
+
+Observed:
+
+```text
+50 passed
+```
+
 ### Task 13: Claim Evidence Grounding Gate
 
 **Goal:** make TeamKernel evidence quality gates reject claim-evidence maps that describe evidence in prose but cannot be traced back to a workspace source or citation key.
