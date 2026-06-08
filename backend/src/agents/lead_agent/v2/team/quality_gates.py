@@ -177,7 +177,10 @@ def _harness_replan_signal_gates(
         if source_invocation_id:
             finding["source_invocation_id"] = source_invocation_id
         findings.append(finding)
-        if action == "revise_script_or_recruit_code_agent" and source_template_id and max_extra_iterations > 0:
+        if action in {
+            "revise_script_or_recruit_code_agent",
+            "revise_tool_call_args",
+        } and source_template_id and max_extra_iterations > 0:
             suggested.extend(
                 _trigger_recruits(
                     [source_template_id],

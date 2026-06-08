@@ -30,20 +30,21 @@ Do not do this:
 
 ## Current Working Slice
 
-Current uncommitted slice is Task 23, the LangChain tool input validation recovery pass:
+Current uncommitted slice is Task 24, the tool-input-validation replan pass:
 
-- `backend/src/agents/harness/langchain_adapter.py`
-- `backend/tests/agents/harness/test_langchain_adapter.py`
+- `backend/src/agents/harness/diff_tracker.py`
+- `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`
 - `docs/current/workspace-current-state.md`
 - `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
 - `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
 
-This slice closes a tool-call recovery gap borrowed from deer-flow's dangling/invalid tool-call handling:
+This slice closes the loop after Task 23:
 
-- Pydantic/LangChain input validation errors happen before `_invoke_recorded()`, so the old adapter path raised instead of returning a recoverable tool result.
-- `StructuredTool.handle_validation_error` now returns the same bounded JSON envelope shape as other harness tool errors.
-- Validation records store field/type/message summaries only; raw invalid payloads are not copied into debug records.
-- Failed validation attempts append `_harness_tool_records` so node-level failure summaries can observe them.
+- `tool_input_validation` no longer stays only in `tool_failure_summary`.
+- `build_harness_replan_signals_from_tool_calls()` emits a bounded signal with `recommended_action=revise_tool_call_args`.
+- TeamKernel quality gates treat `revise_tool_call_args` as one same-template correction, not as stop-with-warning or a new recruit.
+- The revision signal is injected into the next member turn through the existing team blackboard path.
 
 ---
 
@@ -3389,6 +3390,77 @@ Observed:
 ```text
 1 passed
 77 passed
+All checks passed!
+```
+
+### Task 24: Replan After Tool Input Validation Failure
+
+**Goal:** close the loop from Task 23 so a schema-validation failure can trigger one same-template correction instead of only appearing as a passive failed tool record.
+
+**External reference:** deer-flow's invalid-tool-call recovery gives the model a bounded error and lets it continue. Wenjin's TeamKernel should make that continuation explicit: bad tool args are not a reason to recruit a new member or ask for more permissions; they are a reason for the same member to retry with corrected schema-compliant args.
+
+**Architecture:** keep the durable fact path unchanged. `tool_input_validation` remains a failed harness tool record. `build_harness_replan_signals_from_tool_calls()` maps that error code to `trigger=recoverable_tool_input_validation`, `recommended_action=revise_tool_call_args`, `max_extra_iterations=1`. `quality_gates._harness_replan_signal_gates()` treats that action like the existing same-template revision path. No new execution stream, no new quality gate id, no router/front-end change.
+
+**Files:**
+- Modified: `backend/src/agents/harness/diff_tracker.py`
+- Modified: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED metadata test**
+
+Added `test_harness_node_metadata_includes_tool_input_validation_replan_signal`, asserting a failed `sandbox.read_file` call with `metadata.error_code=tool_input_validation` produces:
+
+```json
+{
+  "schema": "wenjin.harness.replan_signal.v1",
+  "trigger": "recoverable_tool_input_validation",
+  "failure_codes": ["tool_input_validation"],
+  "recommended_action": "revise_tool_call_args",
+  "max_extra_iterations": 1
+}
+```
+
+Observed RED:
+
+```text
+KeyError: 'replan_signals'
+```
+
+- [x] **Step 2: Add RED TeamKernel integration test**
+
+Added `team_harness_validation_replan_fake`, which first returns a `tool_input_validation` failed tool call and then succeeds only if invoked again with `team_blackboard.harness_replan_signals`.
+
+Observed RED:
+
+```text
+assert [1] == [1, 2]
+```
+
+- [x] **Step 3: Implement replan signal and same-template gate handling**
+
+`build_harness_replan_signals_from_tool_calls()` now maps `tool_input_validation` to `revise_tool_call_args`. `_harness_replan_signal_gates()` includes `revise_tool_call_args` in the same-template revision action set, so the existing recruitment/iteration limits still apply.
+
+- [x] **Step 4: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py::test_harness_node_metadata_includes_tool_input_validation_replan_signal -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py::test_tool_input_validation_replan_signal_revises_same_agent_once -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py backend/tests/agents/harness/test_langchain_adapter.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/diff_tracker.py backend/src/agents/lead_agent/v2/team/quality_gates.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py
+```
+
+Observed:
+
+```text
+1 passed
+1 passed
+22 passed
 All checks passed!
 ```
 

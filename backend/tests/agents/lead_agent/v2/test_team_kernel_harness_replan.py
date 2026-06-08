@@ -67,6 +67,36 @@ class TeamHarnessForbiddenFake(SubagentBase):
         )
 
 
+@subagent("team_harness_validation_replan_fake")
+class TeamHarnessValidationReplanFake(SubagentBase):
+    calls: dict[str, int] = {}
+
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        key = f"{ctx.execution_id}:{ctx.invocation['template_id']}"
+        count = self.calls.get(key, 0) + 1
+        self.calls[key] = count
+        if count == 1:
+            return SubagentResult(
+                output={"summary": "tool input schema failed and needs corrected args"},
+                tool_calls=[_validation_tool_call()],
+                token_usage={"input": 1, "output": 1},
+            )
+        return SubagentResult(
+            output={
+                "summary": "tool args revised successfully",
+                "received_replan_signals": ctx.inputs["team_blackboard"]["harness_replan_signals"],
+            },
+            tool_calls=[
+                {
+                    "name": "sandbox.read_file",
+                    "status": "completed",
+                    "metadata": {},
+                }
+            ],
+            token_usage={"input": 1, "output": 1},
+        )
+
+
 class HarnessReplanCatalogClient:
     def __init__(self, subagent_type: str) -> None:
         self.subagent_type = subagent_type
@@ -161,6 +191,18 @@ def _run_python_tool_call(failure_code: str) -> dict:
     }
 
 
+def _validation_tool_call() -> dict:
+    return {
+        "name": "sandbox.read_file",
+        "status": "failed",
+        "error": "ValidationError: tool input validation failed",
+        "metadata": {
+            "recoverable_error": "ValidationError: tool input validation failed",
+            "error_code": "tool_input_validation",
+        },
+    }
+
+
 @pytest.mark.asyncio
 async def test_python_exit_nonzero_replan_signal_revises_code_agent_once(monkeypatch) -> None:
     TeamHarnessPythonReplanFake.calls.clear()
@@ -201,6 +243,52 @@ async def test_python_exit_nonzero_replan_signal_revises_code_agent_once(monkeyp
     assert any(
         gate["gate_id"] == "harness_replan_signal"
         and gate["next_action"] == "revise_existing"
+        and gate["suggested_recruits"][0]["template_id"] == "code_runner.v1"
+        for gate in gates
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_input_validation_replan_signal_revises_same_agent_once(monkeypatch) -> None:
+    TeamHarnessValidationReplanFake.calls.clear()
+    published: list[tuple[str, str, dict]] = []
+
+    async def publish(execution_id, event_name, payload):
+        published.append((execution_id, event_name, payload))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: HarnessReplanCatalogClient("team_harness_validation_replan_fake"),
+    )
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=_capability())
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=publish,
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-harness-replan-validation", brief=_brief())
+
+    invocations = [
+        payload["invocation"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.invocation" and payload["invocation"]["status"] != "running"
+    ]
+    gates = [
+        payload["quality_gate"]
+        for _, event_name, payload in published
+        if event_name == "execution.team.quality_gate"
+    ]
+    assert report.status == "completed"
+    assert [item["iteration"] for item in invocations] == [1, 2]
+    assert invocations[1]["output_report"]["received_replan_signals"][0]["failure_codes"] == [
+        "tool_input_validation"
+    ]
+    assert any(
+        gate["gate_id"] == "harness_replan_signal"
+        and gate["next_action"] == "revise_existing"
+        and gate["findings"][0]["recommended_action"] == "revise_tool_call_args"
         and gate["suggested_recruits"][0]["template_id"] == "code_runner.v1"
         for gate in gates
     )
@@ -299,5 +387,18 @@ def test_harness_node_metadata_includes_replan_signals() -> None:
         "trigger": "recoverable_tool_failure",
         "failure_codes": ["python_exit_nonzero"],
         "recommended_action": "revise_script_or_recruit_code_agent",
+        "max_extra_iterations": 1,
+    }
+
+
+def test_harness_node_metadata_includes_tool_input_validation_replan_signal() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls([_validation_tool_call()])
+
+    signal = metadata["harness"]["replan_signals"][0]
+    assert signal == {
+        "schema": "wenjin.harness.replan_signal.v1",
+        "trigger": "recoverable_tool_input_validation",
+        "failure_codes": ["tool_input_validation"],
+        "recommended_action": "revise_tool_call_args",
         "max_extra_iterations": 1,
     }

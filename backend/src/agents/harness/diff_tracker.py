@@ -372,6 +372,16 @@ def build_harness_replan_signals_from_tool_calls(
                 )
             )
             continue
+        if "tool_input_validation" in failure_codes:
+            signals.append(
+                _replan_signal(
+                    trigger="recoverable_tool_input_validation",
+                    failure_codes=["tool_input_validation"],
+                    recommended_action="revise_tool_call_args",
+                    max_extra_iterations=1,
+                )
+            )
+            continue
         if any(code in {"tool_forbidden", "tool_unknown"} for code in failure_codes):
             signals.append(
                 _replan_signal(
