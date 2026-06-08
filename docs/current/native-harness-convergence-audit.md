@@ -30,7 +30,7 @@ Chat Agent
 - **命令策略审计**：`backend/src/agents/harness/command_audit.py` 使用 argv-first 结构记录 `policy_decision(schema=wenjin.harness.command_policy_decision.v1)`，在创建 sandbox job 前阻断高风险命令、host path、protected/internal path 和不规范 pip spec。
 - **bounded output**：大文件读取、搜索、Python stdout/stderr 和 diff 只给模型 bounded preview，完整内容外部化到 `/workspace/outputs/harness/**`，并作为内部 refs 进入 tool record / event。
 - **文件变更证据**：`sandbox.write_file` / `sandbox.str_replace` 记录 hash + unified diff，节点聚合 `file_change_summary`，用户仍通过 review-first flow 接受结果。
-- **运行证据而非文本猜测**：`execution_manifest`、`failure_classification`、`sandbox_execution_summary`、`run_journal_summary` 都挂回 `ExecutionNodeRecord.node_metadata.harness`，RunView 不解析 raw tool JSON。
+- **运行证据而非文本猜测**：`execution_manifest`、`reproducibility_manifest`、`failure_classification`、`sandbox_execution_summary`、`reproducibility_summary`、`run_journal_summary` 都挂回 harness payload / `ExecutionNodeRecord.node_metadata.harness`，RunView 不解析 raw tool JSON。
 - **明确失败边界**：unknown/forbidden tools 显式失败，不把工具型节点静默降级为 plain LLM。
 
 未吸收的 Codex 部分是有意取舍：不引入 SDK、app-server/thread 模型、泛 shell、approval console 或 provider protocol bridge。
@@ -42,7 +42,7 @@ Chat Agent
 - **工具异常可恢复**：ReactSubagent adapter 把普通 tool exception 降级为 structured JSON error result，保留 tool record 和 `execution.harness.tool_call.failed`。
 - **loop guard**：重复工具调用会触发 warning/hard-stop 逻辑，且不破坏 provider tool-call pairing。
 - **runtime journal 思路**：用 `run_journal_summary` 和 `journal` event envelope 给前端提供产品化进度摘要，而不是展示 debug payload。
-- **bounded context**：`_harness_context(schema=wenjin.harness.context_bundle.v1)` 固定注入任务、workspace、sandbox 文件系统、protected/internal paths 和 recent evidence。
+- **bounded context**：`_harness_context(schema=wenjin.harness.context_bundle.v1)` 固定注入任务、workspace、sandbox 文件系统、protected/internal paths、recent evidence 和可复现实验摘要。
 
 未吸收的 deer-flow 部分也是有意取舍：不迁移 agent factory、thread-local workspace、完整 middleware stack、ACP surface 或 allow-all bash 工具。
 
@@ -77,7 +77,7 @@ Chat Agent
 
 ### P1: sandbox 安装与实验体验仍偏基础
 
-自动安装、缺包重试和 command audit 已经具备，但还缺少用户可理解的环境摘要、安装失败恢复建议、长期实验目录模板、数据集 provenance 和可复现实验 manifest。
+自动安装、缺包重试、command audit 和 `reproducibility_manifest` 已经具备；每次 `sandbox.run_python` 会留下脚本、依赖、sandbox job/environment、生成产物和命令风险摘要。但还缺少用户可理解的环境摘要、安装失败恢复建议、数据集 provenance、面向长程实验的复现实验报告模板，以及把这些证据更轻地展示到默认 UI 的方式。
 
 ### P2: TeamKernel 质量门显示还有压缩空间
 
@@ -95,4 +95,4 @@ RunView 已经是唯一 presenter，但 Workbench / Runs drawer / Prism / Result
 
 当前 Wenjin harness 已经摆脱“只能靠提示词让 subagent 干活”的阶段，具备了文件、Python、证据、review 和团队展示的基本闭环。它还不是 Codex 那种通用 coding agent harness，也不需要变成那样；对 Wenjin 的垂直科研/写作/实验场景，自研方向是更合适的。
 
-下一阶段不要再追求接入外部 runtime。应该围绕质量闭环继续做：source verification、citation grounding、experiment reproducibility、Prism rewrite eval、team member prompt/tool contract 迭代，以及更轻的用户默认视图。
+下一阶段不要再追求接入外部 runtime。应该围绕质量闭环继续做：source verification、citation grounding、experiment reproducibility 报告化、Prism rewrite eval、team member prompt/tool contract 迭代，以及更轻的用户默认视图。

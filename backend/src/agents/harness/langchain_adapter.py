@@ -490,6 +490,9 @@ def _run_python_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     execution_manifest = structured_payload.get("execution_manifest")
     if isinstance(execution_manifest, dict):
         metadata["execution_manifest"] = dict(execution_manifest)
+    reproducibility_manifest = structured_payload.get("reproducibility_manifest")
+    if isinstance(reproducibility_manifest, dict):
+        metadata["reproducibility_manifest"] = dict(reproducibility_manifest)
     failure_classification = structured_payload.get("failure_classification")
     if isinstance(failure_classification, dict):
         metadata["failure_classification"] = dict(failure_classification)

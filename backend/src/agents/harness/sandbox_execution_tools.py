@@ -8,6 +8,7 @@ from typing import Any
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.sandbox_job_runner import SandboxJobRunner
 from src.agents.lead_agent.v2.sandbox_script_executor import sanitize_script_name
+from src.sandbox.workspace_layout import is_workspace_internal_path, is_workspace_protected_path
 
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .events import publish_harness_event
@@ -68,6 +69,11 @@ class SandboxExecutionTools:
             dependency_hints=dependency_hints,
             payload=payload,
             timeout_seconds=timeout_seconds,
+        )
+        payload["reproducibility_manifest"] = _reproducibility_manifest(
+            context=self.context,
+            execution_manifest=payload["execution_manifest"],
+            payload=payload,
         )
         await self._publish_command_audit_events(payload)
         status = str(payload.get("status") or "completed")
@@ -162,6 +168,42 @@ def _execution_manifest(
     }
 
 
+def _reproducibility_manifest(
+    *,
+    context: HarnessRunContext,
+    execution_manifest: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+        "tool": "sandbox.run_python",
+        "workspace_id": context.workspace_id,
+        "execution_id": context.execution_id,
+        "node_id": context.node_id,
+        "invocation_id": context.invocation_id,
+        "script": {
+            "name": str(execution_manifest.get("script_name") or ""),
+            "path": _workspace_path(execution_manifest.get("script_path")),
+        },
+        "sandbox": {
+            "environment_id": str(execution_manifest.get("sandbox_environment_id") or ""),
+            "run_job_id": str(execution_manifest.get("sandbox_job_id") or ""),
+            "install_job_ids": _string_list(payload.get("install_job_ids"), limit=20),
+            "network_profile": str(execution_manifest.get("network_profile") or "none"),
+            "timeout_seconds": _positive_int(execution_manifest.get("timeout_seconds")),
+        },
+        "dependencies": {
+            "requested": _dependency_hints(execution_manifest.get("dependency_hints")),
+            "installed": _dependency_hints(payload.get("installed_packages")),
+        },
+        "artifacts": _artifact_manifest(payload.get("generated_artifacts")),
+        "command_audit": _command_audit_manifest(
+            payload.get("command_audit"),
+            payload.get("install_command_audits"),
+        ),
+    }
+
+
 def _classify_run_python_failure(payload: dict[str, Any]) -> dict[str, Any]:
     exit_code = _int_or_none(payload.get("exit_code"))
     stderr = str(payload.get("stderr") or "").strip()
@@ -203,7 +245,101 @@ def _dependency_hints(raw: Any) -> list[str]:
         values = list(raw)
     else:
         values = []
-    return [str(item).strip() for item in values if str(item).strip()]
+    return [str(item).strip() for item in values if str(item).strip()][:50]
+
+
+def _string_list(raw: Any, *, limit: int) -> list[str]:
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, list | tuple | set):
+        values = list(raw)
+    else:
+        values = []
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _artifact_manifest(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list):
+        return []
+    artifacts: list[dict[str, Any]] = []
+    for item in raw:
+        if len(artifacts) >= 20:
+            break
+        if not isinstance(item, dict):
+            continue
+        path = _workspace_path(item.get("path"))
+        if not path:
+            continue
+        artifact: dict[str, Any] = {"path": path}
+        for key in (
+            "name",
+            "kind",
+            "artifact_kind",
+            "root",
+            "title",
+            "mime_type",
+            "content_hash",
+            "review_surface",
+            "materialization_status",
+        ):
+            value = _safe_text(item.get(key), limit=120)
+            if value:
+                artifact[key] = value
+        size = _positive_int(item.get("size"))
+        if size:
+            artifact["size"] = size
+        size_bytes = _positive_int(item.get("size_bytes"))
+        if size_bytes:
+            artifact["size_bytes"] = size_bytes
+        artifacts.append(artifact)
+    return artifacts
+
+
+def _command_audit_manifest(raw_run_audit: Any, raw_install_audits: Any) -> dict[str, Any]:
+    run_audit = raw_run_audit if isinstance(raw_run_audit, dict) else {}
+    install_audits = raw_install_audits if isinstance(raw_install_audits, list) else []
+    install_dicts = [audit for audit in install_audits if isinstance(audit, dict)]
+    return {
+        "run_verdict": _safe_text(run_audit.get("verdict"), limit=80),
+        "run_risk_level": _safe_text(run_audit.get("risk_level"), limit=80),
+        "install_verdicts": [_safe_text(audit.get("verdict"), limit=80) for audit in install_dicts[:20]],
+        "install_risk_levels": [_safe_text(audit.get("risk_level"), limit=80) for audit in install_dicts[:20]],
+    }
+
+
+def _workspace_path(raw: Any) -> str:
+    path = str(raw or "").strip()
+    if not path.startswith("/workspace/"):
+        return ""
+    if is_workspace_internal_path(path) or is_workspace_protected_path(path):
+        return ""
+    return path
+
+
+def _safe_text(raw: Any, *, limit: int) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    return text if len(text) <= limit else f"{text[: limit - 3]}..."
+
+
+def _positive_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value if value > 0 else 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
 
 
 def _compact_text(text: str) -> str:

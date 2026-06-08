@@ -99,6 +99,11 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
                     "tool": "sandbox.run_python",
                     "script_name": "analysis.py",
                 },
+                "reproducibility_manifest": {
+                    "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+                    "tool": "sandbox.run_python",
+                    "sandbox": {"run_job_id": "job-1"},
+                },
                 "failure_classification": {
                     "schema": "wenjin.harness.run_python.failure_classification.v1",
                     "category": "user_code",
@@ -121,4 +126,8 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
     assert metadata["recoverable_error"] == "python_exit_nonzero: exit_code=2"
     assert metadata["error_code"] == "python_exit_nonzero"
     assert metadata["execution_manifest"]["tool"] == "sandbox.run_python"
+    assert metadata["reproducibility_manifest"]["schema"] == (
+        "wenjin.harness.run_python.reproducibility_manifest.v1"
+    )
+    assert metadata["reproducibility_manifest"]["sandbox"]["run_job_id"] == "job-1"
     assert metadata["failure_classification"]["failure_code"] == "python_exit_nonzero"

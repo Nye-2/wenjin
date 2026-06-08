@@ -74,6 +74,71 @@ class _AuditedRunner:
         }
 
 
+class _ReproducibleRunner:
+    async def run_python_script(self, **kwargs):
+        return {
+            "status": "completed",
+            "stdout": "{\"ok\": true}",
+            "stderr": "",
+            "parsed_stdout": {"ok": True},
+            "sandbox_environment_id": "env-1",
+            "sandbox_job_id": "job-1",
+            "script_name": kwargs["script_name"],
+            "script_path": f"/workspace/scripts/{kwargs['script_name']}",
+            "dependency_hints": ["pandas", "numpy"],
+            "installed_packages": ["pandas", "numpy"],
+            "generated_artifacts": [
+                {
+                    "path": "/workspace/reports/analysis.md",
+                    "name": "analysis.md",
+                    "kind": "markdown",
+                    "size_bytes": 128,
+                }
+            ],
+            "command_audit": {
+                "verdict": "pass",
+                "risk_level": "low",
+                "reasons": [],
+                "command": {
+                    "argv": [
+                        "/workspace/.wenjin/env/python/bin/python",
+                        "/workspace/scripts/analysis.py",
+                    ],
+                    "shell_command": None,
+                    "cwd": "/workspace",
+                    "env": {},
+                    "network_profile": "none",
+                    "timeout_seconds": 30,
+                    "output_bytes_cap": 20000,
+                },
+            },
+            "install_job_ids": ["install-1"],
+            "install_command_audits": [
+                {
+                    "verdict": "pass",
+                    "risk_level": "low",
+                    "reasons": [],
+                    "command": {
+                        "argv": [
+                            "/workspace/.wenjin/env/python/bin/python",
+                            "-m",
+                            "pip",
+                            "install",
+                            "pandas",
+                            "numpy",
+                        ],
+                        "shell_command": None,
+                        "cwd": "/workspace",
+                        "env": {},
+                        "network_profile": "package_install",
+                        "timeout_seconds": 120,
+                        "output_bytes_cap": 20000,
+                    },
+                }
+            ],
+        }
+
+
 class _FailingRunner:
     async def run_python_script(self, **kwargs):
         raise SandboxCommandExecutionError(
@@ -196,6 +261,65 @@ async def test_run_python_returns_execution_manifest() -> None:
     assert manifest["dependency_hints"] == ["pandas"]
     assert manifest["network_profile"] == "none"
     assert manifest["timeout_seconds"] == 30
+
+
+@pytest.mark.asyncio
+async def test_run_python_returns_reproducibility_manifest() -> None:
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+            max_sandbox_seconds=60,
+        ),
+        runner=_ReproducibleRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(
+        script="print({'ok': True})",
+        script_name="analysis.py",
+        dependency_hints=["pandas", "numpy"],
+    )
+
+    manifest = result.structured_payload["reproducibility_manifest"]
+    assert manifest == {
+        "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+        "tool": "sandbox.run_python",
+        "workspace_id": "ws-1",
+        "execution_id": "exec-1",
+        "node_id": "node-1",
+        "invocation_id": "invocation-1",
+        "script": {
+            "name": "analysis.py",
+            "path": "/workspace/scripts/analysis.py",
+        },
+        "sandbox": {
+            "environment_id": "env-1",
+            "run_job_id": "job-1",
+            "install_job_ids": ["install-1"],
+            "network_profile": "none",
+            "timeout_seconds": 30,
+        },
+        "dependencies": {
+            "requested": ["pandas", "numpy"],
+            "installed": ["pandas", "numpy"],
+        },
+        "artifacts": [
+            {
+                "path": "/workspace/reports/analysis.md",
+                "name": "analysis.md",
+                "kind": "markdown",
+                "size_bytes": 128,
+            }
+        ],
+        "command_audit": {
+            "run_verdict": "pass",
+            "run_risk_level": "low",
+            "install_verdicts": ["pass"],
+            "install_risk_levels": ["low"],
+        },
+    }
 
 
 @pytest.mark.asyncio

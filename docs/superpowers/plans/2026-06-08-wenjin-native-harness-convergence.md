@@ -1670,7 +1670,441 @@ Commit boundary:
 git commit -m "docs: audit native harness convergence"
 ```
 
-Do not call the active goal complete unless Task 10 through Task 15 are verified, browser-tested, and the final audit has no unresolved P0/P1 gaps.
+Do not call the active goal complete unless Task 10 through Task 16 are verified, browser-tested where relevant, and the final audit has no unresolved P0/P1 gaps.
+
+---
+
+### Task 16: Add Sandbox Experiment Reproducibility Evidence
+
+**Goal:** make every `sandbox.run_python` experiment leave enough bounded evidence for a user, Lead Agent, or future team member to understand what ran, where it ran, what environment/dependencies were used, what artifacts appeared, and whether the run is reproducible.
+
+**Architecture:** extend the existing `execution_manifest` and `sandbox_execution_summary` path only. Do not create a new harness runtime, table, event stream, frontend store, or generic command tool. The evidence should remain attached to `HarnessToolResult.structured_payload`, LangChain tool-call metadata, `ExecutionNodeRecord.node_metadata.harness`, and existing run journal projection.
+
+**External reference patterns being adopted:**
+
+- From Codex: explicit command/session policy shape, bounded stdout/stderr, audit trail, sandbox policy as part of execution evidence.
+- From DeerFlow: predictable output roots, artifact-aware run reports, skill/task outputs that are readable by the next agent.
+- Wenjin-specific constraint: one workspace has one active sandbox; `/workspace` virtual paths are the only user-facing paths.
+
+**Files:**
+
+- Modify: `backend/src/agents/harness/sandbox_execution_tools.py`
+- Modify: `backend/src/agents/harness/langchain_adapter.py`
+- Modify: `backend/src/agents/harness/diff_tracker.py`
+- Modify: `backend/src/agents/harness/context_assembly.py`
+- Test: `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
+- Test: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Test: `backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py`
+- Test: `backend/tests/agents/harness/test_context_assembly.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_runtime.py`
+- Docs: `docs/current/native-harness-convergence-audit.md`
+- Docs: `docs/current/workspace-current-state.md`
+- Docs: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Docs: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Write failing tool-result reproducibility manifest test**
+
+Add this test to `backend/tests/agents/harness/test_scheduler_and_python_tool.py`:
+
+```python
+@pytest.mark.asyncio
+async def test_run_python_returns_reproducibility_manifest() -> None:
+    class ArtifactRunner:
+        async def run_python_script(self, **kwargs):
+            return {
+                "status": "completed",
+                "stdout": "{\"ok\": true}",
+                "stderr": "",
+                "parsed_stdout": {"ok": True},
+                "sandbox_environment_id": "env-1",
+                "sandbox_job_id": "job-1",
+                "script_name": kwargs["script_name"],
+                "script_path": f"/workspace/scripts/{kwargs['script_name']}",
+                "dependency_hints": ["pandas", "numpy"],
+                "generated_artifacts": [
+                    {
+                        "path": "/workspace/reports/analysis.md",
+                        "name": "analysis.md",
+                        "kind": "markdown",
+                        "size_bytes": 128,
+                    }
+                ],
+                "command_audit": {
+                    "verdict": "pass",
+                    "risk_level": "low",
+                    "reasons": [],
+                    "command": {
+                        "argv": [
+                            "/workspace/.wenjin/env/python/bin/python",
+                            "/workspace/scripts/analysis.py",
+                        ],
+                        "shell_command": None,
+                        "cwd": "/workspace",
+                        "env": {},
+                        "network_profile": "none",
+                        "timeout_seconds": 30,
+                        "output_bytes_cap": 20000,
+                    },
+                },
+                "install_job_ids": ["install-1"],
+                "install_command_audits": [
+                    {
+                        "verdict": "pass",
+                        "risk_level": "low",
+                        "reasons": [],
+                        "command": {
+                            "argv": [
+                                "/workspace/.wenjin/env/python/bin/python",
+                                "-m",
+                                "pip",
+                                "install",
+                                "pandas",
+                                "numpy",
+                            ],
+                            "shell_command": None,
+                            "cwd": "/workspace",
+                            "env": {},
+                            "network_profile": "package_install",
+                            "timeout_seconds": 120,
+                            "output_bytes_cap": 20000,
+                        },
+                    }
+                ],
+            }
+
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+            max_sandbox_seconds=60,
+        ),
+        runner=ArtifactRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(
+        script="print({'ok': True})",
+        script_name="analysis.py",
+        dependency_hints=["pandas", "numpy"],
+    )
+
+    manifest = result.structured_payload["reproducibility_manifest"]
+    assert manifest == {
+        "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+        "tool": "sandbox.run_python",
+        "workspace_id": "ws-1",
+        "execution_id": "exec-1",
+        "node_id": "node-1",
+        "invocation_id": "invocation-1",
+        "script": {
+            "name": "analysis.py",
+            "path": "/workspace/scripts/analysis.py",
+        },
+        "sandbox": {
+            "environment_id": "env-1",
+            "run_job_id": "job-1",
+            "install_job_ids": ["install-1"],
+            "network_profile": "none",
+            "timeout_seconds": 30,
+        },
+        "dependencies": {
+            "requested": ["pandas", "numpy"],
+            "installed": ["pandas", "numpy"],
+        },
+        "artifacts": [
+            {
+                "path": "/workspace/reports/analysis.md",
+                "name": "analysis.md",
+                "kind": "markdown",
+                "size_bytes": 128,
+            }
+        ],
+        "command_audit": {
+            "run_verdict": "pass",
+            "run_risk_level": "low",
+            "install_verdicts": ["pass"],
+            "install_risk_levels": ["low"],
+        },
+    }
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py::test_run_python_returns_reproducibility_manifest -q
+```
+
+Expected before implementation:
+
+```text
+KeyError: 'reproducibility_manifest'
+```
+
+- [x] **Step 2: Implement bounded reproducibility manifest on `sandbox.run_python`**
+
+In `backend/src/agents/harness/sandbox_execution_tools.py`, add a helper beside `_execution_manifest()` and call it after `execution_manifest` is built:
+
+```python
+payload["reproducibility_manifest"] = _reproducibility_manifest(
+    context=self.context,
+    execution_manifest=payload["execution_manifest"],
+    payload=payload,
+)
+```
+
+The helper must:
+
+- use only `/workspace` virtual paths, not host paths.
+- include no raw stdout/stderr, environment variables, API keys, or shell text.
+- cap artifact records to 20.
+- cap dependency names to 50.
+- summarize command audits as verdict/risk only.
+- keep install evidence optional so no-install runs still have a valid manifest.
+
+Target helper shape:
+
+```python
+def _reproducibility_manifest(
+    *,
+    context: HarnessRunContext,
+    execution_manifest: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+        "tool": "sandbox.run_python",
+        "workspace_id": context.workspace_id,
+        "execution_id": context.execution_id,
+        "node_id": context.node_id,
+        "invocation_id": context.invocation_id,
+        "script": {
+            "name": str(execution_manifest.get("script_name") or ""),
+            "path": _workspace_path(execution_manifest.get("script_path")),
+        },
+        "sandbox": {
+            "environment_id": str(execution_manifest.get("sandbox_environment_id") or ""),
+            "run_job_id": str(execution_manifest.get("sandbox_job_id") or ""),
+            "install_job_ids": _string_list(payload.get("install_job_ids"), limit=20),
+            "network_profile": str(execution_manifest.get("network_profile") or "none"),
+            "timeout_seconds": _positive_int(execution_manifest.get("timeout_seconds")),
+        },
+        "dependencies": {
+            "requested": _dependency_hints(execution_manifest.get("dependency_hints")),
+            "installed": _dependency_hints(payload.get("installed_packages")),
+        },
+        "artifacts": _artifact_manifest(payload.get("generated_artifacts")),
+        "command_audit": _command_audit_manifest(
+            payload.get("command_audit"),
+            payload.get("install_command_audits"),
+        ),
+    }
+```
+
+- [x] **Step 3: Keep LangChain metadata aligned**
+
+Add a failing assertion to `backend/tests/agents/harness/test_langchain_adapter.py` so completed `sandbox.run_python` tool-call metadata includes:
+
+```python
+assert metadata["reproducibility_manifest"]["schema"] == (
+    "wenjin.harness.run_python.reproducibility_manifest.v1"
+)
+assert metadata["reproducibility_manifest"]["sandbox"]["run_job_id"] == "job-1"
+```
+
+Then update `backend/src/agents/harness/langchain_adapter.py` so `_command_audit_metadata()` or the existing structured-payload metadata extraction copies `reproducibility_manifest` the same way it already copies `execution_manifest`.
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_langchain_adapter.py -q
+```
+
+Expected after implementation: all selected adapter tests pass.
+
+- [x] **Step 4: Add node-level reproducibility summary without adding a new record type**
+
+Add this test to `backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py`:
+
+```python
+def test_harness_node_metadata_includes_reproducibility_summary() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "reproducibility_manifest": {
+                    "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+                    "tool": "sandbox.run_python",
+                    "workspace_id": "ws-1",
+                    "execution_id": "exec-1",
+                    "node_id": "node-1",
+                    "invocation_id": "invocation-1",
+                    "script": {
+                        "name": "analysis.py",
+                        "path": "/workspace/scripts/analysis.py",
+                    },
+                    "sandbox": {
+                        "environment_id": "env-1",
+                        "run_job_id": "job-1",
+                        "install_job_ids": ["install-1"],
+                        "network_profile": "none",
+                        "timeout_seconds": 30,
+                    },
+                    "dependencies": {
+                        "requested": ["pandas"],
+                        "installed": ["pandas"],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "/workspace/reports/analysis.md",
+                            "name": "analysis.md",
+                            "kind": "markdown",
+                            "size_bytes": 128,
+                        }
+                    ],
+                    "command_audit": {
+                        "run_verdict": "pass",
+                        "run_risk_level": "low",
+                        "install_verdicts": ["pass"],
+                        "install_risk_levels": ["low"],
+                    },
+                },
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["reproducibility_summary"]
+    assert summary == {
+        "schema": "wenjin.harness.reproducibility_summary.v1",
+        "python_runs": 1,
+        "manifest_count": 1,
+        "script_paths": ["/workspace/scripts/analysis.py"],
+        "artifact_paths": ["/workspace/reports/analysis.md"],
+        "dependency_names": ["pandas"],
+        "sandbox_environment_ids": ["env-1"],
+        "sandbox_job_ids": ["job-1"],
+        "install_job_ids": ["install-1"],
+        "command_risk_levels": ["low"],
+    }
+```
+
+Implement `build_reproducibility_summary_from_tool_calls()` in `backend/src/agents/harness/diff_tracker.py` and call it from `build_harness_node_metadata_from_tool_calls()`. Keep the summary compact:
+
+- max 20 script paths.
+- max 50 artifact paths.
+- max 50 dependency names.
+- max 20 job/environment ids.
+- no raw command argv.
+- no stdout/stderr.
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py::test_harness_node_metadata_includes_reproducibility_summary -q
+```
+
+Expected after implementation: pass.
+
+- [x] **Step 5: Include reproducibility in bounded team context**
+
+Add or extend a test in `backend/tests/agents/harness/test_context_assembly.py` verifying that when prior node metadata contains `harness.reproducibility_summary`, the assembled context includes a short `reproducibility_summary` entry and drops it under budget before core task fields.
+
+Expected context fragment:
+
+```python
+assert context["previous_execution_context"]["reproducibility_summary"] == {
+    "python_runs": 1,
+    "manifest_count": 1,
+    "script_paths": ["/workspace/scripts/analysis.py"],
+    "artifact_paths": ["/workspace/reports/analysis.md"],
+    "dependency_names": ["pandas"],
+}
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py -q
+```
+
+Expected after implementation: all selected context tests pass.
+
+- [x] **Step 6: Verify Lead runtime node metadata persists the new summary**
+
+Add or extend one runtime test in `backend/tests/agents/lead_agent/v2/test_runtime.py` so a completed harness node event records:
+
+```python
+node_metadata = completed[-1]["node_metadata"]
+assert node_metadata["harness"]["reproducibility_summary"]["manifest_count"] == 1
+assert node_metadata["harness"]["reproducibility_summary"]["script_paths"] == [
+    "/workspace/scripts/analysis.py"
+]
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_runtime.py::test_node_recording_adds_harness_sandbox_execution_summary_metadata -q
+```
+
+Expected after implementation: pass with the existing node recording path; no new runtime persistence code should be necessary unless the adapter metadata is incomplete.
+
+- [x] **Step 7: Update docs to make the contract explicit**
+
+Update:
+
+- `docs/current/workspace-current-state.md`
+- `docs/current/native-harness-convergence-audit.md`
+- `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+Required wording:
+
+- `sandbox.run_python` returns both `execution_manifest` and `reproducibility_manifest`.
+- `execution_manifest` is the run identity contract.
+- `reproducibility_manifest` is the bounded evidence contract for script, dependencies, sandbox job/environment, generated artifacts, and command audit risk.
+- `reproducibility_summary` is node-level metadata for Lead/team context and run review.
+- This does not introduce a generic shell or Codex/deer-flow dependency.
+
+- [x] **Step 8: Run targeted verification**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/lead_agent/v2/test_runtime.py -q
+.venv/bin/ruff check src/agents/harness tests/agents/harness tests/agents/lead_agent/v2/test_runtime.py
+cd /Users/ze/wenjin
+git diff --check
+```
+
+Expected:
+
+```text
+pytest: all selected tests pass
+ruff: All checks passed!
+git diff --check: no output
+```
+
+- [x] **Step 9: Commit the slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+git status --short
+git add backend/src/agents/harness/sandbox_execution_tools.py backend/src/agents/harness/langchain_adapter.py backend/src/agents/harness/diff_tracker.py backend/src/agents/harness/context_assembly.py backend/tests/agents/harness/test_scheduler_and_python_tool.py backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py backend/tests/agents/harness/test_context_assembly.py backend/tests/agents/lead_agent/v2/test_runtime.py docs/current/native-harness-convergence-audit.md docs/current/workspace-current-state.md docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md
+git commit -m "feat: add sandbox reproducibility evidence"
+```
+
+Expected: one clean commit for reproducibility evidence only.
+
+**Stop condition for this task:** do not expand into `sandbox.run_command`, frontend UI redesign, new sandbox lifecycle policy, or model-routing work. If the tests reveal a real integration issue, fix only the existing `sandbox.run_python`/adapter/node-metadata path.
 
 ## Review Checklist After Each Task
 

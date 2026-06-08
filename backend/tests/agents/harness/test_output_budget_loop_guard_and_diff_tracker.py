@@ -236,6 +236,68 @@ def test_harness_node_metadata_includes_sandbox_execution_summary() -> None:
     }
 
 
+def test_harness_node_metadata_includes_reproducibility_summary() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "reproducibility_manifest": {
+                    "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+                    "tool": "sandbox.run_python",
+                    "workspace_id": "ws-1",
+                    "execution_id": "exec-1",
+                    "node_id": "node-1",
+                    "invocation_id": "invocation-1",
+                    "script": {
+                        "name": "analysis.py",
+                        "path": "/workspace/scripts/analysis.py",
+                    },
+                    "sandbox": {
+                        "environment_id": "env-1",
+                        "run_job_id": "job-1",
+                        "install_job_ids": ["install-1"],
+                        "network_profile": "none",
+                        "timeout_seconds": 30,
+                    },
+                    "dependencies": {
+                        "requested": ["pandas"],
+                        "installed": ["pandas"],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "/workspace/reports/analysis.md",
+                            "name": "analysis.md",
+                            "kind": "markdown",
+                            "size_bytes": 128,
+                        }
+                    ],
+                    "command_audit": {
+                        "run_verdict": "pass",
+                        "run_risk_level": "low",
+                        "install_verdicts": ["pass"],
+                        "install_risk_levels": ["low"],
+                    },
+                },
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["reproducibility_summary"]
+    assert summary == {
+        "schema": "wenjin.harness.reproducibility_summary.v1",
+        "python_runs": 1,
+        "manifest_count": 1,
+        "script_paths": ["/workspace/scripts/analysis.py"],
+        "artifact_paths": ["/workspace/reports/analysis.md"],
+        "dependency_names": ["pandas"],
+        "sandbox_environment_ids": ["env-1"],
+        "sandbox_job_ids": ["job-1"],
+        "install_job_ids": ["install-1"],
+        "command_risk_levels": ["low"],
+    }
+
+
 def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:
     guard = HarnessLoopGuard(warn_threshold=3, hard_limit=5)
     args = {"path": "/workspace/main.tex"}

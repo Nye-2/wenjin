@@ -169,6 +169,7 @@ def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
         "file_change_summary",
         "tool_failure_summary",
         "sandbox_execution_summary",
+        "reproducibility_summary",
     ):
         value = _safe_value(harness.get(key))
         if value not in (None, {}, []):
@@ -234,8 +235,6 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
     while compact["recent_execution_evidence"] and len(render_harness_context_for_prompt(compact)) > max_chars:
         compact["recent_execution_evidence"].pop()
     if len(render_harness_context_for_prompt(compact)) > max_chars:
-        compact["task"] = {}
-    if len(render_harness_context_for_prompt(compact)) > max_chars:
         compact["workspace_file_summary"] = {
             "visible_roots": [],
             "recent_outputs": [],
@@ -244,5 +243,7 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
         }
     if len(render_harness_context_for_prompt(compact)) > max_chars:
         compact.pop("workspace_file_summary", None)
+    if len(render_harness_context_for_prompt(compact)) > max_chars:
+        compact["task"] = {}
     compact["budget"] = {"max_chars": max_chars, "truncated": True}
     return compact

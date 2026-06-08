@@ -11,6 +11,7 @@ TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
 SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
 REPLAN_SIGNAL_SCHEMA = "wenjin.harness.replan_signal.v1"
 RUN_JOURNAL_SUMMARY_SCHEMA = "wenjin.harness.run_journal_summary.v1"
+REPRODUCIBILITY_SUMMARY_SCHEMA = "wenjin.harness.reproducibility_summary.v1"
 
 
 def build_file_change(
@@ -104,6 +105,9 @@ def build_harness_node_metadata_from_tool_calls(
     sandbox_execution_summary = build_sandbox_execution_summary_from_tool_calls(tool_calls)
     if sandbox_execution_summary is not None:
         harness["sandbox_execution_summary"] = sandbox_execution_summary
+    reproducibility_summary = build_reproducibility_summary_from_tool_calls(tool_calls)
+    if reproducibility_summary is not None:
+        harness["reproducibility_summary"] = reproducibility_summary
     replan_signals = build_harness_replan_signals_from_tool_calls(tool_calls)
     if replan_signals:
         harness["replan_signals"] = replan_signals
@@ -266,6 +270,72 @@ def build_sandbox_execution_summary_from_tool_calls(
         "sandbox_environment_ids": sandbox_environment_ids[:20],
         "failure_codes": failure_codes[:20],
         "generated_artifact_count": generated_artifact_count,
+    }
+
+
+def build_reproducibility_summary_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Build compact run evidence for experiment reproducibility."""
+
+    if not tool_calls:
+        return None
+
+    python_runs = 0
+    manifest_count = 0
+    script_paths: list[str] = []
+    artifact_paths: list[str] = []
+    dependency_names: list[str] = []
+    sandbox_environment_ids: list[str] = []
+    sandbox_job_ids: list[str] = []
+    install_job_ids: list[str] = []
+    command_risk_levels: list[str] = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        name = str(tool_call.get("name") or "").strip()
+        if name != "sandbox.run_python":
+            continue
+        python_runs += 1
+        metadata = tool_call.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        manifest = _first_dict(
+            tool_call.get("reproducibility_manifest"),
+            metadata.get("reproducibility_manifest"),
+        )
+        if manifest is None:
+            continue
+        manifest_count += 1
+        script = manifest.get("script") if isinstance(manifest.get("script"), dict) else {}
+        _append_unique(script_paths, str(script.get("path") or ""))
+        sandbox = manifest.get("sandbox") if isinstance(manifest.get("sandbox"), dict) else {}
+        _append_unique(sandbox_environment_ids, str(sandbox.get("environment_id") or ""))
+        _append_unique(sandbox_job_ids, str(sandbox.get("run_job_id") or ""))
+        for install_job_id in _list_value(sandbox.get("install_job_ids")):
+            _append_unique(install_job_ids, str(install_job_id or ""))
+        dependencies = manifest.get("dependencies") if isinstance(manifest.get("dependencies"), dict) else {}
+        for dependency in _list_value(dependencies.get("requested")) + _list_value(dependencies.get("installed")):
+            _append_unique(dependency_names, str(dependency or ""))
+        for artifact in _list_of_dicts(manifest.get("artifacts")):
+            _append_unique(artifact_paths, str(artifact.get("path") or ""))
+        command_audit = manifest.get("command_audit") if isinstance(manifest.get("command_audit"), dict) else {}
+        _append_unique(command_risk_levels, str(command_audit.get("run_risk_level") or ""))
+        for risk_level in _list_value(command_audit.get("install_risk_levels")):
+            _append_unique(command_risk_levels, str(risk_level or ""))
+
+    if python_runs == 0:
+        return None
+    return {
+        "schema": REPRODUCIBILITY_SUMMARY_SCHEMA,
+        "python_runs": python_runs,
+        "manifest_count": manifest_count,
+        "script_paths": script_paths[:20],
+        "artifact_paths": artifact_paths[:50],
+        "dependency_names": dependency_names[:50],
+        "sandbox_environment_ids": sandbox_environment_ids[:20],
+        "sandbox_job_ids": sandbox_job_ids[:20],
+        "install_job_ids": install_job_ids[:20],
+        "command_risk_levels": command_risk_levels[:20],
     }
 
 

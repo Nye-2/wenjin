@@ -723,6 +723,38 @@ async def test_node_recording_adds_harness_sandbox_execution_summary_metadata():
                                 "sandbox_job_id": "job-1",
                                 "sandbox_environment_id": "env-1",
                             },
+                            "reproducibility_manifest": {
+                                "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+                                "tool": "sandbox.run_python",
+                                "workspace_id": "ws-001",
+                                "execution_id": "exec-sandbox-execution-summary",
+                                "node_id": "experiment_runner",
+                                "invocation_id": "experiment_runner",
+                                "script": {
+                                    "name": "analysis.py",
+                                    "path": "/workspace/scripts/analysis.py",
+                                },
+                                "sandbox": {
+                                    "environment_id": "env-1",
+                                    "run_job_id": "job-1",
+                                    "install_job_ids": ["install-1"],
+                                    "network_profile": "none",
+                                    "timeout_seconds": 30,
+                                },
+                                "dependencies": {
+                                    "requested": ["pandas"],
+                                    "installed": ["pandas"],
+                                },
+                                "artifacts": [
+                                    {"path": "/workspace/outputs/result.json"},
+                                ],
+                                "command_audit": {
+                                    "run_verdict": "pass",
+                                    "run_risk_level": "low",
+                                    "install_verdicts": ["pass"],
+                                    "install_risk_levels": ["low"],
+                                },
+                            },
                             "failure_classification": {
                                 "schema": "wenjin.harness.run_python.failure_classification.v1",
                                 "failure_code": "python_exit_nonzero",
@@ -764,6 +796,12 @@ async def test_node_recording_adds_harness_sandbox_execution_summary_metadata():
     assert summary["sandbox_environment_ids"] == ["env-1"]
     assert summary["failure_codes"] == ["python_exit_nonzero"]
     assert summary["generated_artifact_count"] == 1
+    reproducibility = completed[-1]["node_metadata"]["harness"]["reproducibility_summary"]
+    assert reproducibility["schema"] == "wenjin.harness.reproducibility_summary.v1"
+    assert reproducibility["manifest_count"] == 1
+    assert reproducibility["script_paths"] == ["/workspace/scripts/analysis.py"]
+    assert reproducibility["artifact_paths"] == ["/workspace/outputs/result.json"]
+    assert reproducibility["dependency_names"] == ["pandas"]
 
 
 def test_collect_sandbox_artifact_candidates_rejects_internal_and_traversal_paths():

@@ -28,6 +28,14 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
                                     "python_runs": 1,
                                     "failed_python_runs": 0,
                                     "recoverable_failures": 0,
+                                },
+                                "reproducibility_summary": {
+                                    "schema": "wenjin.harness.reproducibility_summary.v1",
+                                    "python_runs": 1,
+                                    "manifest_count": 1,
+                                    "script_paths": ["/workspace/scripts/analysis.py"],
+                                    "artifact_paths": ["/workspace/reports/analysis.md"],
+                                    "dependency_names": ["pandas"],
                                 }
                             }
                         },
@@ -59,7 +67,15 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
                     "python_runs": 1,
                     "failed_python_runs": 0,
                     "recoverable_failures": 0,
-                }
+                },
+                "reproducibility_summary": {
+                    "schema": "wenjin.harness.reproducibility_summary.v1",
+                    "python_runs": 1,
+                    "manifest_count": 1,
+                    "script_paths": ["/workspace/scripts/analysis.py"],
+                    "artifact_paths": ["/workspace/reports/analysis.md"],
+                    "dependency_names": ["pandas"],
+                },
             },
         }
     ]
@@ -162,6 +178,7 @@ def test_harness_context_bundle_marks_budget_truncation() -> None:
     assert bundle["budget"]["max_chars"] == 1200
     assert bundle["budget"]["truncated"] is True
     assert len(json.dumps(bundle, ensure_ascii=False)) <= 1200
+    assert bundle["task"] == {"goal": "run experiment"}
 
 
 def test_render_harness_context_for_prompt_uses_bounded_json() -> None:
