@@ -67,6 +67,7 @@ Chat Agent
 - `backend`: `tests/integration/test_harness_mock_sandbox_e2e.py` 现在覆盖 `sci` workspace 下文献/数据整理员 + 实验分析工程师两名核心成员、bounded harness context、dataset provenance、`sandbox.run_python`、`reproducibility_manifest`、`experiment_narrative`、sandbox artifact review staging 和 internal harness refs 过滤。
 - Docker local-build stack rebuilt; frontend production build passed.
 - Browser smoke verified Workbench team task launch/result review, TeamKernel five-step progress, quality gate dedupe, Prism compile/PDF contrast, and Prism AI assist discoverability.
+- 2026-06-08 browser smoke on existing local `localhost:2026` stack: `/workspaces` and `/workspaces/{id}` did not redirect to login; Workbench progress view showed real-name team members (`研究规划师`、`文献检索员`、`文献综合专家`、`综合助理`) and task progress without raw stdout/stderr or `*.v1` template ids; Evidence view opened from `查看证据` and showed reviewable results without `/workspace/outputs/harness/**`; Prism `/prism` loaded editor/resources/compile/PDF contrast, compile did not auto-open AI 改稿, and no local app console errors were observed.
 
 ## 6. 剩余不足
 
