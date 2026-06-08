@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.agents.harness.diff_tracker import (
     build_file_change,
     build_file_change_summary_from_tool_calls,
+    build_harness_node_metadata_from_tool_calls,
 )
 from src.agents.harness.loop_guard import HarnessLoopGuard
 from src.agents.harness.output_budget import (
@@ -143,6 +144,46 @@ def test_file_change_summary_preserves_externalized_diff_refs() -> None:
     assert diff["diff_output_refs"] == [
         "/workspace/outputs/harness/exec/node/invocation/sandbox.write_file.diff-abc.diff"
     ]
+
+
+def test_harness_node_metadata_includes_tool_failure_summary() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.read_file",
+                "status": "failed",
+                "args": {"path": "/workspace/.env"},
+                "error": "HarnessPathError: protected path is not accessible: /workspace/.env",
+                "metadata": {
+                    "recoverable_error": "HarnessPathError: protected path is not accessible: /workspace/.env",
+                    "error_code": "tool_error",
+                },
+            },
+            {
+                "name": "sandbox.grep",
+                "status": "completed",
+                "metadata": {
+                    "recoverable_error": "invalid_regex: unterminated character set",
+                    "error_code": "invalid_regex",
+                },
+            },
+        ]
+    )
+
+    summary = metadata["harness"]["tool_failure_summary"]
+    assert summary["schema"] == "wenjin.harness.tool_failure_summary.v1"
+    assert summary["total_failed_calls"] == 1
+    assert summary["total_recoverable_errors"] == 2
+    assert summary["failed_tools"] == ["sandbox.read_file"]
+    assert summary["recoverable_error_codes"] == ["tool_error", "invalid_regex"]
+    assert summary["failures"][0] == {
+        "name": "sandbox.read_file",
+        "status": "failed",
+        "error": "HarnessPathError: protected path is not accessible: /workspace/.env",
+        "error_code": "tool_error",
+        "recoverable": True,
+        "args": {"path": "/workspace/.env"},
+    }
 
 
 def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:

@@ -55,6 +55,35 @@ class TeamSandboxFakeSubagent(SubagentBase):
         )
 
 
+@subagent("team_sandbox_failure_fake")
+class TeamSandboxFailureFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        return SubagentResult(
+            output={
+                "summary": f"{ctx.invocation['display_name']} recovered from one tool failure",
+                "team_role": ctx.inputs["team_role"],
+            },
+            tool_calls=[
+                {
+                    "name": "sandbox.read_file",
+                    "status": "failed",
+                    "args": {"path": "/workspace/.env"},
+                    "error": "HarnessPathError: protected path is not accessible: /workspace/.env",
+                    "metadata": {
+                        "recoverable_error": "HarnessPathError: protected path is not accessible: /workspace/.env",
+                        "error_code": "tool_error",
+                    },
+                },
+                {
+                    "name": "sandbox.read_file",
+                    "status": "completed",
+                    "args": {"path": "/workspace/main/visible.txt"},
+                },
+            ],
+            token_usage={"input": 3, "output": 5},
+        )
+
+
 @subagent("team_failing")
 class TeamFailingSubagent(SubagentBase):
     async def run(self, ctx: SubagentContext) -> SubagentResult:
@@ -369,6 +398,24 @@ class SandboxToolTeamCatalogClient(FakeTeamCatalogClient):
         ]
 
 
+class SandboxToolFailureTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        records = await super().list_catalog_skills(enabled_only=enabled_only)
+        return [
+            CapabilitySkillPayload(
+                id=record.id,
+                display_name=record.display_name,
+                worker_type=record.worker_type,
+                subagent_type="team_sandbox_failure_fake",
+                prompt=record.prompt,
+                config=record.config,
+            )
+            for record in records
+        ]
+
+
 class FakeFailingTeamCatalogClient(FakeTeamCatalogClient):
     async def list_catalog_skills(self, *, enabled_only: bool = True):
         from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
@@ -474,6 +521,47 @@ async def test_team_kernel_runtime_records_harness_file_change_summary(monkeypat
     assert summaries[0]["schema"] == "wenjin.harness.file_change_summary.v1"
     assert summaries[0]["changed_paths"] == ["/workspace/main.tex"]
     assert summaries[0]["changes"][0]["after_hash"] == "sha256:new"
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_records_harness_tool_failure_summary(monkeypatch) -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SandboxToolFailureTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-sandbox-failure-summary", brief=_brief())
+
+    completed_events = [
+        event
+        for event in node_events
+        if event["node_type"] == "agent_invocation" and event["status"] == "completed"
+    ]
+    summaries = [
+        event["node_metadata"]["harness"]["tool_failure_summary"]
+        for event in completed_events
+        if event["node_metadata"].get("harness")
+    ]
+    assert report.status == "completed"
+    assert summaries
+    assert summaries[0]["schema"] == "wenjin.harness.tool_failure_summary.v1"
+    assert summaries[0]["failed_tools"] == ["sandbox.read_file"]
+    assert summaries[0]["failures"][0]["error_code"] == "tool_error"
 
 
 @pytest.mark.asyncio

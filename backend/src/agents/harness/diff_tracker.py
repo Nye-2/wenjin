@@ -1,4 +1,4 @@
-"""File-change attribution helpers for harness write tools."""
+"""Tool-call attribution helpers for harness node metadata."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from difflib import unified_diff
 from typing import Any
 
 FILE_CHANGE_SUMMARY_SCHEMA = "wenjin.harness.file_change_summary.v1"
+TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
 
 
 def build_file_change(
@@ -90,10 +91,70 @@ def build_harness_node_metadata_from_tool_calls(
 ) -> dict[str, Any] | None:
     """Build execution-node metadata for harness tool activity."""
 
+    harness: dict[str, Any] = {}
     file_change_summary = build_file_change_summary_from_tool_calls(tool_calls)
-    if file_change_summary is None:
+    if file_change_summary is not None:
+        harness["file_change_summary"] = file_change_summary
+    tool_failure_summary = build_tool_failure_summary_from_tool_calls(tool_calls)
+    if tool_failure_summary is not None:
+        harness["tool_failure_summary"] = tool_failure_summary
+    if not harness:
         return None
-    return {"harness": {"file_change_summary": file_change_summary}}
+    return {"harness": harness}
+
+
+def build_tool_failure_summary_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Build a compact summary of failed and recoverable harness tool calls."""
+
+    if not tool_calls:
+        return None
+
+    failures: list[dict[str, Any]] = []
+    failed_tools: list[str] = []
+    recoverable_error_codes: list[str] = []
+    total_recoverable_errors = 0
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        status = str(tool_call.get("status") or "").strip()
+        metadata = tool_call.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        recoverable_error = str(metadata.get("recoverable_error") or "").strip()
+        error = str(tool_call.get("error") or recoverable_error).strip()
+        if recoverable_error:
+            total_recoverable_errors += 1
+        if status != "failed":
+            if recoverable_error:
+                _append_unique(recoverable_error_codes, str(metadata.get("error_code") or "recoverable_error"))
+            continue
+        name = str(tool_call.get("name") or "unknown_tool").strip() or "unknown_tool"
+        error_code = str(metadata.get("error_code") or "tool_error").strip() or "tool_error"
+        _append_unique(failed_tools, name)
+        _append_unique(recoverable_error_codes, error_code)
+        failures.append(
+            {
+                "name": name,
+                "status": status,
+                "error": _compact_error(error or "tool failed"),
+                "error_code": error_code,
+                "recoverable": bool(recoverable_error),
+                "args": _compact_args(tool_call.get("args")),
+            }
+        )
+
+    if not failures and total_recoverable_errors == 0:
+        return None
+
+    return {
+        "schema": TOOL_FAILURE_SUMMARY_SCHEMA,
+        "total_failed_calls": len(failures),
+        "total_recoverable_errors": total_recoverable_errors,
+        "failed_tools": failed_tools,
+        "recoverable_error_codes": recoverable_error_codes,
+        "failures": failures,
+    }
 
 
 def _new_path_summary(path: str, change: dict[str, Any]) -> dict[str, Any]:
@@ -153,6 +214,33 @@ def _compact_diff(change: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, bool):
             diff[key] = value
     return diff
+
+
+def _compact_args(raw_args: Any) -> dict[str, Any]:
+    if not isinstance(raw_args, dict):
+        return {}
+    compact: dict[str, Any] = {}
+    for key, value in raw_args.items():
+        name = str(key)
+        if isinstance(value, str):
+            compact[name] = value if len(value) <= 500 else f"{value[:497]}..."
+        elif isinstance(value, int | float | bool) or value is None:
+            compact[name] = value
+        else:
+            text = str(value)
+            compact[name] = text if len(text) <= 500 else f"{text[:497]}..."
+    return compact
+
+
+def _compact_error(error: str) -> str:
+    text = str(error or "").strip()
+    return text if len(text) <= 500 else f"{text[:497]}..."
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    text = str(value or "").strip()
+    if text and text not in values:
+        values.append(text)
 
 
 def _sha256(text: str | None) -> str | None:
