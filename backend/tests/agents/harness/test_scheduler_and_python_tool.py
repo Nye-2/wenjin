@@ -440,6 +440,62 @@ async def test_run_python_returns_reproducibility_manifest() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_python_returns_experiment_narrative_for_long_running_context() -> None:
+    tool = SandboxExecutionTools(
+        context=_ctx(
+            context_bundle={
+                "workspace_file_summary": {
+                    "dataset_provenance": [
+                        {
+                            "path": "/workspace/datasets/raw/survey.csv",
+                            "source_id": "source-1",
+                            "title": "Survey data",
+                            "content_hash": "sha256:abc",
+                        }
+                    ]
+                }
+            }
+        ),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+            max_sandbox_seconds=60,
+        ),
+        runner=_ReproducibleRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(
+        script="print({'ok': True})",
+        script_name="analysis.py",
+        dependency_hints=["pandas", "numpy"],
+    )
+
+    narrative = result.structured_payload["experiment_narrative"]
+    assert narrative == {
+        "schema": "wenjin.harness.run_python.experiment_narrative.v1",
+        "status": "completed",
+        "script_path": "/workspace/scripts/analysis.py",
+        "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+        "artifact_paths": ["/workspace/reports/analysis.md"],
+        "dependency_names": ["pandas", "numpy"],
+        "command_risk": {
+            "run": "low",
+            "install": ["low"],
+        },
+        "next_actions": [
+            "Review generated artifacts before using them as workspace deliverables.",
+            "Reuse the same script path and dataset manifest for follow-up experiments.",
+        ],
+    }
+    report = result.structured_payload["report_markdown"]
+    assert "## Experiment narrative" in report
+    assert "Status: `completed`" in report
+    assert "/workspace/datasets/raw/survey.csv" in report
+    assert "/workspace/reports/analysis.md" in report
+
+
+@pytest.mark.asyncio
 async def test_run_python_reproducibility_manifest_includes_dataset_provenance() -> None:
     tool = SandboxExecutionTools(
         context=_ctx(),

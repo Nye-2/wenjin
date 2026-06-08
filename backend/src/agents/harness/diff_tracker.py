@@ -286,10 +286,13 @@ def build_reproducibility_summary_from_tool_calls(
     script_paths: list[str] = []
     artifact_paths: list[str] = []
     dependency_names: list[str] = []
+    dataset_paths: list[str] = []
     sandbox_environment_ids: list[str] = []
     sandbox_job_ids: list[str] = []
     install_job_ids: list[str] = []
     command_risk_levels: list[str] = []
+    next_actions: list[str] = []
+    narrative_count = 0
     for tool_call in tool_calls:
         if not isinstance(tool_call, dict):
             continue
@@ -322,6 +325,20 @@ def build_reproducibility_summary_from_tool_calls(
         _append_unique(command_risk_levels, str(command_audit.get("run_risk_level") or ""))
         for risk_level in _list_value(command_audit.get("install_risk_levels")):
             _append_unique(command_risk_levels, str(risk_level or ""))
+        narrative = _first_dict(
+            tool_call.get("experiment_narrative"),
+            metadata.get("experiment_narrative"),
+        )
+        if narrative is not None:
+            narrative_count += 1
+            for dataset_path in _list_value(narrative.get("dataset_paths")):
+                _append_unique(dataset_paths, str(dataset_path or ""))
+            for artifact_path in _list_value(narrative.get("artifact_paths")):
+                _append_unique(artifact_paths, str(artifact_path or ""))
+            for dependency in _list_value(narrative.get("dependency_names")):
+                _append_unique(dependency_names, str(dependency or ""))
+            for action in _list_value(narrative.get("next_actions")):
+                _append_unique(next_actions, str(action or ""))
 
     if python_runs == 0:
         return None
@@ -330,12 +347,15 @@ def build_reproducibility_summary_from_tool_calls(
         "python_runs": python_runs,
         "manifest_count": manifest_count,
         "script_paths": script_paths[:20],
+        "dataset_paths": dataset_paths[:50],
         "artifact_paths": artifact_paths[:50],
         "dependency_names": dependency_names[:50],
         "sandbox_environment_ids": sandbox_environment_ids[:20],
         "sandbox_job_ids": sandbox_job_ids[:20],
         "install_job_ids": install_job_ids[:20],
         "command_risk_levels": command_risk_levels[:20],
+        "narrative_count": narrative_count,
+        "next_actions": next_actions[:20],
     }
 
 

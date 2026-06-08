@@ -279,6 +279,17 @@ def test_harness_node_metadata_includes_reproducibility_summary() -> None:
                         "install_risk_levels": ["low"],
                     },
                 },
+                "experiment_narrative": {
+                    "schema": "wenjin.harness.run_python.experiment_narrative.v1",
+                    "status": "completed",
+                    "script_path": "/workspace/scripts/analysis.py",
+                    "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                    "artifact_paths": ["/workspace/reports/analysis.md"],
+                    "dependency_names": ["pandas"],
+                    "next_actions": [
+                        "Review generated artifacts before using them as workspace deliverables."
+                    ],
+                },
             }
         ]
     )
@@ -289,12 +300,17 @@ def test_harness_node_metadata_includes_reproducibility_summary() -> None:
         "python_runs": 1,
         "manifest_count": 1,
         "script_paths": ["/workspace/scripts/analysis.py"],
+        "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
         "artifact_paths": ["/workspace/reports/analysis.md"],
         "dependency_names": ["pandas"],
         "sandbox_environment_ids": ["env-1"],
         "sandbox_job_ids": ["job-1"],
         "install_job_ids": ["install-1"],
         "command_risk_levels": ["low"],
+        "narrative_count": 1,
+        "next_actions": [
+            "Review generated artifacts before using them as workspace deliverables."
+        ],
     }
 
 

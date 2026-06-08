@@ -355,6 +355,15 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
                     "tool": "sandbox.run_python",
                     "sandbox": {"run_job_id": "job-1"},
                 },
+                "experiment_narrative": {
+                    "schema": "wenjin.harness.run_python.experiment_narrative.v1",
+                    "status": "failed",
+                    "script_path": "/workspace/scripts/analysis.py",
+                    "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                    "artifact_paths": [],
+                    "dependency_names": ["pandas"],
+                    "next_actions": ["Revise the script."],
+                },
                 "failure_classification": {
                     "schema": "wenjin.harness.run_python.failure_classification.v1",
                     "category": "user_code",
@@ -381,6 +390,12 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
         "wenjin.harness.run_python.reproducibility_manifest.v1"
     )
     assert metadata["reproducibility_manifest"]["sandbox"]["run_job_id"] == "job-1"
+    assert metadata["experiment_narrative"]["schema"] == (
+        "wenjin.harness.run_python.experiment_narrative.v1"
+    )
+    assert metadata["experiment_narrative"]["dataset_paths"] == [
+        "/workspace/datasets/raw/survey.csv"
+    ]
     assert metadata["failure_classification"]["failure_code"] == "python_exit_nonzero"
 
 

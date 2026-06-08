@@ -694,6 +694,9 @@ def _run_python_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     reproducibility_manifest = structured_payload.get("reproducibility_manifest")
     if isinstance(reproducibility_manifest, dict):
         metadata["reproducibility_manifest"] = dict(reproducibility_manifest)
+    experiment_narrative = structured_payload.get("experiment_narrative")
+    if isinstance(experiment_narrative, dict):
+        metadata["experiment_narrative"] = dict(experiment_narrative)
     failure_classification = structured_payload.get("failure_classification")
     if isinstance(failure_classification, dict):
         metadata["failure_classification"] = dict(failure_classification)

@@ -70,6 +70,10 @@ class SandboxExecutionTools:
             payload["failure_classification"] = _classify_run_python_failure(payload)
             payload["error_code"] = payload["failure_classification"]["failure_code"]
             _ensure_failure_recovery_guidance(payload)
+        if not isinstance(payload.get("dataset_provenance"), list):
+            context_dataset_provenance = _dataset_provenance_from_context(self.context)
+            if context_dataset_provenance:
+                payload["dataset_provenance"] = context_dataset_provenance
         payload["execution_manifest"] = _execution_manifest(
             context=self.context,
             sandbox_policy=self._sandbox_policy(),
@@ -83,6 +87,12 @@ class SandboxExecutionTools:
             execution_manifest=payload["execution_manifest"],
             payload=payload,
         )
+        payload["experiment_narrative"] = _experiment_narrative(
+            execution_manifest=payload["execution_manifest"],
+            reproducibility_manifest=payload["reproducibility_manifest"],
+            payload=payload,
+        )
+        _append_experiment_narrative_report(payload)
         await self._publish_command_audit_events(payload)
         status = str(payload.get("status") or "completed")
         failure_classification = payload.get("failure_classification")
@@ -251,6 +261,115 @@ def _classify_run_python_failure(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _experiment_narrative(
+    *,
+    execution_manifest: dict[str, Any],
+    reproducibility_manifest: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    status = str(payload.get("status") or "completed").strip() or "completed"
+    datasets = reproducibility_manifest.get("datasets")
+    datasets = datasets if isinstance(datasets, list) else []
+    artifacts = reproducibility_manifest.get("artifacts")
+    artifacts = artifacts if isinstance(artifacts, list) else []
+    dependencies = reproducibility_manifest.get("dependencies")
+    dependencies = dependencies if isinstance(dependencies, dict) else {}
+    command_audit = reproducibility_manifest.get("command_audit")
+    command_audit = command_audit if isinstance(command_audit, dict) else {}
+    narrative = {
+        "schema": "wenjin.harness.run_python.experiment_narrative.v1",
+        "status": status,
+        "script_path": _workspace_path(execution_manifest.get("script_path")),
+        "dataset_paths": [
+            path
+            for path in (_workspace_path(item.get("path")) for item in datasets if isinstance(item, dict))
+            if path
+        ][:20],
+        "artifact_paths": [
+            path
+            for path in (_workspace_path(item.get("path")) for item in artifacts if isinstance(item, dict))
+            if path
+        ][:20],
+        "dependency_names": _unique_strings(
+            [
+                *_dependency_hints(dependencies.get("requested")),
+                *_dependency_hints(dependencies.get("installed")),
+            ],
+            limit=50,
+        ),
+        "command_risk": {
+            "run": _safe_text(command_audit.get("run_risk_level"), limit=80),
+            "install": [
+                text
+                for text in (
+                    _safe_text(item, limit=80)
+                    for item in (command_audit.get("install_risk_levels") or [])
+                )
+                if text
+            ][:20],
+        },
+        "next_actions": _experiment_next_actions(
+            status=status,
+            has_artifacts=bool(artifacts),
+            has_failure=bool(payload.get("failure_classification")),
+        ),
+    }
+    return narrative
+
+
+def _experiment_next_actions(
+    *,
+    status: str,
+    has_artifacts: bool,
+    has_failure: bool,
+) -> list[str]:
+    if has_failure or status != "completed":
+        return [
+            "Revise the script at the same workspace path and retry once.",
+            "Reuse existing datasets, scripts, outputs, and reports instead of recreating the experiment.",
+        ]
+    actions = [
+        "Review generated artifacts before using them as workspace deliverables."
+        if has_artifacts
+        else "Record interpretation limits before using this run as evidence.",
+        "Reuse the same script path and dataset manifest for follow-up experiments.",
+    ]
+    return actions
+
+
+def _append_experiment_narrative_report(payload: dict[str, Any]) -> None:
+    narrative = payload.get("experiment_narrative")
+    if not isinstance(narrative, dict):
+        return
+    report = str(payload.get("report_markdown") or "").strip()
+    if "## Experiment narrative" in report:
+        return
+    section = _experiment_narrative_report(narrative)
+    payload["report_markdown"] = f"{report}\n\n{section}" if report else section
+
+
+def _experiment_narrative_report(narrative: dict[str, Any]) -> str:
+    lines = [
+        "## Experiment narrative",
+        "",
+        f"- Status: `{_safe_text(narrative.get('status'), limit=80) or 'unknown'}`",
+        f"- Script: `{_safe_text(narrative.get('script_path'), limit=200) or 'none'}`",
+        f"- Datasets: {_inline_code_list(_string_list(narrative.get('dataset_paths'), limit=20))}",
+        f"- Artifacts: {_inline_code_list(_string_list(narrative.get('artifact_paths'), limit=20))}",
+        f"- Dependencies: {_inline_code_list(_string_list(narrative.get('dependency_names'), limit=20))}",
+    ]
+    command_risk = narrative.get("command_risk")
+    command_risk = command_risk if isinstance(command_risk, dict) else {}
+    run_risk = _safe_text(command_risk.get("run"), limit=80) or "unknown"
+    install_risks = _string_list(command_risk.get("install"), limit=20)
+    lines.append(f"- Command risk: run `{run_risk}`, install {_inline_code_list(install_risks)}")
+    next_actions = _string_list(narrative.get("next_actions"), limit=5)
+    if next_actions:
+        lines.append("- Next actions:")
+        lines.extend(f"  - {action}" for action in next_actions)
+    return "\n".join(lines) + "\n"
+
+
 def _failure_error(raw: Any) -> str | None:
     if not isinstance(raw, dict):
         return None
@@ -324,6 +443,26 @@ def _string_list(raw: Any, *, limit: int) -> list[str]:
         if len(result) >= limit:
             break
     return result
+
+
+def _unique_strings(raw: Any, *, limit: int) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in _string_list(raw, limit=limit * 2):
+        if item in seen:
+            continue
+        result.append(item)
+        seen.add(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _inline_code_list(values: list[str]) -> str:
+    clean = [str(value).strip() for value in values if str(value).strip()]
+    if not clean:
+        return "`none`"
+    return ", ".join(f"`{value}`" for value in clean[:20])
 
 
 def _artifact_manifest(raw: Any) -> list[dict[str, Any]]:
