@@ -3830,6 +3830,20 @@ git diff --check: no output
 - forbidden/unknown tool -> stop with warning, no permission bypass.
 - repeated identical tool calls -> team-visible loop warning and eventual hard stop.
 
+**Audit result:**
+
+- Existing `build_harness_replan_signals_from_tool_calls()` maps `python_exit_nonzero` and `tool_input_validation` to one extra same-template correction, while `sandbox_queue_timeout`, `tool_forbidden`, and `tool_unknown` stop with warning and do not recruit.
+- Existing TeamKernel tests verify the same-member second iteration for Python nonzero and tool-input validation, and single-iteration stop behavior for queue timeout and forbidden tools.
+- Existing ReactSubagent harness tests verify repeated identical tool calls publish `execution.harness.loop_warning(team_visible)` and eventually hard stop at the loop guard boundary.
+- No code change was needed for Task 29; adding a second quality loop path would create drift.
+
+Observed verification:
+
+```text
+backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py plus ReactSubagent loop-guard tests: 8 passed
+ruff: All checks passed!
+```
+
 ### Task 30: External Reference Gap Audit
 
 **Goal:** compare the resulting Wenjin harness against Codex and deer-flow one more time, but only as a checklist of portable ideas.
