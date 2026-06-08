@@ -193,7 +193,7 @@ class SandboxJobRunner:
                 execution_id=execution_id,
                 job_id=str(job.id),
             ) as sandbox:
-                await _sync_dataset_manifest(
+                synced_dataset_provenance = await _sync_dataset_manifest(
                     sandbox=sandbox,
                     dataset_provenance=dataset_provenance,
                 )
@@ -249,6 +249,7 @@ class SandboxJobRunner:
             stdout_ref=stdout_budget.output_refs[0] if stdout_budget.output_refs else None,
             stderr_ref=stderr_budget.output_refs[0] if stderr_budget.output_refs else None,
             generated_artifacts=generated_artifacts,
+            dataset_provenance=synced_dataset_provenance,
         )
         if not script_state.result.success:
             output["status"] = "failed"
@@ -272,21 +273,32 @@ async def _sync_dataset_manifest(
     *,
     sandbox: Any,
     dataset_provenance: list[dict[str, Any]] | None,
-) -> None:
+) -> list[dict[str, Any]]:
     if not dataset_provenance:
-        return
+        return []
+    accepted_manifest = merge_dataset_provenance_manifest(
+        build_dataset_provenance_manifest(),
+        dataset_provenance,
+    )
+    accepted_entries = [
+        dict(item)
+        for item in accepted_manifest.get("datasets") or []
+        if isinstance(item, dict)
+    ]
+    if not accepted_entries:
+        return []
     try:
         existing_text = await sandbox.read_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH)
         existing = json.loads(existing_text)
     except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
         existing = build_dataset_provenance_manifest()
     merged = merge_dataset_provenance_manifest(existing, dataset_provenance)
-    if merged == existing:
-        return
-    await sandbox.write_file(
-        WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
-        json.dumps(merged, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
-    )
+    if merged != existing:
+        await sandbox.write_file(
+            WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+            json.dumps(merged, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+        )
+    return accepted_entries
 
 
 def _runtime_job_metadata(

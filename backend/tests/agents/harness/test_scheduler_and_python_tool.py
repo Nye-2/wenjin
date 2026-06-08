@@ -140,6 +140,48 @@ class _ReproducibleRunner:
         }
 
 
+class _DatasetProvenanceRunner:
+    async def run_python_script(self, **kwargs):
+        return {
+            "status": "completed",
+            "stdout": "{\"ok\": true}",
+            "stderr": "",
+            "parsed_stdout": {"ok": True},
+            "sandbox_environment_id": "env-1",
+            "sandbox_job_id": "job-1",
+            "script_name": kwargs["script_name"],
+            "script_path": f"/workspace/scripts/{kwargs['script_name']}",
+            "dependency_hints": [],
+            "installed_packages": [],
+            "generated_artifacts": [],
+            "dataset_provenance": [
+                {
+                    "path": "/workspace/datasets/raw/survey.csv",
+                    "source_id": "source-1",
+                    "title": "Survey data",
+                    "content_hash": "sha256:abc",
+                }
+            ],
+            "command_audit": {
+                "verdict": "pass",
+                "risk_level": "low",
+                "reasons": [],
+                "command": {
+                    "argv": [
+                        "/workspace/.wenjin/env/python/bin/python",
+                        "/workspace/scripts/analysis.py",
+                    ],
+                    "shell_command": None,
+                    "cwd": "/workspace",
+                    "env": {},
+                    "network_profile": "none",
+                    "timeout_seconds": 30,
+                    "output_bytes_cap": 20000,
+                },
+            },
+        }
+
+
 class _FailingRunner:
     async def run_python_script(self, **kwargs):
         raise SandboxCommandExecutionError(
@@ -362,6 +404,35 @@ async def test_run_python_returns_reproducibility_manifest() -> None:
             "install_risk_levels": ["low"],
         },
     }
+
+
+@pytest.mark.asyncio
+async def test_run_python_reproducibility_manifest_includes_dataset_provenance() -> None:
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+            max_sandbox_seconds=60,
+        ),
+        runner=_DatasetProvenanceRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(
+        script="print({'ok': True})",
+        script_name="analysis.py",
+    )
+
+    manifest = result.structured_payload["reproducibility_manifest"]
+    assert manifest["datasets"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_id": "source-1",
+            "title": "Survey data",
+            "content_hash": "sha256:abc",
+        }
+    ]
 
 
 @pytest.mark.asyncio

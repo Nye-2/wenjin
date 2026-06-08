@@ -8,7 +8,12 @@ from typing import Any
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.sandbox_job_runner import SandboxJobRunner
 from src.agents.lead_agent.v2.sandbox_script_executor import sanitize_script_name
-from src.sandbox.workspace_layout import is_workspace_internal_path, is_workspace_protected_path
+from src.sandbox.workspace_layout import (
+    build_dataset_provenance_manifest,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+    merge_dataset_provenance_manifest,
+)
 
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .events import publish_harness_event
@@ -185,7 +190,7 @@ def _reproducibility_manifest(
     execution_manifest: dict[str, Any],
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
+    manifest = {
         "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
         "tool": "sandbox.run_python",
         "workspace_id": context.workspace_id,
@@ -213,6 +218,10 @@ def _reproducibility_manifest(
             payload.get("install_command_audits"),
         ),
     }
+    datasets = _dataset_provenance_manifest(payload.get("dataset_provenance"))
+    if datasets:
+        manifest["datasets"] = datasets
+    return manifest
 
 
 def _classify_run_python_failure(payload: dict[str, Any]) -> dict[str, Any]:
@@ -247,6 +256,20 @@ def _failure_error(raw: Any) -> str | None:
     if isinstance(exit_code, int):
         return f"{failure_code}: exit_code={exit_code}"
     return failure_code
+
+
+def _dataset_provenance_manifest(raw_entries: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_entries, list):
+        return []
+    manifest = merge_dataset_provenance_manifest(
+        build_dataset_provenance_manifest(),
+        [dict(item) for item in raw_entries if isinstance(item, dict)],
+    )
+    return [
+        dict(item)
+        for item in manifest.get("datasets") or []
+        if isinstance(item, dict)
+    ][:20]
 
 
 def _dependency_hints(raw: Any) -> list[str]:

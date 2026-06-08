@@ -339,6 +339,53 @@ async def test_run_python_script_syncs_dataset_manifest_before_script_execution(
 
 
 @pytest.mark.asyncio
+async def test_run_python_script_reports_synced_dataset_provenance() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+        dataset_provenance=[
+            {
+                "path": "/workspace/datasets/raw/survey.csv",
+                "source_id": "source-1",
+                "title": "Survey data",
+                "content_hash": "sha256:abc",
+            },
+            {"path": "/workspace/outputs/result.csv", "source_id": "bad"},
+        ],
+    )
+
+    assert result["dataset_provenance"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_id": "source-1",
+            "title": "Survey data",
+            "content_hash": "sha256:abc",
+        }
+    ]
+    report = result["report_markdown"]
+    assert "## Dataset provenance" in report
+    assert "/workspace/datasets/manifest.json" in report
+    assert "/workspace/datasets/raw/survey.csv" in report
+    assert "source-1" in report
+    assert "/workspace/outputs/result.csv" not in report
+
+
+@pytest.mark.asyncio
 async def test_run_python_script_blocks_forbidden_command_policy_before_job(monkeypatch) -> None:
     provider = _FakeProvider(CommandResult(stdout="", stderr="", exit_code=0))
     manager = _FakeWorkspaceSandboxManager()

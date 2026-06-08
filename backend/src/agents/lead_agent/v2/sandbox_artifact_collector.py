@@ -7,6 +7,7 @@ from typing import Any
 
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import summarize_generated_artifacts
 from src.sandbox.base import CommandResult
+from src.sandbox.workspace_layout import WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH
 
 
 class SandboxArtifactCollector:
@@ -80,6 +81,7 @@ class SandboxArtifactCollector:
         stdout_ref: str | None = None,
         stderr_ref: str | None = None,
         generated_artifacts: list[dict[str, Any]] | None = None,
+        dataset_provenance: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         raw_stdout = result.stdout.strip()
         raw_stderr = result.stderr.strip()
@@ -88,6 +90,7 @@ class SandboxArtifactCollector:
         stderr = stderr_preview if stderr_preview is not None else raw_stderr
         output_refs = [ref for ref in (stdout_ref, stderr_ref) if ref]
         artifact_candidates = list(generated_artifacts or [])
+        dataset_entries = _dataset_provenance_entries(dataset_provenance)
         reproducibility_section = build_reproducibility_report_section(
             script_path=script_path,
             dependency_hints=dependency_hints,
@@ -118,6 +121,7 @@ class SandboxArtifactCollector:
             f"{stderr}\n"
             "```\n"
             f"{reproducibility_section}"
+            f"{summarize_dataset_provenance(dataset_entries)}"
             f"{summarize_generated_artifacts(artifact_candidates)}"
         )
         return {
@@ -145,6 +149,7 @@ class SandboxArtifactCollector:
             "script_name": safe_name,
             "script_hash": script_hash,
             "generated_artifacts": artifact_candidates,
+            "dataset_provenance": dataset_entries,
             "report_markdown": report_markdown,
         }
 
@@ -193,6 +198,32 @@ def build_reproducibility_report_section(
     return "\n".join(lines) + "\n"
 
 
+def summarize_dataset_provenance(datasets: list[dict[str, Any]]) -> str:
+    """Render bounded dataset provenance evidence for long-running experiments."""
+
+    if not datasets:
+        return ""
+    lines = [
+        "\n\n## Dataset provenance\n",
+        f"- Manifest: `{WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH}`",
+    ]
+    for item in datasets[:20]:
+        path = str(item.get("path") or "").strip()
+        if not path:
+            continue
+        title = str(item.get("title") or item.get("name") or "dataset").strip()
+        source_id = str(item.get("source_id") or "").strip()
+        hash_text = str(item.get("content_hash") or "").strip()
+        suffix_parts = []
+        if source_id:
+            suffix_parts.append(f"source `{source_id}`")
+        if hash_text:
+            suffix_parts.append(f"hash `{hash_text}`")
+        suffix = f" ({', '.join(suffix_parts)})" if suffix_parts else ""
+        lines.append(f"- `{path}` - {title}{suffix}")
+    return "\n".join(lines) + "\n"
+
+
 def build_dependency_install_failure_report(
     *,
     packages: list[str],
@@ -232,6 +263,12 @@ def _inline_code_list(values: list[str]) -> str:
     if not clean:
         return "`none`"
     return ", ".join(f"`{value}`" for value in clean[:20])
+
+
+def _dataset_provenance_entries(raw_entries: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not raw_entries:
+        return []
+    return [dict(item) for item in raw_entries if isinstance(item, dict)]
 
 
 def _audit_pair(audit: dict[str, Any]) -> str:

@@ -2419,6 +2419,75 @@ Observed:
 50 passed
 ```
 
+### Task 12B: Surface Dataset Provenance in Sandbox Experiment Evidence
+
+**Goal:** make long-running experiment handoffs show the dataset inputs that were synchronized into `/workspace/datasets/manifest.json`, without exposing raw manifest internals, host paths, secrets, or debug payloads.
+
+**Architecture:** reuse the existing runner payload, `report_markdown`, and `reproducibility_manifest` paths. Do not add a new report table, UI store, or sandbox reader.
+
+**Files:**
+- Modified: `backend/src/agents/lead_agent/v2/sandbox_job_runner.py`
+- Modified: `backend/src/agents/lead_agent/v2/sandbox_artifact_collector.py`
+- Modified: `backend/src/agents/harness/sandbox_execution_tools.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py`
+- Modified: `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
+- Modified: `docs/current/architecture.md`
+- Modified: `docs/current/native-harness-convergence-audit.md`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED tests for dataset evidence in reports/manifests**
+
+Added:
+
+- `test_run_python_script_reports_synced_dataset_provenance`
+- `test_run_python_reproducibility_manifest_includes_dataset_provenance`
+
+Observed RED:
+
+```text
+KeyError: 'dataset_provenance'
+KeyError: 'datasets'
+```
+
+- [x] **Step 2: Return safe synced dataset entries from the runner**
+
+`SandboxJobRunner._sync_dataset_manifest()` now returns the accepted safe runtime dataset rows after applying the same merge/filter rules used to update `/workspace/datasets/manifest.json`. Invalid output refs are filtered before the collector sees them.
+
+- [x] **Step 3: Add user-readable Dataset provenance report section**
+
+`SandboxArtifactCollector.script_output()` now preserves `dataset_provenance` in the runner payload and appends a bounded `## Dataset provenance` section with the dataset manifest path, accepted dataset paths, source ids, and content hashes.
+
+- [x] **Step 4: Carry datasets into reproducibility manifest**
+
+`SandboxExecutionTools._reproducibility_manifest()` now adds a bounded `datasets` field only when safe dataset provenance exists. Existing no-dataset manifests stay unchanged.
+
+- [x] **Step 5: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_scheduler_and_python_tool.py backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py backend/tests/sandbox/test_workspace_layout.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/sandbox_execution_tools.py backend/src/agents/lead_agent/v2/sandbox_job_runner.py backend/src/agents/lead_agent/v2/sandbox_artifact_collector.py backend/src/agents/lead_agent/v2/sandbox_runtime.py backend/src/sandbox/workspace_layout.py backend/tests/agents/harness/test_scheduler_and_python_tool.py backend/tests/agents/lead_agent/v2/test_sandbox_runtime.py backend/tests/sandbox/test_workspace_layout.py
+git diff --check
+```
+
+Observed:
+
+```text
+45 passed
+All checks passed!
+git diff --check: no output
+```
+
+The broader dataset/source-context verification also passed after this change:
+
+```text
+52 passed
+```
+
 ### Task 13: Claim Evidence Grounding Gate
 
 **Goal:** make TeamKernel evidence quality gates reject claim-evidence maps that describe evidence in prose but cannot be traced back to a workspace source or citation key.
