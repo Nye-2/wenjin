@@ -26,7 +26,7 @@ def test_normalizes_agent_template_tool_affinity_without_widening_business_tools
     assert agent_template_requires_harness_context(template) is True
 
 
-def test_validates_agent_template_rejects_legacy_sandbox_aliases() -> None:
+def test_validates_agent_template_rejects_retired_sandbox_aliases() -> None:
     errors = validate_agent_template_contract(
         {
             "id": "evidence_analyst.v1",
@@ -36,7 +36,7 @@ def test_validates_agent_template_rejects_legacy_sandbox_aliases() -> None:
     )
 
     assert errors == [
-        "evidence_analyst.v1: tool_affinity.preferred uses legacy harness tool "
+        "evidence_analyst.v1: tool_affinity.preferred uses retired harness tool "
         "'sandbox_python'; use 'sandbox.run_python'"
     ]
 

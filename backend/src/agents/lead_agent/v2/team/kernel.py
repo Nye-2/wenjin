@@ -24,6 +24,12 @@ from src.agents.harness.diff_tracker import (
     build_harness_replan_signals_from_tool_calls,
 )
 from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
+from src.agents.lead_agent.v2.sandbox_artifact_review import (
+    collect_sandbox_artifact_candidates,
+    sandbox_artifact_payload_for_candidate,
+    sandbox_review_item_projection,
+    workspace_asset_payload_for_candidate,
+)
 from src.dataservice_client.provider import dataservice_client
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
@@ -128,14 +134,25 @@ class TeamKernelRuntime:
                 *self._errors_from_invocations(invocations),
                 *self._errors_from_quality_gates(gates),
             ]
+            status = "failed_partial" if errors else "completed"
+            review_items = (
+                await self._stage_sandbox_artifact_review_items(
+                    invocations,
+                    brief=brief,
+                    execution_id=execution_id,
+                )
+                if status == "completed"
+                else []
+            )
             return TaskReport(
                 execution_id=execution_id,
                 capability_id=brief.capability_id,
-                status="failed_partial" if errors else "completed",
+                status=status,
                 duration_seconds=duration,
                 token_usage=self._aggregate_token_usage(invocations),
                 narrative=self._build_narrative(capability, invocations, gates),
                 outputs=outputs,
+                review_items=review_items,
                 errors=errors,
             )
         except TeamPolicyError as exc:
@@ -798,6 +815,55 @@ class TeamKernelRuntime:
                 if output is not None:
                     node_results[str(task["name"])] = {"output": output}
         return node_results
+
+    async def _stage_sandbox_artifact_review_items(
+        self,
+        invocations: list[AgentInvocation],
+        *,
+        brief: TaskBrief,
+        execution_id: str,
+    ) -> list[dict[str, Any]]:
+        """Register team harness sandbox artifacts through the existing review flow."""
+
+        candidates = collect_sandbox_artifact_candidates(
+            {
+                invocation.id: {"tool_calls": invocation.tool_calls}
+                for invocation in invocations
+            }
+        )
+        if not candidates:
+            return []
+        try:
+            async with dataservice_client() as client:
+                for candidate in candidates:
+                    asset = await client.register_asset(
+                        workspace_asset_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            candidate=candidate,
+                        )
+                    )
+                    await client.register_sandbox_artifact(
+                        sandbox_artifact_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            workspace_asset_id=str(asset.id),
+                            candidate=candidate,
+                        )
+                    )
+                items = await client.list_review_items(
+                    workspace_id=brief.workspace_id,
+                    execution_id=execution_id,
+                    target_domain="sandbox",
+                    target_kind="sandbox_artifact",
+                )
+                return [
+                    sandbox_review_item_projection(item, execution_id=execution_id)
+                    for item in items
+                ]
+        except Exception:
+            logger.warning("Failed to stage team sandbox artifact review items", exc_info=True)
+            return []
 
     def _output_for_graph_task(
         self,

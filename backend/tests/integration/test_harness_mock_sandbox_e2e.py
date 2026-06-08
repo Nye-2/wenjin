@@ -1,0 +1,387 @@
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
+import pytest
+
+from src.agents.contracts.task_brief import TaskBrief
+from src.agents.contracts.task_report import TaskReport
+from src.agents.harness.contracts import HarnessToolResult
+from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.dataservice_client.contracts.catalog import AgentTemplatePayload, CapabilitySkillPayload
+from src.subagents.v2.types.react import _resolve_tools
+
+
+def _capability() -> SimpleNamespace:
+    return SimpleNamespace(
+        id="sci_experiment_team",
+        workspace_type="sci",
+        display_name="科研实验团队",
+        runtime={"mode": "team_kernel", "allowed_tools": ["sandbox.run_python"]},
+        graph_template={},
+        definition_json={
+            "mission": {"primary_surface": "sandbox"},
+            "context_policy": {"room_reads": {"library": {"max_items": 3}}},
+            "sandbox_policy": {
+                "mode": "required",
+                "allowed_operations": ["run_python"],
+                "resource_limits": {"timeout_seconds": 60},
+            },
+            "quality_gates": ["harness_replan_signal"],
+            "team_policy": {
+                "core_templates": ["evidence_analyst.v1"],
+                "optional_templates": [],
+                "capability_tools": ["sandbox.run_python"],
+                "capability_skills": ["evidence-analyst"],
+                "quality_pipeline": ["harness_replan_signal"],
+                "limits": {
+                    "max_iterations": 1,
+                    "max_parallel_invocations": 1,
+                    "max_invocations_total": 1,
+                },
+            },
+        },
+    )
+
+
+def _brief() -> TaskBrief:
+    return TaskBrief(
+        capability_id="sci_experiment_team",
+        raw_message="验证一个 mock 实验并生成 result.json",
+        workspace_id="ws-e2e",
+        user_id="user-1",
+        brief={
+            "workspace_type": "sci",
+            "topic": "federated LLM experiment",
+        },
+    )
+
+
+class _MockCatalogAndReviewClient:
+    def __init__(self) -> None:
+        self.registered_assets: list[object] = []
+        self.registered_artifacts: list[object] = []
+
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        return [
+            AgentTemplatePayload(
+                id="evidence_analyst.v1",
+                display_role="实验分析工程师",
+                category="evidence",
+                description="Run reproducible sandbox analysis.",
+                persona_prompt="You are Wenjin's evidence analyst.",
+                default_skills=["evidence-analyst"],
+                tool_affinity={
+                    "preferred": ["sandbox.run_python"],
+                    "can_request": [],
+                },
+                risk_profile={
+                    "filesystem": "sandbox_only",
+                    "code_execution": "required",
+                    "room_write": "staged_only",
+                },
+            )
+        ]
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        return [
+            CapabilitySkillPayload(
+                id="evidence-analyst",
+                display_name="Evidence Analyst",
+                worker_type="evidence",
+                subagent_type="react",
+                prompt=(
+                    "Run the sandbox analysis and return JSON. "
+                    "Operating rules: use sandbox.run_python only."
+                ),
+                config={"output_kind": "json"},
+                skill_json={
+                    "schema_version": "capability_skill.v2",
+                    "id": "evidence-analyst",
+                    "sandbox_access": {"mode": "required", "profiles": ["analysis"]},
+                    "io_contract": {
+                        "output_schema": {
+                            "type": "object",
+                            "required": ["text", "quality_gates_checked"],
+                            "properties": {
+                                "text": {"type": "string"},
+                                "quality_gates_checked": {"type": "array"},
+                            },
+                        }
+                    },
+                    "quality_gates": ["harness_replan_signal"],
+                },
+            )
+        ]
+
+    async def register_asset(self, command):
+        self.registered_assets.append(command)
+        return SimpleNamespace(id="asset-1")
+
+    async def register_sandbox_artifact(self, command):
+        self.registered_artifacts.append(command)
+        return SimpleNamespace(id="artifact-1", review_item_id="review-1")
+
+    async def list_review_items(self, **kwargs):
+        if kwargs.get("target_domain") != "sandbox":
+            return []
+        return [
+            SimpleNamespace(
+                id="review-1",
+                batch_id="batch-1",
+                workspace_id="ws-e2e",
+                source_item_id="artifact-1",
+                item_kind="sandbox_artifact",
+                target_domain="sandbox",
+                target_kind="sandbox_artifact",
+                target_ref_json={
+                    "sandbox_artifact_id": "artifact-1",
+                    "workspace_asset_id": "asset-1",
+                },
+                status="pending",
+                title="Accept sandbox artifact: sandbox_output",
+                summary="/workspace/outputs/result.json",
+                payload_json={
+                    "sandbox_artifact_id": "artifact-1",
+                    "workspace_asset_id": "asset-1",
+                    "artifact_kind": "sandbox_output",
+                    "path": "/workspace/outputs/result.json",
+                },
+                preview_json={
+                    "path": "/workspace/outputs/result.json",
+                    "mime_type": "application/json",
+                    "content_hash": "sha256:result",
+                },
+                provenance_json={
+                    "source_kind": "sandbox_job",
+                    "source_id": "job-e2e-1",
+                    "execution_id": "exec-harness-e2e",
+                },
+                result_json=None,
+                error_text=None,
+                sort_order=0,
+                applied_at=None,
+                created_at=None,
+                updated_at=None,
+            )
+        ]
+
+
+class _ClientContext:
+    def __init__(self, client: _MockCatalogAndReviewClient) -> None:
+        self.client = client
+
+    async def __aenter__(self):
+        return self.client
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeypatch) -> None:
+    client = _MockCatalogAndReviewClient()
+    node_events: list[dict] = []
+    harness_events: list[tuple[str, str, dict]] = []
+    captured: dict[str, object] = {}
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    async def publish_event(execution_id: str, event_name: str, payload: dict):
+        harness_events.append((execution_id, event_name, payload))
+
+    async def load_workspace_data(self, workspace_id: str):
+        return {
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "old-exec",
+                        "summary": "old safe summary",
+                        "node_metadata": {
+                            "harness": {
+                                "sandbox_execution_summary": {
+                                    "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                                    "generated_artifact_count": 1,
+                                    "sandbox_job_ids": ["old-job"],
+                                },
+                                "file_change_summary": {
+                                    "changed_paths": ["/workspace/.env"],
+                                },
+                            }
+                        },
+                    }
+                ]
+            }
+        }
+
+    async def fake_react_loop(**kwargs):
+        user_payload = json.loads(kwargs["user_message"])
+        harness_context = kwargs["harness_context"]
+        context_bundle = user_payload["_harness_context"]
+        captured["context_bundle"] = context_bundle
+        assert context_bundle["schema"] == "wenjin.harness.context_bundle.v1"
+        assert context_bundle["sandbox"]["root"] == "/workspace"
+        assert "/workspace/scripts" in context_bundle["sandbox"]["standard_dirs"]
+        assert "/workspace/outputs" in context_bundle["sandbox"]["artifact_roots"]
+        assert ".env" not in json.dumps(context_bundle["recent_execution_evidence"])
+
+        [tool] = _resolve_tools(["sandbox.run_python"], harness_context)
+        result_text = await tool.ainvoke(
+            {
+                "script": (
+                    "import json\n"
+                    "from pathlib import Path\n"
+                    "Path('/workspace/outputs/result.json').write_text("
+                    "json.dumps({'metric': 0.91}))\n"
+                    "print(json.dumps({'ok': True, 'metric': 0.91}))\n"
+                ),
+                "script_name": "analysis.py",
+                "dependency_hints": [],
+            }
+        )
+        captured["tool_payload"] = json.loads(result_text)
+        return json.dumps(
+            {
+                "text": "experiment complete",
+                "quality_gates_checked": ["harness_replan_signal"],
+            },
+            ensure_ascii=False,
+        )
+
+    async def fake_run_python(self, **kwargs):
+        assert kwargs["script_name"] == "analysis.py"
+        assert "Path('/workspace/outputs/result.json')" in kwargs["script"]
+        return HarnessToolResult(
+            preview_text="Python execution completed: {'ok': True, 'metric': 0.91}",
+            structured_payload={
+                "status": "completed",
+                "operation": "python_script",
+                "script_name": "analysis.py",
+                "script_path": "/workspace/scripts/analysis.py",
+                "sandbox_job_id": "job-e2e-1",
+                "sandbox_environment_id": "env-e2e-1",
+                "parsed_stdout": {"ok": True, "metric": 0.91},
+                "generated_artifacts": [
+                    {
+                        "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
+                        "path": "/workspace/outputs/result.json",
+                        "root": "outputs",
+                        "artifact_kind": "sandbox_output",
+                        "mime_type": "application/json",
+                        "size": 16,
+                        "content_hash": "sha256:result",
+                        "review_surface": "sandbox_artifact",
+                        "materialization_status": "candidate",
+                    },
+                    {
+                        "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
+                        "path": "/workspace/outputs/harness/exec/tool/raw.txt",
+                        "root": "outputs",
+                        "artifact_kind": "sandbox_output",
+                        "mime_type": "text/plain",
+                        "size": 9,
+                        "content_hash": "sha256:internal",
+                        "review_surface": "sandbox_artifact",
+                        "materialization_status": "candidate",
+                    },
+                ],
+                "execution_manifest": {
+                    "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                    "tool": "sandbox.run_python",
+                    "workspace_id": "ws-e2e",
+                    "execution_id": "exec-harness-e2e",
+                    "node_id": "team.1.evidence_analyst_v1.1",
+                    "invocation_id": "team.1.evidence_analyst_v1.1",
+                    "script_name": "analysis.py",
+                    "script_path": "/workspace/scripts/analysis.py",
+                    "dependency_hints": [],
+                    "sandbox_job_id": "job-e2e-1",
+                    "sandbox_environment_id": "env-e2e-1",
+                    "network_profile": "none",
+                    "timeout_seconds": 30,
+                },
+            },
+        )
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: _ClientContext(client),
+    )
+    monkeypatch.setattr(LeadAgentRuntime, "_load_workspace_data", load_workspace_data)
+    monkeypatch.setattr("src.subagents.v2.types.react._run_react_loop", fake_react_loop)
+    monkeypatch.setattr(
+        "src.agents.harness.sandbox_execution_tools.SandboxExecutionTools.run_python",
+        fake_run_python,
+    )
+
+    runtime = LeadAgentRuntime(
+        resolver=AsyncMock(resolve=AsyncMock(return_value=_capability())),
+        publish_event=publish_event,
+        get_workspace_type=AsyncMock(return_value="sci"),
+        record_node_event=record_node_event,
+    )
+
+    report: TaskReport = await runtime.run_session(
+        execution_id="exec-harness-e2e",
+        brief=_brief(),
+    )
+
+    assert report.status == "completed"
+    assert client.registered_assets
+    assert client.registered_artifacts
+    assert report.review_items == [
+        {
+            "id": "review-1",
+            "kind": "sandbox_artifact",
+            "status": "pending",
+            "title": "Accept sandbox artifact: sandbox_output",
+            "summary": "/workspace/outputs/result.json",
+            "source": {
+                "type": "sandbox_job",
+                "execution_id": "exec-harness-e2e",
+                "job_id": "job-e2e-1",
+            },
+            "target": {
+                "kind": "sandbox_artifact",
+                "path": "/workspace/outputs/result.json",
+                "artifact_kind": "sandbox_output",
+                "asset_id": "asset-1",
+                "sandbox_artifact_id": "artifact-1",
+            },
+            "preview": {
+                "mode": "artifact",
+                "path": "/workspace/outputs/result.json",
+                "mime_type": "application/json",
+                "content_hash": "sha256:result",
+            },
+            "actions": [
+                {"action": "accept_sandbox_artifact", "label": "保存到产物库"},
+                {"action": "reject_sandbox_artifact", "label": "忽略"},
+            ],
+            "created_at": None,
+            "updated_at": None,
+            "applied_at": None,
+        }
+    ]
+    assert client.registered_assets[0].storage_path == "/workspace/outputs/result.json"
+    assert client.registered_artifacts[0].path == "/workspace/outputs/result.json"
+
+    completed_nodes = [
+        event
+        for event in node_events
+        if event["node_type"] == "agent_invocation" and event["status"] == "completed"
+    ]
+    assert completed_nodes
+    harness = completed_nodes[0]["node_metadata"]["harness"]
+    assert harness["sandbox_execution_summary"]["schema"] == (
+        "wenjin.harness.sandbox_execution_summary.v1"
+    )
+    assert harness["sandbox_execution_summary"]["python_runs"] == 1
+    assert harness["sandbox_execution_summary"]["sandbox_job_ids"] == ["job-e2e-1"]
+    assert harness["sandbox_execution_summary"]["sandbox_environment_ids"] == ["env-e2e-1"]
+    assert harness["sandbox_execution_summary"]["generated_artifact_count"] == 2
+    assert "/workspace/.env" not in json.dumps(completed_nodes[0], default=str)
+    assert any(event_name == "execution.harness.tool_call.completed" for _, event_name, _ in harness_events)

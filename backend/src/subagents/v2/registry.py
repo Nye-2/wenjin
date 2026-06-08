@@ -126,7 +126,7 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
             canonical = CANONICAL_TOOL_ALIASES.get(raw_tool, raw_tool)
             if raw_tool in CANONICAL_TOOL_ALIASES:
                 errors.append(
-                    f"{template_id}: tool_affinity.{field} uses legacy harness tool "
+                    f"{template_id}: tool_affinity.{field} uses retired harness tool "
                     f"'{raw_tool}'; use '{canonical}'"
                 )
             if canonical not in KNOWN_TEAM_TOOLS:

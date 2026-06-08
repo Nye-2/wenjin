@@ -697,7 +697,7 @@ Then run a browser smoke against Docker/local stack for:
 - open run details.
 - confirm debug details are collapsed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Commit message:
 
@@ -715,7 +715,7 @@ git commit -m "feat: simplify harness execution projection"
 - Modify only if needed: `backend/tests/fakes/*`
 - Docs: `docs/current/workspace-current-state.md`
 
-- [ ] **Step 1: Create a mock sandbox E2E test**
+- [x] **Step 1: Create a mock sandbox E2E test**
 
 The test should simulate:
 
@@ -727,7 +727,7 @@ The test should simulate:
 6. Generated `/workspace/outputs/result.json` is discovered as an artifact candidate.
 7. Node metadata contains file change summary, sandbox execution summary, and no protected/internal refs.
 
-- [ ] **Step 2: Run E2E and relevant backend tests**
+- [x] **Step 2: Run E2E and relevant backend tests**
 
 Run:
 
@@ -739,7 +739,7 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass.
 
-- [ ] **Step 3: Run full backend test suite before broader merge**
+- [x] **Step 3: Run full backend test suite before broader merge**
 
 Run:
 

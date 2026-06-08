@@ -144,6 +144,6 @@ async def test_agent_template_loader_rejects_invalid_harness_tool_contract(tmp_p
         dataservice=dataservice,
     )
 
-    with pytest.raises(ValueError, match="legacy harness tool 'sandbox_python'"):
+    with pytest.raises(ValueError, match="retired harness tool 'sandbox_python'"):
         await loader.load_seeds_if_empty()
     dataservice.load_agent_template_seed_items.assert_not_awaited()
