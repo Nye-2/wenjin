@@ -89,6 +89,43 @@ async def test_langchain_tool_downgrades_harness_exception_to_recoverable_result
     assert failed_events[-1][2]["payload"]["recoverable_error"] == payload["error"]
 
 
+@pytest.mark.asyncio
+async def test_langchain_tool_downgrades_input_validation_error_to_recoverable_result() -> None:
+    records: list[dict] = []
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+        await sandbox.write_file("/workspace/main/paper.txt", "abcdefghijkl\n")
+        [tool] = build_langchain_tools(
+            _ctx(sandbox, tool_records=records),
+            ["sandbox.read_file"],
+        )
+
+        raw = await tool.ainvoke(
+            {
+                "path": "/workspace/main/paper.txt",
+                "max_chars": 0,
+            }
+        )
+
+    payload = json.loads(raw)
+    assert payload["payload"]["error_code"] == "tool_input_validation"
+    assert payload["payload"]["exception_type"] == "ValidationError"
+    assert payload["payload"]["validation"]["errors"] == [
+        {
+            "loc": ["max_chars"],
+            "msg": "Input should be greater than or equal to 1",
+            "type": "greater_than_equal",
+        }
+    ]
+    assert "input_value" not in raw
+    assert records[-1]["status"] == "failed"
+    assert records[-1]["metadata"]["error_code"] == "tool_input_validation"
+    assert records[-1]["metadata"]["recoverable_error"] == payload["error"]
+
+
 def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classification() -> None:
     raw = json.dumps(
         {

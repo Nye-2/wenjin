@@ -30,23 +30,20 @@ Do not do this:
 
 ## Current Working Slice
 
-Current uncommitted slice is Task 22, the workspace sandbox search-noise pass:
+Current uncommitted slice is Task 23, the LangChain tool input validation recovery pass:
 
-- `backend/src/sandbox/workspace_layout.py`
-- `backend/src/agents/harness/context_assembly.py`
-- `backend/src/agents/harness/sandbox_tools.py`
-- `backend/tests/agents/harness/test_sandbox_file_tools.py`
-- `backend/tests/agents/harness/test_context_assembly.py`
+- `backend/src/agents/harness/langchain_adapter.py`
+- `backend/tests/agents/harness/test_langchain_adapter.py`
 - `docs/current/workspace-current-state.md`
 - `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
 - `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
 
-This slice makes the one-workspace sandbox search surface less noisy without changing the direct file-operation permission boundary:
+This slice closes a tool-call recovery gap borrowed from deer-flow's dangling/invalid tool-call handling:
 
-- `WORKSPACE_SEARCH_IGNORED_NAMES` centralizes generated/cache/dependency directory names in `workspace_layout.py`.
-- `sandbox.list_dir`, `sandbox.glob`, and `sandbox.grep` skip those names after path virtualization and before visibility checks.
-- Harness context exposes `search_ignored_names` under normal budgets so workers understand why generated/cache files are absent from search results.
-- Context-budget trimming now drops optional sandbox rules and search-ignore lists before dropping the user task.
+- Pydantic/LangChain input validation errors happen before `_invoke_recorded()`, so the old adapter path raised instead of returning a recoverable tool result.
+- `StructuredTool.handle_validation_error` now returns the same bounded JSON envelope shape as other harness tool errors.
+- Validation records store field/type/message summaries only; raw invalid payloads are not copied into debug records.
+- Failed validation attempts append `_harness_tool_records` so node-level failure summaries can observe them.
 
 ---
 
@@ -3321,6 +3318,77 @@ Observed:
 
 ```text
 84 passed
+All checks passed!
+```
+
+### Task 23: Recover from Tool Input Schema Validation Errors
+
+**Goal:** make malformed or out-of-range tool arguments recoverable at the harness boundary instead of letting LangChain/Pydantic validation abort the subagent turn before `_invoke_recorded()` can write tool records.
+
+**External reference:** deer-flow's dangling/invalid tool-call middleware converts bad provider/tool-call shapes into synthetic tool errors so the next model step remains well-formed and the agent can continue. Wenjin should not copy that middleware stack, but it should adopt the same invariant: invalid tool input becomes bounded recovery context, not a runtime crash.
+
+**Architecture:** use LangChain's `StructuredTool.handle_validation_error` hook at the adapter edge. The hook returns the same JSON envelope shape as other harness recoverable errors, sets `error_code=tool_input_validation`, records only safe validation summary fields (`loc`, `msg`, `type`, count), and appends a failed `_harness_tool_records` entry. Do not run the actual tool, do not publish a fake file-change/artifact event, and do not echo raw invalid payloads.
+
+**Files:**
+- Modified: `backend/src/agents/harness/langchain_adapter.py`
+- Modified: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Confirm the current failure mode**
+
+Manual probe invoking `sandbox.read_file` with `max_chars=0` showed:
+
+```text
+RAISED ValidationError ... max_chars Input should be greater than or equal to 1
+RECORDS []
+```
+
+This proved the failure happened before `_invoke_recorded()` and no harness record was written.
+
+- [x] **Step 2: Add RED regression test**
+
+Added `test_langchain_tool_downgrades_input_validation_error_to_recoverable_result`, asserting:
+
+```python
+raw = await tool.ainvoke({"path": "/workspace/main/paper.txt", "max_chars": 0})
+payload = json.loads(raw)
+assert payload["payload"]["error_code"] == "tool_input_validation"
+assert payload["payload"]["validation"]["errors"] == [
+    {"loc": ["max_chars"], "msg": "Input should be greater than or equal to 1", "type": "greater_than_equal"}
+]
+assert "input_value" not in raw
+assert records[-1]["status"] == "failed"
+```
+
+Observed RED:
+
+```text
+pydantic_core._pydantic_core.ValidationError: 1 validation error for ReadFileInput
+RECORDS []
+```
+
+- [x] **Step 3: Implement validation recovery at the adapter edge**
+
+`_structured_tool()` now passes a closure from `_validation_error_handler(canonical_name, ctx)` into `StructuredTool.from_function(..., handle_validation_error=...)`. The handler returns a bounded JSON tool result, extracts metadata through `_tool_result_metadata()`, and appends a failed `_harness_tool_records` entry with validation summary only.
+
+- [x] **Step 4: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py::test_langchain_tool_downgrades_input_validation_error_to_recoverable_result -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/harness/test_sandbox_file_tools.py backend/tests/agents/harness/test_context_assembly.py backend/tests/unit/subagents/test_react.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/langchain_adapter.py backend/tests/agents/harness/test_langchain_adapter.py
+```
+
+Observed:
+
+```text
+1 passed
+77 passed
 All checks passed!
 ```
 

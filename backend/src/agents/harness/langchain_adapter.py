@@ -123,17 +123,25 @@ def build_langchain_tools(ctx: SubagentContext, tool_names: list[str]) -> list[S
                 spec.description,
                 args_schema,
                 _recorded_coroutine(spec.name, harness_ctx, policy, handler),
+                harness_ctx,
             )
         )
     return tools
 
 
-def _structured_tool(canonical_name: str, description: str, args_schema: type[BaseModel], coroutine):
+def _structured_tool(
+    canonical_name: str,
+    description: str,
+    args_schema: type[BaseModel],
+    coroutine,
+    ctx: HarnessRunContext,
+):
     return StructuredTool.from_function(
         coroutine=coroutine,
         name=_langchain_tool_name(canonical_name),
         description=f"{description} Canonical tool: {canonical_name}.",
         args_schema=args_schema,
+        handle_validation_error=_validation_error_handler(canonical_name, ctx),
     )
 
 
@@ -407,6 +415,82 @@ def _format_tool_error_result(canonical_name: str, args_summary: dict[str, Any],
         "error": error,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _validation_error_handler(canonical_name: str, ctx: HarnessRunContext) -> Callable[[Exception], str]:
+    def _handle(exc: Exception) -> str:
+        result = _format_tool_validation_error_result(canonical_name, exc)
+        metadata = _tool_result_metadata(result)
+        records = ctx.context_bundle.get("_harness_tool_records")
+        if isinstance(records, list):
+            records.append(
+                {
+                    "name": canonical_name,
+                    "status": "failed",
+                    "args": {"validation": _validation_error_summary(exc)},
+                    "result_preview": result[:500],
+                    "error": metadata.get("recoverable_error") or _format_exception_error(exc),
+                    "metadata": metadata,
+                }
+            )
+        return result
+
+    return _handle
+
+
+def _format_tool_validation_error_result(canonical_name: str, exc: Exception) -> str:
+    validation = _validation_error_summary(exc)
+    error = f"{exc.__class__.__name__}: tool input validation failed"
+    payload = {
+        "preview": f"Tool {canonical_name} input validation failed.",
+        "payload": {
+            "tool": canonical_name,
+            "error_code": "tool_input_validation",
+            "exception_type": exc.__class__.__name__,
+            "validation": validation,
+            "recoverable": True,
+        },
+        "truncated": False,
+        "externalized": False,
+        "output_refs": [],
+        "error": error,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _validation_error_summary(exc: Exception) -> dict[str, Any]:
+    raw_errors = []
+    errors_method = getattr(exc, "errors", None)
+    if callable(errors_method):
+        with suppress(Exception):
+            raw_errors = errors_method()
+    if not isinstance(raw_errors, list):
+        raw_errors = []
+
+    errors: list[dict[str, Any]] = []
+    for item in raw_errors[:5]:
+        if not isinstance(item, dict):
+            continue
+        loc = item.get("loc")
+        if isinstance(loc, tuple):
+            safe_loc = [str(part) for part in loc]
+        elif isinstance(loc, list):
+            safe_loc = [str(part) for part in loc]
+        elif loc is None:
+            safe_loc = []
+        else:
+            safe_loc = [str(loc)]
+        errors.append(
+            {
+                "loc": safe_loc,
+                "msg": str(item.get("msg") or "Invalid tool input"),
+                "type": str(item.get("type") or "validation_error"),
+            }
+        )
+    return {
+        "error_count": len(raw_errors) if raw_errors else 1,
+        "errors": errors,
+    }
 
 
 def _format_exception_error(exc: Exception) -> str:
