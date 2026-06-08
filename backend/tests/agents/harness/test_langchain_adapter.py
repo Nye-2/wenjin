@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agents.harness.langchain_adapter import build_langchain_tools
+from src.agents.harness.langchain_adapter import _tool_result_metadata, build_langchain_tools
 from src.sandbox.providers.local import LocalSandbox
 from src.subagents.v2.base import SubagentContext
 
@@ -85,3 +85,40 @@ async def test_langchain_tool_downgrades_harness_exception_to_recoverable_result
     failed_events = [event for event in events if event[1] == "execution.harness.tool_call.failed"]
     assert failed_events
     assert failed_events[-1][2]["payload"]["recoverable_error"] == payload["error"]
+
+
+def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classification() -> None:
+    raw = json.dumps(
+        {
+            "preview": "Python execution failed: python_exit_nonzero: exit_code=2",
+            "payload": {
+                "status": "failed",
+                "error_code": "python_exit_nonzero",
+                "execution_manifest": {
+                    "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                    "tool": "sandbox.run_python",
+                    "script_name": "analysis.py",
+                },
+                "failure_classification": {
+                    "schema": "wenjin.harness.run_python.failure_classification.v1",
+                    "category": "user_code",
+                    "reason": "nonzero_exit",
+                    "failure_code": "python_exit_nonzero",
+                    "exit_code": 2,
+                    "recoverable": True,
+                },
+            },
+            "truncated": False,
+            "externalized": False,
+            "output_refs": [],
+            "error": "python_exit_nonzero: exit_code=2",
+        },
+        ensure_ascii=False,
+    )
+
+    metadata = _tool_result_metadata(raw)
+
+    assert metadata["recoverable_error"] == "python_exit_nonzero: exit_code=2"
+    assert metadata["error_code"] == "python_exit_nonzero"
+    assert metadata["execution_manifest"]["tool"] == "sandbox.run_python"
+    assert metadata["failure_classification"]["failure_code"] == "python_exit_nonzero"

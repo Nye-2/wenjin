@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.sandbox_job_runner import SandboxJobRunner
 from src.agents.lead_agent.v2.sandbox_script_executor import sanitize_script_name
 
@@ -48,18 +49,37 @@ class SandboxExecutionTools:
                 billing_reservation_id=billing_reservation_id,
             )
 
-        payload = await self.scheduler.run(
-            self.context.workspace_id,
-            _run,
-            timeout_seconds=min(self.policy.max_sandbox_seconds, 30),
+        timeout_seconds = min(self.policy.max_sandbox_seconds, 30)
+        try:
+            payload = await self.scheduler.run(
+                self.context.workspace_id,
+                _run,
+                timeout_seconds=timeout_seconds,
+            )
+        except SandboxCommandExecutionError as exc:
+            payload = dict(exc.output)
+            payload.setdefault("status", "failed")
+            payload["failure_classification"] = _classify_run_python_failure(payload)
+            payload["error_code"] = payload["failure_classification"]["failure_code"]
+        payload["execution_manifest"] = _execution_manifest(
+            context=self.context,
+            sandbox_policy=self._sandbox_policy(),
+            script_name=safe_script_name,
+            dependency_hints=dependency_hints,
+            payload=payload,
+            timeout_seconds=timeout_seconds,
         )
         await self._publish_command_audit_events(payload)
         status = str(payload.get("status") or "completed")
+        failure_classification = payload.get("failure_classification")
+        error = _failure_error(failure_classification)
         preview = f"Python execution {status}"
+        if error:
+            preview = f"{preview}: {error}"
         parsed = payload.get("parsed_stdout")
         if parsed:
             preview = f"{preview}: {str(parsed)[:500]}"
-        elif payload.get("stdout"):
+        elif payload.get("stdout") and not error:
             preview = f"{preview}: {str(payload['stdout'])[:500]}"
         output_refs = tuple(str(ref) for ref in payload.get("output_refs") or () if str(ref).strip())
         externalized = bool(output_refs or payload.get("stdout_externalized") or payload.get("stderr_externalized"))
@@ -69,6 +89,7 @@ class SandboxExecutionTools:
             output_refs=output_refs,
             truncated=externalized,
             externalized=externalized,
+            error=error,
         )
 
     async def _publish_command_audit_events(self, payload: dict[str, Any]) -> None:
@@ -113,3 +134,89 @@ class SandboxExecutionTools:
             policy["allow_package_install"] = True
         policy.setdefault("allowed_operations", ["run_python"])
         return policy
+
+
+def _execution_manifest(
+    *,
+    context: HarnessRunContext,
+    sandbox_policy: dict[str, Any],
+    script_name: str,
+    dependency_hints: list[str] | str | None,
+    payload: dict[str, Any],
+    timeout_seconds: int,
+) -> dict[str, Any]:
+    return {
+        "schema": "wenjin.harness.run_python.execution_manifest.v1",
+        "tool": "sandbox.run_python",
+        "workspace_id": context.workspace_id,
+        "execution_id": context.execution_id,
+        "node_id": context.node_id,
+        "invocation_id": context.invocation_id,
+        "script_name": str(payload.get("script_name") or script_name),
+        "script_path": str(payload.get("script_path") or f"/workspace/scripts/{script_name}"),
+        "dependency_hints": _dependency_hints(payload.get("dependency_hints", dependency_hints)),
+        "sandbox_job_id": str(payload.get("sandbox_job_id") or ""),
+        "sandbox_environment_id": str(payload.get("sandbox_environment_id") or ""),
+        "network_profile": str(sandbox_policy.get("network_profile") or "none"),
+        "timeout_seconds": timeout_seconds,
+    }
+
+
+def _classify_run_python_failure(payload: dict[str, Any]) -> dict[str, Any]:
+    exit_code = _int_or_none(payload.get("exit_code"))
+    stderr = str(payload.get("stderr") or "").strip()
+    if exit_code is not None and exit_code != 0:
+        return {
+            "schema": "wenjin.harness.run_python.failure_classification.v1",
+            "category": "user_code",
+            "reason": "nonzero_exit",
+            "failure_code": "python_exit_nonzero",
+            "exit_code": exit_code,
+            "stderr_preview": _compact_text(stderr),
+            "recoverable": True,
+        }
+    return {
+        "schema": "wenjin.harness.run_python.failure_classification.v1",
+        "category": "sandbox_runtime",
+        "reason": "runner_exception",
+        "failure_code": "sandbox_job_failed",
+        "exit_code": exit_code,
+        "stderr_preview": _compact_text(stderr),
+        "recoverable": False,
+    }
+
+
+def _failure_error(raw: Any) -> str | None:
+    if not isinstance(raw, dict):
+        return None
+    failure_code = str(raw.get("failure_code") or "sandbox_job_failed").strip()
+    exit_code = raw.get("exit_code")
+    if isinstance(exit_code, int):
+        return f"{failure_code}: exit_code={exit_code}"
+    return failure_code
+
+
+def _dependency_hints(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, list | tuple | set):
+        values = list(raw)
+    else:
+        values = []
+    return [str(item).strip() for item in values if str(item).strip()]
+
+
+def _compact_text(text: str) -> str:
+    value = str(text or "").strip()
+    return value if len(value) <= 500 else f"{value[:497]}..."
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

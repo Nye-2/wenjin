@@ -7,6 +7,7 @@ import pytest
 from src.agents.harness.contracts import HarnessPolicy, HarnessRunContext
 from src.agents.harness.sandbox_execution_tools import SandboxExecutionTools
 from src.agents.harness.scheduler import WorkspaceToolQueueTimeout, WorkspaceToolScheduler
+from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 
 
 def _ctx(publish_event=None) -> HarnessRunContext:
@@ -71,6 +72,28 @@ class _AuditedRunner:
                 },
             },
         }
+
+
+class _FailingRunner:
+    async def run_python_script(self, **kwargs):
+        raise SandboxCommandExecutionError(
+            "Docker sandbox Python script failed (exit_code=2, stderr=boom)",
+            output={
+                "status": "failed",
+                "operation": "python_script",
+                "stdout": "",
+                "stderr": "boom",
+                "parsed_stdout": {},
+                "exit_code": 2,
+                "sandbox_environment_id": "env-1",
+                "sandbox_job_id": "job-1",
+                "script_name": kwargs["script_name"],
+                "script_path": f"/workspace/scripts/{kwargs['script_name']}",
+                "dependency_hints": ["pandas"],
+                "retry_count": 0,
+                "output_refs": [],
+            },
+        )
 
 
 @pytest.mark.asyncio
@@ -144,6 +167,38 @@ async def test_run_python_uses_existing_sandbox_job_runner_through_scheduler() -
 
 
 @pytest.mark.asyncio
+async def test_run_python_returns_execution_manifest() -> None:
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+            max_sandbox_seconds=45,
+        ),
+        runner=_FakeRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(
+        script="print({'ok': True})",
+        script_name="../../bad script",
+        dependency_hints=["pandas"],
+    )
+
+    manifest = result.structured_payload["execution_manifest"]
+    assert manifest["schema"] == "wenjin.harness.run_python.execution_manifest.v1"
+    assert manifest["tool"] == "sandbox.run_python"
+    assert manifest["workspace_id"] == "ws-1"
+    assert manifest["execution_id"] == "exec-1"
+    assert manifest["node_id"] == "node-1"
+    assert manifest["script_name"] == ".._.._bad_script.py"
+    assert manifest["script_path"] == "/workspace/scripts/.._.._bad_script.py"
+    assert manifest["dependency_hints"] == ["pandas"]
+    assert manifest["network_profile"] == "none"
+    assert manifest["timeout_seconds"] == 30
+
+
+@pytest.mark.asyncio
 async def test_run_python_sanitizes_script_name_before_runner_boundary() -> None:
     runner = _FakeRunner()
     tool = SandboxExecutionTools(
@@ -160,6 +215,40 @@ async def test_run_python_sanitizes_script_name_before_runner_boundary() -> None
 
     [call] = runner.calls
     assert call["script_name"] == ".._.._bad_script.py"
+
+
+@pytest.mark.asyncio
+async def test_run_python_downgrades_user_code_failure_with_classification() -> None:
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+        ),
+        runner=_FailingRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(
+        script="raise SystemExit(2)",
+        script_name="analysis.py",
+        dependency_hints=["pandas"],
+    )
+
+    assert result.structured_payload["status"] == "failed"
+    assert result.structured_payload["exit_code"] == 2
+    assert result.error == "python_exit_nonzero: exit_code=2"
+    classification = result.structured_payload["failure_classification"]
+    assert classification == {
+        "schema": "wenjin.harness.run_python.failure_classification.v1",
+        "category": "user_code",
+        "reason": "nonzero_exit",
+        "failure_code": "python_exit_nonzero",
+        "exit_code": 2,
+        "stderr_preview": "boom",
+        "recoverable": True,
+    }
+    assert result.structured_payload["execution_manifest"]["script_path"] == "/workspace/scripts/analysis.py"
 
 
 @pytest.mark.asyncio

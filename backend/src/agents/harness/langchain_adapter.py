@@ -449,6 +449,9 @@ def _tool_result_metadata(result: str) -> dict[str, Any]:
     command_audit = _command_audit_metadata(payload)
     if command_audit:
         metadata.update(command_audit)
+    run_python_metadata = _run_python_metadata(payload)
+    if run_python_metadata:
+        metadata.update(run_python_metadata)
     file_changes = _file_change_metadata(payload)
     if file_changes:
         metadata["file_changes"] = file_changes
@@ -468,6 +471,20 @@ def _command_audit_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         audits = [dict(item) for item in install_command_audits if isinstance(item, dict)]
         if audits:
             metadata["install_command_audits"] = audits
+    return metadata
+
+
+def _run_python_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    structured_payload = payload.get("payload")
+    if not isinstance(structured_payload, dict):
+        return {}
+    metadata: dict[str, Any] = {}
+    execution_manifest = structured_payload.get("execution_manifest")
+    if isinstance(execution_manifest, dict):
+        metadata["execution_manifest"] = dict(execution_manifest)
+    failure_classification = structured_payload.get("failure_classification")
+    if isinstance(failure_classification, dict):
+        metadata["failure_classification"] = dict(failure_classification)
     return metadata
 
 
