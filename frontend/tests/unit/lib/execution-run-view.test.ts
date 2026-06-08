@@ -223,16 +223,78 @@ describe("execution run view projection", () => {
     });
   });
 
+  it("deduplicates repeated quality gate events into the current team view", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [],
+          edges: [],
+        } as ExecutionRecord["graph_structure"],
+        runtime_state: {
+          quality_gates: [
+            {
+              gate_id: "citation_ready",
+              status: "pass",
+              severity: "low",
+            },
+            {
+              gate_id: "citation_ready",
+              status: "warning",
+              severity: "medium",
+              next_action: "补齐引用元数据",
+            },
+            {
+              gate_id: "evidence_traceability",
+              status: "warning",
+              severity: "medium",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(view.team?.qualityGates).toEqual([
+      {
+        id: "citation_ready",
+        status: "warning",
+        severity: "medium",
+        nextAction: "补齐引用元数据",
+      },
+      {
+        id: "evidence_traceability",
+        status: "warning",
+        severity: "medium",
+        nextAction: null,
+      },
+    ]);
+  });
+
   it("projects team harness activity without exposing raw tool payload by default", () => {
     const record = makeExecution({
       graph_structure: {
         mode: "team_kernel",
         nodes: [
           {
-            id: "team.1.evidence_analyst_v1.1",
-            type: "agent_invocation",
-            phase: "analysis",
-            task: "evidence_analyst",
+            id: "team_prepare",
+            type: "control",
+            phase: "team_kernel",
+            task: "prepare_context",
+            label: "准备上下文",
+          },
+          {
+            id: "team_recruit",
+            type: "control",
+            phase: "team_kernel",
+            task: "recruit_members",
+            label: "组建团队",
+          },
+          {
+            id: "team_dispatch",
+            type: "team",
+            phase: "team_kernel",
+            task: "dispatch_invocations",
+            label: "成员执行",
           },
         ],
         edges: [],
@@ -289,7 +351,7 @@ describe("execution run view projection", () => {
     expect(view.team?.members[0]?.activityLabel).toBe("实验分析工程师完成实验并生成 1 个产物");
     expect(view.team?.members[0]?.artifactCount).toBe(1);
     expect(view.team?.members[0]?.debugToolCount).toBe(1);
-    expect(progressItems[0]?.detail).toBe("实验分析工程师完成实验并生成 1 个产物");
+    expect(progressItems.find((item) => item.id === "team_dispatch")?.detail).toBe("1/1 个成员完成");
     expect(JSON.stringify(view.team?.members[0])).not.toContain("raw output");
     expect(JSON.stringify(progressItems[0])).not.toContain("raw script");
   });
@@ -326,6 +388,116 @@ describe("execution run view projection", () => {
     });
     expect(progressItems[0].title).not.toContain("literature_synthesizer");
     expect(progressItems[0].phaseTitle).not.toBe("synthesis");
+  });
+
+  it("derives team kernel progress from real team work instead of template placeholders", () => {
+    const record = makeExecution({
+      status: "failed_partial",
+      progress: 80,
+      graph_structure: {
+        mode: "team_kernel",
+        nodes: [
+          {
+            id: "team_prepare",
+            type: "control",
+            phase: "team_kernel",
+            task: "prepare_context",
+            label: "准备上下文",
+          },
+          {
+            id: "team_recruit",
+            type: "control",
+            phase: "team_kernel",
+            task: "recruit_members",
+            label: "组建团队",
+          },
+          {
+            id: "team_dispatch",
+            type: "team",
+            phase: "team_kernel",
+            task: "dispatch_invocations",
+            label: "成员执行",
+          },
+          {
+            id: "team_quality_gate",
+            type: "quality_gate",
+            phase: "team_kernel",
+            task: "quality_gate",
+            label: "质量闭环",
+          },
+          {
+            id: "team_finish",
+            type: "control",
+            phase: "team_kernel",
+            task: "finish",
+            label: "整理结果",
+          },
+          {
+            id: "team_template_1",
+            type: "agent_template",
+            phase: "team_members",
+            task: "literature_synthesizer.v1",
+            label: "literature_synthesizer.v1",
+          },
+        ],
+        edges: [],
+      } as ExecutionRecord["graph_structure"],
+      node_states: {
+        "research_scout.v1__1": {
+          status: "completed",
+          node_type: "agent_invocation",
+          node_metadata: {
+            team: true,
+            template_id: "research_scout.v1",
+            display_name: "文献检索员",
+          },
+        },
+        "literature_synthesizer.v1__1": {
+          status: "failed",
+          node_type: "agent_invocation",
+          node_metadata: {
+            team: true,
+            template_id: "literature_synthesizer.v1",
+            display_name: "文献综合专家",
+          },
+        },
+      } as ExecutionRecord["node_states"],
+      runtime_state: {
+        quality_gates: [
+          {
+            gate_id: "citation_ready",
+            status: "warning",
+            severity: "medium",
+          },
+        ],
+      },
+      result: {
+        task_report: {
+          review_items: [{ id: "result-1", kind: "document", title: "文献定位与创新点.md" }],
+        },
+      },
+    });
+
+    const progressItems = buildRunProgressItems(record);
+    const view = runViewFromExecution(record);
+
+    expect(progressItems.map((item) => item.id)).toEqual([
+      "team_prepare",
+      "team_recruit",
+      "team_dispatch",
+      "team_quality_gate",
+      "team_finish",
+    ]);
+    expect(progressItems.map((item) => item.title)).not.toContain("工作步骤");
+    expect(progressItems.map((item) => item.status)).toEqual([
+      "completed",
+      "completed",
+      "failed_partial",
+      "failed_partial",
+      "completed",
+    ]);
+    expect(view.nodeCount).toBe(5);
+    expect(view.completedNodeCount).toBe(3);
   });
 
   it("uses user-facing team names when metadata only has a template id", () => {

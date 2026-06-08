@@ -1026,10 +1026,6 @@ class LeadAgentRuntime:
 
     def _to_team_panel_graph(self, cap: Any) -> dict[str, Any]:
         """Return the stable team-kernel graph projection for the panel."""
-        definition = getattr(cap, "definition_json", None)
-        if not isinstance(definition, dict):
-            definition = {}
-        policy = definition.get("team_policy") if isinstance(definition.get("team_policy"), dict) else {}
         nodes: list[dict[str, Any]] = [
             {
                 "id": "team_prepare",
@@ -1067,18 +1063,6 @@ class LeadAgentRuntime:
                 "label": "整理结果",
             },
         ]
-        core_templates = list(policy.get("core_templates") or [])
-        for index, template_id in enumerate(core_templates):
-            nodes.append(
-                {
-                    "id": f"team_template_{index + 1}",
-                    "phase": "team_members",
-                    "task": template_id,
-                    "subagent_type": "agent_template",
-                    "label": template_id,
-                    "team": {"template_id": template_id, "core": True},
-                }
-            )
         edges = [
             {"from": "team_prepare", "to": "team_recruit"},
             {"from": "team_recruit", "to": "team_dispatch"},

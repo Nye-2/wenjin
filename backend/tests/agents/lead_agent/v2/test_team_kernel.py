@@ -225,6 +225,26 @@ def _brief() -> TaskBrief:
     )
 
 
+def test_team_panel_graph_keeps_member_templates_out_of_progress_steps() -> None:
+    runtime = LeadAgentRuntime(
+        resolver=AsyncMock(),
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    graph = runtime._to_team_panel_graph(_team_capability())
+
+    assert graph["mode"] == "team_kernel"
+    assert [node["id"] for node in graph["nodes"]] == [
+        "team_prepare",
+        "team_recruit",
+        "team_dispatch",
+        "team_quality_gate",
+        "team_finish",
+    ]
+    assert all(node["subagent_type"] != "agent_template" for node in graph["nodes"])
+
+
 class FakeTeamCatalogClient:
     async def __aenter__(self):
         return self

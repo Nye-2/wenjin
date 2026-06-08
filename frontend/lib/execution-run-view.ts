@@ -102,6 +102,14 @@ type TaskReportProjection = Record<string, unknown> & {
   review_items?: unknown[];
 };
 
+const TEAM_KERNEL_PROGRESS_ORDER = [
+  "team_prepare",
+  "team_recruit",
+  "team_dispatch",
+  "team_quality_gate",
+  "team_finish",
+] as const;
+
 export function isTerminalRunStatus(status: RunViewStatus | string): boolean {
   return ["completed", "failed_partial", "failed", "cancelled"].includes(status);
 }
@@ -119,10 +127,14 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   );
   const status = normalizeExecutionStatus(record.status);
   const failedNodeCount = countNodesByStatus(record, "failed");
-  const completedNodeCount = countNodesByStatus(record, "completed");
-  const nodeCount =
-    record.graph_structure?.nodes.length ??
-    Object.keys(record.node_states ?? {}).length;
+  const progressItems = buildRunProgressItems(record);
+  const completedNodeCount = progressItems.length
+    ? countProgressItemsByStatus(progressItems, "completed")
+    : countNodesByStatus(record, "completed");
+  const nodeCount = progressItems.length
+    ? progressItems.length
+    : (record.graph_structure?.nodes.length ??
+      Object.keys(record.node_states ?? {}).length);
   const failureMessage =
     record.last_error ??
     record.error ??
@@ -172,6 +184,9 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
 
 export function buildRunProgressItems(record: ExecutionRecord): RunProgressItem[] {
   const nodes = record.graph_structure?.nodes ?? [];
+  if (record.graph_structure?.mode === "team_kernel") {
+    return buildTeamKernelProgressItems(record, nodes);
+  }
   if (nodes.length === 0) {
     return Object.entries(record.node_states ?? {}).map(([id, state]) =>
       runProgressItemFromNode(
@@ -534,21 +549,25 @@ function teamQualityGatesFromRuntimeState(
 ): RunViewQualityGate[] {
   const direct = arrayValue(runtimeState?.quality_gates);
   const nested = arrayValue(objectValue(runtimeState?.team)?.quality_gates);
-  const qualityGates: RunViewQualityGate[] = [];
+  const orderedIds: string[] = [];
+  const byId = new Map<string, RunViewQualityGate>();
   for (const rawGate of [...direct, ...nested]) {
     const gate = objectValue(rawGate);
     if (!gate) continue;
     const id = stringValue(gate.gate_id) ?? stringValue(gate.id);
     if (!id) continue;
     const severity = normalizeQualityGateSeverity(gate.severity);
-    qualityGates.push({
+    if (!byId.has(id)) orderedIds.push(id);
+    byId.set(id, {
       id,
       status: normalizeQualityGateStatus(gate.status),
       ...(severity ? { severity } : {}),
       nextAction: stringValue(gate.next_action) ?? stringValue(gate.nextAction),
     });
   }
-  return qualityGates;
+  return orderedIds
+    .map((id) => byId.get(id))
+    .filter((gate): gate is RunViewQualityGate => Boolean(gate));
 }
 
 function normalizeQualityGateStatus(value: unknown): RunViewQualityGate["status"] {
@@ -639,6 +658,133 @@ function runProgressItemFromNode(
     hasInput: Boolean(state?.input),
     hasOutput: Boolean(state?.output),
   };
+}
+
+function buildTeamKernelProgressItems(
+  record: ExecutionRecord,
+  nodes: ExecutionGraphNode[],
+): RunProgressItem[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const teamNodes = TEAM_KERNEL_PROGRESS_ORDER
+    .map((id) => nodeById.get(id))
+    .filter((node): node is ExecutionGraphNode => Boolean(node));
+
+  return teamNodes.map((node) => {
+    const status = teamKernelProgressStatus(record, node.id);
+    return {
+      id: node.id,
+      title: executionNodeDisplayName(node, null),
+      phaseTitle: executionPhaseDisplayName(node.phase),
+      status,
+      detail: teamKernelProgressDetail(record, node.id, status),
+      technicalName: node.id,
+      startedAt: record.started_at ?? record.created_at,
+      completedAt: isTerminalRunStatus(status) ? record.completed_at ?? null : null,
+      toolCount: 0,
+      hasInput: false,
+      hasOutput: node.id === "team_finish" && Boolean(record.result),
+    };
+  });
+}
+
+function teamKernelProgressStatus(
+  record: ExecutionRecord,
+  nodeId: string,
+): string {
+  const runStatus = normalizeExecutionStatus(record.status);
+  const terminal = isTerminalRunStatus(runStatus);
+  const members = teamMembersFromNodeStates(record.node_states);
+  const qualityGates = teamQualityGatesFromRuntimeState(record.runtime_state);
+  const dispatchStatus = aggregateTeamMemberStatus(members.map((member) => member.status));
+
+  if (nodeId === "team_prepare") {
+    if (runStatus === "queued" || runStatus === "launching") return "pending";
+    return terminal || members.length > 0 ? "completed" : "running";
+  }
+
+  if (nodeId === "team_recruit") {
+    if (members.length > 0) return "completed";
+    return terminal ? "failed" : runStatus === "queued" ? "pending" : "running";
+  }
+
+  if (nodeId === "team_dispatch") {
+    return dispatchStatus;
+  }
+
+  if (nodeId === "team_quality_gate") {
+    if (qualityGates.length > 0) {
+      if (qualityGates.some((gate) => gate.status === "fail")) return "failed";
+      if (qualityGates.some((gate) => gate.status === "warning")) return "failed_partial";
+      return "completed";
+    }
+    if (dispatchStatus === "completed" && terminal) return "completed";
+    if (dispatchStatus === "running") return "pending";
+    return dispatchStatus === "failed" ? "failed" : "pending";
+  }
+
+  if (nodeId === "team_finish") {
+    if (!terminal) {
+      return dispatchStatus === "completed" ? "running" : "pending";
+    }
+    if (runStatus === "failed" && !record.result) return "failed";
+    if (runStatus === "cancelled") return "cancelled";
+    return record.result || record.result_summary || record.completed_at
+      ? "completed"
+      : runStatus;
+  }
+
+  return "pending";
+}
+
+function aggregateTeamMemberStatus(statuses: string[]): string {
+  if (statuses.length === 0) return "pending";
+  if (statuses.some((status) => status === "running" || status === "launching")) {
+    return "running";
+  }
+  if (statuses.some((status) => status === "failed")) {
+    return statuses.some((status) => status === "completed") ? "failed_partial" : "failed";
+  }
+  if (statuses.some((status) => status === "cancelled")) return "cancelled";
+  if (statuses.every((status) => status === "completed")) return "completed";
+  return "running";
+}
+
+function teamKernelProgressDetail(
+  record: ExecutionRecord,
+  nodeId: string,
+  status: string,
+): string | null {
+  const members = teamMembersFromNodeStates(record.node_states);
+  if (nodeId === "team_recruit" && members.length > 0) {
+    return `${members.length} 个团队成员已就绪`;
+  }
+  if (nodeId === "team_dispatch" && members.length > 0) {
+    const completed = members.filter((member) => member.status === "completed").length;
+    const failed = members.filter((member) => member.status === "failed").length;
+    if (failed > 0) return `${completed} 个成员完成，${failed} 个成员需要复核`;
+    return `${completed}/${members.length} 个成员完成`;
+  }
+  if (nodeId === "team_quality_gate") {
+    const gates = teamQualityGatesFromRuntimeState(record.runtime_state);
+    if (gates.length > 0) {
+      const warnings = gates.filter((gate) => gate.status === "warning").length;
+      const failed = gates.filter((gate) => gate.status === "fail").length;
+      if (failed > 0) return `${failed} 个质量检查未通过`;
+      if (warnings > 0) return `${warnings} 个质量检查需要注意`;
+      return `${gates.length} 个质量检查已通过`;
+    }
+  }
+  if (nodeId === "team_finish" && status === "completed") {
+    return "结果已进入审阅";
+  }
+  return null;
+}
+
+function countProgressItemsByStatus(
+  items: RunProgressItem[],
+  status: string,
+): number {
+  return items.filter((item) => item.status === status).length;
 }
 
 function progressDetailFromNodeState(state: ExecutionNodeState | null): string | null {

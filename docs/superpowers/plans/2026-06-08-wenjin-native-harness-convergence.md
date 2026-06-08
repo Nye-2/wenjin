@@ -1545,7 +1545,7 @@ git commit -m "feat: summarize harness run journal events"
 - Modify only if regressions are found.
 - Test/docs update only when behavior changes.
 
-- [ ] **Step 1: Rebuild stack**
+- [x] **Step 1: Rebuild stack**
 
 ```bash
 cd /Users/ze/wenjin
@@ -1555,7 +1555,7 @@ docker compose ps
 
 Expected: all core services healthy.
 
-- [ ] **Step 2: Browser-test Workbench team task**
+- [x] **Step 2: Browser-test Workbench team task**
 
 Use `http://localhost:2026`:
 
@@ -1565,6 +1565,16 @@ Use `http://localhost:2026`:
 - verify `literature_synthesizer` no longer fails because of unresolved business tools.
 - verify LiveWorkflowPanel shows member names, quality gates, artifacts/review actions, not raw JSON.
 
+Observed 2026-06-08:
+
+- Docker local-build stack rebuilt successfully; frontend production build and TypeScript passed inside Docker.
+- `docker compose ps` showed dataservice, frontend, gateway, and worker healthy; `http://localhost:2026` and `/api/models?purpose=chat` responded.
+- Browser verified logged-in workspace did not redirect to login after reload.
+- Workbench showed launch receipt and completed `文献定位与创新点` result card with 20 literature items, 1 document output, 1 memory item, and pending review actions.
+- Browser regression found a projection bug: TeamKernel progress showed `5/8` while every process step was `待处理`, and synthetic `team_template_*` nodes appeared as vague `工作步骤`.
+- Fixed with tests: TeamKernel graph now keeps member templates out of progress nodes, RunView derives five-step progress from team member / quality gate / run status, and quality gates are deduplicated by gate id for default team display.
+- Browser re-test verified progress now shows five steps: `准备上下文` completed, `组建团队` completed, `成员执行` partial, `质量闭环` partial, `整理结果` completed; no raw tool JSON appears in default view.
+
 - [ ] **Step 3: Browser-test Prism task continuity**
 
 - open Prism.
@@ -1572,9 +1582,14 @@ Use `http://localhost:2026`:
 - trigger AI 改稿.
 - confirm the panel does not auto-open from compile, does not block editing, and uses product-facing copy.
 
-- [ ] **Step 4: Fix regressions with tests**
+- [x] **Step 4: Fix regressions with tests**
 
 Only make code changes for reproducible bugs. Every fix needs a targeted backend/frontend test before another browser pass.
+
+Regression tests added:
+
+- `backend/tests/agents/lead_agent/v2/test_team_kernel.py::test_team_panel_graph_keeps_member_templates_out_of_progress_steps`
+- `frontend/tests/unit/lib/execution-run-view.test.ts` team progress projection and quality gate dedupe cases
 
 Commit boundary:
 

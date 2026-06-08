@@ -31,7 +31,7 @@
 - tool calls / token usage
 - started_at / completed_at
 
-`ExecutionRecord.graph_structure` 只描述静态拓扑；节点详情事实源必须从 `execution_nodes` 读取运行态数据。Gateway/API 返回 execution list/detail 时可以由 `ExecutionService` 把 `ExecutionNodeRecord` hydrate 回 `ExecutionRecord.node_states`，但这只是前端 `RunView` 的展示投影，不改变 `execution_nodes` 的事实源地位。
+`ExecutionRecord.graph_structure` 只描述静态拓扑；节点详情事实源必须从 `execution_nodes` 读取运行态数据。Gateway/API 返回 execution list/detail 时可以由 `ExecutionService` 把 `ExecutionNodeRecord` hydrate 回 `ExecutionRecord.node_states`，但这只是前端 `RunView` 的展示投影，不改变 `execution_nodes` 的事实源地位。TeamKernel 的 graph projection 只保留 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish` 五个用户可理解流程节点；实名成员模板和 harness activity 由 hydrated `agent_invocation` node states 投影到 team roster，不再作为 `team_template_*` 流程占位节点展示。
 
 ### 1.2 支撑模型
 
@@ -256,6 +256,8 @@ User action
 - `runViewFromRunRecord(record, workspaceId)`：Runs drawer 历史记录
 - `runViewFromResultCard(data, workspaceId)`：chat completion summary
 - `mergeRunViews(live, historical)`：同一 run 在 live/history 中合并展示
+
+TeamKernel 的任务进展也由这个 presenter 统一派生：progress list 只展示五步流程，状态来自整体 run status、实名成员状态和质量门状态；成员模板不进入 progress list。`runtime_state.quality_gates` 会按 gate id 聚合为当前质量检查展示，使用最新状态，避免历史 quality gate event 在默认团队面板中重复刷屏。
 
 `frontend/stores/run-ui-store.ts` 只保存 UI 焦点和提示徽标，不保存 execution lifecycle。
 
