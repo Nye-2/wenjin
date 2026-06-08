@@ -28,19 +28,46 @@ def build_harness_context_bundle(
     workspace_type: str | None = None,
     task: dict[str, Any] | None = None,
     workspace_data: dict[str, Any] | None = None,
+    allowed_tools: list[str] | None = None,
     max_chars: int = 12000,
 ) -> dict[str, Any]:
     """Build a compact harness context bundle for tool-using workers."""
 
     budget = max(500, int(max_chars or 12000))
+    safe_task = _safe_dict(task or {})
+    safe_workspace_data = workspace_data or {}
+    sandbox = _sandbox_contract(workspace_id=workspace_id, workspace_type=workspace_type)
+    workspace_file_summary = _workspace_file_summary(safe_workspace_data)
     bundle = {
         "schema": HARNESS_CONTEXT_BUNDLE_SCHEMA,
         "workspace_id": str(workspace_id or ""),
         "workspace_type": str(workspace_type or ""),
-        "task": _safe_dict(task or {}),
-        "sandbox": _sandbox_contract(workspace_id=workspace_id, workspace_type=workspace_type),
-        "workspace_file_summary": _workspace_file_summary(workspace_data or {}),
-        "recent_execution_evidence": _recent_execution_evidence(workspace_data or {}),
+        "capability_goal": _capability_goal(safe_task),
+        "member_role": _member_role(safe_task),
+        "allowed_tools": _safe_string_list(allowed_tools),
+        "workspace_roots": list(workspace_file_summary.get("visible_roots") or _VISIBLE_WORKSPACE_ROOTS),
+        "search_ignored_names": list(sandbox.get("search_ignored_names") or []),
+        "recent_file_change_summary": _latest_harness_summary(
+            safe_workspace_data,
+            "file_change_summary",
+        ),
+        "sandbox_execution_summary": _latest_harness_summary(
+            safe_workspace_data,
+            "sandbox_execution_summary",
+        ),
+        "reproducibility_summary": _latest_harness_summary(
+            safe_workspace_data,
+            "reproducibility_summary",
+        ),
+        "harness_replan_signals": _harness_replan_signals(safe_task, safe_workspace_data),
+        "upstream_artifact_candidates": _upstream_artifact_candidates(
+            safe_task,
+            safe_workspace_data,
+        ),
+        "task": safe_task,
+        "sandbox": sandbox,
+        "workspace_file_summary": workspace_file_summary,
+        "recent_execution_evidence": _recent_execution_evidence(safe_workspace_data),
         "budget": {"max_chars": budget, "truncated": False},
     }
     return _fit_budget(bundle, budget)
@@ -77,6 +104,120 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "search_ignored_names": [str(name) for name in contract.get("search_ignored_names") or ()],
         "rules": [str(rule) for rule in contract.get("rules") or ()],
     }
+
+
+def _task_inputs(task: dict[str, Any]) -> dict[str, Any]:
+    inputs = task.get("inputs")
+    return inputs if isinstance(inputs, dict) else {}
+
+
+def _capability_goal(task: dict[str, Any]) -> str:
+    inputs = _task_inputs(task)
+    return _first_safe_string(
+        inputs.get("capability_goal"),
+        inputs.get("capability_name"),
+        task.get("capability_goal"),
+        task.get("goal"),
+    )
+
+
+def _member_role(task: dict[str, Any]) -> str:
+    inputs = _task_inputs(task)
+    return _first_safe_string(
+        inputs.get("member_role"),
+        inputs.get("team_role"),
+        task.get("member_role"),
+    )
+
+
+def _safe_string_list(value: Any, *, max_items: int = 40) -> list[str]:
+    if value is None:
+        return []
+    raw_items = value if isinstance(value, list | tuple) else [value]
+    result: list[str] = []
+    for item in raw_items[:max_items]:
+        text = _first_safe_string(item)
+        if text and text not in result:
+            result.append(text)
+    return result
+
+
+def _first_safe_string(*values: Any) -> str:
+    for value in values:
+        safe = _safe_value(value)
+        if isinstance(safe, str) and safe:
+            return safe
+    return ""
+
+
+def _latest_harness_summary(workspace_data: dict[str, Any], key: str) -> dict[str, Any]:
+    direct = _safe_value(workspace_data.get(key))
+    if isinstance(direct, dict) and direct:
+        return direct
+    history = workspace_data.get("workspace_history")
+    history = history if isinstance(history, dict) else {}
+    recent = history.get("recent_executions")
+    if recent is None:
+        recent = workspace_data.get("recent_executions")
+    if not isinstance(recent, list):
+        return {}
+    for item in recent:
+        if not isinstance(item, dict):
+            continue
+        harness = _harness_summary(item)
+        value = harness.get(key)
+        if isinstance(value, dict) and value:
+            return value
+    return {}
+
+
+def _harness_replan_signals(
+    task: dict[str, Any],
+    workspace_data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    inputs = _task_inputs(task)
+    candidates = [
+        (inputs.get("team_blackboard") or {}).get("harness_replan_signals")
+        if isinstance(inputs.get("team_blackboard"), dict)
+        else None,
+        (inputs.get("upstream_context") or {}).get("harness_replan_signals")
+        if isinstance(inputs.get("upstream_context"), dict)
+        else None,
+        inputs.get("harness_replan_signals"),
+        workspace_data.get("harness_replan_signals"),
+    ]
+    result: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        for item in candidate:
+            safe = _safe_value(item)
+            if isinstance(safe, dict) and safe:
+                result.append(safe)
+    return result[:8]
+
+
+def _upstream_artifact_candidates(
+    task: dict[str, Any],
+    workspace_data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    inputs = _task_inputs(task)
+    upstream_context = inputs.get("upstream_context")
+    candidates = [
+        inputs.get("upstream_artifact_candidates"),
+        upstream_context.get("artifact_candidates") if isinstance(upstream_context, dict) else None,
+        workspace_data.get("upstream_artifact_candidates"),
+        workspace_data.get("artifact_candidates"),
+    ]
+    result: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        for item in candidate:
+            ref = _safe_file_ref(item)
+            if ref:
+                result.append(ref)
+    return result[:_MAX_FILE_SUMMARY_ITEMS]
 
 
 def _recent_execution_evidence(workspace_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -293,6 +434,16 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
     compact["recent_execution_evidence"] = list(bundle.get("recent_execution_evidence") or [])
     while compact["recent_execution_evidence"] and len(render_harness_context_for_prompt(compact)) > max_chars:
         compact["recent_execution_evidence"].pop()
+    for key, empty in (
+        ("upstream_artifact_candidates", []),
+        ("harness_replan_signals", []),
+        ("recent_file_change_summary", {}),
+        ("sandbox_execution_summary", {}),
+        ("reproducibility_summary", {}),
+    ):
+        if len(render_harness_context_for_prompt(compact)) <= max_chars:
+            break
+        compact[key] = empty
     if len(render_harness_context_for_prompt(compact)) > max_chars:
         compact["workspace_file_summary"] = {
             "visible_roots": [],

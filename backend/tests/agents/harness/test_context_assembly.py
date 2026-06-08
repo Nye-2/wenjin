@@ -84,6 +84,112 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
     assert bundle["budget"] == {"max_chars": 12000, "truncated": False}
 
 
+def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={
+            "prompt": "continue the experiment",
+            "inputs": {
+                "capability_goal": "produce_workspace_review_package",
+                "team_role": "实验工程师",
+                "team_blackboard": {
+                    "harness_replan_signals": [
+                        {
+                            "schema": "wenjin.harness.replan_signal.v1",
+                            "trigger": "recoverable_python_failure",
+                            "failure_codes": ["python_exit_nonzero"],
+                            "recommended_action": "revise_code_same_member",
+                        }
+                    ]
+                },
+                "upstream_context": {
+                    "artifact_candidates": [
+                        {
+                            "path": "/workspace/reports/model-eval.md",
+                            "kind": "sandbox_report",
+                            "title": "Model evaluation",
+                        },
+                        {
+                            "path": "/workspace/outputs/harness/exec/node/stdout.txt",
+                            "kind": "debug",
+                        },
+                    ]
+                },
+            },
+        },
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "node_metadata": {
+                            "harness": {
+                                "file_change_summary": {
+                                    "schema": "wenjin.harness.file_change_summary.v1",
+                                    "changed_paths": ["/workspace/main/paper.tex"],
+                                },
+                                "sandbox_execution_summary": {
+                                    "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                                    "python_runs": 1,
+                                    "sandbox_job_ids": ["job-1"],
+                                },
+                                "reproducibility_summary": {
+                                    "schema": "wenjin.harness.reproducibility_summary.v1",
+                                    "script_paths": ["/workspace/scripts/eval.py"],
+                                    "dependency_names": ["pandas"],
+                                },
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+        allowed_tools=["sandbox.run_python", "sandbox.read_file"],
+    )
+
+    assert bundle["capability_goal"] == "produce_workspace_review_package"
+    assert bundle["member_role"] == "实验工程师"
+    assert bundle["allowed_tools"] == ["sandbox.run_python", "sandbox.read_file"]
+    assert bundle["workspace_roots"] == [
+        "/workspace/main",
+        "/workspace/datasets",
+        "/workspace/scripts",
+        "/workspace/outputs",
+        "/workspace/reports",
+    ]
+    assert "node_modules" in bundle["search_ignored_names"]
+    assert bundle["recent_file_change_summary"] == {
+        "schema": "wenjin.harness.file_change_summary.v1",
+        "changed_paths": ["/workspace/main/paper.tex"],
+    }
+    assert bundle["sandbox_execution_summary"] == {
+        "schema": "wenjin.harness.sandbox_execution_summary.v1",
+        "python_runs": 1,
+        "sandbox_job_ids": ["job-1"],
+    }
+    assert bundle["reproducibility_summary"] == {
+        "schema": "wenjin.harness.reproducibility_summary.v1",
+        "script_paths": ["/workspace/scripts/eval.py"],
+        "dependency_names": ["pandas"],
+    }
+    assert bundle["harness_replan_signals"] == [
+        {
+            "schema": "wenjin.harness.replan_signal.v1",
+            "trigger": "recoverable_python_failure",
+            "failure_codes": ["python_exit_nonzero"],
+            "recommended_action": "revise_code_same_member",
+        }
+    ]
+    assert bundle["upstream_artifact_candidates"] == [
+        {
+            "path": "/workspace/reports/model-eval.md",
+            "kind": "sandbox_report",
+            "title": "Model evaluation",
+        }
+    ]
+
+
 def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",

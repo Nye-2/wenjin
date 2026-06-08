@@ -284,6 +284,7 @@ def _build_harness_context(ctx: SubagentContext) -> dict[str, Any]:
             "inputs": inputs,
         },
         workspace_data=ctx.workspace_data or {},
+        allowed_tools=ctx.tools or [],
     )
 
 

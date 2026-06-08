@@ -3705,7 +3705,7 @@ ruff: All checks passed!
 git diff --check: no output
 ```
 
-- [ ] **Step 6: Commit stable slice**
+- [x] **Step 6: Commit stable slice**
 
 Run:
 
@@ -3719,6 +3719,12 @@ Expected:
 
 ```text
 one focused commit
+```
+
+Observed:
+
+```text
+3662b399 fix: repair dangling harness tool calls
 ```
 
 ### Task 27: Converge Team Member Harness Context Package
@@ -3754,6 +3760,23 @@ cd /Users/ze/wenjin
 backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_context_assembly.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py -q
 backend/.venv/bin/ruff check backend/src/agents/harness backend/src/agents/lead_agent/v2/team backend/src/subagents/v2/types/react.py
 git diff --check
+```
+
+**Implementation result:**
+
+- Added `allowed_tools` to `build_harness_context_bundle(...)` and wired ReactSubagent `ctx.tools` into the bundle.
+- Added top-level bounded fields: `capability_goal`, `member_role`, `allowed_tools`, `workspace_roots`, `search_ignored_names`, `recent_file_change_summary`, `sandbox_execution_summary`, `reproducibility_summary`, `harness_replan_signals`, and `upstream_artifact_candidates`.
+- Reused existing TeamKernel member inputs (`team_role`, `capability_goal`, `team_blackboard.harness_replan_signals`, `upstream_context`) instead of adding a second context channel.
+- Budget trimming now drops optional upstream artifacts, replan signals, and latest harness summaries before workspace file summary and task.
+
+Observed verification:
+
+```text
+backend/tests/agents/harness/test_context_assembly.py: 6 passed
+backend/tests/agents/harness/test_context_assembly.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py backend/tests/unit/subagents/test_react.py: 52 passed
+backend/tests/integration/test_harness_mock_sandbox_e2e.py: 1 passed
+ruff: All checks passed!
+git diff --check: no output
 ```
 
 ### Task 28: Improve Sandbox Python Experiment Lifecycle
