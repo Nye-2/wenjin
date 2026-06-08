@@ -118,6 +118,55 @@ describe("live workflow view model", () => {
     expect(model.evidenceItems).toHaveLength(1);
   });
 
+  it("projects harness reproducibility evidence without raw sandbox noise", () => {
+    const reproducibleRecord = baseRecord({
+      id: "repro-1",
+      status: "completed",
+      node_states: {
+        "experiment-node": {
+          status: "completed",
+          node_type: "agent_invocation",
+          label: "实验工程师",
+          output: {
+            stdout: "raw stdout should stay hidden",
+          },
+          node_metadata: {
+            harness: {
+              reproducibility_summary: {
+                schema: "wenjin.harness.reproducibility_summary.v1",
+                script_paths: ["/workspace/scripts/analysis.py"],
+                dataset_paths: ["/workspace/datasets/panel.csv"],
+                artifact_paths: [
+                  "/workspace/outputs/result.json",
+                  "/workspace/outputs/harness/exec/node/raw.txt",
+                ],
+                next_actions: ["复核图表"],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const model = buildLiveWorkflowViewModel({
+      records: [reproducibleRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "repro-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+      draftEdits: {},
+    });
+
+    expect(model.evidenceItems).toHaveLength(1);
+    expect(model.evidenceItems[0]?.kind).toBe("sandbox");
+    expect(model.evidenceItems[0]?.summary).toContain("analysis.py");
+    expect(model.evidenceItems[0]?.summary).toContain("panel.csv");
+    expect(model.evidenceItems[0]?.summary).toContain("result.json");
+    expect(model.evidenceItems[0]?.summary).not.toContain("stdout");
+    expect(model.evidenceItems[0]?.summary).not.toContain("/workspace/outputs/harness");
+  });
+
   it("selects the active running execution before a stale selected history run", () => {
     const model = buildLiveWorkflowViewModel({
       records: [completedRecord, runningRecord],

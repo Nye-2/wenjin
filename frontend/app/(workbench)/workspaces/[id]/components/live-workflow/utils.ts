@@ -41,12 +41,20 @@ export function buildEvidenceItems(
   const graphNodes = record.graph_structure?.nodes ?? [];
   const nodeById = new Map(graphNodes.map((node) => [node.id, node]));
   const nodeItems: EvidenceItem[] = Object.entries(record.node_states ?? {})
-    .filter(([, state]) => Boolean(state.output || state.output_preview || state.tool_calls?.length))
+    .filter(([, state]) =>
+      Boolean(
+        state.output ||
+          state.output_preview ||
+          state.tool_calls?.length ||
+          buildHarnessEvidenceSummary(state)?.length,
+      ),
+    )
     .map(([nodeId, state]) => {
       const node = nodeById.get(nodeId);
       const output = state.output ?? {};
       const title = node?.label ?? node?.task ?? nodeId;
-      const sandbox = buildSandboxSummary(state);
+      const harnessEvidence = buildHarnessEvidenceSummary(state);
+      const sandbox = harnessEvidence ?? buildSandboxSummary(state);
       return {
         id: `node:${nodeId}`,
         source: "node",
@@ -62,6 +70,32 @@ export function buildEvidenceItems(
       };
     });
   return [...outputItems, ...nodeItems];
+}
+
+function buildHarnessEvidenceSummary(state: ExecutionNodeState): string[] | null {
+  const harness = readObject(readObject(state.node_metadata)?.harness);
+  const reproducibility = readObject(harness?.reproducibility_summary);
+  if (!reproducibility) {
+    return null;
+  }
+  const scripts = safeWorkspacePathBasenames(reproducibility.script_paths, [
+    "/workspace/scripts/",
+  ]);
+  const datasets = safeWorkspacePathBasenames(reproducibility.dataset_paths, [
+    "/workspace/datasets/",
+  ]);
+  const artifacts = safeWorkspacePathBasenames(reproducibility.artifact_paths, [
+    "/workspace/outputs/",
+    "/workspace/reports/",
+  ]);
+  const nextActions = stringArrayValue(reproducibility.next_actions).slice(0, 2);
+  const lines = [
+    scripts.length ? `脚本：${formatShortList(scripts)}` : null,
+    datasets.length ? `数据：${formatShortList(datasets)}` : null,
+    artifacts.length ? `产物：${formatShortList(artifacts)}` : null,
+    nextActions.length ? `后续：${formatShortList(nextActions)}` : null,
+  ].filter((line): line is string => Boolean(line));
+  return lines.length ? lines : null;
 }
 
 export function readReviewItems(record: ExecutionRecord | null): WorkspacePrismReviewItem[] {
@@ -239,6 +273,46 @@ export function fieldLabel(kind: string, field: string): string {
 
 export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function stringArrayValue(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => readString(item))
+    .filter((item): item is string => Boolean(item));
+}
+
+function safeWorkspacePathBasenames(value: unknown, allowedPrefixes: string[]): string[] {
+  return stringArrayValue(value)
+    .filter((path) => isSafeEvidencePath(path, allowedPrefixes))
+    .slice(0, 4)
+    .map((path) => path.split("/").filter(Boolean).at(-1) ?? path);
+}
+
+function isSafeEvidencePath(path: string, allowedPrefixes: string[]): boolean {
+  if (!allowedPrefixes.some((prefix) => path.startsWith(prefix))) {
+    return false;
+  }
+  if (path.startsWith("/workspace/outputs/harness/")) {
+    return false;
+  }
+  return !/(^|\/)(\.wenjin|\.env(?:\..*)?|[^/]+\.(?:pem|key))($|\/)/i.test(path);
+}
+
+function formatShortList(items: string[]): string {
+  if (items.length <= 3) {
+    return items.join("、");
+  }
+  return `${items.slice(0, 3).join("、")} 等 ${items.length} 项`;
 }
 
 export function truncate(value: string, max: number): string {
