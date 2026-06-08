@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -15,6 +14,7 @@ from pydantic import BaseModel, Field
 from src.agents.lead_agent.v2.sandbox_runtime_session import SandboxRuntimeSession
 from src.subagents.v2.base import SubagentContext
 
+from .args_summary import summarize_tool_args
 from .builtins import default_harness_tool_registry
 from .business_tools import BUSINESS_TOOL_NAMES, build_business_langchain_tools
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
@@ -67,8 +67,6 @@ class RunPythonInput(BaseModel):
 
 
 ToolHandler = Callable[..., Awaitable[str]]
-TEXT_PAYLOAD_ARG_KEYS = frozenset({"content", "script"})
-STRUCTURED_PAYLOAD_ARG_KEYS = frozenset({"dependency_hints"})
 
 
 def build_harness_run_context(ctx: SubagentContext) -> HarnessRunContext:
@@ -173,7 +171,7 @@ async def _invoke_recorded(
     operation,
 ) -> str:
     records = ctx.context_bundle.get("_harness_tool_records")
-    args_summary = _summarize_args(args)
+    args_summary = summarize_tool_args(args)
     loop_guard = _loop_guard(ctx, policy)
     loop_decision = loop_guard.record(canonical_name, args_summary)
     if not loop_decision.allowed:
@@ -552,37 +550,3 @@ def _skill_snapshot(skill: Any | None) -> dict[str, Any]:
     if isinstance(skill_json, dict):
         snapshot["skill_json"] = dict(skill_json)
     return snapshot
-
-
-def _summarize_args(args: dict[str, Any]) -> dict[str, Any]:
-    summary: dict[str, Any] = {}
-    for key, value in args.items():
-        if key in TEXT_PAYLOAD_ARG_KEYS and isinstance(value, str):
-            summary[key] = _text_payload_digest(value)
-        elif key in STRUCTURED_PAYLOAD_ARG_KEYS:
-            summary[key] = _structured_payload_digest(value)
-        elif isinstance(value, str) and len(value) > 500:
-            summary[key] = f"{value[:500]}... ({len(value)} chars)"
-        else:
-            summary[key] = value
-    return summary
-
-
-def _text_payload_digest(value: str) -> dict[str, Any]:
-    return {
-        "redacted": True,
-        "chars": len(value),
-        "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
-    }
-
-
-def _structured_payload_digest(value: Any) -> dict[str, Any]:
-    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
-    payload = {
-        "redacted": True,
-        "kind": type(value).__name__,
-        "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
-    }
-    if isinstance(value, (list, tuple, set, frozenset)):
-        payload["items"] = len(value)
-    return payload

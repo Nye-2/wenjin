@@ -3018,6 +3018,67 @@ Observed:
 All checks passed!
 ```
 
+### Task 18C: Share Debug-Safe Tool Args Summary Across Harness Tool Families
+
+**Goal:** keep business-context tool records and sandbox tool records on the same debug-safe argument contract, so text payloads such as `citation_parser.text` and `artifact_create.markdown` cannot leak while sandbox script/content/dependency args remain redacted.
+
+**External reference:** Codex and deer-flow both keep audit/debug metadata compact and separated from raw user content. Wenjin should use one bounded summarizer at the harness boundary rather than duplicate redaction logic per tool family.
+
+**Architecture:** add `backend/src/agents/harness/args_summary.py` as an internal helper used by both `langchain_adapter.py` and `business_tools.py`. This does not change tool execution inputs, artifact staging payloads, file diffs, reproducibility manifests, or result-card review flow; it changes only the debug args stored in `_harness_tool_records`, completed/failed tool-call records, and harness events.
+
+**Files:**
+- Created: `backend/src/agents/harness/args_summary.py`
+- Modified: `backend/src/agents/harness/langchain_adapter.py`
+- Modified: `backend/src/agents/harness/business_tools.py`
+- Modified: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Modified: `backend/tests/agents/harness/test_business_tools.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED test**
+
+Added `test_business_tool_args_redact_parser_text_records`.
+
+Observed RED:
+
+```text
+AssertionError: 'private manuscript note sk-secret-parser \\cite{smith2026}' == {'redacted': True, ...}
+```
+
+- [x] **Step 2: Extract shared summarizer**
+
+`summarize_tool_args()` now redacts string payload keys `content`, `markdown`, `script`, and `text` as:
+
+```json
+{"redacted": true, "chars": 123, "sha256": "..."}
+```
+
+It also redacts `dependency_hints` as:
+
+```json
+{"redacted": true, "kind": "list", "items": 2, "sha256": "..."}
+```
+
+Path/pattern/small scalar debug args remain visible for diagnosis.
+
+- [x] **Step 3: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_business_tools.py::test_business_tool_args_redact_parser_text_records backend/tests/agents/harness/test_langchain_adapter.py::test_summarize_args_redacts_large_tool_text_payloads backend/tests/agents/harness/test_langchain_adapter.py::test_summarize_args_redacts_dependency_hints_before_validation -q
+backend/.venv/bin/ruff check backend/src/agents/harness/args_summary.py backend/src/agents/harness/langchain_adapter.py backend/src/agents/harness/business_tools.py backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/harness/test_business_tools.py
+```
+
+Observed:
+
+```text
+3 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

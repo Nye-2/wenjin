@@ -16,6 +16,8 @@ from src.sandbox.workspace_layout import (
 )
 from src.subagents.v2.base import SubagentContext
 
+from .args_summary import summarize_tool_args
+
 BUSINESS_TOOL_NAMES = frozenset(
     {
         "library_read",
@@ -90,7 +92,7 @@ def build_business_langchain_tools(ctx: SubagentContext, tool_names: list[str]) 
 
 def _business_coroutine(ctx: SubagentContext, handler: BusinessHandler):
     async def _coroutine(**kwargs) -> str:
-        args_summary = _summarize_args(kwargs)
+        args_summary = summarize_tool_args(kwargs)
         records = ctx.workspace_data.get("_harness_tool_records")
         try:
             result = await handler(ctx, kwargs)
@@ -337,13 +339,3 @@ def _dedupe_tool_names(tool_names: list[str]) -> list[str]:
 def _handler_name(handler: BusinessHandler) -> str:
     name = getattr(handler, "__name__", "")
     return str(name).removeprefix("_")
-
-
-def _summarize_args(args: dict[str, Any]) -> dict[str, Any]:
-    summary: dict[str, Any] = {}
-    for key, value in args.items():
-        if isinstance(value, str) and len(value) > 500:
-            summary[key] = f"{value[:500]}... ({len(value)} chars)"
-        else:
-            summary[key] = value
-    return summary

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -106,6 +107,25 @@ async def test_business_tool_call_is_recorded_for_node_evidence() -> None:
     assert records[-1]["status"] == "completed"
     assert records[-1]["args"] == {"query": "federated", "limit": 5}
     assert records[-1]["result_preview"] == raw[:500]
+
+
+@pytest.mark.asyncio
+async def test_business_tool_args_redact_parser_text_records() -> None:
+    records: list[dict] = []
+    [tool] = build_business_langchain_tools(_ctx_with_records(records), ["citation_parser"])
+    text = "private manuscript note sk-secret-parser \\cite{smith2026}"
+
+    raw = await tool.ainvoke({"text": text})
+
+    assert "smith2026" in raw
+    assert records[-1]["name"] == "citation_parser"
+    assert records[-1]["args"]["text"] == {
+        "redacted": True,
+        "chars": len(text),
+        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+    }
+    dumped = json.dumps(records[-1]["args"], ensure_ascii=False)
+    assert "sk-secret-parser" not in dumped
 
 
 @pytest.mark.asyncio

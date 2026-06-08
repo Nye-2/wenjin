@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.agents.harness.langchain_adapter import _summarize_args, _tool_result_metadata, build_langchain_tools
+from src.agents.harness.args_summary import summarize_tool_args
+from src.agents.harness.langchain_adapter import _tool_result_metadata, build_langchain_tools
 from src.sandbox.providers.local import LocalSandbox
 from src.subagents.v2.base import SubagentContext
 
@@ -138,7 +139,7 @@ def test_summarize_args_redacts_large_tool_text_payloads() -> None:
     script = "print('sk-secret-script')\n"
     content = "OPENAI_API_KEY=sk-secret-content\n"
 
-    summary = _summarize_args(
+    summary = summarize_tool_args(
         {
             "path": "/workspace/scripts/analysis.py",
             "script": script,
@@ -168,7 +169,7 @@ def test_summarize_args_redacts_dependency_hints_before_validation() -> None:
         "https://token.example.invalid/simple?api_key=sk-secret-dependency",
     ]
 
-    summary = _summarize_args(
+    summary = summarize_tool_args(
         {
             "script_name": "analysis.py",
             "dependency_hints": dependency_hints,
