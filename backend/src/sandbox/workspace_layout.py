@@ -102,6 +102,29 @@ WORKSPACE_INTERNAL_PATHS = (
     f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/**",
 )
 
+WORKSPACE_SEARCH_IGNORED_NAMES = (
+    ".git",
+    ".hg",
+    ".svn",
+    ".wenjin",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "site-packages",
+    ".tox",
+    ".nox",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".cache",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".DS_Store",
+    "Thumbs.db",
+)
+
 WorkspacePathClass = Literal["protected", "internal", "artifact", "hidden", "workspace"]
 
 WORKSPACE_ARTIFACT_ROOTS = (
@@ -394,8 +417,10 @@ def build_agent_workspace_contract(
         "runtime_roots": manifest["runtime_roots"],
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "internal_paths": list(WORKSPACE_INTERNAL_PATHS),
+        "search_ignored_names": list(WORKSPACE_SEARCH_IGNORED_NAMES),
         "rules": [
             "Use only /workspace virtual paths when calling sandbox tools.",
+            "File search and directory listing skip common generated/cache directories listed in search_ignored_names.",
             "Record reusable dataset provenance in /workspace/datasets/manifest.json.",
             "Write reusable scripts under /workspace/scripts.",
             "Write user-reviewable generated files under /workspace/outputs or /workspace/reports.",
@@ -481,6 +506,20 @@ def is_workspace_internal_path(path: str) -> bool:
     except ValueError:
         return False
     return any(_matches_workspace_pattern(normalized, pattern) for pattern in WORKSPACE_INTERNAL_PATHS)
+
+
+def is_workspace_search_ignored_path(path: str) -> bool:
+    """Return whether search/listing tools should skip a generated/cache path."""
+
+    try:
+        relative = workspace_relative_path(path)
+    except ValueError:
+        return False
+    return any(
+        _matches_workspace_pattern(segment, pattern)
+        for segment in PurePosixPath(relative).parts
+        for pattern in WORKSPACE_SEARCH_IGNORED_NAMES
+    )
 
 
 def workspace_artifact_root_for_path(path: str) -> dict[str, str] | None:

@@ -580,6 +580,28 @@ async def test_glob_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
 
 
 @pytest.mark.asyncio
+async def test_search_tools_skip_common_generated_and_cache_directories(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/app.py", "alpha app\n")
+    await sandbox.write_file("/workspace/node_modules/pkg/skip.py", "alpha dependency\n")
+    await sandbox.write_file("/workspace/main/__pycache__/skip.py", "alpha bytecode\n")
+    await sandbox.write_file("/workspace/.pytest_cache/skip.txt", "alpha cache\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    list_result = await tools.list_dir(path="/workspace", max_depth=3)
+    glob_result = await tools.glob(pattern="**/*.py")
+    grep_result = await tools.grep(pattern="alpha", glob="**/*")
+    listed_paths = [item["path"] for item in list_result.structured_payload["entries"]]
+    grep_paths = [item["path"] for item in grep_result.structured_payload["matches"]]
+
+    assert "/workspace/main/app.py" in listed_paths
+    assert all("node_modules" not in path for path in listed_paths)
+    assert all("__pycache__" not in path for path in listed_paths)
+    assert all(".pytest_cache" not in path for path in listed_paths)
+    assert glob_result.structured_payload["matches"] == ["/workspace/main/app.py"]
+    assert grep_paths == ["/workspace/main/app.py"]
+
+
+@pytest.mark.asyncio
 async def test_grep_reports_returned_matches_and_limit(sandbox: LocalSandbox) -> None:
     for index in range(1, 9):
         await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"alpha {index}\n")

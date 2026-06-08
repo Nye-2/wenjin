@@ -12,6 +12,7 @@ from src.sandbox.workspace_layout import (
     WORKSPACE_ROOT,
     is_workspace_internal_path,
     is_workspace_protected_path,
+    is_workspace_search_ignored_path,
     normalize_workspace_virtual_path,
 )
 
@@ -82,6 +83,8 @@ class SandboxFileTools:
         visible_entries = []
         for entry in entries:
             virtual_path = _virtualize_path(entry.path)
+            if is_workspace_search_ignored_path(virtual_path):
+                continue
             if not self._is_tool_visible_path(virtual_path):
                 continue
             if not self._is_tool_visible_entry(entry.path, virtual_path):
@@ -123,6 +126,8 @@ class SandboxFileTools:
             if not path.is_file():
                 continue
             virtual_path = _virtualize_path(str(path))
+            if is_workspace_search_ignored_path(virtual_path):
+                continue
             if not self._is_tool_visible_path(virtual_path):
                 continue
             if not self._is_tool_visible_physical_target(path):
@@ -168,6 +173,8 @@ class SandboxFileTools:
             if not path.is_file():
                 continue
             virtual_path = _virtualize_path(str(path))
+            if is_workspace_search_ignored_path(virtual_path):
+                continue
             if not self._is_tool_visible_path(virtual_path):
                 continue
             if not self._is_tool_visible_physical_target(path):

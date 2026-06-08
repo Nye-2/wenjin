@@ -55,6 +55,8 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
     assert "/workspace/outputs" in bundle["sandbox"]["artifact_roots"]
     assert "**/.env" in bundle["sandbox"]["protected_paths"]
     assert "/workspace/outputs/harness/**" in bundle["sandbox"]["internal_paths"]
+    assert "node_modules" in bundle["sandbox"]["search_ignored_names"]
+    assert "__pycache__" in bundle["sandbox"]["search_ignored_names"]
     assert bundle["recent_execution_evidence"] == [
         {
             "execution_id": "exec-1",

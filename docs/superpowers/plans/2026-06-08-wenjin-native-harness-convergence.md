@@ -30,21 +30,23 @@ Do not do this:
 
 ## Current Working Slice
 
-Current uncommitted slice is Task 11, the workspace sandbox filesystem usability pass:
+Current uncommitted slice is Task 22, the workspace sandbox search-noise pass:
 
 - `backend/src/sandbox/workspace_layout.py`
 - `backend/src/agents/harness/context_assembly.py`
-- `backend/tests/sandbox/test_workspace_layout.py`
+- `backend/src/agents/harness/sandbox_tools.py`
+- `backend/tests/agents/harness/test_sandbox_file_tools.py`
 - `backend/tests/agents/harness/test_context_assembly.py`
 - `docs/current/workspace-current-state.md`
+- `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
 - `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
 
-This slice makes the one-workspace sandbox easier for long-running research work:
+This slice makes the one-workspace sandbox search surface less noisy without changing the direct file-operation permission boundary:
 
-- `ensure_workspace_sandbox_layout()` creates persistent user-facing guidance in `/workspace/main/README.md` without overwriting an existing README.
-- The same layout initialization keeps `datasets`, `scripts`, `outputs`, and `reports` visible even when empty via `.gitkeep`.
-- Harness context includes a bounded `workspace_file_summary` derived only from caller-provided facts, with protected/internal workspace refs filtered before entering model context.
-- Context-budget trimming treats the file summary as optional context and removes it before exceeding `max_chars`.
+- `WORKSPACE_SEARCH_IGNORED_NAMES` centralizes generated/cache/dependency directory names in `workspace_layout.py`.
+- `sandbox.list_dir`, `sandbox.glob`, and `sandbox.grep` skip those names after path virtualization and before visibility checks.
+- Harness context exposes `search_ignored_names` under normal budgets so workers understand why generated/cache files are absent from search results.
+- Context-budget trimming now drops optional sandbox rules and search-ignore lists before dropping the user task.
 
 ---
 
@@ -3229,6 +3231,96 @@ Observed:
 ```text
 2 passed
 5 passed
+All checks passed!
+```
+
+### Task 22: Skip Generated and Cache Directories in Sandbox Search
+
+**Goal:** reduce model-visible file-search noise inside the persistent workspace sandbox by skipping dependency, bytecode, virtualenv, test-cache, lint-cache, typecheck-cache, and frontend build-cache directories in `list_dir`, `glob`, and `grep`.
+
+**External reference:** deer-flow's sandbox search layer filters noisy runtime/generated directories such as `node_modules`, `__pycache__`, `.venv`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.next`, and `.turbo` while preserving explicit file operations. Wenjin should adopt the same search hygiene, but keep the ignored-name contract in `workspace_layout.py` instead of scattering patterns across tool implementations.
+
+**Architecture:** keep this as a search/listing projection rule, not a new permission boundary. `WORKSPACE_SEARCH_IGNORED_NAMES` lives beside protected/internal path constants in `backend/src/sandbox/workspace_layout.py`; `build_agent_workspace_contract()` projects it into the harness context; `SandboxFileTools.list_dir()`, `glob()`, and `grep()` call `is_workspace_search_ignored_path()` after converting provider paths to `/workspace` virtual paths. Direct `read_file`, `write_file`, and `str_replace` behavior is unchanged except for existing protected/internal/path-policy rules.
+
+**Files:**
+- Modified: `backend/src/sandbox/workspace_layout.py`
+- Modified: `backend/src/agents/harness/sandbox_tools.py`
+- Modified: `backend/src/agents/harness/context_assembly.py`
+- Modified: `backend/tests/agents/harness/test_sandbox_file_tools.py`
+- Modified: `backend/tests/agents/harness/test_context_assembly.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED search-noise test**
+
+Added `test_search_tools_skip_common_generated_and_cache_directories`, which creates files under:
+
+```text
+/workspace/main/app.py
+/workspace/node_modules/pkg/skip.py
+/workspace/main/__pycache__/skip.py
+/workspace/.pytest_cache/skip.txt
+```
+
+The test asserts `list_dir("/workspace", max_depth=3)`, `glob("**/*.py")`, and `grep("alpha", glob="**/*")` return only the user-authored app file.
+
+Observed RED:
+
+```text
+glob included /workspace/main/__pycache__/skip.py and /workspace/node_modules/pkg/skip.py
+list_dir exposed /workspace/node_modules
+```
+
+- [x] **Step 2: Centralize ignored search names**
+
+Added `WORKSPACE_SEARCH_IGNORED_NAMES` and `is_workspace_search_ignored_path()` to `backend/src/sandbox/workspace_layout.py`. The contract is also exposed through `build_agent_workspace_contract()` plus a rule telling tool-using workers that list/search skips generated/cache names.
+
+- [x] **Step 3: Apply the same filter to list/glob/grep**
+
+`SandboxFileTools.list_dir()`, `glob()`, and `grep()` now skip ignored paths after `_virtualize_path()` and before protected/internal visibility checks. This keeps provider behavior and path-policy behavior centralized around `/workspace` virtual paths.
+
+- [x] **Step 4: Project the contract into harness context**
+
+Added context assertions that normal-sized `_harness_context` bundles include:
+
+```python
+assert "node_modules" in bundle["sandbox"]["search_ignored_names"]
+assert "__pycache__" in bundle["sandbox"]["search_ignored_names"]
+```
+
+Observed RED before projection:
+
+```text
+KeyError: 'search_ignored_names'
+```
+
+- [x] **Step 5: Fix context budget trimming**
+
+Adding `search_ignored_names` increased the sandbox contract size and exposed that `_fit_budget()` still dropped the user `task` before trimming optional sandbox description fields.
+
+Observed RED:
+
+```text
+assert 1455 <= 1200
+```
+
+`_fit_budget()` now marks truncation before measuring the compact bundle, trims recent execution evidence, compacts/removes the file summary, drops optional `sandbox.rules`, drops optional `sandbox.search_ignored_names`, then falls back to a minimal sandbox root and only drops `task` as a last resort. The existing tight-budget test now keeps `{"goal": "run experiment"}`.
+
+- [x] **Step 6: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_sandbox_file_tools.py backend/tests/agents/harness/test_context_assembly.py backend/tests/unit/subagents/test_react.py backend/tests/sandbox/test_workspace_layout.py -q
+backend/.venv/bin/ruff check backend/src/sandbox/workspace_layout.py backend/src/agents/harness/sandbox_tools.py backend/src/agents/harness/context_assembly.py backend/tests/agents/harness/test_sandbox_file_tools.py backend/tests/agents/harness/test_context_assembly.py
+```
+
+Observed:
+
+```text
+84 passed
 All checks passed!
 ```
 

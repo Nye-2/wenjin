@@ -74,6 +74,7 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "artifact_roots": [str(path) for path in artifact_roots.values() if str(path).strip()],
         "protected_paths": [str(path) for path in contract.get("protected_paths") or ()],
         "internal_paths": [str(path) for path in contract.get("internal_paths") or ()],
+        "search_ignored_names": [str(name) for name in contract.get("search_ignored_names") or ()],
         "rules": [str(rule) for rule in contract.get("rules") or ()],
     }
 
@@ -287,6 +288,8 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
     if len(render_harness_context_for_prompt(bundle)) <= max_chars:
         return bundle
     compact = dict(bundle)
+    compact["budget"] = {"max_chars": max_chars, "truncated": True}
+    compact["sandbox"] = dict(bundle.get("sandbox") or {})
     compact["recent_execution_evidence"] = list(bundle.get("recent_execution_evidence") or [])
     while compact["recent_execution_evidence"] and len(render_harness_context_for_prompt(compact)) > max_chars:
         compact["recent_execution_evidence"].pop()
@@ -298,8 +301,13 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
             "truncated": True,
         }
     if len(render_harness_context_for_prompt(compact)) > max_chars:
+        compact["sandbox"].pop("rules", None)
+    if len(render_harness_context_for_prompt(compact)) > max_chars:
+        compact["sandbox"].pop("search_ignored_names", None)
+    if len(render_harness_context_for_prompt(compact)) > max_chars:
         compact.pop("workspace_file_summary", None)
     if len(render_harness_context_for_prompt(compact)) > max_chars:
+        compact["sandbox"] = {"root": str(compact.get("sandbox", {}).get("root") or "/workspace")}
+    if len(render_harness_context_for_prompt(compact)) > max_chars:
         compact["task"] = {}
-    compact["budget"] = {"max_chars": max_chars, "truncated": True}
     return compact
