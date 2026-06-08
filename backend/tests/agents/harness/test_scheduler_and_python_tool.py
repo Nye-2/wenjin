@@ -114,6 +114,7 @@ class _ReproducibleRunner:
                 },
             },
             "install_job_ids": ["install-1"],
+            "retry_count": 1,
             "install_command_audits": [
                 {
                     "verdict": "pass",
@@ -415,6 +416,7 @@ async def test_run_python_returns_reproducibility_manifest() -> None:
             "install_job_ids": ["install-1"],
             "network_profile": "none",
             "timeout_seconds": 30,
+            "retry_count": 1,
         },
         "dependencies": {
             "requested": ["pandas", "numpy"],
@@ -517,6 +519,9 @@ async def test_run_python_downgrades_user_code_failure_with_classification() -> 
         "recoverable": True,
     }
     assert result.structured_payload["execution_manifest"]["script_path"] == "/workspace/scripts/analysis.py"
+    report = result.structured_payload["report_markdown"]
+    assert "Recovery guidance" in report
+    assert "Revise the Python script" in report
 
 
 @pytest.mark.asyncio

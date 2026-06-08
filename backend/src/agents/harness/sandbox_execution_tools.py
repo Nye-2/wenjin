@@ -68,6 +68,7 @@ class SandboxExecutionTools:
             payload.setdefault("status", "failed")
             payload["failure_classification"] = _classify_run_python_failure(payload)
             payload["error_code"] = payload["failure_classification"]["failure_code"]
+            _ensure_failure_recovery_guidance(payload)
         payload["execution_manifest"] = _execution_manifest(
             context=self.context,
             sandbox_policy=self._sandbox_policy(),
@@ -207,6 +208,7 @@ def _reproducibility_manifest(
             "install_job_ids": _string_list(payload.get("install_job_ids"), limit=20),
             "network_profile": str(execution_manifest.get("network_profile") or "none"),
             "timeout_seconds": _positive_int(execution_manifest.get("timeout_seconds")),
+            "retry_count": _nonnegative_int(payload.get("retry_count")),
         },
         "dependencies": {
             "requested": _dependency_hints(execution_manifest.get("dependency_hints")),
@@ -256,6 +258,30 @@ def _failure_error(raw: Any) -> str | None:
     if isinstance(exit_code, int):
         return f"{failure_code}: exit_code={exit_code}"
     return failure_code
+
+
+def _ensure_failure_recovery_guidance(payload: dict[str, Any]) -> None:
+    classification = payload.get("failure_classification")
+    if not isinstance(classification, dict) or not classification.get("recoverable"):
+        return
+    guidance = _failure_recovery_guidance(classification)
+    report = str(payload.get("report_markdown") or "").strip()
+    if "Recovery guidance" in report:
+        return
+    payload["report_markdown"] = f"{report}\n\n{guidance}" if report else guidance
+
+
+def _failure_recovery_guidance(classification: dict[str, Any]) -> str:
+    failure_code = str(classification.get("failure_code") or "sandbox_job_failed")
+    exit_code = classification.get("exit_code")
+    exit_text = f" exit code `{exit_code}`" if isinstance(exit_code, int) else ""
+    return (
+        "## Recovery guidance\n\n"
+        f"- Failure code: `{failure_code}`{exit_text}.\n"
+        "- Revise the Python script in the same workspace sandbox and retry once before escalating.\n"
+        "- Reuse existing `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, and `/workspace/reports` context instead of recreating the experiment from scratch.\n"
+        "- If the error is caused by a missing dependency, add a precise `dependency_hints` package spec and rerun through `sandbox.run_python`.\n"
+    )
 
 
 def _dataset_provenance_manifest(raw_entries: Any) -> list[dict[str, Any]]:
@@ -374,6 +400,18 @@ def _positive_int(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
     return parsed if parsed > 0 else 0
+
+
+def _nonnegative_int(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value if value >= 0 else 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed >= 0 else 0
 
 
 def _compact_text(text: str) -> str:

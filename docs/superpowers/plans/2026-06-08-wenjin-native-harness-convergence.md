@@ -3798,6 +3798,22 @@ git diff --check: no output
 - Generated artifacts under `/workspace/outputs` and `/workspace/reports` are staged as candidate review items.
 - `/workspace/outputs/harness/**` remains internal and unreadable through normal file tools.
 
+**Implementation result:**
+
+- Added `reproducibility_manifest.sandbox.retry_count`, sourced from the Lead-owned sandbox script executor payload.
+- Added bounded `report_markdown` Recovery guidance for recoverable user-code failures when the runner payload does not already provide one.
+- Kept dependency installation in the existing Lead-owned runtime path; no subagent command execution or new DataService job type was added.
+- Existing generated artifact discovery and `/workspace/outputs/harness/**` internal filtering remain unchanged.
+
+Observed verification:
+
+```text
+backend/tests/agents/harness/test_scheduler_and_python_tool.py: 14 passed
+backend/tests/agents/harness/test_scheduler_and_python_tool.py backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py backend/tests/agents/harness/test_langchain_adapter.py backend/tests/integration/test_harness_mock_sandbox_e2e.py: 31 passed
+ruff: All checks passed!
+git diff --check: no output
+```
+
 ### Task 29: TeamKernel Harness Quality Loop Review
 
 **Goal:** ensure the team does not over-recruit or spin when tool errors are recoverable; same member should correct schema errors, Python code errors, and missing-output situations once before escalation.
