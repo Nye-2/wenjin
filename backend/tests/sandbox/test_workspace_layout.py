@@ -4,11 +4,13 @@ import json
 
 import src.sandbox.workspace_layout as layout
 from src.sandbox.workspace_layout import (
+    WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH,
     WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH,
     WORKSPACE_MANIFEST_RELATIVE_PATH,
     WORKSPACE_PROTECTED_PATHS,
     WORKSPACE_ROOT,
     WORKSPACE_STANDARD_DIRS,
+    build_artifact_manifest,
     build_dataset_provenance_manifest,
     build_workspace_sandbox_manifest,
     ensure_workspace_sandbox_layout,
@@ -59,6 +61,21 @@ def test_ensure_workspace_sandbox_layout_creates_guidance_and_keep_files(tmp_pat
     assert readme_path.is_file()
     assert "/workspace/datasets" in readme
     assert (tmp_path / "datasets" / "README.md").is_file()
+    artifact_manifest = json.loads(
+        (tmp_path / WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH).read_text(encoding="utf-8")
+    )
+    assert artifact_manifest == {
+        "schema": "wenjin.workspace_sandbox.artifact_manifest.v1",
+        "version": 1,
+        "root": "/workspace",
+        "artifacts": [],
+        "rules": [
+            "Record user-reviewable generated artifacts under /workspace/outputs or /workspace/reports.",
+            "Use /workspace virtual paths only.",
+            "Do not register /workspace/outputs/harness internal refs or protected files.",
+            "Prefer title, artifact_kind, content_hash, source_script, dataset_paths, and review notes when known.",
+        ],
+    }
     dataset_manifest = json.loads(
         (tmp_path / WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH).read_text(encoding="utf-8")
     )
@@ -104,6 +121,21 @@ def test_ensure_workspace_sandbox_layout_preserves_existing_dataset_manifest(tmp
 
     assert manifest_path.read_text(encoding="utf-8") == (
         '{"schema":"custom","datasets":[{"path":"/workspace/datasets/raw.csv"}]}\n'
+    )
+
+
+def test_ensure_workspace_sandbox_layout_preserves_existing_artifact_manifest(tmp_path):
+    manifest_path = tmp_path / WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        '{"schema":"custom","artifacts":[{"path":"/workspace/outputs/result.csv"}]}\n',
+        encoding="utf-8",
+    )
+
+    ensure_workspace_sandbox_layout(tmp_path, workspace_id="ws-1")
+
+    assert manifest_path.read_text(encoding="utf-8") == (
+        '{"schema":"custom","artifacts":[{"path":"/workspace/outputs/result.csv"}]}\n'
     )
 
 
@@ -213,6 +245,86 @@ def test_merge_dataset_provenance_manifest_drops_host_path_values():
             "path": "/workspace/datasets/raw/valid.csv",
             "source_id": "source-1",
             "preparation": "safe preparation note",
+        }
+    ]
+
+
+def test_merge_artifact_manifest_adds_safe_artifacts_without_overwriting_existing():
+    existing = build_artifact_manifest(
+        artifacts=[
+            {
+                "path": "/workspace/outputs/result.csv",
+                "title": "User title",
+                "artifact_kind": "table",
+                "custom_note": "kept",
+            }
+        ]
+    )
+
+    merged = layout.merge_artifact_manifest(
+        existing,
+        [
+            {
+                "path": "/workspace/outputs/result.csv",
+                "title": "Runtime title should not overwrite",
+                "artifact_kind": "table",
+            },
+            {
+                "path": "/workspace/reports/summary.md",
+                "title": "Summary",
+                "description": "Readable analysis summary",
+                "artifact_kind": "report",
+                "mime_type": "text/markdown",
+                "size_bytes": 2048,
+                "content_hash": "sha256:abc",
+                "source_script": "/workspace/scripts/analysis.py",
+                "dataset_paths": ["/workspace/datasets/raw.csv", "/workspace/.env"],
+                "notes": "ready for review",
+                "private_token": "must not persist",
+            },
+        ],
+    )
+
+    assert merged["artifacts"] == [
+        {
+            "path": "/workspace/outputs/result.csv",
+            "title": "User title",
+            "artifact_kind": "table",
+            "custom_note": "kept",
+        },
+        {
+            "path": "/workspace/reports/summary.md",
+            "title": "Summary",
+            "description": "Readable analysis summary",
+            "artifact_kind": "report",
+            "mime_type": "text/markdown",
+            "size_bytes": 2048,
+            "content_hash": "sha256:abc",
+            "source_script": "/workspace/scripts/analysis.py",
+            "dataset_paths": ["/workspace/datasets/raw.csv"],
+            "notes": "ready for review",
+        },
+    ]
+
+
+def test_merge_artifact_manifest_rejects_internal_guidance_and_non_artifact_refs():
+    merged = layout.merge_artifact_manifest(
+        build_artifact_manifest(),
+        [
+            {"path": "/workspace/reports/artifacts.json"},
+            {"path": "/workspace/outputs/harness/exec/tool.txt"},
+            {"path": "/workspace/main/paper.tex"},
+            {"path": "/workspace/datasets/raw.csv"},
+            {"path": "/workspace/main/.env"},
+            {"path": "/mnt/user-data/outputs/result.csv"},
+            {"path": "/workspace/outputs/figure.png", "title": "Figure"},
+        ],
+    )
+
+    assert merged["artifacts"] == [
+        {
+            "path": "/workspace/outputs/figure.png",
+            "title": "Figure",
         }
     ]
 

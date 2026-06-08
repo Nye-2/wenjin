@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import mimetypes
 from collections.abc import Iterable
@@ -10,7 +11,10 @@ from typing import Any
 
 from src.sandbox.workspace_layout import (
     WORKSPACE_ARTIFACT_ROOTS,
+    WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+    build_artifact_manifest,
     is_workspace_internal_path,
+    merge_artifact_manifest,
     normalize_workspace_virtual_path,
 )
 
@@ -39,6 +43,7 @@ async def discover_generated_artifacts(
     """
 
     candidates: dict[str, dict[str, Any]] = {}
+    manifest_metadata = await _artifact_manifest_metadata(sandbox)
     for root, root_name, artifact_kind in roots:
         try:
             entries = await sandbox.list_dir(root, max_depth=max_depth)
@@ -49,10 +54,15 @@ async def discover_generated_artifacts(
             continue
         for entry in entries:
             path = _normalize_virtual_path(getattr(entry, "path", ""))
-            if not path or getattr(entry, "is_dir", False) or is_workspace_internal_path(path):
+            if (
+                not path
+                or getattr(entry, "is_dir", False)
+                or is_workspace_internal_path(path)
+                or _is_guidance_artifact_path(path)
+            ):
                 continue
             size = _coerce_size(getattr(entry, "size", None))
-            candidates[path] = {
+            candidate = {
                 "schema": DISCOVERY_SCHEMA,
                 "path": path,
                 "root": root_name,
@@ -68,6 +78,8 @@ async def discover_generated_artifacts(
                 "review_surface": "sandbox_artifact",
                 "materialization_status": "candidate",
             }
+            candidate.update(_candidate_manifest_enrichment(candidate, manifest_metadata.get(path)))
+            candidates[path] = candidate
             if len(candidates) >= max_items:
                 return [candidates[key] for key in sorted(candidates)]
     return [candidates[key] for key in sorted(candidates)]
@@ -106,6 +118,66 @@ def _coerce_size(value: Any) -> int | None:
 
 def _guess_mime_type(path: str) -> str:
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
+def _is_guidance_artifact_path(path: str) -> bool:
+    return path in {
+        WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+        "/workspace/outputs/.gitkeep",
+        "/workspace/reports/.gitkeep",
+    }
+
+
+async def _artifact_manifest_metadata(sandbox: Any) -> dict[str, dict[str, Any]]:
+    try:
+        raw = await sandbox.read_file(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH)
+    except (FileNotFoundError, OSError):
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    safe_manifest = merge_artifact_manifest(
+        build_artifact_manifest(),
+        payload.get("artifacts") if isinstance(payload.get("artifacts"), list) else [],
+    )
+    artifacts = safe_manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return {}
+    return {
+        str(item.get("path")): dict(item)
+        for item in artifacts
+        if isinstance(item, dict) and str(item.get("path") or "").strip()
+    }
+
+
+def _candidate_manifest_enrichment(
+    candidate: dict[str, Any],
+    metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not metadata:
+        return {}
+    enrichment: dict[str, Any] = {}
+    for key in (
+        "title",
+        "description",
+        "artifact_kind",
+        "source_script",
+        "dataset_paths",
+        "notes",
+        "created_at",
+        "updated_at",
+    ):
+        if key in metadata:
+            enrichment[key] = metadata[key]
+    for key in ("mime_type", "content_hash"):
+        if metadata.get(key) and not candidate.get(key):
+            enrichment[key] = metadata[key]
+    if metadata.get("size_bytes") is not None and candidate.get("size") is None:
+        enrichment["size"] = metadata["size_bytes"]
+    return enrichment
 
 
 async def _content_hash(

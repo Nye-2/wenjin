@@ -10,12 +10,15 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from src.sandbox.workspace_layout import (
+    WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
     WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
     WORKSPACE_ROOT,
+    build_artifact_manifest,
     build_dataset_provenance_manifest,
     is_workspace_internal_path,
     is_workspace_protected_path,
     is_workspace_search_ignored_path,
+    merge_artifact_manifest,
     merge_dataset_provenance_manifest,
     normalize_workspace_virtual_path,
 )
@@ -363,6 +366,85 @@ class SandboxFileTools:
             file_change=file_change,
         )
 
+    async def register_artifact(
+        self,
+        *,
+        path: str,
+        title: str | None = None,
+        description: str | None = None,
+        artifact_kind: str | None = None,
+        mime_type: str | None = None,
+        size_bytes: int | None = None,
+        content_hash: str | None = None,
+        source_script: str | None = None,
+        dataset_paths: list[str] | str | None = None,
+        notes: str | None = None,
+    ) -> HarnessToolResult:
+        manifest_path = self._validate_virtual_path(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH, operation="write")
+        self._require_workspace_physical_target(manifest_path)
+        self._require_tool_visible_physical_target(manifest_path)
+        safe_entries = _safe_artifact_entries(
+            [
+                {
+                    "path": path,
+                    "title": title,
+                    "description": description,
+                    "artifact_kind": artifact_kind,
+                    "mime_type": mime_type,
+                    "size_bytes": size_bytes,
+                    "content_hash": content_hash,
+                    "source_script": source_script,
+                    "dataset_paths": dataset_paths,
+                    "notes": notes,
+                }
+            ]
+        )
+        if not safe_entries:
+            raise HarnessPathError("artifact path must be under /workspace/outputs or /workspace/reports")
+
+        before = await self._read_existing(manifest_path)
+        existing = _parse_artifact_manifest(before)
+        existing_paths = {
+            str(item.get("path") or "").strip()
+            for item in existing.get("artifacts", [])
+            if isinstance(item, dict)
+        }
+        safe_entry = safe_entries[0]
+        status = "already_registered" if safe_entry["path"] in existing_paths else "registered"
+        if status == "already_registered":
+            return HarnessToolResult(
+                preview_text=f"Artifact already registered: {safe_entry['path']}",
+                structured_payload={
+                    "schema": "wenjin.harness.artifact_registration.v1",
+                    "status": status,
+                    "manifest_path": manifest_path,
+                    "artifact": safe_entry,
+                },
+            )
+
+        merged = merge_artifact_manifest(existing, [safe_entry])
+        after = json.dumps(merged, ensure_ascii=True, sort_keys=True, indent=2) + "\n"
+        await self.sandbox.write_file(manifest_path, after)
+        file_change = await self._budget_file_change_diff(
+            build_file_change(
+                path=manifest_path,
+                before=before,
+                after=after,
+                operation="add" if before is None else "update",
+            ),
+            tool_name="sandbox.register_artifact",
+        )
+        return HarnessToolResult(
+            preview_text=f"Registered artifact: {safe_entry['path']}",
+            structured_payload={
+                "schema": "wenjin.harness.artifact_registration.v1",
+                "status": status,
+                "manifest_path": manifest_path,
+                "artifact": safe_entry,
+            },
+            file_change=file_change,
+        )
+
     def _validate_virtual_path(self, path: str, *, operation: str) -> str:
         text = str(path or "").strip()
         if text != WORKSPACE_ROOT and not text.startswith(f"{WORKSPACE_ROOT}/"):
@@ -630,6 +712,17 @@ def _safe_dataset_entries(raw_entries: list[dict[str, Any]]) -> list[dict[str, A
     return [dict(item) for item in datasets if isinstance(item, dict)]
 
 
+def _safe_artifact_entries(raw_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    manifest = merge_artifact_manifest(
+        build_artifact_manifest(),
+        raw_entries,
+    )
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return []
+    return [dict(item) for item in artifacts if isinstance(item, dict)]
+
+
 def _parse_dataset_manifest(text: str | None) -> dict[str, Any]:
     if text is None:
         return build_dataset_provenance_manifest()
@@ -639,6 +732,18 @@ def _parse_dataset_manifest(text: str | None) -> dict[str, Any]:
         raise ValueError("dataset manifest is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise ValueError("dataset manifest must be a JSON object")
+    return payload
+
+
+def _parse_artifact_manifest(text: str | None) -> dict[str, Any]:
+    if text is None:
+        return build_artifact_manifest()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("artifact manifest is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("artifact manifest must be a JSON object")
     return payload
 
 

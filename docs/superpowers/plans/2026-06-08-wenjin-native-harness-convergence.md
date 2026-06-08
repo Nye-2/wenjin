@@ -3946,6 +3946,58 @@ Observed:
 All checks passed!
 ```
 
+### Task 33: Artifact Metadata Manifest and Registration Tool
+
+**Goal:** make generated sandbox artifacts easier to review by giving agents a safe way to describe `/workspace/outputs/**` and `/workspace/reports/**` artifacts without exposing raw tool JSON or registering internal harness refs.
+
+**External reference applied:**
+
+- DeerFlow accepts only output-root artifacts for delivery and rejects other paths.
+- Codex keeps large/runtime output bounded and preserves full data behind internal refs.
+- Wenjin keeps the stronger DataService review-item flow, but adds a workspace-local metadata manifest to enrich candidates before review staging.
+
+**Files:**
+
+- Modify: `backend/src/sandbox/workspace_layout.py`
+- Modify: `backend/src/agents/lead_agent/v2/sandbox_artifact_discovery.py`
+- Modify: `backend/src/agents/harness/sandbox_tools.py`
+- Modify: `backend/src/agents/harness/langchain_adapter.py`
+- Modify: `backend/src/agents/harness/builtins.py`
+- Modify: `backend/src/agents/harness/policy.py`
+- Test: `backend/tests/sandbox/test_workspace_layout.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py`
+- Test: `backend/tests/agents/harness/test_sandbox_file_tools.py`
+- Test: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Test: `backend/tests/agents/harness/test_policy_and_registry.py`
+- Docs: `docs/current/architecture.md`
+- Docs: `docs/current/workspace-current-state.md`
+- Docs: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+- [x] **Step 1: Write failing tests**
+
+Covered:
+
+- layout creates `/workspace/reports/artifacts.json(schema=wenjin.workspace_sandbox.artifact_manifest.v1)` and preserves user-authored manifests.
+- `merge_artifact_manifest()` only accepts `/workspace/outputs/**` and `/workspace/reports/**`, rejects guidance/internal/protected/non-workspace refs, filters dataset paths, and preserves existing rows by path.
+- artifact discovery skips `.gitkeep` and `/workspace/reports/artifacts.json`.
+- artifact discovery enriches generated artifact candidates from same-path manifest metadata.
+- `sandbox.register_artifact` writes the manifest through the existing write/diff boundary and records `file_change`.
+- policy and LangChain adapter expose `sandbox.register_artifact` only when capability and skill allow it.
+
+- [x] **Step 2: Implement minimal tool and discovery enrichment**
+
+Implemented:
+
+- artifact manifest constants, builder, merge/sanitization helpers in `workspace_layout.py`
+- `SandboxFileTools.register_artifact(...)`
+- `RegisterArtifactInput`
+- `sandbox.register_artifact` built-in spec
+- policy permission mapping
+- adapter handler through the existing workspace scheduler
+- discovery skip/enrichment in `sandbox_artifact_discovery.py`
+
+The tool writes only `/workspace/reports/artifacts.json`, preserves user-authored entries by path, blocks internal harness refs, and emits ordinary harness `file_change` evidence. Discovery keeps the manifest itself out of generated artifacts and uses it only as metadata.
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

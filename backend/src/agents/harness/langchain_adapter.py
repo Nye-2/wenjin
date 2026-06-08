@@ -76,6 +76,19 @@ class RegisterDatasetInput(BaseModel):
     preparation: str | None = None
 
 
+class RegisterArtifactInput(BaseModel):
+    path: str
+    title: str | None = None
+    description: str | None = None
+    artifact_kind: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
+    content_hash: str | None = None
+    source_script: str | None = None
+    dataset_paths: list[str] | str | None = None
+    notes: str | None = None
+
+
 class RunPythonInput(BaseModel):
     script: str
     script_name: str = "analysis.py"
@@ -357,6 +370,10 @@ async def _register_dataset(ctx: HarnessRunContext, policy: HarnessPolicy, **kwa
     return _format_tool_result(await _with_file_tools(ctx, policy, "register_dataset", kwargs))
 
 
+async def _register_artifact(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
+    return _format_tool_result(await _with_file_tools(ctx, policy, "register_artifact", kwargs))
+
+
 async def _run_python(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
     result = await SandboxExecutionTools(
         context=ctx,
@@ -374,6 +391,7 @@ TOOL_DEFINITIONS: dict[str, tuple[type[BaseModel], ToolHandler]] = {
     "sandbox.write_file": (WriteFileInput, _write_file),
     "sandbox.str_replace": (StrReplaceInput, _str_replace),
     "sandbox.register_dataset": (RegisterDatasetInput, _register_dataset),
+    "sandbox.register_artifact": (RegisterArtifactInput, _register_artifact),
     "sandbox.run_python": (RunPythonInput, _run_python),
 }
 

@@ -63,6 +63,14 @@ BUILTIN_TOOL_SPECS = (
         required_permissions=["filesystem.write", "filesystem.diff"],
     ),
     HarnessToolSpec(
+        name="sandbox.register_artifact",
+        namespace="sandbox",
+        description="Register user-facing artifact metadata in /workspace/reports/artifacts.json.",
+        input_schema={"type": "object"},
+        risk_level="write",
+        required_permissions=["filesystem.write", "filesystem.diff"],
+    ),
+    HarnessToolSpec(
         name="sandbox.run_python",
         namespace="sandbox",
         description="Run a controlled Python script in the workspace sandbox.",

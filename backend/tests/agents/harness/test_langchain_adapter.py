@@ -109,6 +109,45 @@ async def test_langchain_register_dataset_records_manifest_file_change() -> None
 
 
 @pytest.mark.asyncio
+async def test_langchain_register_artifact_records_manifest_file_change() -> None:
+    records: list[dict] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+        await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
+        [tool] = build_langchain_tools(
+            _ctx(
+                sandbox,
+                tool_records=records,
+                tools=["sandbox.register_artifact"],
+                capability_policy={
+                    "allowed_tools": ["sandbox.register_artifact"],
+                    "permissions": ["filesystem.write", "filesystem.diff"],
+                },
+                skill={"allowed_tools": ["sandbox.register_artifact"]},
+            ),
+            ["sandbox.register_artifact"],
+        )
+
+        raw = await tool.ainvoke(
+            {
+                "path": "/workspace/outputs/result.csv",
+                "title": "Cleaned panel metrics",
+                "artifact_kind": "table",
+            }
+        )
+
+    payload = json.loads(raw)
+    assert payload["payload"]["schema"] == "wenjin.harness.artifact_registration.v1"
+    assert payload["payload"]["status"] == "registered"
+    assert payload["file_change"]["path"] == "/workspace/reports/artifacts.json"
+    assert records[-1]["name"] == "sandbox.register_artifact"
+    assert records[-1]["status"] == "completed"
+    assert records[-1]["file_changes"][0]["path"] == "/workspace/reports/artifacts.json"
+
+
+@pytest.mark.asyncio
 async def test_langchain_tool_downgrades_harness_exception_to_recoverable_result() -> None:
     records: list[dict] = []
     events: list[tuple[str, str, dict]] = []

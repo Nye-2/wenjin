@@ -18,6 +18,10 @@ WORKSPACE_DATASET_PROVENANCE_SCHEMA = "wenjin.workspace_sandbox.dataset_provenan
 WORKSPACE_DATASET_PROVENANCE_VERSION = 1
 WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH = "datasets/manifest.json"
 WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH}"
+WORKSPACE_ARTIFACT_MANIFEST_SCHEMA = "wenjin.workspace_sandbox.artifact_manifest.v1"
+WORKSPACE_ARTIFACT_MANIFEST_VERSION = 1
+WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH = "reports/artifacts.json"
+WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH}"
 WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH = "outputs/harness"
 WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH}"
 
@@ -83,6 +87,28 @@ DATASET_PROVENANCE_MANIFEST_ALLOWED_FIELDS = (
     "content_hash",
     "license",
     "preparation",
+    "created_at",
+    "updated_at",
+)
+
+WORKSPACE_ARTIFACT_MANIFEST_RULES = (
+    "Record user-reviewable generated artifacts under /workspace/outputs or /workspace/reports.",
+    "Use /workspace virtual paths only.",
+    "Do not register /workspace/outputs/harness internal refs or protected files.",
+    "Prefer title, artifact_kind, content_hash, source_script, dataset_paths, and review notes when known.",
+)
+
+ARTIFACT_MANIFEST_ALLOWED_FIELDS = (
+    "path",
+    "title",
+    "description",
+    "artifact_kind",
+    "mime_type",
+    "size_bytes",
+    "content_hash",
+    "source_script",
+    "dataset_paths",
+    "notes",
     "created_at",
     "updated_at",
 )
@@ -227,6 +253,12 @@ def _ensure_workspace_guidance_files(root: Path) -> None:
             json.dumps(build_dataset_provenance_manifest(), ensure_ascii=True, sort_keys=True, indent=2) + "\n",
             encoding="utf-8",
         )
+    artifact_manifest_path = root / WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH
+    if not artifact_manifest_path.exists():
+        artifact_manifest_path.write_text(
+            json.dumps(build_artifact_manifest(), ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
     for relative_dir in WORKSPACE_KEEP_FILE_DIRS:
         keep_path = root / relative_dir / ".gitkeep"
         keep_path.parent.mkdir(parents=True, exist_ok=True)
@@ -250,6 +282,7 @@ def build_workspace_sandbox_manifest(
         "workspace_type": workspace_type,
         "manifest_path": WORKSPACE_MANIFEST_VIRTUAL_PATH,
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+        "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
         "directories": deepcopy(_DIRECTORY_CONTRACTS),
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "artifact_roots": {
@@ -273,6 +306,18 @@ def build_dataset_provenance_manifest(*, datasets: list[dict[str, Any]] | None =
         "root": f"{WORKSPACE_ROOT}/datasets",
         "datasets": list(datasets or []),
         "rules": list(WORKSPACE_DATASET_PROVENANCE_RULES),
+    }
+
+
+def build_artifact_manifest(*, artifacts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Return the default editable artifact metadata manifest."""
+
+    return {
+        "schema": WORKSPACE_ARTIFACT_MANIFEST_SCHEMA,
+        "version": WORKSPACE_ARTIFACT_MANIFEST_VERSION,
+        "root": WORKSPACE_ROOT,
+        "artifacts": list(artifacts or []),
+        "rules": list(WORKSPACE_ARTIFACT_MANIFEST_RULES),
     }
 
 
@@ -311,6 +356,41 @@ def merge_dataset_provenance_manifest(
     return merged
 
 
+def merge_artifact_manifest(
+    manifest: Mapping[str, Any] | None,
+    artifacts: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    """Merge safe user-reviewable artifact refs into the editable artifact manifest.
+
+    Existing manifest entries are user-authored state and win over incoming
+    runtime entries for the same path.
+    """
+
+    merged = deepcopy(dict(manifest)) if isinstance(manifest, Mapping) else build_artifact_manifest()
+    existing_artifacts = merged.get("artifacts")
+    if not isinstance(existing_artifacts, list):
+        existing_artifacts = []
+    merged["artifacts"] = existing_artifacts
+
+    existing_paths = {
+        path
+        for item in existing_artifacts
+        if isinstance(item, Mapping)
+        for path in (_safe_artifact_manifest_path(item.get("path")),)
+        if path
+    }
+    for raw_entry in artifacts or []:
+        entry = _safe_artifact_manifest_entry(raw_entry)
+        if not entry:
+            continue
+        path = entry["path"]
+        if path in existing_paths:
+            continue
+        existing_artifacts.append(entry)
+        existing_paths.add(path)
+    return merged
+
+
 def _safe_dataset_manifest_entry(raw_entry: Any) -> dict[str, Any] | None:
     if not isinstance(raw_entry, Mapping):
         return None
@@ -322,6 +402,27 @@ def _safe_dataset_manifest_entry(raw_entry: Any) -> dict[str, Any] | None:
         if key == "path" or key not in raw_entry:
             continue
         value = _safe_dataset_manifest_value(raw_entry.get(key))
+        if value is not None:
+            entry[key] = value
+    return entry
+
+
+def _safe_artifact_manifest_entry(raw_entry: Any) -> dict[str, Any] | None:
+    if not isinstance(raw_entry, Mapping):
+        return None
+    path = _safe_artifact_manifest_path(raw_entry.get("path"))
+    if not path:
+        return None
+    entry: dict[str, Any] = {"path": path}
+    for key in ARTIFACT_MANIFEST_ALLOWED_FIELDS:
+        if key == "path" or key not in raw_entry:
+            continue
+        if key == "dataset_paths":
+            dataset_paths = _safe_artifact_dataset_paths(raw_entry.get(key))
+            if dataset_paths:
+                entry[key] = dataset_paths
+            continue
+        value = _safe_artifact_manifest_value(raw_entry.get(key))
         if value is not None:
             entry[key] = value
     return entry
@@ -346,6 +447,25 @@ def _safe_dataset_manifest_path(raw_path: Any) -> str | None:
     return path
 
 
+def _safe_artifact_manifest_path(raw_path: Any) -> str | None:
+    try:
+        path = normalize_workspace_virtual_path(str(raw_path or ""))
+    except ValueError:
+        return None
+    if not is_user_reviewable_workspace_artifact_path(path):
+        return None
+    if is_workspace_protected_path(path) or is_workspace_internal_path(path):
+        return None
+    relative = workspace_relative_path(path)
+    if relative in {
+        WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH,
+        "reports/.gitkeep",
+        "outputs/.gitkeep",
+    }:
+        return None
+    return path
+
+
 def _safe_dataset_manifest_value(value: Any) -> Any | None:
     if value is None:
         return None
@@ -363,6 +483,42 @@ def _safe_dataset_manifest_value(value: Any) -> Any | None:
     if len(text) > 1000:
         return text[:1000]
     return text
+
+
+def _safe_artifact_manifest_value(value: Any) -> Any | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return max(value, 0)
+    if isinstance(value, float):
+        return value if value >= 0 else None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or "\x00" in text or _contains_workspace_secret_ref(text) or _contains_host_path_ref(text):
+        return None
+    if len(text) > 1000:
+        return text[:1000]
+    return text
+
+
+def _safe_artifact_dataset_paths(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        raw_items = list(value)
+    else:
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items[:50]:
+        path = _safe_dataset_manifest_path(item)
+        if path and path not in seen:
+            paths.append(path)
+            seen.add(path)
+    return paths
 
 
 def _contains_workspace_secret_ref(text: str) -> bool:
@@ -414,6 +570,7 @@ def build_agent_workspace_contract(
         "directories": directories,
         "artifact_roots": manifest["artifact_roots"],
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+        "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
         "runtime_roots": manifest["runtime_roots"],
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "internal_paths": list(WORKSPACE_INTERNAL_PATHS),

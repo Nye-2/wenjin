@@ -13,6 +13,7 @@ from src.agents.harness.sandbox_tools import (
 )
 from src.sandbox.providers.local import LocalSandbox
 from src.sandbox.workspace_layout import (
+    WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
     WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
     WORKSPACE_PROTECTED_PATHS,
 )
@@ -320,6 +321,113 @@ async def test_register_dataset_rejects_non_dataset_paths_and_drops_host_refs(sa
         {
             "path": "/workspace/datasets/sample.csv",
             "source_id": "upload-1",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_register_artifact_updates_manifest_and_records_diff(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    result = await tools.register_artifact(
+        path="/workspace/outputs/result.csv",
+        title="Cleaned panel metrics",
+        description="Final table used by the analysis report.",
+        artifact_kind="table",
+        source_script="/workspace/scripts/analysis.py",
+        dataset_paths=["/workspace/datasets/sample.csv", "/workspace/.env"],
+        notes="ready for review",
+    )
+
+    manifest = json.loads(await sandbox.read_file(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH))
+    assert manifest["schema"] == "wenjin.workspace_sandbox.artifact_manifest.v1"
+    assert manifest["artifacts"] == [
+        {
+            "path": "/workspace/outputs/result.csv",
+            "title": "Cleaned panel metrics",
+            "description": "Final table used by the analysis report.",
+            "artifact_kind": "table",
+            "source_script": "/workspace/scripts/analysis.py",
+            "dataset_paths": ["/workspace/datasets/sample.csv"],
+            "notes": "ready for review",
+        }
+    ]
+    assert result.structured_payload["schema"] == "wenjin.harness.artifact_registration.v1"
+    assert result.structured_payload["status"] == "registered"
+    assert result.structured_payload["manifest_path"] == WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH
+    assert result.file_change is not None
+    assert result.file_change["path"] == WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH
+
+
+@pytest.mark.asyncio
+async def test_register_artifact_preserves_existing_user_authored_entry(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
+    await sandbox.write_file(
+        WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+        json.dumps(
+            {
+                "schema": "wenjin.workspace_sandbox.artifact_manifest.v1",
+                "version": 1,
+                "root": "/workspace",
+                "artifacts": [
+                    {
+                        "path": "/workspace/outputs/result.csv",
+                        "title": "User title",
+                        "artifact_kind": "table",
+                    }
+                ],
+                "rules": [],
+            },
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n",
+    )
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    result = await tools.register_artifact(
+        path="/workspace/outputs/result.csv",
+        title="Agent title",
+        artifact_kind="figure",
+    )
+
+    manifest = json.loads(await sandbox.read_file(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH))
+    assert manifest["artifacts"] == [
+        {
+            "path": "/workspace/outputs/result.csv",
+            "title": "User title",
+            "artifact_kind": "table",
+        }
+    ]
+    assert result.structured_payload["status"] == "already_registered"
+    assert result.file_change is None
+
+
+@pytest.mark.asyncio
+async def test_register_artifact_rejects_internal_and_non_artifact_paths(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="artifact path must be under /workspace/outputs or /workspace/reports"):
+        await tools.register_artifact(path="/workspace/main/paper.tex", title="bad")
+
+    with pytest.raises(HarnessPathError, match="artifact path must be under /workspace/outputs or /workspace/reports"):
+        await tools.register_artifact(path="/workspace/outputs/harness/exec/stdout.txt", title="bad")
+
+    await tools.register_artifact(
+        path="/workspace/outputs/result.csv",
+        title="Result",
+        notes="copied from /Users/ze/private/raw.csv with token sk-secret",
+    )
+
+    manifest_text = await sandbox.read_file(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH)
+    assert "/Users/ze/private" not in manifest_text
+    assert "sk-secret" not in manifest_text
+    assert json.loads(manifest_text)["artifacts"] == [
+        {
+            "path": "/workspace/outputs/result.csv",
+            "title": "Result",
         }
     ]
 

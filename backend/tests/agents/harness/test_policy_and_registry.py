@@ -130,6 +130,22 @@ def test_policy_allows_dataset_registration_with_write_and_diff_permissions() ->
     assert policy.permissions == frozenset({"filesystem.write", "filesystem.diff"})
 
 
+def test_policy_allows_artifact_registration_with_write_and_diff_permissions() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={
+                "allowed_tools": ["sandbox.register_artifact"],
+                "permissions": ["filesystem.write", "filesystem.diff"],
+            },
+            template={"tool_affinity": {"preferred": ["sandbox.register_artifact"]}},
+            skill={"allowed_tools": ["sandbox.register_artifact"]},
+        )
+    )
+
+    assert policy.allowed_tools == ("sandbox.register_artifact",)
+    assert policy.permissions == frozenset({"filesystem.write", "filesystem.diff"})
+
+
 def test_harness_policy_defaults_to_workspace_layout_protected_paths() -> None:
     policy = HarnessPolicy()
 
