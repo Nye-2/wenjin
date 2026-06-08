@@ -427,7 +427,7 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 
@@ -448,7 +448,7 @@ git commit -m "feat: feed harness failures into team replanning"
 - Test: `backend/tests/agents/lead_agent/v2/test_capability_tool_policy.py`
 - Docs: `docs/current/architecture.md`
 
-- [ ] **Step 1: Audit current template tool declarations**
+- [x] **Step 1: Audit current template tool declarations**
 
 Run:
 
@@ -463,7 +463,7 @@ Record mismatches:
 - tools declared in prompts but absent from policy.
 - broad write/exec claims without explicit permissions.
 
-- [ ] **Step 2: Write failing registry validation tests**
+- [x] **Step 2: Write failing registry validation tests**
 
 Assert:
 
@@ -472,7 +472,7 @@ Assert:
 - template/skill cannot widen tool access.
 - role templates receive the sandbox workspace contract.
 
-- [ ] **Step 3: Update role templates**
+- [x] **Step 3: Update role templates**
 
 Use concrete, product-specific wording:
 
@@ -481,7 +481,7 @@ Use concrete, product-specific wording:
 - Writing roles: do not mutate Prism files directly unless using approved review/staging flow.
 - Utility/fill-in roles: read/search broadly, write only when capability grants `filesystem.write` and `filesystem.diff`.
 
-- [ ] **Step 4: Run validation**
+- [x] **Step 4: Run validation**
 
 Run:
 
@@ -492,13 +492,168 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 
 ```bash
 git commit -m "chore: align role templates with harness tools"
 ```
+
+---
+
+## Focused Execution Plan From Current State
+
+The next work must stay on the Wenjin-native harness path. Codex SDK, cc-switch, deer-flow runtime, and protocol compatibility layers are out of scope. External projects are references only; implementation converges around Wenjin's existing Chat Agent -> Lead Agent -> TeamKernel -> ReactSubagent -> Harness -> DataService path.
+
+### Phase A: Role Template and Tool Policy Convergence
+
+Goal: make team实名制成员模板 match the real harness tool contract, so roles can act autonomously inside `/workspace` without hidden prompt-only assumptions.
+
+Execution order:
+
+1. Audit all capability seeds and subagent registry declarations:
+
+   ```bash
+   rg "sandbox\\.|filesystem\\.|allowed_tools|tool_affinity|risk_profile" backend/seed backend/src/subagents -n
+   ```
+
+2. Add failing tests proving:
+
+   - sandbox tool names used by templates resolve to canonical harness tools.
+   - capability policy is the maximum permission envelope.
+   - role templates and skills cannot widen tool access by prompt wording.
+   - React subagents always receive `wenjin.harness.context_bundle.v1`.
+
+3. Update `sci` and `thesis` role wording to use the canonical `/workspace` contract:
+
+   - literature/research roles read and synthesize, write reports only under `/workspace/reports`.
+   - code/experiment roles write scripts under `/workspace/scripts` and outputs under `/workspace/outputs`.
+   - writing/revision roles stage suggested changes instead of directly mutating Prism source files unless an approved review flow grants it.
+   - utility roles default to read/search, only write when capability policy explicitly grants it.
+
+4. Run targeted backend validation:
+
+   ```bash
+   cd /Users/ze/wenjin/backend
+   .venv/bin/python -m pytest tests/subagents/v2/test_registry.py tests/agents/lead_agent/v2/test_capability_tool_policy.py -q
+   ```
+
+Commit boundary: `chore: align role templates with harness tools`.
+
+### Phase B: One-Workspace-One-Sandbox E2E Contract
+
+Goal: prove the new harness can complete a realistic research/experiment slice in one workspace sandbox, without creating another runtime path.
+
+Execution order:
+
+1. Add an integration test with a mock sandbox provider:
+
+   - Lead dispatches a code/experiment team member.
+   - Subagent receives bounded `/workspace` contract.
+   - Subagent writes `/workspace/scripts/analysis.py`.
+   - Harness runs `sandbox.run_python`.
+   - Execution manifest records job/environment IDs.
+   - Generated `/workspace/outputs/result.json` is discovered as an artifact candidate.
+   - Node metadata contains file change summary, sandbox execution summary, tool failure summary when relevant.
+   - Protected paths such as `/workspace/.wenjin/**`, `.env`, keys, and internal harness outputs never enter user-facing context.
+
+2. Keep this test inside existing execution records and node records. No new harness run table.
+
+3. Run:
+
+   ```bash
+   cd /Users/ze/wenjin/backend
+   .venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py -q
+   .venv/bin/python -m pytest tests/agents/harness tests/agents/lead_agent/v2 -q
+   ```
+
+Commit boundary: `test: cover harness mock sandbox workflow`.
+
+### Phase C: Product-Facing Execution UX Projection
+
+Goal: make the harness visible to users as a clear team workflow, not as tool JSON or debug noise.
+
+Execution order:
+
+1. Add frontend projection tests in `frontend/lib/execution-run-view.test.ts`.
+
+2. Update `frontend/lib/execution-run-view.ts` only as the source of truth for run display:
+
+   - Show member display name and concise task state.
+   - Show generated artifacts and review actions.
+   - Collapse stdout/stderr, args, raw manifests, and debug payloads by default.
+   - Keep LiveWorkflowPanel, Runs drawer, and chat launch receipt consistent through the same projection.
+
+3. Run:
+
+   ```bash
+   cd /Users/ze/wenjin/frontend
+   npm run typecheck
+   npx vitest run frontend/lib/execution-run-view.test.ts
+   ```
+
+Commit boundary: `feat: simplify harness execution projection`.
+
+### Phase D: Browser and Docker Smoke Test
+
+Goal: verify product behavior through the actual stack, not only unit tests.
+
+Execution order:
+
+1. Start with Docker Compose or the current documented local stack.
+
+2. Browser-test the main flows:
+
+   - login/session remains valid when switching Wenjin/Prism.
+   - create/open workspace.
+   - trigger a team-agent research or experiment task.
+   - observe LiveWorkflowPanel showing real member names and clean progress states.
+   - open run details and confirm debug details are collapsed.
+   - open Prism, use AI 改稿, compile/open PDF contrast, ensure panels do not obscure core editing flow.
+
+3. Fix functional/UI regressions immediately if found, with focused tests where possible.
+
+Commit boundary: one commit per fixed regression, or `fix: stabilize harness browser flow` if changes are tightly related.
+
+### Phase E: Final Architecture Review and Docs
+
+Goal: leave the branch mergeable and understandable.
+
+Execution order:
+
+1. Update:
+
+   - `docs/current/architecture.md`
+   - `docs/current/workspace-current-state.md`
+   - `docs/current/frontend-feature-plugin-contract.md` if frontend projection contract changes
+   - `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+2. Run final verification:
+
+   ```bash
+   cd /Users/ze/wenjin/backend
+   .venv/bin/python -m pytest tests/ -q
+   .venv/bin/ruff check
+
+   cd /Users/ze/wenjin/frontend
+   npm run typecheck
+   npx vitest run
+
+   cd /Users/ze/wenjin
+   git diff --check
+   ```
+
+3. Final review checklist:
+
+   - no Codex SDK or deer-flow runtime dependency.
+   - no extra router/runtime/table/store for harness.
+   - one workspace maps to one active sandbox.
+   - all sandbox files use `/workspace` virtual paths.
+   - user-facing UI is concise; debug data remains inspectable but not default.
+   - role templates, tool policy, runtime context, execution metadata, and UI projection point to one contract.
+
+Commit boundary: `docs: update harness architecture state`.
 
 ---
 

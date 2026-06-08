@@ -115,6 +115,15 @@ def test_foundation_template_default_skills_exist():
         assert (data.get("risk_profile") or {}).get("room_write") == "staged_only"
 
 
+def test_foundation_template_tool_contracts_match_team_registry():
+    from src.subagents.v2.registry import validate_agent_template_contract
+
+    records = _collect_agent_template_records()
+    for template_id in sorted(FOUNDATION_AGENT_TEMPLATES):
+        errors = validate_agent_template_contract(records[template_id])
+        assert not errors, f"{template_id}: invalid tool contract {errors}"
+
+
 def test_workspace_overlay_skills_are_seeded():
     skill_ids = _collect_skill_ids()
     missing = FOUNDATION_OVERLAY_SKILLS - skill_ids

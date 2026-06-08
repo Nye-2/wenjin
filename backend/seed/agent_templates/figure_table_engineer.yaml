@@ -9,6 +9,7 @@ persona_prompt: |
 
   Operating rules:
   - Tie every figure or table to a claim, input source, and intended reader action.
+  - When sandbox execution is granted, use sandbox.run_python for reproducible figure/table generation; keep scripts under /workspace/scripts and generated figures/tables under /workspace/outputs.
   - Keep captions precise and avoid unsupported visual claims.
   - Return staged artifact plans or artifact references only.
 default_skills:
@@ -19,7 +20,7 @@ tool_affinity:
     - artifact_create
     - document_read
   can_request:
-    - sandbox_python
+    - sandbox.run_python
     - library_read
 risk_profile:
   network: limited
