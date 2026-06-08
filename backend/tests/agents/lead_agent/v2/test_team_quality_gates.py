@@ -448,3 +448,184 @@ def test_quality_gates_fail_claim_evidence_map_with_unknown_citation_key() -> No
             )
         }
     ]
+
+
+def test_quality_gates_fail_source_quality_audit_without_structured_fields() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "source_quality_auditor.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": [
+            "source_authority_checked",
+            "metadata_completeness_checked",
+            "weak_support_flagged",
+        ],
+        "acknowledgement_required_gates": [],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["source_authority_checked", "metadata_completeness_checked", "weak_support_flagged"],
+        [
+            _invocation(
+                template_id="source_quality_auditor.v1",
+                output_report={
+                    "text": "Sources look mostly good.",
+                    "quality_gates_checked": [
+                        "source_authority_checked",
+                        "metadata_completeness_checked",
+                        "weak_support_flagged",
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["source_quality_auditor.v1"]),
+        counts=Counter({"source_quality_auditor.v1": 1}),
+        latest_invocations=[],
+    )
+
+    gate_ids = {gate.gate_id for gate in gates}
+    assert {
+        "source_authority_checked",
+        "metadata_completeness_checked",
+        "weak_support_flagged",
+    } <= gate_ids
+    for gate_id in (
+        "source_authority_checked",
+        "metadata_completeness_checked",
+        "weak_support_flagged",
+    ):
+        gate = next(item for item in gates if item.gate_id == gate_id)
+        assert gate.status == "fail"
+        assert gate.next_action == "revise_existing"
+        assert gate.suggested_recruits == [
+            {
+                "template_id": "source_quality_auditor.v1",
+                "reason": gate_id,
+            }
+        ]
+
+
+def test_quality_gates_accept_grounded_citation_readiness_audit() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "citation_auditor.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": [
+            "no_fabricated_citations",
+            "claim_source_binding_checked",
+            "style_consistency_checked",
+        ],
+        "acknowledgement_required_gates": [],
+        "allowed_citation_keys": ["smith2026"],
+        "allowed_source_ids": ["source-1"],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["no_fabricated_citations", "claim_source_binding_checked", "style_consistency_checked"],
+        [
+            _invocation(
+                template_id="citation_auditor.v1",
+                output_report={
+                    "text": "Citation audit complete.",
+                    "quality_gates_checked": [
+                        "no_fabricated_citations",
+                        "claim_source_binding_checked",
+                        "style_consistency_checked",
+                    ],
+                    "citation_key_audit": [
+                        {
+                            "citation_key": "smith2026",
+                            "source_id": "source-1",
+                            "status": "ready",
+                            "reason": "Library source is available and metadata is complete.",
+                        }
+                    ],
+                    "missing_sources": [],
+                    "fabrication_risks": [],
+                    "bibtex_projection_notes": [
+                        {
+                            "citation_key": "smith2026",
+                            "status": "ready",
+                            "reason": "Can be projected to refs.bib.",
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["citation_auditor.v1"]),
+        counts=Counter({"citation_auditor.v1": 1}),
+        latest_invocations=[],
+    )
+
+    relevant = [
+        gate
+        for gate in gates
+        if gate.gate_id
+        in {
+            "no_fabricated_citations",
+            "claim_source_binding_checked",
+            "style_consistency_checked",
+        }
+    ]
+    assert not [gate for gate in relevant if gate.status != "pass"]
+
+
+def test_quality_gates_fail_citation_readiness_audit_with_unknown_refs() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "citation_auditor.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_source_binding_checked"],
+        "acknowledgement_required_gates": [],
+        "allowed_citation_keys": ["smith2026"],
+        "allowed_source_ids": ["source-1"],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["claim_source_binding_checked"],
+        [
+            _invocation(
+                template_id="citation_auditor.v1",
+                output_report={
+                    "text": "Citation audit complete.",
+                    "quality_gates_checked": ["claim_source_binding_checked"],
+                    "citation_key_audit": [
+                        {
+                            "citation_key": "missing2026",
+                            "source_id": "source-unknown",
+                            "status": "ready",
+                            "reason": "Looks plausible.",
+                        }
+                    ],
+                    "missing_sources": [],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["citation_auditor.v1"]),
+        counts=Counter({"citation_auditor.v1": 1}),
+        latest_invocations=[],
+    )
+
+    gate = next(item for item in gates if item.gate_id == "claim_source_binding_checked")
+    assert gate.status == "fail"
+    assert gate.findings[0]["invalid_entries"] == [
+        {
+            "field": "citation_key_audit",
+            "index": 0,
+            "unknown_refs": ["source-unknown", "missing2026"],
+        }
+    ]
+    assert gate.required_fixes == [
+        {
+            "message": (
+                "Return citation/source audit entries with source_id or citation_key "
+                "from the current workspace Library context."
+            )
+        }
+    ]

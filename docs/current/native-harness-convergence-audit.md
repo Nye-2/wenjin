@@ -73,7 +73,7 @@ Chat Agent
 
 ### P1: 来源质量和引用核验还不够硬
 
-现在可以产出 literature items 和质量门 warning，但 citation readiness、DOI/BibTeX 校验、claim-source 绑定还没有形成强制闭环。下一步应把 source-quality-auditor / citation-auditor 的输出变成更明确的 review item 或质量门决策。
+claim-source 绑定已经进入强制质量门：`claim_evidence_map_required` 会要求 supported claims 使用当前 workspace 的 `source_id` 或 `citation_key`。`source-quality-auditor` / `citation-auditor` 的输出也已经进入结构化质量门，不能只靠 prose 和 `quality_gates_checked` 通过；source authority、metadata completeness、weak support、fabricated citation、claim-source binding 和 style consistency gate 会要求 `citation_key_audit`、`missing_sources`、`fabrication_risks` 或 `bibtex_projection_notes`，且其中的 citation/source refs 必须来自当前 workspace allowlist。剩余不足是 DOI/BibTeX 深度校验、引用样式自动核验和把高风险 citation findings 进一步转成用户可审阅 review item。
 
 ### P1: sandbox 安装与实验体验仍偏基础
 

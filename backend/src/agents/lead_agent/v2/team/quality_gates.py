@@ -22,12 +22,29 @@ FOUNDATION_GATE_REQUIRED_FIELDS = {
     "reproducibility_status_declared": ["verified_results", "artifact_refs"],
     "review_findings_actionable": ["findings_by_severity", "required_fixes"],
     "format_requirements_checked": ["checked_requirements"],
+    "source_authority_checked": ["citation_key_audit"],
+    "metadata_completeness_checked": ["citation_key_audit", "missing_sources"],
+    "weak_support_flagged": ["missing_sources", "fabrication_risks"],
+    "no_fabricated_citations": ["fabrication_risks"],
+    "claim_source_binding_checked": ["citation_key_audit", "missing_sources"],
+    "style_consistency_checked": ["bibtex_projection_notes"],
 }
 
 FOUNDATION_GATE_ALLOW_EMPTY_FIELDS = {
     "borderline_sources",
     "rejected_sources",
     "unsupported_claims",
+    "bibtex_projection_notes",
+    "citation_key_audit",
+    "fabrication_risks",
+    "missing_sources",
+}
+
+CITATION_AUDIT_REF_FIELDS_BY_GATE = {
+    "source_authority_checked": ("citation_key_audit",),
+    "metadata_completeness_checked": ("citation_key_audit",),
+    "claim_source_binding_checked": ("citation_key_audit",),
+    "style_consistency_checked": ("bibtex_projection_notes",),
 }
 
 
@@ -247,6 +264,13 @@ def _foundation_field_gates(
                     allowed_source_ids=_string_list(contract.get("allowed_source_ids")),
                     allowed_citation_keys=_string_list(contract.get("allowed_citation_keys")),
                 )
+            elif not missing and gate_id in CITATION_AUDIT_REF_FIELDS_BY_GATE:
+                invalid_entries = _invalid_source_citation_audit_entries(
+                    output,
+                    fields=CITATION_AUDIT_REF_FIELDS_BY_GATE[gate_id],
+                    allowed_source_ids=_string_list(contract.get("allowed_source_ids")),
+                    allowed_citation_keys=_string_list(contract.get("allowed_citation_keys")),
+                )
             if not missing and not invalid_entries:
                 continue
             finding = {
@@ -258,9 +282,7 @@ def _foundation_field_gates(
                 finding["missing_fields"] = missing
             if invalid_entries:
                 finding["invalid_entries"] = invalid_entries
-                finding["message"] = (
-                    "claim_evidence_map entries must use current workspace source refs"
-                )
+                finding["message"] = _invalid_entries_message(gate_id)
             findings.append(finding)
             suggested.extend(
                 _revision_recruit(
@@ -275,6 +297,9 @@ def _foundation_field_gates(
         if not findings:
             continue
         invalid_claim_map = gate_id == "claim_evidence_map_required" and any(
+            finding.get("invalid_entries") for finding in findings
+        )
+        invalid_citation_audit = gate_id in CITATION_AUDIT_REF_FIELDS_BY_GATE and any(
             finding.get("invalid_entries") for finding in findings
         )
         if invalid_claim_map:
@@ -293,6 +318,15 @@ def _foundation_field_gates(
                     "message": (
                         "Return claim_evidence_map entries with claim plus source_id "
                         f"or citation_key{suffix}."
+                    )
+                }
+            ]
+        elif invalid_citation_audit:
+            required_fixes = [
+                {
+                    "message": (
+                        "Return citation/source audit entries with source_id or citation_key "
+                        "from the current workspace Library context."
                     )
                 }
             ]
@@ -783,6 +817,51 @@ def _invalid_claim_evidence_entries(
         elif unknown_refs:
             invalid.append({"index": index, "unknown_refs": _dedupe(unknown_refs)})
     return invalid
+
+
+def _invalid_source_citation_audit_entries(
+    output: dict[str, Any],
+    *,
+    fields: tuple[str, ...],
+    allowed_source_ids: list[str] | None = None,
+    allowed_citation_keys: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    allowed_sources = set(allowed_source_ids or [])
+    allowed_citations = set(allowed_citation_keys or [])
+    invalid: list[dict[str, Any]] = []
+    for field in fields:
+        raw_entries = output.get(field)
+        if not isinstance(raw_entries, list):
+            continue
+        for index, item in enumerate(raw_entries):
+            if not isinstance(item, dict):
+                invalid.append({"field": field, "index": index, "missing_fields": ["object"]})
+                continue
+            refs = _claim_ref_values(item)
+            unknown_refs: list[str] = []
+            if allowed_sources:
+                unknown_refs.extend(
+                    ref for ref in refs["source_ids"] if ref not in allowed_sources
+                )
+            if allowed_citations:
+                unknown_refs.extend(
+                    ref for ref in refs["citation_keys"] if ref not in allowed_citations
+                )
+            if unknown_refs:
+                invalid.append(
+                    {
+                        "field": field,
+                        "index": index,
+                        "unknown_refs": _dedupe(unknown_refs),
+                    }
+                )
+    return invalid
+
+
+def _invalid_entries_message(gate_id: str) -> str:
+    if gate_id == "claim_evidence_map_required":
+        return "claim_evidence_map entries must use current workspace source refs"
+    return "citation/source audit entries must use current workspace source refs"
 
 
 def _claim_evidence_entries(value: Any) -> list[tuple[int, Any]]:

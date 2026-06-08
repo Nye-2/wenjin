@@ -654,6 +654,8 @@ Recommended loop:
 The key is that workflow loops can be flexible but remain observable and bounded.
 For evidence-dependent outputs, `claim_evidence_map_required` is a structural grounding gate, not a presence-only check: every supported claim entry must include claim text plus `source_id` or `citation_key`. When workspace Library context is loaded, the QualityContract carries `allowed_source_ids` and `allowed_citation_keys`, and claim refs must come from that allowlist. Unsupported claims should be put into `unsupported_claims` instead of being represented as grounded evidence.
 
+Source/citation auditor gates are also structural. When a member contract includes `source_authority_checked`, `metadata_completeness_checked`, `weak_support_flagged`, `no_fabricated_citations`, `claim_source_binding_checked`, or `style_consistency_checked`, TeamKernel requires structured audit fields such as `citation_key_audit`, `missing_sources`, `fabrication_risks`, and `bibtex_projection_notes`; prose plus `quality_gates_checked` is not enough. Any `source_id` or `citation_key` in those audit rows must come from the current workspace allowlist.
+
 ## 10. Safety Model
 
 High capability does not mean unrestricted execution.

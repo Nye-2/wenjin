@@ -2640,6 +2640,69 @@ Observed:
 All checks passed!
 ```
 
+### Task 14B: Source and Citation Auditor Structural Gates
+
+**Goal:** make `source-quality-auditor` and `citation-auditor` outputs influence TeamKernel quality decisions through structured audit fields, not only prose summaries or `quality_gates_checked` acknowledgements.
+
+**Architecture:** extend the existing pure `quality_gates.py` evaluator. Do not add a new review table, runtime, subagent loop, or frontend state. QualityContract already carries workspace `allowed_source_ids` and `allowed_citation_keys`; reuse that allowlist.
+
+**Files:**
+- Modified: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
+- Modified: `docs/current/architecture.md`
+- Modified: `docs/current/native-harness-convergence-audit.md`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED tests**
+
+Added:
+
+- `test_quality_gates_fail_source_quality_audit_without_structured_fields`
+- `test_quality_gates_accept_grounded_citation_readiness_audit`
+- `test_quality_gates_fail_citation_readiness_audit_with_unknown_refs`
+
+Observed RED:
+
+```text
+source-quality structured gate returned pass instead of fail
+unknown citation/source refs returned pass instead of fail
+```
+
+- [x] **Step 2: Add structural field requirements for source/citation gates**
+
+`source_authority_checked`, `metadata_completeness_checked`, `weak_support_flagged`, `no_fabricated_citations`, `claim_source_binding_checked`, and `style_consistency_checked` now require structured fields such as `citation_key_audit`, `missing_sources`, `fabrication_risks`, or `bibtex_projection_notes`. Empty arrays are allowed so an auditor can explicitly say no risks were found.
+
+- [x] **Step 3: Validate audit refs against workspace allowlists**
+
+`citation_key_audit` and `bibtex_projection_notes` entries are checked against `allowed_source_ids` and `allowed_citation_keys` when those allowlists are present. Unknown refs produce structured `invalid_entries` and a `revise_existing` gate result.
+
+- [x] **Step 4: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_source_quality_audit_without_structured_fields backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_accept_grounded_citation_readiness_audit backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_citation_readiness_audit_with_unknown_refs -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py -q
+backend/.venv/bin/ruff check backend/src/agents/lead_agent/v2/team/quality_gates.py backend/tests/agents/lead_agent/v2/test_team_quality_gates.py
+```
+
+Observed:
+
+```text
+3 passed
+14 passed
+All checks passed!
+```
+
+Broader TeamKernel verification also passed:
+
+```text
+43 passed
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:
