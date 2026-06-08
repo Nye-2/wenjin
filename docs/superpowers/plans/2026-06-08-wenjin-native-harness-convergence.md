@@ -1575,12 +1575,20 @@ Observed 2026-06-08:
 - Fixed with tests: TeamKernel graph now keeps member templates out of progress nodes, RunView derives five-step progress from team member / quality gate / run status, and quality gates are deduplicated by gate id for default team display.
 - Browser re-test verified progress now shows five steps: `准备上下文` completed, `组建团队` completed, `成员执行` partial, `质量闭环` partial, `整理结果` completed; no raw tool JSON appears in default view.
 
-- [ ] **Step 3: Browser-test Prism task continuity**
+- [x] **Step 3: Browser-test Prism task continuity**
 
 - open Prism.
 - compile and open PDF contrast.
 - trigger AI 改稿.
 - confirm the panel does not auto-open from compile, does not block editing, and uses product-facing copy.
+
+Observed 2026-06-08:
+
+- Browser opened `/workspaces/{workspace_id}/prism` without login redirect.
+- Compile did not auto-open AI assist; it opened PDF contrast and changed the state copy to `正在显示 PDF 对照`.
+- Browser regression found the floating AI entry became only `待应用修改` when pending changes existed, hiding the AI rewrite affordance.
+- Fixed with test: the floating entry keeps `AI 改稿` as the main label and appends state as `AI 改稿，待应用修改`.
+- Browser re-test verified clicking the floating entry opens the `AI 改稿` dialog; the dialog uses product-facing copy and keeps pending writes in the review queue.
 
 - [x] **Step 4: Fix regressions with tests**
 

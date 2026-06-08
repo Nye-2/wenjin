@@ -301,7 +301,7 @@ describe("Prism editor shell", () => {
 
     render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
 
-    expect(screen.getByRole("button", { name: "待应用修改" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 改稿，待应用修改" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
   });
 
