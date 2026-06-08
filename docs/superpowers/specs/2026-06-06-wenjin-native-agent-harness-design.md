@@ -651,6 +651,7 @@ Recommended loop:
 8. Stop on pass, no progress, max iterations, or user decision required.
 
 The key is that workflow loops can be flexible but remain observable and bounded.
+For evidence-dependent outputs, `claim_evidence_map_required` is a structural grounding gate, not a presence-only check: every supported claim entry must include claim text plus `source_id` or `citation_key`. Unsupported claims should be put into `unsupported_claims` instead of being represented as grounded evidence.
 
 ## 10. Safety Model
 

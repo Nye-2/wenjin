@@ -240,16 +240,26 @@ def _foundation_field_gates(
                 field for field in required_fields
                 if not _has_meaningful_field(output, field)
             ]
-            if not missing:
+            invalid_entries = []
+            if not missing and gate_id == "claim_evidence_map_required":
+                invalid_entries = _invalid_claim_evidence_entries(
+                    output.get("claim_evidence_map")
+                )
+            if not missing and not invalid_entries:
                 continue
-            findings.append(
-                {
-                    "invocation_id": invocation.id,
-                    "template_id": invocation.template_id,
-                    "missing_fields": missing,
-                    "message": f"required fields for {gate_id} are missing",
-                }
-            )
+            finding = {
+                "invocation_id": invocation.id,
+                "template_id": invocation.template_id,
+                "message": f"required fields for {gate_id} are missing",
+            }
+            if missing:
+                finding["missing_fields"] = missing
+            if invalid_entries:
+                finding["invalid_entries"] = invalid_entries
+                finding["message"] = (
+                    "claim_evidence_map entries must include source_id or citation_key"
+                )
+            findings.append(finding)
             suggested.extend(
                 _revision_recruit(
                     invocation,
@@ -262,27 +272,41 @@ def _foundation_field_gates(
             )
         if not findings:
             continue
-        missing_for_message = _dedupe(
-            [
-                field
-                for finding in findings
-                for field in _string_list(finding.get("missing_fields"))
-            ]
+        invalid_claim_map = gate_id == "claim_evidence_map_required" and any(
+            finding.get("invalid_entries") for finding in findings
         )
+        if invalid_claim_map:
+            required_fixes = [
+                {
+                    "message": (
+                        "Return claim_evidence_map entries with claim plus source_id "
+                        "or citation_key for every supported claim."
+                    )
+                }
+            ]
+        else:
+            missing_for_message = _dedupe(
+                [
+                    field
+                    for finding in findings
+                    for field in _string_list(finding.get("missing_fields"))
+                ]
+            )
+            required_fixes = [
+                {
+                    "message": (
+                        f"Return required fields for {gate_id}: "
+                        f"{', '.join(missing_for_message)}."
+                    )
+                }
+            ]
         results.append(
             QualityGateResult(
                 gate_id=gate_id,
                 status="fail",
                 severity="medium",
                 findings=findings,
-                required_fixes=[
-                    {
-                        "message": (
-                            f"Return required fields for {gate_id}: "
-                            f"{', '.join(missing_for_message)}."
-                        )
-                    }
-                ],
+                required_fixes=required_fixes,
                 suggested_recruits=_dedupe_recruits(suggested),
                 next_action="revise_existing" if suggested else "stop_with_warning",
             )
@@ -713,6 +737,64 @@ def _has_meaningful_field(output: dict[str, Any], field: str) -> bool:
             return True
         return bool(value)
     return True
+
+
+def _invalid_claim_evidence_entries(value: Any) -> list[dict[str, Any]]:
+    entries = _claim_evidence_entries(value)
+    invalid: list[dict[str, Any]] = []
+    for index, item in entries:
+        missing_fields: list[str] = []
+        claim = _claim_text(item)
+        if not claim:
+            missing_fields.append("claim")
+        if not _claim_source_refs(item):
+            missing_fields.append("source_id_or_citation_key")
+        if missing_fields:
+            invalid.append({"index": index, "missing_fields": missing_fields})
+    return invalid
+
+
+def _claim_evidence_entries(value: Any) -> list[tuple[int, Any]]:
+    if isinstance(value, list):
+        return list(enumerate(value))
+    if not isinstance(value, dict):
+        return []
+    claims = value.get("claims")
+    if isinstance(claims, list):
+        return list(enumerate(claims))
+    entries: list[tuple[int, Any]] = []
+    for index, (claim, refs) in enumerate(value.items()):
+        item = refs if isinstance(refs, dict) else {"claim": claim, "source_refs": refs}
+        if isinstance(item, dict):
+            item = {"claim": claim, **item}
+        entries.append((index, item))
+    return entries
+
+
+def _claim_text(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    for key in ("claim", "statement", "text"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _claim_source_refs(item: Any) -> list[str]:
+    if not isinstance(item, dict):
+        return []
+    refs: list[str] = []
+    for key in (
+        "source_id",
+        "source_ids",
+        "source_ref",
+        "source_refs",
+        "citation_key",
+        "citation_keys",
+    ):
+        refs.extend(_string_list(item.get(key)))
+    return _dedupe(refs)
 
 
 def _open_question_triggers(output: dict[str, Any]) -> list[str]:

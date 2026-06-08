@@ -316,3 +316,86 @@ def test_quality_gates_accept_empty_marker_lists_when_present() -> None:
         for gate in gates
         if gate.gate_id in {"source_screening_complete", "unsupported_claims_marked"}
     ]
+
+
+def test_quality_gates_fail_claim_evidence_map_without_source_refs() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "literature_synthesizer.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_evidence_map_required"],
+        "acknowledgement_required_gates": [],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["claim_evidence_map_required"],
+        [
+            _invocation(
+                template_id="literature_synthesizer.v1",
+                output_report={
+                    "text": "claims mapped",
+                    "claim_evidence_map": [
+                        {
+                            "claim": "Federated LLM fine-tuning reduces data sharing risk.",
+                            "evidence": "Prior work discusses privacy-preserving training.",
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["literature_synthesizer.v1"]),
+        counts=Counter({"literature_synthesizer.v1": 1}),
+        latest_invocations=[],
+    )
+
+    gate = next(item for item in gates if item.gate_id == "claim_evidence_map_required")
+    assert gate.status == "fail"
+    assert gate.next_action == "revise_existing"
+    assert gate.findings[0]["invalid_entries"] == [
+        {"index": 0, "missing_fields": ["source_id_or_citation_key"]}
+    ]
+    assert gate.required_fixes == [
+        {
+            "message": (
+                "Return claim_evidence_map entries with claim plus source_id "
+                "or citation_key for every supported claim."
+            )
+        }
+    ]
+
+
+def test_quality_gates_accept_claim_evidence_map_with_citation_keys() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "literature_synthesizer.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_evidence_map_required"],
+        "acknowledgement_required_gates": [],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["claim_evidence_map_required"],
+        [
+            _invocation(
+                template_id="literature_synthesizer.v1",
+                output_report={
+                    "text": "claims mapped",
+                    "claim_evidence_map": [
+                        {
+                            "claim": "Federated LLM fine-tuning reduces data sharing risk.",
+                            "citation_key": "smith2026",
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["literature_synthesizer.v1"]),
+        counts=Counter({"literature_synthesizer.v1": 1}),
+        latest_invocations=[],
+    )
+
+    assert not [gate for gate in gates if gate.gate_id == "claim_evidence_map_required"]

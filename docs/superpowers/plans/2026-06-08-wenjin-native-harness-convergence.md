@@ -2339,6 +2339,66 @@ Observed:
 14 passed
 ```
 
+### Task 13: Claim Evidence Grounding Gate
+
+**Goal:** make TeamKernel evidence quality gates reject claim-evidence maps that describe evidence in prose but cannot be traced back to a workspace source or citation key.
+
+**Files:**
+- Modified: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
+- Modified: `docs/current/architecture.md`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+- [x] **Step 1: Add red test for ungrounded claim map**
+
+Added `test_quality_gates_fail_claim_evidence_map_without_source_refs`.
+
+The test verifies:
+
+- `claim_evidence_map_required` is not satisfied by a non-empty list alone.
+- A supported claim entry with `claim` and prose `evidence`, but without `source_id` or `citation_key`, fails.
+- The gate asks for `revise_existing`, not broad recruitment or a new runtime path.
+
+Observed red before implementation:
+
+```text
+StopIteration
+```
+
+- [x] **Step 2: Add pass test for citation-key grounded claim map**
+
+Added `test_quality_gates_accept_claim_evidence_map_with_citation_keys`.
+
+The test verifies:
+
+- A claim map entry with claim text and `citation_key` satisfies the gate.
+
+- [x] **Step 3: Implement structural grounding validation**
+
+`_foundation_field_gates()` now gives `claim_evidence_map_required` a narrow structural validator after the existing presence check. `_invalid_claim_evidence_entries()` accepts list-shaped maps, `{"claims": [...]}` maps, and simple dictionary maps, but every supported claim entry must expose claim text plus at least one `source_id`, `source_ids`, `source_ref`, `source_refs`, `citation_key`, or `citation_keys` value.
+
+Unsupported claims remain a separate output field; they should not be disguised as grounded claim-evidence entries.
+
+- [x] **Step 4: Verify targeted tests**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_claim_evidence_map_without_source_refs backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_accept_claim_evidence_map_with_citation_keys -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py -q
+backend/.venv/bin/ruff check backend/src/agents/lead_agent/v2/team/quality_gates.py backend/tests/agents/lead_agent/v2/test_team_quality_gates.py
+```
+
+Observed:
+
+```text
+2 passed
+10 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:
