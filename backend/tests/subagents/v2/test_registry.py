@@ -55,11 +55,20 @@ def test_validates_agent_template_rejects_unknown_tools() -> None:
     ]
 
 
-def test_validates_agent_template_rejects_write_tool_without_sandbox_filesystem() -> None:
+@pytest.mark.parametrize(
+    "tool_name",
+    [
+        "sandbox.write_file",
+        "sandbox.str_replace",
+        "sandbox.register_dataset",
+        "sandbox.register_artifact",
+    ],
+)
+def test_validates_agent_template_rejects_write_tool_without_sandbox_filesystem(tool_name: str) -> None:
     errors = validate_agent_template_contract(
         {
             "id": "writer.v1",
-            "tool_affinity": {"preferred": ["sandbox.write_file"], "can_request": []},
+            "tool_affinity": {"preferred": [tool_name], "can_request": []},
             "risk_profile": {"filesystem": "no_direct_write", "code_execution": "not_needed"},
         }
     )
@@ -107,6 +116,8 @@ def test_validates_agent_template_accepts_read_only_business_roles_without_harne
         "sandbox.read_file",
         "sandbox.write_file",
         "sandbox.str_replace",
+        "sandbox.register_dataset",
+        "sandbox.register_artifact",
         "sandbox.run_python",
     ],
 )

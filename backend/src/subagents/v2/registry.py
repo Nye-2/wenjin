@@ -26,7 +26,14 @@ BUSINESS_TEAM_TOOLS = frozenset(
 )
 HARNESS_TEAM_TOOLS = frozenset(spec.name for spec in BUILTIN_TOOL_SPECS)
 KNOWN_TEAM_TOOLS = BUSINESS_TEAM_TOOLS | HARNESS_TEAM_TOOLS
-SANDBOX_WRITE_TOOLS = frozenset({"sandbox.write_file", "sandbox.str_replace"})
+SANDBOX_WRITE_TOOLS = frozenset(
+    {
+        "sandbox.write_file",
+        "sandbox.str_replace",
+        "sandbox.register_dataset",
+        "sandbox.register_artifact",
+    }
+)
 SANDBOX_EXECUTE_TOOLS = frozenset({"sandbox.run_python"})
 
 

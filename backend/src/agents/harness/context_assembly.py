@@ -99,6 +99,8 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "root": str(contract.get("virtual_root") or "/workspace"),
         "standard_dirs": standard_dirs,
         "artifact_roots": [str(path) for path in artifact_roots.values() if str(path).strip()],
+        "datasets_manifest_path": str(contract.get("datasets_manifest_path") or ""),
+        "artifacts_manifest_path": str(contract.get("artifacts_manifest_path") or ""),
         "protected_paths": [str(path) for path in contract.get("protected_paths") or ()],
         "internal_paths": [str(path) for path in contract.get("internal_paths") or ()],
         "search_ignored_names": [str(name) for name in contract.get("search_ignored_names") or ()],
