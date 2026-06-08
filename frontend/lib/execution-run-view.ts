@@ -802,15 +802,6 @@ function harnessActivityFromNodeState(
 ): { label: string | null; artifactCount: number } {
   const harness = objectValue(objectValue(state?.node_metadata)?.harness);
   if (!harness) return { label: null, artifactCount: 0 };
-  const journalSummary = objectValue(harness.run_journal_summary);
-  const journalLabel = stringValue(journalSummary?.summary);
-  if (journalLabel) {
-    const artifactCount = Number(journalSummary?.artifact_count ?? 0);
-    return {
-      label: trimForDisplay(journalLabel, 120),
-      artifactCount: Number.isFinite(artifactCount) && artifactCount > 0 ? artifactCount : 0,
-    };
-  }
   const sandboxSummary = objectValue(harness.sandbox_execution_summary);
   const failureSummary = objectValue(harness.tool_failure_summary);
   const fileSummary = objectValue(harness.file_change_summary);
@@ -821,6 +812,22 @@ function harnessActivityFromNodeState(
   const failedPythonRuns = Number(sandboxSummary?.failed_python_runs ?? 0);
   if (Number.isFinite(failedPythonRuns) && failedPythonRuns > 0) {
     return { label: "实验需要修订", artifactCount: 0 };
+  }
+  const journalSummary = objectValue(harness.run_journal_summary);
+  const journalLabel = stringValue(journalSummary?.summary);
+  if (journalLabel) {
+    const artifactCount = Number(journalSummary?.artifact_count ?? 0);
+    return {
+      label: trimForDisplay(journalLabel, 120),
+      artifactCount: Number.isFinite(artifactCount) && artifactCount > 0 ? artifactCount : 0,
+    };
+  }
+  const reproducibilityActivity = reproducibilityActivityFromHarnessSummary(
+    objectValue(harness.reproducibility_summary),
+    state?.status,
+  );
+  if (reproducibilityActivity.label) {
+    return reproducibilityActivity;
   }
   const artifactCount = Number(sandboxSummary?.generated_artifact_count ?? 0);
   if (Number.isFinite(artifactCount) && artifactCount > 0) {
@@ -841,6 +848,50 @@ function harnessActivityFromNodeState(
     return { label: `已更新 ${changedPaths} 个文件`, artifactCount: 0 };
   }
   return { label: null, artifactCount: 0 };
+}
+
+function reproducibilityActivityFromHarnessSummary(
+  summary: Record<string, unknown> | null,
+  status?: string | null,
+): { label: string | null; artifactCount: number } {
+  if (!summary) return { label: null, artifactCount: 0 };
+  const scriptCount = countSummaryItems(summary.script_paths);
+  const datasetCount = countSummaryItems(summary.dataset_paths);
+  const artifactCount = countSummaryItems(summary.artifact_paths);
+  const nextActionCount = countSummaryItems(summary.next_actions);
+  const pythonRuns = Number(summary.python_runs ?? 0);
+  const hasRunEvidence =
+    scriptCount > 0 ||
+    datasetCount > 0 ||
+    artifactCount > 0 ||
+    (Number.isFinite(pythonRuns) && pythonRuns > 0);
+
+  if (status === "running" && hasRunEvidence) {
+    return { label: "正在运行可复现实验", artifactCount };
+  }
+
+  const parts = [
+    scriptCount > 0 ? `${scriptCount} 个脚本` : null,
+    datasetCount > 0 ? `${datasetCount} 个数据集` : null,
+    artifactCount > 0 ? `${artifactCount} 个产物` : null,
+  ].filter((part): part is string => Boolean(part));
+  if (parts.length > 0) {
+    return {
+      label: `已完成可复现实验：${parts.join(" · ")}`,
+      artifactCount,
+    };
+  }
+  if (nextActionCount > 0) {
+    return { label: "实验已完成，等待复核", artifactCount: 0 };
+  }
+  if (Number.isFinite(pythonRuns) && pythonRuns > 0) {
+    return { label: "已完成可复现实验", artifactCount: 0 };
+  }
+  return { label: null, artifactCount: 0 };
+}
+
+function countSummaryItems(value: unknown): number {
+  return arrayValue(value).filter((item) => stringValue(item)).length;
 }
 
 function humanizeCapabilityName(value: string | null | undefined): string | null {

@@ -356,6 +356,45 @@ describe("execution run view projection", () => {
     expect(JSON.stringify(progressItems[0])).not.toContain("raw script");
   });
 
+  it("projects reproducibility summary into concise team activity", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [],
+          edges: [],
+        } as ExecutionRecord["graph_structure"],
+        node_states: {
+          "experiment_engineer.v1__1": {
+            status: "completed",
+            node_type: "agent_invocation",
+            label: "实验工程师",
+            node_metadata: {
+              team: true,
+              template_id: "experiment_engineer.v1",
+              display_name: "实验工程师",
+              harness: {
+                reproducibility_summary: {
+                  schema: "wenjin.harness.reproducibility_summary.v1",
+                  python_runs: 1,
+                  dataset_paths: ["/workspace/datasets/panel.csv"],
+                  artifact_paths: ["/workspace/outputs/result.json"],
+                  script_paths: ["/workspace/scripts/analysis.py"],
+                  next_actions: ["检查稳健性"],
+                },
+              },
+            },
+          },
+        } as ExecutionRecord["node_states"],
+      }),
+    );
+
+    expect(view.team?.members[0]?.activityLabel).toBe(
+      "已完成可复现实验：1 个脚本 · 1 个数据集 · 1 个产物",
+    );
+    expect(view.team?.members[0]?.artifactCount).toBe(1);
+  });
+
   it("humanizes technical graph nodes for the default run progress view", () => {
     const progressItems = buildRunProgressItems(
       makeExecution({
