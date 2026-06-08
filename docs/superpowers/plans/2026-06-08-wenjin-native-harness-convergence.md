@@ -2703,6 +2703,63 @@ Broader TeamKernel verification also passed:
 43 passed
 ```
 
+### Task 14C: Fail Blocking Source/Citation Audit Risk States
+
+**Goal:** prevent citation/source audit rows that explicitly report blocking risk from passing only because the required structured fields are present.
+
+**Architecture:** extend the existing pure `quality_gates.py` evaluator. Do not introduce DOI resolvers, review item creation, a new auditor runtime, or frontend state in this slice.
+
+**Files:**
+- Modified: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
+- Modified: `docs/current/architecture.md`
+- Modified: `docs/current/native-harness-convergence-audit.md`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED tests**
+
+Added:
+
+- `test_quality_gates_fail_citation_audit_with_fabrication_risks`
+- `test_quality_gates_fail_citation_audit_with_not_ready_bibtex_projection`
+
+Observed RED:
+
+```text
+StopIteration
+```
+
+The risk rows produced no gate result because the current evaluator only checked structure and allowlist refs.
+
+- [x] **Step 2: Add blocking risk status/severity detection**
+
+`quality_gates.py` now fails source/citation auditor gates when relevant audit rows contain blocking statuses such as `fabricated`, `not_ready`, `replace`, `missing`, `unsupported`, `weak`, or severities such as `high`, `critical`, or `blocking`.
+
+- [x] **Step 3: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_citation_audit_with_fabrication_risks backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_citation_audit_with_not_ready_bibtex_projection -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_accept_grounded_citation_readiness_audit backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_citation_readiness_audit_with_unknown_refs -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py backend/tests/agents/lead_agent/v2/test_team_quality_contract.py backend/tests/agents/lead_agent/v2/test_team_kernel.py -q
+backend/.venv/bin/ruff check backend/src/agents/lead_agent/v2/team/quality_gates.py backend/tests/agents/lead_agent/v2/test_team_quality_gates.py
+git diff --check
+```
+
+Observed:
+
+```text
+2 passed
+2 passed
+45 passed
+All checks passed!
+git diff --check: no output
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

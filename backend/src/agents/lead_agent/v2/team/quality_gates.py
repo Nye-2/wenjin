@@ -47,6 +47,32 @@ CITATION_AUDIT_REF_FIELDS_BY_GATE = {
     "style_consistency_checked": ("bibtex_projection_notes",),
 }
 
+CITATION_AUDIT_RISK_FIELDS_BY_GATE = {
+    "source_authority_checked": ("citation_key_audit",),
+    "metadata_completeness_checked": ("citation_key_audit", "missing_sources"),
+    "weak_support_flagged": ("missing_sources", "fabrication_risks"),
+    "no_fabricated_citations": ("fabrication_risks",),
+    "claim_source_binding_checked": ("citation_key_audit", "missing_sources"),
+    "style_consistency_checked": ("bibtex_projection_notes",),
+}
+
+CITATION_AUDIT_BLOCKING_STATUSES = {
+    "blocked",
+    "contradicted",
+    "fabricated",
+    "incomplete",
+    "missing",
+    "missing_metadata",
+    "needs_replacement",
+    "not_ready",
+    "replace",
+    "unsupported",
+    "weak",
+    "weakly_supported",
+}
+
+CITATION_AUDIT_BLOCKING_SEVERITIES = {"blocking", "critical", "high"}
+
 
 def evaluate_quality_gates(
     quality_pipeline: list[str],
@@ -271,6 +297,13 @@ def _foundation_field_gates(
                     allowed_source_ids=_string_list(contract.get("allowed_source_ids")),
                     allowed_citation_keys=_string_list(contract.get("allowed_citation_keys")),
                 )
+            if not missing and gate_id in CITATION_AUDIT_RISK_FIELDS_BY_GATE:
+                invalid_entries.extend(
+                    _invalid_source_citation_risk_entries(
+                        output,
+                        fields=CITATION_AUDIT_RISK_FIELDS_BY_GATE[gate_id],
+                    )
+                )
             if not missing and not invalid_entries:
                 continue
             finding = {
@@ -299,7 +332,10 @@ def _foundation_field_gates(
         invalid_claim_map = gate_id == "claim_evidence_map_required" and any(
             finding.get("invalid_entries") for finding in findings
         )
-        invalid_citation_audit = gate_id in CITATION_AUDIT_REF_FIELDS_BY_GATE and any(
+        invalid_citation_audit = gate_id in {
+            *CITATION_AUDIT_REF_FIELDS_BY_GATE,
+            *CITATION_AUDIT_RISK_FIELDS_BY_GATE,
+        } and any(
             finding.get("invalid_entries") for finding in findings
         )
         if invalid_claim_map:
@@ -322,14 +358,20 @@ def _foundation_field_gates(
                 }
             ]
         elif invalid_citation_audit:
-            required_fixes = [
-                {
-                    "message": (
-                        "Return citation/source audit entries with source_id or citation_key "
-                        "from the current workspace Library context."
-                    )
-                }
-            ]
+            has_risk_entries = any(
+                any("risk_status" in item for item in finding.get("invalid_entries") or [])
+                for finding in findings
+            )
+            message = (
+                "Resolve high-risk citation/source audit findings before finalizing "
+                "evidence-dependent output."
+                if has_risk_entries
+                else (
+                    "Return citation/source audit entries with source_id or citation_key "
+                    "from the current workspace Library context."
+                )
+            )
+            required_fixes = [{"message": message}]
         else:
             missing_for_message = _dedupe(
                 [
@@ -856,6 +898,57 @@ def _invalid_source_citation_audit_entries(
                     }
                 )
     return invalid
+
+
+def _invalid_source_citation_risk_entries(
+    output: dict[str, Any],
+    *,
+    fields: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    invalid: list[dict[str, Any]] = []
+    for field in fields:
+        raw_entries = output.get(field)
+        if not isinstance(raw_entries, list):
+            continue
+        for index, item in enumerate(raw_entries):
+            if not isinstance(item, dict):
+                continue
+            risk_status = _audit_risk_status(item, field=field)
+            severity = _audit_severity(item)
+            if not risk_status and not severity:
+                continue
+            finding = {"field": field, "index": index}
+            if risk_status:
+                finding["risk_status"] = risk_status
+            if severity:
+                finding["severity"] = severity
+            invalid.append(finding)
+    return invalid
+
+
+def _audit_risk_status(item: dict[str, Any], *, field: str) -> str:
+    for key in ("status", "decision", "readiness", "result"):
+        value = _normalized_token(item.get(key))
+        if value in CITATION_AUDIT_BLOCKING_STATUSES:
+            return value
+    if field == "fabrication_risks":
+        return _normalized_token(item.get("status")) or "present"
+    if field == "missing_sources":
+        return _normalized_token(item.get("status")) or "missing_source"
+    return ""
+
+
+def _audit_severity(item: dict[str, Any]) -> str:
+    for key in ("severity", "risk_level"):
+        value = _normalized_token(item.get(key))
+        if value in CITATION_AUDIT_BLOCKING_SEVERITIES:
+            return value
+    return ""
+
+
+def _normalized_token(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return text.replace(" ", "_").replace("-", "_")
 
 
 def _invalid_entries_message(gate_id: str) -> str:

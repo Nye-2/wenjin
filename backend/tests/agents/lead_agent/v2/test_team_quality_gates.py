@@ -629,3 +629,108 @@ def test_quality_gates_fail_citation_readiness_audit_with_unknown_refs() -> None
             )
         }
     ]
+
+
+def test_quality_gates_fail_citation_audit_with_fabrication_risks() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "citation_auditor.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["no_fabricated_citations"],
+        "acknowledgement_required_gates": [],
+        "allowed_citation_keys": ["smith2026"],
+        "allowed_source_ids": ["source-1"],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["no_fabricated_citations"],
+        [
+            _invocation(
+                template_id="citation_auditor.v1",
+                output_report={
+                    "text": "Citation audit complete.",
+                    "quality_gates_checked": ["no_fabricated_citations"],
+                    "fabrication_risks": [
+                        {
+                            "citation_key": "smith2026",
+                            "source_id": "source-1",
+                            "severity": "high",
+                            "status": "fabricated",
+                            "reason": "DOI and title do not match Library metadata.",
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["citation_auditor.v1"]),
+        counts=Counter({"citation_auditor.v1": 1}),
+        latest_invocations=[],
+    )
+
+    gate = next(item for item in gates if item.gate_id == "no_fabricated_citations")
+    assert gate.status == "fail"
+    assert gate.findings[0]["invalid_entries"] == [
+        {
+            "field": "fabrication_risks",
+            "index": 0,
+            "risk_status": "fabricated",
+            "severity": "high",
+        }
+    ]
+    assert gate.required_fixes == [
+        {
+            "message": (
+                "Resolve high-risk citation/source audit findings before finalizing "
+                "evidence-dependent output."
+            )
+        }
+    ]
+
+
+def test_quality_gates_fail_citation_audit_with_not_ready_bibtex_projection() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "citation_auditor.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["style_consistency_checked"],
+        "acknowledgement_required_gates": [],
+        "allowed_citation_keys": ["smith2026"],
+        "allowed_source_ids": ["source-1"],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["style_consistency_checked"],
+        [
+            _invocation(
+                template_id="citation_auditor.v1",
+                output_report={
+                    "text": "BibTeX projection checked.",
+                    "quality_gates_checked": ["style_consistency_checked"],
+                    "bibtex_projection_notes": [
+                        {
+                            "citation_key": "smith2026",
+                            "status": "not_ready",
+                            "reason": "Missing venue and DOI fields for target style.",
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["citation_auditor.v1"]),
+        counts=Counter({"citation_auditor.v1": 1}),
+        latest_invocations=[],
+    )
+
+    gate = next(item for item in gates if item.gate_id == "style_consistency_checked")
+    assert gate.status == "fail"
+    assert gate.findings[0]["invalid_entries"] == [
+        {
+            "field": "bibtex_projection_notes",
+            "index": 0,
+            "risk_status": "not_ready",
+        }
+    ]
