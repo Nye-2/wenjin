@@ -30,21 +30,20 @@ Do not do this:
 
 ## Current Working Slice
 
-Current uncommitted slice is Task 24, the tool-input-validation replan pass:
+Current uncommitted slice is Task 25, the validation-error failed-event pass:
 
-- `backend/src/agents/harness/diff_tracker.py`
-- `backend/src/agents/lead_agent/v2/team/quality_gates.py`
-- `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`
+- `backend/src/agents/harness/langchain_adapter.py`
+- `backend/tests/agents/harness/test_langchain_adapter.py`
 - `docs/current/workspace-current-state.md`
 - `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
 - `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
 
-This slice closes the loop after Task 23:
+This slice closes the live event side of Task 23:
 
-- `tool_input_validation` no longer stays only in `tool_failure_summary`.
-- `build_harness_replan_signals_from_tool_calls()` emits a bounded signal with `recommended_action=revise_tool_call_args`.
-- TeamKernel quality gates treat `revise_tool_call_args` as one same-template correction, not as stop-with-warning or a new recruit.
-- The revision signal is injected into the next member turn through the existing team blackboard path.
+- Tool input validation failures already returned recoverable JSON and wrote tool records.
+- They did not publish `execution.harness.tool_call.failed`, so live run streams could miss the failure.
+- The validation handler now schedules the existing debug-only failed tool event with safe validation summary only.
+- Raw invalid args remain excluded from records and events.
 
 ---
 
@@ -3459,6 +3458,61 @@ Observed:
 
 ```text
 1 passed
+1 passed
+22 passed
+All checks passed!
+```
+
+### Task 25: Publish Failed Tool Event for Validation Recovery
+
+**Goal:** make `tool_input_validation` visible through the same live execution event path as other recoverable harness tool failures, without exposing raw invalid tool arguments.
+
+**External reference:** deer-flow records invalid/dangling tool-call recovery as runtime-visible events, so operators and live UIs can reconcile what happened without parsing model messages. Wenjin already uses `execution.harness.tool_call.failed`; validation recovery should use that same event type instead of creating a new stream.
+
+**Architecture:** keep Task 23's `StructuredTool.handle_validation_error` hook. After building the bounded validation result and failed `_harness_tool_records` entry, schedule `publish_harness_event(..., "tool_call.failed", visibility="debug_only")` on the running event loop when an async publisher is available. Payload contains tool name, safe validation summary, bounded result preview, and recoverable metadata; it does not contain raw invalid args or a fake file/artifact event.
+
+**Files:**
+- Modified: `backend/src/agents/harness/langchain_adapter.py`
+- Modified: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Extend RED validation recovery test**
+
+`test_langchain_tool_downgrades_input_validation_error_to_recoverable_result` now supplies `publish_event`, awaits one event-loop tick, and asserts:
+
+```python
+failed_events = [event for event in events if event[1] == "execution.harness.tool_call.failed"]
+assert failed_events
+assert failed_events[-1][2]["payload"]["error_code"] == "tool_input_validation"
+assert failed_events[-1][2]["payload"]["validation"]["errors"][0]["loc"] == ["max_chars"]
+```
+
+Observed RED:
+
+```text
+assert []
+```
+
+- [x] **Step 2: Schedule debug-only failed event from validation handler**
+
+`_validation_error_handler()` now computes the validation summary once, passes it into the result formatter, writes the failed record, and calls `_schedule_validation_error_event()`. The scheduler uses `asyncio.get_running_loop().create_task(...)` only when a running loop and publisher are available.
+
+- [x] **Step 3: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py::test_langchain_tool_downgrades_input_validation_error_to_recoverable_result -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/langchain_adapter.py backend/tests/agents/harness/test_langchain_adapter.py backend/src/agents/harness/diff_tracker.py backend/src/agents/lead_agent/v2/team/quality_gates.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py
+```
+
+Observed:
+
+```text
 1 passed
 22 passed
 All checks passed!

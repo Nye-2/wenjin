@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -419,7 +420,8 @@ def _format_tool_error_result(canonical_name: str, args_summary: dict[str, Any],
 
 def _validation_error_handler(canonical_name: str, ctx: HarnessRunContext) -> Callable[[Exception], str]:
     def _handle(exc: Exception) -> str:
-        result = _format_tool_validation_error_result(canonical_name, exc)
+        validation = _validation_error_summary(exc)
+        result = _format_tool_validation_error_result(canonical_name, exc, validation)
         metadata = _tool_result_metadata(result)
         records = ctx.context_bundle.get("_harness_tool_records")
         if isinstance(records, list):
@@ -427,19 +429,29 @@ def _validation_error_handler(canonical_name: str, ctx: HarnessRunContext) -> Ca
                 {
                     "name": canonical_name,
                     "status": "failed",
-                    "args": {"validation": _validation_error_summary(exc)},
+                    "args": {"validation": validation},
                     "result_preview": result[:500],
                     "error": metadata.get("recoverable_error") or _format_exception_error(exc),
                     "metadata": metadata,
                 }
             )
+        _schedule_validation_error_event(
+            canonical_name=canonical_name,
+            ctx=ctx,
+            result=result,
+            metadata=metadata,
+            validation=validation,
+        )
         return result
 
     return _handle
 
 
-def _format_tool_validation_error_result(canonical_name: str, exc: Exception) -> str:
-    validation = _validation_error_summary(exc)
+def _format_tool_validation_error_result(
+    canonical_name: str,
+    exc: Exception,
+    validation: dict[str, Any],
+) -> str:
     error = f"{exc.__class__.__name__}: tool input validation failed"
     payload = {
         "preview": f"Tool {canonical_name} input validation failed.",
@@ -456,6 +468,38 @@ def _format_tool_validation_error_result(canonical_name: str, exc: Exception) ->
         "error": error,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _schedule_validation_error_event(
+    *,
+    canonical_name: str,
+    ctx: HarnessRunContext,
+    result: str,
+    metadata: dict[str, Any],
+    validation: dict[str, Any],
+) -> None:
+    if ctx.publish_event is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    loop.create_task(
+        publish_harness_event(
+            ctx,
+            "tool_call.failed",
+            visibility="debug_only",
+            sequence_kind="tool",
+            payload={
+                "name": canonical_name,
+                "args": {"validation": validation},
+                "result_preview": result[:500],
+                "error": metadata.get("recoverable_error") or "tool input validation failed",
+                **metadata,
+                "validation": validation,
+            },
+        )
+    )
 
 
 def _validation_error_summary(exc: Exception) -> dict[str, Any]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import tempfile
@@ -92,6 +93,10 @@ async def test_langchain_tool_downgrades_harness_exception_to_recoverable_result
 @pytest.mark.asyncio
 async def test_langchain_tool_downgrades_input_validation_error_to_recoverable_result() -> None:
     records: list[dict] = []
+    events: list[tuple[str, str, dict]] = []
+
+    async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+        events.append((execution_id, event_type, payload))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir) / "workspace"
@@ -99,7 +104,7 @@ async def test_langchain_tool_downgrades_input_validation_error_to_recoverable_r
         sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
         await sandbox.write_file("/workspace/main/paper.txt", "abcdefghijkl\n")
         [tool] = build_langchain_tools(
-            _ctx(sandbox, tool_records=records),
+            _ctx(sandbox, tool_records=records, publish_event=publish_event),
             ["sandbox.read_file"],
         )
 
@@ -124,6 +129,11 @@ async def test_langchain_tool_downgrades_input_validation_error_to_recoverable_r
     assert records[-1]["status"] == "failed"
     assert records[-1]["metadata"]["error_code"] == "tool_input_validation"
     assert records[-1]["metadata"]["recoverable_error"] == payload["error"]
+    await asyncio.sleep(0)
+    failed_events = [event for event in events if event[1] == "execution.harness.tool_call.failed"]
+    assert failed_events
+    assert failed_events[-1][2]["payload"]["error_code"] == "tool_input_validation"
+    assert failed_events[-1][2]["payload"]["validation"]["errors"][0]["loc"] == ["max_chars"]
 
 
 def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classification() -> None:
