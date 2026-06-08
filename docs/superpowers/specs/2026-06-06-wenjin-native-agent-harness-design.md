@@ -245,7 +245,7 @@ Implementation rules:
 - Tool-using ReactSubagents receive the same compact filesystem contract in both `_sandbox_workspace` default payload data and a `Sandbox workspace contract` system prompt section, so custom `user_template` skills still know where scripts, reports, outputs, scratch files, protected paths, and internal harness refs belong.
 - Harness tools accept only `/workspace` virtual paths. New harness code must not introduce `/mnt/user-data` aliases.
 - Existing thread artifact/upload helpers that still use `/mnt/user-data` are legacy non-harness boundaries and should be migrated deliberately when that product surface is touched.
-- `.wenjin/env/**`, `.wenjin/cache/**`, `.wenjin/manifest.json`, `.git/**`, `.env`, `*.pem`, and `*.key` are protected by default policy.
+- `.wenjin/env/**`, `.wenjin/cache/**`, `.wenjin/manifest.json`, `.git/**`, root or nested `.env` / `.env.*`, `*.pem`, and `*.key` are protected by default policy.
 - `/workspace/outputs/harness/**` is internal runtime state. It can be returned as an `output_ref`, but it must not be staged as a user-facing sandbox artifact.
 - `sandbox.list_dir`, `sandbox.glob`, and `sandbox.grep` filter protected/internal paths and symlinks whose resolved targets classify as protected/internal; protected/internal files must not be discoverable through search/listing, and direct `read_file` / `write_file` / `str_replace` must also block them even through visible symlink aliases.
 - Tool-call sizing arguments such as `read_file.max_chars`, `glob.max_matches`, and `grep.max_matches` may only narrow the policy budget; effective values must never exceed `read_max_chars` or `search_max_matches`.

@@ -61,6 +61,9 @@ def test_workspace_protected_paths_include_runtime_and_secret_material():
     assert WORKSPACE_PROTECTED_PATHS == (
         ".git/**",
         ".env",
+        ".env.*",
+        "**/.env",
+        "**/.env.*",
         "*.pem",
         "*.key",
         ".wenjin/env/**",
@@ -96,6 +99,9 @@ def test_workspace_virtual_path_normalization_rejects_outside_and_traversal_path
 def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     assert layout.is_workspace_protected_path("/workspace/.wenjin/env/python/bin/python")
     assert layout.is_workspace_protected_path("/workspace/.env")
+    assert layout.is_workspace_protected_path("/workspace/.env.local")
+    assert layout.is_workspace_protected_path("/workspace/main/.env")
+    assert layout.is_workspace_protected_path("/workspace/scripts/.env.local")
     assert layout.is_workspace_internal_path(
         "/workspace/outputs/harness/exec-1/node/tool.txt"
     )
@@ -115,6 +121,8 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
         layout.classify_workspace_path("/workspace/.wenjin/cache/pip/index")
         == "protected"
     )
+    assert layout.classify_workspace_path("/workspace/main/.env") == "protected"
+    assert layout.classify_workspace_path("/workspace/scripts/.env.local") == "protected"
     assert (
         layout.classify_workspace_path("/workspace/outputs/harness/exec/tool.txt")
         == "internal"

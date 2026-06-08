@@ -337,6 +337,8 @@ async def test_direct_file_tools_block_internal_harness_output_paths(sandbox: Lo
 async def test_default_policy_hides_workspace_runtime_paths(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
     await sandbox.write_file("/workspace/.env", "alpha secret\n")
+    await sandbox.write_file("/workspace/main/.env", "alpha nested secret\n")
+    await sandbox.write_file("/workspace/scripts/.env.local", "alpha local secret\n")
     await sandbox.write_file("/workspace/.wenjin/env/python/bin/python", "alpha runtime\n")
     await sandbox.write_file("/workspace/.wenjin/cache/package.txt", "alpha cache\n")
     await sandbox.write_file("/workspace/.wenjin/manifest.json", "alpha manifest\n")
@@ -361,6 +363,10 @@ async def test_default_policy_hides_workspace_runtime_paths(sandbox: LocalSandbo
         assert all(not path.startswith("/workspace/.wenjin/env") for path in paths)
         assert all(not path.startswith("/workspace/.wenjin/cache") for path in paths)
         assert all(path != "/workspace/.wenjin/manifest.json" for path in paths)
+        assert all(path != "/workspace/main/.env" for path in paths)
+        assert all(path != "/workspace/scripts/.env.local" for path in paths)
+    with pytest.raises(HarnessPathError, match="protected path"):
+        await tools.read_file(path="/workspace/main/.env")
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,9 @@ WORKSPACE_STANDARD_DIRS = (
 WORKSPACE_PROTECTED_PATHS = (
     ".git/**",
     ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*",
     "*.pem",
     "*.key",
     ".wenjin/env/**",

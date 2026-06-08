@@ -140,7 +140,7 @@ ruff: All checks passed!
 git diff --check: no output
 ```
 
-- [ ] **Step 5: Commit current slice**
+- [x] **Step 5: Commit current slice**
 
 Run:
 
@@ -167,7 +167,7 @@ Expected: one clean commit with only the manifest/failure-classification slice.
 - Docs: `docs/current/workspace-current-state.md`
 - Docs: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
 
-- [ ] **Step 1: Write failing layout manifest test**
+- [x] **Step 1: Write failing layout manifest test**
 
 Add or extend a test asserting the canonical layout is deterministic:
 
@@ -197,11 +197,11 @@ cd /Users/ze/wenjin/backend
 
 Expected before implementation: fail if manifest content or deterministic behavior is incomplete.
 
-- [ ] **Step 2: Implement deterministic layout data**
+- [x] **Step 2: Implement deterministic layout data**
 
 Keep the public helpers in `workspace_layout.py`; do not scatter path constants into providers. The manifest should contain stable schema/version/roots/protected/internal metadata and no timestamps.
 
-- [ ] **Step 3: Add symlink/path-policy regression tests**
+- [x] **Step 3: Add symlink/path-policy regression tests**
 
 Add tests covering:
 
@@ -209,8 +209,9 @@ Add tests covering:
 - visible symlink to external host path is rejected.
 - direct `/workspace/outputs/harness/**` read is rejected.
 - direct writes to `.wenjin/cache/**`, `.wenjin/env/**`, `.env`, `*.pem`, `*.key` are rejected.
+- root and nested `.env` / `.env.*` files are protected, hidden from list/search, and rejected by direct file reads.
 
-- [ ] **Step 4: Run sandbox and harness path tests**
+- [x] **Step 4: Run sandbox and harness path tests**
 
 Run:
 
