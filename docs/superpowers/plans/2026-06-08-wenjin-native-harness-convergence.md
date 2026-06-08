@@ -3135,6 +3135,54 @@ Observed:
 21 passed
 ```
 
+### Task 20: Reject Host Absolute Paths at Model-Facing File Tool Boundary
+
+**Goal:** ensure sandbox file tools accept only `/workspace` virtual paths from model/tool-call input, while keeping provider output reverse-mapping as a separate internal concern.
+
+**External reference:** Codex and deer-flow both treat virtual path APIs as a boundary: host paths can be translated or masked by providers, but agents should not be allowed to pass host absolute paths into file tools. Wenjin's local provider must therefore not turn a host path like `/tmp/.../workspace/main/file.txt` into a valid model-facing tool input just because it contains `/workspace/`.
+
+**Architecture:** update only `SandboxFileTools._validate_virtual_path()` so model-facing `read_file`, `list_dir`, `write_file`, and `str_replace` require the raw input to be `/workspace` or `/workspace/...` before calling the broader normalization helper. Keep `normalize_workspace_virtual_path()` unchanged because provider stdout/stderr and artifact discovery still need to reverse-map physical sandbox paths back into the public virtual namespace.
+
+**Files:**
+- Modified: `backend/src/agents/harness/sandbox_tools.py`
+- Modified: `backend/tests/agents/harness/test_sandbox_file_tools.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED test**
+
+Added `test_file_tools_reject_host_absolute_paths_that_contain_workspace_segment`, covering host absolute paths for `read_file`, `list_dir`, and `write_file`.
+
+Observed RED:
+
+```text
+Failed: DID NOT RAISE <class 'src.agents.harness.sandbox_tools.HarnessPathError'>
+```
+
+- [x] **Step 2: Add strict raw input check**
+
+`SandboxFileTools._validate_virtual_path()` now rejects any raw tool input that is not exactly `/workspace` and does not start with `/workspace/` before path normalization.
+
+- [x] **Step 3: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_sandbox_file_tools.py::test_file_tools_reject_host_absolute_paths_that_contain_workspace_segment -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_sandbox_file_tools.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/sandbox_tools.py backend/tests/agents/harness/test_sandbox_file_tools.py
+```
+
+Observed:
+
+```text
+1 passed
+30 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

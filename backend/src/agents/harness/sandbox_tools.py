@@ -269,8 +269,11 @@ class SandboxFileTools:
         )
 
     def _validate_virtual_path(self, path: str, *, operation: str) -> str:
+        text = str(path or "").strip()
+        if text != WORKSPACE_ROOT and not text.startswith(f"{WORKSPACE_ROOT}/"):
+            raise HarnessPathError(f"path must be under {WORKSPACE_ROOT}")
         try:
-            normalized = normalize_workspace_virtual_path(path)
+            normalized = normalize_workspace_virtual_path(text)
         except ValueError as exc:
             raise HarnessPathError(str(exc)) from exc
         if self._is_protected(normalized):

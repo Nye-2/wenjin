@@ -68,6 +68,24 @@ async def test_read_file_returns_bounded_preview(sandbox: LocalSandbox) -> None:
 
 
 @pytest.mark.asyncio
+async def test_file_tools_reject_host_absolute_paths_that_contain_workspace_segment(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/visible.txt", "alpha\n")
+    host_path = str(Path(sandbox.path_mappings["/workspace"]) / "main" / "visible.txt")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="path must be under /workspace"):
+        await tools.read_file(path=host_path)
+
+    with pytest.raises(HarnessPathError, match="path must be under /workspace"):
+        await tools.list_dir(path=str(Path(sandbox.path_mappings["/workspace"]) / "main"))
+
+    with pytest.raises(HarnessPathError, match="path must be under /workspace"):
+        await tools.write_file(path=host_path, content="bad\n")
+
+    assert await sandbox.read_file("/workspace/main/visible.txt") == "alpha\n"
+
+
+@pytest.mark.asyncio
 async def test_read_tools_require_filesystem_read_permission(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.tex", "alpha\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=HarnessPolicy())
