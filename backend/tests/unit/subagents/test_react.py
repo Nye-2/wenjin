@@ -8,6 +8,8 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from src.agents.harness.contracts import HarnessToolResult
 from src.subagents.v2.base import SubagentContext
@@ -17,6 +19,8 @@ from src.subagents.v2.types.react import (
     _build_default_user_payload,
     _build_degraded_react_text,
     _parse_output,
+    _patch_dangling_tool_messages,
+    _react_pre_model_hook,
     _render_user_message,
     _resolve_tools,
     _run_react_loop,
@@ -153,6 +157,130 @@ class TestSandboxWorkspaceContractPrompt:
         ctx = _make_ctx(tools=[])
 
         assert _with_harness_context_bundle("你是综述专家", ctx) == "你是综述专家"
+
+
+class TestDanglingToolCallRepair:
+    def test_patch_dangling_tool_messages_inserts_synthetic_error_result(self):
+        messages = [
+            HumanMessage(content="read file"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "name": "sandbox.read_file",
+                        "args": {"path": "/workspace/main/a.tex"},
+                    }
+                ],
+            ),
+        ]
+
+        patched = _patch_dangling_tool_messages({"messages": messages})
+
+        assert "messages" in patched
+        assert len(patched["messages"]) == 4
+        assert isinstance(patched["messages"][0], RemoveMessage)
+        assert patched["messages"][0].id == REMOVE_ALL_MESSAGES
+        tool_message = patched["messages"][3]
+        assert isinstance(tool_message, ToolMessage)
+        assert tool_message.tool_call_id == "call-1"
+        assert tool_message.name == "sandbox.read_file"
+        assert tool_message.status == "error"
+        assert "recoverable" in str(tool_message.content).lower()
+        assert "/workspace/main/a.tex" not in str(tool_message.content)
+
+    def test_patch_dangling_tool_messages_noops_when_result_exists(self):
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "name": "sandbox.read_file",
+                        "args": {},
+                    }
+                ],
+            ),
+            ToolMessage(content="ok", tool_call_id="call-1", name="sandbox.read_file"),
+        ]
+
+        assert _patch_dangling_tool_messages({"messages": messages}) == {}
+
+    def test_patch_dangling_tool_messages_repairs_raw_provider_tool_call(self):
+        messages = [
+            AIMessage(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "id": "raw-call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "sandbox.grep",
+                                "arguments": "{\"pattern\":\"secret\",\"glob\":\"/workspace/main/*.tex\"}",
+                            },
+                        }
+                    ]
+                },
+            )
+        ]
+
+        patched = _patch_dangling_tool_messages({"messages": messages})
+
+        assert isinstance(patched["messages"][0], RemoveMessage)
+        assert patched["messages"][0].id == REMOVE_ALL_MESSAGES
+        tool_message = patched["messages"][2]
+        assert isinstance(tool_message, ToolMessage)
+        assert tool_message.tool_call_id == "raw-call-1"
+        assert tool_message.name == "sandbox.grep"
+        assert tool_message.status == "error"
+        assert "secret" not in str(tool_message.content)
+        assert "/workspace/main/*.tex" not in str(tool_message.content)
+
+    def test_patch_dangling_tool_messages_repairs_invalid_tool_call_without_raw_args(self):
+        message = AIMessage(content="")
+        message.invalid_tool_calls = [
+            {
+                "id": "invalid-call-1",
+                "name": "sandbox.write_file",
+                "args": "{\"path\":\"/workspace/main/a.tex\",\"content\":\"raw draft\"",
+                "error": "Invalid JSON: missing closing brace",
+            }
+        ]
+
+        patched = _patch_dangling_tool_messages({"messages": [message]})
+
+        assert isinstance(patched["messages"][0], RemoveMessage)
+        assert patched["messages"][0].id == REMOVE_ALL_MESSAGES
+        tool_message = patched["messages"][2]
+        assert isinstance(tool_message, ToolMessage)
+        assert tool_message.tool_call_id == "invalid-call-1"
+        assert tool_message.name == "sandbox.write_file"
+        assert tool_message.status == "error"
+        assert "Invalid JSON" in str(tool_message.content)
+        assert "raw draft" not in str(tool_message.content)
+        assert "/workspace/main/a.tex" not in str(tool_message.content)
+
+    def test_react_pre_model_hook_returns_llm_input_messages_when_no_patch_needed(self):
+        messages = [HumanMessage(content="continue")]
+
+        patched = _react_pre_model_hook({"messages": messages})
+
+        assert patched == {"llm_input_messages": messages}
+
+    def test_react_pre_model_hook_returns_overwrite_messages_when_patch_needed(self):
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "call-1", "name": "sandbox.read_file", "args": {}}],
+            )
+        ]
+
+        patched = _react_pre_model_hook({"messages": messages})
+
+        assert "messages" in patched
+        assert "llm_input_messages" not in patched
+        assert isinstance(patched["messages"][0], RemoveMessage)
 
 
 # ---------------------------------------------------------------------------

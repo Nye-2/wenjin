@@ -30,20 +30,27 @@ Do not do this:
 
 ## Current Working Slice
 
-Current uncommitted slice is Task 25, the validation-error failed-event pass:
+Current branch state after Task 25:
 
-- `backend/src/agents/harness/langchain_adapter.py`
-- `backend/tests/agents/harness/test_langchain_adapter.py`
-- `docs/current/workspace-current-state.md`
-- `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
-- `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+- Branch: `codex/wenjin-native-harness`.
+- Worktree should be clean before the next implementation slice.
+- Codex SDK, cc-switch, and deer-flow runtime attempts are not part of this branch.
+- The harness now has bounded file/search/Python tools, recoverable validation failures, failed-tool events, file-change summaries, sandbox execution summaries, reproducibility summaries, and TeamKernel replan signals.
 
-This slice closes the live event side of Task 23:
+Immediate next slice is Task 26:
 
-- Tool input validation failures already returned recoverable JSON and wrote tool records.
-- They did not publish `execution.harness.tool_call.failed`, so live run streams could miss the failure.
-- The validation handler now schedules the existing debug-only failed tool event with safe validation summary only.
-- Raw invalid args remain excluded from records and events.
+- Repair ReactSubagent / LangGraph tool-call message integrity before adding more tool power.
+- Keep the fix local to Wenjin's ReactSubagent edge; do not transplant ChatAgent middleware classes or deer-flow middleware stack.
+- Treat missing tool results as recoverable synthetic error `ToolMessage`s so the next model turn can continue without violating provider message-order requirements.
+- Do not expose raw invalid tool args, host paths, or protected workspace paths in synthetic messages.
+
+Execution order after Task 26:
+
+1. Stabilize ReactSubagent tool-loop integrity.
+2. Tighten team-member context assembly so sandbox state, prior artifacts, replan signals, and reproducibility evidence are passed in a bounded, predictable package.
+3. Improve sandbox Python experiment lifecycle: dependency install summary, generated artifact discovery, failure recovery guidance, and queue/cancel behavior.
+4. Audit TeamKernel quality gates against Codex/deer-flow patterns: repeated tool calls, invalid tool calls, nonzero Python exits, and partial artifact output should all converge into one same-template correction path where possible.
+5. Run full backend harness tests, a docker/mock sandbox smoke, and browser checks only on product surfaces affected by this branch.
 
 ---
 
@@ -3517,6 +3524,311 @@ Observed:
 22 passed
 All checks passed!
 ```
+
+### Task 26: Repair ReactSubagent Dangling Tool Calls
+
+**Goal:** make ReactSubagent's LangGraph ReAct loop resilient when a provider/model turn leaves tool calls without matching tool results, so harness agents can continue safely instead of crashing or corrupting message order.
+
+**External reference:** Codex and deer-flow both treat tool-call/message-order integrity as a runtime invariant. deer-flow repairs dangling or invalid tool calls close to the LangGraph edge; Wenjin should borrow the invariant and test shape, not the middleware stack.
+
+**Architecture:** keep the fix inside `backend/src/subagents/v2/types/react.py`. Add a pure local helper that inspects `state["messages"]`, inserts bounded synthetic error `ToolMessage`s for missing structured/raw/invalid tool calls, and expose it through a LangGraph-valid `_react_pre_model_hook`. The hook returns overwrite `messages` with `RemoveMessage(REMOVE_ALL_MESSAGES)` only when repair is needed; otherwise it returns `llm_input_messages` so normal tool loops remain valid. Do not reuse ChatAgent's `DanglingToolCallMiddleware`, do not create a generic middleware framework, and do not emit frontend-visible events from this repair path.
+
+**Files:**
+- Modify: `backend/src/subagents/v2/types/react.py`
+- Modify: `backend/tests/unit/subagents/test_react.py`
+- Modify: `docs/current/workspace-current-state.md`
+- Modify: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modify: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Write RED tests for dangling structured tool calls**
+
+Add tests in `backend/tests/unit/subagents/test_react.py` that import the new helper and assert:
+
+```python
+def test_patch_dangling_tool_messages_inserts_synthetic_error_result():
+    messages = [
+        HumanMessage(content="read file"),
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "id": "call-1",
+                    "name": "sandbox.read_file",
+                    "args": {"path": "/workspace/main/a.tex"},
+                }
+            ],
+        ),
+    ]
+
+    patched = _patch_dangling_tool_messages({"messages": messages})
+
+    assert "messages" in patched
+    assert len(patched["messages"]) == 3
+    tool_message = patched["messages"][2]
+    assert isinstance(tool_message, ToolMessage)
+    assert tool_message.tool_call_id == "call-1"
+    assert tool_message.name == "sandbox.read_file"
+    assert tool_message.status == "error"
+    assert "recoverable" in str(tool_message.content).lower()
+    assert "/workspace/main/a.tex" not in str(tool_message.content)
+```
+
+Also add a no-op test:
+
+```python
+def test_patch_dangling_tool_messages_noops_when_result_exists():
+    messages = [
+        AIMessage(
+            content="",
+            tool_calls=[{"id": "call-1", "name": "sandbox.read_file", "args": {}}],
+        ),
+        ToolMessage(content="ok", tool_call_id="call-1", name="sandbox.read_file"),
+    ]
+
+    assert _patch_dangling_tool_messages({"messages": messages}) == {}
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/unit/subagents/test_react.py::test_patch_dangling_tool_messages_inserts_synthetic_error_result backend/tests/unit/subagents/test_react.py::test_patch_dangling_tool_messages_noops_when_result_exists -q
+```
+
+Observed RED:
+
+```text
+ImportError or NameError for _patch_dangling_tool_messages
+```
+
+- [x] **Step 2: Add raw/invalid tool-call coverage**
+
+Add tests for:
+
+- `AIMessage.additional_kwargs["tool_calls"]` with OpenAI-style `{"id": "...", "function": {"name": "...", "arguments": "..."}}`.
+- `AIMessage.invalid_tool_calls` where the malformed argument body must not be echoed into the synthetic tool result.
+
+Expected behavior:
+
+- A synthetic `ToolMessage(status="error")` is inserted for each missing result id.
+- The content includes a short recoverable error explanation.
+- The content does not include raw JSON arguments, file contents, host paths, or protected path text.
+
+- [x] **Step 3: Implement local pure repair helper**
+
+Implement in `backend/src/subagents/v2/types/react.py`:
+
+```python
+def _patch_dangling_tool_messages(state: dict[str, Any]) -> dict[str, Any]:
+    messages = list(state.get("messages") or [])
+    if not messages:
+        return {}
+
+    existing_result_ids = {
+        getattr(message, "tool_call_id", None)
+        for message in messages
+        if isinstance(message, ToolMessage)
+    }
+    patched: list[BaseMessage] = []
+    changed = False
+
+    for message in messages:
+        patched.append(message)
+        if not isinstance(message, AIMessage):
+            continue
+
+        missing_calls = _missing_tool_calls_for_message(message, existing_result_ids)
+        for call in missing_calls:
+            patched.append(
+                ToolMessage(
+                    content=_synthetic_tool_recovery_content(call),
+                    tool_call_id=call["id"],
+                    name=call.get("name") or "unknown_tool",
+                    status="error",
+                )
+            )
+            existing_result_ids.add(call["id"])
+            changed = True
+
+    return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *patched]} if changed else {}
+```
+
+Keep helpers small and private:
+
+- `_missing_tool_calls_for_message(...)`
+- `_iter_message_tool_call_refs(...)`
+- `_synthetic_tool_recovery_content(...)`
+
+- [x] **Step 4: Wire the helper into LangGraph ReAct creation**
+
+In `_run_react_loop(...)`, pass the hook to `create_react_agent`:
+
+```python
+agent = create_react_agent(
+    model=model,
+    tools=resolved_tools,
+    state_modifier=system_prompt,
+    pre_model_hook=_react_pre_model_hook,
+)
+```
+
+Only use this in the tool-enabled path. Plain LLM fallback remains unchanged for templates with no tools.
+
+Implementation also added `_react_pre_model_hook()` tests because LangGraph requires every pre-model hook response to include `messages` or `llm_input_messages`; no-op repair returns `llm_input_messages` and does not update graph state.
+
+- [x] **Step 5: Verify targeted tests and lint**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/unit/subagents/test_react.py -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py -q
+backend/.venv/bin/ruff check backend/src/subagents/v2/types/react.py backend/tests/unit/subagents/test_react.py
+git diff --check
+```
+
+Expected:
+
+```text
+all selected pytest tests pass
+ruff: All checks passed!
+git diff --check: no output
+```
+
+Observed:
+
+```text
+backend/tests/unit/subagents/test_react.py: 40 passed
+backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py: 12 passed
+ruff: All checks passed!
+git diff --check: no output
+```
+
+- [ ] **Step 6: Commit stable slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+git add backend/src/subagents/v2/types/react.py backend/tests/unit/subagents/test_react.py docs/current/workspace-current-state.md docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md
+git commit -m "fix: repair dangling harness tool calls"
+```
+
+Expected:
+
+```text
+one focused commit
+```
+
+### Task 27: Converge Team Member Harness Context Package
+
+**Goal:** make every harness-enabled team member receive a bounded, stable context package instead of scattered prompt text, so later workflow-quality tuning happens by schema changes rather than ad hoc prompt edits.
+
+**Files:**
+- Modify: `backend/src/agents/lead_agent/v2/team/kernel.py`
+- Modify: `backend/src/subagents/v2/types/react.py`
+- Modify: `backend/src/agents/harness/context_assembly.py`
+- Test: `backend/tests/agents/harness/test_context_assembly.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`
+- Docs: `docs/current/architecture.md`
+- Docs: `docs/current/workspace-current-state.md`
+
+**Required context fields:**
+- `workspace_type`
+- `capability_goal`
+- `member_role`
+- `workspace_roots`
+- `allowed_tools`
+- `search_ignored_names`
+- `recent_file_change_summary`
+- `sandbox_execution_summary`
+- `reproducibility_summary`
+- `harness_replan_signals`
+- `upstream_artifact_candidates`
+
+**Verification:**
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_context_assembly.py backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness backend/src/agents/lead_agent/v2/team backend/src/subagents/v2/types/react.py
+git diff --check
+```
+
+### Task 28: Improve Sandbox Python Experiment Lifecycle
+
+**Goal:** make the one-workspace sandbox feel coherent for long research/experiment tasks: dependencies install automatically, runs are reproducible, generated artifacts are discoverable, and failures feed back into the team loop.
+
+**Files:**
+- Modify: `backend/src/agents/harness/sandbox_execution_tools.py`
+- Modify: `backend/src/agents/harness/output_budget.py`
+- Modify: `backend/src/agents/harness/diff_tracker.py`
+- Modify: `backend/src/dataservice/domains/sandbox/service.py` only if the existing contract cannot expose required install/run metadata
+- Test: `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
+- Test: `backend/tests/dataservice/domains/sandbox/` targeted sandbox service tests if DataService changes
+
+**Required behavior:**
+- Dependency install remains free from credit billing.
+- Install retry count and installed packages appear in `reproducibility_manifest`.
+- Nonzero exits include concise recovery guidance and trigger at most one same-template correction.
+- Generated artifacts under `/workspace/outputs` and `/workspace/reports` are staged as candidate review items.
+- `/workspace/outputs/harness/**` remains internal and unreadable through normal file tools.
+
+### Task 29: TeamKernel Harness Quality Loop Review
+
+**Goal:** ensure the team does not over-recruit or spin when tool errors are recoverable; same member should correct schema errors, Python code errors, and missing-output situations once before escalation.
+
+**Files:**
+- Modify: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Modify: `backend/src/agents/lead_agent/v2/team/kernel.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`
+
+**Required behavior:**
+- `tool_input_validation` -> same member revises tool args once.
+- `python_exit_nonzero` -> same member revises code once.
+- `sandbox_queue_timeout` -> stop with warning, no repeated recruitment.
+- forbidden/unknown tool -> stop with warning, no permission bypass.
+- repeated identical tool calls -> team-visible loop warning and eventual hard stop.
+
+### Task 30: External Reference Gap Audit
+
+**Goal:** compare the resulting Wenjin harness against Codex and deer-flow one more time, but only as a checklist of portable ideas.
+
+**Files:**
+- Modify: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modify: `docs/current/architecture.md`
+
+**Audit matrix:**
+- Codex command contract: borrow argv/timeout/cancel/output-cap design, still no generic command tool.
+- Codex diff tracking: ensure Wenjin file-change summaries are enough for review-card flows.
+- Codex protected paths: confirm `.git`, `.wenjin`, env/secret files, internal refs are blocked.
+- deer-flow tool recovery: confirm structured validation, dangling tool-call repair, and recoverable tool failures.
+- deer-flow loop guard: confirm repeated-call warning does not break provider message pairing.
+- deer-flow tracing: confirm Wenjin uses existing execution events and node metadata only.
+
+### Task 31: Full Verification and Product Smoke
+
+**Goal:** prove this branch works end to end before merge.
+
+**Commands:**
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness tests/agents/lead_agent/v2 tests/unit/subagents -q
+.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 tests/agents/harness tests/agents/lead_agent/v2 tests/unit/subagents
+cd /Users/ze/wenjin/frontend
+npm run typecheck
+npx vitest run
+cd /Users/ze/wenjin
+git diff --check
+```
+
+**Browser/product smoke:**
+- Workbench launches a team task and displays real-name team execution without exposing raw tool JSON by default.
+- A sandbox-backed experiment task runs in one workspace sandbox and reports generated artifacts.
+- Run history/detail shows concise summary and keeps debug-only harness events collapsed.
+- Prism remains usable if no Prism-specific files were changed; deep rewrite flow only needs smoke if context assembly touches Prism rewrite prompts or execution dispatch.
 
 ## Review Checklist After Each Task
 

@@ -9,7 +9,8 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from src.agents.harness.context_assembly import (
     build_harness_context_bundle,
@@ -286,6 +287,126 @@ def _build_harness_context(ctx: SubagentContext) -> dict[str, Any]:
     )
 
 
+def _patch_dangling_tool_messages(state: dict[str, Any]) -> dict[str, Any]:
+    """Patch missing tool results before LangGraph sends messages to the model."""
+
+    messages = list(state.get("messages") or [])
+    if not messages:
+        return {}
+
+    existing_result_ids = {
+        str(getattr(message, "tool_call_id", "") or "").strip()
+        for message in messages
+        if isinstance(message, ToolMessage)
+    }
+    patched: list[BaseMessage] = []
+    changed = False
+
+    for message in messages:
+        patched.append(message)
+        if not isinstance(message, AIMessage):
+            continue
+
+        for call in _missing_tool_calls_for_message(message, existing_result_ids):
+            patched.append(
+                ToolMessage(
+                    content=_synthetic_tool_recovery_content(call),
+                    tool_call_id=call["id"],
+                    name=call.get("name") or "unknown_tool",
+                    status="error",
+                )
+            )
+            existing_result_ids.add(call["id"])
+            changed = True
+
+    if not changed:
+        return {}
+    return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *patched]}
+
+
+def _react_pre_model_hook(state: dict[str, Any]) -> dict[str, Any]:
+    """Return a LangGraph-valid pre-model state update for ReactSubagent."""
+
+    patched = _patch_dangling_tool_messages(state)
+    if patched:
+        return patched
+    return {"llm_input_messages": list(state.get("messages") or [])}
+
+
+def _missing_tool_calls_for_message(
+    message: AIMessage,
+    existing_result_ids: set[str],
+) -> list[dict[str, str]]:
+    missing: list[dict[str, str]] = []
+    seen: set[str] = set(existing_result_ids)
+    for call in _iter_message_tool_call_refs(message):
+        call_id = str(call.get("id") or "").strip()
+        if not call_id or call_id in seen:
+            continue
+        seen.add(call_id)
+        missing.append(
+            {
+                "id": call_id,
+                "name": str(call.get("name") or "").strip() or "unknown_tool",
+                "kind": str(call.get("kind") or "tool_call"),
+                "error": str(call.get("error") or "").strip(),
+            }
+        )
+    return missing
+
+
+def _iter_message_tool_call_refs(message: AIMessage):
+    for call in getattr(message, "tool_calls", None) or []:
+        if not isinstance(call, dict):
+            continue
+        yield {
+            "id": call.get("id"),
+            "name": call.get("name"),
+            "kind": "tool_call",
+        }
+
+    additional_kwargs = getattr(message, "additional_kwargs", None)
+    raw_calls = additional_kwargs.get("tool_calls") if isinstance(additional_kwargs, dict) else None
+    if isinstance(raw_calls, list):
+        for raw_call in raw_calls:
+            if not isinstance(raw_call, dict):
+                continue
+            function = raw_call.get("function")
+            function_name = function.get("name") if isinstance(function, dict) else None
+            yield {
+                "id": raw_call.get("id"),
+                "name": raw_call.get("name") or function_name,
+                "kind": "raw_tool_call",
+            }
+
+    for invalid_call in getattr(message, "invalid_tool_calls", None) or []:
+        if not isinstance(invalid_call, dict):
+            continue
+        yield {
+            "id": invalid_call.get("id"),
+            "name": invalid_call.get("name"),
+            "kind": "invalid_tool_call",
+            "error": invalid_call.get("error"),
+        }
+
+
+def _synthetic_tool_recovery_content(call: dict[str, str]) -> str:
+    base = (
+        "Recoverable tool-call repair: this previous tool call did not produce "
+        "a matching tool result. Continue with available context, or retry the "
+        "tool using valid schema-compliant arguments if the result is still required."
+    )
+    if call.get("kind") == "invalid_tool_call" and call.get("error"):
+        return f"{base} Validation error: {_safe_tool_error_text(call['error'])}"
+    return base
+
+
+def _safe_tool_error_text(value: str, *, max_chars: int = 240) -> str:
+    text = re.sub(r"/workspace/[^\s,\"'}]+", "[workspace_path]", str(value))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
+
+
 # ---------------------------------------------------------------------------
 # ReactSubagent
 # ---------------------------------------------------------------------------
@@ -388,6 +509,7 @@ async def _run_react_loop(
             model=model,
             tools=resolved_tools,
             state_modifier=system_prompt,
+            pre_model_hook=_react_pre_model_hook,
         )
         result = await agent.ainvoke({"messages": [HumanMessage(content=user_message)]})
         # Extract last AI message content
