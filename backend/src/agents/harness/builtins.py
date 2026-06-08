@@ -55,6 +55,14 @@ BUILTIN_TOOL_SPECS = (
         required_permissions=["filesystem.write", "filesystem.diff"],
     ),
     HarnessToolSpec(
+        name="sandbox.register_dataset",
+        namespace="sandbox",
+        description="Register a reusable dataset entry in /workspace/datasets/manifest.json.",
+        input_schema={"type": "object"},
+        risk_level="write",
+        required_permissions=["filesystem.write", "filesystem.diff"],
+    ),
+    HarnessToolSpec(
         name="sandbox.run_python",
         namespace="sandbox",
         description="Run a controlled Python script in the workspace sandbox.",

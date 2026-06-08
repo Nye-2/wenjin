@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 
@@ -11,7 +12,10 @@ from src.agents.harness.sandbox_tools import (
     SandboxFileTools,
 )
 from src.sandbox.providers.local import LocalSandbox
-from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
+from src.sandbox.workspace_layout import (
+    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_PROTECTED_PATHS,
+)
 
 
 @pytest.fixture
@@ -215,6 +219,109 @@ async def test_write_file_records_diff_and_hashes(sandbox: LocalSandbox) -> None
     assert "-old" in result.file_change["unified_diff"]
     assert "+new" in result.file_change["unified_diff"]
     assert result.file_change["before_hash"] != result.file_change["after_hash"]
+
+
+@pytest.mark.asyncio
+async def test_register_dataset_updates_manifest_and_records_diff(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/datasets/sample.csv", "x,y\n1,2\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    result = await tools.register_dataset(
+        path="/workspace/datasets/sample.csv",
+        source_id="upload-1",
+        name="Sample data",
+        content_hash="sha256:abc123",
+        license="CC-BY-4.0",
+        preparation="Filtered invalid rows.",
+    )
+
+    manifest = json.loads(await sandbox.read_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH))
+    assert manifest["schema"] == "wenjin.workspace_sandbox.dataset_provenance.v1"
+    assert manifest["datasets"] == [
+        {
+            "path": "/workspace/datasets/sample.csv",
+            "source_id": "upload-1",
+            "name": "Sample data",
+            "content_hash": "sha256:abc123",
+            "license": "CC-BY-4.0",
+            "preparation": "Filtered invalid rows.",
+        }
+    ]
+    assert result.structured_payload["schema"] == "wenjin.harness.dataset_registration.v1"
+    assert result.structured_payload["status"] == "registered"
+    assert result.structured_payload["manifest_path"] == WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH
+    assert result.file_change is not None
+    assert result.file_change["path"] == WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH
+    assert "+      \"path\": \"/workspace/datasets/sample.csv\"" in result.file_change["unified_diff"]
+
+
+@pytest.mark.asyncio
+async def test_register_dataset_preserves_existing_user_authored_entry(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/datasets/sample.csv", "x,y\n1,2\n")
+    await sandbox.write_file(
+        WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+        json.dumps(
+            {
+                "schema": "wenjin.workspace_sandbox.dataset_provenance.v1",
+                "version": 1,
+                "root": "/workspace/datasets",
+                "datasets": [
+                    {
+                        "path": "/workspace/datasets/sample.csv",
+                        "source_id": "user-kept",
+                        "license": "custom",
+                    }
+                ],
+                "rules": [],
+            },
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n",
+    )
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    result = await tools.register_dataset(
+        path="/workspace/datasets/sample.csv",
+        source_id="agent-attempt",
+        license="MIT",
+    )
+
+    manifest = json.loads(await sandbox.read_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH))
+    assert manifest["datasets"] == [
+        {
+            "path": "/workspace/datasets/sample.csv",
+            "source_id": "user-kept",
+            "license": "custom",
+        }
+    ]
+    assert result.structured_payload["status"] == "already_registered"
+    assert result.file_change is None
+
+
+@pytest.mark.asyncio
+async def test_register_dataset_rejects_non_dataset_paths_and_drops_host_refs(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/datasets/sample.csv", "x,y\n1,2\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="dataset path must be under /workspace/datasets"):
+        await tools.register_dataset(path="/workspace/outputs/result.csv", source_id="bad")
+
+    await tools.register_dataset(
+        path="/workspace/datasets/sample.csv",
+        source_id="upload-1",
+        preparation="generated from /Users/ze/private/raw.csv with token sk-secret",
+    )
+
+    manifest_text = await sandbox.read_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH)
+    assert "/Users/ze/private" not in manifest_text
+    assert "sk-secret" not in manifest_text
+    assert json.loads(manifest_text)["datasets"] == [
+        {
+            "path": "/workspace/datasets/sample.csv",
+            "source_id": "upload-1",
+        }
+    ]
 
 
 @pytest.mark.asyncio

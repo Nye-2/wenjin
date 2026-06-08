@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass
@@ -9,10 +10,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from src.sandbox.workspace_layout import (
+    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
     WORKSPACE_ROOT,
+    build_dataset_provenance_manifest,
     is_workspace_internal_path,
     is_workspace_protected_path,
     is_workspace_search_ignored_path,
+    merge_dataset_provenance_manifest,
     normalize_workspace_virtual_path,
 )
 
@@ -278,6 +282,87 @@ class SandboxFileTools:
             file_change=file_change,
         )
 
+    async def register_dataset(
+        self,
+        *,
+        path: str,
+        source_id: str | None = None,
+        name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        format: str | None = None,
+        mime_type: str | None = None,
+        size_bytes: int | None = None,
+        content_hash: str | None = None,
+        license: str | None = None,
+        preparation: str | None = None,
+    ) -> HarnessToolResult:
+        manifest_path = self._validate_virtual_path(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH, operation="write")
+        self._require_workspace_physical_target(manifest_path)
+        self._require_tool_visible_physical_target(manifest_path)
+        safe_entries = _safe_dataset_entries(
+            [
+                {
+                    "path": path,
+                    "source_id": source_id,
+                    "name": name,
+                    "title": title,
+                    "description": description,
+                    "format": format,
+                    "mime_type": mime_type,
+                    "size_bytes": size_bytes,
+                    "content_hash": content_hash,
+                    "license": license,
+                    "preparation": preparation,
+                }
+            ]
+        )
+        if not safe_entries:
+            raise HarnessPathError("dataset path must be under /workspace/datasets and not a guidance/protected path")
+
+        before = await self._read_existing(manifest_path)
+        existing = _parse_dataset_manifest(before)
+        existing_paths = {
+            str(item.get("path") or "").strip()
+            for item in existing.get("datasets", [])
+            if isinstance(item, dict)
+        }
+        safe_entry = safe_entries[0]
+        status = "already_registered" if safe_entry["path"] in existing_paths else "registered"
+        if status == "already_registered":
+            return HarnessToolResult(
+                preview_text=f"Dataset already registered: {safe_entry['path']}",
+                structured_payload={
+                    "schema": "wenjin.harness.dataset_registration.v1",
+                    "status": status,
+                    "manifest_path": manifest_path,
+                    "dataset": safe_entry,
+                },
+            )
+
+        merged = merge_dataset_provenance_manifest(existing, [safe_entry])
+        after = json.dumps(merged, ensure_ascii=True, sort_keys=True, indent=2) + "\n"
+        await self.sandbox.write_file(manifest_path, after)
+        file_change = await self._budget_file_change_diff(
+            build_file_change(
+                path=manifest_path,
+                before=before,
+                after=after,
+                operation="add" if before is None else "update",
+            ),
+            tool_name="sandbox.register_dataset",
+        )
+        return HarnessToolResult(
+            preview_text=f"Registered dataset: {safe_entry['path']}",
+            structured_payload={
+                "schema": "wenjin.harness.dataset_registration.v1",
+                "status": status,
+                "manifest_path": manifest_path,
+                "dataset": safe_entry,
+            },
+            file_change=file_change,
+        )
+
     def _validate_virtual_path(self, path: str, *, operation: str) -> str:
         text = str(path or "").strip()
         if text != WORKSPACE_ROOT and not text.startswith(f"{WORKSPACE_ROOT}/"):
@@ -532,6 +617,29 @@ def _invalid_regex_result(*, pattern: str, glob_pattern: str, error: re.error) -
         },
         error=f"invalid_regex: {error_text}",
     )
+
+
+def _safe_dataset_entries(raw_entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    manifest = merge_dataset_provenance_manifest(
+        build_dataset_provenance_manifest(),
+        raw_entries,
+    )
+    datasets = manifest.get("datasets")
+    if not isinstance(datasets, list):
+        return []
+    return [dict(item) for item in datasets if isinstance(item, dict)]
+
+
+def _parse_dataset_manifest(text: str | None) -> dict[str, Any]:
+    if text is None:
+        return build_dataset_provenance_manifest()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError("dataset manifest is not valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("dataset manifest must be a JSON object")
+    return payload
 
 
 def _virtualize_path(path: str) -> str:

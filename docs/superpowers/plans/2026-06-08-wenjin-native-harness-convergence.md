@@ -3890,6 +3890,62 @@ git diff --check
 - Run history/detail shows concise summary and keeps debug-only harness events collapsed.
 - Prism remains usable if no Prism-specific files were changed; deep rewrite flow only needs smoke if context assembly touches Prism rewrite prompts or execution dispatch.
 
+### Task 32: Dataset Provenance Registration Tool
+
+**Goal:** make dataset provenance a first-class workspace sandbox action, so long-running research/experiment agents can maintain `/workspace/datasets/manifest.json` without using broad manifest writes.
+
+**Files:**
+
+- Modify: `backend/src/agents/harness/sandbox_tools.py`
+- Modify: `backend/src/agents/harness/langchain_adapter.py`
+- Modify: `backend/src/agents/harness/builtins.py`
+- Modify: `backend/src/agents/harness/policy.py`
+- Test: `backend/tests/agents/harness/test_sandbox_file_tools.py`
+- Test: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Test: `backend/tests/agents/harness/test_policy_and_registry.py`
+- Docs: `docs/current/architecture.md`
+- Docs: `docs/current/workspace-current-state.md`
+- Docs: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+- [x] **Step 1: Write failing tests**
+
+Covered:
+
+- `sandbox.register_dataset` appends a safe `/workspace/datasets/**` entry into `/workspace/datasets/manifest.json`.
+- Existing user-authored manifest rows win by path and are not overwritten.
+- Non-dataset paths are rejected, and host-path / secret-like provenance values are dropped.
+- Policy requires `filesystem.write` and `filesystem.diff`.
+- LangChain adapter exposes the canonical tool only when capability and skill allow it, and records manifest file changes.
+
+- [x] **Step 2: Implement minimal tool**
+
+Implemented:
+
+- `SandboxFileTools.register_dataset(...)`
+- `RegisterDatasetInput`
+- `sandbox.register_dataset` built-in spec
+- policy permission mapping
+- adapter handler through the existing workspace scheduler and tool record/event path
+
+The tool writes only `/workspace/datasets/manifest.json`, reuses `merge_dataset_provenance_manifest()`, preserves user-authored entries by path, and emits ordinary harness `file_change` evidence.
+
+- [x] **Step 3: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_sandbox_file_tools.py backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/harness/test_policy_and_registry.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/sandbox_tools.py backend/src/agents/harness/langchain_adapter.py backend/src/agents/harness/builtins.py backend/src/agents/harness/policy.py backend/tests/agents/harness/test_sandbox_file_tools.py backend/tests/agents/harness/test_langchain_adapter.py backend/tests/agents/harness/test_policy_and_registry.py
+```
+
+Observed:
+
+```text
+51 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

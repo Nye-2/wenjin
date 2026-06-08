@@ -114,6 +114,22 @@ def test_policy_uses_workspace_layout_protected_paths() -> None:
     assert policy.protected_paths == WORKSPACE_PROTECTED_PATHS
 
 
+def test_policy_allows_dataset_registration_with_write_and_diff_permissions() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={
+                "allowed_tools": ["sandbox.register_dataset"],
+                "permissions": ["filesystem.write", "filesystem.diff"],
+            },
+            template={"tool_affinity": {"preferred": ["sandbox.register_dataset"]}},
+            skill={"allowed_tools": ["sandbox.register_dataset"]},
+        )
+    )
+
+    assert policy.allowed_tools == ("sandbox.register_dataset",)
+    assert policy.permissions == frozenset({"filesystem.write", "filesystem.diff"})
+
+
 def test_harness_policy_defaults_to_workspace_layout_protected_paths() -> None:
     policy = HarnessPolicy()
 

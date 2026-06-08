@@ -14,19 +14,28 @@ from src.sandbox.providers.local import LocalSandbox
 from src.subagents.v2.base import SubagentContext
 
 
-def _ctx(sandbox: LocalSandbox, *, tool_records: list[dict] | None = None, publish_event=None) -> SubagentContext:
+def _ctx(
+    sandbox: LocalSandbox,
+    *,
+    tool_records: list[dict] | None = None,
+    publish_event=None,
+    tools: list[str] | None = None,
+    capability_policy: dict | None = None,
+    skill: dict | None = None,
+) -> SubagentContext:
     workspace_data = {"_harness_sandbox": sandbox}
     if tool_records is not None:
         workspace_data["_harness_tool_records"] = tool_records
+    selected_tools = tools or ["sandbox.read_file"]
     return SubagentContext(
         workspace_id="ws-1",
         execution_id="exec-1",
         prompt="read file",
         inputs={"user_id": "user-1", "workspace_type": "sci", "capability_id": "capability-1"},
-        tools=["sandbox.read_file"],
+        tools=selected_tools,
         workspace_data=workspace_data,
         publish_event=publish_event,
-        capability_policy={
+        capability_policy=capability_policy or {
             "allowed_tools": ["sandbox.read_file"],
             "sandbox_policy": {
                 "output_budget": {
@@ -35,6 +44,7 @@ def _ctx(sandbox: LocalSandbox, *, tool_records: list[dict] | None = None, publi
                 }
             },
         },
+        skill=skill,
     )
 
 
@@ -57,6 +67,45 @@ async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> 
     payload = json.loads(raw)
     assert payload["preview"] == "abcd"
     assert payload["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_langchain_register_dataset_records_manifest_file_change() -> None:
+    records: list[dict] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+        await sandbox.write_file("/workspace/datasets/sample.csv", "x,y\n1,2\n")
+        [tool] = build_langchain_tools(
+            _ctx(
+                sandbox,
+                tool_records=records,
+                tools=["sandbox.register_dataset"],
+                capability_policy={
+                    "allowed_tools": ["sandbox.register_dataset"],
+                    "permissions": ["filesystem.write", "filesystem.diff"],
+                },
+                skill={"allowed_tools": ["sandbox.register_dataset"]},
+            ),
+            ["sandbox.register_dataset"],
+        )
+
+        raw = await tool.ainvoke(
+            {
+                "path": "/workspace/datasets/sample.csv",
+                "source_id": "upload-1",
+                "license": "CC-BY-4.0",
+            }
+        )
+
+    payload = json.loads(raw)
+    assert payload["payload"]["schema"] == "wenjin.harness.dataset_registration.v1"
+    assert payload["payload"]["status"] == "registered"
+    assert payload["file_change"]["path"] == "/workspace/datasets/manifest.json"
+    assert records[-1]["name"] == "sandbox.register_dataset"
+    assert records[-1]["status"] == "completed"
+    assert records[-1]["file_changes"][0]["path"] == "/workspace/datasets/manifest.json"
 
 
 @pytest.mark.asyncio

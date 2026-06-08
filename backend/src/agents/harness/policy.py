@@ -24,6 +24,7 @@ TOOL_REQUIRED_PERMISSIONS: dict[str, frozenset[str]] = {
     "sandbox.read_file": frozenset({"filesystem.read"}),
     "sandbox.write_file": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.str_replace": frozenset({"filesystem.write", "filesystem.diff"}),
+    "sandbox.register_dataset": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.run_python": frozenset({"sandbox.run_python"}),
 }
 

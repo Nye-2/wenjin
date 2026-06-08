@@ -62,6 +62,20 @@ class StrReplaceInput(BaseModel):
     new: str
 
 
+class RegisterDatasetInput(BaseModel):
+    path: str
+    source_id: str | None = None
+    name: str | None = None
+    title: str | None = None
+    description: str | None = None
+    format: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
+    content_hash: str | None = None
+    license: str | None = None
+    preparation: str | None = None
+
+
 class RunPythonInput(BaseModel):
     script: str
     script_name: str = "analysis.py"
@@ -339,6 +353,10 @@ async def _str_replace(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) 
     return _format_tool_result(await _with_file_tools(ctx, policy, "str_replace", kwargs))
 
 
+async def _register_dataset(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
+    return _format_tool_result(await _with_file_tools(ctx, policy, "register_dataset", kwargs))
+
+
 async def _run_python(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
     result = await SandboxExecutionTools(
         context=ctx,
@@ -355,6 +373,7 @@ TOOL_DEFINITIONS: dict[str, tuple[type[BaseModel], ToolHandler]] = {
     "sandbox.grep": (GrepInput, _grep),
     "sandbox.write_file": (WriteFileInput, _write_file),
     "sandbox.str_replace": (StrReplaceInput, _str_replace),
+    "sandbox.register_dataset": (RegisterDatasetInput, _register_dataset),
     "sandbox.run_python": (RunPythonInput, _run_python),
 }
 
