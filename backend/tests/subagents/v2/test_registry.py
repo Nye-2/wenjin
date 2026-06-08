@@ -60,6 +60,7 @@ def test_validates_agent_template_rejects_unknown_tools() -> None:
     [
         "sandbox.write_file",
         "sandbox.str_replace",
+        "sandbox.apply_patch",
         "sandbox.register_dataset",
         "sandbox.register_artifact",
     ],
@@ -116,6 +117,7 @@ def test_validates_agent_template_accepts_read_only_business_roles_without_harne
         "sandbox.read_file",
         "sandbox.write_file",
         "sandbox.str_replace",
+        "sandbox.apply_patch",
         "sandbox.register_dataset",
         "sandbox.register_artifact",
         "sandbox.run_python",

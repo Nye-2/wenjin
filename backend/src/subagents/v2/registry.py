@@ -30,6 +30,7 @@ SANDBOX_WRITE_TOOLS = frozenset(
     {
         "sandbox.write_file",
         "sandbox.str_replace",
+        "sandbox.apply_patch",
         "sandbox.register_dataset",
         "sandbox.register_artifact",
     }

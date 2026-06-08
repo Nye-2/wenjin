@@ -146,6 +146,22 @@ def test_policy_allows_artifact_registration_with_write_and_diff_permissions() -
     assert policy.permissions == frozenset({"filesystem.write", "filesystem.diff"})
 
 
+def test_policy_allows_apply_patch_with_write_and_diff_permissions() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={
+                "allowed_tools": ["sandbox.apply_patch"],
+                "permissions": ["filesystem.write", "filesystem.diff"],
+            },
+            template={"tool_affinity": {"preferred": ["sandbox.apply_patch"]}},
+            skill={"allowed_tools": ["sandbox.apply_patch"]},
+        )
+    )
+
+    assert policy.allowed_tools == ("sandbox.apply_patch",)
+    assert policy.permissions == frozenset({"filesystem.write", "filesystem.diff"})
+
+
 def test_harness_policy_defaults_to_workspace_layout_protected_paths() -> None:
     policy = HarnessPolicy()
 

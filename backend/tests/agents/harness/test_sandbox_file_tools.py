@@ -223,6 +223,99 @@ async def test_write_file_records_diff_and_hashes(sandbox: LocalSandbox) -> None
 
 
 @pytest.mark.asyncio
+async def test_apply_patch_applies_multi_file_edits_and_records_file_changes(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/paper.tex", "Title: Old\nBody\n")
+    await sandbox.write_file("/workspace/scripts/analysis.py", "print('old')\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    result = await tools.apply_patch(
+        edits=[
+            {
+                "path": "/workspace/main/paper.tex",
+                "operation": "replace",
+                "old": "Title: Old",
+                "new": "Title: New",
+            },
+            {
+                "path": "/workspace/scripts/analysis.py",
+                "old": "print('old')",
+                "new": "print('new')",
+            },
+            {
+                "path": "/workspace/reports/summary.md",
+                "operation": "write",
+                "new": "# Summary\n\nUpdated.",
+            },
+        ]
+    )
+
+    assert await sandbox.read_file("/workspace/main/paper.tex") == "Title: New\nBody\n"
+    assert await sandbox.read_file("/workspace/scripts/analysis.py") == "print('new')\n"
+    assert await sandbox.read_file("/workspace/reports/summary.md") == "# Summary\n\nUpdated."
+    assert result.structured_payload == {
+        "schema": "wenjin.harness.structured_patch.v1",
+        "edit_count": 3,
+        "changed_paths": [
+            "/workspace/main/paper.tex",
+            "/workspace/scripts/analysis.py",
+            "/workspace/reports/summary.md",
+        ],
+    }
+    assert [change["path"] for change in result.file_changes] == [
+        "/workspace/main/paper.tex",
+        "/workspace/scripts/analysis.py",
+        "/workspace/reports/summary.md",
+    ]
+    assert "-Title: Old" in result.file_changes[0]["unified_diff"]
+    assert "+Title: New" in result.file_changes[0]["unified_diff"]
+    assert result.file_changes[2]["operation"] == "add"
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_validates_all_edits_before_mutating(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/paper.tex", "alpha\n")
+    await sandbox.write_file("/workspace/scripts/analysis.py", "beta\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(ValueError, match="expected exactly one match"):
+        await tools.apply_patch(
+            edits=[
+                {
+                    "path": "/workspace/main/paper.tex",
+                    "old": "alpha",
+                    "new": "changed",
+                },
+                {
+                    "path": "/workspace/scripts/analysis.py",
+                    "old": "missing",
+                    "new": "changed",
+                },
+            ]
+        )
+
+    assert await sandbox.read_file("/workspace/main/paper.tex") == "alpha\n"
+    assert await sandbox.read_file("/workspace/scripts/analysis.py") == "beta\n"
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_requires_explicit_new_text(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/paper.tex", "alpha\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(ValueError, match="new text is required"):
+        await tools.apply_patch(
+            edits=[
+                {
+                    "path": "/workspace/main/paper.tex",
+                    "old": "alpha",
+                }
+            ]
+        )
+
+    assert await sandbox.read_file("/workspace/main/paper.tex") == "alpha\n"
+
+
+@pytest.mark.asyncio
 async def test_register_dataset_updates_manifest_and_records_diff(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/datasets/sample.csv", "x,y\n1,2\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
@@ -447,6 +540,10 @@ async def test_write_tools_require_diff_permission_before_mutating(sandbox: Loca
 
     with pytest.raises(PermissionError, match="filesystem diff"):
         await tools.str_replace(path="/workspace/main.tex", old="old", new="new")
+    assert await sandbox.read_file("/workspace/main.tex") == "old\n"
+
+    with pytest.raises(PermissionError, match="filesystem diff"):
+        await tools.apply_patch(edits=[{"path": "/workspace/main.tex", "old": "old", "new": "new"}])
     assert await sandbox.read_file("/workspace/main.tex") == "old\n"
 
 

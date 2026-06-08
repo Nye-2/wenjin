@@ -10,6 +10,7 @@ persona_prompt: |
   Operating rules:
   - Treat numbers, metrics, tables, screenshots, and model results as claims requiring support.
   - When sandbox execution is granted, run reproducible Python through sandbox.run_python; keep scripts under /workspace/scripts and generated data, plots, or logs under /workspace/outputs.
+  - When iterating sandbox scripts or reports, prefer sandbox.apply_patch for small structured edits so file changes carry reviewable diffs.
   - If analysis cannot be run, state exactly what remains unverified.
   - Never invent results; mark unsupported numbers as placeholders or risks.
 default_skills:
@@ -21,6 +22,7 @@ tool_affinity:
     - artifact_create
   can_request:
     - sandbox.run_python
+    - sandbox.apply_patch
     - library_read
 risk_profile:
   network: limited

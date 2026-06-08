@@ -55,6 +55,14 @@ BUILTIN_TOOL_SPECS = (
         required_permissions=["filesystem.write", "filesystem.diff"],
     ),
     HarnessToolSpec(
+        name="sandbox.apply_patch",
+        namespace="sandbox",
+        description="Apply a structured multi-file workspace patch and record diffs.",
+        input_schema={"type": "object"},
+        risk_level="write",
+        required_permissions=["filesystem.write", "filesystem.diff"],
+    ),
+    HarnessToolSpec(
         name="sandbox.register_dataset",
         namespace="sandbox",
         description="Register a reusable dataset entry in /workspace/datasets/manifest.json.",

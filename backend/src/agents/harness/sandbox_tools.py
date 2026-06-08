@@ -33,6 +33,7 @@ DEFAULT_SEARCH_MAX_MATCHES = 50
 DEFAULT_GREP_MAX_FILE_BYTES = 1_000_000
 DEFAULT_GREP_MAX_LINE_CHARS = 2_000
 DEFAULT_GREP_BINARY_SAMPLE_BYTES = 8192
+MAX_PATCH_EDITS = 20
 
 
 class HarnessPathError(ValueError):
@@ -285,6 +286,34 @@ class SandboxFileTools:
             file_change=file_change,
         )
 
+    async def apply_patch(self, *, edits: list[dict[str, Any]]) -> HarnessToolResult:
+        staged = await self._stage_patch_edits(edits)
+        file_changes: list[dict[str, Any]] = []
+        for path, state in staged.items():
+            after = state["after"]
+            await self.sandbox.write_file(path, after)
+            file_changes.append(
+                await self._budget_file_change_diff(
+                    build_file_change(
+                        path=path,
+                        before=state["before"],
+                        after=after,
+                        operation="add" if state["before"] is None else "update",
+                    ),
+                    tool_name="sandbox.apply_patch",
+                )
+            )
+        changed_paths = list(staged)
+        return HarnessToolResult(
+            preview_text=f"Applied structured patch to {len(changed_paths)} file(s)",
+            structured_payload={
+                "schema": "wenjin.harness.structured_patch.v1",
+                "edit_count": len(edits),
+                "changed_paths": changed_paths,
+            },
+            file_changes=tuple(file_changes),
+        )
+
     async def register_dataset(
         self,
         *,
@@ -460,6 +489,45 @@ class SandboxFileTools:
         if operation == "write":
             self._require_write_permissions()
         return normalized
+
+    async def _stage_patch_edits(self, edits: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        if not isinstance(edits, list) or not edits:
+            raise ValueError("apply_patch requires at least one edit")
+        if len(edits) > MAX_PATCH_EDITS:
+            raise ValueError(f"apply_patch supports at most {MAX_PATCH_EDITS} edits")
+        staged: dict[str, dict[str, Any]] = {}
+        for index, raw_edit in enumerate(edits, start=1):
+            if not isinstance(raw_edit, dict):
+                raise ValueError(f"apply_patch edit {index} must be an object")
+            path = self._validate_virtual_path(str(raw_edit.get("path") or ""), operation="write")
+            self._require_workspace_physical_target(path)
+            self._require_tool_visible_physical_target(path)
+            operation = str(raw_edit.get("operation") or "replace").strip().lower()
+            if operation not in {"replace", "write"}:
+                raise ValueError(f"apply_patch edit {index} operation must be replace or write")
+            if "new" not in raw_edit or raw_edit.get("new") is None:
+                raise ValueError(f"apply_patch edit {index} new text is required")
+            new_text = str(raw_edit["new"])
+            if path not in staged:
+                staged[path] = {
+                    "before": await self._read_existing(path),
+                    "after": None,
+                }
+                staged[path]["after"] = staged[path]["before"]
+            current = staged[path]["after"]
+            if operation == "write":
+                staged[path]["after"] = new_text
+                continue
+            if current is None:
+                raise FileNotFoundError(path)
+            old = str(raw_edit.get("old") or "")
+            if not old:
+                raise ValueError(f"apply_patch edit {index} replace old text must be non-empty")
+            count = str(current).count(old)
+            if count != 1:
+                raise ValueError(f"apply_patch edit {index} expected exactly one match, found {count}")
+            staged[path]["after"] = str(current).replace(old, new_text, 1)
+        return staged
 
     def _validate_glob_pattern(self, pattern: str) -> str:
         text = str(pattern or "").strip() or "**/*"

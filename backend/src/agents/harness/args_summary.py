@@ -7,7 +7,7 @@ import json
 from typing import Any
 
 TEXT_PAYLOAD_ARG_KEYS = frozenset({"content", "markdown", "script", "text"})
-STRUCTURED_PAYLOAD_ARG_KEYS = frozenset({"dependency_hints"})
+STRUCTURED_PAYLOAD_ARG_KEYS = frozenset({"dependency_hints", "edits"})
 
 
 def summarize_tool_args(args: dict[str, Any]) -> dict[str, Any]:

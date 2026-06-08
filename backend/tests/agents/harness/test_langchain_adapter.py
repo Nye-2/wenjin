@@ -205,6 +205,63 @@ async def test_langchain_register_artifact_records_manifest_file_change() -> Non
 
 
 @pytest.mark.asyncio
+async def test_langchain_apply_patch_records_multiple_file_changes() -> None:
+    records: list[dict] = []
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+        await sandbox.write_file("/workspace/main/paper.tex", "Title: Old\n")
+        await sandbox.write_file("/workspace/scripts/analysis.py", "print('old')\n")
+        [tool] = build_langchain_tools(
+            _ctx(
+                sandbox,
+                tool_records=records,
+                tools=["sandbox.apply_patch"],
+                capability_policy={
+                    "allowed_tools": ["sandbox.apply_patch"],
+                    "permissions": ["filesystem.write", "filesystem.diff"],
+                },
+                skill={"allowed_tools": ["sandbox.apply_patch"]},
+            ),
+            ["sandbox.apply_patch"],
+        )
+
+        raw = await tool.ainvoke(
+            {
+                "edits": [
+                    {
+                        "path": "/workspace/main/paper.tex",
+                        "old": "Title: Old",
+                        "new": "Title: New",
+                    },
+                    {
+                        "path": "/workspace/scripts/analysis.py",
+                        "old": "print('old')",
+                        "new": "print('new')",
+                    },
+                ]
+            }
+        )
+
+    payload = json.loads(raw)
+    assert payload["payload"]["schema"] == "wenjin.harness.structured_patch.v1"
+    assert payload["payload"]["changed_paths"] == [
+        "/workspace/main/paper.tex",
+        "/workspace/scripts/analysis.py",
+    ]
+    assert [change["path"] for change in payload["file_changes"]] == [
+        "/workspace/main/paper.tex",
+        "/workspace/scripts/analysis.py",
+    ]
+    assert records[-1]["name"] == "sandbox.apply_patch"
+    assert [change["path"] for change in records[-1]["file_changes"]] == [
+        "/workspace/main/paper.tex",
+        "/workspace/scripts/analysis.py",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_langchain_tool_downgrades_harness_exception_to_recoverable_result() -> None:
     records: list[dict] = []
     events: list[tuple[str, str, dict]] = []
@@ -379,3 +436,26 @@ def test_summarize_args_redacts_dependency_hints_before_validation() -> None:
     dumped = json.dumps(summary, ensure_ascii=False)
     assert "pandas" not in dumped
     assert "sk-secret-dependency" not in dumped
+
+
+def test_summarize_args_redacts_apply_patch_edits_before_validation() -> None:
+    edits = [
+        {
+            "path": "/workspace/main/paper.tex",
+            "old": "contains sk-secret-old",
+            "new": "contains sk-secret-new",
+        }
+    ]
+
+    summary = summarize_tool_args({"edits": edits})
+
+    encoded = json.dumps(edits, ensure_ascii=False, sort_keys=True, default=str)
+    assert summary["edits"] == {
+        "redacted": True,
+        "kind": "list",
+        "items": 1,
+        "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }
+    dumped = json.dumps(summary, ensure_ascii=False)
+    assert "sk-secret-old" not in dumped
+    assert "sk-secret-new" not in dumped

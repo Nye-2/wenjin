@@ -65,6 +65,17 @@ class StrReplaceInput(BaseModel):
     new: str
 
 
+class PatchEditInput(BaseModel):
+    path: str
+    old: str | None = None
+    new: str
+    operation: str = "replace"
+
+
+class ApplyPatchInput(BaseModel):
+    edits: list[PatchEditInput] = Field(min_length=1, max_length=20)
+
+
 class RegisterDatasetInput(BaseModel):
     path: str
     source_id: str | None = None
@@ -369,6 +380,15 @@ async def _str_replace(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) 
     return _format_tool_result(await _with_file_tools(ctx, policy, "str_replace", kwargs))
 
 
+async def _apply_patch(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
+    edits = [
+        edit.model_dump() if isinstance(edit, BaseModel) else dict(edit)
+        for edit in kwargs.get("edits") or []
+        if isinstance(edit, (BaseModel, dict))
+    ]
+    return _format_tool_result(await _with_file_tools(ctx, policy, "apply_patch", {"edits": edits}))
+
+
 async def _register_dataset(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
     return _format_tool_result(await _with_file_tools(ctx, policy, "register_dataset", kwargs))
 
@@ -393,6 +413,7 @@ TOOL_DEFINITIONS: dict[str, tuple[type[BaseModel], ToolHandler]] = {
     "sandbox.grep": (GrepInput, _grep),
     "sandbox.write_file": (WriteFileInput, _write_file),
     "sandbox.str_replace": (StrReplaceInput, _str_replace),
+    "sandbox.apply_patch": (ApplyPatchInput, _apply_patch),
     "sandbox.register_dataset": (RegisterDatasetInput, _register_dataset),
     "sandbox.register_artifact": (RegisterArtifactInput, _register_artifact),
     "sandbox.run_python": (RunPythonInput, _run_python),
@@ -442,6 +463,8 @@ def _format_tool_result(result: HarnessToolResult) -> str:
     }
     if result.file_change is not None:
         payload["file_change"] = result.file_change
+    if result.file_changes:
+        payload["file_changes"] = [dict(change) for change in result.file_changes]
     if result.error:
         payload["error"] = result.error
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -678,6 +701,15 @@ def _run_python_metadata(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _file_change_metadata(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    file_changes = payload.get("file_changes")
+    if isinstance(file_changes, list):
+        changes = [
+            dict(change)
+            for change in file_changes
+            if isinstance(change, dict) and str(change.get("path") or "").strip()
+        ]
+        if changes:
+            return changes
     file_change = payload.get("file_change")
     if not isinstance(file_change, dict):
         return []

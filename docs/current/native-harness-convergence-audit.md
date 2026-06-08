@@ -29,7 +29,7 @@ Chat Agent
 
 - **命令策略审计**：`backend/src/agents/harness/command_audit.py` 使用 argv-first 结构记录 `policy_decision(schema=wenjin.harness.command_policy_decision.v1)`，在创建 sandbox job 前阻断高风险命令、host path、protected/internal path 和不规范 pip spec。
 - **bounded output**：大文件读取、搜索、Python stdout/stderr 和 diff 只给模型 bounded preview，完整内容外部化到 `/workspace/outputs/harness/**`，并作为内部 refs 进入 tool record / event。
-- **文件变更证据**：`sandbox.write_file` / `sandbox.str_replace` 记录 hash + unified diff，节点聚合 `file_change_summary`，用户仍通过 review-first flow 接受结果。
+- **文件变更证据**：`sandbox.write_file` / `sandbox.str_replace` / `sandbox.apply_patch` 记录 hash + unified diff，节点聚合 `file_change_summary`，用户仍通过 review-first flow 接受结果。`apply_patch` 是结构化多文件 patch 工具，会先校验全部 edit，再一次性 mutation。
 - **运行证据而非文本猜测**：`execution_manifest`、`reproducibility_manifest`、`failure_classification`、`sandbox_execution_summary`、`reproducibility_summary`、`run_journal_summary` 都挂回 harness payload / `ExecutionNodeRecord.node_metadata.harness`，RunView 不解析 raw tool JSON；`report_markdown` 已包含用户可读的 Reproducibility 段落和依赖安装失败恢复建议。
 - **明确失败边界**：unknown/forbidden tools 显式失败，不把工具型节点静默降级为 plain LLM。
 
@@ -38,7 +38,7 @@ Chat Agent
 ## 3. 已吸收的 deer-flow 模式
 
 - **工具 substrate 边界**：harness 是 Lead/subagent 的工具执行层，不是新的 agent framework。
-- **文件工具与 Python 工具组合**：内置 `sandbox.list_dir`、`glob`、`grep`、`read_file`、`write_file`、`str_replace`、`run_python`，并由 capability/skill policy 收窄。
+- **文件工具与 Python 工具组合**：内置 `sandbox.list_dir`、`glob`、`grep`、`read_file`、`write_file`、`str_replace`、`apply_patch`、`run_python`，并由 capability/skill policy 收窄。
 - **工具异常可恢复**：ReactSubagent adapter 把普通 tool exception 降级为 structured JSON error result，保留 tool record 和 `execution.harness.tool_call.failed`。
 - **loop guard**：重复工具调用会触发 warning/hard-stop 逻辑，且不破坏 provider tool-call pairing。
 - **runtime journal 思路**：用 `run_journal_summary` 和 `journal` event envelope 给前端提供产品化进度摘要，而不是展示 debug payload。

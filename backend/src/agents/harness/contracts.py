@@ -114,3 +114,4 @@ class HarnessToolResult:
     externalized: bool = False
     error: str | None = None
     file_change: dict[str, Any] | None = None
+    file_changes: tuple[dict[str, Any], ...] = ()
