@@ -416,6 +416,7 @@ class TeamKernelRuntime:
                 templates=templates,
                 team_policy=team_policy,
                 skill_records=skill_cache.records,
+                workspace_data=workspace_data,
                 invocations=batch,
             )
         await asyncio.gather(
@@ -468,6 +469,7 @@ class TeamKernelRuntime:
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
         skill_records: dict[str, Any | None],
+        workspace_data: dict[str, Any],
         invocations: list[AgentInvocation],
     ) -> None:
         for invocation in invocations:
@@ -477,6 +479,7 @@ class TeamKernelRuntime:
                 team_policy=team_policy,
                 effective_skill_ids=invocation.effective_skills,
                 skill_records=skill_records,
+                workspace_data=workspace_data,
             ).model_dump(mode="json")
 
     async def _should_prefetch_skills(self, execution_id: str) -> bool:

@@ -6,6 +6,12 @@ import pytest
 import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.agents.lead_agent.v2.team.contracts import (
+    AgentInvocation,
+    AgentTemplate,
+    CapabilityTeamPolicy,
+)
+from src.agents.lead_agent.v2.team.kernel import TeamKernelRuntime
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import subagent
 
@@ -243,6 +249,50 @@ def test_team_panel_graph_keeps_member_templates_out_of_progress_steps() -> None
         "team_finish",
     ]
     assert all(node["subagent_type"] != "agent_template" for node in graph["nodes"])
+
+
+def test_team_kernel_quality_contract_includes_workspace_source_allowlist() -> None:
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=AsyncMock(),
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献检索员",
+        assigned_role="文献检索员",
+        recruitment_reason="test",
+        input_brief={},
+    )
+
+    runtime._inject_quality_contracts(
+        capability=_team_capability(),
+        templates={
+            "research_scout.v1": AgentTemplate(
+                id="research_scout.v1",
+                display_role="文献检索员",
+                category="research",
+            )
+        },
+        team_policy=CapabilityTeamPolicy(core_templates=["research_scout.v1"]),
+        skill_records={},
+        workspace_data={
+            "library_context": {"citation_keys": ["smith2026"]},
+            "related_documents": [{"id": "source-1", "citation_key": "smith2026"}],
+        },
+        invocations=[invocation],
+    )
+
+    assert invocation.input_brief["quality_contract"]["allowed_citation_keys"] == [
+        "smith2026"
+    ]
+    assert invocation.input_brief["quality_contract"]["allowed_source_ids"] == ["source-1"]
 
 
 class FakeTeamCatalogClient:

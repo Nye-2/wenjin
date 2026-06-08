@@ -243,7 +243,9 @@ def _foundation_field_gates(
             invalid_entries = []
             if not missing and gate_id == "claim_evidence_map_required":
                 invalid_entries = _invalid_claim_evidence_entries(
-                    output.get("claim_evidence_map")
+                    output.get("claim_evidence_map"),
+                    allowed_source_ids=_string_list(contract.get("allowed_source_ids")),
+                    allowed_citation_keys=_string_list(contract.get("allowed_citation_keys")),
                 )
             if not missing and not invalid_entries:
                 continue
@@ -257,7 +259,7 @@ def _foundation_field_gates(
             if invalid_entries:
                 finding["invalid_entries"] = invalid_entries
                 finding["message"] = (
-                    "claim_evidence_map entries must include source_id or citation_key"
+                    "claim_evidence_map entries must use current workspace source refs"
                 )
             findings.append(finding)
             suggested.extend(
@@ -276,11 +278,21 @@ def _foundation_field_gates(
             finding.get("invalid_entries") for finding in findings
         )
         if invalid_claim_map:
+            has_allowlist = any(
+                _string_list(_quality_contract(invocation).get(key))
+                for invocation in invocations
+                for key in ("allowed_source_ids", "allowed_citation_keys")
+            )
+            suffix = (
+                " from the current workspace Library context"
+                if has_allowlist
+                else " for every supported claim"
+            )
             required_fixes = [
                 {
                     "message": (
                         "Return claim_evidence_map entries with claim plus source_id "
-                        "or citation_key for every supported claim."
+                        f"or citation_key{suffix}."
                     )
                 }
             ]
@@ -739,18 +751,37 @@ def _has_meaningful_field(output: dict[str, Any], field: str) -> bool:
     return True
 
 
-def _invalid_claim_evidence_entries(value: Any) -> list[dict[str, Any]]:
+def _invalid_claim_evidence_entries(
+    value: Any,
+    *,
+    allowed_source_ids: list[str] | None = None,
+    allowed_citation_keys: list[str] | None = None,
+) -> list[dict[str, Any]]:
     entries = _claim_evidence_entries(value)
+    allowed_sources = set(allowed_source_ids or [])
+    allowed_citations = set(allowed_citation_keys or [])
     invalid: list[dict[str, Any]] = []
     for index, item in entries:
         missing_fields: list[str] = []
+        unknown_refs: list[str] = []
         claim = _claim_text(item)
         if not claim:
             missing_fields.append("claim")
-        if not _claim_source_refs(item):
+        refs = _claim_ref_values(item)
+        if not [*refs["source_ids"], *refs["citation_keys"]]:
             missing_fields.append("source_id_or_citation_key")
+        if allowed_sources:
+            unknown_refs.extend(
+                ref for ref in refs["source_ids"] if ref not in allowed_sources
+            )
+        if allowed_citations:
+            unknown_refs.extend(
+                ref for ref in refs["citation_keys"] if ref not in allowed_citations
+            )
         if missing_fields:
             invalid.append({"index": index, "missing_fields": missing_fields})
+        elif unknown_refs:
+            invalid.append({"index": index, "unknown_refs": _dedupe(unknown_refs)})
     return invalid
 
 
@@ -781,20 +812,27 @@ def _claim_text(item: Any) -> str:
     return ""
 
 
-def _claim_source_refs(item: Any) -> list[str]:
+def _claim_ref_values(item: Any) -> dict[str, list[str]]:
     if not isinstance(item, dict):
-        return []
-    refs: list[str] = []
+        return {"source_ids": [], "citation_keys": []}
+    source_ids: list[str] = []
     for key in (
         "source_id",
         "source_ids",
         "source_ref",
         "source_refs",
+    ):
+        source_ids.extend(_string_list(item.get(key)))
+    citation_keys: list[str] = []
+    for key in (
         "citation_key",
         "citation_keys",
     ):
-        refs.extend(_string_list(item.get(key)))
-    return _dedupe(refs)
+        citation_keys.extend(_string_list(item.get(key)))
+    return {
+        "source_ids": _dedupe(source_ids),
+        "citation_keys": _dedupe(citation_keys),
+    }
 
 
 def _open_question_triggers(output: dict[str, Any]) -> list[str]:

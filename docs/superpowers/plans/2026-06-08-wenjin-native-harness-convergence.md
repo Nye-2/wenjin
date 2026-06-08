@@ -2399,6 +2399,98 @@ Observed:
 All checks passed!
 ```
 
+### Task 14: Workspace-Scoped Claim Evidence Refs
+
+**Goal:** prevent team members from satisfying claim evidence grounding with citation keys or source ids that do not belong to the current workspace Library/source context.
+
+**Files:**
+- Modified: `backend/src/agents/lead_agent/v2/team/quality_contract.py`
+- Modified: `backend/src/agents/lead_agent/v2/team/kernel.py`
+- Modified: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_team_quality_contract.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_team_kernel.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
+- Modified: `docs/current/architecture.md`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+- [x] **Step 1: Add red test for QualityContract source allowlist**
+
+Updated `test_quality_contract_resolver_merges_existing_catalog_records` to pass workspace data with `library_context.citation_keys` and `related_documents`, then assert:
+
+- `allowed_citation_keys == ["smith2026", "doe2025"]`
+- `allowed_source_ids == ["source-1", "source-2"]`
+
+Observed red before implementation:
+
+```text
+TypeError: QualityContractResolver.resolve() got an unexpected keyword argument 'workspace_data'
+```
+
+- [x] **Step 2: Implement QualityContract allowlist projection**
+
+`ResolvedQualityContract` now has bounded `allowed_citation_keys` and `allowed_source_ids` fields. `QualityContractResolver.resolve(..., workspace_data=...)` derives them from:
+
+- `workspace_data.library_context.citation_keys`
+- `workspace_data.related_documents[].id`
+- `workspace_data.related_documents[].citation_key`
+
+- [x] **Step 3: Add red test for TeamKernel injection**
+
+Added `test_team_kernel_quality_contract_includes_workspace_source_allowlist`.
+
+Observed red before implementation:
+
+```text
+TypeError: TeamKernelRuntime._inject_quality_contracts() got an unexpected keyword argument 'workspace_data'
+```
+
+- [x] **Step 4: Pass workspace_data through TeamKernel contract injection**
+
+`TeamKernelRuntime._run_invocation_batch()` now passes the same bounded workspace data already used by subagents into `_inject_quality_contracts()`, so each invocation sees the current workspace source allowlist in its `input_brief.quality_contract`.
+
+- [x] **Step 5: Add red test for unknown citation key**
+
+Added `test_quality_gates_fail_claim_evidence_map_with_unknown_citation_key`.
+
+The test verifies:
+
+- If `allowed_citation_keys=["smith2026"]`, a claim map entry using `citation_key="missing2026"` fails.
+- The gate asks for revision rather than treating the claim as grounded.
+
+Observed red before implementation:
+
+```text
+StopIteration
+```
+
+- [x] **Step 6: Validate claim refs against the allowlist**
+
+`claim_evidence_map_required` now still requires claim text plus a source/citation ref, and when `allowed_source_ids` / `allowed_citation_keys` are present, refs must come from that allowlist. Missing refs and unknown refs are reported as structured `invalid_entries`.
+
+- [x] **Step 7: Verify related tests**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_contract.py::test_quality_contract_resolver_merges_existing_catalog_records -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_kernel.py::test_team_kernel_quality_contract_includes_workspace_source_allowlist -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_claim_evidence_map_without_source_refs backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_accept_claim_evidence_map_with_citation_keys backend/tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_fail_claim_evidence_map_with_unknown_citation_key -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_team_quality_gates.py backend/tests/agents/lead_agent/v2/test_team_quality_contract.py backend/tests/agents/lead_agent/v2/test_team_kernel.py -q
+backend/.venv/bin/ruff check backend/src/agents/lead_agent/v2/team/quality_gates.py backend/src/agents/lead_agent/v2/team/quality_contract.py backend/src/agents/lead_agent/v2/team/kernel.py backend/tests/agents/lead_agent/v2/test_team_quality_gates.py backend/tests/agents/lead_agent/v2/test_team_quality_contract.py backend/tests/agents/lead_agent/v2/test_team_kernel.py
+```
+
+Observed:
+
+```text
+1 passed
+1 passed
+3 passed
+40 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

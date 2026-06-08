@@ -257,7 +257,7 @@ User action
 - `runViewFromResultCard(data, workspaceId)`：chat completion summary
 - `mergeRunViews(live, historical)`：同一 run 在 live/history 中合并展示
 
-TeamKernel 的任务进展也由这个 presenter 统一派生：progress list 只展示五步流程，状态来自整体 run status、实名成员状态和质量门状态；成员模板不进入 progress list。`runtime_state.quality_gates` 会按 gate id 聚合为当前质量检查展示，使用最新状态，避免历史 quality gate event 在默认团队面板中重复刷屏。证据相关质量门不只检查字段存在：`claim_evidence_map_required` 要求每条 supported claim 同时带有 claim 文本和 `source_id` 或 `citation_key`，否则进入 `revise_existing`，避免无来源 claim map 被当作已闭环证据。
+TeamKernel 的任务进展也由这个 presenter 统一派生：progress list 只展示五步流程，状态来自整体 run status、实名成员状态和质量门状态；成员模板不进入 progress list。`runtime_state.quality_gates` 会按 gate id 聚合为当前质量检查展示，使用最新状态，避免历史 quality gate event 在默认团队面板中重复刷屏。证据相关质量门不只检查字段存在：QualityContract 会从当前 `workspace_data.library_context` / `related_documents` 注入 `allowed_citation_keys` 和 `allowed_source_ids`；`claim_evidence_map_required` 要求每条 supported claim 同时带有 claim 文本和当前 workspace 允许的 `source_id` 或 `citation_key`，否则进入 `revise_existing`，避免无来源或跨工作区的 claim map 被当作已闭环证据。
 
 `frontend/stores/run-ui-store.ts` 只保存 UI 焦点和提示徽标，不保存 execution lifecycle。
 

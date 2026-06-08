@@ -399,3 +399,52 @@ def test_quality_gates_accept_claim_evidence_map_with_citation_keys() -> None:
     )
 
     assert not [gate for gate in gates if gate.gate_id == "claim_evidence_map_required"]
+
+
+def test_quality_gates_fail_claim_evidence_map_with_unknown_citation_key() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "literature_synthesizer.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_evidence_map_required"],
+        "acknowledgement_required_gates": [],
+        "allowed_citation_keys": ["smith2026"],
+        "allowed_source_ids": ["source-1"],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["claim_evidence_map_required"],
+        [
+            _invocation(
+                template_id="literature_synthesizer.v1",
+                output_report={
+                    "text": "claims mapped",
+                    "claim_evidence_map": [
+                        {
+                            "claim": "Federated LLM fine-tuning reduces data sharing risk.",
+                            "citation_key": "missing2026",
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["literature_synthesizer.v1"]),
+        counts=Counter({"literature_synthesizer.v1": 1}),
+        latest_invocations=[],
+    )
+
+    gate = next(item for item in gates if item.gate_id == "claim_evidence_map_required")
+    assert gate.status == "fail"
+    assert gate.findings[0]["invalid_entries"] == [
+        {"index": 0, "unknown_refs": ["missing2026"]}
+    ]
+    assert gate.required_fixes == [
+        {
+            "message": (
+                "Return claim_evidence_map entries with claim plus source_id "
+                "or citation_key from the current workspace Library context."
+            )
+        }
+    ]

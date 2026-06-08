@@ -94,6 +94,15 @@ def test_quality_contract_resolver_merges_existing_catalog_records() -> None:
         template=_template(),
         team_policy=_team_policy(),
         effective_skill_ids=["research-scout", "citation-auditor"],
+        workspace_data={
+            "library_context": {
+                "citation_keys": ["smith2026", "doe2025"],
+            },
+            "related_documents": [
+                {"id": "source-1", "citation_key": "smith2026"},
+                {"id": "source-2", "citation_key": "doe2025"},
+            ],
+        },
         skill_records={
             "research-scout": _skill(
                 "research-scout",
@@ -132,6 +141,8 @@ def test_quality_contract_resolver_merges_existing_catalog_records() -> None:
     assert contract.quality_expectations == ["claims map to source ids"]
     assert "Do not write canonical workspace state directly." in contract.must_rules
     assert "Do not fabricate sources, citations, experiment results, or code execution outcomes." in contract.must_rules
+    assert contract.allowed_citation_keys == ["smith2026", "doe2025"]
+    assert contract.allowed_source_ids == ["source-1", "source-2"]
     assert contract.recruitment_hints["missing_sources"] == ["research_scout.v1"]
     assert contract.recruitment_hints["unsupported_claims"] == ["critical_reviewer.v1"]
     assert contract.source_refs["quality_gates"] == [
