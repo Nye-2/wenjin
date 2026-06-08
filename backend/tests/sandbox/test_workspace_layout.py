@@ -266,6 +266,24 @@ def test_workspace_virtual_path_normalization_rejects_outside_and_traversal_path
             raise AssertionError(f"expected invalid workspace path: {invalid}")
 
 
+def test_workspace_virtual_path_helper_is_strict_and_idempotent():
+    assert layout.workspace_virtual_path("outputs/result.csv") == "/workspace/outputs/result.csv"
+    assert layout.workspace_virtual_path("/workspace/reports/summary.md") == "/workspace/reports/summary.md"
+    assert layout.workspace_virtual_path("") == "/workspace"
+
+    for invalid in (
+        "/tmp/host/result.csv",
+        "outputs/../.env",
+        "main\x00.tex",
+    ):
+        try:
+            layout.workspace_virtual_path(invalid)
+        except ValueError:
+            pass
+        else:  # pragma: no cover - assertion clarity
+            raise AssertionError(f"expected invalid workspace helper input: {invalid}")
+
+
 def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     assert layout.is_workspace_protected_path("/workspace/.wenjin/env/python/bin/python")
     assert layout.is_workspace_protected_path("/workspace/.env")

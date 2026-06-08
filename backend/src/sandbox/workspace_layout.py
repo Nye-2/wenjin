@@ -411,10 +411,16 @@ def build_agent_workspace_contract(
 def workspace_virtual_path(relative_path: str) -> str:
     """Resolve a relative workspace path into the canonical virtual namespace."""
 
-    normalized = str(relative_path or "").strip().strip("/")
-    if not normalized:
+    text = str(relative_path or "").strip()
+    if "\x00" in text:
+        raise ValueError("workspace path contains null byte")
+    if not text:
         return WORKSPACE_ROOT
-    return f"{WORKSPACE_ROOT}/{normalized}"
+    if text == WORKSPACE_ROOT or text.startswith(f"{WORKSPACE_ROOT}/"):
+        return normalize_workspace_virtual_path(text)
+    if text.startswith("/"):
+        raise ValueError(f"path must be under {WORKSPACE_ROOT}")
+    return normalize_workspace_virtual_path(f"{WORKSPACE_ROOT}/{text.strip('/')}")
 
 
 def normalize_workspace_virtual_path(path: str) -> str:

@@ -2810,6 +2810,58 @@ Observed:
 All checks passed!
 ```
 
+### Task 16: Tighten Workspace Virtual Path Helper Contract
+
+**Goal:** make `workspace_virtual_path()` a strict helper for the canonical `/workspace` namespace instead of silently converting arbitrary absolute host paths into workspace-relative paths.
+
+**External reference:** deer-flow's sandbox tests treat virtual path translation as a public API boundary and reject non-virtual absolute paths. Wenjin should keep that invariant in `workspace_layout.py`, the single source of truth for workspace filesystem decisions.
+
+**Architecture:** change only the centralized layout helper. Existing callers that pass relative workspace paths keep working; already-normalized `/workspace/...` paths become idempotent; non-`/workspace` absolute paths and traversal remain invalid.
+
+**Files:**
+- Modified: `backend/src/sandbox/workspace_layout.py`
+- Modified: `backend/tests/sandbox/test_workspace_layout.py`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED test**
+
+Added `test_workspace_virtual_path_helper_is_strict_and_idempotent`.
+
+Observed RED:
+
+```text
+AssertionError: '/workspace/workspace/reports/summary.md' != '/workspace/reports/summary.md'
+```
+
+- [x] **Step 2: Make helper strict and idempotent**
+
+`workspace_virtual_path()` now:
+
+- returns `/workspace` for empty input.
+- returns normalized `/workspace/...` unchanged when input is already virtual.
+- rejects non-`/workspace` absolute paths.
+- normalizes relative paths after prefixing `/workspace`.
+
+- [x] **Step 3: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/sandbox/test_workspace_layout.py::test_workspace_virtual_path_helper_is_strict_and_idempotent -q
+backend/.venv/bin/python -m pytest backend/tests/sandbox/test_workspace_layout.py backend/tests/sandbox/test_local_sandbox.py backend/tests/sandbox/test_docker_provider.py -q
+backend/.venv/bin/ruff check backend/src/sandbox/workspace_layout.py backend/tests/sandbox/test_workspace_layout.py
+```
+
+Observed:
+
+```text
+1 passed
+49 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:
