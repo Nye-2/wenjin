@@ -2912,6 +2912,60 @@ Observed:
 All checks passed!
 ```
 
+### Task 18: Redact Large Text Tool Args in Debug Records
+
+**Goal:** prevent harness debug records from retaining raw script/content payloads while preserving enough evidence for reproducibility and review.
+
+**External reference:** Codex and deer-flow both separate execution evidence from raw sensitive inputs: command policy/audit metadata keeps bounded summaries, and file/tool output evidence is handled through explicit refs or review surfaces. Wenjin should keep tool-call args compact and non-content-bearing.
+
+**Architecture:** update only the LangChain adapter's args summarization boundary. This does not alter tool execution inputs, file-change diff evidence, output budgeting, or review staging. `sandbox.run_python.script` and `sandbox.write_file.content` args are summarized as deterministic `chars` + `sha256` records.
+
+**Files:**
+- Modified: `backend/src/agents/harness/langchain_adapter.py`
+- Modified: `backend/tests/agents/harness/test_langchain_adapter.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED test**
+
+Added `test_summarize_args_redacts_large_tool_text_payloads`.
+
+Observed RED:
+
+```text
+assert "print('sk-secret-script')\n" == {"redacted": True, ...}
+```
+
+- [x] **Step 2: Digest text payload args**
+
+`_summarize_args()` now records `content` and `script` as:
+
+```json
+{"redacted": true, "chars": 123, "sha256": "..."}
+```
+
+Path/pattern/small scalar args still remain visible for debugging.
+
+- [x] **Step 3: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py::test_summarize_args_redacts_large_tool_text_payloads -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/langchain_adapter.py backend/tests/agents/harness/test_langchain_adapter.py
+```
+
+Observed:
+
+```text
+1 passed
+4 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

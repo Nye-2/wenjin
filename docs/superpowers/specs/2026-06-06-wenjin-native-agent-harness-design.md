@@ -433,6 +433,7 @@ Adapters:
 - `langchain_adapter.py` can convert `HarnessToolSpec` into LangChain-compatible tools for `create_react_agent`.
 - The adapter must not own policy, path validation, output budget, or persistence.
 - The adapter is replaceable. The harness core should be testable without LangChain.
+- Tool-call args stored for debugging must not retain large text payloads such as `sandbox.run_python.script` or `sandbox.write_file.content`; record deterministic `chars` and `sha256` digests instead. File-change diffs remain the explicit review evidence path and are budgeted separately.
 
 ### 6.4 `backend/src/agents/harness/sandbox_tools.py`
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from src.agents.harness.langchain_adapter import _tool_result_metadata, build_langchain_tools
+from src.agents.harness.langchain_adapter import _summarize_args, _tool_result_metadata, build_langchain_tools
 from src.sandbox.providers.local import LocalSandbox
 from src.subagents.v2.base import SubagentContext
 
@@ -131,3 +132,31 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
     )
     assert metadata["reproducibility_manifest"]["sandbox"]["run_job_id"] == "job-1"
     assert metadata["failure_classification"]["failure_code"] == "python_exit_nonzero"
+
+
+def test_summarize_args_redacts_large_tool_text_payloads() -> None:
+    script = "print('sk-secret-script')\n"
+    content = "OPENAI_API_KEY=sk-secret-content\n"
+
+    summary = _summarize_args(
+        {
+            "path": "/workspace/scripts/analysis.py",
+            "script": script,
+            "content": content,
+        }
+    )
+
+    assert summary["path"] == "/workspace/scripts/analysis.py"
+    assert summary["script"] == {
+        "redacted": True,
+        "chars": len(script),
+        "sha256": hashlib.sha256(script.encode("utf-8")).hexdigest(),
+    }
+    assert summary["content"] == {
+        "redacted": True,
+        "chars": len(content),
+        "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+    }
+    dumped = json.dumps(summary, ensure_ascii=False)
+    assert "sk-secret-script" not in dumped
+    assert "sk-secret-content" not in dumped

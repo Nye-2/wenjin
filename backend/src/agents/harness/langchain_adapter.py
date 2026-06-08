@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
@@ -66,6 +67,8 @@ class RunPythonInput(BaseModel):
 
 
 ToolHandler = Callable[..., Awaitable[str]]
+TEXT_PAYLOAD_ARG_KEYS = frozenset({"content", "script"})
+
 
 def build_harness_run_context(ctx: SubagentContext) -> HarnessRunContext:
     """Translate current SubagentContext into the harness context contract."""
@@ -553,8 +556,18 @@ def _skill_snapshot(skill: Any | None) -> dict[str, Any]:
 def _summarize_args(args: dict[str, Any]) -> dict[str, Any]:
     summary: dict[str, Any] = {}
     for key, value in args.items():
-        if isinstance(value, str) and len(value) > 500:
+        if key in TEXT_PAYLOAD_ARG_KEYS and isinstance(value, str):
+            summary[key] = _text_payload_digest(value)
+        elif isinstance(value, str) and len(value) > 500:
             summary[key] = f"{value[:500]}... ({len(value)} chars)"
         else:
             summary[key] = value
     return summary
+
+
+def _text_payload_digest(value: str) -> dict[str, Any]:
+    return {
+        "redacted": True,
+        "chars": len(value),
+        "sha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+    }
