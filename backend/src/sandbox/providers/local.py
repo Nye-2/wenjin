@@ -283,8 +283,12 @@ class LocalSandbox(Sandbox):
                 )
 
                 return CommandResult(
-                    stdout=stdout.decode("utf-8", errors="replace"),
-                    stderr=stderr.decode("utf-8", errors="replace"),
+                    stdout=self._mask_physical_paths_in_output(
+                        stdout.decode("utf-8", errors="replace")
+                    ),
+                    stderr=self._mask_physical_paths_in_output(
+                        stderr.decode("utf-8", errors="replace")
+                    ),
                     exit_code=process.returncode or 0,
                     timed_out=False,
                 )
@@ -302,9 +306,27 @@ class LocalSandbox(Sandbox):
         except Exception as e:
             return CommandResult(
                 stdout="",
-                stderr=str(e),
+                stderr=self._mask_physical_paths_in_output(str(e)),
                 exit_code=1,
             )
+
+    def _mask_physical_paths_in_output(self, output: str) -> str:
+        """Map sandbox host paths back to public virtual paths."""
+
+        masked = str(output or "")
+        for virtual_path, physical_path in sorted(
+            self.path_mappings.items(),
+            key=lambda item: len(str(Path(item[1]).resolve())),
+            reverse=True,
+        ):
+            physical_variants = {
+                str(Path(physical_path).resolve()),
+                str(Path(physical_path).absolute()),
+            }
+            for physical in sorted(physical_variants, key=len, reverse=True):
+                if physical:
+                    masked = masked.replace(physical, virtual_path)
+        return masked
 
     async def read_file(self, path: str) -> str:
         """Read file contents."""

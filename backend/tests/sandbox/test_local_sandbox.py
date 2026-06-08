@@ -48,6 +48,23 @@ class TestLocalSandbox:
         assert "hello world" in result.stdout
 
     @pytest.mark.asyncio
+    async def test_execute_command_masks_physical_workspace_paths(self, temp_dir):
+        """Command output should preserve the public /workspace contract."""
+        workspace = Path(temp_dir) / "workspace"
+        workspace.mkdir(parents=True)
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+
+        result = await sandbox.execute_command(
+            "python3 -c \"import os, sys; print(os.getcwd()); sys.stderr.write(os.getcwd())\""
+        )
+
+        assert result.success
+        assert str(workspace.resolve()) not in result.stdout
+        assert str(workspace.resolve()) not in result.stderr
+        assert "/workspace" in result.stdout
+        assert "/workspace" in result.stderr
+
+    @pytest.mark.asyncio
     async def test_execute_command_failure(self, sandbox):
         """Should handle command failure."""
         result = await sandbox.execute_command("ls /nonexistent_directory_12345")

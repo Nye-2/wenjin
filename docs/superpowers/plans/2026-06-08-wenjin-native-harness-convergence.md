@@ -2760,6 +2760,56 @@ All checks passed!
 git diff --check: no output
 ```
 
+### Task 15: Mask Local Sandbox Host Paths in Command Output
+
+**Goal:** keep the workspace filesystem contract public and stable by ensuring local sandbox command stdout/stderr exposes `/workspace` virtual paths, not host filesystem paths.
+
+**External reference:** deer-flow pins virtual-path behavior at the public sandbox API boundary and masks local host paths back to virtual paths. Wenjin should keep the same invariant for its canonical `/workspace` contract without importing deer-flow runtime code.
+
+**Architecture:** update the existing `LocalSandbox` provider output boundary only. Do not add a new adapter, runtime, or compatibility layer; Docker sandbox already executes inside `/workspace`, while local sandbox needs reverse mapping after process output decoding.
+
+**Files:**
+- Modified: `backend/src/sandbox/providers/local.py`
+- Modified: `backend/tests/sandbox/test_local_sandbox.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED test**
+
+Added `TestLocalSandbox.test_execute_command_masks_physical_workspace_paths`.
+
+Observed RED:
+
+```text
+AssertionError: host workspace path is contained in stdout
+```
+
+- [x] **Step 2: Mask physical paths at LocalSandbox command output boundary**
+
+`LocalSandbox.execute_command()` now maps configured physical sandbox roots back to their virtual roots in stdout/stderr and exception stderr. This keeps local provider behavior aligned with Docker provider and prevents host path leakage into harness results, run records, or agent context.
+
+- [x] **Step 3: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/sandbox/test_local_sandbox.py::TestLocalSandbox::test_execute_command_masks_physical_workspace_paths -q
+backend/.venv/bin/python -m pytest backend/tests/sandbox/test_local_sandbox.py backend/tests/sandbox/test_workspace_layout.py backend/tests/sandbox/test_docker_provider.py -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_sandbox_file_tools.py backend/tests/agents/harness/test_scheduler_and_python_tool.py -q
+backend/.venv/bin/ruff check backend/src/sandbox/providers/local.py backend/tests/sandbox/test_local_sandbox.py
+```
+
+Observed:
+
+```text
+1 passed
+48 passed
+41 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:
