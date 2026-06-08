@@ -31,15 +31,15 @@ def _capability() -> SimpleNamespace:
             },
             "quality_gates": ["harness_replan_signal"],
             "team_policy": {
-                "core_templates": ["evidence_analyst.v1"],
+                "core_templates": ["literature_data_curator.v1", "evidence_analyst.v1"],
                 "optional_templates": [],
                 "capability_tools": ["sandbox.run_python"],
-                "capability_skills": ["evidence-analyst"],
+                "capability_skills": ["literature-data-curator", "evidence-analyst"],
                 "quality_pipeline": ["harness_replan_signal"],
                 "limits": {
                     "max_iterations": 1,
-                    "max_parallel_invocations": 1,
-                    "max_invocations_total": 1,
+                    "max_parallel_invocations": 2,
+                    "max_invocations_total": 2,
                 },
             },
         },
@@ -67,6 +67,23 @@ class _MockCatalogAndReviewClient:
     async def list_agent_templates(self, *, enabled_only: bool = True):
         return [
             AgentTemplatePayload(
+                id="literature_data_curator.v1",
+                display_role="文献与数据整理员",
+                category="research",
+                description="Summarize workspace sources and dataset provenance.",
+                persona_prompt="You are Wenjin's literature and data curator.",
+                default_skills=["literature-data-curator"],
+                tool_affinity={
+                    "preferred": [],
+                    "can_request": [],
+                },
+                risk_profile={
+                    "filesystem": "read_only",
+                    "code_execution": "none",
+                    "room_write": "staged_only",
+                },
+            ),
+            AgentTemplatePayload(
                 id="evidence_analyst.v1",
                 display_role="实验分析工程师",
                 category="evidence",
@@ -87,6 +104,32 @@ class _MockCatalogAndReviewClient:
 
     async def list_catalog_skills(self, *, enabled_only: bool = True):
         return [
+            CapabilitySkillPayload(
+                id="literature-data-curator",
+                display_name="Literature Data Curator",
+                worker_type="research",
+                subagent_type="react",
+                prompt=(
+                    "Summarize the topic, workspace sources, and dataset provenance. "
+                    "Do not run sandbox tools."
+                ),
+                config={"output_kind": "json"},
+                skill_json={
+                    "schema_version": "capability_skill.v2",
+                    "id": "literature-data-curator",
+                    "io_contract": {
+                        "output_schema": {
+                            "type": "object",
+                            "required": ["text", "quality_gates_checked"],
+                            "properties": {
+                                "text": {"type": "string"},
+                                "quality_gates_checked": {"type": "array"},
+                            },
+                        }
+                    },
+                    "quality_gates": ["harness_replan_signal"],
+                },
+            ),
             CapabilitySkillPayload(
                 id="evidence-analyst",
                 display_name="Evidence Analyst",
@@ -195,6 +238,18 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
 
     async def load_workspace_data(self, workspace_id: str):
         return {
+            "workspace_file_summary": {
+                "dataset_provenance": [
+                    {
+                        "path": "/workspace/datasets/panel.csv",
+                        "source_id": "library-source-1",
+                        "content_hash": "sha256:panel",
+                        "license": "research-use",
+                    }
+                ],
+                "recent_scripts": [],
+                "recent_outputs": [],
+            },
             "workspace_history": {
                 "recent_executions": [
                     {
@@ -219,6 +274,23 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
 
     async def fake_react_loop(**kwargs):
         user_payload = json.loads(kwargs["user_message"])
+        role = user_payload.get("team_role")
+        captured.setdefault("roles", []).append(role)
+        if role == "文献与数据整理员":
+            curator_context = user_payload["_harness_context"]
+            assert curator_context["schema"] == "wenjin.harness.context_bundle.v1"
+            assert curator_context["allowed_tools"] == []
+            assert curator_context["workspace_file_summary"]["dataset_provenance"][0]["path"] == (
+                "/workspace/datasets/panel.csv"
+            )
+            return json.dumps(
+                {
+                    "text": "Dataset panel.csv supports the mock federated LLM experiment.",
+                    "quality_gates_checked": ["harness_replan_signal"],
+                },
+                ensure_ascii=False,
+            )
+
         harness_context = kwargs["harness_context"]
         context_bundle = user_payload["_harness_context"]
         captured["context_bundle"] = context_bundle
@@ -226,6 +298,15 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         assert context_bundle["sandbox"]["root"] == "/workspace"
         assert "/workspace/scripts" in context_bundle["sandbox"]["standard_dirs"]
         assert "/workspace/outputs" in context_bundle["sandbox"]["artifact_roots"]
+        assert context_bundle["workspace_type"] == "sci"
+        assert context_bundle["workspace_file_summary"]["dataset_provenance"] == [
+            {
+                "path": "/workspace/datasets/panel.csv",
+                "source_id": "library-source-1",
+                "content_hash": "sha256:panel",
+                "license": "research-use",
+            }
+        ]
         assert ".env" not in json.dumps(context_bundle["recent_execution_evidence"])
 
         [tool] = _resolve_tools(["sandbox.run_python"], harness_context)
@@ -303,6 +384,48 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                     "network_profile": "none",
                     "timeout_seconds": 30,
                 },
+                "reproducibility_manifest": {
+                    "schema": "wenjin.harness.run_python.reproducibility_manifest.v1",
+                    "script": {
+                        "name": "analysis.py",
+                        "path": "/workspace/scripts/analysis.py",
+                    },
+                    "sandbox": {
+                        "environment_id": "env-e2e-1",
+                        "run_job_id": "job-e2e-1",
+                        "install_job_ids": [],
+                    },
+                    "dependencies": {
+                        "requested": [],
+                        "installed": [],
+                    },
+                    "artifacts": [
+                        {
+                            "path": "/workspace/outputs/result.json",
+                            "artifact_kind": "sandbox_output",
+                        }
+                    ],
+                    "command_audit": {
+                        "run_risk_level": "low",
+                        "install_risk_levels": [],
+                    },
+                    "datasets": [
+                        {
+                            "path": "/workspace/datasets/panel.csv",
+                            "source_id": "library-source-1",
+                        }
+                    ],
+                },
+                "experiment_narrative": {
+                    "schema": "wenjin.harness.run_python.experiment_narrative.v1",
+                    "status": "completed",
+                    "script_path": "/workspace/scripts/analysis.py",
+                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                    "artifact_paths": ["/workspace/outputs/result.json"],
+                    "dependency_names": [],
+                    "command_risk": "low",
+                    "next_actions": ["复核 result.json 指标"],
+                },
             },
         )
 
@@ -329,7 +452,8 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         brief=_brief(),
     )
 
-    assert report.status == "completed"
+    assert report.status == "completed", report.model_dump(mode="json")
+    assert captured["roles"] == ["文献与数据整理员", "实验分析工程师"]
     assert client.registered_assets
     assert client.registered_artifacts
     assert report.review_items == [
@@ -375,7 +499,16 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         if event["node_type"] == "agent_invocation" and event["status"] == "completed"
     ]
     assert completed_nodes
-    harness = completed_nodes[0]["node_metadata"]["harness"]
+    assert {node["node_metadata"]["template_id"] for node in completed_nodes} == {
+        "literature_data_curator.v1",
+        "evidence_analyst.v1",
+    }
+    experiment_node = next(
+        node
+        for node in completed_nodes
+        if node["node_metadata"]["template_id"] == "evidence_analyst.v1"
+    )
+    harness = experiment_node["node_metadata"]["harness"]
     assert harness["sandbox_execution_summary"]["schema"] == (
         "wenjin.harness.sandbox_execution_summary.v1"
     )
@@ -383,5 +516,10 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert harness["sandbox_execution_summary"]["sandbox_job_ids"] == ["job-e2e-1"]
     assert harness["sandbox_execution_summary"]["sandbox_environment_ids"] == ["env-e2e-1"]
     assert harness["sandbox_execution_summary"]["generated_artifact_count"] == 2
-    assert "/workspace/.env" not in json.dumps(completed_nodes[0], default=str)
+    assert harness["reproducibility_summary"]["schema"] == "wenjin.harness.reproducibility_summary.v1"
+    assert harness["reproducibility_summary"]["script_paths"] == ["/workspace/scripts/analysis.py"]
+    assert harness["reproducibility_summary"]["dataset_paths"] == ["/workspace/datasets/panel.csv"]
+    assert "/workspace/outputs/result.json" in harness["reproducibility_summary"]["artifact_paths"]
+    assert harness["reproducibility_summary"]["next_actions"] == ["复核 result.json 指标"]
+    assert "/workspace/.env" not in json.dumps(experiment_node, default=str)
     assert any(event_name == "execution.harness.tool_call.completed" for _, event_name, _ in harness_events)

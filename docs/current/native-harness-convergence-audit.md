@@ -62,6 +62,7 @@ Chat Agent
 - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 tests/agents/harness tests/agents/lead_agent/v2 tests/subagents/v2` -> passed
 - `frontend`: `npm run typecheck` -> passed
 - `frontend`: `npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/v2/live-workflow-view-model.test.ts tests/unit/stores/execution-store.test.ts tests/unit/v2/latex-editor-prism-shell.test.tsx` -> 37 passed
+- `backend`: `tests/integration/test_harness_mock_sandbox_e2e.py` 现在覆盖 `sci` workspace 下文献/数据整理员 + 实验分析工程师两名核心成员、bounded harness context、dataset provenance、`sandbox.run_python`、`reproducibility_manifest`、`experiment_narrative`、sandbox artifact review staging 和 internal harness refs 过滤。
 - Docker local-build stack rebuilt; frontend production build passed.
 - Browser smoke verified Workbench team task launch/result review, TeamKernel five-step progress, quality gate dedupe, Prism compile/PDF contrast, and Prism AI assist discoverability.
 
