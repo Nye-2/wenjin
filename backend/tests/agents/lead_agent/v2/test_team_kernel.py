@@ -168,6 +168,22 @@ class TeamMappingFakeSubagent(SubagentBase):
         )
 
 
+@subagent("team_capture")
+class TeamCaptureSubagent(SubagentBase):
+    contexts: list[SubagentContext] = []
+
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        type(self).contexts.append(ctx)
+        return SubagentResult(
+            output={
+                "text": f"{ctx.invocation['display_name']} captured",
+                "quality_gates_checked": [],
+            },
+            tool_calls=[],
+            token_usage={"input": 1, "output": 1},
+        )
+
+
 def _team_capability() -> SimpleNamespace:
     return SimpleNamespace(
         id="team_research",
@@ -421,6 +437,58 @@ class MappingTeamCatalogClient(FakeTeamCatalogClient):
                 config=record.config,
             )
             for record in records
+        ]
+
+
+class SciLiteratureTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import AgentTemplatePayload
+
+        return [
+            AgentTemplatePayload(
+                id="research_scout.v1",
+                display_role="文献检索员",
+                category="research",
+                default_skills=["research-scout"],
+                tool_affinity={
+                    "preferred": ["web_search", "library_read"],
+                    "can_request": ["citation_parser"],
+                },
+                risk_profile={"room_write": "staged_only"},
+            ),
+            AgentTemplatePayload(
+                id="literature_synthesizer.v1",
+                display_role="文献综合专家",
+                category="research",
+                default_skills=["literature-synthesizer"],
+                tool_affinity={
+                    "preferred": ["library_read", "document_read"],
+                    "can_request": ["citation_parser", "artifact_create"],
+                },
+                risk_profile={"room_write": "staged_only"},
+            ),
+        ]
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        return [
+            CapabilitySkillPayload(
+                id="research-scout",
+                display_name="Research Scout",
+                worker_type="research",
+                subagent_type="team_capture",
+                prompt="Capture research scout context.",
+                config={"output_kind": "json"},
+            ),
+            CapabilitySkillPayload(
+                id="literature-synthesizer",
+                display_name="Literature Synthesizer",
+                worker_type="research",
+                subagent_type="team_capture",
+                prompt="Capture synthesizer context.",
+                config={"output_kind": "json"},
+            ),
         ]
 
 
@@ -914,6 +982,89 @@ async def test_team_kernel_runtime_records_skill_catalog_failure_as_member_failu
     assert all(error.task != "team_kernel" for error in report.errors)
     assert any(event["status"] == "failed" for event in node_events)
     assert any(event["error"] == "skill catalog unavailable" for event in node_events)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_supplies_query_and_business_tools_to_sci_literature_team(monkeypatch) -> None:
+    TeamCaptureSubagent.contexts = []
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SciLiteratureTeamCatalogClient(),
+    )
+
+    cap = SimpleNamespace(
+        id="sci_literature_positioning",
+        workspace_type="sci",
+        display_name="文献定位与创新点",
+        runtime={
+            "mode": "team_kernel",
+            "allowed_tools": [
+                "web_search",
+                "library_read",
+                "document_read",
+                "citation_parser",
+                "artifact_create",
+            ],
+        },
+        graph_template={},
+        definition_json={
+            "mission": {"primary_surface": "prism"},
+            "team_policy": {
+                "core_templates": ["research_scout.v1", "literature_synthesizer.v1"],
+                "optional_templates": [],
+                "recruitment_triggers": {},
+                "capability_tools": [
+                    "web_search",
+                    "library_read",
+                    "document_read",
+                    "citation_parser",
+                    "artifact_create",
+                ],
+                "capability_skills": ["research-scout", "literature-synthesizer"],
+                "quality_pipeline": [],
+                "limits": {
+                    "max_iterations": 1,
+                    "max_parallel_invocations": 2,
+                    "max_invocations_total": 2,
+                },
+            },
+        },
+    )
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+
+    report = await runtime.run_session(
+        execution_id="exec-sci-literature-context",
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            raw_message="联邦学习结合大模型 (Federated Learning combined with Large Language Models)",
+            workspace_id="ws-sci",
+            user_id="user-1",
+            brief={},
+        ),
+    )
+
+    contexts_by_template = {
+        ctx.invocation["template_id"]: ctx
+        for ctx in TeamCaptureSubagent.contexts
+    }
+    scout = contexts_by_template["research_scout.v1"]
+    synthesizer = contexts_by_template["literature_synthesizer.v1"]
+    assert report.status == "completed"
+    assert scout.inputs["query"] == "Federated Learning combined with Large Language Models"
+    assert scout.inputs["task_focus"]
+    assert {
+        "library_read",
+        "document_read",
+        "citation_parser",
+        "artifact_create",
+    }.issubset(set(synthesizer.tools))
 
 
 @pytest.mark.asyncio

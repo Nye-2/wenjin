@@ -1064,7 +1064,7 @@ This task fixes the team execution contract itself, not the UI symptom.
 - Docs: `docs/current/architecture.md`
 - Docs: `docs/current/workspace-current-state.md`
 
-- [ ] **Step 1: Add failing member-context tests**
+- [x] **Step 1: Add failing member-context tests**
 
 Add tests proving `build_team_member_context()` produces a non-empty query and role-specific task package from raw user input:
 
@@ -1098,7 +1098,9 @@ cd /Users/ze/wenjin/backend
 
 Expected before implementation: fail because the helper does not exist.
 
-- [ ] **Step 2: Implement `member_context.py` as a pure assembler**
+Observed red result: `ModuleNotFoundError: No module named 'src.agents.lead_agent.v2.team.member_context'`.
+
+- [x] **Step 2: Implement `member_context.py` as a pure assembler**
 
 The helper must:
 
@@ -1110,7 +1112,7 @@ The helper must:
 
 Do not call DataService from this helper. TeamKernel passes already-loaded facts.
 
-- [ ] **Step 3: Wire TeamKernel through the assembler**
+- [x] **Step 3: Wire TeamKernel through the assembler**
 
 Replace the body of `_build_member_brief()` in `backend/src/agents/lead_agent/v2/team/kernel.py` with a call to `build_team_member_context()`.
 
@@ -1123,7 +1125,9 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass, and existing TeamKernel tests still see `team_role`, `team_blackboard`, `capability_name`, `workspace_id`, and `raw_message`.
 
-- [ ] **Step 4: Add failing business-tool resolution tests**
+Observed green result: `tests/agents/lead_agent/v2/test_team_member_context.py` passed, and the TeamKernel regression for SCI literature context passed.
+
+- [x] **Step 4: Add failing business-tool resolution tests**
 
 Add a ReactSubagent tool resolution test proving these tool names resolve to bounded callables instead of failing as forbidden:
 
@@ -1164,7 +1168,9 @@ cd /Users/ze/wenjin/backend
 
 Expected before implementation: fail because only sandbox harness tools are resolved.
 
-- [ ] **Step 5: Implement bounded business tools**
+Observed red result: `React tools were requested but forbidden by harness policy: library_read, document_read, memory_read, prism_read, citation_parser, artifact_create`.
+
+- [x] **Step 5: Implement bounded business tools**
 
 Create `backend/src/agents/harness/business_tools.py` with callables backed by `SubagentContext.workspace_data`:
 
@@ -1182,7 +1188,7 @@ Rules:
 - No direct room commit, Prism apply, or canonical artifact materialization.
 - Protected/internal workspace paths are filtered before returning.
 
-- [ ] **Step 6: Register business tools in the existing adapter**
+- [x] **Step 6: Register business tools in the existing adapter**
 
 Extend `build_langchain_tools()` in `backend/src/agents/harness/langchain_adapter.py` so:
 
@@ -1200,7 +1206,9 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass.
 
-- [ ] **Step 7: Prove the SCI literature team no longer fails for the two known causes**
+Observed green result: `tests/agents/harness/test_business_tools.py` and `tests/subagents/v2/test_react_business_tools.py` passed. Additional red/green test added to ensure business tool calls append `_harness_tool_records` for node evidence.
+
+- [x] **Step 7: Prove the SCI literature team no longer fails for the two known causes**
 
 Add or extend a TeamKernel test using `sci_literature_positioning` policy/template inputs to assert:
 
@@ -1216,6 +1224,20 @@ cd /Users/ze/wenjin/backend
 ```
 
 Expected: selected tests pass.
+
+Observed green result:
+
+```text
+tests/agents/lead_agent/v2/test_team_member_context.py
+tests/agents/lead_agent/v2/test_team_kernel.py
+tests/agents/lead_agent/v2/test_team_quality_gates.py
+tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py
+tests/agents/harness/test_business_tools.py
+tests/agents/harness/test_langchain_adapter.py
+tests/subagents/v2/test_react_business_tools.py
+tests/subagents/v2/test_registry.py
+56 passed
+```
 
 Commit boundary:
 

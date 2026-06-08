@@ -43,6 +43,7 @@ from .contracts import (
     QualityGateResult,
     TeamBlackboard,
 )
+from .member_context import build_team_member_context
 from .policy import (
     TeamPolicyError,
     build_capability_team_policy,
@@ -616,16 +617,13 @@ class TeamKernelRuntime:
         template: AgentTemplate,
         blackboard: TeamBlackboard,
     ) -> dict[str, Any]:
-        payload = dict(brief.brief or {})
-        payload.setdefault("raw_message", brief.raw_message)
-        payload.setdefault("workspace_id", brief.workspace_id)
-        payload.setdefault("capability_id", brief.capability_id)
-        if brief.user_id:
-            payload.setdefault("user_id", brief.user_id)
-        payload["team_role"] = template.display_role
-        payload["team_blackboard"] = blackboard.model_dump(mode="json")
-        payload["capability_name"] = getattr(capability, "display_name", brief.capability_id)
-        return payload
+        return build_team_member_context(
+            brief=brief,
+            capability_name=getattr(capability, "display_name", brief.capability_id),
+            template_id=template.id,
+            display_role=template.display_role,
+            blackboard=blackboard,
+        )
 
     async def _run_invocation(
         self,

@@ -15,6 +15,7 @@ from src.agents.lead_agent.v2.sandbox_runtime_session import SandboxRuntimeSessi
 from src.subagents.v2.base import SubagentContext
 
 from .builtins import default_harness_tool_registry
+from .business_tools import BUSINESS_TOOL_NAMES, build_business_langchain_tools
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .events import publish_harness_event
 from .loop_guard import HarnessLoopGuard
@@ -91,16 +92,23 @@ def build_harness_run_context(ctx: SubagentContext) -> HarnessRunContext:
 def build_langchain_tools(ctx: SubagentContext, tool_names: list[str]) -> list[StructuredTool]:
     """Build LangChain-compatible tools from canonical harness tool names."""
 
+    requested = [_canonical_tool_name(name) for name in tool_names if str(name).strip()]
+    business_requested = [name for name in requested if name in BUSINESS_TOOL_NAMES]
+    harness_requested = [name for name in requested if name not in BUSINESS_TOOL_NAMES]
+
+    tools: list[StructuredTool] = []
+    if business_requested:
+        tools.extend(build_business_langchain_tools(ctx, business_requested))
+    if not harness_requested:
+        return tools
+
     harness_ctx = build_harness_run_context(ctx)
     policy = resolve_harness_policy(harness_ctx)
-    requested = [_canonical_tool_name(name) for name in tool_names if str(name).strip()]
-    forbidden = [name for name in requested if name not in policy.allowed_tools]
+    forbidden = [name for name in harness_requested if name not in policy.allowed_tools]
     if forbidden:
         raise RuntimeError(f"React tools were requested but forbidden by harness policy: {', '.join(forbidden)}")
-
     registry = default_harness_tool_registry()
-    specs = registry.resolve(requested)
-    tools: list[StructuredTool] = []
+    specs = registry.resolve(harness_requested)
     for spec in specs:
         tool_definition = TOOL_DEFINITIONS.get(spec.name)
         if tool_definition is None:
