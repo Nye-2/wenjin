@@ -115,6 +115,7 @@ class TeamBlackboard(BaseModel):
     pending_decisions: list[dict[str, Any]] = Field(default_factory=list)
     rejected_claims: list[dict[str, Any]] = Field(default_factory=list)
     quality_gate_history: list[dict[str, Any]] = Field(default_factory=list)
+    harness_replan_signals: list[dict[str, Any]] = Field(default_factory=list)
     latest_leader_summary: str = ""
 
 

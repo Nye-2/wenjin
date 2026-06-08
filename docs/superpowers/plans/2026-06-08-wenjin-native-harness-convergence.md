@@ -222,7 +222,7 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 
@@ -388,7 +388,7 @@ git commit -m "feat: assemble bounded harness context"
 - Modify: `backend/src/agents/lead_agent/v2/runtime.py`
 - Test: `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`
 
-- [ ] **Step 1: Write failing tests for replan triggers**
+- [x] **Step 1: Write failing tests for replan triggers**
 
 Scenarios:
 
@@ -396,7 +396,7 @@ Scenarios:
 - `sandbox_queue_timeout` should not trigger infinite reruns.
 - `tool_forbidden` should not be solved by recruiting another member with the same forbidden tool request.
 
-- [ ] **Step 2: Implement replan signal extraction**
+- [x] **Step 2: Implement replan signal extraction**
 
 Represent signals as execution metadata only:
 
@@ -412,11 +412,11 @@ Represent signals as execution metadata only:
 
 No new run loop. TeamKernel quality gates and existing bounded iterations remain the mechanism.
 
-- [ ] **Step 3: Wire signals into TeamKernel quality decision input**
+- [x] **Step 3: Wire signals into TeamKernel quality decision input**
 
 Pass compact signals into the quality gate prompt/context. Do not expose raw stderr to users by default.
 
-- [ ] **Step 4: Run TeamKernel tests**
+- [x] **Step 4: Run TeamKernel tests**
 
 Run:
 

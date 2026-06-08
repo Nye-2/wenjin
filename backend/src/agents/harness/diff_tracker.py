@@ -9,6 +9,7 @@ from typing import Any
 FILE_CHANGE_SUMMARY_SCHEMA = "wenjin.harness.file_change_summary.v1"
 TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
 SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
+REPLAN_SIGNAL_SCHEMA = "wenjin.harness.replan_signal.v1"
 
 
 def build_file_change(
@@ -102,6 +103,9 @@ def build_harness_node_metadata_from_tool_calls(
     sandbox_execution_summary = build_sandbox_execution_summary_from_tool_calls(tool_calls)
     if sandbox_execution_summary is not None:
         harness["sandbox_execution_summary"] = sandbox_execution_summary
+    replan_signals = build_harness_replan_signals_from_tool_calls(tool_calls)
+    if replan_signals:
+        harness["replan_signals"] = replan_signals
     if not harness:
         return None
     return {"harness": harness}
@@ -227,6 +231,51 @@ def build_sandbox_execution_summary_from_tool_calls(
     }
 
 
+def build_harness_replan_signals_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Build bounded Lead/TeamKernel replan signals from harness tool records."""
+
+    if not tool_calls:
+        return []
+
+    signals: list[dict[str, Any]] = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        failure_codes = _tool_failure_codes(tool_call)
+        if "python_exit_nonzero" in failure_codes:
+            signals.append(
+                _replan_signal(
+                    trigger="recoverable_tool_failure",
+                    failure_codes=["python_exit_nonzero"],
+                    recommended_action="revise_script_or_recruit_code_agent",
+                    max_extra_iterations=1,
+                )
+            )
+            continue
+        if "sandbox_queue_timeout" in failure_codes:
+            signals.append(
+                _replan_signal(
+                    trigger="sandbox_queue_timeout",
+                    failure_codes=["sandbox_queue_timeout"],
+                    recommended_action="wait_or_stop",
+                    max_extra_iterations=0,
+                )
+            )
+            continue
+        if any(code in {"tool_forbidden", "tool_unknown"} for code in failure_codes):
+            signals.append(
+                _replan_signal(
+                    trigger="tool_policy_blocked",
+                    failure_codes=[code for code in failure_codes if code in {"tool_forbidden", "tool_unknown"}],
+                    recommended_action="revise_policy_or_stop",
+                    max_extra_iterations=0,
+                )
+            )
+    return _dedupe_replan_signals(signals)
+
+
 def _new_path_summary(path: str, change: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": path,
@@ -334,6 +383,85 @@ def _is_recoverable_failure(
     if classification is not None and classification.get("recoverable") is True:
         return True
     return bool(tool_call.get("recoverable_error") or metadata.get("recoverable_error"))
+
+
+def _tool_failure_codes(tool_call: dict[str, Any]) -> list[str]:
+    metadata = tool_call.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    classification = _first_dict(
+        tool_call.get("failure_classification"),
+        metadata.get("failure_classification"),
+    )
+    values = [
+        (classification or {}).get("failure_code"),
+        tool_call.get("error_code"),
+        metadata.get("error_code"),
+    ]
+    codes = [str(value).strip() for value in values if str(value or "").strip()]
+    error = str(
+        tool_call.get("recoverable_error")
+        or metadata.get("recoverable_error")
+        or tool_call.get("error")
+        or ""
+    )
+    for marker in ("python_exit_nonzero", "sandbox_queue_timeout", "tool_forbidden", "tool_unknown"):
+        if marker in error:
+            codes.append(marker)
+    return _dedupe_strings(codes)
+
+
+def _replan_signal(
+    *,
+    trigger: str,
+    failure_codes: list[str],
+    recommended_action: str,
+    max_extra_iterations: int,
+) -> dict[str, Any]:
+    return {
+        "schema": REPLAN_SIGNAL_SCHEMA,
+        "trigger": trigger,
+        "failure_codes": _dedupe_strings(failure_codes),
+        "recommended_action": recommended_action,
+        "max_extra_iterations": max(0, int(max_extra_iterations)),
+    }
+
+
+def _dedupe_replan_signals(signals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    result: list[dict[str, Any]] = []
+    for signal in signals:
+        key = _replan_signal_key(signal)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(signal)
+    return result
+
+
+def _replan_signal_key(value: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(value.get("trigger") or ""),
+            ",".join(_string_list(value.get("failure_codes"))),
+            str(value.get("recommended_action") or ""),
+        ]
+    )
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        _append_unique(result, value)
+    return result
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
 
 
 def _sha256(text: str | None) -> str | None:

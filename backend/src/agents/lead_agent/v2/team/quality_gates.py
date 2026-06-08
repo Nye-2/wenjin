@@ -38,6 +38,7 @@ def evaluate_quality_gates(
     team_policy: CapabilityTeamPolicy | None = None,
     counts: Counter[str] | None = None,
     latest_invocations: list[AgentInvocation] | None = None,
+    harness_replan_signals: list[dict[str, Any]] | None = None,
 ) -> list[QualityGateResult]:
     """Evaluate runtime quality gates without mutating team state."""
 
@@ -85,6 +86,14 @@ def evaluate_quality_gates(
             total_invocations=total_invocations,
         )
     )
+    gates.extend(
+        _harness_replan_signal_gates(
+            harness_replan_signals or [],
+            team_policy=team_policy,
+            counts=counts,
+            total_invocations=total_invocations,
+        )
+    )
     gates.extend(_no_direct_commit_intent(latest))
     gates.extend(
         _citation_and_evidence_required(
@@ -95,6 +104,65 @@ def evaluate_quality_gates(
         )
     )
     return gates
+
+
+def _harness_replan_signal_gates(
+    signals: list[dict[str, Any]],
+    *,
+    team_policy: CapabilityTeamPolicy | None,
+    counts: Counter[str] | None,
+    total_invocations: int,
+) -> list[QualityGateResult]:
+    findings: list[dict[str, Any]] = []
+    suggested: list[dict[str, str]] = []
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        action = str(signal.get("recommended_action") or "").strip()
+        source_template_id = str(signal.get("source_template_id") or "").strip()
+        failure_codes = _string_list(signal.get("failure_codes"))
+        max_extra_iterations = _int_value(signal.get("max_extra_iterations"))
+        finding = {
+            "trigger": str(signal.get("trigger") or "harness_replan"),
+            "failure_codes": failure_codes,
+            "recommended_action": action,
+            "max_extra_iterations": max_extra_iterations,
+        }
+        if source_template_id:
+            finding["source_template_id"] = source_template_id
+        source_invocation_id = str(signal.get("source_invocation_id") or "").strip()
+        if source_invocation_id:
+            finding["source_invocation_id"] = source_invocation_id
+        findings.append(finding)
+        if action == "revise_script_or_recruit_code_agent" and source_template_id and max_extra_iterations > 0:
+            suggested.extend(
+                _trigger_recruits(
+                    [source_template_id],
+                    reason=action,
+                    team_policy=team_policy,
+                    counts=counts,
+                    total_invocations=total_invocations,
+                    already_suggested=len(suggested),
+                )
+            )
+    if not findings:
+        return []
+    suggested = _dedupe_recruits(suggested)
+    return [
+        QualityGateResult(
+            gate_id="harness_replan_signal",
+            status="warning",
+            severity="medium",
+            findings=findings,
+            required_fixes=[
+                {
+                    "message": "Use harness failure evidence to revise code, wait, or stop without parsing raw tool JSON."
+                }
+            ],
+            suggested_recruits=suggested,
+            next_action="revise_existing" if suggested else "stop_with_warning",
+        )
+    ]
 
 
 def _pipeline_gates(
@@ -692,6 +760,17 @@ def _string_list(value: Any) -> list[str]:
                 result.append(text)
         return result
     return []
+
+
+def _int_value(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _dedupe(items: list[str]) -> list[str]:

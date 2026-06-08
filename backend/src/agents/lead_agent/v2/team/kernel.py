@@ -19,7 +19,10 @@ from src.agents.contracts.task_report import (
     ResultOutput,
     TaskReport,
 )
-from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
+from src.agents.harness.diff_tracker import (
+    build_harness_node_metadata_from_tool_calls,
+    build_harness_replan_signals_from_tool_calls,
+)
 from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
 from src.dataservice_client.provider import dataservice_client
 from src.subagents.v2 import types as _types  # noqa: F401
@@ -412,6 +415,33 @@ class TeamKernelRuntime:
         )
         return batch
 
+    @staticmethod
+    def _sync_harness_replan_signals(
+        blackboard: TeamBlackboard,
+        latest_invocations: list[AgentInvocation],
+    ) -> list[dict[str, Any]]:
+        latest_signals: list[dict[str, Any]] = []
+        for invocation in latest_invocations:
+            for signal in build_harness_replan_signals_from_tool_calls(invocation.tool_calls):
+                enriched = dict(signal)
+                enriched["source_invocation_id"] = invocation.id
+                enriched["source_template_id"] = invocation.template_id
+                enriched["source_display_name"] = invocation.display_name
+                latest_signals.append(enriched)
+        if not latest_signals:
+            return []
+        existing = {
+            _replan_signal_key(signal)
+            for signal in blackboard.harness_replan_signals
+        }
+        for signal in latest_signals:
+            key = _replan_signal_key(signal)
+            if key in existing:
+                continue
+            blackboard.harness_replan_signals.append(signal)
+            existing.add(key)
+        return latest_signals
+
     def _inject_quality_contracts(
         self,
         *,
@@ -474,6 +504,10 @@ class TeamKernelRuntime:
             team_policy=team_policy,
             counts=counts,
             latest_invocations=latest_invocations,
+            harness_replan_signals=self._sync_harness_replan_signals(
+                blackboard,
+                latest_invocations,
+            ),
         )
         blackboard.quality_gate_history.extend(
             gate.model_dump(mode="json") for gate in gates
@@ -705,6 +739,7 @@ class TeamKernelRuntime:
         team_policy: CapabilityTeamPolicy | None = None,
         counts: Counter[str] | None = None,
         latest_invocations: list[AgentInvocation] | None = None,
+        harness_replan_signals: list[dict[str, Any]] | None = None,
     ) -> list[QualityGateResult]:
         return evaluate_quality_gates(
             quality_pipeline,
@@ -712,6 +747,7 @@ class TeamKernelRuntime:
             team_policy=team_policy,
             counts=counts,
             latest_invocations=latest_invocations,
+            harness_replan_signals=harness_replan_signals,
         )
 
     def _outputs_from_invocations(self, invocations: list[AgentInvocation]) -> list[DocumentOutput]:
@@ -901,3 +937,14 @@ class TeamKernelRuntime:
                     return value.strip()
             return json.dumps(output, ensure_ascii=False, sort_keys=True)
         return str(output or "")
+
+
+def _replan_signal_key(signal: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(signal.get("source_invocation_id") or ""),
+            str(signal.get("trigger") or ""),
+            ",".join(str(code) for code in signal.get("failure_codes") or []),
+            str(signal.get("recommended_action") or ""),
+        ]
+    )
