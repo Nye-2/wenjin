@@ -5,9 +5,21 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.sandbox.workspace_layout import build_agent_workspace_contract
+from src.sandbox.workspace_layout import (
+    build_agent_workspace_contract,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+)
 
 HARNESS_CONTEXT_BUNDLE_SCHEMA = "wenjin.harness.context_bundle.v1"
+_VISIBLE_WORKSPACE_ROOTS = (
+    "/workspace/main",
+    "/workspace/datasets",
+    "/workspace/scripts",
+    "/workspace/outputs",
+    "/workspace/reports",
+)
+_MAX_FILE_SUMMARY_ITEMS = 20
 
 
 def build_harness_context_bundle(
@@ -27,6 +39,7 @@ def build_harness_context_bundle(
         "workspace_type": str(workspace_type or ""),
         "task": _safe_dict(task or {}),
         "sandbox": _sandbox_contract(workspace_id=workspace_id, workspace_type=workspace_type),
+        "workspace_file_summary": _workspace_file_summary(workspace_data or {}),
         "recent_execution_evidence": _recent_execution_evidence(workspace_data or {}),
         "budget": {"max_chars": budget, "truncated": False},
     }
@@ -88,6 +101,61 @@ def _recent_execution_evidence(workspace_data: dict[str, Any]) -> list[dict[str,
         if compact:
             evidence.append(compact)
     return evidence
+
+
+def _workspace_file_summary(workspace_data: dict[str, Any]) -> dict[str, Any]:
+    raw = workspace_data.get("workspace_file_summary")
+    if raw is None:
+        raw = workspace_data.get("workspace_files")
+    raw = raw if isinstance(raw, dict) else {}
+    recent_outputs, outputs_truncated = _safe_file_refs(raw.get("recent_outputs"))
+    recent_scripts, scripts_truncated = _safe_file_refs(raw.get("recent_scripts"))
+    return {
+        "visible_roots": list(_VISIBLE_WORKSPACE_ROOTS),
+        "recent_outputs": recent_outputs,
+        "recent_scripts": recent_scripts,
+        "truncated": outputs_truncated or scripts_truncated,
+    }
+
+
+def _safe_file_refs(value: Any) -> tuple[list[dict[str, Any]], bool]:
+    if not isinstance(value, list):
+        return [], False
+    result: list[dict[str, Any]] = []
+    for item in value:
+        if len(result) >= _MAX_FILE_SUMMARY_ITEMS:
+            return result, True
+        ref = _safe_file_ref(item)
+        if ref:
+            result.append(ref)
+    return result, False
+
+
+def _safe_file_ref(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        path = value.strip()
+        if not _is_public_workspace_path(path):
+            return None
+        return {"path": path}
+    if not isinstance(value, dict):
+        return None
+    path = str(value.get("path") or "").strip()
+    if not _is_public_workspace_path(path):
+        return None
+    compact: dict[str, Any] = {"path": path}
+    for key in ("kind", "name", "title", "size_bytes", "updated_at"):
+        safe = _safe_value(value.get(key))
+        if safe not in (None, {}, []):
+            compact[key] = safe
+    return compact
+
+
+def _is_public_workspace_path(path: str) -> bool:
+    if not path.startswith("/workspace/"):
+        return False
+    if is_workspace_internal_path(path) or is_workspace_protected_path(path):
+        return False
+    return any(path == root or path.startswith(f"{root}/") for root in _VISIBLE_WORKSPACE_ROOTS)
 
 
 def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
@@ -167,5 +235,14 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
         compact["recent_execution_evidence"].pop()
     if len(render_harness_context_for_prompt(compact)) > max_chars:
         compact["task"] = {}
+    if len(render_harness_context_for_prompt(compact)) > max_chars:
+        compact["workspace_file_summary"] = {
+            "visible_roots": [],
+            "recent_outputs": [],
+            "recent_scripts": [],
+            "truncated": True,
+        }
+    if len(render_harness_context_for_prompt(compact)) > max_chars:
+        compact.pop("workspace_file_summary", None)
     compact["budget"] = {"max_chars": max_chars, "truncated": True}
     return compact

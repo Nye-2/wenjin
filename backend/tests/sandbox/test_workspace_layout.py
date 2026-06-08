@@ -48,6 +48,32 @@ def test_workspace_sandbox_layout_manifest_is_stable_when_recreated(tmp_path):
     assert json.loads((tmp_path / WORKSPACE_MANIFEST_RELATIVE_PATH).read_text(encoding="utf-8")) == first
 
 
+def test_ensure_workspace_sandbox_layout_creates_guidance_and_keep_files(tmp_path):
+    ensure_workspace_sandbox_layout(tmp_path, workspace_id="ws-1", workspace_type="sci")
+
+    readme_path = tmp_path / "main" / "README.md"
+    readme = readme_path.read_text(encoding="utf-8")
+
+    assert readme_path.is_file()
+    assert "/workspace/datasets" in readme
+    assert "/workspace/scripts" in readme
+    assert "/workspace/outputs" in readme
+    assert "/workspace/reports" in readme
+    assert ".wenjin" in readme
+    for relative_path in ("datasets/.gitkeep", "scripts/.gitkeep", "outputs/.gitkeep", "reports/.gitkeep"):
+        assert (tmp_path / relative_path).is_file()
+
+
+def test_ensure_workspace_sandbox_layout_preserves_existing_main_readme(tmp_path):
+    readme_path = tmp_path / "main" / "README.md"
+    readme_path.parent.mkdir(parents=True)
+    readme_path.write_text("custom workspace note\n", encoding="utf-8")
+
+    ensure_workspace_sandbox_layout(tmp_path, workspace_id="ws-1")
+
+    assert readme_path.read_text(encoding="utf-8") == "custom workspace note\n"
+
+
 def test_workspace_sandbox_manifest_does_not_expose_mutable_contract_state():
     first = build_workspace_sandbox_manifest(workspace_id="ws-1")
     first["directories"]["main"]["purpose"] = "mutated"

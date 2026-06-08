@@ -27,6 +27,27 @@ WORKSPACE_STANDARD_DIRS = (
     ".wenjin/cache",
 )
 
+WORKSPACE_KEEP_FILE_DIRS = (
+    "datasets",
+    "scripts",
+    "outputs",
+    "reports",
+)
+
+WORKSPACE_MAIN_README_RELATIVE_PATH = "main/README.md"
+WORKSPACE_MAIN_README_TEXT = """# Wenjin Workspace
+
+Use this sandbox as the persistent workspace filesystem for this research task.
+
+- Put primary manuscript or project files under /workspace/main.
+- Put datasets and uploaded inputs under /workspace/datasets.
+- Put reusable experiment scripts under /workspace/scripts.
+- Put generated figures, tables, metrics, and run outputs under /workspace/outputs.
+- Put readable analysis notes and reports under /workspace/reports.
+- Use /workspace/tmp only for scratch files that should not be surfaced by default.
+- Do not read or write .wenjin, .git, .env, *.pem, or *.key paths.
+"""
+
 WORKSPACE_PROTECTED_PATHS = (
     ".git/**",
     ".env",
@@ -116,6 +137,7 @@ def ensure_workspace_sandbox_layout(
     root.mkdir(parents=True, exist_ok=True)
     for relative_path in WORKSPACE_STANDARD_DIRS:
         (root / relative_path).mkdir(parents=True, exist_ok=True)
+    _ensure_workspace_guidance_files(root)
 
     manifest = build_workspace_sandbox_manifest(
         workspace_id=workspace_id,
@@ -128,6 +150,17 @@ def ensure_workspace_sandbox_layout(
     if not manifest_path.exists() or manifest_path.read_text(encoding="utf-8") != manifest_text:
         manifest_path.write_text(manifest_text, encoding="utf-8")
     return manifest
+
+
+def _ensure_workspace_guidance_files(root: Path) -> None:
+    readme_path = root / WORKSPACE_MAIN_README_RELATIVE_PATH
+    readme_path.parent.mkdir(parents=True, exist_ok=True)
+    if not readme_path.exists():
+        readme_path.write_text(WORKSPACE_MAIN_README_TEXT, encoding="utf-8")
+    for relative_dir in WORKSPACE_KEEP_FILE_DIRS:
+        keep_path = root / relative_dir / ".gitkeep"
+        keep_path.parent.mkdir(parents=True, exist_ok=True)
+        keep_path.touch(exist_ok=True)
 
 
 def build_workspace_sandbox_manifest(

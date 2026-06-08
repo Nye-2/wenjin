@@ -30,29 +30,21 @@ Do not do this:
 
 ## Current Working Slice
 
-Current uncommitted slice is the final product-closure pass for the native harness:
+Current uncommitted slice is Task 11, the workspace sandbox filesystem usability pass:
 
-- `backend/src/agents/lead_agent/v2/team/quality_gates.py`
-- `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
-- `backend/src/agents/lead_agent/v2/team/kernel.py`
-- `backend/tests/agents/lead_agent/v2/test_team_kernel.py`
-- `backend/src/services/execution_service.py`
-- `backend/tests/services/test_execution_service_node_state.py`
-- `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/useLiveWorkflowViewModel.ts`
-- `frontend/tests/unit/v2/live-workflow-view-model.test.ts`
-- `docs/current/architecture.md`
+- `backend/src/sandbox/workspace_layout.py`
+- `backend/src/agents/harness/context_assembly.py`
+- `backend/tests/sandbox/test_workspace_layout.py`
+- `backend/tests/agents/harness/test_context_assembly.py`
 - `docs/current/workspace-current-state.md`
-- `docs/current/frontend-feature-plugin-contract.md`
 - `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
 
-This slice fixes four browser-review findings:
+This slice makes the one-workspace sandbox easier for long-running research work:
 
-- The team quality gate should describe optional replacement recruits as standby members, not implementation fallback.
-- LiveWorkflowPanel must prioritize the active/running execution over stale persisted history selection so a newly launched team run is visible immediately.
-- TeamKernel quality gates must persist into `ExecutionRecord.runtime_state.quality_gates` so refresh/history views can restore quality-check summaries.
-- Execution list/detail API must hydrate `ExecutionRecord.node_states` from `ExecutionNodeRecord` rows so team members and harness metadata survive fast terminal runs and history reads.
-
-Finish this slice with Docker/browser verification before committing.
+- `ensure_workspace_sandbox_layout()` creates persistent user-facing guidance in `/workspace/main/README.md` without overwriting an existing README.
+- The same layout initialization keeps `datasets`, `scripts`, `outputs`, and `reports` visible even when empty via `.gitkeep`.
+- Harness context includes a bounded `workspace_file_summary` derived only from caller-provided facts, with protected/internal workspace refs filtered before entering model context.
+- Context-budget trimming treats the file summary as optional context and removes it before exceeding `max_chars`.
 
 ---
 
@@ -1261,7 +1253,7 @@ git commit -m "fix: resolve team member context and business tools"
 - Test: `backend/tests/agents/harness/test_sandbox_file_tools.py`
 - Docs: `docs/current/workspace-current-state.md`
 
-- [ ] **Step 1: Add layout readme/manifest tests**
+- [x] **Step 1: Add layout readme/manifest tests**
 
 Test that `ensure_workspace_sandbox_layout()` creates:
 
@@ -1276,7 +1268,9 @@ cd /Users/ze/wenjin/backend
 .venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py -q
 ```
 
-- [ ] **Step 2: Implement stable workspace guidance files**
+Observed red result: missing `/workspace/main/README.md`; `.gitkeep` files were not created.
+
+- [x] **Step 2: Implement stable workspace guidance files**
 
 Keep the guidance short and operational:
 
@@ -1287,7 +1281,7 @@ Keep the guidance short and operational:
 
 Do not include user secrets, model config, or host paths.
 
-- [ ] **Step 3: Expose file tree summaries in harness context**
+- [x] **Step 3: Expose file tree summaries in harness context**
 
 Update `build_harness_context_bundle()` to include a bounded `workspace_file_summary`:
 
@@ -1302,13 +1296,44 @@ Update `build_harness_context_bundle()` to include a bounded `workspace_file_sum
 
 The summary must be derived from already-loaded file facts or explicit caller input. It must not scan the filesystem inside the pure assembler.
 
-- [ ] **Step 4: Verify file tools still hide internal state**
+Observed red result: `workspace_file_summary` key was absent from the context bundle. After implementation, an existing budget test exposed that `_fit_budget()` also needed to compact the new file-summary field.
+
+- [x] **Step 4: Verify file tools still hide internal state**
 
 Run:
 
 ```bash
 cd /Users/ze/wenjin/backend
 .venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_sandbox_file_tools.py -q
+```
+
+Observed green result:
+
+```text
+tests/sandbox/test_workspace_layout.py
+tests/agents/harness/test_context_assembly.py
+tests/agents/harness/test_sandbox_file_tools.py
+42 passed
+```
+
+- [x] **Step 5: Run fresh verification before commit**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_sandbox_file_tools.py -q
+.venv/bin/ruff check src/sandbox/workspace_layout.py src/agents/harness/context_assembly.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py
+cd /Users/ze/wenjin
+git diff --check
+```
+
+Observed result:
+
+```text
+pytest: 42 passed
+ruff: All checks passed!
+git diff --check: no output
 ```
 
 Commit boundary:

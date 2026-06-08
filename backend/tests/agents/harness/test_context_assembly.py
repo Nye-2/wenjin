@@ -66,6 +66,45 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
     assert bundle["budget"] == {"max_chars": 12000, "truncated": False}
 
 
+def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={"goal": "continue experiment"},
+        workspace_data={
+            "workspace_file_summary": {
+                "recent_outputs": [
+                    {"path": "/workspace/outputs/result.json", "kind": "sandbox_output"},
+                    {"path": "/workspace/reports/lit-review.md", "kind": "sandbox_report"},
+                    {"path": "/workspace/outputs/harness/exec/node/stdout.txt", "kind": "debug"},
+                ],
+                "recent_scripts": [
+                    {"path": "/workspace/scripts/analysis.py"},
+                    {"path": "/workspace/.wenjin/env/bin/python"},
+                ],
+            }
+        },
+    )
+
+    summary = bundle["workspace_file_summary"]
+    assert summary["visible_roots"] == [
+        "/workspace/main",
+        "/workspace/datasets",
+        "/workspace/scripts",
+        "/workspace/outputs",
+        "/workspace/reports",
+    ]
+    assert summary["recent_outputs"] == [
+        {"path": "/workspace/outputs/result.json", "kind": "sandbox_output"},
+        {"path": "/workspace/reports/lit-review.md", "kind": "sandbox_report"},
+    ]
+    assert summary["recent_scripts"] == [{"path": "/workspace/scripts/analysis.py"}]
+    assert summary["truncated"] is False
+    text = json.dumps(summary, ensure_ascii=False)
+    assert "/workspace/outputs/harness" not in text
+    assert "/workspace/.wenjin" not in text
+
+
 def test_harness_context_bundle_filters_protected_and_internal_workspace_paths() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",
