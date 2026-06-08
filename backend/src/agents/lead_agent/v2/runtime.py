@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from hashlib import sha256
+from pathlib import PurePosixPath
 from typing import Annotated, Any, TypedDict
 
 from src.agents.contracts.task_brief import TaskBrief
@@ -32,6 +33,13 @@ from src.agents.lead_agent.v2.sandbox_artifact_review import (
 )
 from src.dataservice_client.contracts.source import SourceCitationUsageCreatePayload
 from src.dataservice_client.provider import dataservice_client
+from src.sandbox.workspace_layout import (
+    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_ROOT,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+    normalize_workspace_virtual_path,
+)
 from src.services.capability_resolver import CapabilityResolver
 from src.services.prism_file_content import normalize_prism_file_change_content
 from src.services.references.utils import extract_citation_keys_from_text
@@ -493,17 +501,23 @@ class LeadAgentRuntime:
             async with dataservice_client() as client:
                 if include_library or include_related_documents:
                     try:
-                        sources = await client.list_sources(
+                        (
+                            sources,
+                            dataset_provenance,
+                        ) = await self._load_source_records_for_workspace_context(
+                            client,
                             workspace_id=normalized_workspace_id,
-                            include_deleted=False,
-                            include_excluded=False,
-                            limit=40,
                         )
                     except Exception:
                         logger.warning("Failed to load workspace source context", exc_info=True)
                         sources = []
+                        dataset_provenance = []
                     source_context = self._build_source_context(sources)
                     workspace_data.update(source_context)
+                    if dataset_provenance:
+                        workspace_data.setdefault("workspace_file_summary", {})[
+                            "dataset_provenance"
+                        ] = dataset_provenance
 
                 if include_workspace_history:
                     workspace_data["workspace_history"] = await self._load_workspace_history_context(
@@ -520,24 +534,44 @@ class LeadAgentRuntime:
             logger.warning("Failed to load workspace context", exc_info=True)
         return workspace_data
 
-    @staticmethod
-    def _build_source_context(sources: list[Any]) -> dict[str, Any]:
+    @classmethod
+    async def _load_source_records_for_workspace_context(
+        cls,
+        client: Any,
+        *,
+        workspace_id: str,
+    ) -> tuple[list[Any], list[dict[str, Any]]]:
+        page = await client.list_sources_page(
+            workspace_id=workspace_id,
+            offset=0,
+            limit=40,
+        )
+        if isinstance(page, Mapping):
+            items = page.get("items")
+            sources = list(items) if isinstance(items, list) else []
+            return sources, cls._dataset_provenance_from_embedded_source_assets(sources)
+        return [], []
+
+    @classmethod
+    def _build_source_context(cls, sources: list[Any]) -> dict[str, Any]:
         citable_sources: list[dict[str, Any]] = []
         related_documents: list[dict[str, Any]] = []
         for source in sources:
-            citation_key = str(getattr(source, "citation_key", "") or "").strip()
-            abstract = str(getattr(source, "abstract", "") or "").strip()
+            if str(cls._source_field(source, "library_status") or "") == "excluded":
+                continue
+            citation_key = str(cls._source_field(source, "citation_key") or "").strip()
+            abstract = str(cls._source_field(source, "abstract") or "").strip()
             document = {
-                "id": str(getattr(source, "id", "") or ""),
+                "id": str(cls._source_field(source, "id") or ""),
                 "citation_key": citation_key,
-                "title": str(getattr(source, "title", "") or ""),
-                "authors": list(getattr(source, "authors_json", None) or [])[:12],
-                "year": getattr(source, "year", None),
-                "venue": getattr(source, "venue", None),
-                "doi": getattr(source, "doi", None),
-                "url": getattr(source, "url", None),
-                "library_status": str(getattr(source, "library_status", "") or ""),
-                "evidence_level": str(getattr(source, "evidence_level", "") or ""),
+                "title": str(cls._source_field(source, "title") or ""),
+                "authors": list(cls._source_field(source, "authors_json") or [])[:12],
+                "year": cls._source_field(source, "year"),
+                "venue": cls._source_field(source, "venue"),
+                "doi": cls._source_field(source, "doi"),
+                "url": cls._source_field(source, "url"),
+                "library_status": str(cls._source_field(source, "library_status") or ""),
+                "evidence_level": str(cls._source_field(source, "evidence_level") or ""),
                 "abstract_excerpt": abstract[:500],
             }
             related_documents.append(document)
@@ -567,6 +601,109 @@ class LeadAgentRuntime:
                 ),
             }
         return context
+
+    @classmethod
+    def _dataset_provenance_from_embedded_source_assets(
+        cls,
+        sources: list[Any],
+    ) -> list[dict[str, Any]]:
+        dataset_refs: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+        for source in sources[:40]:
+            if str(cls._source_field(source, "library_status") or "") == "excluded":
+                continue
+            assets = cls._source_field(source, "assets")
+            if not isinstance(assets, list):
+                continue
+            for asset in assets:
+                ref = cls._dataset_provenance_ref_from_source_asset(source, asset)
+                if not ref:
+                    continue
+                path = str(ref.get("path") or "")
+                if path in seen_paths:
+                    continue
+                seen_paths.add(path)
+                dataset_refs.append(ref)
+                if len(dataset_refs) >= 20:
+                    return dataset_refs
+        return dataset_refs
+
+    @classmethod
+    def _dataset_provenance_ref_from_source_asset(
+        cls,
+        source: Any,
+        asset: Any,
+    ) -> dict[str, Any] | None:
+        if not isinstance(asset, Mapping):
+            return None
+        path = cls._dataset_asset_workspace_path(asset)
+        if path is None:
+            return None
+        metadata = asset.get("metadata") or asset.get("metadata_json")
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        ref: dict[str, Any] = {
+            "path": path,
+            "source_kind": "source_asset",
+            "source_id": str(cls._source_field(source, "id") or ""),
+            "name": str(asset.get("name") or PurePosixPath(path).name),
+        }
+        title = str(asset.get("title") or cls._source_field(source, "title") or "").strip()
+        if title:
+            ref["title"] = title[:500]
+        abstract = str(cls._source_field(source, "abstract") or "").strip()
+        if abstract:
+            ref["description"] = abstract[:500]
+        field_map = (
+            ("asset_type", "format"),
+            ("content_type", "mime_type"),
+            ("mime_type", "mime_type"),
+            ("file_size", "size_bytes"),
+            ("size_bytes", "size_bytes"),
+            ("file_hash", "content_hash"),
+            ("content_hash", "content_hash"),
+            ("created_at", "created_at"),
+            ("updated_at", "updated_at"),
+        )
+        for source_key, target_key in field_map:
+            value = asset.get(source_key)
+            if value in (None, "", {}, []):
+                continue
+            ref.setdefault(target_key, value)
+        for key in ("license", "preparation"):
+            value = metadata.get(key)
+            if value not in (None, "", {}, []):
+                ref[key] = value
+        return ref
+
+    @staticmethod
+    def _dataset_asset_workspace_path(asset: Mapping[str, Any]) -> str | None:
+        raw_path = asset.get("virtual_path") or asset.get("file_path") or asset.get("path")
+        raw_text = str(raw_path or "").strip()
+        if not raw_text:
+            return None
+        try:
+            path = normalize_workspace_virtual_path(raw_text)
+        except ValueError:
+            return None
+        if not path.startswith(f"{WORKSPACE_ROOT}/datasets/"):
+            return None
+        if (
+            path == WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH
+            or path.endswith("/README.md")
+            or path.endswith("/.gitkeep")
+            or is_workspace_protected_path(path)
+            or is_workspace_internal_path(path)
+        ):
+            return None
+        return path
+
+    @staticmethod
+    def _source_field(source: Any, key: str) -> Any:
+        if isinstance(source, Mapping):
+            if key == "authors_json":
+                return source.get("authors_json") or source.get("authors")
+            return source.get(key)
+        return getattr(source, key, None)
 
     @staticmethod
     def _iso_timestamp(value: Any) -> str | None:

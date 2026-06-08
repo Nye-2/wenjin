@@ -66,6 +66,192 @@ def _make_resolver(cap_obj) -> MagicMock:
     return resolver
 
 
+@pytest.mark.asyncio
+async def test_load_workspace_data_projects_dataset_assets_into_file_summary():
+    class _FakeClient:
+        async def list_sources_page(self, **kwargs):
+            assert kwargs["workspace_id"] == "ws-001"
+            return {
+                "items": [
+                    {
+                        "id": "source-1",
+                        "citation_key": "survey2026",
+                        "abstract": "A survey dataset used for the empirical section.",
+                        "title": "Survey Study",
+                        "authors": ["Ada Lovelace"],
+                        "year": 2026,
+                        "venue": "Wenjin Data",
+                        "doi": None,
+                        "url": "https://example.test/survey",
+                        "library_status": "included",
+                        "evidence_level": "uploaded_fulltext",
+                        "assets": [
+                            {
+                                "id": "source-asset-1",
+                                "workspace_asset_id": "workspace-asset-1",
+                                "asset_type": "csv",
+                                "virtual_path": "/workspace/datasets/raw/survey.csv",
+                                "content_type": "text/csv",
+                                "file_size": 2048,
+                                "file_hash": "sha256:survey",
+                                "metadata": {
+                                    "license": "CC-BY-4.0",
+                                    "preparation": "Uploaded by user; headers normalized.",
+                                },
+                                "created_at": "2026-06-01T00:00:00+00:00",
+                                "updated_at": "2026-06-02T00:00:00+00:00",
+                            },
+                            {
+                                "id": "source-asset-2",
+                                "asset_type": "pdf",
+                                "virtual_path": "references/paper.pdf",
+                            },
+                            {
+                                "id": "source-asset-3",
+                                "asset_type": "json",
+                                "file_path": "/workspace/outputs/result.json",
+                            },
+                            {
+                                "id": "source-asset-4",
+                                "asset_type": "directory",
+                                "virtual_path": "/workspace/datasets",
+                            },
+                        ],
+                    },
+                ],
+                "total": 1,
+            }
+
+        async def list_sources(self, **kwargs):
+            raise AssertionError("source page is the source context entry point")
+
+        async def list_source_assets(self, **kwargs):
+            raise AssertionError("source page embedded assets should be used")
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(_make_fake_capability()),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+
+    with patch(
+        "src.agents.lead_agent.v2.runtime.dataservice_client",
+        return_value=_FakeClientContext(),
+    ):
+        workspace_data = await runtime._load_workspace_data(
+            "ws-001",
+            context_requirements={"include_related_documents": True},
+        )
+
+    assert workspace_data["related_documents"][0]["id"] == "source-1"
+    assert workspace_data["library_context"]["citation_keys"] == ["survey2026"]
+    assert workspace_data["workspace_file_summary"]["dataset_provenance"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_kind": "source_asset",
+            "source_id": "source-1",
+            "name": "survey.csv",
+            "title": "Survey Study",
+            "description": "A survey dataset used for the empirical section.",
+            "format": "csv",
+            "mime_type": "text/csv",
+            "size_bytes": 2048,
+            "content_hash": "sha256:survey",
+            "license": "CC-BY-4.0",
+            "preparation": "Uploaded by user; headers normalized.",
+            "created_at": "2026-06-01T00:00:00+00:00",
+            "updated_at": "2026-06-02T00:00:00+00:00",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_load_workspace_data_uses_source_page_assets_without_n_plus_one_calls():
+    class _FakeClient:
+        async def list_sources_page(self, **kwargs):
+            assert kwargs["workspace_id"] == "ws-001"
+            return {
+                "items": [
+                    {
+                        "id": "source-1",
+                        "citation_key": "dataset2026",
+                        "abstract": "Dataset source abstract.",
+                        "title": "Dataset Source",
+                        "authors": ["Grace Hopper"],
+                        "year": 2026,
+                        "venue": "Wenjin Data",
+                        "doi": None,
+                        "url": "https://example.test/dataset",
+                        "library_status": "included",
+                        "evidence_level": "uploaded_fulltext",
+                        "assets": [
+                            {
+                                "id": "source-asset-1",
+                                "asset_type": "parquet",
+                                "virtual_path": "/workspace/datasets/processed/features.parquet",
+                                "content_type": "application/vnd.apache.parquet",
+                                "file_size": 4096,
+                                "file_hash": "sha256:features",
+                                "metadata": {"license": "research-only"},
+                            }
+                        ],
+                    }
+                ],
+                "total": 1,
+            }
+
+        async def list_sources(self, **kwargs):
+            raise AssertionError("list_sources should not be used when source page is available")
+
+        async def list_source_assets(self, **kwargs):
+            raise AssertionError("source page assets should avoid per-source asset calls")
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(_make_fake_capability()),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+
+    with patch(
+        "src.agents.lead_agent.v2.runtime.dataservice_client",
+        return_value=_FakeClientContext(),
+    ):
+        workspace_data = await runtime._load_workspace_data(
+            "ws-001",
+            context_requirements={"include_related_documents": True},
+        )
+
+    assert workspace_data["related_documents"][0]["authors"] == ["Grace Hopper"]
+    assert workspace_data["library_context"]["citation_keys"] == ["dataset2026"]
+    assert workspace_data["workspace_file_summary"]["dataset_provenance"] == [
+        {
+            "path": "/workspace/datasets/processed/features.parquet",
+            "source_kind": "source_asset",
+            "source_id": "source-1",
+            "name": "features.parquet",
+            "title": "Dataset Source",
+            "description": "Dataset source abstract.",
+            "format": "parquet",
+            "mime_type": "application/vnd.apache.parquet",
+            "size_bytes": 4096,
+            "content_hash": "sha256:features",
+            "license": "research-only",
+        }
+    ]
+
+
 # ---------------------------------------------------------------------------
 # test_run_session_publishes_graph_structure_then_completed
 # ---------------------------------------------------------------------------

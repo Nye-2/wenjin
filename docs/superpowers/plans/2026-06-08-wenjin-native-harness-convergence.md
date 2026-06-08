@@ -2268,6 +2268,77 @@ Observed:
 All checks passed!
 ```
 
+### Task 12: DataService Dataset Provenance Projection
+
+**Goal:** make dataset provenance visible to harness agents from existing DataService source page asset facts, without inventing a second dataset registry, adding per-source scans, or widening file access.
+
+**Files:**
+- Modified: `backend/src/agents/lead_agent/v2/runtime.py`
+- Modified: `backend/tests/agents/lead_agent/v2/test_runtime.py`
+- Modified: `docs/current/architecture.md`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+- [x] **Step 1: Add regression for explicit `/workspace/datasets/**` source assets**
+
+Added `test_load_workspace_data_projects_dataset_assets_into_file_summary`.
+
+The test verifies:
+
+- DataService source context still produces `related_documents` and `library_context`.
+- Only a source asset whose explicit path is `/workspace/datasets/raw/survey.csv` becomes `workspace_file_summary.dataset_provenance`.
+- Regular `references/...` uploads and `/workspace/outputs/**` paths are not treated as datasets.
+- Provenance keeps bounded fields: path, source id, name, title, description, format, mime type, size, hash, license, preparation, and timestamps.
+
+Observed red before implementation:
+
+```text
+KeyError: 'workspace_file_summary'
+```
+
+- [x] **Step 2: Add regression against source asset N+1 scans**
+
+Added `test_load_workspace_data_uses_source_page_assets_without_n_plus_one_calls`.
+
+The test verifies:
+
+- Runtime uses `list_sources_page().items[].assets` as the source context entry point.
+- Runtime does not call `list_sources` or per-source `list_source_assets`.
+- Dict-shaped source page projections and object-shaped source projections both feed the same source context builder.
+
+Observed red before implementation:
+
+```text
+KeyError: 'related_documents'
+```
+
+- [x] **Step 3: Implement the converged projection boundary**
+
+`LeadAgentRuntime._load_source_records_for_workspace_context()` now uses DataService source page projection and returns both source records and dataset provenance. It does not add a fallback source-list compatibility path.
+
+`_build_source_context()` now accepts both object-shaped DataService client records and dict-shaped source page records. Excluded sources are filtered in runtime before entering related documents, citation context, or dataset provenance.
+
+`_dataset_provenance_ref_from_source_asset()` only accepts paths normalized by `workspace_layout.normalize_workspace_virtual_path()` that are explicitly under `/workspace/datasets/**`. It rejects `/workspace/datasets/manifest.json`, guidance files, protected paths, internal paths, non-workspace paths, `references/...`, and `/workspace/outputs/**`.
+
+- [x] **Step 4: Verify targeted tests**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_runtime.py::test_load_workspace_data_projects_dataset_assets_into_file_summary backend/tests/agents/lead_agent/v2/test_runtime.py::test_load_workspace_data_uses_source_page_assets_without_n_plus_one_calls -q
+backend/.venv/bin/python -m pytest backend/tests/agents/lead_agent/v2/test_runtime.py -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_context_assembly.py backend/tests/sandbox/test_workspace_layout.py -q
+```
+
+Observed:
+
+```text
+2 passed
+25 passed
+14 passed
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:
