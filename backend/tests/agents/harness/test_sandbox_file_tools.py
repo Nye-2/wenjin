@@ -421,6 +421,87 @@ async def test_direct_file_tools_block_symlink_escapes_at_harness_boundary(sandb
 
 
 @pytest.mark.asyncio
+async def test_direct_file_tools_block_symlinks_to_protected_workspace_targets(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/.env", "SECRET=1\n")
+    workspace_root = Path(sandbox.path_mappings["/workspace"])
+    link_path = workspace_root / "main" / "linked-secret.txt"
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link_path.symlink_to(workspace_root / ".env")
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink creation is not available: {exc}")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="protected target"):
+        await tools.read_file(path="/workspace/main/linked-secret.txt")
+
+    with pytest.raises(HarnessPathError, match="protected target"):
+        await tools.write_file(path="/workspace/main/linked-secret.txt", content="changed\n")
+
+    with pytest.raises(HarnessPathError, match="protected target"):
+        await tools.str_replace(path="/workspace/main/linked-secret.txt", old="SECRET", new="CHANGED")
+
+    assert await sandbox.read_file("/workspace/.env") == "SECRET=1\n"
+
+
+@pytest.mark.asyncio
+async def test_listing_and_search_hide_symlinks_to_protected_workspace_targets(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/.env", "alpha secret\n")
+    await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
+    workspace_root = Path(sandbox.path_mappings["/workspace"])
+    link_path = workspace_root / "main" / "linked-secret.txt"
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link_path.symlink_to(workspace_root / ".env")
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink creation is not available: {exc}")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    list_result = await tools.list_dir(path="/workspace/main", max_depth=1)
+    glob_result = await tools.glob(pattern="main/*.txt")
+    grep_result = await tools.grep(pattern="alpha", glob="main/*.txt")
+
+    listed_paths = [item["path"] for item in list_result.structured_payload["entries"]]
+    assert "/workspace/main/visible.txt" in listed_paths
+    assert "/workspace/main/linked-secret.txt" not in listed_paths
+    assert glob_result.structured_payload["matches"] == ["/workspace/main/visible.txt"]
+    assert [item["path"] for item in grep_result.structured_payload["matches"]] == [
+        "/workspace/main/visible.txt",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_file_tools_hide_symlinks_to_internal_workspace_targets(sandbox: LocalSandbox) -> None:
+    internal_path = "/workspace/outputs/harness/exec-1/node-1/invocation-1/full-output.txt"
+    await sandbox.write_file(internal_path, "alpha internal\n")
+    await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
+    workspace_root = Path(sandbox.path_mappings["/workspace"])
+    link_path = workspace_root / "main" / "linked-internal.txt"
+    link_path.parent.mkdir(parents=True, exist_ok=True)
+    internal_target = workspace_root / "outputs" / "harness" / "exec-1" / "node-1" / "invocation-1" / "full-output.txt"
+    try:
+        link_path.symlink_to(internal_target)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink creation is not available: {exc}")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="internal target"):
+        await tools.read_file(path="/workspace/main/linked-internal.txt")
+
+    list_result = await tools.list_dir(path="/workspace/main", max_depth=1)
+    glob_result = await tools.glob(pattern="main/*.txt")
+    grep_result = await tools.grep(pattern="alpha", glob="main/*.txt")
+
+    listed_paths = [item["path"] for item in list_result.structured_payload["entries"]]
+    assert "/workspace/main/visible.txt" in listed_paths
+    assert "/workspace/main/linked-internal.txt" not in listed_paths
+    assert glob_result.structured_payload["matches"] == ["/workspace/main/visible.txt"]
+    assert [item["path"] for item in grep_result.structured_payload["matches"]] == [
+        "/workspace/main/visible.txt",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_list_dir_accepts_current_virtual_workspace_root(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.py", "print('ok')\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())

@@ -50,6 +50,7 @@ class SandboxFileTools:
         self._require_read_permission()
         safe_path = self._validate_virtual_path(path, operation="read")
         self._require_workspace_physical_target(safe_path)
+        self._require_tool_visible_physical_target(safe_path)
         content = await self.sandbox.read_file(safe_path)
         selected = select_lines(content, start_line=start_line, end_line=end_line)
         budgeted = await budget_text_output(
@@ -124,6 +125,8 @@ class SandboxFileTools:
             virtual_path = _virtualize_path(str(path))
             if not self._is_tool_visible_path(virtual_path):
                 continue
+            if not self._is_tool_visible_physical_target(path):
+                continue
             if len(matches) >= limit:
                 truncated = True
                 break
@@ -165,6 +168,8 @@ class SandboxFileTools:
                 continue
             virtual_path = _virtualize_path(str(path))
             if not self._is_tool_visible_path(virtual_path):
+                continue
+            if not self._is_tool_visible_physical_target(path):
                 continue
             try:
                 if self._grep_file_too_large(path):
@@ -220,6 +225,7 @@ class SandboxFileTools:
     async def write_file(self, *, path: str, content: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
         self._require_workspace_physical_target(safe_path)
+        self._require_tool_visible_physical_target(safe_path)
         before = await self._read_existing(safe_path)
         await self.sandbox.write_file(safe_path, content)
         file_change = await self._budget_file_change_diff(
@@ -240,6 +246,7 @@ class SandboxFileTools:
     async def str_replace(self, *, path: str, old: str, new: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
         self._require_workspace_physical_target(safe_path)
+        self._require_tool_visible_physical_target(safe_path)
         before = await self.sandbox.read_file(safe_path)
         count = before.count(old)
         if count != 1:
@@ -304,10 +311,14 @@ class SandboxFileTools:
         resolver = getattr(self.sandbox, "_resolve_path", None)
         if callable(resolver):
             try:
-                return self._is_workspace_physical_path(Path(resolver(virtual_path)))
+                physical_path = Path(resolver(virtual_path))
+                return self._is_workspace_physical_path(physical_path) and self._is_tool_visible_physical_target(
+                    physical_path
+                )
             except Exception:  # noqa: BLE001 - provider-specific path safety failures are hidden from tools.
                 return False
-        return self._is_workspace_physical_path(Path(raw_path))
+        physical_path = Path(raw_path)
+        return self._is_workspace_physical_path(physical_path) and self._is_tool_visible_physical_target(physical_path)
 
     def _is_workspace_physical_path(self, path: Path) -> bool:
         try:
@@ -327,6 +338,39 @@ class SandboxFileTools:
             raise HarnessPathError(f"path resolves outside workspace: {virtual_path}") from exc
         if not self._is_workspace_physical_path(physical_path):
             raise HarnessPathError(f"path resolves outside workspace: {virtual_path}")
+
+    def _require_tool_visible_physical_target(self, virtual_path: str) -> None:
+        resolver = getattr(self.sandbox, "_resolve_path", None)
+        if not callable(resolver):
+            return
+        try:
+            physical_path = Path(resolver(virtual_path))
+        except Exception as exc:  # noqa: BLE001 - provider-specific path safety failures are normalized here.
+            raise HarnessPathError(f"path resolves outside workspace: {virtual_path}") from exc
+        target_virtual_path = self._workspace_target_virtual_path(physical_path)
+        if target_virtual_path is None:
+            raise HarnessPathError(f"path resolves outside workspace: {virtual_path}")
+        if self._is_protected(target_virtual_path):
+            raise HarnessPathError(f"protected target is not accessible: {virtual_path}")
+        if is_workspace_internal_path(target_virtual_path):
+            raise HarnessPathError(f"internal target is not accessible: {virtual_path}")
+
+    def _is_tool_visible_physical_target(self, path: Path) -> bool:
+        target_virtual_path = self._workspace_target_virtual_path(path)
+        if target_virtual_path is None:
+            return False
+        return self._is_tool_visible_path(target_virtual_path)
+
+    def _workspace_target_virtual_path(self, path: Path) -> str | None:
+        try:
+            resolved_path = path.resolve()
+            resolved_root = self._workspace_physical_root().resolve()
+            relative = resolved_path.relative_to(resolved_root)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not relative.parts:
+            return WORKSPACE_ROOT
+        return f"{WORKSPACE_ROOT}/{relative.as_posix()}"
 
     def _read_max_chars(self) -> int:
         return int(self.policy.output_budget.get("read_max_chars") or DEFAULT_READ_MAX_CHARS)
