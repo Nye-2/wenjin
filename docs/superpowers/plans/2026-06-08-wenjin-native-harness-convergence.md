@@ -2862,6 +2862,56 @@ Observed:
 All checks passed!
 ```
 
+### Task 17: Release Idle Workspace Scheduler Locks
+
+**Goal:** keep the in-process workspace tool scheduler bounded over long-running service lifetimes while preserving one-workspace sandbox serialization.
+
+**External reference:** deer-flow has explicit tests around sandbox cache lifecycle and bounded memory growth. Wenjin's scheduler is smaller, but the same lifecycle principle applies: per-workspace coordination state should not accumulate after historical workspaces become idle.
+
+**Architecture:** update only `backend/src/agents/harness/scheduler.py`. The scheduler remains an in-process coordination helper, not a new execution fact source. Use a small lock-entry reference count so timeout waiters and running calls are both accounted for before removing idle entries.
+
+**Files:**
+- Modified: `backend/src/agents/harness/scheduler.py`
+- Modified: `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED tests**
+
+Added:
+
+- `test_scheduler_releases_idle_workspace_lock_after_run`
+- `test_scheduler_cleans_timeout_waiter_after_running_job_completes`
+
+Observed RED:
+
+```text
+AssertionError: {'ws-1': <asyncio.locks.Lock ... [unlocked]>} == {}
+```
+
+- [x] **Step 2: Add lock-entry lifecycle accounting**
+
+`WorkspaceToolScheduler` now tracks a per-workspace lock entry with a `users` count. Running calls and queued waiters increment the count, timeout/success/failure paths decrement it in a shared `finally`, and the idle entry is removed when no users remain and the lock is no longer held.
+
+- [x] **Step 3: Verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_scheduler_and_python_tool.py::test_scheduler_releases_idle_workspace_lock_after_run backend/tests/agents/harness/test_scheduler_and_python_tool.py::test_scheduler_cleans_timeout_waiter_after_running_job_completes backend/tests/agents/harness/test_scheduler_and_python_tool.py::test_scheduler_serializes_same_workspace_calls backend/tests/agents/harness/test_scheduler_and_python_tool.py::test_scheduler_times_out_when_workspace_queue_is_busy -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_scheduler_and_python_tool.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/scheduler.py backend/tests/agents/harness/test_scheduler_and_python_tool.py
+```
+
+Observed:
+
+```text
+4 passed
+14 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

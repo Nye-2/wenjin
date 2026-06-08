@@ -228,6 +228,16 @@ async def test_scheduler_serializes_same_workspace_calls() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scheduler_releases_idle_workspace_lock_after_run() -> None:
+    scheduler = WorkspaceToolScheduler()
+
+    result = await scheduler.run("ws-1", lambda: "ok")
+
+    assert result == "ok"
+    assert scheduler._locks == {}
+
+
+@pytest.mark.asyncio
 async def test_scheduler_times_out_when_workspace_queue_is_busy() -> None:
     scheduler = WorkspaceToolScheduler()
     release = asyncio.Event()
@@ -242,6 +252,27 @@ async def test_scheduler_times_out_when_workspace_queue_is_busy() -> None:
         await scheduler.run("ws-1", lambda: asyncio.sleep(0), timeout_seconds=0.001)
     release.set()
     await task
+
+
+@pytest.mark.asyncio
+async def test_scheduler_cleans_timeout_waiter_after_running_job_completes() -> None:
+    scheduler = WorkspaceToolScheduler()
+    release = asyncio.Event()
+
+    async def blocker() -> str:
+        await release.wait()
+        return "done"
+
+    task = asyncio.create_task(scheduler.run("ws-1", blocker))
+    await asyncio.sleep(0)
+
+    with pytest.raises(WorkspaceToolQueueTimeout):
+        await scheduler.run("ws-1", lambda: "late", timeout_seconds=0.001)
+    assert "ws-1" in scheduler._locks
+
+    release.set()
+    assert await task == "done"
+    assert scheduler._locks == {}
 
 
 @pytest.mark.asyncio

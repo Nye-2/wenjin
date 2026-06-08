@@ -474,6 +474,7 @@ Behavior:
 - Queue timeout produces a recoverable tool error, not a runtime crash.
 - LLM-only team members can still run in parallel; only sandbox mutations/commands are serialized.
 - First slice serializes all sandbox tools, including reads, for implementation simplicity and deterministic traces.
+- Idle per-workspace lock entries are released after the final running/waiting call exits or times out, so long-lived workers do not accumulate scheduler state for every historical workspace.
 - Later optimization may allow parallel read-only tools with a read lock, but only after path and output budget tests are stable.
 - Every queued call records queue wait time in debug-only tool metadata.
 - Lease busy from another process should retry with bounded jitter; repeated busy becomes `sandbox_queue_timeout`.
