@@ -219,6 +219,7 @@ class TeamKernelRuntime:
             invocations=invocations,
             latest_invocations=core_invocations,
             blackboard=blackboard,
+            workspace_data=workspace_data,
         )
         gates.extend(batch_gates)
         next_batch = self._next_recruits_from_gates(
@@ -345,6 +346,7 @@ class TeamKernelRuntime:
                 invocations=invocations,
                 latest_invocations=batch,
                 blackboard=blackboard,
+                workspace_data=workspace_data,
             )
             gates.extend(batch_gates)
             recruits = self._next_recruits_from_gates(
@@ -462,6 +464,41 @@ class TeamKernelRuntime:
             existing.add(key)
         return latest_signals
 
+    @staticmethod
+    def _sync_current_harness_evidence(
+        workspace_data: dict[str, Any],
+        latest_invocations: list[AgentInvocation],
+    ) -> None:
+        entries: list[dict[str, Any]] = []
+        for invocation in latest_invocations:
+            harness_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+            if not harness_metadata:
+                continue
+            entries.append(
+                {
+                    "execution_id": invocation.execution_id or "",
+                    "node_id": invocation.id,
+                    "display_name": invocation.display_name,
+                    "template_id": invocation.template_id,
+                    "node_metadata": harness_metadata,
+                }
+            )
+        if not entries:
+            return
+
+        history = workspace_data.get("workspace_history")
+        history = history if isinstance(history, dict) else None
+        if history is not None:
+            current = history.get("recent_executions")
+            current = current if isinstance(current, list) else []
+            history["recent_executions"] = _prepend_current_harness_evidence(entries, current)
+            workspace_data["workspace_history"] = history
+            return
+
+        current = workspace_data.get("recent_executions")
+        current = current if isinstance(current, list) else []
+        workspace_data["recent_executions"] = _prepend_current_harness_evidence(entries, current)
+
     def _inject_quality_contracts(
         self,
         *,
@@ -519,7 +556,9 @@ class TeamKernelRuntime:
         invocations: list[AgentInvocation],
         latest_invocations: list[AgentInvocation],
         blackboard: TeamBlackboard,
+        workspace_data: dict[str, Any],
     ) -> list[QualityGateResult]:
+        self._sync_current_harness_evidence(workspace_data, latest_invocations)
         gates = self._run_quality_gates(
             team_policy.quality_pipeline,
             invocations,
@@ -1044,3 +1083,23 @@ def _replan_signal_key(signal: dict[str, Any]) -> str:
             str(signal.get("recommended_action") or ""),
         ]
     )
+
+
+def _prepend_current_harness_evidence(
+    entries: list[dict[str, Any]],
+    current: list[Any],
+) -> list[dict[str, Any]]:
+    seen = {
+        str(entry.get("node_id") or "")
+        for entry in entries
+        if str(entry.get("node_id") or "").strip()
+    }
+    retained: list[dict[str, Any]] = []
+    for item in current:
+        if not isinstance(item, dict):
+            continue
+        node_id = str(item.get("node_id") or "").strip()
+        if node_id and node_id in seen:
+            continue
+        retained.append(item)
+    return [*entries, *retained][:8]

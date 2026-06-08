@@ -399,6 +399,49 @@ class FakeCriticalReviewerFailingTeamCatalogClient(FakeTeamCatalogClient):
         ]
 
 
+class SandboxEvidenceReplayTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        records = await super().list_agent_templates(enabled_only=enabled_only)
+        for record in records:
+            if record.id == "research_scout.v1":
+                record.default_skills = ["sandbox-writer"]
+            if record.id == "critical_reviewer.v1":
+                record.default_skills = ["failing-review-critic"]
+            if record.id == "generalist_assistant.v1":
+                record.default_skills = ["generalist-capture"]
+        return records
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        return [
+            CapabilitySkillPayload(
+                id="sandbox-writer",
+                display_name="Sandbox Writer",
+                worker_type="research",
+                subagent_type="team_sandbox_fake",
+                prompt="Write sandbox evidence.",
+                config={"output_kind": "json"},
+            ),
+            CapabilitySkillPayload(
+                id="failing-review-critic",
+                display_name="Failing Review Critic",
+                worker_type="review",
+                subagent_type="team_failing",
+                prompt="Fail this reviewer.",
+                config={"output_kind": "json"},
+            ),
+            CapabilitySkillPayload(
+                id="generalist-capture",
+                display_name="Generalist Capture",
+                worker_type="generalist",
+                subagent_type="team_capture",
+                prompt="Capture context.",
+                config={"output_kind": "json"},
+            ),
+        ]
+
+
 class CapturingQualityGateRuntimeStateClient(FakeCriticalReviewerFailingTeamCatalogClient):
     runtime_state_updates: list[dict] = []
 
@@ -1240,6 +1283,42 @@ async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(mo
         event["node_metadata"]["template_id"] == "generalist_assistant.v1"
         for event in node_events
     )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_replays_current_harness_evidence_to_recruited_members(monkeypatch) -> None:
+    TeamCaptureSubagent.contexts = []
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SandboxEvidenceReplayTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["capability_skills"].extend(
+        ["sandbox-writer", "failing-review-critic", "generalist-capture"]
+    )
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-harness-replay", brief=_brief())
+
+    assert report.status == "failed_partial"
+    captured = [
+        ctx
+        for ctx in TeamCaptureSubagent.contexts
+        if ctx.invocation["template_id"] == "generalist_assistant.v1"
+    ]
+    assert captured
+    recent = captured[0].workspace_data["recent_executions"]
+    assert recent[0]["node_metadata"]["harness"]["file_change_summary"]["changed_paths"] == [
+        "/workspace/main.tex"
+    ]
+    assert recent[0]["display_name"] == "文献检索员"
 
 
 @pytest.mark.asyncio
