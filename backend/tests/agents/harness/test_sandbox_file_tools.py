@@ -599,6 +599,19 @@ async def test_grep_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
 
 
 @pytest.mark.asyncio
+async def test_grep_literal_mode_treats_pattern_as_plain_text(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/math.txt", "price = (a+b)\nregex would match ab\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    result = await tools.grep(pattern="(a+b)", glob="main/*.txt", literal=True)
+
+    assert result.structured_payload["literal"] is True
+    assert result.structured_payload["matches"] == [
+        {"path": "/workspace/main/math.txt", "line": 1, "text": "price = (a+b)"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_grep_invalid_regex_returns_recoverable_tool_error(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main/file.txt", "alpha\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())

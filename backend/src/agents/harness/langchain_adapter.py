@@ -47,6 +47,7 @@ class GrepInput(BaseModel):
     pattern: str
     glob: str = "**/*"
     max_matches: int | None = Field(default=None, ge=1, le=200)
+    literal: bool = False
 
 
 class WriteFileInput(BaseModel):

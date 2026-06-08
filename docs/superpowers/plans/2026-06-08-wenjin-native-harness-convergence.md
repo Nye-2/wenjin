@@ -3183,6 +3183,55 @@ Observed:
 All checks passed!
 ```
 
+### Task 21: Add Literal Mode to Sandbox Grep
+
+**Goal:** make file search more robust for scientific writing, LaTeX, formulas, and code snippets where users or agents often search for text containing regex metacharacters such as `(`, `+`, `[`, `\`, or `.`.
+
+**External reference:** deer-flow exposes a literal grep mode so model tools can search ordinary text without accidentally invoking regex semantics. Wenjin should keep regex as the default for power users, while adding an explicit `literal` switch for exact text search.
+
+**Architecture:** extend only the existing `sandbox.grep` tool. Add `literal: bool = False` to the LangChain input schema and `SandboxFileTools.grep()`. When `literal=True`, compile `re.escape(pattern)`; otherwise keep the current regex path and existing invalid-regex recoverable error behavior.
+
+**Files:**
+- Modified: `backend/src/agents/harness/langchain_adapter.py`
+- Modified: `backend/src/agents/harness/sandbox_tools.py`
+- Modified: `backend/tests/agents/harness/test_sandbox_file_tools.py`
+- Modified: `docs/current/workspace-current-state.md`
+- Modified: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Modified: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add RED test**
+
+Added `test_grep_literal_mode_treats_pattern_as_plain_text`.
+
+Observed RED:
+
+```text
+TypeError: SandboxFileTools.grep() got an unexpected keyword argument 'literal'
+```
+
+- [x] **Step 2: Implement literal grep**
+
+`SandboxFileTools.grep(literal=True)` now compiles `re.escape(pattern)`, and structured payloads include `"literal": true` for traceability. `GrepInput` exposes `literal: bool = False` to tool-using agents.
+
+- [x] **Step 3: Verify targeted slice**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_sandbox_file_tools.py::test_grep_literal_mode_treats_pattern_as_plain_text backend/tests/agents/harness/test_sandbox_file_tools.py::test_grep_invalid_regex_returns_recoverable_tool_error -q
+backend/.venv/bin/python -m pytest backend/tests/agents/harness/test_langchain_adapter.py -q
+backend/.venv/bin/ruff check backend/src/agents/harness/sandbox_tools.py backend/src/agents/harness/langchain_adapter.py backend/tests/agents/harness/test_sandbox_file_tools.py
+```
+
+Observed:
+
+```text
+2 passed
+5 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:

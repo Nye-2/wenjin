@@ -148,11 +148,12 @@ class SandboxFileTools:
         pattern: str,
         glob: str = "**/*",
         max_matches: int | None = None,
+        literal: bool = False,
     ) -> HarnessToolResult:
         self._require_read_permission()
         safe_glob = self._validate_glob_pattern(glob)
         try:
-            regex = re.compile(pattern)
+            regex = re.compile(re.escape(pattern) if literal else pattern)
         except re.error as exc:
             return _invalid_regex_result(pattern=pattern, glob_pattern=glob, error=exc)
         limit = self._effective_max_matches(max_matches)
@@ -203,6 +204,7 @@ class SandboxFileTools:
                                     matches,
                                     match_limit=limit,
                                     truncated=True,
+                                    literal=literal,
                                     scanned_files=scanned_files,
                                     skipped_large_files=skipped_large_files,
                                     skipped_binary_files=skipped_binary_files,
@@ -216,6 +218,7 @@ class SandboxFileTools:
             matches,
             match_limit=limit,
             truncated=False,
+            literal=literal,
             scanned_files=scanned_files,
             skipped_large_files=skipped_large_files,
             skipped_binary_files=skipped_binary_files,
@@ -475,6 +478,7 @@ class SandboxFileTools:
         *,
         match_limit: int,
         truncated: bool,
+        literal: bool,
         scanned_files: int,
         skipped_large_files: int,
         skipped_binary_files: int,
@@ -489,6 +493,7 @@ class SandboxFileTools:
             structured_payload={
                 "pattern": pattern,
                 "glob": glob_pattern,
+                "literal": literal,
                 "matches": matches,
                 "returned_matches": len(matches),
                 "match_limit": match_limit,
