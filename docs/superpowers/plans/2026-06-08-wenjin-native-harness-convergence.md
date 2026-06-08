@@ -1357,7 +1357,7 @@ git commit -m "feat: clarify workspace sandbox file contract"
 - Test: `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
 - Docs: `docs/current/architecture.md`
 
-- [ ] **Step 1: Add policy decision tests**
+- [x] **Step 1: Add policy decision tests**
 
 Test these classifications:
 
@@ -1366,7 +1366,16 @@ Test these classifications:
 - `curl`, `wget`, `ssh`, `scp`, `docker`, `sudo`, shell redirection to protected paths, and host absolute paths are forbidden.
 - policy decision and reason are recorded in command audit metadata.
 
-- [ ] **Step 2: Implement command policy as audit-first guard**
+Observed red result:
+
+```text
+tests/agents/harness/test_command_audit.py
+14 failed, 6 passed
+```
+
+The failures showed missing `policy_decision`, unblocked `curl/wget/ssh/scp`, unblocked protected/internal workspace paths, and unblocked unsafe pip specs.
+
+- [x] **Step 2: Implement command policy as audit-first guard**
 
 Extend command audit with:
 
@@ -1381,11 +1390,48 @@ Extend command audit with:
 
 Do not expose a generic `sandbox.run_command` tool. This policy only guards Wenjin-owned Python/install/smoke jobs.
 
-- [ ] **Step 3: Run verification**
+- [x] **Step 3: Run verification**
 
 ```bash
 cd /Users/ze/wenjin/backend
 .venv/bin/python -m pytest tests/agents/harness/test_command_audit.py tests/agents/harness/test_scheduler_and_python_tool.py -q
+```
+
+Additional guard verification:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py::test_run_python_script_blocks_forbidden_command_policy_before_job -q
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py -q
+.venv/bin/ruff check src/agents/harness/command_audit.py src/agents/lead_agent/v2/sandbox_job_runner.py src/agents/lead_agent/v2/sandbox_environment_installer.py tests/agents/harness/test_command_audit.py tests/agents/lead_agent/v2/test_sandbox_runtime.py
+```
+
+Observed green result:
+
+```text
+test_command_audit + test_scheduler_and_python_tool: 30 passed
+test_sandbox_runtime: 19 passed
+ruff: All checks passed!
+```
+
+- [x] **Step 4: Run fresh verification before commit**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_command_audit.py tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/lead_agent/v2/test_sandbox_runtime.py -q
+.venv/bin/ruff check src/agents/harness/command_audit.py src/agents/lead_agent/v2/sandbox_job_runner.py src/agents/lead_agent/v2/sandbox_environment_installer.py tests/agents/harness/test_command_audit.py tests/agents/lead_agent/v2/test_sandbox_runtime.py
+cd /Users/ze/wenjin
+git diff --check
+```
+
+Observed result:
+
+```text
+pytest: 49 passed
+ruff: All checks passed!
+git diff --check: no output
 ```
 
 Commit boundary:

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.agents.harness.command_audit import CommandAuditPolicy, HarnessCommand, audit_command
+from src.agents.harness.command_audit import (
+    CommandAuditPolicy,
+    HarnessCommand,
+    audit_command,
+    require_command_policy_allowed,
+)
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.workspace_sandbox import (
     ENSURE_WORKSPACE_VENV_COMMAND,
@@ -54,7 +59,7 @@ class SandboxEnvironmentInstaller:
 
         normalized_packages = normalize_dependency_hints(packages)
         command = build_pip_install_command(normalized_packages)
-        command_audit = audit_command(
+        command_audit_result = audit_command(
             HarnessCommand(
                 argv=build_pip_install_argv(normalized_packages),
                 network_profile="package_index_only",
@@ -63,7 +68,9 @@ class SandboxEnvironmentInstaller:
                 allow_package_install=True,
                 allowed_network_profiles=("none", "package_index_only"),
             ),
-        ).model_dump()
+        )
+        require_command_policy_allowed(command_audit_result)
+        command_audit = command_audit_result.model_dump()
         install_job = await manager.create_job(
             workspace_id=workspace_id,
             environment_id=environment_id,

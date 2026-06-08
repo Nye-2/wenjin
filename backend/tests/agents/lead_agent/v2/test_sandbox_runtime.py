@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.agents.harness.command_audit import HarnessCommand, audit_command
 from src.agents.lead_agent.v2.sandbox_runtime import (
     SandboxCommandExecutionError,
     run_python_script,
@@ -280,6 +281,35 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
         "/workspace/scripts/analysis_probe.py",
     ]
     assert result["command_audit"] == run_audit
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_blocks_forbidden_command_policy_before_job(monkeypatch) -> None:
+    provider = _FakeProvider(CommandResult(stdout="", stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    def _forbidden_audit(*_args, **_kwargs):
+        return audit_command(HarnessCommand(argv=("curl", "https://example.invalid"), cwd="/workspace"))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.sandbox_job_runner.audit_command",
+        _forbidden_audit,
+    )
+
+    with pytest.raises(PermissionError, match="program_forbidden"):
+        await run_python_script(
+            workspace_id="ws-1",
+            execution_id="exec-1",
+            node_id="analysis_probe",
+            sandbox_policy=_policy(),
+            script="print('blocked')",
+            script_name="analysis_probe.py",
+            provider=provider,
+            manager=manager,
+        )
+
+    assert manager.created_jobs == []
+    assert provider.acquired == []
 
 
 @pytest.mark.asyncio

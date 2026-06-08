@@ -6,7 +6,12 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 from typing import Any
 
-from src.agents.harness.command_audit import CommandAuditPolicy, HarnessCommand, audit_command
+from src.agents.harness.command_audit import (
+    CommandAuditPolicy,
+    HarnessCommand,
+    audit_command,
+    require_command_policy_allowed,
+)
 from src.agents.harness.output_budget import BudgetedText, budget_text_output
 from src.agents.lead_agent.v2.sandbox_artifact_collector import SandboxArtifactCollector
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import discover_generated_artifacts
@@ -59,6 +64,11 @@ class SandboxJobRunner:
         billing_reservation_id: str | None = None,
     ) -> dict[str, Any]:
         ctx = await self.session.build_context(workspace_id=workspace_id, sandbox_policy=sandbox_policy)
+        command_audit = audit_command(
+            HarnessCommand(shell_command=SMOKE_COMMAND),
+            CommandAuditPolicy(allow_shell=True),
+        )
+        require_command_policy_allowed(command_audit)
         job = await ctx.manager.create_job(
             workspace_id=workspace_id,
             environment_id=str(ctx.environment.id),
@@ -72,10 +82,7 @@ class SandboxJobRunner:
             resource_limits=dict(ctx.limits),
             metadata=_runtime_job_metadata(
                 billing_reservation_id=billing_reservation_id,
-                command_audit=audit_command(
-                    HarnessCommand(shell_command=SMOKE_COMMAND),
-                    CommandAuditPolicy(allow_shell=True),
-                ).model_dump(),
+                command_audit=command_audit.model_dump(),
             ),
             network_policy="none",
         )
@@ -146,10 +153,12 @@ class SandboxJobRunner:
             dependency_hints=dependency_hints,
         )
         ctx = await self.session.build_context(workspace_id=workspace_id, sandbox_policy=sandbox_policy)
-        command_audit = audit_command(
+        command_audit_result = audit_command(
             HarnessCommand(argv=plan.command_argv),
             CommandAuditPolicy(allowed_network_profiles=("none",)),
-        ).model_dump()
+        )
+        require_command_policy_allowed(command_audit_result)
+        command_audit = command_audit_result.model_dump()
         job = await ctx.manager.create_job(
             workspace_id=workspace_id,
             environment_id=str(ctx.environment.id),
