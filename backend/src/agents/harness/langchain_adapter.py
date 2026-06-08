@@ -8,6 +8,7 @@ from contextlib import suppress
 from typing import Any
 
 from langchain_core.tools import StructuredTool
+from langgraph.errors import GraphBubbleUp
 from pydantic import BaseModel, Field
 
 from src.agents.lead_agent.v2.sandbox_runtime_session import SandboxRuntimeSession
@@ -209,14 +210,20 @@ async def _invoke_recorded(
     )
     try:
         result = await operation()
+    except GraphBubbleUp:
+        raise
     except Exception as exc:
+        result = _format_tool_error_result(canonical_name, args_summary, exc)
+        metadata = _tool_result_metadata(result)
         if isinstance(records, list):
             records.append(
                 {
                     "name": canonical_name,
                     "status": "failed",
                     "args": args_summary,
-                    "error": str(exc),
+                    "result_preview": result[:500],
+                    "error": metadata.get("recoverable_error") or _format_exception_error(exc),
+                    "metadata": metadata,
                 }
             )
         await publish_harness_event(
@@ -224,9 +231,15 @@ async def _invoke_recorded(
             "tool_call.failed",
             visibility="debug_only",
             sequence_kind="tool",
-            payload={"name": canonical_name, "args": args_summary, "error": str(exc)},
+            payload={
+                "name": canonical_name,
+                "args": args_summary,
+                "result_preview": result[:500],
+                "error": metadata.get("recoverable_error") or _format_exception_error(exc),
+                **metadata,
+            },
         )
-        raise
+        return result
     if isinstance(records, list):
         records.append(_completed_tool_record(canonical_name, args_summary, result))
     metadata = _tool_result_metadata(result)
@@ -365,6 +378,31 @@ def _format_tool_result(result: HarnessToolResult) -> str:
     if result.error:
         payload["error"] = result.error
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _format_tool_error_result(canonical_name: str, args_summary: dict[str, Any], exc: Exception) -> str:
+    error = _format_exception_error(exc)
+    payload = {
+        "preview": f"Tool {canonical_name} failed: {error}",
+        "payload": {
+            "tool": canonical_name,
+            "args": args_summary,
+            "error_code": "tool_error",
+            "exception_type": exc.__class__.__name__,
+        },
+        "truncated": False,
+        "externalized": False,
+        "output_refs": [],
+        "error": error,
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _format_exception_error(exc: Exception) -> str:
+    detail = str(exc).strip() or exc.__class__.__name__
+    if len(detail) > 500:
+        detail = f"{detail[:497]}..."
+    return f"{exc.__class__.__name__}: {detail}"
 
 
 def _completed_tool_record(canonical_name: str, args_summary: dict[str, Any], result: str) -> dict[str, Any]:
