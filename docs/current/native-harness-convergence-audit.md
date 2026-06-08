@@ -60,6 +60,8 @@ Chat Agent
 
 - `backend`: `.venv/bin/python -m pytest tests/agents/harness tests/agents/lead_agent/v2 tests/subagents/v2 tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 269 passed
 - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 tests/agents/harness tests/agents/lead_agent/v2 tests/subagents/v2` -> passed
+- `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_cancel_flow.py -q` -> 43 passed；覆盖 workspace queue timeout cleanup、one-workspace serialized sandbox tool calls、install job `billable=False`、install failure recovery guidance、nonzero exit failure evidence、internal `/workspace/outputs/harness/**` artifact filtering、static graph cancellation。
+- `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/sandbox_runtime.py src/agents/lead_agent/v2/sandbox_job_runner.py src/agents/lead_agent/v2/sandbox_script_executor.py src/agents/lead_agent/v2/sandbox_environment_installer.py src/agents/harness/scheduler.py src/agents/harness/sandbox_execution_tools.py` -> passed
 - `frontend`: `npm run typecheck` -> passed
 - `frontend`: `npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/v2/live-workflow-view-model.test.ts tests/unit/stores/execution-store.test.ts tests/unit/v2/latex-editor-prism-shell.test.tsx` -> 37 passed
 - `backend`: `tests/integration/test_harness_mock_sandbox_e2e.py` 现在覆盖 `sci` workspace 下文献/数据整理员 + 实验分析工程师两名核心成员、bounded harness context、dataset provenance、`sandbox.run_python`、`reproducibility_manifest`、`experiment_narrative`、sandbox artifact review staging 和 internal harness refs 过滤。
