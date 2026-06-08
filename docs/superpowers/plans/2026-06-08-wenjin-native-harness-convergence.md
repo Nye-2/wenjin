@@ -1449,13 +1449,13 @@ git commit -m "feat: add harness command policy audit"
 **Files:**
 
 - Modify: `backend/src/agents/harness/events.py`
-- Modify: `backend/src/agents/lead_agent/v2/team/kernel.py`
-- Modify: `backend/src/services/execution_event_publisher.py`
+- Modify: `backend/src/agents/harness/diff_tracker.py`
+- Modify: `frontend/lib/execution-run-view.ts`
 - Test: `backend/tests/agents/harness/test_events.py`
 - Test: `backend/tests/agents/lead_agent/v2/test_team_kernel.py`
 - Test: `frontend/tests/unit/lib/execution-run-view.test.ts`
 
-- [ ] **Step 1: Add journal event schema tests**
+- [x] **Step 1: Add journal event schema tests**
 
 Expected event payload:
 
@@ -1469,7 +1469,15 @@ Expected event payload:
 }
 ```
 
-- [ ] **Step 2: Publish concise journal events through existing execution event path**
+Observed red result:
+
+```text
+test_events: missing journal envelope
+test_team_kernel: missing node_metadata.harness.run_journal_summary
+execution-run-view: ignored run_journal_summary.summary
+```
+
+- [x] **Step 2: Publish concise journal events through existing execution event path**
 
 Keep this as a product-facing summary stream:
 
@@ -1477,13 +1485,47 @@ Keep this as a product-facing summary stream:
 - no second frontend subscription.
 - raw tool args/logs remain in node detail/debug payloads.
 
-- [ ] **Step 3: Update frontend projection only through `execution-run-view.ts`**
+- [x] **Step 3: Update frontend projection only through `execution-run-view.ts`**
 
 Run:
 
 ```bash
 cd /Users/ze/wenjin/frontend
 npx vitest run tests/unit/lib/execution-run-view.test.ts
+```
+
+Observed green result:
+
+```text
+backend: test_events + test_output_budget_loop_guard_and_diff_tracker + test_team_kernel => 32 passed
+frontend: execution-run-view.test.ts => 13 passed
+frontend typecheck: passed
+ruff: All checks passed!
+```
+
+- [x] **Step 4: Run fresh verification before commit**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_events.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/lead_agent/v2/test_team_kernel.py -q
+.venv/bin/ruff check src/agents/harness/events.py src/agents/harness/diff_tracker.py tests/agents/harness/test_events.py tests/agents/lead_agent/v2/test_team_kernel.py
+cd /Users/ze/wenjin/frontend
+npx vitest run tests/unit/lib/execution-run-view.test.ts
+npm run typecheck
+cd /Users/ze/wenjin
+git diff --check
+```
+
+Observed result:
+
+```text
+backend pytest: 32 passed
+ruff: All checks passed!
+frontend vitest: 13 passed
+frontend typecheck: passed
+git diff --check: no output
 ```
 
 Commit boundary:

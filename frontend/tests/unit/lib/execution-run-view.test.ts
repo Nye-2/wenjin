@@ -259,6 +259,13 @@ describe("execution run view projection", () => {
             effective_tools: ["sandbox.run_python"],
             effective_skills: ["evidence-analyst"],
             harness: {
+              run_journal_summary: {
+                schema: "wenjin.harness.run_journal_summary.v1",
+                latest_phase: "tool_completed",
+                summary: "实验分析工程师完成实验并生成 1 个产物",
+                tool_call_count: 1,
+                artifact_count: 1,
+              },
               sandbox_execution_summary: {
                 schema: "wenjin.harness.sandbox_execution_summary.v1",
                 python_runs: 1,
@@ -279,10 +286,10 @@ describe("execution run view projection", () => {
     const progressItems = buildRunProgressItems(record);
 
     expect(view.team?.members[0]?.displayName).toBe("实验分析工程师");
-    expect(view.team?.members[0]?.activityLabel).toBe("已生成 1 个产物");
+    expect(view.team?.members[0]?.activityLabel).toBe("实验分析工程师完成实验并生成 1 个产物");
     expect(view.team?.members[0]?.artifactCount).toBe(1);
     expect(view.team?.members[0]?.debugToolCount).toBe(1);
-    expect(progressItems[0]?.detail).toBe("已生成 1 个产物");
+    expect(progressItems[0]?.detail).toBe("实验分析工程师完成实验并生成 1 个产物");
     expect(JSON.stringify(view.team?.members[0])).not.toContain("raw output");
     expect(JSON.stringify(progressItems[0])).not.toContain("raw script");
   });

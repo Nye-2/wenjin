@@ -656,6 +656,15 @@ function harnessActivityFromNodeState(
 ): { label: string | null; artifactCount: number } {
   const harness = objectValue(objectValue(state?.node_metadata)?.harness);
   if (!harness) return { label: null, artifactCount: 0 };
+  const journalSummary = objectValue(harness.run_journal_summary);
+  const journalLabel = stringValue(journalSummary?.summary);
+  if (journalLabel) {
+    const artifactCount = Number(journalSummary?.artifact_count ?? 0);
+    return {
+      label: trimForDisplay(journalLabel, 120),
+      artifactCount: Number.isFinite(artifactCount) && artifactCount > 0 ? artifactCount : 0,
+    };
+  }
   const sandboxSummary = objectValue(harness.sandbox_execution_summary);
   const failureSummary = objectValue(harness.tool_failure_summary);
   const fileSummary = objectValue(harness.file_change_summary);

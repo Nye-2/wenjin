@@ -21,6 +21,7 @@ async def test_publish_harness_event_uses_existing_execution_event_publisher() -
         invocation_id="invocation-1",
         workspace_type="sci",
         capability_id="capability-1",
+        agent_template={"display_name": "文献检索员"},
         publish_event=publisher,
     )
 
@@ -43,6 +44,13 @@ async def test_publish_harness_event_uses_existing_execution_event_publisher() -
                 "workspace_id": "ws-1",
                 "visibility": "debug_only",
                 "sequence_kind": "tool",
+                "journal": {
+                    "schema": "wenjin.harness.journal_event.v1",
+                    "phase": "tool_completed",
+                    "member": {"id": "node-1", "display_name": "文献检索员"},
+                    "summary": "文献检索员完成 sandbox.read_file",
+                    "debug_ref": None,
+                },
                 "payload": {"name": "sandbox.read_file", "status": "completed"},
             },
         )

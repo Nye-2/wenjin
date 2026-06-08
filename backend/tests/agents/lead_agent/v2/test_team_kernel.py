@@ -741,6 +741,49 @@ async def test_team_kernel_runtime_records_harness_sandbox_execution_summary(mon
 
 
 @pytest.mark.asyncio
+async def test_team_kernel_runtime_records_harness_run_journal_summary(monkeypatch) -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SandboxPythonTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+        record_node_event=record_node_event,
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-run-journal-summary", brief=_brief())
+
+    completed_events = [
+        event
+        for event in node_events
+        if event["node_type"] == "agent_invocation" and event["status"] == "completed"
+    ]
+    summaries = [
+        event["node_metadata"]["harness"]["run_journal_summary"]
+        for event in completed_events
+        if event["node_metadata"].get("harness")
+    ]
+    assert report.status == "completed"
+    assert summaries
+    assert summaries[0]["schema"] == "wenjin.harness.run_journal_summary.v1"
+    assert summaries[0]["latest_phase"] == "tool_completed"
+    assert summaries[0]["summary"] == "实验需要修订"
+    assert summaries[0]["tool_call_count"] == 1
+    assert summaries[0]["artifact_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_team_kernel_runtime_batches_skill_catalog_loads(monkeypatch) -> None:
     CountingTeamCatalogClient.skill_list_calls = 0
     monkeypatch.setattr(

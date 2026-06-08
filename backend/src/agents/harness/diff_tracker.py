@@ -10,6 +10,7 @@ FILE_CHANGE_SUMMARY_SCHEMA = "wenjin.harness.file_change_summary.v1"
 TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
 SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
 REPLAN_SIGNAL_SCHEMA = "wenjin.harness.replan_signal.v1"
+RUN_JOURNAL_SUMMARY_SCHEMA = "wenjin.harness.run_journal_summary.v1"
 
 
 def build_file_change(
@@ -106,9 +107,46 @@ def build_harness_node_metadata_from_tool_calls(
     replan_signals = build_harness_replan_signals_from_tool_calls(tool_calls)
     if replan_signals:
         harness["replan_signals"] = replan_signals
+    run_journal_summary = build_run_journal_summary_from_tool_calls(
+        tool_calls,
+        file_change_summary=file_change_summary,
+        tool_failure_summary=tool_failure_summary,
+        sandbox_execution_summary=sandbox_execution_summary,
+    )
+    if run_journal_summary is not None:
+        harness["run_journal_summary"] = run_journal_summary
     if not harness:
         return None
     return {"harness": harness}
+
+
+def build_run_journal_summary_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+    *,
+    file_change_summary: dict[str, Any] | None = None,
+    tool_failure_summary: dict[str, Any] | None = None,
+    sandbox_execution_summary: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Build the compact member activity line shown in run projections."""
+
+    calls = [tool_call for tool_call in tool_calls or [] if isinstance(tool_call, dict)]
+    if not calls:
+        return None
+    artifact_count = _int_value((sandbox_execution_summary or {}).get("generated_artifact_count"))
+    summary = _run_journal_summary_text(
+        tool_call_count=len(calls),
+        artifact_count=artifact_count,
+        file_change_summary=file_change_summary,
+        tool_failure_summary=tool_failure_summary,
+        sandbox_execution_summary=sandbox_execution_summary,
+    )
+    return {
+        "schema": RUN_JOURNAL_SUMMARY_SCHEMA,
+        "latest_phase": "tool_completed",
+        "summary": summary,
+        "tool_call_count": len(calls),
+        "artifact_count": artifact_count,
+    }
 
 
 def build_tool_failure_summary_from_tool_calls(
@@ -276,6 +314,31 @@ def build_harness_replan_signals_from_tool_calls(
     return _dedupe_replan_signals(signals)
 
 
+def _run_journal_summary_text(
+    *,
+    tool_call_count: int,
+    artifact_count: int,
+    file_change_summary: dict[str, Any] | None,
+    tool_failure_summary: dict[str, Any] | None,
+    sandbox_execution_summary: dict[str, Any] | None,
+) -> str:
+    failed_tools = _int_value((tool_failure_summary or {}).get("total_failed_calls"))
+    if failed_tools > 0:
+        return "工具异常待处理"
+    failed_python_runs = _int_value((sandbox_execution_summary or {}).get("failed_python_runs"))
+    if failed_python_runs > 0:
+        return "实验需要修订"
+    if artifact_count > 0:
+        return f"已生成 {artifact_count} 个产物"
+    python_runs = _int_value((sandbox_execution_summary or {}).get("python_runs"))
+    if python_runs > 0:
+        return "已完成实验"
+    changed_paths = len(_list_value((file_change_summary or {}).get("changed_paths")))
+    if changed_paths > 0:
+        return f"已更新 {changed_paths} 个文件"
+    return f"完成 {tool_call_count} 次工具调用"
+
+
 def _new_path_summary(path: str, change: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": path,
@@ -373,6 +436,22 @@ def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _list_value(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _int_value(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value if value > 0 else 0
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return parsed if parsed > 0 else 0
 
 
 def _is_recoverable_failure(
