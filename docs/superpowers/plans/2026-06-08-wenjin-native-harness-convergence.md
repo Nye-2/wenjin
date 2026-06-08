@@ -320,7 +320,7 @@ git commit -m "feat: summarize sandbox execution evidence"
 - Docs: `docs/current/architecture.md`
 - Docs: `docs/current/workspace-current-state.md`
 
-- [ ] **Step 1: Write failing context-bundle tests**
+- [x] **Step 1: Write failing context-bundle tests**
 
 Expected compact context:
 
@@ -343,7 +343,7 @@ Expected compact context:
 
 The test should prove protected/internal paths never enter the context bundle.
 
-- [ ] **Step 2: Implement pure assembler**
+- [x] **Step 2: Implement pure assembler**
 
 Create `context_assembly.py` with pure functions first:
 
@@ -354,11 +354,11 @@ def build_harness_context_bundle(... ) -> dict[str, Any]:
 
 Keep DataService access at caller boundaries. The assembler should accept already-loaded summaries so it stays easy to test.
 
-- [ ] **Step 3: Inject context into ReactSubagent system prompt**
+- [x] **Step 3: Inject context into ReactSubagent system prompt**
 
-Add a compact "Sandbox workspace contract" section and a "Recent execution evidence" section. Do not dump raw tool JSON. Use summaries from `sandbox_execution_summary`, `file_change_summary`, and `tool_failure_summary`.
+Add a compact `Harness context bundle` section and recent execution evidence. Do not dump raw tool JSON. Use summaries from `sandbox_execution_summary`, `file_change_summary`, and `tool_failure_summary`.
 
-- [ ] **Step 4: Run context tests**
+- [x] **Step 4: Run context tests**
 
 Run:
 
@@ -369,7 +369,7 @@ cd /Users/ze/wenjin/backend
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit message:
 

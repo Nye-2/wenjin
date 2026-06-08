@@ -21,7 +21,7 @@ from src.subagents.v2.types.react import (
     _resolve_tools,
     _run_react_loop,
     _runtime_output_config,
-    _with_sandbox_workspace_contract,
+    _with_harness_context_bundle,
 )
 
 # ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ class TestDefaultUserPayload:
         }
         assert payload["_skill_quality_gates"] == ["no_fabrication"]
 
-    def test_includes_sandbox_workspace_contract_for_sandbox_tools(self):
+    def test_includes_harness_context_for_sandbox_tools(self):
         ctx = _make_ctx(
             inputs={"topic": "federated LLM experiments"},
             tools=["sandbox.run_python"],
@@ -123,20 +123,15 @@ class TestDefaultUserPayload:
 
         payload = _build_default_user_payload(ctx, {})
 
-        contract = payload["_sandbox_workspace"]
-        assert contract["virtual_root"] == "/workspace"
-        assert contract["directories"]["scripts"]["purpose"] == "reusable_experiment_scripts"
-        assert contract["artifact_roots"] == {
-            "outputs": "/workspace/outputs",
-            "reports": "/workspace/reports",
-        }
-        assert "/workspace/outputs/harness/**" in contract["internal_paths"]
-        assert ".wenjin/env/**" in contract["protected_paths"]
-        assert "Write reusable scripts under /workspace/scripts." in contract["rules"]
-        assert (
-            "Do not register or cite /workspace/outputs/harness/** as user-facing artifacts."
-            in contract["rules"]
-        )
+        context = payload["_harness_context"]
+        assert "_sandbox_workspace" not in payload
+        assert context["schema"] == "wenjin.harness.context_bundle.v1"
+        assert context["sandbox"]["root"] == "/workspace"
+        assert "/workspace/scripts" in context["sandbox"]["standard_dirs"]
+        assert "/workspace/outputs" in context["sandbox"]["artifact_roots"]
+        assert "/workspace/outputs/harness/**" in context["sandbox"]["internal_paths"]
+        assert ".wenjin/env/**" in context["sandbox"]["protected_paths"]
+        assert "**/.env" in context["sandbox"]["protected_paths"]
 
 
 class TestSandboxWorkspaceContractPrompt:
@@ -146,17 +141,18 @@ class TestSandboxWorkspaceContractPrompt:
             inputs={"workspace_type": "sci"},
         )
 
-        prompt = _with_sandbox_workspace_contract("你是实验专家", ctx)
+        prompt = _with_harness_context_bundle("你是实验专家", ctx)
 
         assert "你是实验专家" in prompt
-        assert "Sandbox workspace contract" in prompt
+        assert "Harness context bundle" in prompt
+        assert "wenjin.harness.context_bundle.v1" in prompt
         assert "/workspace/scripts" in prompt
         assert "/workspace/reports" in prompt
 
     def test_leaves_system_prompt_unchanged_without_sandbox_tools(self):
         ctx = _make_ctx(tools=[])
 
-        assert _with_sandbox_workspace_contract("你是综述专家", ctx) == "你是综述专家"
+        assert _with_harness_context_bundle("你是综述专家", ctx) == "你是综述专家"
 
 
 # ---------------------------------------------------------------------------

@@ -11,8 +11,11 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
+from src.agents.harness.context_assembly import (
+    build_harness_context_bundle,
+    render_harness_context_for_prompt,
+)
 from src.models import create_chat_model
-from src.sandbox.workspace_layout import build_agent_workspace_contract
 from src.services.thread_billing import extract_message_usage
 from src.services.token_usage_collector import record_token_usage
 
@@ -206,21 +209,16 @@ def _with_output_contract(system_prompt: str, config: dict[str, Any]) -> str:
     return f"{system_prompt}{contract}" if system_prompt else contract.strip()
 
 
-def _with_sandbox_workspace_contract(system_prompt: str, ctx: SubagentContext) -> str:
-    """Append the workspace sandbox filesystem contract for sandbox-capable agents."""
+def _with_harness_context_bundle(system_prompt: str, ctx: SubagentContext) -> str:
+    """Append the bounded harness context bundle for sandbox-capable agents."""
 
     if not _uses_sandbox_tools(ctx):
         return system_prompt
-    workspace_type = str((ctx.inputs or {}).get("workspace_type") or "")
-    contract = build_agent_workspace_contract(
-        workspace_id=ctx.workspace_id,
-        workspace_type=workspace_type,
-    )
-    contract_text = json.dumps(contract, ensure_ascii=False, sort_keys=True)
+    bundle = _build_harness_context(ctx)
     section = (
-        "\n\nSandbox workspace contract:\n"
-        "- Follow this filesystem contract whenever using sandbox tools.\n"
-        f"- Contract JSON: {contract_text}"
+        "\n\nHarness context bundle:\n"
+        "- Use this bounded context when planning sandbox tool work.\n"
+        f"- Context JSON: {render_harness_context_for_prompt(bundle)}"
     )
     return f"{system_prompt}{section}" if system_prompt else section.strip()
 
@@ -258,10 +256,7 @@ def _build_default_user_payload(ctx: SubagentContext, config: dict[str, Any]) ->
         payload["_capability_policy"] = ctx.capability_policy
 
     if _uses_sandbox_tools(ctx):
-        payload["_sandbox_workspace"] = build_agent_workspace_contract(
-            workspace_id=ctx.workspace_id,
-            workspace_type=str(payload.get("workspace_type") or ""),
-        )
+        payload["_harness_context"] = _build_harness_context(ctx)
 
     quality_gates = config.get("quality_gates")
     if quality_gates:
@@ -276,6 +271,19 @@ def _uses_sandbox_tools(ctx: SubagentContext) -> bool:
         return True
     sandbox_policy = ctx.capability_policy.get("sandbox_policy")
     return isinstance(sandbox_policy, dict) and bool(sandbox_policy.get("allowed_operations"))
+
+
+def _build_harness_context(ctx: SubagentContext) -> dict[str, Any]:
+    inputs = ctx.inputs or {}
+    return build_harness_context_bundle(
+        workspace_id=ctx.workspace_id,
+        workspace_type=str(inputs.get("workspace_type") or ""),
+        task={
+            "prompt": ctx.prompt,
+            "inputs": inputs,
+        },
+        workspace_data=ctx.workspace_data or {},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +314,7 @@ class ReactSubagent(SubagentBase):
         # Assemble prompts
         config = _runtime_output_config(ctx.skill.config or {}, ctx.inputs or {})
         system_prompt = _with_output_contract(ctx.skill.prompt or "", config)
-        system_prompt = _with_sandbox_workspace_contract(system_prompt, ctx)
+        system_prompt = _with_harness_context_bundle(system_prompt, ctx)
         user_template = config.get("user_template")
         user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)
         user_message = _render_user_message(user_template, user_inputs)
