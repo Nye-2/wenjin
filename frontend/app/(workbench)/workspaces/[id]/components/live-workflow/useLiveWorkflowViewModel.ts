@@ -79,10 +79,25 @@ export function resolveSelectedLiveWorkflowRecord({
   focusedRunId: string | null;
   activeRunId: string | null;
 }): ExecutionRecord | null {
+  const activeRecord = records.find((record) => record.id === activeRunId) ?? null;
+  if (activeRecord && !isTerminalStatus(activeRecord.status)) {
+    return activeRecord;
+  }
+
+  const focusedRecord = records.find((record) => record.id === focusedRunId) ?? null;
+  if (focusedRecord && !isTerminalStatus(focusedRecord.status)) {
+    return focusedRecord;
+  }
+
+  const runningRecord = records.find((record) => !isTerminalStatus(record.status));
+  if (runningRecord) {
+    return runningRecord;
+  }
+
   return (
+    activeRecord ??
+    focusedRecord ??
     records.find((record) => record.id === selectedRunId) ??
-    records.find((record) => record.id === focusedRunId) ??
-    records.find((record) => record.id === activeRunId) ??
     records[0] ??
     null
   );

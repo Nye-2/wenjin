@@ -30,6 +30,7 @@ from src.agents.lead_agent.v2.sandbox_artifact_review import (
     sandbox_review_item_projection,
     workspace_asset_payload_for_candidate,
 )
+from src.dataservice_client.contracts.execution import ExecutionUpdatePayload
 from src.dataservice_client.provider import dataservice_client
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
@@ -535,7 +536,35 @@ class TeamKernelRuntime:
                 "execution.team.quality_gate",
                 {"quality_gate": gate.model_dump(mode="json")},
             )
+        await self._persist_quality_gate_history(execution_id, blackboard)
         return gates
+
+    async def _persist_quality_gate_history(
+        self,
+        execution_id: str,
+        blackboard: TeamBlackboard,
+    ) -> None:
+        if not blackboard.quality_gate_history:
+            return
+        try:
+            async with dataservice_client() as client:
+                update_execution = getattr(client, "update_execution", None)
+                if not callable(update_execution):
+                    return
+                runtime_state: dict[str, Any] = {}
+                get_execution = getattr(client, "get_execution", None)
+                if callable(get_execution):
+                    record = await get_execution(execution_id)
+                    existing = getattr(record, "runtime_state_json", None)
+                    if isinstance(existing, dict):
+                        runtime_state.update(existing)
+                runtime_state["quality_gates"] = list(blackboard.quality_gate_history)
+                await update_execution(
+                    execution_id,
+                    ExecutionUpdatePayload(runtime_state_json=runtime_state),
+                )
+        except Exception:
+            logger.warning("Failed to persist team quality gate runtime state", exc_info=True)
 
     def _build_invocation_batch(
         self,

@@ -118,6 +118,67 @@ describe("live workflow view model", () => {
     expect(model.evidenceItems).toHaveLength(1);
   });
 
+  it("selects the active running execution before a stale selected history run", () => {
+    const model = buildLiveWorkflowViewModel({
+      records: [completedRecord, runningRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "done-1",
+      focusedRunId: null,
+      activeRunId: "run-1",
+      selectedPreviewId: null,
+      draftEdits: {},
+    });
+
+    expect(model.selectedRecord?.id).toBe("run-1");
+    expect(model.runningRecord?.id).toBe("run-1");
+  });
+
+  it("keeps a newly active terminal execution visible after it finishes quickly", () => {
+    const fastFinishedRecord = baseRecord({
+      id: "fast-1",
+      status: "failed_partial",
+      progress: 0,
+      completed_at: "2026-05-18T00:00:04Z",
+      created_at: "2026-05-18T00:00:03Z",
+    });
+
+    const model = buildLiveWorkflowViewModel({
+      records: [completedRecord, fastFinishedRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "done-1",
+      focusedRunId: null,
+      activeRunId: "fast-1",
+      selectedPreviewId: null,
+      draftEdits: {},
+    });
+
+    expect(model.selectedRecord?.id).toBe("fast-1");
+    expect(model.runningRecord).toBeNull();
+  });
+
+  it("keeps a newly running execution visible even when persisted selection is stale", () => {
+    const newRunningRecord = baseRecord({
+      id: "run-2",
+      status: "running",
+      progress: 5,
+      completed_at: null,
+      created_at: "2026-05-18T00:00:03Z",
+    });
+
+    const model = buildLiveWorkflowViewModel({
+      records: [completedRecord, newRunningRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "done-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+      draftEdits: {},
+    });
+
+    expect(model.selectedRecord?.id).toBe("run-2");
+    expect(model.runningRecord?.id).toBe("run-2");
+  });
+
   it("moves completed runs with outputs to review and running runs to run tab", () => {
     expect(
       resolveAutoWorkbenchTab({

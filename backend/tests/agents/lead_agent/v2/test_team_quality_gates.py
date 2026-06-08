@@ -175,6 +175,31 @@ def test_quality_gates_preserve_failed_member_recruitment_reasons() -> None:
     ]
 
 
+def test_quality_gates_use_standby_reason_for_optional_replacement() -> None:
+    invocation = _invocation(status="failed", output_report=None)
+
+    gates = evaluate_quality_gates(
+        ["evidence_traceability"],
+        [invocation],
+        team_policy=CapabilityTeamPolicy(
+            core_templates=["research_scout.v1"],
+            optional_templates=["generalist_assistant.v1"],
+            recruitment_triggers={},
+        ),
+        counts=Counter({"research_scout.v1": 1}),
+        latest_invocations=[invocation],
+    )
+
+    pipeline_gate = next(gate for gate in gates if gate.gate_id == "evidence_traceability")
+    assert pipeline_gate.next_action == "recruit_more"
+    assert pipeline_gate.suggested_recruits == [
+        {
+            "template_id": "generalist_assistant.v1",
+            "reason": "standby_member",
+        }
+    ]
+
+
 def test_quality_gates_request_research_revision_for_missing_query_log() -> None:
     contract = {
         "schema_version": "resolved_quality_contract.v1",

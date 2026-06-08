@@ -30,16 +30,29 @@ Do not do this:
 
 ## Current Working Slice
 
-Current uncommitted slice already started:
+Current uncommitted slice is the final product-closure pass for the native harness:
 
-- `backend/src/agents/harness/sandbox_execution_tools.py`
-- `backend/src/agents/harness/langchain_adapter.py`
-- `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
-- `backend/tests/agents/harness/test_langchain_adapter.py`
+- `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
+- `backend/src/agents/lead_agent/v2/team/kernel.py`
+- `backend/tests/agents/lead_agent/v2/test_team_kernel.py`
+- `backend/src/services/execution_service.py`
+- `backend/tests/services/test_execution_service_node_state.py`
+- `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/useLiveWorkflowViewModel.ts`
+- `frontend/tests/unit/v2/live-workflow-view-model.test.ts`
 - `docs/current/architecture.md`
 - `docs/current/workspace-current-state.md`
+- `docs/current/frontend-feature-plugin-contract.md`
+- `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
 
-This slice adds `sandbox.run_python` execution manifests and recoverable user-code failure classification. Finish and commit it before starting the next slice.
+This slice fixes four browser-review findings:
+
+- The team quality gate should describe optional replacement recruits as standby members, not implementation fallback.
+- LiveWorkflowPanel must prioritize the active/running execution over stale persisted history selection so a newly launched team run is visible immediately.
+- TeamKernel quality gates must persist into `ExecutionRecord.runtime_state.quality_gates` so refresh/history views can restore quality-check summaries.
+- Execution list/detail API must hydrate `ExecutionRecord.node_states` from `ExecutionNodeRecord` rows so team members and harness metadata survive fast terminal runs and history reads.
+
+Finish this slice with Docker/browser verification before committing.
 
 ---
 
@@ -759,6 +772,735 @@ git commit -m "test: cover harness mock sandbox workflow"
 ```
 
 ---
+
+### Task 8: Stabilize Active Team Run Visibility
+
+**Files:**
+
+- Modify: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
+- Modify: `frontend/app/(workbench)/workspaces/[id]/components/live-workflow/useLiveWorkflowViewModel.ts`
+- Test: `frontend/tests/unit/v2/live-workflow-view-model.test.ts`
+
+- [x] **Step 1: Write failing backend terminology regression**
+
+Add:
+
+```python
+def test_quality_gates_use_standby_reason_for_optional_replacement() -> None:
+    invocation = _invocation(status="failed", output_report=None)
+
+    gates = evaluate_quality_gates(
+        ["evidence_traceability"],
+        [invocation],
+        team_policy=CapabilityTeamPolicy(
+            core_templates=["research_scout.v1"],
+            optional_templates=["generalist_assistant.v1"],
+            recruitment_triggers={},
+        ),
+        counts=Counter({"research_scout.v1": 1}),
+        latest_invocations=[invocation],
+    )
+
+    pipeline_gate = next(gate for gate in gates if gate.gate_id == "evidence_traceability")
+    assert pipeline_gate.next_action == "recruit_more"
+    assert pipeline_gate.suggested_recruits == [
+        {
+            "template_id": "generalist_assistant.v1",
+            "reason": "standby_member",
+        }
+    ]
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_use_standby_reason_for_optional_replacement -q
+```
+
+Expected before implementation: fail because the old reason is `optional_fallback`.
+
+- [x] **Step 2: Rename optional recruit reason**
+
+Change `_replacement_recruits()` so optional replacements use:
+
+```python
+(template_id, "standby_member")
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py -q
+```
+
+Expected:
+
+```text
+8 passed
+```
+
+- [x] **Step 3: Write failing frontend selection regression**
+
+Add tests proving these two cases:
+
+- active running execution wins over stale selected history run.
+- newly running execution remains visible even when persisted selection points to an old run.
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/frontend
+npx vitest run tests/unit/v2/live-workflow-view-model.test.ts -t "stale|active running"
+```
+
+Expected before implementation: fail because the old selected run remains selected.
+
+- [x] **Step 4: Prioritize nonterminal executions in the view model**
+
+Make `resolveSelectedLiveWorkflowRecord()` select in this order:
+
+```text
+active nonterminal record
+focused nonterminal record
+any nonterminal record
+persisted selected record
+focused record
+active record
+first record
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/frontend
+npx vitest run tests/unit/v2/live-workflow-view-model.test.ts
+npx vitest run tests/unit/lib/execution-run-view.test.ts
+```
+
+Expected:
+
+```text
+live-workflow-view-model: 5 passed
+execution-run-view: 13 passed
+```
+
+- [x] **Step 5: Rebuild frontend stack and browser-test the actual flow**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build frontend
+docker compose ps
+```
+
+Expected: `frontend`, `gateway`, `dataservice`, `worker`, `postgres`, `redis`, and `nginx` are healthy.
+
+Browser-test at `http://localhost:2026`:
+
+- logged-in session stays valid when switching Workbench and Prism.
+- Prism compile opens PDF contrast without silently hiding the result.
+- Prism AI 改稿 no longer exposes internal labels such as `同步小改` or `异步大改`.
+- launching `文献定位与创新点` selects the new running execution in LiveWorkflowPanel, not a stale failed Prism run.
+- LiveWorkflowPanel shows product-facing role/member language and keeps technical/debug details collapsed by default.
+
+Observed verification result:
+
+- Docker stack rebuilt with `docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build frontend gateway worker`.
+- Browser Workbench/Prism switching kept the logged-in session.
+- Prism compile opened the PDF contrast surface; AI 改稿 no longer showed internal `同步小改` / `异步大改` labels.
+- A team-kernel run selected the active execution over stale history and restored six real-name team members from hydrated node records.
+- LiveWorkflowPanel default view showed product-facing member/progress language and did not expose raw JSON.
+
+- [x] **Step 6: Verify seeded capability runtime for the browser-tested flow**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+docker compose exec -T postgres psql -U postgres -d wenjin -c "select id, runtime->>'mode' as mode from capability_definitions where id='sci_literature_positioning';"
+```
+
+Expected: `mode` is `team_kernel`. If the local dev database is stale, use the existing admin seed import path rather than changing production bootstrap overwrite behavior.
+
+Observed verification result:
+
+```text
+sci_literature_positioning | team_kernel
+```
+
+Commit message:
+
+```bash
+git commit -m "fix: keep active team runs visible"
+```
+
+---
+
+### Task 9: Final Harness Closure Review
+
+**Files:**
+
+- Docs only if the implemented state changed:
+  - `docs/current/architecture.md`
+  - `docs/current/workspace-current-state.md`
+  - `docs/current/frontend-feature-plugin-contract.md`
+  - `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+- [x] **Step 1: Residual architecture scan**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+rg "codex|cc-switch|ccswitch|deer-flow|deerflow|kimi-for-coding|api\\.kimi\\.com/coding|Codex SDK|Responses-to-Chat|sandbox\\.run_command" backend/src frontend -n
+```
+
+Expected: no production references.
+
+Observed verification result: no production references were found in `backend/src` or `frontend`.
+
+- [x] **Step 2: Backend verification**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py tests/agents/lead_agent/v2/test_team_kernel.py tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py -q
+.venv/bin/python -m pytest tests/agents/harness tests/integration/test_harness_mock_sandbox_e2e.py -q
+```
+
+Expected: all selected tests pass.
+
+Observed verification result:
+
+```text
+tests/agents/lead_agent/v2/test_team_quality_gates.py
+tests/agents/lead_agent/v2/test_team_kernel.py
+tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py
+tests/services/test_execution_service_node_state.py
+tests/gateway/test_executions_node_detail.py
+41 passed
+
+tests/agents/harness
+tests/integration/test_harness_mock_sandbox_e2e.py
+73 passed
+```
+
+- [x] **Step 3: Frontend verification**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/frontend
+npm run typecheck
+npx vitest run tests/unit/v2/live-workflow-view-model.test.ts tests/unit/lib/execution-run-view.test.ts
+```
+
+Expected: typecheck passes and selected tests pass.
+
+Observed verification result:
+
+```text
+npm run typecheck: passed
+tests/unit/v2/live-workflow-view-model.test.ts
+tests/unit/lib/execution-run-view.test.ts
+tests/unit/stores/execution-store.test.ts
+26 passed
+```
+
+- [x] **Step 4: Diff hygiene and docs check**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+git diff --check
+git status --short
+```
+
+Expected: no whitespace errors; only the planned files are modified unless browser testing found a real regression that was fixed with tests.
+
+Observed verification result: `git diff --check` returned no output. Current diff also includes execution node hydration and quality gate runtime-state persistence because browser testing found those projection gaps.
+
+- [ ] **Step 5: Commit and report remaining risk honestly**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin
+git add backend/src/agents/lead_agent/v2/team/quality_gates.py backend/tests/agents/lead_agent/v2/test_team_quality_gates.py frontend/app/\(workbench\)/workspaces/\[id\]/components/live-workflow/useLiveWorkflowViewModel.ts frontend/tests/unit/v2/live-workflow-view-model.test.ts docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md
+git commit -m "fix: keep active team runs visible"
+```
+
+Expected: clean commit. Do not claim the whole harness is complete unless Docker/browser and targeted backend/frontend tests all pass.
+
+---
+
+### Task 10: Close Team Member Input and Business Tool Gaps
+
+**Why this is next:**
+
+Browser testing proved the execution projection is stable, but it also exposed two real product-quality blockers in `sci_literature_positioning`:
+
+- `research_scout.v1` can receive an empty `query` when TeamKernel launches from a raw user message without a parsed `topic/query`.
+- `literature_synthesizer.v1` can receive business tools such as `library_read`, `document_read`, `citation_parser`, and `artifact_create` even though ReactSubagent currently resolves only registered harness callables.
+
+This task fixes the team execution contract itself, not the UI symptom.
+
+**Files:**
+
+- Create: `backend/src/agents/lead_agent/v2/team/member_context.py`
+- Create: `backend/src/agents/harness/business_tools.py`
+- Modify: `backend/src/agents/lead_agent/v2/team/kernel.py`
+- Modify: `backend/src/subagents/v2/types/react.py`
+- Modify: `backend/src/agents/harness/langchain_adapter.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_team_member_context.py`
+- Test: `backend/tests/agents/harness/test_business_tools.py`
+- Test: `backend/tests/subagents/v2/test_react_business_tools.py`
+- Docs: `docs/current/architecture.md`
+- Docs: `docs/current/workspace-current-state.md`
+
+- [ ] **Step 1: Add failing member-context tests**
+
+Add tests proving `build_team_member_context()` produces a non-empty query and role-specific task package from raw user input:
+
+```python
+def test_research_scout_context_derives_query_from_raw_message() -> None:
+    payload = build_team_member_context(
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            workspace_id="ws-1",
+            raw_message="联邦学习结合大模型 (Federated Learning combined with Large Language Models)",
+            brief={},
+        ),
+        capability_name="文献定位与创新点",
+        template_id="research_scout.v1",
+        display_role="文献检索员",
+        blackboard=TeamBlackboard(mission_summary="文献定位与创新点"),
+    )
+
+    assert payload["query"] == "Federated Learning combined with Large Language Models"
+    assert payload["raw_message"].startswith("联邦学习")
+    assert payload["task_focus"]
+    assert payload["workspace_id"] == "ws-1"
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_member_context.py::test_research_scout_context_derives_query_from_raw_message -q
+```
+
+Expected before implementation: fail because the helper does not exist.
+
+- [ ] **Step 2: Implement `member_context.py` as a pure assembler**
+
+The helper must:
+
+- preserve explicit `brief.brief.topic/query/goal/raw_message` values when present.
+- derive `query` from `query`, then `topic`, then English spans in `raw_message`, then compact raw message.
+- attach `task_focus` based on template id only when the current payload lacks it.
+- attach bounded `upstream_outputs` from `TeamBlackboard.phase_outputs`.
+- never inject protected/internal `/workspace/.wenjin/**` or `/workspace/outputs/harness/**` refs.
+
+Do not call DataService from this helper. TeamKernel passes already-loaded facts.
+
+- [ ] **Step 3: Wire TeamKernel through the assembler**
+
+Replace the body of `_build_member_brief()` in `backend/src/agents/lead_agent/v2/team/kernel.py` with a call to `build_team_member_context()`.
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_member_context.py tests/agents/lead_agent/v2/test_team_kernel.py -q
+```
+
+Expected: all selected tests pass, and existing TeamKernel tests still see `team_role`, `team_blackboard`, `capability_name`, `workspace_id`, and `raw_message`.
+
+- [ ] **Step 4: Add failing business-tool resolution tests**
+
+Add a ReactSubagent tool resolution test proving these tool names resolve to bounded callables instead of failing as forbidden:
+
+```python
+def test_react_resolves_business_tools_from_workspace_context() -> None:
+    ctx = SubagentContext(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        prompt="",
+        inputs={"raw_message": "test"},
+        tools=["library_read", "document_read", "memory_read", "prism_read", "citation_parser"],
+        workspace_data={
+            "library": {"items": [{"title": "Paper A", "citation_key": "paper_a_2026"}]},
+            "documents": [{"name": "notes.md", "excerpt": "method notes"}],
+            "memory": [{"text": "prefer conservative claims"}],
+            "prism": {"outline": ["Introduction"]},
+        },
+        capability_policy={},
+        skill=None,
+    )
+
+    resolved = _resolve_tools(ctx.tools, ctx)
+    assert {tool.name for tool in resolved} == {
+        "library_read",
+        "document_read",
+        "memory_read",
+        "prism_read",
+        "citation_parser",
+    }
+```
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/subagents/v2/test_react_business_tools.py::test_react_resolves_business_tools_from_workspace_context -q
+```
+
+Expected before implementation: fail because only sandbox harness tools are resolved.
+
+- [ ] **Step 5: Implement bounded business tools**
+
+Create `backend/src/agents/harness/business_tools.py` with callables backed by `SubagentContext.workspace_data`:
+
+- `library_read(query: str | None = None, limit: int = 20)` returns bounded Library summaries and citation keys.
+- `document_read(query: str | None = None, limit: int = 10)` returns bounded document excerpts.
+- `memory_read(query: str | None = None, limit: int = 10)` returns bounded workspace memory facts.
+- `prism_read(section: str | None = None)` returns lightweight outline / protected section summary, not full manuscript text.
+- `citation_parser(text: str)` extracts citation-like keys and DOI/URL-like tokens without fabricating sources.
+- `artifact_create(title: str, markdown: str, kind: str = "review_report")` returns a staged artifact payload in the tool result only; it must not write canonical rooms directly.
+
+Rules:
+
+- All outputs use bounded previews and counts.
+- No raw DataService calls inside the tool functions.
+- No direct room commit, Prism apply, or canonical artifact materialization.
+- Protected/internal workspace paths are filtered before returning.
+
+- [ ] **Step 6: Register business tools in the existing adapter**
+
+Extend `build_langchain_tools()` in `backend/src/agents/harness/langchain_adapter.py` so:
+
+- sandbox tools continue to resolve through the existing sandbox registry.
+- business tools resolve through `business_tools.py`.
+- unknown tool names still fail explicitly.
+- no plain-model fallback is introduced.
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_business_tools.py tests/subagents/v2/test_react_business_tools.py -q
+```
+
+Expected: all selected tests pass.
+
+- [ ] **Step 7: Prove the SCI literature team no longer fails for the two known causes**
+
+Add or extend a TeamKernel test using `sci_literature_positioning` policy/template inputs to assert:
+
+- research scout receives a non-empty query from raw message.
+- literature synthesizer receives resolvable tools.
+- node metadata no longer includes `tool_forbidden` for business tool names.
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_kernel.py tests/subagents/v2/test_react_business_tools.py -q
+```
+
+Expected: selected tests pass.
+
+Commit boundary:
+
+```bash
+git commit -m "fix: resolve team member context and business tools"
+```
+
+---
+
+### Task 11: Make Workspace Sandbox Filesystem Useful for Long-Running Research Work
+
+**Goal:** turn the current layout contract into a practical workspace filesystem that agents can reason about across tasks without seeing internal noise.
+
+**Files:**
+
+- Modify: `backend/src/sandbox/workspace_layout.py`
+- Modify: `backend/src/agents/harness/context_assembly.py`
+- Modify: `backend/src/agents/harness/sandbox_tools.py`
+- Test: `backend/tests/sandbox/test_workspace_layout.py`
+- Test: `backend/tests/agents/harness/test_context_assembly.py`
+- Test: `backend/tests/agents/harness/test_sandbox_file_tools.py`
+- Docs: `docs/current/workspace-current-state.md`
+
+- [ ] **Step 1: Add layout readme/manifest tests**
+
+Test that `ensure_workspace_sandbox_layout()` creates:
+
+- `/workspace/main/README.md` if absent, with concise workspace-file guidance.
+- `/workspace/datasets/.gitkeep`, `/workspace/scripts/.gitkeep`, `/workspace/outputs/.gitkeep`, `/workspace/reports/.gitkeep`.
+- deterministic `.wenjin/manifest.json`.
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py -q
+```
+
+- [ ] **Step 2: Implement stable workspace guidance files**
+
+Keep the guidance short and operational:
+
+- where to put datasets.
+- where to write scripts.
+- where to put generated outputs/reports.
+- protected/internal paths agents must not touch.
+
+Do not include user secrets, model config, or host paths.
+
+- [ ] **Step 3: Expose file tree summaries in harness context**
+
+Update `build_harness_context_bundle()` to include a bounded `workspace_file_summary`:
+
+```json
+{
+  "visible_roots": ["/workspace/main", "/workspace/datasets", "/workspace/scripts", "/workspace/outputs", "/workspace/reports"],
+  "recent_outputs": [],
+  "recent_scripts": [],
+  "truncated": false
+}
+```
+
+The summary must be derived from already-loaded file facts or explicit caller input. It must not scan the filesystem inside the pure assembler.
+
+- [ ] **Step 4: Verify file tools still hide internal state**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_sandbox_file_tools.py -q
+```
+
+Commit boundary:
+
+```bash
+git commit -m "feat: clarify workspace sandbox file contract"
+```
+
+---
+
+### Task 12: Add Codex-Style Command Policy Without Adding Generic Shell
+
+**Goal:** borrow Codex's command-policy discipline while staying inside Wenjin's task-specific Python/sandbox tools.
+
+**Files:**
+
+- Modify: `backend/src/agents/harness/command_audit.py`
+- Modify: `backend/src/agents/lead_agent/v2/sandbox_job_runner.py`
+- Modify: `backend/src/agents/lead_agent/v2/sandbox_environment_installer.py`
+- Test: `backend/tests/agents/harness/test_command_audit.py`
+- Test: `backend/tests/agents/harness/test_scheduler_and_python_tool.py`
+- Docs: `docs/current/architecture.md`
+
+- [ ] **Step 1: Add policy decision tests**
+
+Test these classifications:
+
+- `python /workspace/scripts/analysis.py` under `/workspace` is allowed.
+- dependency installation is allowed only for normalized package specs.
+- `curl`, `wget`, `ssh`, `scp`, `docker`, `sudo`, shell redirection to protected paths, and host absolute paths are forbidden.
+- policy decision and reason are recorded in command audit metadata.
+
+- [ ] **Step 2: Implement command policy as audit-first guard**
+
+Extend command audit with:
+
+```json
+{
+  "schema": "wenjin.harness.command_policy_decision.v1",
+  "decision": "allow|forbid",
+  "reason": "workspace_python|dependency_install|network_forbidden|host_path_forbidden",
+  "command_preview": "python /workspace/scripts/analysis.py"
+}
+```
+
+Do not expose a generic `sandbox.run_command` tool. This policy only guards Wenjin-owned Python/install/smoke jobs.
+
+- [ ] **Step 3: Run verification**
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness/test_command_audit.py tests/agents/harness/test_scheduler_and_python_tool.py -q
+```
+
+Commit boundary:
+
+```bash
+git commit -m "feat: add harness command policy audit"
+```
+
+---
+
+### Task 13: Add DeerFlow-Style Run Journal Signals Inside Existing Execution Events
+
+**Goal:** learn from DeerFlow's run manager/journal idea, but keep `ExecutionRecord` and `ExecutionNodeRecord` as Wenjin's only execution facts.
+
+**Files:**
+
+- Modify: `backend/src/agents/harness/events.py`
+- Modify: `backend/src/agents/lead_agent/v2/team/kernel.py`
+- Modify: `backend/src/services/execution_event_publisher.py`
+- Test: `backend/tests/agents/harness/test_events.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_team_kernel.py`
+- Test: `frontend/tests/unit/lib/execution-run-view.test.ts`
+
+- [ ] **Step 1: Add journal event schema tests**
+
+Expected event payload:
+
+```json
+{
+  "schema": "wenjin.harness.journal_event.v1",
+  "phase": "member_started|tool_started|tool_completed|member_completed|quality_gate",
+  "member": {"id": "team.1.research_scout_v1.1", "display_name": "文献检索员"},
+  "summary": "文献检索员开始检索来源",
+  "debug_ref": null
+}
+```
+
+- [ ] **Step 2: Publish concise journal events through existing execution event path**
+
+Keep this as a product-facing summary stream:
+
+- no new run table.
+- no second frontend subscription.
+- raw tool args/logs remain in node detail/debug payloads.
+
+- [ ] **Step 3: Update frontend projection only through `execution-run-view.ts`**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/frontend
+npx vitest run tests/unit/lib/execution-run-view.test.ts
+```
+
+Commit boundary:
+
+```bash
+git commit -m "feat: summarize harness run journal events"
+```
+
+---
+
+### Task 14: Docker Browser E2E for the Harness User Journey
+
+**Goal:** verify the full product loop after the member-context/business-tool fixes.
+
+**Files:**
+
+- Modify only if regressions are found.
+- Test/docs update only when behavior changes.
+
+- [ ] **Step 1: Rebuild stack**
+
+```bash
+cd /Users/ze/wenjin
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build frontend gateway worker
+docker compose ps
+```
+
+Expected: all core services healthy.
+
+- [ ] **Step 2: Browser-test Workbench team task**
+
+Use `http://localhost:2026`:
+
+- confirm logged-in session survives Workbench/Prism switches.
+- launch `文献定位与创新点` with raw text only.
+- verify `research_scout` query is non-empty in node detail/debug.
+- verify `literature_synthesizer` no longer fails because of unresolved business tools.
+- verify LiveWorkflowPanel shows member names, quality gates, artifacts/review actions, not raw JSON.
+
+- [ ] **Step 3: Browser-test Prism task continuity**
+
+- open Prism.
+- compile and open PDF contrast.
+- trigger AI 改稿.
+- confirm the panel does not auto-open from compile, does not block editing, and uses product-facing copy.
+
+- [ ] **Step 4: Fix regressions with tests**
+
+Only make code changes for reproducible bugs. Every fix needs a targeted backend/frontend test before another browser pass.
+
+Commit boundary:
+
+```bash
+git commit -m "fix: stabilize native harness browser flow"
+```
+
+---
+
+### Task 15: Final Standing-Alone Harness Audit
+
+**Goal:** decide honestly whether Wenjin's harness is independent enough for the next product milestone.
+
+**Files:**
+
+- Docs:
+  - `docs/current/architecture.md`
+  - `docs/current/workspace-current-state.md`
+  - `docs/current/frontend-feature-plugin-contract.md`
+  - `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+
+- [ ] **Step 1: External-reference regression scan**
+
+```bash
+cd /Users/ze/wenjin
+rg "codex|cc-switch|ccswitch|deer-flow|deerflow|Codex SDK|sandbox\\.run_command" backend/src frontend -n
+```
+
+Expected: no production dependency/reference except intentional documentation.
+
+- [ ] **Step 2: Full targeted verification**
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/agents/harness tests/agents/lead_agent/v2 tests/subagents/v2 tests/integration/test_harness_mock_sandbox_e2e.py -q
+.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 tests/agents/harness tests/agents/lead_agent/v2 tests/subagents/v2
+
+cd /Users/ze/wenjin/frontend
+npm run typecheck
+npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/v2/live-workflow-view-model.test.ts tests/unit/stores/execution-store.test.ts
+
+cd /Users/ze/wenjin
+git diff --check
+```
+
+- [ ] **Step 3: Write final audit**
+
+The audit must answer:
+
+- Which Codex patterns were adopted: command policy, approval-style audit, bounded tool output, session facts, explicit unresolved-tool failure.
+- Which DeerFlow patterns were adopted: sandbox filesystem, skill/tool declarative contracts, run journal, middleware-like bounded context.
+- Which Wenjin-specific choices remain different: one workspace/one sandbox, capability DataService SSOT, review-first artifacts, Prism/rooms integration.
+- Remaining weaknesses by severity, especially model reliability, source quality, tool latency, sandbox install experience, and frontend complexity.
+
+Commit boundary:
+
+```bash
+git commit -m "docs: audit native harness convergence"
+```
+
+Do not call the active goal complete unless Task 10 through Task 15 are verified, browser-tested, and the final audit has no unresolved P0/P1 gaps.
 
 ## Review Checklist After Each Task
 

@@ -581,7 +581,7 @@ def _replacement_recruits(
             candidate_pairs.extend(_trigger_template_pairs(team_policy, trigger))
     if not candidate_pairs:
         candidate_pairs = [
-            (template_id, "optional_fallback")
+            (template_id, "standby_member")
             for template_id in team_policy.optional_templates
         ]
     suggested: list[dict[str, str]] = []

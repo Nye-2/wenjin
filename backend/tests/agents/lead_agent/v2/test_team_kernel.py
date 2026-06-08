@@ -313,6 +313,17 @@ class FakeCriticalReviewerFailingTeamCatalogClient(FakeTeamCatalogClient):
         ]
 
 
+class CapturingQualityGateRuntimeStateClient(FakeCriticalReviewerFailingTeamCatalogClient):
+    runtime_state_updates: list[dict] = []
+
+    async def get_execution(self, execution_id: str):
+        return SimpleNamespace(runtime_state_json={"existing_key": "preserved"})
+
+    async def update_execution(self, execution_id: str, command):
+        type(self).runtime_state_updates.append(command.model_dump(mode="json"))
+        return SimpleNamespace(runtime_state_json=command.runtime_state_json)
+
+
 class CountingGeneralistNewSkillCatalogClient(FakeCriticalReviewerFailingTeamCatalogClient):
     skill_list_calls = 0
 
@@ -965,6 +976,43 @@ async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(mo
         event["node_metadata"]["template_id"] == "generalist_assistant.v1"
         for event in node_events
     )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_runtime_persists_quality_gates_to_runtime_state(monkeypatch) -> None:
+    CapturingQualityGateRuntimeStateClient.runtime_state_updates = []
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: CapturingQualityGateRuntimeStateClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["team_policy"]["capability_skills"].append("failing-review-critic")
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-quality-state", brief=_brief())
+
+    assert report.status == "failed_partial"
+    assert CapturingQualityGateRuntimeStateClient.runtime_state_updates
+    latest_runtime_state = CapturingQualityGateRuntimeStateClient.runtime_state_updates[-1][
+        "runtime_state_json"
+    ]
+    assert latest_runtime_state["existing_key"] == "preserved"
+    assert latest_runtime_state["quality_gates"]
+    assert {
+        gate["gate_id"]
+        for gate in latest_runtime_state["quality_gates"]
+    } >= {
+        "critical_review",
+        "evidence_traceability",
+    }
 
 
 @pytest.mark.asyncio
