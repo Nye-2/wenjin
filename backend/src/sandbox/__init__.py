@@ -34,7 +34,9 @@ from .workspace_layout import (
     WORKSPACE_PROTECTED_PATHS,
     WORKSPACE_ROOT,
     WORKSPACE_STANDARD_DIRS,
+    WORKSPACE_TYPE_PROFILE_SCHEMA,
     ensure_workspace_sandbox_layout,
+    workspace_type_profile,
     workspace_virtual_path,
 )
 
@@ -53,8 +55,10 @@ __all__ = [
     "WORKSPACE_ROOT",
     "WORKSPACE_STANDARD_DIRS",
     "WORKSPACE_PROTECTED_PATHS",
+    "WORKSPACE_TYPE_PROFILE_SCHEMA",
     "WORKSPACE_MANIFEST_RELATIVE_PATH",
     "ensure_workspace_sandbox_layout",
+    "workspace_type_profile",
     "workspace_virtual_path",
     # Configuration
     "SandboxSettings",

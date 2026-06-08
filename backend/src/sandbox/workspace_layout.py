@@ -12,6 +12,7 @@ from typing import Any, Literal
 WORKSPACE_ROOT = "/workspace"
 WORKSPACE_LAYOUT_SCHEMA = "wenjin.workspace_sandbox.layout.v1"
 WORKSPACE_LAYOUT_VERSION = 1
+WORKSPACE_TYPE_PROFILE_SCHEMA = "wenjin.workspace_sandbox.type_profile.v1"
 WORKSPACE_MANIFEST_RELATIVE_PATH = ".wenjin/manifest.json"
 WORKSPACE_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_MANIFEST_RELATIVE_PATH}"
 WORKSPACE_DATASET_PROVENANCE_SCHEMA = "wenjin.workspace_sandbox.dataset_provenance.v1"
@@ -209,6 +210,181 @@ _DIRECTORY_CONTRACTS: dict[str, dict[str, Any]] = {
     },
 }
 
+_GENERIC_WORKSPACE_PROFILE: dict[str, Any] = {
+    "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
+    "workspace_type": "generic",
+    "label": "General research workspace",
+    "primary_files": [
+        f"{WORKSPACE_ROOT}/main/README.md",
+    ],
+    "script_paths": [
+        f"{WORKSPACE_ROOT}/scripts/analysis.py",
+        f"{WORKSPACE_ROOT}/scripts/reproduce.py",
+    ],
+    "output_paths": [
+        f"{WORKSPACE_ROOT}/outputs",
+    ],
+    "report_paths": [
+        f"{WORKSPACE_ROOT}/reports/summary.md",
+    ],
+    "rules": [
+        "Keep primary project files under /workspace/main.",
+        "Keep reusable experiments under /workspace/scripts and generated outputs under /workspace/outputs.",
+        "Keep readable notes, audits, and delivery reports under /workspace/reports.",
+        "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
+    ],
+}
+
+_WORKSPACE_TYPE_PROFILES: dict[str, dict[str, Any]] = {
+    "thesis": {
+        "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
+        "workspace_type": "thesis",
+        "label": "Thesis workspace",
+        "primary_files": [
+            f"{WORKSPACE_ROOT}/main/main.tex",
+            f"{WORKSPACE_ROOT}/main/refs.bib",
+            f"{WORKSPACE_ROOT}/main/README.md",
+        ],
+        "script_paths": [
+            f"{WORKSPACE_ROOT}/scripts/analysis.py",
+            f"{WORKSPACE_ROOT}/scripts/reproduce.py",
+        ],
+        "output_paths": [
+            f"{WORKSPACE_ROOT}/outputs/figures",
+            f"{WORKSPACE_ROOT}/outputs/tables",
+            f"{WORKSPACE_ROOT}/outputs/metrics",
+        ],
+        "report_paths": [
+            f"{WORKSPACE_ROOT}/reports/chapter-review.md",
+            f"{WORKSPACE_ROOT}/reports/experiment-report.md",
+            f"{WORKSPACE_ROOT}/reports/revision-plan.md",
+        ],
+        "rules": [
+            "Keep thesis-facing files under /workspace/main.",
+            "Keep reusable experiments under /workspace/scripts and generated figures/tables under /workspace/outputs.",
+            "Keep chapter audits, experiment reports, and revision plans under /workspace/reports.",
+            "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
+        ],
+    },
+    "sci": {
+        "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
+        "workspace_type": "sci",
+        "label": "SCI paper workspace",
+        "primary_files": [
+            f"{WORKSPACE_ROOT}/main/main.tex",
+            f"{WORKSPACE_ROOT}/main/refs.bib",
+            f"{WORKSPACE_ROOT}/main/README.md",
+        ],
+        "script_paths": [
+            f"{WORKSPACE_ROOT}/scripts/analysis.py",
+            f"{WORKSPACE_ROOT}/scripts/reproduce.py",
+        ],
+        "output_paths": [
+            f"{WORKSPACE_ROOT}/outputs/figures",
+            f"{WORKSPACE_ROOT}/outputs/tables",
+            f"{WORKSPACE_ROOT}/outputs/metrics",
+        ],
+        "report_paths": [
+            f"{WORKSPACE_ROOT}/reports/literature-review.md",
+            f"{WORKSPACE_ROOT}/reports/experiment-report.md",
+            f"{WORKSPACE_ROOT}/reports/revision-plan.md",
+        ],
+        "rules": [
+            "Keep manuscript-facing files under /workspace/main.",
+            "Keep reusable experiments under /workspace/scripts and generated figures/tables under /workspace/outputs.",
+            "Keep readable research notes, audits, and revision plans under /workspace/reports.",
+            "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
+        ],
+    },
+    "proposal": {
+        "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
+        "workspace_type": "proposal",
+        "label": "Research proposal workspace",
+        "primary_files": [
+            f"{WORKSPACE_ROOT}/main/proposal.md",
+            f"{WORKSPACE_ROOT}/main/budget.md",
+            f"{WORKSPACE_ROOT}/main/README.md",
+        ],
+        "script_paths": [
+            f"{WORKSPACE_ROOT}/scripts/evidence_scan.py",
+            f"{WORKSPACE_ROOT}/scripts/budget_checks.py",
+        ],
+        "output_paths": [
+            f"{WORKSPACE_ROOT}/outputs/evidence",
+            f"{WORKSPACE_ROOT}/outputs/tables",
+        ],
+        "report_paths": [
+            f"{WORKSPACE_ROOT}/reports/novelty-assessment.md",
+            f"{WORKSPACE_ROOT}/reports/risk-review.md",
+            f"{WORKSPACE_ROOT}/reports/revision-plan.md",
+        ],
+        "rules": [
+            "Keep proposal-facing files under /workspace/main.",
+            "Keep evidence scans and budget checks under /workspace/scripts.",
+            "Keep novelty, risk, and revision reports under /workspace/reports.",
+            "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
+        ],
+    },
+    "software_copyright": {
+        "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
+        "workspace_type": "software_copyright",
+        "label": "Software copyright workspace",
+        "primary_files": [
+            f"{WORKSPACE_ROOT}/main/software-description.md",
+            f"{WORKSPACE_ROOT}/main/source-structure.md",
+            f"{WORKSPACE_ROOT}/main/README.md",
+        ],
+        "script_paths": [
+            f"{WORKSPACE_ROOT}/scripts/source_inventory.py",
+            f"{WORKSPACE_ROOT}/scripts/compliance_checks.py",
+        ],
+        "output_paths": [
+            f"{WORKSPACE_ROOT}/outputs/source-inventory",
+            f"{WORKSPACE_ROOT}/outputs/screenshots",
+        ],
+        "report_paths": [
+            f"{WORKSPACE_ROOT}/reports/material-checklist.md",
+            f"{WORKSPACE_ROOT}/reports/compliance-review.md",
+            f"{WORKSPACE_ROOT}/reports/revision-plan.md",
+        ],
+        "rules": [
+            "Keep application-facing software documentation under /workspace/main.",
+            "Keep source inventory and compliance helper scripts under /workspace/scripts.",
+            "Keep material checklists and compliance reviews under /workspace/reports.",
+            "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
+        ],
+    },
+    "patent": {
+        "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
+        "workspace_type": "patent",
+        "label": "Patent workspace",
+        "primary_files": [
+            f"{WORKSPACE_ROOT}/main/patent-draft.md",
+            f"{WORKSPACE_ROOT}/main/claims.md",
+            f"{WORKSPACE_ROOT}/main/drawings-notes.md",
+        ],
+        "script_paths": [
+            f"{WORKSPACE_ROOT}/scripts/prior_art_scan.py",
+            f"{WORKSPACE_ROOT}/scripts/claim_checks.py",
+        ],
+        "output_paths": [
+            f"{WORKSPACE_ROOT}/outputs/prior-art",
+            f"{WORKSPACE_ROOT}/outputs/claim-maps",
+        ],
+        "report_paths": [
+            f"{WORKSPACE_ROOT}/reports/novelty-map.md",
+            f"{WORKSPACE_ROOT}/reports/claim-risk-review.md",
+            f"{WORKSPACE_ROOT}/reports/revision-plan.md",
+        ],
+        "rules": [
+            "Keep patent-facing drafts, claims, and drawing notes under /workspace/main.",
+            "Keep prior-art and claim-analysis scripts under /workspace/scripts.",
+            "Keep novelty maps, claim risk reviews, and revision plans under /workspace/reports.",
+            "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
+        ],
+    },
+}
+
 
 def ensure_workspace_sandbox_layout(
     workspace_path: str | Path,
@@ -280,6 +456,7 @@ def build_workspace_sandbox_manifest(
         "workspace_id": workspace_id,
         "sandbox_id": sandbox_id,
         "workspace_type": workspace_type,
+        "workspace_profile": workspace_type_profile(workspace_type),
         "manifest_path": WORKSPACE_MANIFEST_VIRTUAL_PATH,
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
@@ -307,6 +484,13 @@ def build_dataset_provenance_manifest(*, datasets: list[dict[str, Any]] | None =
         "datasets": list(datasets or []),
         "rules": list(WORKSPACE_DATASET_PROVENANCE_RULES),
     }
+
+
+def workspace_type_profile(workspace_type: str | None) -> dict[str, Any]:
+    """Return domain-specific file naming guidance for the common workspace layout."""
+
+    key = str(workspace_type or "").strip().lower()
+    return deepcopy(_WORKSPACE_TYPE_PROFILES.get(key) or _GENERIC_WORKSPACE_PROFILE)
 
 
 def build_artifact_manifest(*, artifacts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -568,6 +752,7 @@ def build_agent_workspace_contract(
         "workspace_id": workspace_id,
         "workspace_type": workspace_type,
         "directories": directories,
+        "workspace_profile": workspace_type_profile(workspace_type),
         "artifact_roots": manifest["artifact_roots"],
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,

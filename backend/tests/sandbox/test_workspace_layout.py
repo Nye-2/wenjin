@@ -10,6 +10,7 @@ from src.sandbox.workspace_layout import (
     WORKSPACE_PROTECTED_PATHS,
     WORKSPACE_ROOT,
     WORKSPACE_STANDARD_DIRS,
+    build_agent_workspace_contract,
     build_artifact_manifest,
     build_dataset_provenance_manifest,
     build_workspace_sandbox_manifest,
@@ -41,6 +42,9 @@ def test_ensure_workspace_sandbox_layout_creates_standard_tree(tmp_path):
     assert persisted["directories"]["main"]["virtual_path"] == "/workspace/main"
     assert persisted["directories"]["outputs"]["review_surface"] == "artifact"
     assert persisted["datasets_manifest_path"] == "/workspace/datasets/manifest.json"
+    assert persisted["workspace_profile"]["workspace_type"] == "sci"
+    assert "/workspace/main/main.tex" in persisted["workspace_profile"]["primary_files"]
+    assert "/workspace/reports/experiment-report.md" in persisted["workspace_profile"]["report_paths"]
     assert ".wenjin/**" in persisted["protected_paths"]
 
 
@@ -332,10 +336,61 @@ def test_merge_artifact_manifest_rejects_internal_guidance_and_non_artifact_refs
 def test_workspace_sandbox_manifest_does_not_expose_mutable_contract_state():
     first = build_workspace_sandbox_manifest(workspace_id="ws-1")
     first["directories"]["main"]["purpose"] = "mutated"
+    first["workspace_profile"]["primary_files"].append("/workspace/main/mutated.txt")
 
     second = build_workspace_sandbox_manifest(workspace_id="ws-2")
 
     assert second["directories"]["main"]["purpose"] == "primary_project"
+    assert "/workspace/main/mutated.txt" not in second["workspace_profile"]["primary_files"]
+
+
+def test_workspace_type_profiles_keep_one_common_layout_with_domain_guidance():
+    sci_contract = build_agent_workspace_contract(workspace_id="ws-1", workspace_type="sci")
+    patent_contract = build_agent_workspace_contract(workspace_id="ws-2", workspace_type="patent")
+    generic_contract = build_agent_workspace_contract(workspace_id="ws-3", workspace_type="unknown")
+
+    assert (
+        set(sci_contract["directories"])
+        == set(patent_contract["directories"])
+        == set(generic_contract["directories"])
+    )
+    assert sci_contract["workspace_profile"] == {
+        "schema": "wenjin.workspace_sandbox.type_profile.v1",
+        "workspace_type": "sci",
+        "label": "SCI paper workspace",
+        "primary_files": [
+            "/workspace/main/main.tex",
+            "/workspace/main/refs.bib",
+            "/workspace/main/README.md",
+        ],
+        "script_paths": [
+            "/workspace/scripts/analysis.py",
+            "/workspace/scripts/reproduce.py",
+        ],
+        "output_paths": [
+            "/workspace/outputs/figures",
+            "/workspace/outputs/tables",
+            "/workspace/outputs/metrics",
+        ],
+        "report_paths": [
+            "/workspace/reports/literature-review.md",
+            "/workspace/reports/experiment-report.md",
+            "/workspace/reports/revision-plan.md",
+        ],
+        "rules": [
+            "Keep manuscript-facing files under /workspace/main.",
+            "Keep reusable experiments under /workspace/scripts and generated figures/tables under /workspace/outputs.",
+            "Keep readable research notes, audits, and revision plans under /workspace/reports.",
+            "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
+        ],
+    }
+    assert patent_contract["workspace_profile"]["primary_files"] == [
+        "/workspace/main/patent-draft.md",
+        "/workspace/main/claims.md",
+        "/workspace/main/drawings-notes.md",
+    ]
+    assert generic_contract["workspace_profile"]["workspace_type"] == "generic"
+    assert generic_contract["workspace_profile"]["primary_files"] == ["/workspace/main/README.md"]
 
 
 def test_workspace_protected_paths_include_runtime_and_secret_material():

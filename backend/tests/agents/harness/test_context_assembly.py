@@ -55,6 +55,13 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
     assert "/workspace/outputs" in bundle["sandbox"]["artifact_roots"]
     assert bundle["sandbox"]["datasets_manifest_path"] == "/workspace/datasets/manifest.json"
     assert bundle["sandbox"]["artifacts_manifest_path"] == "/workspace/reports/artifacts.json"
+    assert bundle["sandbox"]["workspace_profile"]["workspace_type"] == "sci"
+    assert bundle["sandbox"]["workspace_profile"]["primary_files"] == [
+        "/workspace/main/main.tex",
+        "/workspace/main/refs.bib",
+        "/workspace/main/README.md",
+    ]
+    assert "/workspace/reports/experiment-report.md" in bundle["sandbox"]["workspace_profile"]["report_paths"]
     assert "**/.env" in bundle["sandbox"]["protected_paths"]
     assert "/workspace/outputs/harness/**" in bundle["sandbox"]["internal_paths"]
     assert "node_modules" in bundle["sandbox"]["search_ignored_names"]

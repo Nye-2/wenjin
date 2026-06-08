@@ -101,10 +101,26 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "artifact_roots": [str(path) for path in artifact_roots.values() if str(path).strip()],
         "datasets_manifest_path": str(contract.get("datasets_manifest_path") or ""),
         "artifacts_manifest_path": str(contract.get("artifacts_manifest_path") or ""),
+        "workspace_profile": _safe_workspace_profile(contract.get("workspace_profile")),
         "protected_paths": [str(path) for path in contract.get("protected_paths") or ()],
         "internal_paths": [str(path) for path in contract.get("internal_paths") or ()],
         "search_ignored_names": [str(name) for name in contract.get("search_ignored_names") or ()],
         "rules": [str(rule) for rule in contract.get("rules") or ()],
+    }
+
+
+def _safe_workspace_profile(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "schema": str(value.get("schema") or ""),
+        "workspace_type": str(value.get("workspace_type") or ""),
+        "label": str(value.get("label") or ""),
+        "primary_files": _safe_string_list(value.get("primary_files")),
+        "script_paths": _safe_string_list(value.get("script_paths")),
+        "output_paths": _safe_string_list(value.get("output_paths")),
+        "report_paths": _safe_string_list(value.get("report_paths")),
+        "rules": _safe_string_list(value.get("rules")),
     }
 
 
