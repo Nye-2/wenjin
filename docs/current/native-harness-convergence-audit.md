@@ -42,7 +42,7 @@ Chat Agent
 - **工具异常可恢复**：ReactSubagent adapter 把普通 tool exception 降级为 structured JSON error result，保留 tool record 和 `execution.harness.tool_call.failed`。
 - **loop guard**：重复工具调用会触发 warning/hard-stop 逻辑，且不破坏 provider tool-call pairing。
 - **runtime journal 思路**：用 `run_journal_summary` 和 `journal` event envelope 给前端提供产品化进度摘要，而不是展示 debug payload。
-- **bounded context**：`_harness_context(schema=wenjin.harness.context_bundle.v1)` 固定注入任务、workspace、sandbox 文件系统、protected/internal paths、recent evidence 和可复现实验摘要。
+- **bounded context**：`_harness_context(schema=wenjin.harness.context_bundle.v1)` 固定注入任务、workspace、sandbox 文件系统、dataset provenance、protected/internal paths、recent evidence 和可复现实验摘要。
 
 未吸收的 deer-flow 部分也是有意取舍：不迁移 agent factory、thread-local workspace、完整 middleware stack、ACP surface 或 allow-all bash 工具。
 
@@ -77,7 +77,7 @@ Chat Agent
 
 ### P1: sandbox 安装与实验体验仍偏基础
 
-自动安装、缺包重试、command audit、`reproducibility_manifest` 和用户可读 `report_markdown` 已经具备；每次 `sandbox.run_python` 会留下脚本、依赖、sandbox job/environment、生成产物、命令风险摘要和安装失败恢复建议。但还缺少数据集 provenance、面向长程实验的更完整报告模板，以及把这些证据更轻地展示到默认 UI 的方式。
+自动安装、缺包重试、command audit、`reproducibility_manifest` 和用户可读 `report_markdown` 已经具备；每次 `sandbox.run_python` 会留下脚本、依赖、sandbox job/environment、生成产物、命令风险摘要和安装失败恢复建议。`/workspace/datasets/manifest.json` 与 context-level `dataset_provenance` 已经提供数据集来源规范，但还缺少自动从上传/source asset 填充 dataset manifest、面向长程实验的更完整报告模板，以及把这些证据更轻地展示到默认 UI 的方式。
 
 ### P2: TeamKernel 质量门显示还有压缩空间
 

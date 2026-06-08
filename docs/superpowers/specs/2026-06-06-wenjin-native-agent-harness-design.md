@@ -232,6 +232,8 @@ Wenjin should not copy deer-flow's thread-local `/mnt/user-data/{workspace,uploa
 /workspace/
   main/              primary project files: manuscript, code, experiment entrypoints
   datasets/          datasets and input materials
+    README.md        dataset usage guidance
+    manifest.json    editable dataset provenance manifest
   scripts/           reusable experiment scripts and agent-generated scripts
   outputs/           generated artifacts, plots, compile outputs, result files
   reports/           analysis notes, phase summaries, delivery reports
@@ -244,9 +246,11 @@ Wenjin should not copy deer-flow's thread-local `/mnt/user-data/{workspace,uploa
 
 Implementation rules:
 
-- `backend/src/sandbox/workspace_layout.py` is the single source of truth for `WORKSPACE_ROOT`, standard directories, protected paths, internal paths, artifact roots, manifest path, helper virtual-path construction, and workspace path classification.
+- `backend/src/sandbox/workspace_layout.py` is the single source of truth for `WORKSPACE_ROOT`, standard directories, protected paths, internal paths, artifact roots, layout manifest path, dataset provenance manifest path, helper virtual-path construction, and workspace path classification.
 - Every provider that creates a workspace sandbox calls `ensure_workspace_sandbox_layout()` during acquire.
 - Tool-using ReactSubagents receive the same bounded `_harness_context(schema=wenjin.harness.context_bundle.v1)` in both default payload data and a `Harness context bundle` system prompt section, so custom `user_template` skills still know the task, workspace type, scripts/reports/outputs/scratch directories, protected paths, internal harness refs, recent execution evidence, and context budget.
+- `/workspace/datasets/manifest.json(schema=wenjin.workspace_sandbox.dataset_provenance.v1)` is an editable dataset provenance manifest. Layout initialization creates it only when missing and never overwrites an existing manifest. It records reusable dataset/input entries under `/workspace/datasets/**`; entries should prefer stable `source_id`, `content_hash`, license, and preparation notes when known, and must not contain secrets or credentials.
+- Harness context projects caller-provided `workspace_file_summary.dataset_provenance` into the model only after path filtering. Only `/workspace/datasets/**` virtual paths survive; protected/internal refs and non-dataset paths are dropped.
 - Harness tools accept only `/workspace` virtual paths. New harness code must not introduce `/mnt/user-data` aliases.
 - Existing thread artifact/upload helpers that still use `/mnt/user-data` are legacy non-harness boundaries and should be migrated deliberately when that product surface is touched.
 - `.wenjin/env/**`, `.wenjin/cache/**`, `.wenjin/manifest.json`, `.git/**`, root or nested `.env` / `.env.*`, `*.pem`, and `*.key` are protected by default policy.

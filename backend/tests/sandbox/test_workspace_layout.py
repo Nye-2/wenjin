@@ -4,6 +4,7 @@ import json
 
 import src.sandbox.workspace_layout as layout
 from src.sandbox.workspace_layout import (
+    WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH,
     WORKSPACE_MANIFEST_RELATIVE_PATH,
     WORKSPACE_PROTECTED_PATHS,
     WORKSPACE_ROOT,
@@ -36,6 +37,7 @@ def test_ensure_workspace_sandbox_layout_creates_standard_tree(tmp_path):
     assert persisted["virtual_root"] == "/workspace"
     assert persisted["directories"]["main"]["virtual_path"] == "/workspace/main"
     assert persisted["directories"]["outputs"]["review_surface"] == "artifact"
+    assert persisted["datasets_manifest_path"] == "/workspace/datasets/manifest.json"
     assert ".wenjin/env/**" in persisted["protected_paths"]
     assert ".wenjin/cache/**" in persisted["protected_paths"]
 
@@ -56,6 +58,22 @@ def test_ensure_workspace_sandbox_layout_creates_guidance_and_keep_files(tmp_pat
 
     assert readme_path.is_file()
     assert "/workspace/datasets" in readme
+    assert (tmp_path / "datasets" / "README.md").is_file()
+    dataset_manifest = json.loads(
+        (tmp_path / WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH).read_text(encoding="utf-8")
+    )
+    assert dataset_manifest == {
+        "schema": "wenjin.workspace_sandbox.dataset_provenance.v1",
+        "version": 1,
+        "root": "/workspace/datasets",
+        "datasets": [],
+        "rules": [
+            "Record every reusable dataset or uploaded input used by sandbox experiments.",
+            "Use /workspace/datasets virtual paths only.",
+            "Keep secrets, API keys, credentials, and raw private tokens out of this manifest.",
+            "Prefer stable source_id, content_hash, license, and preparation notes when known.",
+        ],
+    }
     assert "/workspace/scripts" in readme
     assert "/workspace/outputs" in readme
     assert "/workspace/reports" in readme
@@ -72,6 +90,21 @@ def test_ensure_workspace_sandbox_layout_preserves_existing_main_readme(tmp_path
     ensure_workspace_sandbox_layout(tmp_path, workspace_id="ws-1")
 
     assert readme_path.read_text(encoding="utf-8") == "custom workspace note\n"
+
+
+def test_ensure_workspace_sandbox_layout_preserves_existing_dataset_manifest(tmp_path):
+    manifest_path = tmp_path / WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH
+    manifest_path.parent.mkdir(parents=True)
+    manifest_path.write_text(
+        '{"schema":"custom","datasets":[{"path":"/workspace/datasets/raw.csv"}]}\n',
+        encoding="utf-8",
+    )
+
+    ensure_workspace_sandbox_layout(tmp_path, workspace_id="ws-1")
+
+    assert manifest_path.read_text(encoding="utf-8") == (
+        '{"schema":"custom","datasets":[{"path":"/workspace/datasets/raw.csv"}]}\n'
+    )
 
 
 def test_workspace_sandbox_manifest_does_not_expose_mutable_contract_state():

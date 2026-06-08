@@ -13,6 +13,10 @@ WORKSPACE_LAYOUT_SCHEMA = "wenjin.workspace_sandbox.layout.v1"
 WORKSPACE_LAYOUT_VERSION = 1
 WORKSPACE_MANIFEST_RELATIVE_PATH = ".wenjin/manifest.json"
 WORKSPACE_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_MANIFEST_RELATIVE_PATH}"
+WORKSPACE_DATASET_PROVENANCE_SCHEMA = "wenjin.workspace_sandbox.dataset_provenance.v1"
+WORKSPACE_DATASET_PROVENANCE_VERSION = 1
+WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH = "datasets/manifest.json"
+WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH}"
 WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH = "outputs/harness"
 WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH}"
 
@@ -35,6 +39,7 @@ WORKSPACE_KEEP_FILE_DIRS = (
 )
 
 WORKSPACE_MAIN_README_RELATIVE_PATH = "main/README.md"
+WORKSPACE_DATASETS_README_RELATIVE_PATH = "datasets/README.md"
 WORKSPACE_MAIN_README_TEXT = """# Wenjin Workspace
 
 Use this sandbox as the persistent workspace filesystem for this research task.
@@ -47,6 +52,23 @@ Use this sandbox as the persistent workspace filesystem for this research task.
 - Use /workspace/tmp only for scratch files that should not be surfaced by default.
 - Do not read or write .wenjin, .git, .env, *.pem, or *.key paths.
 """
+
+WORKSPACE_DATASETS_README_TEXT = """# Workspace Datasets
+
+Use this directory for datasets and input materials that sandbox experiments may reuse.
+
+- Put reusable data files under /workspace/datasets.
+- Record dataset provenance in /workspace/datasets/manifest.json.
+- Include source_id, content_hash, license, preparation notes, and source path when known.
+- Do not store secrets, credentials, API keys, or private tokens here.
+"""
+
+WORKSPACE_DATASET_PROVENANCE_RULES = (
+    "Record every reusable dataset or uploaded input used by sandbox experiments.",
+    "Use /workspace/datasets virtual paths only.",
+    "Keep secrets, API keys, credentials, and raw private tokens out of this manifest.",
+    "Prefer stable source_id, content_hash, license, and preparation notes when known.",
+)
 
 WORKSPACE_PROTECTED_PATHS = (
     ".git/**",
@@ -157,6 +179,16 @@ def _ensure_workspace_guidance_files(root: Path) -> None:
     readme_path.parent.mkdir(parents=True, exist_ok=True)
     if not readme_path.exists():
         readme_path.write_text(WORKSPACE_MAIN_README_TEXT, encoding="utf-8")
+    datasets_readme_path = root / WORKSPACE_DATASETS_README_RELATIVE_PATH
+    datasets_readme_path.parent.mkdir(parents=True, exist_ok=True)
+    if not datasets_readme_path.exists():
+        datasets_readme_path.write_text(WORKSPACE_DATASETS_README_TEXT, encoding="utf-8")
+    dataset_manifest_path = root / WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH
+    if not dataset_manifest_path.exists():
+        dataset_manifest_path.write_text(
+            json.dumps(build_dataset_provenance_manifest(), ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
     for relative_dir in WORKSPACE_KEEP_FILE_DIRS:
         keep_path = root / relative_dir / ".gitkeep"
         keep_path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,6 +211,7 @@ def build_workspace_sandbox_manifest(
         "sandbox_id": sandbox_id,
         "workspace_type": workspace_type,
         "manifest_path": WORKSPACE_MANIFEST_VIRTUAL_PATH,
+        "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "directories": deepcopy(_DIRECTORY_CONTRACTS),
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "artifact_roots": {
@@ -190,6 +223,18 @@ def build_workspace_sandbox_manifest(
             "cache": f"{WORKSPACE_ROOT}/.wenjin/cache",
         },
         "internal_paths": list(WORKSPACE_INTERNAL_PATHS),
+    }
+
+
+def build_dataset_provenance_manifest(*, datasets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Return the default editable dataset provenance manifest."""
+
+    return {
+        "schema": WORKSPACE_DATASET_PROVENANCE_SCHEMA,
+        "version": WORKSPACE_DATASET_PROVENANCE_VERSION,
+        "root": f"{WORKSPACE_ROOT}/datasets",
+        "datasets": list(datasets or []),
+        "rules": list(WORKSPACE_DATASET_PROVENANCE_RULES),
     }
 
 
@@ -220,11 +265,13 @@ def build_agent_workspace_contract(
         "workspace_type": workspace_type,
         "directories": directories,
         "artifact_roots": manifest["artifact_roots"],
+        "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "runtime_roots": manifest["runtime_roots"],
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "internal_paths": list(WORKSPACE_INTERNAL_PATHS),
         "rules": [
             "Use only /workspace virtual paths when calling sandbox tools.",
+            "Record reusable dataset provenance in /workspace/datasets/manifest.json.",
             "Write reusable scripts under /workspace/scripts.",
             "Write user-reviewable generated files under /workspace/outputs or /workspace/reports.",
             "Use /workspace/tmp only for scratch data that should not be surfaced by default.",

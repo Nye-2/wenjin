@@ -89,6 +89,18 @@ def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> Non
         task={"goal": "continue experiment"},
         workspace_data={
             "workspace_file_summary": {
+                "dataset_provenance": [
+                    {
+                        "path": "/workspace/datasets/raw/survey.csv",
+                        "source_kind": "upload",
+                        "source_id": "asset-1",
+                        "title": "Survey responses",
+                        "content_hash": "sha256:abc123",
+                        "license": "CC-BY-4.0",
+                    },
+                    {"path": "/workspace/outputs/result.json", "source_kind": "generated"},
+                    {"path": "/workspace/datasets/.env", "source_kind": "secret"},
+                ],
                 "recent_outputs": [
                     {"path": "/workspace/outputs/result.json", "kind": "sandbox_output"},
                     {"path": "/workspace/reports/lit-review.md", "kind": "sandbox_report"},
@@ -115,6 +127,16 @@ def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> Non
         {"path": "/workspace/reports/lit-review.md", "kind": "sandbox_report"},
     ]
     assert summary["recent_scripts"] == [{"path": "/workspace/scripts/analysis.py"}]
+    assert summary["dataset_provenance"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_kind": "upload",
+            "source_id": "asset-1",
+            "title": "Survey responses",
+            "content_hash": "sha256:abc123",
+            "license": "CC-BY-4.0",
+        }
+    ]
     assert summary["truncated"] is False
     text = json.dumps(summary, ensure_ascii=False)
     assert "/workspace/outputs/harness" not in text

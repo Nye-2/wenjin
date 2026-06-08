@@ -110,11 +110,15 @@ def _workspace_file_summary(workspace_data: dict[str, Any]) -> dict[str, Any]:
     raw = raw if isinstance(raw, dict) else {}
     recent_outputs, outputs_truncated = _safe_file_refs(raw.get("recent_outputs"))
     recent_scripts, scripts_truncated = _safe_file_refs(raw.get("recent_scripts"))
+    dataset_provenance, datasets_truncated = _safe_dataset_refs(
+        raw.get("dataset_provenance") or raw.get("datasets")
+    )
     return {
         "visible_roots": list(_VISIBLE_WORKSPACE_ROOTS),
+        "dataset_provenance": dataset_provenance,
         "recent_outputs": recent_outputs,
         "recent_scripts": recent_scripts,
-        "truncated": outputs_truncated or scripts_truncated,
+        "truncated": outputs_truncated or scripts_truncated or datasets_truncated,
     }
 
 
@@ -129,6 +133,52 @@ def _safe_file_refs(value: Any) -> tuple[list[dict[str, Any]], bool]:
         if ref:
             result.append(ref)
     return result, False
+
+
+def _safe_dataset_refs(value: Any) -> tuple[list[dict[str, Any]], bool]:
+    if not isinstance(value, list):
+        return [], False
+    result: list[dict[str, Any]] = []
+    for item in value:
+        if len(result) >= _MAX_FILE_SUMMARY_ITEMS:
+            return result, True
+        ref = _safe_dataset_ref(item)
+        if ref:
+            result.append(ref)
+    return result, False
+
+
+def _safe_dataset_ref(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, str):
+        path = value.strip()
+        if not _is_public_dataset_path(path):
+            return None
+        return {"path": path}
+    if not isinstance(value, dict):
+        return None
+    path = str(value.get("path") or "").strip()
+    if not _is_public_dataset_path(path):
+        return None
+    compact: dict[str, Any] = {"path": path}
+    for key in (
+        "source_kind",
+        "source_id",
+        "name",
+        "title",
+        "description",
+        "format",
+        "mime_type",
+        "size_bytes",
+        "content_hash",
+        "license",
+        "created_at",
+        "updated_at",
+        "preparation",
+    ):
+        safe = _safe_value(value.get(key))
+        if safe not in (None, {}, []):
+            compact[key] = safe
+    return compact
 
 
 def _safe_file_ref(value: Any) -> dict[str, Any] | None:
@@ -156,6 +206,12 @@ def _is_public_workspace_path(path: str) -> bool:
     if is_workspace_internal_path(path) or is_workspace_protected_path(path):
         return False
     return any(path == root or path.startswith(f"{root}/") for root in _VISIBLE_WORKSPACE_ROOTS)
+
+
+def _is_public_dataset_path(path: str) -> bool:
+    if not _is_public_workspace_path(path):
+        return False
+    return path == "/workspace/datasets" or path.startswith("/workspace/datasets/")
 
 
 def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:

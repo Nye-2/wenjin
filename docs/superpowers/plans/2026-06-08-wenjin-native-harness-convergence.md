@@ -2186,6 +2186,88 @@ Observed:
 All checks passed!
 ```
 
+---
+
+### Task 18: Add Dataset Provenance to the Workspace Sandbox Contract
+
+**Goal:** make the `/workspace/datasets` filesystem contract explicit enough for long-running experiments to keep track of reusable data inputs and let later team members see bounded dataset provenance.
+
+**Architecture:** keep dataset provenance inside the existing workspace layout and harness context bundle. Do not add a new runtime, table, frontend stream, or sandbox reader. Context assembly only projects caller-provided facts.
+
+**External reference patterns adopted:**
+
+- From Codex: summarize sandbox-visible filesystem permissions and hide internal/protected roots.
+- From deer-flow: only treat deliberately scoped virtual paths as deliverable or attachable; reject paths outside the allowed root.
+- Wenjin-specific constraint: one workspace uses `/workspace/datasets/**`, not deer-flow's thread-local `/mnt/user-data`.
+
+**Files:**
+
+- Modify: `backend/src/sandbox/workspace_layout.py`
+- Modify: `backend/src/agents/harness/context_assembly.py`
+- Test: `backend/tests/sandbox/test_workspace_layout.py`
+- Test: `backend/tests/agents/harness/test_context_assembly.py`
+- Docs: `docs/current/architecture.md`
+- Docs: `docs/current/native-harness-convergence-audit.md`
+- Docs: `docs/current/workspace-current-state.md`
+- Docs: `docs/superpowers/specs/2026-06-06-wenjin-native-agent-harness-design.md`
+- Docs: `docs/superpowers/plans/2026-06-08-wenjin-native-harness-convergence.md`
+
+- [x] **Step 1: Add failing layout tests**
+
+Added tests requiring layout initialization to create:
+
+```text
+/workspace/datasets/README.md
+/workspace/datasets/manifest.json
+```
+
+The default dataset manifest uses:
+
+```json
+{
+  "schema": "wenjin.workspace_sandbox.dataset_provenance.v1",
+  "version": 1,
+  "root": "/workspace/datasets",
+  "datasets": [],
+  "rules": []
+}
+```
+
+Also added a preservation test proving an existing dataset manifest is not overwritten by provider acquire.
+
+- [x] **Step 2: Implement dataset guidance and manifest helpers**
+
+`backend/src/sandbox/workspace_layout.py` now defines the dataset provenance schema, dataset manifest virtual path, dataset README text, default manifest builder, and manifest path in the main workspace sandbox manifest.
+
+Layout initialization creates the dataset manifest only when missing.
+
+- [x] **Step 3: Add failing context projection test**
+
+Added a context test requiring `workspace_file_summary.dataset_provenance` to retain only safe `/workspace/datasets/**` refs and drop non-dataset/protected paths.
+
+- [x] **Step 4: Implement bounded dataset provenance projection**
+
+`backend/src/agents/harness/context_assembly.py` now projects caller-provided dataset provenance entries with bounded fields such as `source_kind`, `source_id`, `title`, `content_hash`, `license`, and `preparation`.
+
+It accepts only `/workspace/datasets/**` virtual paths and continues to filter protected/internal refs.
+
+- [x] **Step 5: Update docs and verify**
+
+Run:
+
+```bash
+cd /Users/ze/wenjin/backend
+.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py -q
+.venv/bin/ruff check src/sandbox/workspace_layout.py src/agents/harness/context_assembly.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py
+```
+
+Observed:
+
+```text
+14 passed
+All checks passed!
+```
+
 ## Review Checklist After Each Task
 
 Use this checklist before every commit:
