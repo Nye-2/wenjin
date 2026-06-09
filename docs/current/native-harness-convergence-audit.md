@@ -224,6 +224,10 @@ Chat Agent
   - Re-sampled Codex `execpolicy`, unified exec handler, app-server `CommandExecParams` / `ThreadItem`, head/tail output buffer and turn diff tracker. New migration judgment: keep Wenjin's narrow `sandbox.run_python` command path, but improve DataService sandbox job / harness event projection so cwd/env/output/exit/failure evidence reads like one lifecycle.
   - Re-sampled deer-flow output-budget middleware, sandbox audit middleware, `RunJournal`, `task_tool`, local sandbox path mapping and lead prompt skill/subagent sections. New migration judgment: do not import `task_tool`, RunJournal or mutable skill evolution; adopt parent-child usage reporting and subagent lifecycle vocabulary as projections over TeamKernel and existing execution records.
   - `docs/current/native-harness-external-gap-matrix.md` now records member-level usage/transcript projection as the next near-term gap before broader outcome-quality evals.
+- 2026-06-09 closed workspace directory contract slice:
+  - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
+  - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.
+  - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py::test_workspace_sandbox_directory_contract_is_common_and_closed -q` -> 1 passed.
 
 ## 6. 剩余不足
 

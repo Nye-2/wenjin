@@ -517,6 +517,42 @@ def test_all_workspace_type_profiles_use_valid_common_layout_paths():
         }
 
 
+def test_workspace_sandbox_directory_contract_is_common_and_closed():
+    assert layout.WORKSPACE_STANDARD_DIRS == (
+        "main",
+        "datasets",
+        "scripts",
+        "outputs",
+        "reports",
+        "tmp",
+        "tmp/tasks",
+        "tmp/tasks/.harness/outputs",
+        ".wenjin/env",
+        ".wenjin/cache",
+    )
+    assert layout.WORKSPACE_PATH_CLASSES["workspace"] == ["/workspace/main"]
+    assert layout.WORKSPACE_PATH_CLASSES["datasets"] == ["/workspace/datasets"]
+    assert layout.WORKSPACE_PATH_CLASSES["scripts"] == ["/workspace/scripts"]
+    assert layout.WORKSPACE_PATH_CLASSES["artifacts"] == [
+        "/workspace/outputs",
+        "/workspace/reports",
+    ]
+    assert layout.WORKSPACE_PATH_CLASSES["scratch"] == ["/workspace/tmp"]
+    assert layout.WORKSPACE_PATH_CLASSES["task_scratch"] == ["/workspace/tmp/tasks"]
+    assert layout.WORKSPACE_ARTIFACT_ROOTS == (
+        {
+            "name": "outputs",
+            "virtual_path": "/workspace/outputs",
+            "artifact_kind": "sandbox_output",
+        },
+        {
+            "name": "reports",
+            "virtual_path": "/workspace/reports",
+            "artifact_kind": "sandbox_report",
+        },
+    )
+
+
 def test_agent_workspace_contract_exposes_path_classes():
     contract = build_agent_workspace_contract(workspace_id="ws-1", workspace_type="sci")
 
