@@ -220,6 +220,10 @@ Chat Agent
   - Context assembly now projects safe upstream `/workspace/tmp/tasks/{execution_id}/{node_id}` paths as top-level `scratch_refs[]`, extracts reviewable `/workspace/outputs/**` / `/workspace/reports/**` candidates from sandbox output payloads, and strips raw `sandbox_outputs` / `upstream_sandbox_outputs` from the bundled task payload.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py tests/agents/harness/test_scheduler_and_python_tool.py -q` -> 24 passed.
   - `backend`: `.venv/bin/ruff check src/agents/harness/context_assembly.py tests/agents/harness/test_context_assembly.py` -> passed.
+- 2026-06-09 external harness learning refresh:
+  - Re-sampled Codex `execpolicy`, unified exec handler, app-server `CommandExecParams` / `ThreadItem`, head/tail output buffer and turn diff tracker. New migration judgment: keep Wenjin's narrow `sandbox.run_python` command path, but improve DataService sandbox job / harness event projection so cwd/env/output/exit/failure evidence reads like one lifecycle.
+  - Re-sampled deer-flow output-budget middleware, sandbox audit middleware, `RunJournal`, `task_tool`, local sandbox path mapping and lead prompt skill/subagent sections. New migration judgment: do not import `task_tool`, RunJournal or mutable skill evolution; adopt parent-child usage reporting and subagent lifecycle vocabulary as projections over TeamKernel and existing execution records.
+  - `docs/current/native-harness-external-gap-matrix.md` now records member-level usage/transcript projection as the next near-term gap before broader outcome-quality evals.
 
 ## 6. 剩余不足
 

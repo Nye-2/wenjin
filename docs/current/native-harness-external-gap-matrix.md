@@ -17,6 +17,8 @@ Codex:
 - `/Users/ze/codex/codex-rs/core/src/unified_exec/head_tail_buffer.rs`
 - `/Users/ze/codex/codex-rs/core/src/session/turn.rs`
 - `/Users/ze/codex/codex-rs/core/src/tools/handlers/unified_exec/exec_command.rs`
+- `/Users/ze/codex/codex-rs/app-server-protocol/schema/typescript/v2/CommandExecParams.ts`
+- `/Users/ze/codex/codex-rs/app-server-protocol/schema/typescript/v2/ThreadItem.ts`
 
 deer-flow:
 
@@ -25,6 +27,7 @@ deer-flow:
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/tools/builtins/task_tool.py`
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/runtime/journal.py`
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/sandbox/*`
+- `/Users/ze/deer-flow/backend/packages/harness/deerflow/sandbox/local/local_sandbox.py`
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/agents/lead_agent/prompt.py`
 
 ## Migration Matrix
@@ -34,14 +37,18 @@ deer-flow:
 | Codex argv/prefix command policy | Implemented for Lead-owned `run_python`, `install_dependencies`, and `smoke_check` | Keep narrow | Wenjin now records a compact allow/forbid decision with operation, risk, network, billable, blocked-before-job, and preview; this still intentionally stops short of a general shell. |
 | Codex head/tail output buffer | Implemented via `output_budget.py` | Keep and harden | Bounded preview + output refs is aligned with long-running research tasks. |
 | Codex turn diff tracker | Implemented via `diff_tracker.py` | Keep domain-specific | Wenjin tracks sandbox file changes and Prism review items; no need to import Codex patch runtime. |
+| Codex unified exec lifecycle envelope | Partially implemented for `sandbox.run_python` jobs | Adopt narrow event shape later | Codex records command, cwd, env, sandbox cwd, process id, timeout/yield, output chunks, denial and final exit as one lifecycle. Wenjin should strengthen DataService sandbox job / harness event projection, not open a persistent shell session. |
+| Codex apply_patch interception and turn-level diff | Partially implemented through `sandbox.apply_patch` + file-change summaries | Adopt UX pattern later | Wenjin has safe structured patches and compact diffs, but still lacks a polished review surface for multi-file sandbox diffs comparable to Codex turn diffs. |
 | Codex explicit approval/runtime policy | Partially implemented | Adopt concept only | Wenjin maps this to capability/skill policy and DataService review, not interactive CLI approval. |
 | Codex unified exec sessions | Not implemented | Do not migrate | Wenjin should not expose a generic persistent shell. Experiments run through `sandbox.run_python` and lead-owned job runner. |
 | Codex SDK/app-server | Removed from current direction | Do not migrate | Too heavy for Wenjin's vertical workflow; would create a second run/thread model. |
 | deer-flow tool-output externalization | Implemented, now read-only output refs are supported | Keep and refine | Explicit refs let agent recover omitted content without listing/searching hidden internals. |
 | deer-flow sandbox audit middleware | Partially implemented | Adopt selected checks | Regex/shlex risk classification is useful for install/run audit; keep Wenjin's command contract narrower. |
 | deer-flow task/subagent tool | Wenjin has TeamKernel + templates | Do not migrate runtime | The useful idea is delegated context isolation; implementation remains TeamKernel member execution. |
+| deer-flow parent-child subagent usage reporting | Wenjin has execution/token usage records but not strong member-bucketed harness usage | Adopt later in DataService projection | `task_tool` reports subagent usage back to `RunJournal`; Wenjin should roll member token/cost/duration into `ExecutionNodeRecord.node_metadata.harness`, not create a parallel RunJournal. |
+| deer-flow subagent lifecycle stream | Partially implemented as TeamKernel/RunView progress | Adopt vocabulary only | `task_started` / `task_running` / `task_completed` / timeout/cancel is a useful lifecycle vocabulary. Wenjin should keep existing execution events and team roster projection. |
 | deer-flow run journal | Partially implemented as harness node metadata/events | Adopt projection shape only | Wenjin already has ExecutionNodeRecord/DataService events; no new run-event table. |
-| deer-flow skills prompt injection | Wenjin has capability/skill templates | Adopt caching/selection idea | Skills remain DataService/capability-driven; no mutable SOUL or skill evolution loop for now. |
+| deer-flow skills prompt injection | Wenjin has capability/skill templates | Adopt caching/selection idea, reject self-evolution loop | Skills remain DataService/capability-driven; dynamic cache/selection is useful, but mutable SOUL or autonomous skill evolution would drift from admin-managed capability contracts. |
 | deer-flow sandbox providers | Wenjin has Local/Docker providers | Learn hygiene only | One workspace owns one sandbox; no cross-thread sandbox manager or `/mnt/user-data` alias. |
 
 ## Current Wenjin Gaps
@@ -66,8 +73,13 @@ deer-flow:
 
    Literature, experiment, and Prism writing evidence now have deterministic structure checks. The remaining gap is task-quality eval: relevance of papers, citation strength, experiment interpretation, and whether writing edits improve academic style without semantic drift.
 
+6. **Member-level usage and execution transcript are still too thin.**
+
+   Codex and deer-flow both make the execution lifecycle easy to audit: command cwd/env/process/output in Codex, caller-bucketed token usage and progress snapshots in deer-flow. Wenjin already has DataService generation usage, credit transactions, `ExecutionNodeRecord.tool_calls`, harness summaries and TeamKernel member states, but it does not yet provide a compact per-member usage/transcript summary that says which member spent how many tokens/credits, which tools ran, which files changed, which scratch refs were used, and where the final evidence landed. This should be added as a projection over existing records, not as a new run table.
+
 ## Near-Term Implementation Order
 
-1. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
-2. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs.
-3. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.
+1. Add member-level harness usage/transcript projection over existing execution records.
+2. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
+3. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs.
+4. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.
