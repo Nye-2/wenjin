@@ -53,6 +53,40 @@ def normalize_prism_file_change_content(
     return content
 
 
+def summarize_prism_file_change_content_contract(
+    content: str,
+    *,
+    path: str,
+) -> dict[str, object]:
+    """Return a bounded structural contract for Prism review projections."""
+
+    file_path = str(path or "").strip()
+    text = str(content or "")
+    if not file_path.lower().endswith(".tex"):
+        return {
+            "path": file_path,
+            "content_format": "text",
+            "latex_shape": "not_latex",
+            "balanced_braces": True,
+        }
+    balanced = _has_balanced_latex_braces(text)
+    if _LATEX_DOCUMENT_RE.search(text):
+        latex_shape = "document"
+        content_format = "latex_document"
+    elif text.strip():
+        latex_shape = "fragment" if balanced else "invalid"
+        content_format = "latex_fragment"
+    else:
+        latex_shape = "invalid"
+        content_format = "latex_fragment"
+    return {
+        "path": file_path,
+        "content_format": content_format,
+        "latex_shape": latex_shape,
+        "balanced_braces": balanced,
+    }
+
+
 def ensure_latex_document(content: str) -> str:
     """Return a complete LaTeX document for manuscript content."""
 
@@ -79,6 +113,25 @@ def _repair_common_latex_argument_braces(content: str) -> str:
         lambda match: f"\\{match.group('command')}{{{match.group('argument')}}}",
         content,
     )
+
+
+def _has_balanced_latex_braces(content: str) -> bool:
+    depth = 0
+    escaped = False
+    for char in content:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
 
 
 def _ensure_common_theorem_environment_declarations(content: str) -> str:

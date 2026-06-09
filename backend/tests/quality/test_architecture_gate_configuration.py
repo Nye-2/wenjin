@@ -75,6 +75,7 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
     assert "test_run_session_prism_review_items_satisfy_writing_evidence_eval" in harness_command
     assert "tests/agents/lead_agent/v2/test_citation_source_audit.py" in harness_command
     assert "test_surface_projection_includes_review_provenance_and_protection" in harness_command
+    assert "tests/services/test_prism_review_projection.py" in harness_command
     assert "tests/architecture/test_native_harness_boundaries.py" in harness_command
     assert "tests/dataservice/test_sandbox_domain.py" in harness_command
     assert "tests/integration/test_harness_mock_sandbox_e2e.py" in harness_command

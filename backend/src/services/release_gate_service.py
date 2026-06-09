@@ -241,6 +241,7 @@ class ReleaseGateService:
                     "tests/agents/lead_agent/v2/test_citation_source_audit.py",
                     "tests/agents/lead_agent/v2/test_team_quality_gates.py",
                     "tests/services/test_workspace_prism_service.py::test_surface_projection_includes_review_provenance_and_protection",
+                    "tests/services/test_prism_review_projection.py",
                     "tests/integration/test_harness_mock_sandbox_e2e.py",
                     "-q",
                 ),

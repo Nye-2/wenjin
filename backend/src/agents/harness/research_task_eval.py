@@ -176,12 +176,13 @@ def _evaluate_writing(
         target = item.get("target") if isinstance(item.get("target"), dict) else {}
         file_path = _clean_text(target.get("file_path"))
         logical_key = _clean_text(target.get("logical_key"))
-        if file_path and logical_key:
+        if file_path and logical_key and _prism_change_is_structurally_reviewable(item):
             prism_changes.append(
                 {
                     "review_item_id": str(item.get("id") or ""),
                     "logical_key": logical_key,
                     "file_path": file_path,
+                    "content_contract": _prism_content_contract(item),
                 }
             )
 
@@ -208,8 +209,31 @@ def _evaluate_writing(
     return (
         False,
         evidence,
-        "No Prism file-change review item or document output was produced for writing review.",
+        "No structurally reviewable Prism file-change or document output was produced for writing review.",
     )
+
+
+def _prism_change_is_structurally_reviewable(item: dict[str, Any]) -> bool:
+    target = item.get("target") if isinstance(item.get("target"), dict) else {}
+    file_path = _clean_text(target.get("file_path"))
+    logical_key = _clean_text(target.get("logical_key"))
+    if not file_path.lower().endswith(".tex"):
+        return bool(file_path and logical_key)
+    contract = _prism_content_contract(item)
+    if not contract:
+        return False
+    if contract.get("balanced_braces") is not True:
+        return False
+    latex_shape = _clean_text(contract.get("latex_shape"))
+    if file_path == "main.tex" or logical_key == "project:main":
+        return latex_shape == "document"
+    return latex_shape in {"document", "fragment"}
+
+
+def _prism_content_contract(item: dict[str, Any]) -> dict[str, Any]:
+    preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
+    contract = preview.get("content_contract")
+    return dict(contract) if isinstance(contract, dict) else {}
 
 
 def _citation_audit_refs(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:

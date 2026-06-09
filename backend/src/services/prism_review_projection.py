@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.services.prism_file_content import summarize_prism_file_change_content_contract
+
 
 def _json_object(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
@@ -47,6 +49,23 @@ def prism_review_item_projection(
         ]
     elif status == "applied":
         actions = [{"action": "revert_prism_change", "label": "撤回写入"}]
+    preview_payload = {
+        "mode": str(preview.get("mode") or "diff"),
+        "pending_hash": preview.get("pending_hash") or payload.get("pending_hash"),
+        "current_hash": preview.get("current_hash") or payload.get("current_hash"),
+        "applied_hash": result.get("applied_hash")
+        or preview.get("applied_hash")
+        or payload.get("applied_hash"),
+        "revert_signature": result.get("revert_signature")
+        or preview.get("revert_signature")
+        or payload.get("revert_signature"),
+    }
+    pending_content = preview.get("pending_content") or payload.get("pending_content")
+    if isinstance(pending_content, str) and pending_content.strip():
+        preview_payload["content_contract"] = summarize_prism_file_change_content_contract(
+            pending_content,
+            path=path,
+        )
     return {
         "id": str(item.id),
         "kind": str(getattr(item, "target_kind", None) or "prism_file_change"),
@@ -66,17 +85,7 @@ def prism_review_item_projection(
             "room": target_ref.get("room"),
             "item_id": target_ref.get("item_id"),
         },
-        "preview": {
-            "mode": str(preview.get("mode") or "diff"),
-            "pending_hash": preview.get("pending_hash") or payload.get("pending_hash"),
-            "current_hash": preview.get("current_hash") or payload.get("current_hash"),
-            "applied_hash": result.get("applied_hash")
-            or preview.get("applied_hash")
-            or payload.get("applied_hash"),
-            "revert_signature": result.get("revert_signature")
-            or preview.get("revert_signature")
-            or payload.get("revert_signature"),
-        },
+        "preview": preview_payload,
         "actions": actions,
         "created_at": _timestamp(getattr(item, "created_at", None)),
         "updated_at": _timestamp(getattr(item, "updated_at", None)),

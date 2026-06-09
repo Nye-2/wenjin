@@ -692,12 +692,14 @@ async def test_run_session_prism_review_items_satisfy_writing_evidence_eval():
                         "logical_key": command.logical_key,
                         "path": command.path,
                         "reason": command.reason,
+                        "pending_content": command.pending_content,
                         "pending_hash": command.pending_hash,
                         "source_execution_id": command.source_execution_id,
                         "source_task_id": command.source_task_id,
                     },
                     preview_json={
                         "path": command.path,
+                        "pending_content": command.pending_content,
                         "pending_hash": command.pending_hash,
                     },
                     result_json=None,
@@ -738,6 +740,12 @@ async def test_run_session_prism_review_items_satisfy_writing_evidence_eval():
             "review_item_id": "review-prism-1",
             "logical_key": "project:main",
             "file_path": "main.tex",
+            "content_contract": {
+                "path": "main.tex",
+                "content_format": "latex_document",
+                "latex_shape": "document",
+                "balanced_braces": True,
+            },
         }
     ]
 

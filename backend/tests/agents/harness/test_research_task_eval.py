@@ -133,6 +133,14 @@ def test_research_task_eval_passes_when_literature_experiment_and_writing_are_re
                     "logical_key": "section:introduction",
                     "file_path": "sections/introduction.tex",
                 },
+                "preview": {
+                    "content_contract": {
+                        "path": "sections/introduction.tex",
+                        "content_format": "latex_fragment",
+                        "latex_shape": "fragment",
+                        "balanced_braces": True,
+                    }
+                },
                 "source": {
                     "execution_id": "exec-eval-1",
                     "task_id": "manuscript_writer",
@@ -243,6 +251,48 @@ def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None
 
     assert evaluation.status == "fail"
     assert evaluation.coverage == {"experiment": "fail"}
+
+
+def test_research_task_eval_rejects_main_tex_prism_change_without_complete_latex_contract() -> None:
+    report = _report(
+        review_items=[
+            {
+                "id": "prism-review-1",
+                "kind": "prism_file_change",
+                "target": {
+                    "logical_key": "project:main",
+                    "file_path": "main.tex",
+                },
+                "preview": {
+                    "content_contract": {
+                        "path": "main.tex",
+                        "content_format": "latex_fragment",
+                        "latex_shape": "fragment",
+                        "balanced_braces": True,
+                    }
+                },
+                "source": {
+                    "execution_id": "exec-eval-1",
+                    "task_id": "manuscript_writer",
+                },
+            }
+        ],
+    )
+
+    evaluation = evaluate_research_task_evidence(
+        report,
+        required_surfaces=("writing",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"writing": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "writing",
+            "severity": "high",
+            "message": "No structurally reviewable Prism file-change or document output was produced for writing review.",
+        }
+    ]
 
 
 def test_research_task_eval_accepts_team_quality_gate_citation_refs() -> None:

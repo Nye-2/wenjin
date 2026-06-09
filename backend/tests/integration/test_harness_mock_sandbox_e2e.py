@@ -298,12 +298,14 @@ class _MockCatalogAndReviewClient:
                         "logical_key": command.logical_key,
                         "path": command.path,
                         "reason": command.reason,
+                        "pending_content": command.pending_content,
                         "pending_hash": command.pending_hash,
                         "source_execution_id": command.source_execution_id,
                         "source_task_id": command.source_task_id,
                     },
                     preview_json={
                         "path": command.path,
+                        "pending_content": command.pending_content,
                         "pending_hash": command.pending_hash,
                     },
                     result_json=None,
@@ -700,6 +702,12 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert prism_review_item["target"]["file_path"] == "main.tex"
     assert prism_review_item["source"]["execution_id"] == "exec-harness-e2e"
     assert prism_review_item["source"]["task_id"] == "manuscript_writer"
+    assert prism_review_item["preview"]["content_contract"] == {
+        "path": "main.tex",
+        "content_format": "latex_document",
+        "latex_shape": "document",
+        "balanced_braces": True,
+    }
     assert client.registered_assets[0].storage_path == "/workspace/outputs/result.json"
     assert client.registered_assets[0].title == "Mock experiment result"
     assert client.registered_assets[0].metadata_json["source_script"] == "/workspace/scripts/analysis.py"

@@ -174,12 +174,16 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/architecture/test_native_harness_boundaries.py -q` -> RED after provider/export files were added to the native harness boundary and old `/mnt/user-data` remained in LocalSandbox / `VirtualPathMapper`, then 1 passed after retiring `src/sandbox/paths.py`, removing `VirtualPathMapper` export, and keeping LocalSandbox on the single `/workspace` virtual root.
   - `backend`: `.venv/bin/python -m pytest tests/architecture/test_native_harness_boundaries.py tests/sandbox/test_local_sandbox.py tests/sandbox/test_integration.py tests/sandbox/test_workspace_layout.py -q` -> 62 passed.
   - `backend`: `.venv/bin/python -m pytest tests/sandbox -q` -> 95 passed; remaining `/mnt/user-data` references are outside native sandbox provider scope or are negative tests that assert old aliases are rejected.
+- 2026-06-09 Prism writing structure contract slice:
+  - `backend`: `.venv/bin/python -m pytest tests/services/test_prism_review_projection.py tests/agents/harness/test_research_task_eval.py::test_research_task_eval_rejects_main_tex_prism_change_without_complete_latex_contract -q` -> RED on missing `preview.content_contract` and writing eval accepting a `main.tex` fragment, then 2 passed after Prism review projection emitted bounded LaTeX structure contracts and research-task eval required complete documents for `main.tex/project:main`.
+  - `backend`: `.venv/bin/python -m pytest tests/services/test_prism_file_content.py tests/services/test_prism_review_projection.py tests/agents/harness/test_research_task_eval.py tests/agents/lead_agent/v2/test_runtime.py::test_run_session_prism_review_items_satisfy_writing_evidence_eval tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 19 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_command_audit.py tests/agents/harness/test_policy_and_registry.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_research_task_eval.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_context_assembly.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/agents/lead_agent/v2/test_runtime.py::test_run_session_prism_review_items_satisfy_writing_evidence_eval tests/architecture/test_native_harness_boundaries.py tests/dataservice/test_sandbox_domain.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/services/test_workspace_prism_service.py::test_surface_projection_includes_review_provenance_and_protection tests/services/test_prism_review_projection.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 191 passed.
 
 ## 6. 剩余不足
 
 ### P1: 模型可靠性仍是最大产出瓶颈
 
-当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：文献相关性、引用可核验、创新点可发表性、实验解释一致性、Prism 改稿是否保持 LaTeX 结构。
+当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：文献相关性、引用可核验、创新点可发表性、实验解释一致性、Prism 改稿是否真正改善学术表达并保持上下文语义。
 
 ### P1: 来源质量和引用核验还不够硬
 
