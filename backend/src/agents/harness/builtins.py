@@ -39,6 +39,14 @@ BUILTIN_TOOL_SPECS = (
         required_permissions=["filesystem.read"],
     ),
     HarnessToolSpec(
+        name="sandbox.read_output_ref",
+        namespace="sandbox",
+        description="Read a bounded preview from an explicit internal output ref.",
+        input_schema={"type": "object"},
+        risk_level="read",
+        required_permissions=["filesystem.read"],
+    ),
+    HarnessToolSpec(
         name="sandbox.write_file",
         namespace="sandbox",
         description="Write a workspace file and record a diff.",

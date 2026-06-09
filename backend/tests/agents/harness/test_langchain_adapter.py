@@ -67,7 +67,9 @@ async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> 
         workspace.mkdir()
         sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
         await sandbox.write_file("/workspace/main/paper.txt", "abcdefghijkl\n")
-        [tool] = build_langchain_tools(_ctx(sandbox), ["sandbox.read_file"])
+        tools = build_langchain_tools(_ctx(sandbox), ["sandbox.read_file"])
+        assert [tool.name for tool in tools] == ["sandbox_read_file", "sandbox_read_output_ref"]
+        tool = tools[0]
 
         raw = await tool.ainvoke(
             {
@@ -79,6 +81,41 @@ async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> 
     payload = json.loads(raw)
     assert payload["preview"] == "abcd"
     assert payload["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_langchain_read_output_ref_tool_uses_explicit_ref_schema() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+        output_ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/invocation-1/stdout.txt"
+        await sandbox.write_file(output_ref, "alpha\nbeta\ngamma\n")
+        [tool] = build_langchain_tools(
+            _ctx(
+                sandbox,
+                tools=["sandbox.read_output_ref"],
+                capability_policy={
+                    "allowed_tools": ["sandbox.read_output_ref"],
+                    "permissions": ["filesystem.read"],
+                    "sandbox_policy": {"output_budget": {"read_max_chars": 20}},
+                },
+                skill={"allowed_tools": ["sandbox.read_output_ref"]},
+            ),
+            ["sandbox.read_output_ref"],
+        )
+
+        raw = await tool.ainvoke(
+            {
+                "output_ref": output_ref,
+                "start_line": 2,
+                "end_line": 2,
+            }
+        )
+
+    payload = json.loads(raw)
+    assert payload["preview"] == "beta\n"
+    assert payload["payload"]["output_ref"] == output_ref
 
 
 @pytest.mark.asyncio
@@ -274,10 +311,11 @@ async def test_langchain_tool_downgrades_harness_exception_to_recoverable_result
         workspace.mkdir()
         sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
         await sandbox.write_file("/workspace/.env", "SECRET=1\n")
-        [tool] = build_langchain_tools(
+        tools = build_langchain_tools(
             _ctx(sandbox, tool_records=records, publish_event=publish_event),
             ["sandbox.read_file"],
         )
+        tool = tools[0]
 
         raw = await tool.ainvoke({"path": "/workspace/.env"})
 
@@ -305,10 +343,11 @@ async def test_langchain_tool_downgrades_input_validation_error_to_recoverable_r
         workspace.mkdir()
         sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
         await sandbox.write_file("/workspace/main/paper.txt", "abcdefghijkl\n")
-        [tool] = build_langchain_tools(
+        tools = build_langchain_tools(
             _ctx(sandbox, tool_records=records, publish_event=publish_event),
             ["sandbox.read_file"],
         )
+        tool = tools[0]
 
         raw = await tool.ainvoke(
             {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.agents.harness.policy import CANONICAL_TOOL_ALIASES
+from src.agents.harness.tool_names import expand_tool_names
 
 from .contracts import AgentInvocation, AgentTemplate, CapabilityTeamPolicy
 
@@ -127,13 +127,7 @@ def _canonicalize_tools(raw_tools: Any) -> list[str]:
         items = list(raw_tools)
     else:
         return []
-    result: list[str] = []
-    for item in items:
-        text = str(item).strip()
-        text = CANONICAL_TOOL_ALIASES.get(text, text)
-        if text and text not in result:
-            result.append(text)
-    return result
+    return list(expand_tool_names(str(item).strip() for item in items))
 
 
 def resolve_effective_skills(

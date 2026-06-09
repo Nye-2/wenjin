@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from src.agents.harness.builtins import BUILTIN_TOOL_SPECS
-from src.agents.harness.policy import CANONICAL_TOOL_ALIASES
+from src.agents.harness.tool_names import CANONICAL_TOOL_ALIASES, canonical_tool_name, expand_tool_names
 
 if TYPE_CHECKING:
     from .base import SubagentBase
@@ -131,7 +131,7 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
     canonical_tools: list[str] = []
     for field, raw_tools in raw_tools_by_field.items():
         for raw_tool in raw_tools:
-            canonical = CANONICAL_TOOL_ALIASES.get(raw_tool, raw_tool)
+            canonical = canonical_tool_name(raw_tool)
             if raw_tool in CANONICAL_TOOL_ALIASES:
                 errors.append(
                     f"{template_id}: tool_affinity.{field} uses retired harness tool "
@@ -144,6 +144,9 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
                 )
             if canonical not in canonical_tools:
                 canonical_tools.append(canonical)
+        for companion in expand_tool_names(raw_tools):
+            if companion not in canonical_tools:
+                canonical_tools.append(companion)
 
     risk_profile = template.get("risk_profile")
     if not isinstance(risk_profile, Mapping):
@@ -166,12 +169,7 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
 
 
 def _canonical_tool_list(value: Any) -> list[str]:
-    result: list[str] = []
-    for tool in _raw_string_list(value):
-        canonical = CANONICAL_TOOL_ALIASES.get(tool, tool)
-        if canonical and canonical not in result:
-            result.append(canonical)
-    return result
+    return list(expand_tool_names(_raw_string_list(value)))
 
 
 def _raw_string_list(value: Any) -> list[str]:

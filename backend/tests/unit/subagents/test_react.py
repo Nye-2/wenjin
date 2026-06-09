@@ -545,7 +545,7 @@ class TestMockLLM:
 
         tools = _resolve_tools(["sandbox.read_file"], ctx)
 
-        assert len(tools) == 1
+        assert [tool.name for tool in tools] == ["sandbox_read_file", "sandbox_read_output_ref"]
         result = await tools[0].ainvoke({"path": "/workspace/main.tex"})
         assert "hello harness" in result
         assert tool_records == [

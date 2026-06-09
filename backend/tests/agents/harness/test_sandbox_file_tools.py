@@ -689,6 +689,31 @@ async def test_direct_file_tools_allow_read_only_internal_harness_output_refs(sa
 
 
 @pytest.mark.asyncio
+async def test_read_output_ref_only_accepts_explicit_internal_output_refs(sandbox: LocalSandbox) -> None:
+    output_ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/invocation-1/stdout.txt"
+    await sandbox.write_file(output_ref, "line 1\nline 2\nline 3\n")
+    await sandbox.write_file("/workspace/main/visible.txt", "ordinary file\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    result = await tools.read_output_ref(output_ref=output_ref, start_line=2, end_line=2)
+
+    assert result.preview_text == "line 2\n"
+    assert result.structured_payload == {
+        "output_ref": output_ref,
+        "start_line": 2,
+        "end_line": 2,
+        "bytes": len(b"line 1\nline 2\nline 3\n"),
+        "selected_bytes": len(b"line 2\n"),
+    }
+
+    with pytest.raises(HarnessPathError, match="output ref"):
+        await tools.read_output_ref(output_ref="/workspace/main/visible.txt")
+
+    with pytest.raises(HarnessPathError, match="output ref"):
+        await tools.read_output_ref(output_ref="/workspace/tmp/tasks/.harness/other/debug.txt")
+
+
+@pytest.mark.asyncio
 async def test_default_policy_hides_workspace_runtime_paths(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
     await sandbox.write_file("/workspace/.env", "alpha secret\n")

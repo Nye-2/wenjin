@@ -157,7 +157,7 @@ def externalized_preview(
     ref = (
         f"\n\n[Full {tool_name} output saved to {output_ref} "
         f"({total} chars, {total_lines} lines). "
-        f"Use sandbox.read_file with start_line/end_line to inspect details. "
+        f"Use sandbox.read_output_ref with output_ref and optional start_line/end_line to inspect details. "
         f"{omitted} chars omitted from this preview.]\n\n"
     )
     return "".join((f"Total output lines: {total_lines}\n\n", head, ref, tail))

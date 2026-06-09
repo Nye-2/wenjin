@@ -41,7 +41,7 @@ def test_policy_uses_capability_as_maximum_permission_envelope() -> None:
         )
     )
 
-    assert policy.allowed_tools == ("sandbox.read_file",)
+    assert policy.allowed_tools == ("sandbox.read_file", "sandbox.read_output_ref")
     assert policy.permissions == frozenset({"filesystem.read"})
     assert "sandbox.run_python" in policy.denied_tools
 
@@ -61,7 +61,7 @@ def test_policy_defaults_to_read_only_baseline_for_omitted_skill_tools() -> None
         )
     )
 
-    assert policy.allowed_tools == ("sandbox.read_file",)
+    assert policy.allowed_tools == ("sandbox.read_file", "sandbox.read_output_ref")
     assert policy.permissions == frozenset({"filesystem.read"})
 
 
@@ -112,6 +112,22 @@ def test_policy_uses_workspace_layout_protected_paths() -> None:
     )
 
     assert policy.protected_paths == WORKSPACE_PROTECTED_PATHS
+
+
+def test_policy_allows_read_output_ref_with_read_permission() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={
+                "allowed_tools": ["sandbox.read_output_ref"],
+                "permissions": ["filesystem.read"],
+            },
+            template={"tool_affinity": {"preferred": ["sandbox.read_output_ref"]}},
+            skill={"allowed_tools": ["sandbox.read_output_ref"]},
+        )
+    )
+
+    assert policy.allowed_tools == ("sandbox.read_output_ref",)
+    assert policy.permissions == frozenset({"filesystem.read"})
 
 
 def test_policy_allows_dataset_registration_with_write_and_diff_permissions() -> None:

@@ -169,7 +169,11 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
 
     assert bundle["capability_goal"] == "produce_workspace_review_package"
     assert bundle["member_role"] == "实验工程师"
-    assert bundle["allowed_tools"] == ["sandbox.run_python", "sandbox.read_file"]
+    assert bundle["allowed_tools"] == [
+        "sandbox.run_python",
+        "sandbox.read_file",
+        "sandbox.read_output_ref",
+    ]
     assert bundle["workspace_roots"] == [
         "/workspace/main",
         "/workspace/datasets",

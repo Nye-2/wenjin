@@ -7,6 +7,7 @@ from typing import Any
 from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
 
 from .contracts import HarnessPolicy, HarnessRunContext
+from .tool_names import expand_tool_names
 
 READ_ONLY_TOOLS = frozenset(
     {
@@ -14,6 +15,7 @@ READ_ONLY_TOOLS = frozenset(
         "sandbox.glob",
         "sandbox.grep",
         "sandbox.read_file",
+        "sandbox.read_output_ref",
     }
 )
 
@@ -22,17 +24,13 @@ TOOL_REQUIRED_PERMISSIONS: dict[str, frozenset[str]] = {
     "sandbox.glob": frozenset({"filesystem.read"}),
     "sandbox.grep": frozenset({"filesystem.read"}),
     "sandbox.read_file": frozenset({"filesystem.read"}),
+    "sandbox.read_output_ref": frozenset({"filesystem.read"}),
     "sandbox.write_file": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.str_replace": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.apply_patch": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.register_dataset": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.register_artifact": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.run_python": frozenset({"sandbox.run_python"}),
-}
-
-CANONICAL_TOOL_ALIASES = {
-    "sandbox_python": "sandbox.run_python",
-    "sandbox_exec": "sandbox.run_python",
 }
 
 PROTECTED_PATHS = WORKSPACE_PROTECTED_PATHS
@@ -152,6 +150,7 @@ def _sandbox_access_tools(skill: dict[str, Any]) -> tuple[str, ...]:
         "sandbox.glob",
         "sandbox.grep",
         "sandbox.read_file",
+        "sandbox.read_output_ref",
     ]
     if profiles.intersection({"analysis", "visualization", "python", "experiment"}) or mode in {"optional", "required"}:
         tools.append("sandbox.run_python")
@@ -194,15 +193,7 @@ def _string_tuple(value: Any) -> tuple[str, ...]:
         raw_items = list(value)
     else:
         return ()
-    result: list[str] = []
-    seen: set[str] = set()
-    for item in raw_items:
-        text = str(item).strip()
-        text = CANONICAL_TOOL_ALIASES.get(text, text)
-        if text and text not in seen:
-            seen.add(text)
-            result.append(text)
-    return tuple(result)
+    return expand_tool_names(str(item).strip() for item in raw_items)
 
 
 def _string_set(value: Any) -> set[str]:

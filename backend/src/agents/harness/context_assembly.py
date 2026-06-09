@@ -12,6 +12,8 @@ from src.sandbox.workspace_layout import (
     is_workspace_protected_path,
 )
 
+from .tool_names import expand_tool_names
+
 HARNESS_CONTEXT_BUNDLE_SCHEMA = "wenjin.harness.context_bundle.v1"
 _PUBLIC_PATH_CLASS_ORDER = ("workspace", "datasets", "scripts", "artifacts")
 _MAX_FILE_SUMMARY_ITEMS = 20
@@ -45,7 +47,7 @@ def build_harness_context_bundle(
         "workspace_type": str(workspace_type or ""),
         "capability_goal": _capability_goal(safe_task),
         "member_role": _member_role(safe_task),
-        "allowed_tools": _safe_string_list(allowed_tools),
+        "allowed_tools": _allowed_tools_with_output_ref_reader(allowed_tools),
         "workspace_roots": list(workspace_file_summary.get("visible_roots") or visible_roots),
         "search_ignored_names": list(sandbox.get("search_ignored_names") or []),
         "recent_file_change_summary": _latest_harness_summary(
@@ -79,6 +81,10 @@ def render_harness_context_for_prompt(bundle: dict[str, Any]) -> str:
     """Render the context bundle as deterministic bounded JSON."""
 
     return json.dumps(bundle, ensure_ascii=False, sort_keys=True)
+
+
+def _allowed_tools_with_output_ref_reader(allowed_tools: list[str] | None) -> list[str]:
+    return list(expand_tool_names(_safe_string_list(allowed_tools)))
 
 
 def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[str, Any]:

@@ -881,6 +881,7 @@ def build_agent_workspace_contract(
             "Use /workspace/tmp only for scratch data that should not be surfaced by default.",
             "Use /workspace/tmp/tasks for task-scoped scratch files that should not become artifacts.",
             "Do not read or write protected paths.",
+            "Do not list or search internal harness refs; inspect explicit output refs with sandbox.read_output_ref.",
             "Do not register or cite internal harness refs as user-facing artifacts.",
         ],
     }

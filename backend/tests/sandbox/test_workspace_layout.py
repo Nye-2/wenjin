@@ -533,6 +533,10 @@ def test_agent_workspace_contract_exposes_path_classes():
     ]
     assert "/workspace/tmp/tasks/.harness/**" in contract["path_classes"]["internal"]
     assert "/workspace/tmp/tasks/.harness/outputs/**" not in contract["path_classes"]["internal"]
+    assert (
+        "Do not list or search internal harness refs; inspect explicit output refs with sandbox.read_output_ref."
+        in contract["rules"]
+    )
     assert "/workspace/outputs/README.md" in contract["path_classes"]["guidance"]
     assert "/workspace/reports/artifacts.json" in contract["path_classes"]["guidance"]
 

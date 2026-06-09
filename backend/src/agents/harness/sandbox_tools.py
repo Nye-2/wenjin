@@ -85,6 +85,56 @@ class SandboxFileTools:
             externalized=budgeted.externalized,
         )
 
+    async def read_output_ref(
+        self,
+        *,
+        output_ref: str,
+        start_line: int | None = None,
+        end_line: int | None = None,
+        max_chars: int | None = None,
+    ) -> HarnessToolResult:
+        self._require_read_permission()
+        safe_ref = self._validate_output_ref(output_ref)
+        self._require_workspace_physical_target(safe_ref)
+        self._require_readable_physical_target(safe_ref)
+        content = await self.sandbox.read_file(safe_ref)
+        selected = select_lines(content, start_line=start_line, end_line=end_line)
+        budgeted = await budget_text_output(
+            text=selected,
+            tool_name="sandbox.read_output_ref",
+            context=self.context,
+            sandbox=self.sandbox,
+            output_budget=self.policy.output_budget,
+            fallback_max_chars=self._effective_read_max_chars(max_chars),
+        )
+        return HarnessToolResult(
+            preview_text=budgeted.preview_text,
+            structured_payload={
+                "output_ref": safe_ref,
+                "start_line": start_line,
+                "end_line": end_line,
+                "bytes": len(content.encode("utf-8")),
+                "selected_bytes": len(selected.encode("utf-8")),
+            },
+            output_refs=budgeted.output_refs,
+            truncated=budgeted.truncated,
+            externalized=budgeted.externalized,
+        )
+
+    def _validate_output_ref(self, output_ref: str) -> str:
+        text = str(output_ref or "").strip()
+        if text != WORKSPACE_ROOT and not text.startswith(f"{WORKSPACE_ROOT}/"):
+            raise HarnessPathError(f"output ref must be under {WORKSPACE_ROOT}")
+        try:
+            normalized = normalize_workspace_virtual_path(text)
+        except ValueError as exc:
+            raise HarnessPathError(str(exc)) from exc
+        if self._is_protected(normalized):
+            raise HarnessPathError(f"protected path is not accessible: {normalized}")
+        if not is_workspace_readable_internal_output_ref(normalized):
+            raise HarnessPathError(f"path is not a readable output ref: {normalized}")
+        return normalized
+
     async def list_dir(self, *, path: str = WORKSPACE_ROOT, max_depth: int = 1) -> HarnessToolResult:
         self._require_read_permission()
         safe_path = self._validate_virtual_path(path, operation="read")

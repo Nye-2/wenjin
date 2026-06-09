@@ -46,17 +46,17 @@ deer-flow:
 
 ## Current Wenjin Gaps
 
-1. **Output refs have moved under task scratch, but recovery UX can be clearer.**
+1. **Output refs have moved under task scratch and now have an explicit recovery tool.**
 
-   New internal refs are now under `/workspace/tmp/tasks/.harness/outputs`, classified as internal, hidden from listing/search/artifact discovery, and read-only through explicit refs. The remaining improvement is a clearer `read_output_ref` facade or tool guidance so agents do not try to list internal directories.
+   New internal refs are now under `/workspace/tmp/tasks/.harness/outputs`, classified as internal, hidden from listing/search/artifact discovery, and read-only through explicit `sandbox.read_output_ref` refs. `sandbox.read_file` remains bounded-compatible for explicit refs, but model guidance should prefer the dedicated facade.
 
 2. **Command audit is strong for Python execution but not yet a reusable policy language.**
 
    Wenjin should not copy Codex's full execpolicy DSL, but it should expose a compact internal decision object for all sandbox actions: `decision`, `risk_level`, `reason`, `command_preview`, `install_billable=false`, and `blocked_before_job=true`.
 
-3. **Context recovery after large omitted output is only file-based.**
+3. **Context recovery after large omitted output has a facade, but usage quality still needs real-task tuning.**
 
-   The harness now permits bounded `sandbox.read_file` on explicit output refs. The next improvement is a small `sandbox.read_output_ref` facade or documented `read_file` guidance that prevents models from trying to list internal directories.
+   The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file`. The remaining improvement is measuring whether agents actually use refs instead of repeating expensive commands in real SCI workflows.
 
 4. **Workspace filesystem contract is usable but task scratch semantics should keep tightening.**
 
@@ -68,7 +68,6 @@ deer-flow:
 
 ## Near-Term Implementation Order
 
-1. Keep output refs hidden but directly readable through bounded `sandbox.read_file` by explicit ref.
-2. Add a compact command-policy decision contract test shared by `run_python`, install, and future smoke checks.
-3. Add context guidance that tells members where to put scratch files, user artifacts, reports, and output refs without exposing raw internal paths in UI.
-4. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
+1. Add a compact command-policy decision contract test shared by `run_python`, install, and future smoke checks.
+2. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
+3. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs.

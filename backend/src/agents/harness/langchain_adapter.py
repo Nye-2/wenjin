@@ -24,14 +24,22 @@ from .business_tools import BUSINESS_TOOL_NAMES, build_business_langchain_tools
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .events import publish_harness_event
 from .loop_guard import HarnessLoopGuard
-from .policy import CANONICAL_TOOL_ALIASES, resolve_harness_policy
+from .policy import resolve_harness_policy
 from .sandbox_execution_tools import SandboxExecutionTools
 from .sandbox_tools import SandboxFileTools
 from .scheduler import default_workspace_tool_scheduler
+from .tool_names import expand_tool_names
 
 
 class ReadFileInput(BaseModel):
     path: str
+    start_line: int | None = Field(default=None, ge=1)
+    end_line: int | None = Field(default=None, ge=1)
+    max_chars: int | None = Field(default=None, ge=1)
+
+
+class ReadOutputRefInput(BaseModel):
+    output_ref: str
     start_line: int | None = Field(default=None, ge=1)
     end_line: int | None = Field(default=None, ge=1)
     max_chars: int | None = Field(default=None, ge=1)
@@ -129,7 +137,7 @@ def build_harness_run_context(ctx: SubagentContext) -> HarnessRunContext:
         agent_template=dict(invocation),
         skill=skill,
         context_bundle=dict(ctx.workspace_data or {}),
-        requested_tools=tuple(ctx.tools or ()),
+        requested_tools=expand_tool_names(ctx.tools),
         publish_event=ctx.publish_event,
     )
 
@@ -137,7 +145,7 @@ def build_harness_run_context(ctx: SubagentContext) -> HarnessRunContext:
 def build_langchain_tools(ctx: SubagentContext, tool_names: list[str]) -> list[StructuredTool]:
     """Build LangChain-compatible tools from canonical harness tool names."""
 
-    requested = [_canonical_tool_name(name) for name in tool_names if str(name).strip()]
+    requested = list(expand_tool_names(tool_names))
     business_requested = [name for name in requested if name in BUSINESS_TOOL_NAMES]
     harness_requested = [name for name in requested if name not in BUSINESS_TOOL_NAMES]
 
@@ -207,11 +215,6 @@ def _recorded_coroutine(
 
 def _langchain_tool_name(canonical_name: str) -> str:
     return canonical_name.replace(".", "_")
-
-
-def _canonical_tool_name(name: str) -> str:
-    text = str(name).strip()
-    return CANONICAL_TOOL_ALIASES.get(text, text)
 
 
 async def _invoke_recorded(
@@ -360,6 +363,10 @@ async def _read_file(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) ->
     return _format_tool_result(await _with_file_tools(ctx, policy, "read_file", kwargs))
 
 
+async def _read_output_ref(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
+    return _format_tool_result(await _with_file_tools(ctx, policy, "read_output_ref", kwargs))
+
+
 async def _list_dir(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
     return _format_tool_result(await _with_file_tools(ctx, policy, "list_dir", kwargs))
 
@@ -408,6 +415,7 @@ async def _run_python(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -
 
 TOOL_DEFINITIONS: dict[str, tuple[type[BaseModel], ToolHandler]] = {
     "sandbox.read_file": (ReadFileInput, _read_file),
+    "sandbox.read_output_ref": (ReadOutputRefInput, _read_output_ref),
     "sandbox.list_dir": (ListDirInput, _list_dir),
     "sandbox.glob": (GlobInput, _glob),
     "sandbox.grep": (GrepInput, _grep),
