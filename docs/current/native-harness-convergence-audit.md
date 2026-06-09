@@ -121,6 +121,12 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_langchain_adapter.py -q` -> 11 passed
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 114 passed
   - `backend`: `.venv/bin/ruff check src/sandbox/workspace_layout.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_sandbox_file_tools.py` -> passed
+- 2026-06-09 artifact source-script extension hardening:
+  - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py::test_merge_artifact_manifest_requires_python_source_script_refs -q` -> RED on `/workspace/scripts/analysis.ipynb` being preserved as `source_script`, then 1 passed after requiring `.py`.
+  - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py::test_merge_artifact_manifest_requires_python_source_script_refs tests/sandbox/test_workspace_layout.py::test_merge_artifact_manifest_accepts_only_safe_source_script_refs -q` -> 2 passed
+  - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py -q` -> 74 passed
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 115 passed
+  - `backend`: `.venv/bin/ruff check src/sandbox/workspace_layout.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_sandbox_file_tools.py` -> passed
 
 ## 6. 剩余不足
 

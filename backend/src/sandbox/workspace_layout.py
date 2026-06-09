@@ -744,6 +744,8 @@ def _safe_script_manifest_path(raw_path: Any) -> str | None:
         return None
     if not path.startswith(f"{WORKSPACE_ROOT}/scripts/"):
         return None
+    if not path.endswith(".py"):
+        return None
     if is_workspace_guidance_path(path) or is_workspace_protected_path(path) or is_workspace_internal_path(path):
         return None
     return path

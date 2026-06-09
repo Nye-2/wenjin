@@ -400,6 +400,45 @@ def test_merge_artifact_manifest_accepts_only_safe_source_script_refs():
     ]
 
 
+def test_merge_artifact_manifest_requires_python_source_script_refs():
+    merged = layout.merge_artifact_manifest(
+        build_artifact_manifest(),
+        [
+            {
+                "path": "/workspace/outputs/notebook-result.csv",
+                "title": "Notebook result should drop source",
+                "source_script": "/workspace/scripts/analysis.ipynb",
+            },
+            {
+                "path": "/workspace/outputs/notes-result.csv",
+                "title": "Notes result should drop source",
+                "source_script": "/workspace/scripts/notes.md",
+            },
+            {
+                "path": "/workspace/outputs/python-result.csv",
+                "title": "Python result keeps source",
+                "source_script": "/workspace/scripts/reproduce.py",
+            },
+        ],
+    )
+
+    assert merged["artifacts"] == [
+        {
+            "path": "/workspace/outputs/notebook-result.csv",
+            "title": "Notebook result should drop source",
+        },
+        {
+            "path": "/workspace/outputs/notes-result.csv",
+            "title": "Notes result should drop source",
+        },
+        {
+            "path": "/workspace/outputs/python-result.csv",
+            "title": "Python result keeps source",
+            "source_script": "/workspace/scripts/reproduce.py",
+        },
+    ]
+
+
 def test_workspace_sandbox_manifest_does_not_expose_mutable_contract_state():
     first = build_workspace_sandbox_manifest(workspace_id="ws-1")
     first["directories"]["main"]["purpose"] = "mutated"
