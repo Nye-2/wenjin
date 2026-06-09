@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import Any, Literal
 
 from src.sandbox.workspace_layout import (
     WORKSPACE_ROOT,
@@ -81,6 +81,8 @@ class HarnessCommand:
     cwd: str = WORKSPACE_ROOT
     env: dict[str, str | None] = field(default_factory=dict)
     network_profile: str = "none"
+    operation: str = "sandbox_command"
+    billable: bool | None = None
     timeout_seconds: int | None = None
     output_bytes_cap: int | None = None
 
@@ -372,12 +374,17 @@ def _is_allowed_runtime_path(path: str, *, install_command: bool) -> bool:
     return False
 
 
-def _policy_decision(result: CommandAuditResult) -> dict[str, str]:
+def _policy_decision(result: CommandAuditResult) -> dict[str, Any]:
     decision: CommandPolicyDecision = "forbid" if result.verdict == "block" else "allow"
     return {
         "schema": "wenjin.harness.command_policy_decision.v1",
+        "operation": str(result.command.operation or "sandbox_command"),
         "decision": decision,
+        "risk_level": result.risk_level,
         "reason": _policy_reason(result),
+        "network_profile": result.command.network_profile,
+        "billable": result.command.billable,
+        "blocked_before_job": decision == "forbid",
         "command_preview": _command_preview(result.command),
     }
 

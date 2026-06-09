@@ -154,6 +154,24 @@ def _install_policy() -> dict:
     return policy
 
 
+def _assert_policy_decision_contract(
+    audit: dict,
+    *,
+    operation: str,
+    billable: bool,
+    decision: str = "allow",
+) -> None:
+    policy_decision = audit["policy_decision"]
+    assert policy_decision["schema"] == "wenjin.harness.command_policy_decision.v1"
+    assert policy_decision["operation"] == operation
+    assert policy_decision["decision"] == decision
+    assert policy_decision["risk_level"] == audit["risk_level"]
+    assert policy_decision["network_profile"] == audit["command"]["network_profile"]
+    assert policy_decision["billable"] is billable
+    assert policy_decision["blocked_before_job"] is (decision == "forbid")
+    assert policy_decision["command_preview"]
+
+
 @pytest.mark.asyncio
 async def test_run_python_smoke_check_uses_fixed_command_and_releases_sandbox() -> None:
     stdout = json.dumps(
@@ -190,6 +208,11 @@ async def test_run_python_smoke_check_uses_fixed_command_and_releases_sandbox() 
     assert "LeadAgentRuntime / subagent node" in result["report_markdown"]
     assert manager.created_jobs[0]["operation"] == "smoke_check"
     assert manager.created_jobs[0]["metadata"]["credit_reservation_id"] == "reservation-1"
+    _assert_policy_decision_contract(
+        manager.created_jobs[0]["metadata"]["command_audit"],
+        operation="smoke_check",
+        billable=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -281,6 +304,7 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
         "/workspace/.wenjin/env/python/bin/python",
         "/workspace/scripts/analysis_probe.py",
     ]
+    _assert_policy_decision_contract(run_audit, operation="run_python", billable=True)
     assert result["command_audit"] == run_audit
 
 
@@ -643,6 +667,11 @@ async def test_run_python_script_installs_declared_dependency_hints_before_execu
     assert install_audit["risk_level"] == "medium"
     assert "package_install" in install_audit["reasons"]
     assert install_audit["command"]["network_profile"] == "package_index_only"
+    _assert_policy_decision_contract(
+        install_audit,
+        operation="install_dependencies",
+        billable=False,
+    )
     assert result["install_command_audits"] == [install_audit]
     assert [options["network_profile"] for options in provider.sandbox.command_options] == [
         "none",

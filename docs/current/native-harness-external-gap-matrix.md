@@ -31,7 +31,7 @@ deer-flow:
 
 | External pattern | Wenjin status | Decision | Reason |
 | --- | --- | --- | --- |
-| Codex argv/prefix command policy | Partially implemented in `command_audit.py` | Adopt further | Wenjin needs explicit allow/forbid evidence for `run_python`, installs, and future smoke checks, but not a general shell. |
+| Codex argv/prefix command policy | Implemented for Lead-owned `run_python`, `install_dependencies`, and `smoke_check` | Keep narrow | Wenjin now records a compact allow/forbid decision with operation, risk, network, billable, blocked-before-job, and preview; this still intentionally stops short of a general shell. |
 | Codex head/tail output buffer | Implemented via `output_budget.py` | Keep and harden | Bounded preview + output refs is aligned with long-running research tasks. |
 | Codex turn diff tracker | Implemented via `diff_tracker.py` | Keep domain-specific | Wenjin tracks sandbox file changes and Prism review items; no need to import Codex patch runtime. |
 | Codex explicit approval/runtime policy | Partially implemented | Adopt concept only | Wenjin maps this to capability/skill policy and DataService review, not interactive CLI approval. |
@@ -50,9 +50,9 @@ deer-flow:
 
    New internal refs are now under `/workspace/tmp/tasks/.harness/outputs`, classified as internal, hidden from listing/search/artifact discovery, and read-only through explicit `sandbox.read_output_ref` refs. `sandbox.read_file` remains bounded-compatible for explicit refs, but model guidance should prefer the dedicated facade.
 
-2. **Command audit is strong for Python execution but not yet a reusable policy language.**
+2. **Command audit is strong for current sandbox actions but not a reusable shell policy language.**
 
-   Wenjin should not copy Codex's full execpolicy DSL, but it should expose a compact internal decision object for all sandbox actions: `decision`, `risk_level`, `reason`, `command_preview`, `install_billable=false`, and `blocked_before_job=true`.
+   The current decision contract covers `run_python`, dependency install, and smoke checks with `operation`, `decision`, `risk_level`, `reason`, `network_profile`, `billable`, `blocked_before_job`, and `command_preview`. Wenjin should still not copy Codex's full execpolicy DSL unless a future dedicated `sandbox.run_command` design is approved with DataService policy, output budget, artifact discovery, kill/cancel, and UI audit.
 
 3. **Context recovery after large omitted output has a facade, but usage quality still needs real-task tuning.**
 
@@ -68,6 +68,6 @@ deer-flow:
 
 ## Near-Term Implementation Order
 
-1. Add a compact command-policy decision contract test shared by `run_python`, install, and future smoke checks.
-2. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
-3. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs.
+1. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
+2. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs.
+3. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.

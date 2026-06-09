@@ -64,6 +64,8 @@ class SandboxEnvironmentInstaller:
             HarnessCommand(
                 argv=build_pip_install_argv(normalized_packages),
                 network_profile="package_index_only",
+                operation="install_dependencies",
+                billable=False,
             ),
             CommandAuditPolicy(
                 allow_package_install=True,

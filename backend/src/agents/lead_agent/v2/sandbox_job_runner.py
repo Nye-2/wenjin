@@ -70,7 +70,11 @@ class SandboxJobRunner:
             sandbox_policy=sandbox_policy,
         )
         command_audit = audit_command(
-            HarnessCommand(shell_command=SMOKE_COMMAND),
+            HarnessCommand(
+                shell_command=SMOKE_COMMAND,
+                operation="smoke_check",
+                billable=True,
+            ),
             CommandAuditPolicy(allow_shell=True),
         )
         require_command_policy_allowed(command_audit)
@@ -165,7 +169,11 @@ class SandboxJobRunner:
             sandbox_policy=sandbox_policy,
         )
         command_audit_result = audit_command(
-            HarnessCommand(argv=plan.command_argv),
+            HarnessCommand(
+                argv=plan.command_argv,
+                operation="run_python",
+                billable=True,
+            ),
             CommandAuditPolicy(allowed_network_profiles=("none",)),
         )
         require_command_policy_allowed(command_audit_result)

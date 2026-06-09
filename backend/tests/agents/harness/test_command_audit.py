@@ -28,9 +28,56 @@ def test_audit_allows_workspace_scoped_argv_command() -> None:
     assert result.model_dump()["command"]["cwd"] == "/workspace/main"
     assert result.model_dump()["policy_decision"] == {
         "schema": "wenjin.harness.command_policy_decision.v1",
+        "operation": "sandbox_command",
         "decision": "allow",
+        "risk_level": "low",
         "reason": "workspace_python",
+        "network_profile": "none",
+        "billable": None,
+        "blocked_before_job": False,
         "command_preview": "python /workspace/scripts/analysis.py",
+    }
+
+
+def test_policy_decision_contract_includes_execution_context() -> None:
+    allowed = audit_command(
+        HarnessCommand(
+            argv=("python", "/workspace/scripts/analysis.py"),
+            operation="run_python",
+            billable=True,
+            network_profile="none",
+        ),
+        CommandAuditPolicy(allowed_network_profiles=("none",)),
+    )
+    blocked = audit_command(
+        HarnessCommand(
+            argv=("curl", "https://example.invalid"),
+            operation="run_python",
+            billable=True,
+        )
+    )
+
+    assert allowed.model_dump()["policy_decision"] == {
+        "schema": "wenjin.harness.command_policy_decision.v1",
+        "operation": "run_python",
+        "decision": "allow",
+        "risk_level": "low",
+        "reason": "workspace_python",
+        "network_profile": "none",
+        "billable": True,
+        "blocked_before_job": False,
+        "command_preview": "python /workspace/scripts/analysis.py",
+    }
+    assert blocked.model_dump()["policy_decision"] == {
+        "schema": "wenjin.harness.command_policy_decision.v1",
+        "operation": "run_python",
+        "decision": "forbid",
+        "risk_level": "high",
+        "reason": "program_forbidden",
+        "network_profile": "none",
+        "billable": True,
+        "blocked_before_job": True,
+        "command_preview": "curl https://example.invalid",
     }
 
 
@@ -176,8 +223,13 @@ def test_audit_requires_package_install_policy() -> None:
     assert "package_install" in warned.reasons
     assert warned.model_dump()["policy_decision"] == {
         "schema": "wenjin.harness.command_policy_decision.v1",
+        "operation": "sandbox_command",
         "decision": "allow",
+        "risk_level": "medium",
         "reason": "dependency_install",
+        "network_profile": "package_index_only",
+        "billable": None,
+        "blocked_before_job": False,
         "command_preview": "/workspace/.wenjin/env/python/bin/python -m pip install pandas",
     }
 
