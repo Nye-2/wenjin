@@ -160,6 +160,18 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
                                     "script_paths": ["/workspace/scripts/eval.py"],
                                     "dependency_names": ["pandas"],
                                 },
+                                "member_execution_transcript": {
+                                    "schema": "wenjin.harness.member_execution_transcript.v1",
+                                    "tool_call_count": 2,
+                                    "tool_names": ["sandbox.run_python", "sandbox.write_file"],
+                                    "completed_tool_count": 2,
+                                    "failed_tool_count": 0,
+                                    "changed_paths": ["/workspace/main/paper.tex"],
+                                    "sandbox_job_ids": ["job-1"],
+                                    "sandbox_environment_ids": ["env-1"],
+                                    "scratch_refs": ["/workspace/tmp/tasks/exec-1/research_scout"],
+                                    "generated_artifact_count": 1,
+                                },
                             }
                         },
                     }
@@ -200,6 +212,19 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         "script_paths": ["/workspace/scripts/eval.py"],
         "dependency_names": ["pandas"],
     }
+    assert bundle["member_execution_transcript"] == {
+        "schema": "wenjin.harness.member_execution_transcript.v1",
+        "tool_call_count": 2,
+        "tool_names": ["sandbox.run_python", "sandbox.write_file"],
+        "completed_tool_count": 2,
+        "failed_tool_count": 0,
+        "changed_paths": ["/workspace/main/paper.tex"],
+        "sandbox_job_ids": ["job-1"],
+        "sandbox_environment_ids": ["env-1"],
+        "scratch_refs": ["/workspace/tmp/tasks/exec-1/research_scout"],
+        "generated_artifact_count": 1,
+    }
+    assert bundle["recent_execution_evidence"][0]["harness"]["member_execution_transcript"]["tool_call_count"] == 2
     assert bundle["harness_replan_signals"] == [
         {
             "schema": "wenjin.harness.replan_signal.v1",

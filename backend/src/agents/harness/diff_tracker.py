@@ -12,6 +12,7 @@ SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
 REPLAN_SIGNAL_SCHEMA = "wenjin.harness.replan_signal.v1"
 RUN_JOURNAL_SUMMARY_SCHEMA = "wenjin.harness.run_journal_summary.v1"
 REPRODUCIBILITY_SUMMARY_SCHEMA = "wenjin.harness.reproducibility_summary.v1"
+MEMBER_EXECUTION_TRANSCRIPT_SCHEMA = "wenjin.harness.member_execution_transcript.v1"
 
 
 def build_file_change(
@@ -111,6 +112,13 @@ def build_harness_node_metadata_from_tool_calls(
     replan_signals = build_harness_replan_signals_from_tool_calls(tool_calls)
     if replan_signals:
         harness["replan_signals"] = replan_signals
+    member_execution_transcript = build_member_execution_transcript_from_tool_calls(
+        tool_calls,
+        file_change_summary=file_change_summary,
+        sandbox_execution_summary=sandbox_execution_summary,
+    )
+    if member_execution_transcript is not None:
+        harness["member_execution_transcript"] = member_execution_transcript
     run_journal_summary = build_run_journal_summary_from_tool_calls(
         tool_calls,
         file_change_summary=file_change_summary,
@@ -151,6 +159,77 @@ def build_run_journal_summary_from_tool_calls(
         "tool_call_count": len(calls),
         "artifact_count": artifact_count,
     }
+
+
+def build_member_execution_transcript_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+    *,
+    file_change_summary: dict[str, Any] | None = None,
+    sandbox_execution_summary: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Build a bounded member-level transcript from existing harness tool calls."""
+
+    calls = [tool_call for tool_call in tool_calls or [] if isinstance(tool_call, dict)]
+    if not calls:
+        return None
+
+    tool_names: list[str] = []
+    failed_tools: list[str] = []
+    scratch_refs: list[str] = []
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    credits_charged = 0.0
+    duration_ms = 0
+    completed_tool_count = 0
+    failed_tool_count = 0
+    for tool_call in calls:
+        name = str(tool_call.get("name") or "unknown_tool").strip() or "unknown_tool"
+        _append_unique(tool_names, name)
+        status = str(tool_call.get("status") or "").strip()
+        if status == "failed":
+            failed_tool_count += 1
+            _append_unique(failed_tools, name)
+        else:
+            completed_tool_count += 1
+
+        metadata = tool_call.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        duration_ms += _int_value(tool_call.get("duration_ms") or metadata.get("duration_ms"))
+
+        raw_usage = _first_dict(tool_call.get("usage"), tool_call.get("token_usage"), metadata.get("usage"))
+        raw_usage = raw_usage or {}
+        for key in ("input_tokens", "output_tokens", "total_tokens"):
+            usage[key] += _int_value(raw_usage.get(key))
+
+        billing = _first_dict(tool_call.get("billing"), metadata.get("billing"))
+        if billing is not None:
+            credits_charged += _number_value(billing.get("credits_charged"))
+
+        manifest = _first_dict(tool_call.get("execution_manifest"), metadata.get("execution_manifest"))
+        if manifest is not None:
+            _append_safe_scratch_ref(scratch_refs, str(manifest.get("task_scratch_path") or ""))
+
+    result: dict[str, Any] = {
+        "schema": MEMBER_EXECUTION_TRANSCRIPT_SCHEMA,
+        "tool_call_count": len(calls),
+        "tool_names": tool_names[:20],
+        "completed_tool_count": completed_tool_count,
+        "failed_tool_count": failed_tool_count,
+        "failed_tools": failed_tools[:20],
+        "changed_paths": _list_value((file_change_summary or {}).get("changed_paths"))[:50],
+        "sandbox_job_ids": _list_value((sandbox_execution_summary or {}).get("sandbox_job_ids"))[:20],
+        "sandbox_environment_ids": _list_value(
+            (sandbox_execution_summary or {}).get("sandbox_environment_ids")
+        )[:20],
+        "scratch_refs": scratch_refs[:20],
+        "generated_artifact_count": _int_value((sandbox_execution_summary or {}).get("generated_artifact_count")),
+    }
+    if any(usage.values()):
+        result["usage"] = usage
+    if credits_charged > 0:
+        result["billing"] = {"credits_charged": _json_number(credits_charged)}
+    if duration_ms > 0:
+        result["duration_ms"] = duration_ms
+    return result
 
 
 def build_tool_failure_summary_from_tool_calls(
@@ -525,6 +604,24 @@ def _append_unique(values: list[str], value: str) -> None:
         values.append(text)
 
 
+def _append_safe_scratch_ref(values: list[str], value: str) -> None:
+    text = str(value or "").strip()
+    if not _is_safe_task_scratch_ref(text):
+        return
+    _append_unique(values, text)
+
+
+def _is_safe_task_scratch_ref(path: str) -> bool:
+    if not path.startswith("/workspace/tmp/tasks/"):
+        return False
+    if path.startswith("/workspace/tmp/tasks/.harness/"):
+        return False
+    if any(marker in path for marker in ("/.wenjin", "/.git", "/.env", ".pem", ".key")):
+        return False
+    parts = path.removeprefix("/workspace/tmp/tasks/").split("/")
+    return len(parts) >= 2 and all(part and part not in {".", ".."} for part in parts)
+
+
 def _first_dict(*values: Any) -> dict[str, Any] | None:
     for value in values:
         if isinstance(value, dict):
@@ -552,6 +649,23 @@ def _int_value(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
     return parsed if parsed > 0 else 0
+
+
+def _number_value(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        parsed = float(value)
+    else:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+    return parsed if parsed > 0 else 0.0
+
+
+def _json_number(value: float) -> int | float:
+    return int(value) if value.is_integer() else value
 
 
 def _is_recoverable_failure(

@@ -45,7 +45,7 @@ deer-flow:
 | deer-flow tool-output externalization | Implemented, now read-only output refs are supported | Keep and refine | Explicit refs let agent recover omitted content without listing/searching hidden internals. |
 | deer-flow sandbox audit middleware | Partially implemented | Adopt selected checks | Regex/shlex risk classification is useful for install/run audit; keep Wenjin's command contract narrower. |
 | deer-flow task/subagent tool | Wenjin has TeamKernel + templates | Do not migrate runtime | The useful idea is delegated context isolation; implementation remains TeamKernel member execution. |
-| deer-flow parent-child subagent usage reporting | Wenjin has execution/token usage records but not strong member-bucketed harness usage | Adopt later in DataService projection | `task_tool` reports subagent usage back to `RunJournal`; Wenjin should roll member token/cost/duration into `ExecutionNodeRecord.node_metadata.harness`, not create a parallel RunJournal. |
+| deer-flow parent-child subagent usage reporting | Implemented as harness member transcript projection | Keep as existing metadata projection | `task_tool` reports subagent usage back to `RunJournal`; Wenjin now rolls member tool usage, duration, token usage, scratch refs and evidence paths into `ExecutionNodeRecord.node_metadata.harness.member_execution_transcript`, without creating a parallel RunJournal. |
 | deer-flow subagent lifecycle stream | Partially implemented as TeamKernel/RunView progress | Adopt vocabulary only | `task_started` / `task_running` / `task_completed` / timeout/cancel is a useful lifecycle vocabulary. Wenjin should keep existing execution events and team roster projection. |
 | deer-flow run journal | Partially implemented as harness node metadata/events | Adopt projection shape only | Wenjin already has ExecutionNodeRecord/DataService events; no new run-event table. |
 | deer-flow skills prompt injection | Wenjin has capability/skill templates | Adopt caching/selection idea, reject self-evolution loop | Skills remain DataService/capability-driven; dynamic cache/selection is useful, but mutable SOUL or autonomous skill evolution would drift from admin-managed capability contracts. |
@@ -73,13 +73,15 @@ deer-flow:
 
    Literature, experiment, and Prism writing evidence now have deterministic structure checks. The remaining gap is task-quality eval: relevance of papers, citation strength, experiment interpretation, and whether writing edits improve academic style without semantic drift.
 
-6. **Member-level usage and execution transcript are still too thin.**
+6. **Member-level usage and execution transcript now has a backend projection.**
 
-   Codex and deer-flow both make the execution lifecycle easy to audit: command cwd/env/process/output in Codex, caller-bucketed token usage and progress snapshots in deer-flow. Wenjin already has DataService generation usage, credit transactions, `ExecutionNodeRecord.tool_calls`, harness summaries and TeamKernel member states, but it does not yet provide a compact per-member usage/transcript summary that says which member spent how many tokens/credits, which tools ran, which files changed, which scratch refs were used, and where the final evidence landed. This should be added as a projection over existing records, not as a new run table.
+   Status: backend projection closed. Codex and deer-flow both make the execution lifecycle easy to audit: command cwd/env/process/output in Codex, caller-bucketed token usage and progress snapshots in deer-flow. Wenjin now projects `member_execution_transcript(schema=wenjin.harness.member_execution_transcript.v1)` from existing `ExecutionNodeRecord.tool_calls` into `node_metadata.harness` and bounded harness context. It records tool counts/names, failures, changed paths, sandbox job/environment ids, safe task scratch refs, generated artifact count, token usage and duration without raw args, scripts, stdout/stderr, protected paths, internal output refs, a new run table or a new stream. Remaining gap: frontend/team roster visualization and real-task tuning should decide how much of this execution memory is user-visible versus agent-only context.
+
+   Billing is included only as a compact `billing.credits_charged` projection from existing tool calls. It is not a new billing source and does not replace DataService credit transactions.
 
 ## Near-Term Implementation Order
 
-1. Add member-level harness usage/transcript projection over existing execution records.
-2. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
-3. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs.
+1. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
+2. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs or ignore member transcripts.
+3. Design frontend/team-roster usage display only after real runs prove which transcript fields help users.
 4. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.

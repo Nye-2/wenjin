@@ -314,6 +314,70 @@ def test_harness_node_metadata_includes_reproducibility_summary() -> None:
     }
 
 
+def test_harness_node_metadata_includes_member_execution_transcript() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "duration_ms": 1250,
+                "usage": {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500},
+                "billing": {"credits_charged": 1},
+                "execution_manifest": {
+                    "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                    "sandbox_job_id": "job-1",
+                    "sandbox_environment_id": "env-1",
+                    "task_scratch_path": "/workspace/tmp/tasks/exec-1/analysis_probe",
+                },
+                "generated_artifacts": [
+                    {"path": "/workspace/outputs/result.json"},
+                    {"path": "/workspace/reports/analysis.md"},
+                ],
+            },
+            {
+                "name": "sandbox.write_file",
+                "status": "completed",
+                "duration_ms": 100,
+                "file_changes": [
+                    build_file_change(
+                        path="/workspace/reports/analysis.md",
+                        before=None,
+                        after="# Analysis\n",
+                        operation="add",
+                    )
+                ],
+            },
+            {
+                "name": "sandbox.read_file",
+                "status": "failed",
+                "args": {"path": "/workspace/.env", "content": "must not leak"},
+                "error": "HarnessPathError: protected path is not accessible: /workspace/.env",
+                "metadata": {"error_code": "tool_error"},
+            },
+        ]
+    )
+
+    transcript = metadata["harness"]["member_execution_transcript"]
+    assert transcript == {
+        "schema": "wenjin.harness.member_execution_transcript.v1",
+        "tool_call_count": 3,
+        "tool_names": ["sandbox.run_python", "sandbox.write_file", "sandbox.read_file"],
+        "completed_tool_count": 2,
+        "failed_tool_count": 1,
+        "failed_tools": ["sandbox.read_file"],
+        "changed_paths": ["/workspace/reports/analysis.md"],
+        "sandbox_job_ids": ["job-1"],
+        "sandbox_environment_ids": ["env-1"],
+        "scratch_refs": ["/workspace/tmp/tasks/exec-1/analysis_probe"],
+        "generated_artifact_count": 2,
+        "usage": {"input_tokens": 1200, "output_tokens": 300, "total_tokens": 1500},
+        "billing": {"credits_charged": 1},
+        "duration_ms": 1350,
+    }
+    assert "/workspace/.env" not in str(transcript)
+    assert "must not leak" not in str(transcript)
+
+
 def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:
     guard = HarnessLoopGuard(warn_threshold=3, hard_limit=5)
     args = {"path": "/workspace/main.tex"}

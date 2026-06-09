@@ -69,6 +69,10 @@ def build_harness_context_bundle(
             safe_workspace_data,
             "reproducibility_summary",
         ),
+        "member_execution_transcript": _latest_harness_summary(
+            safe_workspace_data,
+            "member_execution_transcript",
+        ),
         "scratch_refs": _scratch_refs(raw_task, safe_workspace_data),
         "harness_replan_signals": _harness_replan_signals(raw_task, safe_workspace_data),
         "upstream_artifact_candidates": _upstream_artifact_candidates(
@@ -540,6 +544,7 @@ def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
         "tool_failure_summary",
         "sandbox_execution_summary",
         "reproducibility_summary",
+        "member_execution_transcript",
     ):
         value = _safe_value(harness.get(key))
         if value not in (None, {}, []):
@@ -634,6 +639,7 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
         ("recent_file_change_summary", {}),
         ("sandbox_execution_summary", {}),
         ("reproducibility_summary", {}),
+        ("member_execution_transcript", {}),
     ):
         if len(render_harness_context_for_prompt(compact)) <= max_chars:
             break
