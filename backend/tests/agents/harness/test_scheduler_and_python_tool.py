@@ -525,6 +525,54 @@ async def test_run_python_reproducibility_manifest_includes_dataset_provenance()
 
 
 @pytest.mark.asyncio
+async def test_run_python_manifest_filters_invalid_workspace_paths() -> None:
+    class InvalidPathRunner:
+        async def run_python_script(self, **kwargs):
+            return {
+                "status": "completed",
+                "stdout": "{\"ok\": true}",
+                "stderr": "",
+                "parsed_stdout": {"ok": True},
+                "sandbox_job_id": "job-1",
+                "script_path": "/workspace/scripts/../.env",
+                "dataset_provenance": [
+                    {"path": "/workspace/datasets/../.env", "source_id": "bad"},
+                    {"path": "/workspace/datasets/raw/survey.csv", "source_id": "source-1"},
+                ],
+                "generated_artifacts": [
+                    {"path": "/workspace/outputs/../.env", "artifact_kind": "secret"},
+                    {"path": "/workspace/reports/summary.md", "artifact_kind": "report"},
+                ],
+            }
+
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+        ),
+        runner=InvalidPathRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    result = await tool.run_python(script="print('{\"ok\": true}')", script_name="analysis.py")
+
+    manifest = result.structured_payload["reproducibility_manifest"]
+    narrative = result.structured_payload["experiment_narrative"]
+    assert manifest["script"]["path"] == ""
+    assert manifest["datasets"] == [
+        {"path": "/workspace/datasets/raw/survey.csv", "source_id": "source-1"}
+    ]
+    assert manifest["artifacts"] == [
+        {"path": "/workspace/reports/summary.md", "artifact_kind": "report"}
+    ]
+    assert narrative["script_path"] == ""
+    assert narrative["dataset_paths"] == ["/workspace/datasets/raw/survey.csv"]
+    assert narrative["artifact_paths"] == ["/workspace/reports/summary.md"]
+    assert "/workspace/outputs/../.env" not in result.structured_payload["report_markdown"]
+
+
+@pytest.mark.asyncio
 async def test_run_python_sanitizes_script_name_before_runner_boundary() -> None:
     runner = _FakeRunner()
     tool = SandboxExecutionTools(

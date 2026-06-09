@@ -13,6 +13,7 @@ from src.sandbox.workspace_layout import (
     is_workspace_internal_path,
     is_workspace_protected_path,
     merge_dataset_provenance_manifest,
+    normalize_workspace_virtual_path,
 )
 
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
@@ -515,8 +516,11 @@ def _command_audit_manifest(raw_run_audit: Any, raw_install_audits: Any) -> dict
 
 
 def _workspace_path(raw: Any) -> str:
-    path = str(raw or "").strip()
-    if not path.startswith("/workspace/"):
+    try:
+        path = normalize_workspace_virtual_path(str(raw or "").strip())
+    except ValueError:
+        return ""
+    if path == "/workspace":
         return ""
     if is_workspace_internal_path(path) or is_workspace_protected_path(path):
         return ""
