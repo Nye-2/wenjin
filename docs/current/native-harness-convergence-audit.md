@@ -85,6 +85,9 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_citation_source_audit.py -q` -> 4 passed
   - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py -q` -> 16 passed
   - `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/team/citation_source_audit.py src/agents/lead_agent/v2/team/quality_gates.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py` -> passed
+  - `frontend`: `npx vitest run tests/unit/v2/live-workflow-view-model.test.ts -t "citation source audit"` -> 1 passed after RED failed with empty Evidence
+  - `frontend`: `npx vitest run tests/unit/v2/live-workflow-view-model.test.ts` -> 8 passed
+  - `frontend`: `npm run typecheck` -> passed
 
 ## 6. 剩余不足
 
@@ -94,7 +97,7 @@ Chat Agent
 
 ### P1: 来源质量和引用核验还不够硬
 
-claim-source 绑定已经进入强制质量门：`claim_evidence_map_required` 会要求 supported claims 使用当前 workspace 的 `source_id` 或 `citation_key`。`source-quality-auditor` / `citation-auditor` 的输出也已经进入结构化质量门，不能只靠 prose 和 `quality_gates_checked` 通过；source authority、metadata completeness、weak support、fabricated citation、claim-source binding 和 style consistency gate 会要求 `citation_key_audit`、`missing_sources`、`fabrication_risks` 或 `bibtex_projection_notes`，其中的 citation/source refs 必须来自当前 workspace allowlist，且 `fabricated`、`not_ready`、`replace`、`missing`、`unsupported`、`weak` 或 high/critical/blocking risk 会触发修订。剩余不足是 DOI/BibTeX 深度自动校验、引用样式自动核验和把高风险 citation findings 进一步转成用户可审阅 review item。
+claim-source 绑定已经进入强制质量门：`claim_evidence_map_required` 会要求 supported claims 使用当前 workspace 的 `source_id` 或 `citation_key`。`source-quality-auditor` / `citation-auditor` 的输出也已经进入结构化质量门，不能只靠 prose 和 `quality_gates_checked` 通过；source authority、metadata completeness、weak support、fabricated citation、claim-source binding 和 style consistency gate 会要求 `citation_key_audit`、`missing_sources`、`fabrication_risks` 或 `bibtex_projection_notes`，其中的 citation/source refs 必须来自当前 workspace allowlist，且 `fabricated`、`not_ready`、`replace`、`missing`、`unsupported`、`weak` 或 high/critical/blocking risk 会触发修订。高风险 `citation_source_audit` 已能进入 LiveWorkflow Evidence tab，前端展示对象、风险、问题、建议和 bounded claim，不展示 raw auditor JSON。剩余不足是 DOI/BibTeX 深度自动校验、引用样式自动核验和把高风险 citation findings 进一步转成可勾选的 review item。
 
 ### P1: sandbox 安装与实验体验仍偏基础
 

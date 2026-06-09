@@ -167,6 +167,61 @@ describe("live workflow view model", () => {
     expect(model.evidenceItems[0]?.summary).not.toContain("/workspace/outputs/harness");
   });
 
+  it("projects citation source audit findings as bounded evidence", () => {
+    const citationAuditRecord = baseRecord({
+      id: "citation-audit-1",
+      status: "failed_partial",
+      runtime_state: {
+        quality_gates: [
+          {
+            gate_id: "no_fabricated_citations",
+            status: "fail",
+            severity: "high",
+            findings: [
+              {
+                invocation_id: "citation_auditor.v1__1",
+                template_id: "citation_auditor.v1",
+                citation_source_audit: [
+                  {
+                    schema: "wenjin.quality.citation_source_audit_finding.v1",
+                    field: "fabrication_risks",
+                    risk: "fabricated",
+                    severity: "high",
+                    unknown_refs: ["fake2026"],
+                    claim: "A fabricated claim that should be bounded.",
+                    message: "not found in library",
+                    suggested_action: "replace_or_remove_citation",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const model = buildLiveWorkflowViewModel({
+      records: [citationAuditRecord],
+      workspaceId: "ws-1",
+      selectedRunId: "citation-audit-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+      draftEdits: {},
+    });
+
+    expect(model.evidenceItems).toHaveLength(1);
+    expect(model.evidenceItems[0]?.kind).toBe("citation");
+    expect(model.evidenceItems[0]?.title).toContain("引文");
+    expect(model.evidenceItems[0]?.summary).toContain("fake2026");
+    expect(model.evidenceItems[0]?.summary).toContain("not found in library");
+    expect(model.evidenceItems[0]?.summary).toContain("替换或删除");
+    expect(model.evidenceItems[0]?.summary).not.toContain(
+      "wenjin.quality.citation_source_audit_finding.v1",
+    );
+    expect(model.evidenceItems[0]?.summary).not.toContain("{");
+  });
+
   it("selects the active running execution before a stale selected history run", () => {
     const model = buildLiveWorkflowViewModel({
       records: [completedRecord, runningRecord],

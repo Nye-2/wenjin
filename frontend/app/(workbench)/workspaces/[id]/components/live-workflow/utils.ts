@@ -14,6 +14,10 @@ import type { WorkbenchDraftEdit } from "@/stores/workbench-layout-store";
 
 import type { EvidenceItem } from "./types";
 
+const CITATION_SOURCE_AUDIT_SCHEMA =
+  "wenjin.quality.citation_source_audit_finding.v1";
+const MAX_CITATION_SOURCE_AUDIT_ITEMS = 8;
+
 export const TERMINAL_STATUSES = new Set([
   "completed",
   "failed_partial",
@@ -69,7 +73,8 @@ export function buildEvidenceItems(
         nodeState: state,
       };
     });
-  return [...outputItems, ...nodeItems];
+  const citationAuditItems = buildCitationSourceAuditEvidenceItems(record);
+  return [...outputItems, ...citationAuditItems, ...nodeItems];
 }
 
 function buildHarnessEvidenceSummary(state: ExecutionNodeState): string[] | null {
@@ -96,6 +101,138 @@ function buildHarnessEvidenceSummary(state: ExecutionNodeState): string[] | null
     nextActions.length ? `后续：${formatShortList(nextActions)}` : null,
   ].filter((line): line is string => Boolean(line));
   return lines.length ? lines : null;
+}
+
+function buildCitationSourceAuditEvidenceItems(record: ExecutionRecord): EvidenceItem[] {
+  const gates = qualityGateObjectsFromRuntimeState(record.runtime_state);
+  const items: EvidenceItem[] = [];
+  for (const gate of gates) {
+    const gateId = readString(gate.gate_id) ?? readString(gate.id) ?? "citation_source_audit";
+    const findings = unknownArrayValue(gate.findings);
+    for (const findingValue of findings) {
+      const finding = readObject(findingValue);
+      const auditFindings = unknownArrayValue(finding?.citation_source_audit);
+      for (const auditValue of auditFindings) {
+        const audit = readObject(auditValue);
+        if (!audit || readString(audit.schema) !== CITATION_SOURCE_AUDIT_SCHEMA) {
+          continue;
+        }
+        const summary = citationSourceAuditSummary(audit);
+        if (!summary) {
+          continue;
+        }
+        const severity = readString(audit.severity) ?? readString(gate.severity);
+        const status = readString(gate.status) ?? "warning";
+        const title = `引文与来源风险 · ${qualityGateDisplayName(gateId)}`;
+        const nodeState: ExecutionNodeState = {
+          status,
+          node_type: "quality_gate",
+          label: title,
+          output_preview: summary,
+          node_metadata: {
+            quality_gate: {
+              gate_id: gateId,
+              severity,
+              status,
+              finding_count: auditFindings.length,
+            },
+          },
+        };
+        items.push({
+          id: `quality-gate:${gateId}:citation-source-audit:${items.length + 1}`,
+          source: "node",
+          title,
+          kind: "citation",
+          summary,
+          nodeId: `quality-gate:${gateId}`,
+          nodeState,
+        });
+        if (items.length >= MAX_CITATION_SOURCE_AUDIT_ITEMS) {
+          return items;
+        }
+      }
+    }
+  }
+  return items;
+}
+
+function qualityGateObjectsFromRuntimeState(
+  runtimeState: Record<string, unknown> | null | undefined,
+): Record<string, unknown>[] {
+  const direct = unknownArrayValue(runtimeState?.quality_gates);
+  const nested = unknownArrayValue(readObject(runtimeState?.team)?.quality_gates);
+  return [...direct, ...nested]
+    .map((value) => readObject(value))
+    .filter((value): value is Record<string, unknown> => Boolean(value));
+}
+
+function citationSourceAuditSummary(audit: Record<string, unknown>): string | null {
+  const refs = [
+    readString(audit.citation_key),
+    readString(audit.source_id),
+    ...stringArrayValue(audit.unknown_refs).map((ref) => `未确认 ${ref}`),
+  ].filter((value): value is string => Boolean(value));
+  const risk = riskLabel(readString(audit.risk));
+  const severity = severityLabel(readString(audit.severity));
+  const message = readString(audit.message);
+  const action = citationAuditActionLabel(readString(audit.suggested_action));
+  const claim = readString(audit.claim);
+  const lines = [
+    refs.length ? `对象：${formatShortList(refs)}` : null,
+    risk || severity ? `风险：${[risk, severity].filter(Boolean).join(" / ")}` : null,
+    message ? `问题：${truncate(message, 96)}` : null,
+    action ? `建议：${action}` : null,
+    claim ? `论断：${truncate(claim, 120)}` : null,
+  ].filter((line): line is string => Boolean(line));
+  return lines.length ? lines.join(" · ") : null;
+}
+
+function qualityGateDisplayName(gateId: string): string {
+  const normalized = gateId.toLowerCase();
+  if (normalized.includes("fabricated") || normalized.includes("citation")) {
+    return "引用真实性检查";
+  }
+  if (normalized.includes("source")) {
+    return "来源完整性检查";
+  }
+  return gateId
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function riskLabel(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.toLowerCase();
+  if (normalized.includes("fabricated")) return "疑似编造";
+  if (normalized.includes("missing")) return "缺少来源";
+  if (normalized.includes("unsupported")) return "缺少证据支撑";
+  return value;
+}
+
+function severityLabel(value: string | null): string | null {
+  if (value === "high") return "高";
+  if (value === "medium") return "中";
+  if (value === "low") return "低";
+  return value;
+}
+
+function citationAuditActionLabel(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.toLowerCase();
+  if (normalized.includes("replace") || normalized.includes("remove")) {
+    return "替换或删除";
+  }
+  if (normalized.includes("attach") || normalized.includes("source")) {
+    return "补充可信来源";
+  }
+  if (normalized.includes("review")) {
+    return "人工复核";
+  }
+  return value.replace(/[_-]+/g, " ");
 }
 
 export function readReviewItems(record: ExecutionRecord | null): WorkspacePrismReviewItem[] {
@@ -289,6 +426,10 @@ function stringArrayValue(value: unknown): string[] {
   return value
     .map((item) => readString(item))
     .filter((item): item is string => Boolean(item));
+}
+
+function unknownArrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
 function safeWorkspacePathBasenames(value: unknown, allowedPrefixes: string[]): string[] {
