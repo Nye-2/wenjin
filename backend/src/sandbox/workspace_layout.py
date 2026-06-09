@@ -695,6 +695,11 @@ def _safe_artifact_manifest_entry(raw_entry: Any) -> dict[str, Any] | None:
             if dataset_paths:
                 entry[key] = dataset_paths
             continue
+        if key == "source_script":
+            source_script = _safe_script_manifest_path(raw_entry.get(key))
+            if source_script:
+                entry[key] = source_script
+            continue
         value = _safe_artifact_manifest_value(raw_entry.get(key))
         if value is not None:
             entry[key] = value
@@ -726,6 +731,18 @@ def _safe_artifact_manifest_path(raw_path: Any) -> str | None:
     except ValueError:
         return None
     if not is_user_reviewable_workspace_artifact_path(path):
+        return None
+    if is_workspace_guidance_path(path) or is_workspace_protected_path(path) or is_workspace_internal_path(path):
+        return None
+    return path
+
+
+def _safe_script_manifest_path(raw_path: Any) -> str | None:
+    try:
+        path = normalize_workspace_virtual_path(str(raw_path or ""))
+    except ValueError:
+        return None
+    if not path.startswith(f"{WORKSPACE_ROOT}/scripts/"):
         return None
     if is_workspace_guidance_path(path) or is_workspace_protected_path(path) or is_workspace_internal_path(path):
         return None

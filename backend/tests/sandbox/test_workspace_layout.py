@@ -343,6 +343,63 @@ def test_merge_artifact_manifest_rejects_internal_guidance_and_non_artifact_refs
     ]
 
 
+def test_merge_artifact_manifest_accepts_only_safe_source_script_refs():
+    merged = layout.merge_artifact_manifest(
+        build_artifact_manifest(),
+        [
+            {
+                "path": "/workspace/outputs/good.csv",
+                "title": "Good",
+                "source_script": "/workspace/scripts/analysis.py",
+            },
+            {
+                "path": "/workspace/outputs/main-source.csv",
+                "title": "Main source should be dropped",
+                "source_script": "/workspace/main/paper.tex",
+            },
+            {
+                "path": "/workspace/outputs/internal-source.csv",
+                "title": "Internal source should be dropped",
+                "source_script": "/workspace/outputs/harness/exec/tool.py",
+            },
+            {
+                "path": "/workspace/outputs/host-source.csv",
+                "title": "Host source should be dropped",
+                "source_script": "/Users/ze/private/analysis.py",
+            },
+            {
+                "path": "/workspace/outputs/guidance-source.csv",
+                "title": "Guidance source should be dropped",
+                "source_script": "/workspace/scripts/.gitkeep",
+            },
+        ],
+    )
+
+    assert merged["artifacts"] == [
+        {
+            "path": "/workspace/outputs/good.csv",
+            "title": "Good",
+            "source_script": "/workspace/scripts/analysis.py",
+        },
+        {
+            "path": "/workspace/outputs/main-source.csv",
+            "title": "Main source should be dropped",
+        },
+        {
+            "path": "/workspace/outputs/internal-source.csv",
+            "title": "Internal source should be dropped",
+        },
+        {
+            "path": "/workspace/outputs/host-source.csv",
+            "title": "Host source should be dropped",
+        },
+        {
+            "path": "/workspace/outputs/guidance-source.csv",
+            "title": "Guidance source should be dropped",
+        },
+    ]
+
+
 def test_workspace_sandbox_manifest_does_not_expose_mutable_contract_state():
     first = build_workspace_sandbox_manifest(workspace_id="ws-1")
     first["directories"]["main"]["purpose"] = "mutated"

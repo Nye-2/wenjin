@@ -526,6 +526,30 @@ async def test_register_artifact_rejects_internal_and_non_artifact_paths(sandbox
 
 
 @pytest.mark.asyncio
+async def test_register_artifact_drops_non_script_source_script_refs(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    result = await tools.register_artifact(
+        path="/workspace/outputs/result.csv",
+        title="Result",
+        source_script="/workspace/main/paper.tex",
+    )
+
+    manifest = json.loads(await sandbox.read_file(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH))
+    assert manifest["artifacts"] == [
+        {
+            "path": "/workspace/outputs/result.csv",
+            "title": "Result",
+        }
+    ]
+    assert result.structured_payload["artifact"] == {
+        "path": "/workspace/outputs/result.csv",
+        "title": "Result",
+    }
+
+
+@pytest.mark.asyncio
 async def test_write_tools_require_diff_permission_before_mutating(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main.tex", "old\n")
     tools = SandboxFileTools(
