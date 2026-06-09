@@ -12,6 +12,7 @@ SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
 REPLAN_SIGNAL_SCHEMA = "wenjin.harness.replan_signal.v1"
 RUN_JOURNAL_SUMMARY_SCHEMA = "wenjin.harness.run_journal_summary.v1"
 REPRODUCIBILITY_SUMMARY_SCHEMA = "wenjin.harness.reproducibility_summary.v1"
+EXPERIMENT_INTERPRETATION_SUMMARY_SCHEMA = "wenjin.harness.experiment_interpretation_summary.v1"
 MEMBER_EXECUTION_TRANSCRIPT_SCHEMA = "wenjin.harness.member_execution_transcript.v1"
 
 
@@ -109,6 +110,9 @@ def build_harness_node_metadata_from_tool_calls(
     reproducibility_summary = build_reproducibility_summary_from_tool_calls(tool_calls)
     if reproducibility_summary is not None:
         harness["reproducibility_summary"] = reproducibility_summary
+    experiment_interpretation_summary = build_experiment_interpretation_summary_from_tool_calls(tool_calls)
+    if experiment_interpretation_summary is not None:
+        harness["experiment_interpretation_summary"] = experiment_interpretation_summary
     replan_signals = build_harness_replan_signals_from_tool_calls(tool_calls)
     if replan_signals:
         harness["replan_signals"] = replan_signals
@@ -438,6 +442,77 @@ def build_reproducibility_summary_from_tool_calls(
     }
 
 
+def build_experiment_interpretation_summary_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Build compact evidence that an experiment result was interpreted."""
+
+    if not tool_calls:
+        return None
+
+    interpretation_count = 0
+    method_summaries: list[str] = []
+    metric_names: list[str] = []
+    verified_result_count = 0
+    limitation_count = 0
+    artifact_paths: list[str] = []
+    dataset_paths: list[str] = []
+    limitations: list[str] = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        metadata = tool_call.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        interpretation = _first_dict(
+            tool_call.get("experiment_interpretation"),
+            metadata.get("experiment_interpretation"),
+        )
+        if interpretation is None:
+            continue
+        has_interpretation = False
+        for method_summary in _interpretation_method_summaries(interpretation):
+            has_interpretation = True
+            _append_unique(method_summaries, method_summary)
+        for metric_name in _interpretation_metric_names(interpretation):
+            has_interpretation = True
+            _append_unique(metric_names, metric_name)
+        for result in _list_of_dicts(interpretation.get("verified_results")):
+            if _has_verified_result_content(result):
+                has_interpretation = True
+                verified_result_count += 1
+            _append_safe_artifact_path(artifact_paths, _path_from_ref(result))
+            metric = str(result.get("metric") or result.get("name") or "").strip()
+            if metric:
+                _append_unique(metric_names, metric)
+        for limitation in _interpretation_limitations(interpretation):
+            has_interpretation = True
+            limitation_count += 1
+            _append_unique(limitations, limitation)
+        for artifact_ref in _list_value(interpretation.get("artifact_refs")):
+            _append_safe_artifact_path(artifact_paths, _path_from_ref(artifact_ref))
+        for artifact_ref in _list_value(interpretation.get("artifact_paths")):
+            _append_safe_artifact_path(artifact_paths, _path_from_ref(artifact_ref))
+        for dataset_ref in _list_value(interpretation.get("dataset_paths")):
+            _append_safe_dataset_path(dataset_paths, _path_from_ref(dataset_ref))
+        if has_interpretation:
+            interpretation_count += 1
+
+    if interpretation_count == 0:
+        return None
+    return {
+        "schema": EXPERIMENT_INTERPRETATION_SUMMARY_SCHEMA,
+        "interpretation_count": interpretation_count,
+        "method_summary_count": len(method_summaries),
+        "metric_names": metric_names[:50],
+        "verified_result_count": verified_result_count,
+        "limitation_count": limitation_count,
+        "artifact_paths": artifact_paths[:50],
+        "dataset_paths": dataset_paths[:50],
+        "method_summaries": method_summaries[:20],
+        "limitations": limitations[:20],
+    }
+
+
 def build_harness_replan_signals_from_tool_calls(
     tool_calls: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
@@ -611,6 +686,18 @@ def _append_safe_scratch_ref(values: list[str], value: str) -> None:
     _append_unique(values, text)
 
 
+def _append_safe_artifact_path(values: list[str], value: str) -> None:
+    text = str(value or "").strip()
+    if _is_safe_artifact_path(text):
+        _append_unique(values, text)
+
+
+def _append_safe_dataset_path(values: list[str], value: str) -> None:
+    text = str(value or "").strip()
+    if _is_safe_dataset_path(text):
+        _append_unique(values, text)
+
+
 def _is_safe_task_scratch_ref(path: str) -> bool:
     if not path.startswith("/workspace/tmp/tasks/"):
         return False
@@ -620,6 +707,30 @@ def _is_safe_task_scratch_ref(path: str) -> bool:
         return False
     parts = path.removeprefix("/workspace/tmp/tasks/").split("/")
     return len(parts) >= 2 and all(part and part not in {".", ".."} for part in parts)
+
+
+def _is_safe_artifact_path(path: str) -> bool:
+    return _is_safe_workspace_path(path) and (
+        path.startswith("/workspace/outputs/") or path.startswith("/workspace/reports/")
+    )
+
+
+def _is_safe_dataset_path(path: str) -> bool:
+    return _is_safe_workspace_path(path) and path.startswith("/workspace/datasets/")
+
+
+def _is_safe_workspace_path(path: str) -> bool:
+    if not path.startswith("/workspace/"):
+        return False
+    if "/../" in path or path.endswith("/..") or "\x00" in path:
+        return False
+    if path.startswith("/workspace/.") or "/.env" in path:
+        return False
+    if path.endswith(".pem") or path.endswith(".key"):
+        return False
+    if path.startswith("/workspace/tmp/tasks/.harness/"):
+        return False
+    return True
 
 
 def _first_dict(*values: Any) -> dict[str, Any] | None:
@@ -637,6 +748,77 @@ def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
 
 def _list_value(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def _interpretation_method_summaries(value: dict[str, Any]) -> list[str]:
+    summaries: list[str] = []
+    for key in ("method_summary", "method", "analysis_plan", "method_data_fit"):
+        raw = value.get(key)
+        if isinstance(raw, str):
+            _append_unique(summaries, _compact_text(raw, limit=300))
+        elif isinstance(raw, dict):
+            for nested_key in ("summary", "method_summary", "rationale"):
+                nested = str(raw.get(nested_key) or "").strip()
+                if nested:
+                    _append_unique(summaries, _compact_text(nested, limit=300))
+        elif isinstance(raw, list):
+            for item in raw:
+                text = str(item.get("summary") if isinstance(item, dict) else item).strip()
+                if text:
+                    _append_unique(summaries, _compact_text(text, limit=300))
+    return summaries
+
+
+def _interpretation_metric_names(value: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for key in ("metric_definitions", "metrics"):
+        raw = value.get(key)
+        if isinstance(raw, dict):
+            for name in raw:
+                _append_unique(names, str(name or ""))
+            continue
+        for item in _list_value(raw):
+            if isinstance(item, dict):
+                _append_unique(names, str(item.get("name") or item.get("metric") or ""))
+            else:
+                _append_unique(names, str(item or ""))
+    return names
+
+
+def _interpretation_limitations(value: dict[str, Any]) -> list[str]:
+    limitations: list[str] = []
+    for item in _list_value(value.get("limitations")):
+        text = ""
+        if isinstance(item, dict):
+            text = str(item.get("limitation") or item.get("summary") or item.get("text") or "").strip()
+        else:
+            text = str(item or "").strip()
+        if text:
+            _append_unique(limitations, _compact_text(text, limit=300))
+    return limitations
+
+
+def _has_verified_result_content(value: dict[str, Any]) -> bool:
+    return any(
+        str(value.get(key) or "").strip()
+        for key in ("metric", "name", "value", "result", "summary", "artifact_path", "artifact_ref")
+    )
+
+
+def _path_from_ref(value: Any) -> str:
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("path", "artifact_path", "artifact_ref", "dataset_path"):
+            text = str(value.get(key) or "").strip()
+            if text:
+                return text
+    return ""
+
+
+def _compact_text(value: str, *, limit: int) -> str:
+    text = " ".join(str(value or "").strip().split())
+    return text if len(text) <= limit else f"{text[: limit - 3]}..."
 
 
 def _int_value(value: Any) -> int:

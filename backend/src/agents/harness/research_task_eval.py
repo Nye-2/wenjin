@@ -14,6 +14,7 @@ ResearchSurface = Literal[
     "writing",
     "workflow_trace",
     "citation_strength",
+    "experiment_interpretation",
 ]
 EvalStatus = Literal["pass", "fail"]
 
@@ -108,6 +109,7 @@ def evaluate_research_task_evidence(
         "writing": _evaluate_writing,
         "workflow_trace": _evaluate_workflow_trace,
         "citation_strength": _evaluate_citation_strength,
+        "experiment_interpretation": _evaluate_experiment_interpretation,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -228,6 +230,35 @@ def _evaluate_experiment(
     )
 
 
+def _evaluate_experiment_interpretation(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del report
+    evidence = _experiment_interpretation_evidence(node_events)
+    has_core_interpretation = (
+        evidence["interpretation_count"] > 0
+        and evidence["method_summary_count"] > 0
+        and bool(evidence["metric_names"])
+        and evidence["verified_result_count"] > 0
+        and evidence["limitation_count"] > 0
+        and bool(evidence["artifact_paths"])
+        and bool(evidence["dataset_paths"])
+    )
+    has_reproducibility_alignment = bool(
+        set(evidence["artifact_paths"]) & set(evidence["reproducibility_artifact_paths"])
+    ) and bool(
+        set(evidence["dataset_paths"]) & set(evidence["reproducibility_dataset_paths"])
+    )
+    if has_core_interpretation and has_reproducibility_alignment:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        "No experiment interpretation with method, metric, result, limitation, artifact, and dataset evidence was produced.",
+    )
+
+
 def _evaluate_writing(
     report: TaskReport,
     node_events: list[dict[str, Any]],
@@ -344,6 +375,58 @@ def _workflow_trace_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any
         "billing": {"credits_charged": _json_number(credits_charged)},
         "duration_ms": duration_ms,
     }
+
+
+def _experiment_interpretation_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
+    interpretation_count = 0
+    method_summary_count = 0
+    verified_result_count = 0
+    limitation_count = 0
+    metric_names: list[str] = []
+    artifact_paths: list[str] = []
+    dataset_paths: list[str] = []
+    for summary in _experiment_interpretation_summaries(node_events):
+        interpretation_count += _int_value(summary.get("interpretation_count"))
+        summary_method_count = _int_value(summary.get("method_summary_count"))
+        if summary_method_count == 0:
+            summary_method_count = len(_string_list(summary.get("method_summaries")))
+        method_summary_count += summary_method_count
+        verified_result_count += _int_value(summary.get("verified_result_count"))
+        summary_limitation_count = _int_value(summary.get("limitation_count"))
+        if summary_limitation_count == 0:
+            summary_limitation_count = len(_string_list(summary.get("limitations")))
+        limitation_count += summary_limitation_count
+        for metric_name in _string_list(summary.get("metric_names")):
+            _append_unique(metric_names, metric_name)
+        for path in (_workspace_artifact_path(path) for path in _string_list(summary.get("artifact_paths"))):
+            _append_unique(artifact_paths, path)
+        for path in _workspace_dataset_paths(summary.get("dataset_paths")):
+            _append_unique(dataset_paths, path)
+
+    reproducibility_summaries = _reproducibility_summaries(node_events)
+    reproducibility_artifact_paths = _unique(_summary_paths(reproducibility_summaries, "artifact_paths"))
+    reproducibility_dataset_paths = _unique(_summary_paths(reproducibility_summaries, "dataset_paths"))
+    return {
+        "interpretation_count": interpretation_count,
+        "method_summary_count": method_summary_count,
+        "metric_names": metric_names[:50],
+        "verified_result_count": verified_result_count,
+        "limitation_count": limitation_count,
+        "artifact_paths": artifact_paths[:50],
+        "dataset_paths": dataset_paths[:50],
+        "reproducibility_artifact_paths": reproducibility_artifact_paths[:50],
+        "reproducibility_dataset_paths": reproducibility_dataset_paths[:50],
+    }
+
+
+def _experiment_interpretation_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for event in node_events:
+        harness = _harness_metadata(event)
+        summary = harness.get("experiment_interpretation_summary")
+        if isinstance(summary, dict):
+            summaries.append(summary)
+    return summaries[:20]
 
 
 def _member_execution_transcripts(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:

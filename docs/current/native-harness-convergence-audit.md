@@ -232,7 +232,7 @@ Chat Agent
 - 2026-06-09 workflow trace eval slice:
   - Added optional `workflow_trace` to deterministic `research_task_eval`, backed only by existing `node_metadata.harness.member_execution_transcript`.
   - The eval aggregates completed/failed tool counts, tool names, changed paths, sandbox job/environment ids, safe scratch refs, generated artifact count, token usage, bounded credits and duration; it fails when no member transcript with completed tool activity exists.
-  - This closes the "review items exist but no team execution trace" structural gap without creating a new runtime, event stream or billing source. Outcome-quality scoring still needs paper relevance, experiment interpretation and writing semantic preservation coverage.
+  - This closes the "review items exist but no team execution trace" structural gap without creating a new runtime, event stream or billing source. Outcome-quality scoring still needs paper relevance, statistical/robustness sufficiency and writing semantic preservation coverage.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> 7 passed.
 - 2026-06-09 workflow trace E2E gate slice:
   - Mock TeamKernel sandbox E2E now requires `evaluate_research_task_evidence(required_surfaces=("literature","experiment","writing","workflow_trace"))` to pass against the actual runtime `TaskReport` and recorded node events.
@@ -245,6 +245,14 @@ Chat Agent
   - The implementation reads existing `citation_source_audit` findings from harness metadata and TeamKernel quality-gate runtime state only; no new runtime, SDK bridge, event stream, table or raw member-output UI parser was added.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> RED on missing `citation_strength`, then 12 passed.
   - `backend`: native harness regression gate -> 300 passed.
+- 2026-06-09 experiment interpretation eval slice:
+  - Added `experiment_interpretation_summary(schema=wenjin.harness.experiment_interpretation_summary.v1)` as a compact projection over existing harness tool-call metadata, not a runner change or second event stream.
+  - Summary keeps bounded method summaries, metric names, verified-result count, limitation count, and safe `/workspace/datasets/**` plus `/workspace/outputs/**` / `/workspace/reports/**` refs; protected paths and internal harness output refs are filtered.
+  - Context assembly now exposes latest `experiment_interpretation_summary` at top level and preserves it inside recent execution evidence so later members can continue from interpreted experimental results without raw stdout/stderr.
+  - Added optional `experiment_interpretation` research-eval surface. It requires method, metric, verified result, limitation, artifact, and dataset evidence, with artifact/dataset paths aligned to existing `reproducibility_summary`.
+  - No model judge, Codex SDK bridge, new runtime table, generic command runner, or frontend stream was added.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_research_task_eval.py -q` -> RED on missing summary/context/eval surface, then 35 passed.
+  - `backend`: native harness regression gate -> 304 passed.
 - 2026-06-09 closed workspace directory contract slice:
   - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
   - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.

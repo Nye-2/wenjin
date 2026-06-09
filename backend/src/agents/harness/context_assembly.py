@@ -69,6 +69,10 @@ def build_harness_context_bundle(
             safe_workspace_data,
             "reproducibility_summary",
         ),
+        "experiment_interpretation_summary": _latest_harness_summary(
+            safe_workspace_data,
+            "experiment_interpretation_summary",
+        ),
         "member_execution_transcript": _latest_harness_summary(
             safe_workspace_data,
             "member_execution_transcript",
@@ -544,6 +548,7 @@ def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
         "tool_failure_summary",
         "sandbox_execution_summary",
         "reproducibility_summary",
+        "experiment_interpretation_summary",
         "member_execution_transcript",
     ):
         value = _safe_value(harness.get(key))
@@ -639,6 +644,7 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
         ("recent_file_change_summary", {}),
         ("sandbox_execution_summary", {}),
         ("reproducibility_summary", {}),
+        ("experiment_interpretation_summary", {}),
         ("member_execution_transcript", {}),
     ):
         if len(render_harness_context_for_prompt(compact)) <= max_chars:

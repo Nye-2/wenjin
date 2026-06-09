@@ -37,7 +37,17 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
                                     "script_paths": ["/workspace/scripts/analysis.py"],
                                     "artifact_paths": ["/workspace/reports/analysis.md"],
                                     "dependency_names": ["pandas"],
-                                }
+                                },
+                                "experiment_interpretation_summary": {
+                                    "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                                    "interpretation_count": 1,
+                                    "method_summary_count": 1,
+                                    "metric_names": ["accuracy"],
+                                    "verified_result_count": 1,
+                                    "limitation_count": 1,
+                                    "artifact_paths": ["/workspace/reports/analysis.md"],
+                                    "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                                },
                             }
                         },
                     }
@@ -97,9 +107,29 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
                     "artifact_paths": ["/workspace/reports/analysis.md"],
                     "dependency_names": ["pandas"],
                 },
+                "experiment_interpretation_summary": {
+                    "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                    "interpretation_count": 1,
+                    "method_summary_count": 1,
+                    "metric_names": ["accuracy"],
+                    "verified_result_count": 1,
+                    "limitation_count": 1,
+                    "artifact_paths": ["/workspace/reports/analysis.md"],
+                    "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                },
             },
         }
     ]
+    assert bundle["experiment_interpretation_summary"] == {
+        "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+        "interpretation_count": 1,
+        "method_summary_count": 1,
+        "metric_names": ["accuracy"],
+        "verified_result_count": 1,
+        "limitation_count": 1,
+        "artifact_paths": ["/workspace/reports/analysis.md"],
+        "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+    }
     assert bundle["budget"] == {"max_chars": 12000, "truncated": False}
 
 
@@ -160,6 +190,16 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
                                     "script_paths": ["/workspace/scripts/eval.py"],
                                     "dependency_names": ["pandas"],
                                 },
+                                "experiment_interpretation_summary": {
+                                    "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                                    "interpretation_count": 1,
+                                    "method_summary_count": 1,
+                                    "metric_names": ["accuracy"],
+                                    "verified_result_count": 1,
+                                    "limitation_count": 1,
+                                    "artifact_paths": ["/workspace/reports/model-eval.md"],
+                                    "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                                },
                                 "member_execution_transcript": {
                                     "schema": "wenjin.harness.member_execution_transcript.v1",
                                     "tool_call_count": 2,
@@ -211,6 +251,16 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         "schema": "wenjin.harness.reproducibility_summary.v1",
         "script_paths": ["/workspace/scripts/eval.py"],
         "dependency_names": ["pandas"],
+    }
+    assert bundle["experiment_interpretation_summary"] == {
+        "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+        "interpretation_count": 1,
+        "method_summary_count": 1,
+        "metric_names": ["accuracy"],
+        "verified_result_count": 1,
+        "limitation_count": 1,
+        "artifact_paths": ["/workspace/reports/model-eval.md"],
+        "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
     }
     assert bundle["member_execution_transcript"] == {
         "schema": "wenjin.harness.member_execution_transcript.v1",

@@ -314,6 +314,98 @@ def test_harness_node_metadata_includes_reproducibility_summary() -> None:
     }
 
 
+def test_harness_node_metadata_includes_experiment_interpretation_summary() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "experiment_interpretation": {
+                    "schema": "wenjin.harness.experiment_interpretation.v1",
+                    "method_summary": "Computed benchmark accuracy from the held-out panel split.",
+                    "metric_definitions": [
+                        {
+                            "name": "accuracy",
+                            "definition": "Correct predictions divided by evaluated samples.",
+                        }
+                    ],
+                    "verified_results": [
+                        {
+                            "metric": "accuracy",
+                            "value": 0.91,
+                            "artifact_path": "/workspace/outputs/result.json",
+                        }
+                    ],
+                    "limitations": [
+                        "Single split only; robustness under non-IID clients is not verified."
+                    ],
+                    "artifact_refs": ["/workspace/outputs/result.json"],
+                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                },
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["experiment_interpretation_summary"]
+    assert summary == {
+        "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+        "interpretation_count": 1,
+        "method_summary_count": 1,
+        "metric_names": ["accuracy"],
+        "verified_result_count": 1,
+        "limitation_count": 1,
+        "artifact_paths": ["/workspace/outputs/result.json"],
+        "dataset_paths": ["/workspace/datasets/panel.csv"],
+        "method_summaries": ["Computed benchmark accuracy from the held-out panel split."],
+        "limitations": [
+            "Single split only; robustness under non-IID clients is not verified."
+        ],
+    }
+
+
+def test_experiment_interpretation_summary_filters_unsafe_paths() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "experiment_interpretation": {
+                    "method_summary": "Computed benchmark accuracy.",
+                    "metric_definitions": [{"name": "accuracy"}],
+                    "verified_results": [
+                        {
+                            "metric": "accuracy",
+                            "value": 0.91,
+                            "artifact_path": "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt",
+                        },
+                        {
+                            "metric": "accuracy",
+                            "value": 0.91,
+                            "artifact_path": "/workspace/outputs/result.json",
+                        },
+                    ],
+                    "limitations": ["Only one split was evaluated."],
+                    "artifact_refs": [
+                        "/workspace/.env",
+                        "/workspace/reports/summary.md",
+                    ],
+                    "dataset_paths": [
+                        "/workspace/datasets/panel.csv",
+                        "/workspace/datasets/../.env",
+                    ],
+                },
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["experiment_interpretation_summary"]
+    assert summary["artifact_paths"] == [
+        "/workspace/outputs/result.json",
+        "/workspace/reports/summary.md",
+    ]
+    assert summary["dataset_paths"] == ["/workspace/datasets/panel.csv"]
+
+
 def test_harness_node_metadata_includes_member_execution_transcript() -> None:
     metadata = build_harness_node_metadata_from_tool_calls(
         [

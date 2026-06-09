@@ -214,6 +214,103 @@ def test_research_task_eval_fails_missing_or_unreviewable_surfaces() -> None:
     assert all("message" in finding for finding in evaluation.findings)
 
 
+def test_research_task_eval_passes_experiment_interpretation_with_method_metrics_results_and_limits() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "evidence_analyst.v1",
+                    "harness": {
+                        "reproducibility_summary": {
+                            "schema": "wenjin.harness.reproducibility_summary.v1",
+                            "script_paths": ["/workspace/scripts/analysis.py"],
+                            "dataset_paths": ["/workspace/datasets/panel.csv"],
+                            "artifact_paths": ["/workspace/outputs/result.json"],
+                        },
+                        "experiment_interpretation_summary": {
+                            "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                            "interpretation_count": 1,
+                            "method_summary_count": 1,
+                            "metric_names": ["accuracy"],
+                            "verified_result_count": 1,
+                            "limitation_count": 1,
+                            "artifact_paths": ["/workspace/outputs/result.json"],
+                            "dataset_paths": ["/workspace/datasets/panel.csv"],
+                        },
+                    },
+                },
+            }
+        ],
+        required_surfaces=("experiment_interpretation",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"experiment_interpretation": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["experiment_interpretation"] == {
+        "interpretation_count": 1,
+        "method_summary_count": 1,
+        "metric_names": ["accuracy"],
+        "verified_result_count": 1,
+        "limitation_count": 1,
+        "artifact_paths": ["/workspace/outputs/result.json"],
+        "dataset_paths": ["/workspace/datasets/panel.csv"],
+        "reproducibility_artifact_paths": ["/workspace/outputs/result.json"],
+        "reproducibility_dataset_paths": ["/workspace/datasets/panel.csv"],
+    }
+
+
+def test_research_task_eval_fails_experiment_interpretation_without_interpretation_summary() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "evidence_analyst.v1",
+                    "harness": {
+                        "reproducibility_summary": {
+                            "schema": "wenjin.harness.reproducibility_summary.v1",
+                            "script_paths": ["/workspace/scripts/analysis.py"],
+                            "dataset_paths": ["/workspace/datasets/panel.csv"],
+                            "artifact_paths": ["/workspace/outputs/result.json"],
+                        }
+                    },
+                },
+            }
+        ],
+        required_surfaces=("experiment_interpretation",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"experiment_interpretation": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "experiment_interpretation",
+            "severity": "high",
+            "message": (
+                "No experiment interpretation with method, metric, result, limitation, "
+                "artifact, and dataset evidence was produced."
+            ),
+        }
+    ]
+    assert evaluation.evidence["experiment_interpretation"] == {
+        "interpretation_count": 0,
+        "method_summary_count": 0,
+        "metric_names": [],
+        "verified_result_count": 0,
+        "limitation_count": 0,
+        "artifact_paths": [],
+        "dataset_paths": [],
+        "reproducibility_artifact_paths": ["/workspace/outputs/result.json"],
+        "reproducibility_dataset_paths": ["/workspace/datasets/panel.csv"],
+    }
+
+
 def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None:
     report = _report(
         review_items=[
