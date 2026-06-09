@@ -541,6 +541,19 @@ def test_agent_workspace_contract_exposes_path_classes():
     assert "/workspace/reports/artifacts.json" in contract["path_classes"]["guidance"]
 
 
+def test_workspace_task_scratch_path_is_stable_and_sanitized():
+    scratch_path = layout.workspace_task_scratch_path(
+        execution_id="exec 1/../../secret",
+        node_id=".research/synth:v1",
+    )
+
+    assert scratch_path == "/workspace/tmp/tasks/exec_1_secret/research_synth_v1"
+    assert scratch_path.startswith("/workspace/tmp/tasks/")
+    assert not layout.is_workspace_internal_path(scratch_path)
+    assert not layout.is_workspace_protected_path(scratch_path)
+    assert not layout.is_user_reviewable_workspace_artifact_path(f"{scratch_path}/notes.md")
+
+
 def test_workspace_protected_paths_include_runtime_and_secret_material():
     assert WORKSPACE_PROTECTED_PATHS == (
         ".git/**",

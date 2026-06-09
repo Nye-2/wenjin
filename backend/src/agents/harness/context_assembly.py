@@ -10,6 +10,7 @@ from src.sandbox.workspace_layout import (
     build_agent_workspace_contract,
     is_workspace_internal_path,
     is_workspace_protected_path,
+    workspace_task_scratch_path,
 )
 
 from .tool_names import expand_tool_names
@@ -33,7 +34,11 @@ def build_harness_context_bundle(
     budget = max(500, int(max_chars or 12000))
     safe_task = _safe_dict(task or {})
     safe_workspace_data = workspace_data or {}
-    sandbox = _sandbox_contract(workspace_id=workspace_id, workspace_type=workspace_type)
+    sandbox = _sandbox_contract(
+        workspace_id=workspace_id,
+        workspace_type=workspace_type,
+        task=safe_task,
+    )
     visible_roots = _visible_workspace_roots(sandbox)
     dataset_roots = _dataset_workspace_roots(sandbox)
     workspace_file_summary = _workspace_file_summary(
@@ -49,6 +54,7 @@ def build_harness_context_bundle(
         "member_role": _member_role(safe_task),
         "allowed_tools": _allowed_tools_with_output_ref_reader(allowed_tools),
         "workspace_roots": list(workspace_file_summary.get("visible_roots") or visible_roots),
+        "task_scratch_path": str(sandbox.get("task_scratch_path") or ""),
         "search_ignored_names": list(sandbox.get("search_ignored_names") or []),
         "recent_file_change_summary": _latest_harness_summary(
             safe_workspace_data,
@@ -87,7 +93,12 @@ def _allowed_tools_with_output_ref_reader(allowed_tools: list[str] | None) -> li
     return list(expand_tool_names(_safe_string_list(allowed_tools)))
 
 
-def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[str, Any]:
+def _sandbox_contract(
+    *,
+    workspace_id: str,
+    workspace_type: str | None,
+    task: dict[str, Any],
+) -> dict[str, Any]:
     contract = build_agent_workspace_contract(
         workspace_id=workspace_id,
         workspace_type=workspace_type or "",
@@ -110,6 +121,7 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "datasets_manifest_path": str(contract.get("datasets_manifest_path") or ""),
         "artifacts_manifest_path": str(contract.get("artifacts_manifest_path") or ""),
         "task_scratch_root": str(contract.get("task_scratch_root") or ""),
+        "task_scratch_path": _task_scratch_path(task),
         "workspace_profile": _safe_workspace_profile(contract.get("workspace_profile")),
         "path_classes": _safe_path_classes(contract.get("path_classes")),
         "guidance_paths": _safe_string_list((contract.get("path_classes") or {}).get("guidance")),
@@ -118,6 +130,26 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "search_ignored_names": [str(name) for name in contract.get("search_ignored_names") or ()],
         "rules": [str(rule) for rule in contract.get("rules") or ()],
     }
+
+
+def _task_scratch_path(task: dict[str, Any]) -> str:
+    inputs = _task_inputs(task)
+    invocation = task.get("invocation")
+    invocation = invocation if isinstance(invocation, dict) else {}
+    execution_id = _first_safe_string(
+        task.get("execution_id"),
+        inputs.get("execution_id"),
+        invocation.get("execution_id"),
+    )
+    node_id = _first_safe_string(
+        task.get("node_id"),
+        task.get("invocation_id"),
+        inputs.get("node_id"),
+        inputs.get("invocation_id"),
+        invocation.get("id"),
+        invocation.get("template_id"),
+    )
+    return workspace_task_scratch_path(execution_id=execution_id, node_id=node_id)
 
 
 def _safe_path_classes(value: Any) -> dict[str, list[str]]:

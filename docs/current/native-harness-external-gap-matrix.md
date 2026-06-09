@@ -58,9 +58,9 @@ deer-flow:
 
    The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file`. The remaining improvement is measuring whether agents actually use refs instead of repeating expensive commands in real SCI workflows.
 
-4. **Workspace filesystem contract is usable but task scratch semantics should keep tightening.**
+4. **Workspace filesystem contract is usable; real-task scratch usage still needs tuning.**
 
-   Common layout should remain shared across workspace types. Domain differences should stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch surface, while reviewable output stays under `outputs`/`reports`.
+   Common layout remains shared across workspace types. Domain differences stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch root, and harness context now injects a safe per-execution/member `task_scratch_path` such as `/workspace/tmp/tasks/{execution_id}/{invocation_id}`. Reviewable output still belongs under `outputs`/`reports`; the remaining work is observing whether real agents write temporary intermediates to the scoped path instead of polluting project roots.
 
 5. **Quality gates are structural, not yet outcome-quality complete.**
 

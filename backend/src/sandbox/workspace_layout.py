@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path, PurePosixPath
@@ -221,6 +222,8 @@ WORKSPACE_ARTIFACT_ROOTS = (
         "artifact_kind": "sandbox_report",
     },
 )
+
+_TASK_SCRATCH_SEGMENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 _DIRECTORY_CONTRACTS: dict[str, dict[str, Any]] = {
     "main": {
@@ -900,6 +903,33 @@ def workspace_virtual_path(relative_path: str) -> str:
     if text.startswith("/"):
         raise ValueError(f"path must be under {WORKSPACE_ROOT}")
     return normalize_workspace_virtual_path(f"{WORKSPACE_ROOT}/{text.strip('/')}")
+
+
+def workspace_task_scratch_path(
+    *,
+    execution_id: str | None,
+    node_id: str | None = None,
+) -> str:
+    """Return the stable task-scoped scratch directory for one execution/member."""
+
+    execution_segment = _safe_task_scratch_segment(execution_id, default="unassigned")
+    node_segment = _safe_task_scratch_segment(node_id, default="")
+    if node_segment:
+        return f"{WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT}/{execution_segment}/{node_segment}"
+    return f"{WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT}/{execution_segment}"
+
+
+def _safe_task_scratch_segment(value: str | None, *, default: str) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    parts: list[str] = []
+    for item in raw.split("/"):
+        segment = _TASK_SCRATCH_SEGMENT_RE.sub("_", item).strip("._-")
+        if segment and segment not in {".", ".."}:
+            parts.append(segment)
+    safe = "_".join(parts).strip("._-")
+    if not safe:
+        return default
+    return safe[:80]
 
 
 def normalize_workspace_virtual_path(path: str) -> str:

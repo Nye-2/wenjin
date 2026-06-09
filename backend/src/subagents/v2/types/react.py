@@ -280,11 +280,24 @@ def _build_harness_context(ctx: SubagentContext) -> dict[str, Any]:
         workspace_id=ctx.workspace_id,
         workspace_type=str(inputs.get("workspace_type") or ""),
         task={
+            "execution_id": ctx.execution_id,
+            "node_id": _context_node_id(ctx),
+            "invocation": ctx.invocation or {},
             "prompt": ctx.prompt,
             "inputs": inputs,
         },
         workspace_data=ctx.workspace_data or {},
         allowed_tools=ctx.tools or [],
+    )
+
+
+def _context_node_id(ctx: SubagentContext) -> str:
+    invocation = ctx.invocation if isinstance(ctx.invocation, dict) else {}
+    return str(
+        invocation.get("id")
+        or (ctx.inputs or {}).get("node_id")
+        or (ctx.inputs or {}).get("template_id")
+        or ""
     )
 
 

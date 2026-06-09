@@ -108,6 +108,8 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         workspace_id="ws-1",
         workspace_type="sci",
         task={
+            "execution_id": "exec-1",
+            "node_id": "research_scout.v1__1",
             "prompt": "continue the experiment",
             "inputs": {
                 "capability_goal": "produce_workspace_review_package",
@@ -181,6 +183,8 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         "/workspace/outputs",
         "/workspace/reports",
     ]
+    assert bundle["sandbox"]["task_scratch_path"] == "/workspace/tmp/tasks/exec-1/research_scout.v1__1"
+    assert bundle["task_scratch_path"] == "/workspace/tmp/tasks/exec-1/research_scout.v1__1"
     assert "node_modules" in bundle["search_ignored_names"]
     assert bundle["recent_file_change_summary"] == {
         "schema": "wenjin.harness.file_change_summary.v1",

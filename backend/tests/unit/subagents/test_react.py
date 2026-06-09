@@ -40,6 +40,7 @@ def _make_ctx(
     prompt: str = "",
     capability_policy: dict | None = None,
     workspace_data: dict | None = None,
+    invocation: dict | None = None,
     publish_event=None,
 ) -> SubagentContext:
     return SubagentContext(
@@ -51,6 +52,7 @@ def _make_ctx(
         workspace_data=workspace_data or {},
         capability_policy=capability_policy or {},
         skill=skill,
+        invocation=invocation,
         publish_event=publish_event,
     )
 
@@ -136,6 +138,20 @@ class TestDefaultUserPayload:
         assert "/workspace/tmp/tasks/.harness/**" in context["sandbox"]["internal_paths"]
         assert ".wenjin/**" in context["sandbox"]["protected_paths"]
         assert "**/.env" in context["sandbox"]["protected_paths"]
+
+    def test_harness_context_uses_invocation_scoped_task_scratch_path(self):
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            invocation={"id": "research_scout.v1__1", "execution_id": "exec-test"},
+        )
+
+        payload = _build_default_user_payload(ctx, {})
+
+        context = payload["_harness_context"]
+        assert context["task_scratch_path"] == "/workspace/tmp/tasks/exec-test/research_scout.v1__1"
+        assert context["sandbox"]["task_scratch_path"] == (
+            "/workspace/tmp/tasks/exec-test/research_scout.v1__1"
+        )
 
 
 class TestSandboxWorkspaceContractPrompt:
