@@ -1,6 +1,6 @@
 # Native Harness Convergence Audit
 
-更新时间：2026-06-08
+更新时间：2026-06-09
 状态：Current
 
 本审计记录 Wenjin 自研 agent harness 相对 Codex / deer-flow 的吸收、取舍和剩余风险。结论不等于发布完成；它只说明当前 harness 是否已经沿正确方向收敛，以及下一轮应该优先补哪里。
@@ -53,6 +53,7 @@ Chat Agent
 - **review-first artifact**：Prism、rooms、sandbox artifacts 都先进入 review/result-card 流程，不直接覆盖用户材料。
 - **团队实名制前端投影**：TeamKernel graph 只展示五步流程；实名成员、成员 activity 和质量门由 `frontend/lib/execution-run-view.ts` 从 hydrated node states/runtime_state 派生。
 - **业务工具与 sandbox 工具同链路**：`library_read`、`document_read`、`memory_read`、`prism_read`、`citation_parser`、`artifact_create` 读取 bounded workspace snapshot 或返回 staged payload，不直接提交 rooms。
+- **sandbox runtime 内部继续拆分**：`sandbox_runtime.py` 是 facade，`sandbox_job_runner.py` 只保留 smoke/run_python job orchestration；dataset manifest 同步下沉到 `sandbox_dataset_manifest.py`，stdout/stderr externalization 下沉到 `sandbox_stream_budgeting.py`，脚本执行/依赖安装仍由 `sandbox_script_executor.py` / `sandbox_environment_installer.py` 承担，避免 runner 重新变成 runtime 热点文件。
 
 ## 5. 本轮验证
 
@@ -68,6 +69,17 @@ Chat Agent
 - Docker local-build stack rebuilt; frontend production build passed.
 - Browser smoke verified Workbench team task launch/result review, TeamKernel five-step progress, quality gate dedupe, Prism compile/PDF contrast, and Prism AI assist discoverability.
 - 2026-06-08 browser smoke on existing local `localhost:2026` stack: `/workspaces` and `/workspaces/{id}` did not redirect to login; Workbench progress view showed real-name team members (`研究规划师`、`文献检索员`、`文献综合专家`、`综合助理`) and task progress without raw stdout/stderr or `*.v1` template ids; Evidence view opened from `查看证据` and showed reviewable results without `/workspace/outputs/harness/**`; Prism `/prism` loaded editor/resources/compile/PDF contrast, compile did not auto-open AI 改稿, and no local app console errors were observed.
+- 2026-06-09 architecture boundary regression: full backend suite initially caught `sandbox_job_runner.py` at 376 lines (`test_sandbox_runner_does_not_become_the_new_runtime_hotspot`), so dataset manifest sync and stream budgeting were split into focused helpers; runner is now 289 lines.
+- `backend`: `.venv/bin/python -m pytest tests/architecture/test_dataservice_boundaries.py::test_sandbox_runner_does_not_become_the_new_runtime_hotspot tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py -q` -> 25 passed
+- `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/sandbox_job_runner.py src/agents/lead_agent/v2/sandbox_dataset_manifest.py src/agents/lead_agent/v2/sandbox_stream_budgeting.py` -> passed
+- `frontend`: `npx vitest run tests/unit/v2/prism-floating-assist.test.tsx tests/unit/v2/LiveWorkflowPanel.test.tsx` -> 16 passed；Prism floating assist 测试已对齐当前“AI 改稿，状态”按钮文案，LiveWorkflow helper 正确处理默认视图中没有 `运行中` 文案的状态。
+- Full verification after fixes:
+  - `backend`: `.venv/bin/python -m pytest tests/ -q` -> 2492 passed, 4 snapshots passed
+  - `backend`: `.venv/bin/ruff check src tests` -> passed
+  - `frontend`: `npm run typecheck` -> passed
+  - `frontend`: `npx vitest run` -> 69 test files / 315 tests passed
+  - `root`: `git diff --check` -> passed
+  - production drift scan found no Codex SDK / cc-switch / deer-flow runtime import, no generic `sandbox.run_command`, no second harness store/table/stream; remaining hits are current function names or documentation/comment references.
 
 ## 6. 剩余不足
 

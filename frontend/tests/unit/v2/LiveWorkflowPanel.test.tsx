@@ -449,7 +449,7 @@ describe("LiveWorkflowPanel", () => {
 });
 
 function visibleOutsideClosedDetails(text: string) {
-  return screen.getAllByText(text).filter((element) => {
+  return screen.queryAllByText(text).filter((element) => {
     const details = element.closest("details");
     return !details || details.open;
   });

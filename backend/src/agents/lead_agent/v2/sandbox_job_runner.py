@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
-from types import SimpleNamespace
 from typing import Any
 
 from src.agents.harness.command_audit import (
@@ -13,9 +11,9 @@ from src.agents.harness.command_audit import (
     audit_command,
     require_command_policy_allowed,
 )
-from src.agents.harness.output_budget import BudgetedText, budget_text_output
 from src.agents.lead_agent.v2.sandbox_artifact_collector import SandboxArtifactCollector
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import discover_generated_artifacts
+from src.agents.lead_agent.v2.sandbox_dataset_manifest import sync_dataset_manifest
 from src.agents.lead_agent.v2.sandbox_environment_installer import SandboxEnvironmentInstaller
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.sandbox_runtime_session import (
@@ -25,13 +23,9 @@ from src.agents.lead_agent.v2.sandbox_runtime_session import (
     provider_image,
 )
 from src.agents.lead_agent.v2.sandbox_script_executor import SandboxScriptExecutor
+from src.agents.lead_agent.v2.sandbox_stream_budgeting import budget_script_streams
 from src.agents.lead_agent.v2.workspace_sandbox import WorkspaceSandboxManager
 from src.sandbox.providers.docker import DockerSandboxProvider
-from src.sandbox.workspace_layout import (
-    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
-    build_dataset_provenance_manifest,
-    merge_dataset_provenance_manifest,
-)
 
 SMOKE_COMMAND = (
     "PYTHON_BIN=$(command -v python || command -v python3) && "
@@ -203,7 +197,7 @@ class SandboxJobRunner:
                 execution_id=execution_id,
                 job_id=str(job.id),
             ) as sandbox:
-                synced_dataset_provenance = await _sync_dataset_manifest(
+                synced_dataset_provenance = await sync_dataset_manifest(
                     sandbox=sandbox,
                     dataset_provenance=dataset_provenance,
                 )
@@ -217,7 +211,7 @@ class SandboxJobRunner:
                     sandbox_policy=dict(sandbox_policy),
                     plan=plan,
                 )
-                stdout_budget, stderr_budget = await _budget_script_streams(
+                stdout_budget, stderr_budget = await budget_script_streams(
                     sandbox=sandbox,
                     workspace_id=workspace_id,
                     execution_id=execution_id,
@@ -279,38 +273,6 @@ class SandboxJobRunner:
         return output
 
 
-async def _sync_dataset_manifest(
-    *,
-    sandbox: Any,
-    dataset_provenance: list[dict[str, Any]] | None,
-) -> list[dict[str, Any]]:
-    if not dataset_provenance:
-        return []
-    accepted_manifest = merge_dataset_provenance_manifest(
-        build_dataset_provenance_manifest(),
-        dataset_provenance,
-    )
-    accepted_entries = [
-        dict(item)
-        for item in accepted_manifest.get("datasets") or []
-        if isinstance(item, dict)
-    ]
-    if not accepted_entries:
-        return []
-    try:
-        existing_text = await sandbox.read_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH)
-        existing = json.loads(existing_text)
-    except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
-        existing = build_dataset_provenance_manifest()
-    merged = merge_dataset_provenance_manifest(existing, dataset_provenance)
-    if merged != existing:
-        await sandbox.write_file(
-            WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
-            json.dumps(merged, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
-        )
-    return accepted_entries
-
-
 def _runtime_job_metadata(
     *,
     script_name: str | None = None,
@@ -325,52 +287,3 @@ def _runtime_job_metadata(
     if command_audit is not None:
         metadata["command_audit"] = command_audit
     return metadata
-
-
-async def _budget_script_streams(
-    *,
-    sandbox: Any,
-    workspace_id: str,
-    execution_id: str,
-    node_id: str,
-    sandbox_policy: Mapping[str, Any],
-    stdout: str,
-    stderr: str,
-) -> tuple[BudgetedText, BudgetedText]:
-    output_budget = _output_budget(sandbox_policy)
-    context = SimpleNamespace(
-        workspace_id=workspace_id,
-        execution_id=execution_id,
-        node_id=node_id,
-        invocation_id=node_id,
-    )
-    stdout_budget = await budget_text_output(
-        text=stdout,
-        tool_name="sandbox.run_python.stdout",
-        context=context,
-        sandbox=sandbox,
-        output_budget=output_budget,
-        fallback_max_chars=_stream_max_chars(output_budget, "stdout"),
-    )
-    stderr_budget = await budget_text_output(
-        text=stderr,
-        tool_name="sandbox.run_python.stderr",
-        context=context,
-        sandbox=sandbox,
-        output_budget=output_budget,
-        fallback_max_chars=_stream_max_chars(output_budget, "stderr"),
-    )
-    return stdout_budget, stderr_budget
-
-
-def _output_budget(sandbox_policy: Mapping[str, Any]) -> dict[str, Any]:
-    value = sandbox_policy.get("output_budget")
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
-def _stream_max_chars(output_budget: Mapping[str, Any], stream: str) -> int:
-    return int(
-        output_budget.get(f"{stream}_max_chars")
-        or output_budget.get("stream_max_chars")
-        or 12_000
-    )

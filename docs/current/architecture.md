@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-06-08
+更新时间：2026-06-09
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
@@ -474,6 +474,12 @@ Agent template seed 也是 harness 合同的一部分，不只是显示名称和
 - workspace sandbox filesystem contract：`backend/src/sandbox/workspace_layout.py`
 - workspace sandbox manager：`backend/src/agents/lead_agent/v2/workspace_sandbox.py`
 - Lead-owned sandbox runtime：`backend/src/agents/lead_agent/v2/sandbox_runtime.py`
+- sandbox runtime session / lease：`backend/src/agents/lead_agent/v2/sandbox_runtime_session.py`
+- sandbox job orchestration：`backend/src/agents/lead_agent/v2/sandbox_job_runner.py`
+- sandbox Python script execution：`backend/src/agents/lead_agent/v2/sandbox_script_executor.py`
+- sandbox dataset manifest sync：`backend/src/agents/lead_agent/v2/sandbox_dataset_manifest.py`
+- sandbox stdout/stderr budgeting：`backend/src/agents/lead_agent/v2/sandbox_stream_budgeting.py`
+- sandbox output shaping：`backend/src/agents/lead_agent/v2/sandbox_artifact_collector.py`
 - sandbox artifact discovery：`backend/src/agents/lead_agent/v2/sandbox_artifact_discovery.py`
 - sandbox artifact review staging：`backend/src/agents/lead_agent/v2/sandbox_artifact_review.py`
 - Lead/subagent harness：`backend/src/agents/harness/`
