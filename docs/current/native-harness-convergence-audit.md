@@ -50,6 +50,7 @@ Chat Agent
 ## 4. Wenjin 自身的关键差异
 
 - **一个 workspace 一个 sandbox**：DataService sandbox environment 按 `workspace-{workspace_id}` 复用，任务容器短生命周期，文件、venv、cache 持久化在 workspace sandbox。
+- **统一 `/workspace` 文件系统**：`backend/src/sandbox/workspace_layout.py` 固定 `main`、`datasets`、`scripts`、`outputs`、`reports`、`tmp`、`.wenjin/env`、`.wenjin/cache`；workspace 类型只通过 profile guidance 改变建议文件名，不改变目录拓扑。
 - **能力/技能是业务事实源**：capability / skill / agent template 由 DataService catalog 管理，Lead/TeamKernel 动态加载；harness policy 只是执行权限边界。
 - **review-first artifact**：Prism、rooms、sandbox artifacts 都先进入 review/result-card 流程，不直接覆盖用户材料。
 - **团队实名制前端投影**：TeamKernel graph 只展示五步流程；实名成员、成员 activity 和质量门由 `frontend/lib/execution-run-view.ts` 从 hydrated node states/runtime_state 派生。
@@ -154,6 +155,10 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 1 passed after the mock TeamKernel E2E began producing a verified library output and running the evaluator against actual runtime `TaskReport` + node events for literature/experiment coverage.
   - `backend`: `.venv/bin/python -m pytest tests/quality/test_architecture_gate_configuration.py::test_release_gate_includes_current_execution_architecture_checks -q` -> RED on native gate missing `tests/agents/harness/test_research_task_eval.py`, then 1 passed after adding it to the release gate.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_command_audit.py tests/agents/harness/test_policy_and_registry.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_research_task_eval.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_context_assembly.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/architecture/test_native_harness_boundaries.py tests/dataservice/test_sandbox_domain.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 186 passed
+- 2026-06-09 Prism writing evidence eval slice:
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_runtime.py::test_run_session_prism_review_items_satisfy_writing_evidence_eval -q` -> RED on real Prism review item projection missing `target.logical_key`, then 1 passed after `prism_review_item_projection()` began projecting `target.logical_key`.
+  - `backend`: `.venv/bin/python -m pytest tests/services/test_workspace_prism_service.py::test_surface_projection_includes_review_provenance_and_protection -q` -> 1 passed with the same `target.logical_key` assertion on Workspace Prism surface projection.
+  - `native_harness_quality_gate` now includes both tests, so Prism writing review items must stay compatible with `evaluate_research_task_evidence(required_surfaces=("writing",))`.
 
 ## 6. 剩余不足
 

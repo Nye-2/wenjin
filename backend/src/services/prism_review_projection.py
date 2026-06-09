@@ -61,6 +61,7 @@ def prism_review_item_projection(
         },
         "target": {
             "kind": str(getattr(item, "target_kind", None) or "prism_file_change"),
+            "logical_key": logical_key,
             "file_path": path or None,
             "room": target_ref.get("room"),
             "item_id": target_ref.get("item_id"),

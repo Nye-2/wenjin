@@ -10,6 +10,7 @@ import pytest
 import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
+from src.agents.harness.research_task_eval import evaluate_research_task_evidence
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import DISCOVERY_SCHEMA
 from src.agents.lead_agent.v2.sandbox_artifact_review import collect_sandbox_artifact_candidates
@@ -604,6 +605,141 @@ async def test_stage_prism_review_items_from_writer_output():
     assert command.source_task_id == "manuscript_writer"
     assert "Draft" in command.pending_content
     assert command.pending_hash
+
+
+@pytest.mark.asyncio
+async def test_run_session_prism_review_items_satisfy_writing_evidence_eval():
+    graph_template = {
+        "phases": [
+            {
+                "name": "write",
+                "tasks": [
+                    {
+                        "name": "manuscript_writer",
+                        "subagent_type": "react",
+                        "outputs": [
+                            {
+                                "kind": "prism_file_change",
+                                "mapping": {
+                                    "logical_key": "project:main",
+                                    "path": "main.tex",
+                                    "reason": "full_manuscript_revision",
+                                    "pending_content": "{{output.text}}",
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+    cap = _make_fake_capability(graph_template=graph_template)
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+    brief = TaskBrief(
+        capability_id="test_cap",
+        raw_message="revise the whole manuscript",
+        workspace_id="ws-001",
+        brief={},
+        manuscript_context={
+            "latex_project_id": "latex-1",
+            "main_file": "main.tex",
+        },
+    )
+    staged: list[object] = []
+
+    class _FakeGraph:
+        async def ainvoke(self, state):
+            return {
+                **state,
+                "node_results": {
+                    "manuscript_writer": {
+                        "output": {
+                            "text": (
+                                "\\documentclass{article}\\begin{document}"
+                                "A more natural research manuscript."
+                                "\\end{document}"
+                            ),
+                        },
+                    },
+                },
+            }
+
+    class _FakeClient:
+        async def upsert_pending_prism_file_change(self, command):
+            staged.append(command)
+            return SimpleNamespace(id="review-prism-1")
+
+        async def list_review_items(self, **kwargs):
+            if kwargs.get("target_domain") != "prism":
+                return []
+            command = staged[0]
+            return [
+                SimpleNamespace(
+                    id="review-prism-1",
+                    target_kind="prism_file_change",
+                    target_ref_json={
+                        "latex_project_id": command.latex_project_id,
+                        "logical_key": command.logical_key,
+                        "path": command.path,
+                    },
+                    status="pending",
+                    title="Revise main.tex",
+                    summary="Full manuscript revision",
+                    payload_json={
+                        "logical_key": command.logical_key,
+                        "path": command.path,
+                        "reason": command.reason,
+                        "pending_hash": command.pending_hash,
+                        "source_execution_id": command.source_execution_id,
+                        "source_task_id": command.source_task_id,
+                    },
+                    preview_json={
+                        "path": command.path,
+                        "pending_hash": command.pending_hash,
+                    },
+                    result_json=None,
+                    created_at=None,
+                    updated_at=None,
+                    applied_at=None,
+                )
+            ]
+
+    class _FakeClientContext:
+        async def __aenter__(self):
+            return _FakeClient()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    with (
+        patch(
+            "src.agents.lead_agent.v2.runtime.compile_graph",
+            return_value=_FakeGraph(),
+        ),
+        patch(
+            "src.dataservice_client.provider.dataservice_client",
+            return_value=_FakeClientContext(),
+        ),
+    ):
+        report = await runtime.run_session(execution_id="exec-prism-writing", brief=brief)
+
+    assert report.review_items
+    evaluation = evaluate_research_task_evidence(
+        report,
+        required_surfaces=("writing",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.evidence["writing"]["prism_file_changes"] == [
+        {
+            "review_item_id": "review-prism-1",
+            "logical_key": "project:main",
+            "file_path": "main.tex",
+        }
+    ]
 
 
 @pytest.mark.asyncio
