@@ -36,6 +36,7 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
         "execution_commit_writeback_security",
         "execution_resume_runtime_config",
         "execution_ux_convergence",
+        "native_harness_quality_gate",
         "model_catalog_pricing_gate",
         "frontend_execution_ux_unit_tests",
         "frontend_static_build",
@@ -62,3 +63,8 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
     assert "src.quality.model_catalog_pricing_gate" in " ".join(
         command_by_id["model_catalog_pricing_gate"]
     )
+    harness_command = " ".join(command_by_id["native_harness_quality_gate"])
+    assert "tests/agents/harness/test_scheduler_and_python_tool.py" in harness_command
+    assert "tests/agents/harness/test_sandbox_file_tools.py" in harness_command
+    assert "tests/agents/lead_agent/v2/test_citation_source_audit.py" in harness_command
+    assert "tests/integration/test_harness_mock_sandbox_e2e.py" in harness_command

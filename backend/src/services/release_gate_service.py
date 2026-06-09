@@ -220,6 +220,23 @@ class ReleaseGateService:
                 cwd=self.backend_root,
             ),
             ReleaseGateCommand(
+                check_id="native_harness_quality_gate",
+                command=self._uv_command(
+                    "run",
+                    "pytest",
+                    "tests/agents/harness/test_scheduler_and_python_tool.py",
+                    "tests/agents/harness/test_sandbox_file_tools.py",
+                    "tests/agents/harness/test_langchain_adapter.py",
+                    "tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py",
+                    "tests/sandbox/test_workspace_layout.py",
+                    "tests/agents/lead_agent/v2/test_citation_source_audit.py",
+                    "tests/agents/lead_agent/v2/test_team_quality_gates.py",
+                    "tests/integration/test_harness_mock_sandbox_e2e.py",
+                    "-q",
+                ),
+                cwd=self.backend_root,
+            ),
+            ReleaseGateCommand(
                 check_id="model_catalog_pricing_gate",
                 command=self._uv_command(
                     "run",

@@ -97,6 +97,10 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py -k "invalid_workspace_paths" -q` -> 1 passed after RED failed on `/workspace/scripts/../.env` leaking into reproducibility manifest
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_langchain_adapter.py -q` -> 27 passed
   - `backend`: `.venv/bin/ruff check src/agents/harness/sandbox_execution_tools.py tests/agents/harness/test_scheduler_and_python_tool.py` -> passed
+- 2026-06-09 native harness release gate slice:
+  - `backend`: `.venv/bin/python -m pytest tests/quality/test_architecture_gate_configuration.py::test_release_gate_includes_current_execution_architecture_checks -q` -> RED on missing `native_harness_quality_gate`, then 1 passed after wiring the release gate.
+  - `backend`: `.venv/bin/python -m pytest tests/services/test_release_gate.py tests/services/test_release_gate_service.py tests/quality/test_architecture_gate_configuration.py -q` -> 12 passed
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 107 passed
 
 ## 6. 剩余不足
 

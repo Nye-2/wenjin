@@ -1,8 +1,10 @@
 # Release Gate Checklist
 
-更新时间: 2026-06-02
+更新时间: 2026-06-09
 
 用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
+
+2026-06-09 最新增量验证：Native harness release gate 已进入 core checks；release-gate service/config suite 12 passed；native harness gate command 107 passed，覆盖 harness filesystem、sandbox file tools、LangChain adapter、workspace sandbox metadata、workspace layout、citation/source audit、team quality gates、mock sandbox E2E。
 
 最新增量验证：2026-05-30 Model catalog/pricing runtime convergence：backend full pytest 2201 passed；backend ruff `src tests` passed；frontend typecheck/lint/build passed；frontend vitest 242 passed；Browser route-guard smoke passed（`/dashboard/admin/models` -> login redirect preserved）。2026-05-30 Gateway/Worker DataService lifecycle convergence：backend full pytest 2041 passed；gateway/worker/execution-commit/thread-helper target suite 80 passed；architecture boundary suite 41 passed；runtime DB/session scan no matches；changed-file ruff passed。2026-05-30 Audit/Reference contract boundary convergence：backend full pytest 2036 passed；audit/reference target suite 32 passed；architecture boundary suite 38 passed；changed-file ruff passed。2026-05-30 Production source legacy label cleanup：backend full pytest 2034 passed；migration bootstrap/architecture target suite 7 passed；architecture boundary suite 36 passed；production source legacy scan no matches；changed-file ruff passed。2026-05-30 Workspace capability runtime comment convergence：backend full pytest 2033 passed；frontend typecheck passed；runtime comment guard passed；architecture boundary suite 35 passed；changed-file ruff passed。2026-05-30 DataService stale naming cleanup：backend full pytest 2032 passed；source/rooms/architecture target suite 21 passed；architecture boundary suite 34 passed；DataService stale keyword scan no matches；changed-file ruff passed。2026-05-30 Execution generation usage naming convergence：backend full pytest 2031 passed；execution-contract architecture target 1 passed；architecture boundary suite 33 passed；changed-file ruff passed。2026-05-30 Conversation block canonical payload convergence：backend full pytest 2030 passed；conversation/architecture target suite 5 passed；architecture boundary suite 32 passed；changed-file ruff passed。2026-05-30 Source reference projection naming convergence：backend full pytest 2029 passed；source provenance/architecture target suite 17 passed；architecture boundary suite 31 passed；changed-file ruff passed。2026-05-30 Catalog skill canonical skill_json convergence：backend full pytest 2028 passed；catalog/foundation/resolver/admin-skill/architecture target suite 43 passed；architecture boundary suite 30 passed；changed-file ruff passed。2026-05-30 DataService Prism adapter metadata convergence：backend full pytest 2026 passed；Prism adapter/service/router/architecture target suite 15 passed；architecture boundary suite 29 passed；changed-file ruff passed。2026-05-30 frontend feature action explicit-goal convergence：frontend feature action unit 4 passed；frontend typecheck passed。2026-05-30 React requested-tools explicit failure convergence：backend full pytest 2025 passed；React/runtime/compiler/architecture target suite 43 passed；architecture boundary suite 29 passed；changed-file ruff passed。2026-05-30 workspace upload canonical stored path convergence：backend full pytest 2023 passed；upload/template/reference/middleware/preprocess/architecture target suite 28 passed；architecture boundary suite 28 passed；changed-file ruff passed。2026-05-30 feature action explicit-goal convergence：backend full pytest 2021 passed；feature action/activity/architecture target suite 36 passed；architecture boundary suite 27 passed；changed-file ruff passed。2026-05-30 feature launch canonical params convergence：backend full pytest 2020 passed；launch context/tool/chat integration/architecture target suite 18 passed；architecture boundary suite 26 passed；changed-file ruff passed。2026-05-30 execution workspace type no-default convergence：backend full pytest 2019 passed；execution/runtime/architecture target suite 49 passed；architecture boundary suite 25 passed；changed-file ruff passed。
 
@@ -73,9 +75,13 @@
   - Admin model update 必须支持显式清空 `pricing_policy_id` / timeout / retry / headers 等可空字段，同时空 API Key 必须保持原密钥
   - Admin pricing simulator 必须读取当前 enabled `global_credit` / `model_usage` policy；缺失时只允许 UI 默认模板估算，不写回配置
   - Admin dashboard token usage summary 必须遵守 DataService list 上限；全量统计需要 DataService aggregate endpoint，不得在 gateway facade 使用超大 limit 或绕过 DB 边界
-18. 统一门禁命令（发布前需要运行）：
+18. Native Harness quality gate：
+  - `native_harness_quality_gate` 必须进入 release gate core checks，不得只停留在文档或手动约定。
+  - 覆盖 harness filesystem / file tools / LangChain adapter / workspace sandbox metadata / workspace layout / citation-source audit / team quality gates / mock sandbox E2E。
+  - 发布前至少运行 `cd backend && PYTHONPATH=. uv run pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/integration/test_harness_mock_sandbox_e2e.py -q`。
+19. 统一门禁命令（发布前需要运行）：
   - `cd backend && uv run python -m src.quality.release_gate_cli`
-19. 当前 Core Gate 覆盖:
+20. 当前 Core Gate 覆盖:
   - `tests/workspace_features/test_workspace_e2e_matrix.py`
   - `tests/gateway/routers/test_features.py`
   - `tests/application/services/test_feature_submission_service.py`
@@ -96,14 +102,14 @@
   - `tests/services/test_prism_review_workflow_gate.py tests/compute/test_projection_service.py`
   - `tests/workspace_features/services/test_sci_feature_service.py`
   - `tests/services/test_auth_email_workflow_gate.py tests/gateway/routers/test_auth.py tests/services/test_email_service.py`
-20. 前端静态检查通过:
+21. 前端静态检查通过:
   - `npm run typecheck`
   - `npm run lint`
   - `npm run build`
-21. Execution UX 建议回归:
+22. Execution UX 建议回归:
   - `cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/stores/chat-store.test.ts tests/unit/hooks/useWorkspaceEventStream.test.tsx tests/unit/v2/rooms/RunsDrawer.test.tsx tests/unit/v2/ExecutionCard.test.tsx`
   - `cd backend && .venv/bin/python -m pytest tests/application/intents/test_launch_text.py tests/application/services/test_feature_launch_context.py tests/application/handlers/test_thread_turn_handler.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy tests/integration/test_chat_to_feature_launch.py tests/tools/test_launch_feature_tool.py -v`
-22. Prism writing review 建议回归:
+23. Prism writing review 建议回归:
   - `cd backend && .venv/bin/python -m pytest tests/dataservice/test_review_batch_service.py tests/dataservice/test_foundation.py::test_dataservice_client_prism_review_contract_methods tests/agents/lead_agent/v2/test_output_mapping.py tests/agents/lead_agent/v2/test_runtime.py tests/services/test_prism_review_workflow_gate.py tests/services/test_workspace_prism_service.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy -v`
   - `cd frontend && npm run test:e2e -- iteration.spec.ts prism-surface.spec.ts --project=chromium`
 
