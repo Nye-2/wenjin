@@ -15,6 +15,15 @@ _VERIFIED_LITERATURE_LEVELS = {
     "indexed_fulltext",
     "uploaded_fulltext",
 }
+_UNTRUSTED_CITATION_AUDIT_RISKS = {
+    "blocked",
+    "contradicted",
+    "fabricated",
+    "missing",
+    "missing_source",
+    "unsupported",
+}
+_UNTRUSTED_CITATION_AUDIT_SEVERITIES = {"blocking", "critical", "high"}
 
 
 @dataclass(slots=True)
@@ -207,26 +216,93 @@ def _citation_audit_refs(node_events: list[dict[str, Any]]) -> list[dict[str, An
     refs: list[dict[str, Any]] = []
     for event in node_events:
         harness = _harness_metadata(event)
-        raw_findings = harness.get("citation_source_audit")
+        for finding in _citation_source_findings_from_value(
+            harness.get("citation_source_audit")
+        ):
+            ref = _citation_audit_ref(finding)
+            if ref:
+                refs.append(ref)
+        for finding in _team_quality_gate_citation_findings(event):
+            ref = _citation_audit_ref(finding)
+            if ref:
+                refs.append(ref)
+    return _dedupe_citation_refs(refs)[:50]
+
+
+def _citation_source_findings_from_value(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _team_quality_gate_citation_findings(event: dict[str, Any]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
+    for gate in _team_quality_gates(event):
+        raw_findings = gate.get("findings")
         if not isinstance(raw_findings, list):
             continue
-        for finding in raw_findings:
-            if not isinstance(finding, dict):
+        for gate_finding in raw_findings:
+            if not isinstance(gate_finding, dict):
                 continue
-            source_id = _clean_text(finding.get("source_id"))
-            citation_key = _clean_text(finding.get("citation_key"))
-            risk = _clean_text(finding.get("risk"))
-            if risk in {"high", "critical", "blocking"}:
-                continue
-            if source_id or citation_key:
-                refs.append(
-                    {
-                        "source_id": source_id,
-                        "citation_key": citation_key,
-                        "risk": risk,
-                    }
+            findings.extend(
+                _citation_source_findings_from_value(
+                    gate_finding.get("citation_source_audit")
                 )
-    return refs[:50]
+            )
+    return findings
+
+
+def _team_quality_gates(event: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = [
+        event.get("quality_gates"),
+        _dict_value(event.get("runtime_state")).get("quality_gates"),
+        _dict_value(event.get("runtime_state_json")).get("quality_gates"),
+        _dict_value(_dict_value(event.get("node_metadata")).get("runtime_state")).get("quality_gates"),
+    ]
+    gates: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        gates.extend(item for item in candidate if isinstance(item, dict))
+    return gates
+
+
+def _citation_audit_ref(finding: dict[str, Any]) -> dict[str, str] | None:
+    source_id = _clean_text(finding.get("source_id"))
+    citation_key = _clean_text(finding.get("citation_key"))
+    risk = _clean_text(finding.get("risk"))
+    severity = _clean_text(finding.get("severity"))
+    if risk in _UNTRUSTED_CITATION_AUDIT_RISKS:
+        return None
+    if severity in _UNTRUSTED_CITATION_AUDIT_SEVERITIES:
+        return None
+    if source_id or citation_key:
+        return {
+            "source_id": source_id,
+            "citation_key": citation_key,
+            "risk": risk,
+        }
+    return None
+
+
+def _dedupe_citation_refs(refs: list[dict[str, str]]) -> list[dict[str, str]]:
+    unique: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for ref in refs:
+        key = (
+            ref.get("source_id", ""),
+            ref.get("citation_key", ""),
+            ref.get("risk", ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(ref)
+    return unique
+
+
+def _dict_value(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _reproducibility_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:

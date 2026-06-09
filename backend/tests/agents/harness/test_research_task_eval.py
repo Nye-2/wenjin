@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections import Counter
+
 from src.agents.contracts.task_report import (
     DocumentData,
     DocumentOutput,
@@ -8,6 +10,8 @@ from src.agents.contracts.task_report import (
     TaskReport,
 )
 from src.agents.harness.research_task_eval import evaluate_research_task_evidence
+from src.agents.lead_agent.v2.team.contracts import AgentInvocation, CapabilityTeamPolicy
+from src.agents.lead_agent.v2.team.quality_gates import evaluate_quality_gates
 
 
 def _report(*, review_items: list[dict] | None = None, outputs: list | None = None) -> TaskReport:
@@ -58,6 +62,25 @@ def _node_metadata() -> list[dict]:
             },
         },
     ]
+
+
+def _team_invocation(
+    *,
+    template_id: str = "citation_auditor.v1",
+    output_report: dict,
+    quality_contract: dict,
+) -> AgentInvocation:
+    return AgentInvocation(
+        id=f"team.1.{template_id.replace('.', '_')}.1",
+        iteration=1,
+        template_id=template_id,
+        display_name="引文审计员",
+        assigned_role="引文审计员",
+        recruitment_reason="test",
+        input_brief={"quality_contract": quality_contract},
+        status="succeeded",
+        output_report=output_report,
+    )
 
 
 def test_research_task_eval_passes_when_literature_experiment_and_writing_are_reviewable() -> None:
@@ -220,3 +243,72 @@ def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None
 
     assert evaluation.status == "fail"
     assert evaluation.coverage == {"experiment": "fail"}
+
+
+def test_research_task_eval_accepts_team_quality_gate_citation_refs() -> None:
+    report = _report()
+    quality_contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "citation_auditor.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_source_binding_checked"],
+        "acknowledgement_required_gates": [],
+        "allowed_citation_keys": ["smith2026"],
+        "allowed_source_ids": ["source-1"],
+        "recruitment_hints": {},
+    }
+    gates = evaluate_quality_gates(
+        ["claim_source_binding_checked"],
+        [
+            _team_invocation(
+                quality_contract=quality_contract,
+                output_report={
+                    "text": "Citation audit complete.",
+                    "quality_gates_checked": ["claim_source_binding_checked"],
+                    "citation_key_audit": [
+                        {
+                            "citation_key": "smith2026",
+                            "source_id": "source-1",
+                            "status": "weak",
+                            "claim": "The central claim has partial support.",
+                        },
+                        {
+                            "citation_key": "smith2026",
+                            "source_id": "source-1",
+                            "status": "fabricated",
+                            "claim": "This should not be trusted as literature evidence.",
+                        },
+                    ],
+                    "missing_sources": [],
+                },
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["citation_auditor.v1"]),
+        counts=Counter({"citation_auditor.v1": 1}),
+        latest_invocations=[],
+    )
+    node_events = [
+        {
+            "node_type": "team_quality_gate",
+            "status": "completed",
+            "runtime_state": {
+                "quality_gates": [gate.model_dump(mode="json") for gate in gates]
+            },
+        }
+    ]
+
+    evaluation = evaluate_research_task_evidence(
+        report,
+        node_events=node_events,
+        required_surfaces=("literature",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"literature": "pass"}
+    assert evaluation.evidence["literature"]["citation_audit_refs"] == [
+        {
+            "source_id": "source-1",
+            "citation_key": "smith2026",
+            "risk": "weak",
+        }
+    ]
