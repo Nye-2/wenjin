@@ -8,7 +8,7 @@ from typing import Any, Literal
 from src.agents.contracts.task_report import TaskReport
 from src.sandbox.workspace_layout import WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT
 
-ResearchSurface = Literal["literature", "experiment", "writing"]
+ResearchSurface = Literal["literature", "experiment", "writing", "workflow_trace"]
 EvalStatus = Literal["pass", "fail"]
 
 _VERIFIED_LITERATURE_LEVELS = {
@@ -59,6 +59,7 @@ def evaluate_research_task_evidence(
         "literature": _evaluate_literature,
         "experiment": _evaluate_experiment,
         "writing": _evaluate_writing,
+        "workflow_trace": _evaluate_workflow_trace,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -212,6 +213,84 @@ def _evaluate_writing(
         evidence,
         "No structurally reviewable Prism file-change or document output was produced for writing review.",
     )
+
+
+def _evaluate_workflow_trace(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del report
+    evidence = _workflow_trace_evidence(node_events)
+    if evidence["member_count"] > 0 and evidence["completed_tool_count"] > 0:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        "No member execution transcript with completed tool activity was produced.",
+    )
+
+
+def _workflow_trace_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
+    member_count = 0
+    tool_call_count = 0
+    completed_tool_count = 0
+    failed_tool_count = 0
+    generated_artifact_count = 0
+    duration_ms = 0
+    credits_charged = 0.0
+    tool_names: list[str] = []
+    changed_paths: list[str] = []
+    sandbox_job_ids: list[str] = []
+    sandbox_environment_ids: list[str] = []
+    scratch_refs: list[str] = []
+    usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+    for transcript in _member_execution_transcripts(node_events):
+        member_count += 1
+        tool_call_count += _int_value(transcript.get("tool_call_count"))
+        completed_tool_count += _int_value(transcript.get("completed_tool_count"))
+        failed_tool_count += _int_value(transcript.get("failed_tool_count"))
+        generated_artifact_count += _int_value(transcript.get("generated_artifact_count"))
+        duration_ms += _int_value(transcript.get("duration_ms"))
+        for name in _string_list(transcript.get("tool_names")):
+            _append_unique(tool_names, name)
+        for path in (_workspace_path(path) for path in _string_list(transcript.get("changed_paths"))):
+            _append_unique(changed_paths, path)
+        for job_id in _string_list(transcript.get("sandbox_job_ids")):
+            _append_unique(sandbox_job_ids, job_id)
+        for environment_id in _string_list(transcript.get("sandbox_environment_ids")):
+            _append_unique(sandbox_environment_ids, environment_id)
+        for ref in (_workspace_task_scratch_ref(ref) for ref in _string_list(transcript.get("scratch_refs"))):
+            _append_unique(scratch_refs, ref)
+        raw_usage = _dict_value(transcript.get("usage"))
+        for key in usage:
+            usage[key] += _int_value(raw_usage.get(key))
+        billing = _dict_value(transcript.get("billing"))
+        credits_charged += _number_value(billing.get("credits_charged"))
+    return {
+        "member_count": member_count,
+        "tool_call_count": tool_call_count,
+        "completed_tool_count": completed_tool_count,
+        "failed_tool_count": failed_tool_count,
+        "tool_names": tool_names[:50],
+        "changed_paths": changed_paths[:50],
+        "sandbox_job_ids": sandbox_job_ids[:50],
+        "sandbox_environment_ids": sandbox_environment_ids[:50],
+        "scratch_refs": scratch_refs[:50],
+        "generated_artifact_count": generated_artifact_count,
+        "usage": usage,
+        "billing": {"credits_charged": _json_number(credits_charged)},
+        "duration_ms": duration_ms,
+    }
+
+
+def _member_execution_transcripts(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    transcripts: list[dict[str, Any]] = []
+    for event in node_events:
+        harness = _harness_metadata(event)
+        transcript = harness.get("member_execution_transcript")
+        if isinstance(transcript, dict):
+            transcripts.append(transcript)
+    return transcripts
 
 
 def _prism_change_is_structurally_reviewable(item: dict[str, Any]) -> bool:
@@ -414,6 +493,18 @@ def _workspace_path(value: Any) -> str:
     return text
 
 
+def _workspace_task_scratch_ref(value: Any) -> str:
+    path = _workspace_path(value)
+    if not path.startswith("/workspace/tmp/tasks/"):
+        return ""
+    if path.startswith(f"{WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT}/"):
+        return ""
+    parts = path.removeprefix("/workspace/tmp/tasks/").split("/")
+    if len(parts) < 2 or any(part in {"", ".", ".."} for part in parts):
+        return ""
+    return path
+
+
 def _string_list(value: Any) -> list[str]:
     if isinstance(value, str):
         raw = [value]
@@ -434,6 +525,41 @@ def _unique(values: list[str]) -> list[str]:
         result.append(text)
         seen.add(text)
     return result
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    text = _clean_text(value)
+    if text and text not in values:
+        values.append(text)
+
+
+def _int_value(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(value, 0)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
+
+
+def _number_value(value: Any) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        parsed = float(value)
+    else:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+    return parsed if parsed > 0 else 0.0
+
+
+def _json_number(value: float) -> int | float:
+    return int(value) if value.is_integer() else value
 
 
 def _clean_text(value: Any) -> str:

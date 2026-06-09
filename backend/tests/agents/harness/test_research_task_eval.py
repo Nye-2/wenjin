@@ -362,3 +362,109 @@ def test_research_task_eval_accepts_team_quality_gate_citation_refs() -> None:
             "risk": "weak",
         }
     ]
+
+
+def test_research_task_eval_passes_workflow_trace_from_member_transcripts() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_metadata": {
+                    "harness": {
+                        "member_execution_transcript": {
+                            "schema": "wenjin.harness.member_execution_transcript.v1",
+                            "tool_call_count": 2,
+                            "tool_names": ["library_read", "citation_parser"],
+                            "completed_tool_count": 2,
+                            "failed_tool_count": 0,
+                            "usage": {"input_tokens": 400, "output_tokens": 120, "total_tokens": 520},
+                        }
+                    }
+                }
+            },
+            {
+                "node_metadata": {
+                    "harness": {
+                        "member_execution_transcript": {
+                            "schema": "wenjin.harness.member_execution_transcript.v1",
+                            "tool_call_count": 1,
+                            "tool_names": ["sandbox.run_python"],
+                            "completed_tool_count": 1,
+                            "failed_tool_count": 0,
+                            "changed_paths": ["/workspace/reports/experiment.md"],
+                            "sandbox_job_ids": ["job-1"],
+                            "sandbox_environment_ids": ["env-1"],
+                            "scratch_refs": ["/workspace/tmp/tasks/exec-1/experiment_runner"],
+                            "generated_artifact_count": 1,
+                            "billing": {"credits_charged": 1},
+                            "duration_ms": 1500,
+                        }
+                    }
+                }
+            },
+        ],
+        required_surfaces=("workflow_trace",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"workflow_trace": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["workflow_trace"] == {
+        "member_count": 2,
+        "tool_call_count": 3,
+        "completed_tool_count": 3,
+        "failed_tool_count": 0,
+        "tool_names": ["library_read", "citation_parser", "sandbox.run_python"],
+        "changed_paths": ["/workspace/reports/experiment.md"],
+        "sandbox_job_ids": ["job-1"],
+        "sandbox_environment_ids": ["env-1"],
+        "scratch_refs": ["/workspace/tmp/tasks/exec-1/experiment_runner"],
+        "generated_artifact_count": 1,
+        "usage": {"input_tokens": 400, "output_tokens": 120, "total_tokens": 520},
+        "billing": {"credits_charged": 1},
+        "duration_ms": 1500,
+    }
+
+
+def test_research_task_eval_fails_workflow_trace_without_member_transcripts() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_metadata": {
+                    "harness": {
+                        "run_journal_summary": {
+                            "schema": "wenjin.harness.run_journal_summary.v1",
+                            "summary": "已完成实验",
+                        }
+                    }
+                }
+            }
+        ],
+        required_surfaces=("workflow_trace",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"workflow_trace": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "workflow_trace",
+            "severity": "high",
+            "message": "No member execution transcript with completed tool activity was produced.",
+        }
+    ]
+    assert evaluation.evidence["workflow_trace"] == {
+        "member_count": 0,
+        "tool_call_count": 0,
+        "completed_tool_count": 0,
+        "failed_tool_count": 0,
+        "tool_names": [],
+        "changed_paths": [],
+        "sandbox_job_ids": [],
+        "sandbox_environment_ids": [],
+        "scratch_refs": [],
+        "generated_artifact_count": 0,
+        "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+        "billing": {"credits_charged": 0},
+        "duration_ms": 0,
+    }

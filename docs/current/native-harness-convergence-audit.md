@@ -229,6 +229,11 @@ Chat Agent
   - Transcript billing only carries bounded `credits_charged` copied from existing tool call billing payload; DataService reservation / transaction remains the billing source of truth.
   - Context assembly now exposes the latest `member_execution_transcript` at top level and preserves it inside recent execution evidence so later members can continue from prior tool/file/sandbox activity without reading raw tool JSON.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py -q` -> 19 passed.
+- 2026-06-09 workflow trace eval slice:
+  - Added optional `workflow_trace` to deterministic `research_task_eval`, backed only by existing `node_metadata.harness.member_execution_transcript`.
+  - The eval aggregates completed/failed tool counts, tool names, changed paths, sandbox job/environment ids, safe scratch refs, generated artifact count, token usage, bounded credits and duration; it fails when no member transcript with completed tool activity exists.
+  - This closes the "review items exist but no team execution trace" structural gap without creating a new runtime, event stream or billing source. It still does not score paper relevance, citation strength, experiment interpretation or writing semantic preservation.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> 7 passed.
 - 2026-06-09 closed workspace directory contract slice:
   - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
   - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.
