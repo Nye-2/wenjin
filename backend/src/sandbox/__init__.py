@@ -21,9 +21,6 @@ from .exceptions import (
     SandboxRuntimeError,
     SandboxTimeoutError,
 )
-
-# Path management
-from .paths import VirtualPathMapper
 from .providers.base import SandboxProvider
 
 # Providers
@@ -54,8 +51,6 @@ __all__ = [
     "SandboxNotFoundError",
     "SandboxRuntimeError",
     "SandboxTimeoutError",
-    # Path management
-    "VirtualPathMapper",
     "WORKSPACE_ROOT",
     "WORKSPACE_STANDARD_DIRS",
     "WORKSPACE_SUPPORTED_TYPES",

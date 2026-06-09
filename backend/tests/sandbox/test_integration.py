@@ -8,7 +8,6 @@ import pytest
 from src.sandbox import (
     LocalSandboxProvider,
     SandboxSettings,
-    VirtualPathMapper,
 )
 
 
@@ -83,23 +82,6 @@ class TestSandboxIntegration:
         # Cleanup
         await provider.release(sandbox1)
         await provider.release(sandbox2)
-
-    @pytest.mark.asyncio
-    async def test_path_mapper_integration(self, temp_dir):
-        """Test VirtualPathMapper with provider."""
-        provider = LocalSandboxProvider(base_dir=temp_dir)
-        sandbox = await provider.acquire("path-test")
-
-        mapper = VirtualPathMapper(base_dir=temp_dir)
-
-        # Test path conversion
-        virtual = "/mnt/user-data/workspace/test.txt"
-        physical = mapper.to_physical(virtual, thread_id="path-test")
-
-        assert "path-test/user-data/workspace/test.txt" in physical
-
-        # Cleanup
-        await provider.release(sandbox)
 
     @pytest.mark.asyncio
     async def test_settings_integration(self):

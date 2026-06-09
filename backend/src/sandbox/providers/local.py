@@ -57,7 +57,7 @@ class LocalSandbox(Sandbox):
         self._resolved_base_paths = {
             vp: str(Path(pp).resolve()) for vp, pp in path_mappings.items()
         }
-        self._workspace_path = path_mappings.get("/workspace") or path_mappings.get("/mnt/user-data/workspace")
+        self._workspace_path = path_mappings.get(WORKSPACE_ROOT)
 
     @staticmethod
     def _is_within_root(path: str, root: str) -> bool:
@@ -373,8 +373,8 @@ class LocalSandbox(Sandbox):
         Returns:
             List of FileInfo for directory contents.
         """
-        # For recursion, path might already be physical. Public callers may pass
-        # any configured virtual root, including the older /mnt/user-data root.
+        # For recursion, path might already be physical. Public callers use the
+        # canonical /workspace virtual root.
         if self._is_allowed_virtual_path(path):
             resolved = self._resolve_path(path)
         else:

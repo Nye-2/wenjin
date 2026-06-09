@@ -12,6 +12,10 @@ NATIVE_HARNESS_ROOTS = (
     SRC_ROOT / "agents" / "lead_agent" / "v2" / "team",
 )
 NATIVE_HARNESS_FILES = (
+    SRC_ROOT / "sandbox" / "__init__.py",
+    SRC_ROOT / "sandbox" / "paths.py",
+    SRC_ROOT / "sandbox" / "providers" / "docker.py",
+    SRC_ROOT / "sandbox" / "providers" / "local.py",
     SRC_ROOT / "agents" / "lead_agent" / "v2" / "sandbox_artifact_discovery.py",
     SRC_ROOT / "agents" / "lead_agent" / "v2" / "sandbox_artifact_review.py",
     SRC_ROOT / "agents" / "lead_agent" / "v2" / "sandbox_job_runner.py",

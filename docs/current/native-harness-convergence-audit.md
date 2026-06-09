@@ -170,6 +170,10 @@ Chat Agent
 - 2026-06-09 task scratch layout slice:
   - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py::test_ensure_workspace_sandbox_layout_creates_standard_tree tests/sandbox/test_workspace_layout.py::test_agent_workspace_contract_exposes_path_classes tests/agents/harness/test_context_assembly.py::test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence -q` -> RED on missing `task_scratch_root`, then 3 passed after adding `/workspace/tmp/tasks` to the canonical layout manifest, agent workspace contract and harness context.
   - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py -q` -> 28 passed; task scratch remains hidden scratch and does not become a user-reviewable artifact root.
+- 2026-06-09 sandbox provider alias retirement slice:
+  - `backend`: `.venv/bin/python -m pytest tests/architecture/test_native_harness_boundaries.py -q` -> RED after provider/export files were added to the native harness boundary and old `/mnt/user-data` remained in LocalSandbox / `VirtualPathMapper`, then 1 passed after retiring `src/sandbox/paths.py`, removing `VirtualPathMapper` export, and keeping LocalSandbox on the single `/workspace` virtual root.
+  - `backend`: `.venv/bin/python -m pytest tests/architecture/test_native_harness_boundaries.py tests/sandbox/test_local_sandbox.py tests/sandbox/test_integration.py tests/sandbox/test_workspace_layout.py -q` -> 62 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/sandbox -q` -> 95 passed; remaining `/mnt/user-data` references are outside native sandbox provider scope or are negative tests that assert old aliases are rejected.
 
 ## 6. 剩余不足
 
