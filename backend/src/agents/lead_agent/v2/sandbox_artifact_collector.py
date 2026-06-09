@@ -76,6 +76,7 @@ class SandboxArtifactCollector:
         install_command_audits: list[dict[str, Any]],
         retry_count: int,
         script_path: str,
+        task_scratch_path: str,
         stdout_preview: str | None = None,
         stderr_preview: str | None = None,
         stdout_ref: str | None = None,
@@ -109,6 +110,7 @@ class SandboxArtifactCollector:
             f"- Execution：{execution_id}\n"
             f"- Node：{node_id}\n"
             f"- Script：{safe_name}\n"
+            f"- Task scratch：{task_scratch_path}\n"
             f"- Script SHA256：`{script_hash}`\n"
             f"- Docker image：{provider_image}\n"
             f"- Exit code：{result.exit_code}\n\n"
@@ -146,6 +148,7 @@ class SandboxArtifactCollector:
             "install_command_audits": install_command_audits,
             "retry_count": retry_count,
             "script_path": script_path,
+            "task_scratch_path": task_scratch_path,
             "script_name": safe_name,
             "script_hash": script_hash,
             "generated_artifacts": artifact_candidates,

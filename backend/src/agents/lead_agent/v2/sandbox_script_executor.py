@@ -16,6 +16,7 @@ from src.agents.lead_agent.v2.workspace_sandbox import (
     normalize_dependency_hints,
     resolve_package_for_missing_module,
 )
+from src.sandbox.workspace_layout import WORKSPACE_ROOT, workspace_task_scratch_path
 
 SCRIPT_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 MAX_SCRIPT_BYTES = 128 * 1024
@@ -39,6 +40,7 @@ class SandboxScriptExecutionState:
     """Script process result plus installation side effects."""
 
     result: Any
+    task_scratch_path: str
     installed_packages: list[str]
     install_job_ids: list[str]
     install_command_audits: list[dict[str, Any]]
@@ -99,11 +101,19 @@ class SandboxScriptExecutor:
             sandbox_policy=sandbox_policy,
             dependency_hints=plan.dependency_hints,
         )
+        task_scratch_path = workspace_task_scratch_path(
+            execution_id=execution_id,
+            node_id=node_id,
+        )
+        execution_env = sandbox_script_execution_env(task_scratch_path)
+        await sandbox.write_file(f"{task_scratch_path}/.gitkeep", "")
         await sandbox.write_file(plan.script_path, plan.script)
         result = await sandbox.execute_command(
             plan.command,
             timeout=ctx.sandbox_timeout,
             network_profile="none",
+            cwd=task_scratch_path,
+            env=execution_env,
         )
         retry_count, final_result = await self._retry_missing_dependency_once(
             sandbox=sandbox,
@@ -114,6 +124,8 @@ class SandboxScriptExecutor:
             run_job_id=run_job_id,
             sandbox_policy=sandbox_policy,
             command=plan.command,
+            task_scratch_path=task_scratch_path,
+            execution_env=execution_env,
             dependency_hints=plan.dependency_hints,
             installed_packages=installed_packages,
             install_job_ids=install_job_ids,
@@ -122,6 +134,7 @@ class SandboxScriptExecutor:
         )
         return SandboxScriptExecutionState(
             result=final_result,
+            task_scratch_path=task_scratch_path,
             installed_packages=installed_packages,
             install_job_ids=install_job_ids,
             install_command_audits=install_command_audits,
@@ -194,6 +207,8 @@ class SandboxScriptExecutor:
         run_job_id: str,
         sandbox_policy: dict[str, Any],
         command: str,
+        task_scratch_path: str,
+        execution_env: dict[str, str],
         dependency_hints: list[str],
         installed_packages: list[str],
         install_job_ids: list[str],
@@ -225,6 +240,8 @@ class SandboxScriptExecutor:
             command,
             timeout=ctx.sandbox_timeout,
             network_profile="none",
+            cwd=task_scratch_path,
+            env=execution_env,
         )
         return 1, retry_result
 
@@ -316,3 +333,10 @@ def sanitize_script_name(value: str) -> str:
 def _resolve_missing_package(result: Any, dependency_hints: list[str]) -> str | None:
     missing_module = detect_missing_python_module("\n".join([result.stderr, result.stdout]))
     return resolve_package_for_missing_module(missing_module, dependency_hints) if missing_module else None
+
+
+def sandbox_script_execution_env(task_scratch_path: str) -> dict[str, str]:
+    return {
+        "WENJIN_TASK_SCRATCH": task_scratch_path,
+        "WENJIN_WORKSPACE_ROOT": WORKSPACE_ROOT,
+    }

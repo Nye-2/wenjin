@@ -22,10 +22,14 @@ from src.agents.lead_agent.v2.sandbox_runtime_session import (
     mark_job_failed,
     provider_image,
 )
-from src.agents.lead_agent.v2.sandbox_script_executor import SandboxScriptExecutor
+from src.agents.lead_agent.v2.sandbox_script_executor import (
+    SandboxScriptExecutor,
+    sandbox_script_execution_env,
+)
 from src.agents.lead_agent.v2.sandbox_stream_budgeting import budget_script_streams
 from src.agents.lead_agent.v2.workspace_sandbox import WorkspaceSandboxManager
 from src.sandbox.providers.docker import DockerSandboxProvider
+from src.sandbox.workspace_layout import workspace_task_scratch_path
 
 SMOKE_COMMAND = (
     "PYTHON_BIN=$(command -v python || command -v python3) && "
@@ -168,9 +172,16 @@ class SandboxJobRunner:
             workspace_type=workspace_type,
             sandbox_policy=sandbox_policy,
         )
+        task_scratch_path = workspace_task_scratch_path(
+            execution_id=execution_id,
+            node_id=node_id,
+        )
+        execution_env = sandbox_script_execution_env(task_scratch_path)
         command_audit_result = audit_command(
             HarnessCommand(
                 argv=plan.command_argv,
+                cwd=task_scratch_path,
+                env=execution_env,
                 operation="run_python",
                 billable=True,
             ),
@@ -193,6 +204,7 @@ class SandboxJobRunner:
                 script_name=plan.safe_name,
                 billing_reservation_id=billing_reservation_id,
                 command_audit=command_audit,
+                task_scratch_path=task_scratch_path,
             ),
             script_hash=plan.script_hash,
             network_policy="none",
@@ -256,6 +268,7 @@ class SandboxJobRunner:
             install_command_audits=script_state.install_command_audits,
             retry_count=script_state.retry_count,
             script_path=plan.script_path,
+            task_scratch_path=script_state.task_scratch_path,
             stdout_preview=stdout_budget.preview_text if stdout_budget.truncated else None,
             stderr_preview=stderr_budget.preview_text if stderr_budget.truncated else None,
             stdout_ref=stdout_budget.output_refs[0] if stdout_budget.output_refs else None,
@@ -286,10 +299,13 @@ def _runtime_job_metadata(
     script_name: str | None = None,
     billing_reservation_id: str | None = None,
     command_audit: dict[str, Any] | None = None,
+    task_scratch_path: str | None = None,
 ) -> dict[str, Any]:
     metadata = {"source": "lead_agent_sandbox_runtime"}
     if script_name is not None:
         metadata["script_name"] = script_name
+    if task_scratch_path:
+        metadata["task_scratch_path"] = task_scratch_path
     if billing_reservation_id:
         metadata["credit_reservation_id"] = billing_reservation_id
     if command_audit is not None:

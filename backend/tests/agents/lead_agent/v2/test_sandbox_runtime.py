@@ -309,6 +309,38 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_python_script_uses_invocation_scoped_scratch_options() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    scratch_path = "/workspace/tmp/tasks/exec-1/analysis_probe"
+    assert provider.sandbox.files[f"{scratch_path}/.gitkeep"] == ""
+    assert provider.sandbox.command_options[-1] == {
+        "network_profile": "none",
+        "cwd": scratch_path,
+        "env": {
+            "WENJIN_TASK_SCRATCH": scratch_path,
+            "WENJIN_WORKSPACE_ROOT": "/workspace",
+        },
+    }
+    assert manager.created_jobs[0]["metadata"]["task_scratch_path"] == scratch_path
+    assert result["task_scratch_path"] == scratch_path
+    assert scratch_path in result["report_markdown"]
+
+
+@pytest.mark.asyncio
 async def test_run_python_script_syncs_dataset_manifest_before_script_execution() -> None:
     stdout = json.dumps({"ok": True})
     provider = _FakeProvider(
@@ -472,6 +504,42 @@ async def test_run_python_script_runs_with_local_sandbox_provider_interface(tmp_
         "status": "succeeded",
         "exit_code": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_local_provider_executes_inside_task_scratch(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-local",
+        execution_id="exec-local",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script=(
+            "import json, os\n"
+            "print(json.dumps({"
+            "'cwd': os.getcwd(), "
+            "'scratch': os.environ.get('WENJIN_TASK_SCRATCH')"
+            "}, sort_keys=True))\n"
+        ),
+        script_name="probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    scratch_path = "/workspace/tmp/tasks/exec-local/analysis_probe"
+    assert result["parsed_stdout"] == {
+        "cwd": scratch_path,
+        "scratch": scratch_path,
+    }
+    assert (workspace / "tmp" / "tasks" / "exec-local" / "analysis_probe" / ".gitkeep").is_file()
 
 
 @pytest.mark.asyncio

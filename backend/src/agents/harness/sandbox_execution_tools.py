@@ -170,7 +170,7 @@ def _execution_manifest(
     payload: dict[str, Any],
     timeout_seconds: int,
 ) -> dict[str, Any]:
-    return {
+    manifest = {
         "schema": "wenjin.harness.run_python.execution_manifest.v1",
         "tool": "sandbox.run_python",
         "workspace_id": context.workspace_id,
@@ -185,6 +185,10 @@ def _execution_manifest(
         "network_profile": str(sandbox_policy.get("network_profile") or "none"),
         "timeout_seconds": timeout_seconds,
     }
+    task_scratch_path = _workspace_path(payload.get("task_scratch_path"))
+    if task_scratch_path:
+        manifest["task_scratch_path"] = task_scratch_path
+    return manifest
 
 
 def _dataset_provenance_from_context(context: HarnessRunContext) -> list[dict[str, Any]] | None:
@@ -232,6 +236,9 @@ def _reproducibility_manifest(
             payload.get("install_command_audits"),
         ),
     }
+    task_scratch_path = _workspace_path(execution_manifest.get("task_scratch_path"))
+    if task_scratch_path:
+        manifest["sandbox"]["task_scratch_path"] = task_scratch_path
     datasets = _dataset_provenance_manifest(payload.get("dataset_provenance"))
     if datasets:
         manifest["datasets"] = datasets
@@ -315,6 +322,9 @@ def _experiment_narrative(
             has_failure=bool(payload.get("failure_classification")),
         ),
     }
+    task_scratch_path = _workspace_path(execution_manifest.get("task_scratch_path"))
+    if task_scratch_path:
+        narrative["task_scratch_path"] = task_scratch_path
     return narrative
 
 
@@ -355,6 +365,7 @@ def _experiment_narrative_report(narrative: dict[str, Any]) -> str:
         "",
         f"- Status: `{_safe_text(narrative.get('status'), limit=80) or 'unknown'}`",
         f"- Script: `{_safe_text(narrative.get('script_path'), limit=200) or 'none'}`",
+        f"- Task scratch: `{_safe_text(narrative.get('task_scratch_path'), limit=200) or 'none'}`",
         f"- Datasets: {_inline_code_list(_string_list(narrative.get('dataset_paths'), limit=20))}",
         f"- Artifacts: {_inline_code_list(_string_list(narrative.get('artifact_paths'), limit=20))}",
         f"- Dependencies: {_inline_code_list(_string_list(narrative.get('dependency_names'), limit=20))}",

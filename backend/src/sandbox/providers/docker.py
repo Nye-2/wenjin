@@ -17,7 +17,12 @@ from src.execution.docker.client import (
 from src.sandbox.base import CommandResult, Sandbox
 from src.sandbox.providers.base import SandboxProvider
 from src.sandbox.providers.local import LocalSandbox, SandboxSecurityError
-from src.sandbox.workspace_layout import WORKSPACE_ROOT, ensure_workspace_sandbox_layout
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ROOT,
+    ensure_workspace_sandbox_layout,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,8 @@ class DockerSandbox(LocalSandbox):
         timeout: int = 300,
         *,
         network_profile: str = "none",
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> CommandResult:
         if network_profile not in self._NETWORK_PROFILES:
             return CommandResult(
@@ -66,6 +73,11 @@ class DockerSandbox(LocalSandbox):
         except SandboxSecurityError as exc:
             return CommandResult(stdout="", stderr=str(exc), exit_code=1)
 
+        try:
+            working_dir = self._resolve_container_cwd(cwd)
+        except SandboxSecurityError as exc:
+            return CommandResult(stdout="", stderr=str(exc), exit_code=1)
+
         network_disabled = network_profile == "none"
         try:
             exit_code, stdout, stderr = await self._docker_client.run_container(
@@ -75,7 +87,8 @@ class DockerSandbox(LocalSandbox):
                     self._host_workspace_root(),
                     self._CONTAINER_WORKSPACE_ROOT,
                 ),
-                working_dir=self._CONTAINER_WORKSPACE_ROOT,
+                working_dir=working_dir,
+                environment=dict(env or {}),
                 timeout=timeout,
                 remove=True,
                 network_disabled=network_disabled,
@@ -106,6 +119,18 @@ class DockerSandbox(LocalSandbox):
         except Exception as exc:
             logger.exception("Docker sandbox command failed")
             return CommandResult(stdout="", stderr=str(exc), exit_code=1)
+
+    def _resolve_container_cwd(self, cwd: str | None) -> str:
+        if cwd is None:
+            return self._CONTAINER_WORKSPACE_ROOT
+        path = str(cwd or "").strip()
+        if (
+            not self._is_allowed_virtual_path(path)
+            or is_workspace_protected_path(path)
+            or is_workspace_internal_path(path)
+        ):
+            raise SandboxSecurityError(f"Command cwd outside sandbox: {cwd}")
+        return path
 
 
 class DockerSandboxProvider(SandboxProvider):

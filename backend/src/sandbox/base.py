@@ -72,6 +72,8 @@ class Sandbox(ABC):
         timeout: int = 300,
         *,
         network_profile: str = "none",
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> CommandResult:
         """Execute a shell command in the sandbox.
 
@@ -79,6 +81,8 @@ class Sandbox(ABC):
             command: Shell command to execute.
             timeout: Maximum execution time in seconds.
             network_profile: Requested network policy for this command.
+            cwd: Optional workspace virtual cwd for this command.
+            env: Optional extra environment variables for this command.
 
         Returns:
             CommandResult with stdout, stderr, and exit code.

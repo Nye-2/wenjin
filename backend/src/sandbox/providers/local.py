@@ -10,7 +10,12 @@ from pathlib import Path
 
 from src.sandbox.base import CommandResult, FileInfo, Sandbox
 from src.sandbox.providers.base import SandboxProvider
-from src.sandbox.workspace_layout import WORKSPACE_ROOT, ensure_workspace_sandbox_layout
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ROOT,
+    ensure_workspace_sandbox_layout,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +242,8 @@ class LocalSandbox(Sandbox):
         timeout: int = 300,
         *,
         network_profile: str = "none",
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> CommandResult:
         """Execute shell command."""
         if network_profile not in self._NETWORK_PROFILES:
@@ -266,6 +273,10 @@ class LocalSandbox(Sandbox):
                     virtual_path,
                     physical_path,
                 )
+        try:
+            resolved_cwd = self._resolve_command_cwd(cwd)
+        except SandboxSecurityError as exc:
+            return CommandResult(stdout="", stderr=str(exc), exit_code=1)
 
         try:
             process = await asyncio.create_subprocess_shell(
@@ -273,7 +284,8 @@ class LocalSandbox(Sandbox):
                 executable=self._get_shell(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self._workspace_path,
+                cwd=resolved_cwd,
+                env=self._command_env(env),
             )
 
             try:
@@ -309,6 +321,39 @@ class LocalSandbox(Sandbox):
                 stderr=self._mask_physical_paths_in_output(str(e)),
                 exit_code=1,
             )
+
+    def _resolve_command_cwd(self, cwd: str | None) -> str | None:
+        if cwd is None:
+            return self._workspace_path
+        cwd_text = str(cwd or "").strip()
+        if (
+            not self._is_allowed_virtual_path(cwd_text)
+            or is_workspace_protected_path(cwd_text)
+            or is_workspace_internal_path(cwd_text)
+        ):
+            raise SandboxSecurityError(f"Command cwd outside sandbox: {cwd}")
+        resolved = self._resolve_path(cwd)
+        Path(resolved).mkdir(parents=True, exist_ok=True)
+        return resolved
+
+    def _command_env(self, env: dict[str, str] | None) -> dict[str, str] | None:
+        if env is None:
+            return None
+        merged = dict(os.environ)
+        for key, value in env.items():
+            merged[str(key)] = self._resolve_virtual_refs_in_text(str(value))
+        return merged
+
+    def _resolve_virtual_refs_in_text(self, text: str) -> str:
+        resolved = str(text or "")
+        for virtual_path, physical_path in sorted(
+            self.path_mappings.items(),
+            key=lambda x: len(x[0]),
+            reverse=True,
+        ):
+            if virtual_path in resolved:
+                resolved = resolved.replace(virtual_path, physical_path)
+        return resolved
 
     def _mask_physical_paths_in_output(self, output: str) -> str:
         """Map sandbox host paths back to public virtual paths."""
