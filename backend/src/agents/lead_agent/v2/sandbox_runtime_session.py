@@ -54,6 +54,7 @@ class SandboxRuntimeSession:
         manager = self.manager or WorkspaceSandboxManager()
         environment = await manager.get_or_create_environment(
             workspace_id=workspace_id,
+            workspace_type=workspace_type,
             sandbox_policy=dict(sandbox_policy),
             resource_limits=dict(limits),
             runtime_image=runtime_image,

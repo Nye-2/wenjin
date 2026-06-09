@@ -310,6 +310,92 @@ async def test_get_or_create_environment_uses_workspace_sandbox_identity() -> No
 
 
 @pytest.mark.asyncio
+async def test_get_or_create_environment_merges_current_runtime_metadata() -> None:
+    service, repository, _, _ = _service()
+
+    first = await service.get_or_create_environment(
+        SandboxEnvironmentCreateCommand(
+            workspace_id="ws-1",
+            metadata_json={
+                "provider_key": "workspace-ws-1",
+                "runtime_image": "python:old",
+                "workspace_layout": {"workspace_type": "generic"},
+                "operator_note": "preserve",
+            },
+        )
+    )
+    second = await service.get_or_create_environment(
+        SandboxEnvironmentCreateCommand(
+            workspace_id="ws-1",
+            metadata_json={
+                "runtime_image": "python:new",
+                "workspace_layout": {
+                    "schema": "wenjin.workspace_sandbox.layout.v1",
+                    "version": 1,
+                    "workspace_type": "sci",
+                },
+                "workspace_profile": {
+                    "schema": "wenjin.workspace_sandbox.type_profile.v1",
+                    "workspace_type": "sci",
+                },
+            },
+        )
+    )
+
+    assert first.id == second.id
+    assert len(repository.environments) == 1
+    assert second.metadata_json["provider_key"] == "workspace-ws-1"
+    assert second.metadata_json["runtime_image"] == "python:new"
+    assert second.metadata_json["operator_note"] == "preserve"
+    assert second.metadata_json["workspace_layout"]["workspace_type"] == "sci"
+    assert second.metadata_json["workspace_profile"]["workspace_type"] == "sci"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_environment_does_not_downgrade_known_workspace_profile() -> None:
+    service, _, _, _ = _service()
+
+    await service.get_or_create_environment(
+        SandboxEnvironmentCreateCommand(
+            workspace_id="ws-1",
+            metadata_json={
+                "provider_key": "workspace-ws-1",
+                "workspace_layout": {
+                    "schema": "wenjin.workspace_sandbox.layout.v1",
+                    "version": 1,
+                    "workspace_type": "sci",
+                },
+                "workspace_profile": {
+                    "schema": "wenjin.workspace_sandbox.type_profile.v1",
+                    "workspace_type": "sci",
+                },
+            },
+        )
+    )
+    second = await service.get_or_create_environment(
+        SandboxEnvironmentCreateCommand(
+            workspace_id="ws-1",
+            metadata_json={
+                "runtime_image": "python:new",
+                "workspace_layout": {
+                    "schema": "wenjin.workspace_sandbox.layout.v1",
+                    "version": 1,
+                    "workspace_type": None,
+                },
+                "workspace_profile": {
+                    "schema": "wenjin.workspace_sandbox.type_profile.v1",
+                    "workspace_type": "generic",
+                },
+            },
+        )
+    )
+
+    assert second.metadata_json["runtime_image"] == "python:new"
+    assert second.metadata_json["workspace_layout"]["workspace_type"] == "sci"
+    assert second.metadata_json["workspace_profile"]["workspace_type"] == "sci"
+
+
+@pytest.mark.asyncio
 async def test_create_environment_rejects_second_active_workspace_environment() -> None:
     service, _, _, _ = _service()
     await service.create_environment(SandboxEnvironmentCreateCommand(workspace_id="ws-1"))

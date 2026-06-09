@@ -90,6 +90,14 @@ class SandboxDataDomainService:
         existing = await self.repository.get_active_environment(command.workspace_id)
         if existing is not None:
             existing.last_active_at = datetime.now(UTC)
+            existing_metadata = dict(getattr(existing, "metadata_json", None) or {})
+            merged_metadata = _merge_environment_metadata(
+                existing_metadata,
+                command.metadata_json,
+                sandbox_id=existing.sandbox_id,
+            )
+            if merged_metadata != existing_metadata:
+                existing.metadata_json = merged_metadata
             await self._finish()
             return environment_to_projection(existing)
         return await self.create_environment(command)
@@ -426,6 +434,35 @@ class SandboxDataDomainService:
 
 def _workspace_sandbox_id(workspace_id: str) -> str:
     return f"workspace-{workspace_id}"[:100]
+
+
+def _merge_environment_metadata(
+    existing: dict | None,
+    incoming: dict | None,
+    *,
+    sandbox_id: str,
+) -> dict:
+    merged = dict(existing or {})
+    candidate = dict(incoming or {})
+    candidate.setdefault("provider_key", sandbox_id)
+    if _known_workspace_type(merged) and not _known_workspace_type(candidate):
+        candidate.pop("workspace_layout", None)
+        candidate.pop("workspace_profile", None)
+    return {**merged, **candidate}
+
+
+def _known_workspace_type(metadata: dict) -> str | None:
+    layout = metadata.get("workspace_layout")
+    if isinstance(layout, dict):
+        value = str(layout.get("workspace_type") or "").strip()
+        if value and value != "generic":
+            return value
+    profile = metadata.get("workspace_profile")
+    if isinstance(profile, dict):
+        value = str(profile.get("workspace_type") or "").strip()
+        if value and value != "generic":
+            return value
+    return None
 
 
 def _ensure_aware(value: datetime) -> datetime:

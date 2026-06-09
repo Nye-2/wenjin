@@ -20,6 +20,15 @@ from src.dataservice_client.contracts.sandbox import (
     SandboxLeaseReleasePayload,
 )
 from src.dataservice_client.provider import dataservice_client
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_LAYOUT_SCHEMA,
+    WORKSPACE_LAYOUT_VERSION,
+    WORKSPACE_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_ROOT,
+    workspace_type_profile,
+)
 
 WORKSPACE_VENV_DIR = "/workspace/.wenjin/env/python"
 WORKSPACE_VENV_PYTHON = f"{WORKSPACE_VENV_DIR}/bin/python"
@@ -193,6 +202,7 @@ class WorkspaceSandboxManager:
         self,
         *,
         workspace_id: str,
+        workspace_type: str | None = None,
         sandbox_policy: dict[str, Any],
         resource_limits: dict[str, Any],
         runtime_image: str,
@@ -211,10 +221,11 @@ class WorkspaceSandboxManager:
                     policy_json=dict(sandbox_policy or {}),
                     resource_limits_json=dict(resource_limits or {}),
                     created_by="lead_agent",
-                    metadata_json={
-                        "provider_key": provider_key,
-                        "runtime_image": runtime_image,
-                    },
+                    metadata_json=sandbox_environment_metadata(
+                        provider_key=provider_key,
+                        runtime_image=runtime_image,
+                        workspace_type=workspace_type,
+                    ),
                 ),
             )
 
@@ -306,3 +317,28 @@ class WorkspaceSandboxManager:
                     lease_token=lease_token,
                 )
             )
+
+
+def sandbox_environment_metadata(
+    *,
+    provider_key: str,
+    runtime_image: str,
+    workspace_type: str | None = None,
+) -> dict[str, Any]:
+    """Return lightweight DataService metadata for the workspace sandbox contract."""
+
+    normalized_type = str(workspace_type or "").strip() or None
+    return {
+        "provider_key": provider_key,
+        "runtime_image": runtime_image,
+        "workspace_layout": {
+            "schema": WORKSPACE_LAYOUT_SCHEMA,
+            "version": WORKSPACE_LAYOUT_VERSION,
+            "virtual_root": WORKSPACE_ROOT,
+            "manifest_path": WORKSPACE_MANIFEST_VIRTUAL_PATH,
+            "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+            "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+            "workspace_type": normalized_type,
+        },
+        "workspace_profile": workspace_type_profile(normalized_type),
+    }

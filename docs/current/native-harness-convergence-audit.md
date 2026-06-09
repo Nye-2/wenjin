@@ -88,6 +88,11 @@ Chat Agent
   - `frontend`: `npx vitest run tests/unit/v2/live-workflow-view-model.test.ts -t "citation source audit"` -> 1 passed after RED failed with empty Evidence
   - `frontend`: `npx vitest run tests/unit/v2/live-workflow-view-model.test.ts` -> 8 passed
   - `frontend`: `npm run typecheck` -> passed
+- 2026-06-09 workspace sandbox layout metadata slice:
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py -q` -> 1 passed after RED failed on missing `workspace_type`
+  - `backend`: `.venv/bin/python -m pytest tests/dataservice/test_sandbox_domain.py -k "runtime_metadata or workspace_sandbox_identity" -q` -> 2 passed after RED failed on stale `runtime_image`; downgrade regression was also added to prevent known workspace profiles from being overwritten by unknown/generic metadata
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/dataservice/test_sandbox_domain.py tests/sandbox/test_workspace_layout.py -q` -> 57 passed
+  - `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/workspace_sandbox.py src/agents/lead_agent/v2/sandbox_runtime_session.py src/dataservice/domains/sandbox/service.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/dataservice/test_sandbox_domain.py` -> passed
 
 ## 6. 剩余不足
 

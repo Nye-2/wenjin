@@ -109,6 +109,7 @@ class _FakeWorkspaceSandboxManager:
         self,
         *,
         workspace_id,
+        workspace_type=None,
         sandbox_policy,
         resource_limits,
         runtime_image,
