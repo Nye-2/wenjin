@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+import src.agents.harness.context_assembly as context_assembly
 from src.agents.harness.context_assembly import (
     build_harness_context_bundle,
     render_harness_context_for_prompt,
@@ -265,6 +266,69 @@ def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> Non
     text = json.dumps(summary, ensure_ascii=False)
     assert "/workspace/outputs/harness" not in text
     assert "/workspace/.wenjin" not in text
+
+
+def test_harness_context_visible_roots_come_from_workspace_contract(monkeypatch) -> None:
+    def fake_workspace_contract(*, workspace_id: str | None = None, workspace_type: str | None = None):
+        return {
+            "virtual_root": "/workspace",
+            "directories": {
+                "main": {"path": "/workspace/main", "purpose": "primary_project", "review_surface": "workspace"},
+                "datasets": {"path": "/workspace/datasets", "purpose": "datasets", "review_surface": "workspace"},
+                "scripts": {"path": "/workspace/scripts", "purpose": "scripts", "review_surface": "workspace"},
+                "reports": {"path": "/workspace/reports", "purpose": "reports", "review_surface": "artifact"},
+            },
+            "artifact_roots": {"reports": "/workspace/reports"},
+            "datasets_manifest_path": "/workspace/datasets/manifest.json",
+            "artifacts_manifest_path": "/workspace/reports/artifacts.json",
+            "workspace_profile": {
+                "schema": "wenjin.workspace_sandbox.type_profile.v1",
+                "workspace_type": workspace_type or "",
+                "label": "Test workspace",
+            },
+            "path_classes": {
+                "workspace": ["/workspace/main"],
+                "datasets": ["/workspace/datasets"],
+                "scripts": ["/workspace/scripts"],
+                "artifacts": ["/workspace/reports"],
+                "guidance": [],
+                "protected": [],
+                "internal": [],
+            },
+            "protected_paths": [],
+            "internal_paths": [],
+            "search_ignored_names": [],
+            "rules": [],
+        }
+
+    monkeypatch.setattr(context_assembly, "build_agent_workspace_contract", fake_workspace_contract)
+
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        workspace_data={
+            "workspace_file_summary": {
+                "recent_outputs": [
+                    {"path": "/workspace/outputs/result.csv", "kind": "sandbox_output"},
+                    {"path": "/workspace/reports/report.md", "kind": "sandbox_report"},
+                ],
+                "recent_scripts": [{"path": "/workspace/scripts/analysis.py"}],
+                "dataset_provenance": [{"path": "/workspace/datasets/raw.csv", "source_id": "dataset-1"}],
+            }
+        },
+    )
+
+    expected_roots = [
+        "/workspace/main",
+        "/workspace/datasets",
+        "/workspace/scripts",
+        "/workspace/reports",
+    ]
+    assert bundle["workspace_roots"] == expected_roots
+    assert bundle["workspace_file_summary"]["visible_roots"] == expected_roots
+    assert bundle["workspace_file_summary"]["recent_outputs"] == [
+        {"path": "/workspace/reports/report.md", "kind": "sandbox_report"}
+    ]
 
 
 def test_harness_context_bundle_filters_protected_and_internal_workspace_paths() -> None:

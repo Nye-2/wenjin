@@ -227,6 +227,7 @@ class ReleaseGateService:
                     "tests/agents/harness/test_scheduler_and_python_tool.py",
                     "tests/agents/harness/test_sandbox_file_tools.py",
                     "tests/agents/harness/test_langchain_adapter.py",
+                    "tests/agents/harness/test_context_assembly.py",
                     "tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py",
                     "tests/sandbox/test_workspace_layout.py",
                     "tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py",

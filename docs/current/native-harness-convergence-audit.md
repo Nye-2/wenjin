@@ -127,6 +127,11 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py -q` -> 74 passed
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 115 passed
   - `backend`: `.venv/bin/ruff check src/sandbox/workspace_layout.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_sandbox_file_tools.py` -> passed
+- 2026-06-09 harness context path-class contract slice:
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py::test_harness_context_visible_roots_come_from_workspace_contract -q` -> RED on hardcoded `/workspace/outputs` remaining in `workspace_roots`, then 1 passed after deriving roots from `sandbox.path_classes`.
+  - `backend`: `.venv/bin/python -m pytest tests/quality/test_architecture_gate_configuration.py::test_release_gate_includes_current_execution_architecture_checks -q` -> RED on `native_harness_quality_gate` missing `tests/agents/harness/test_context_assembly.py`, then 1 passed after adding it to release gate commands and fix hints.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py -q` -> 7 passed
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_context_assembly.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 122 passed
 
 ## 6. 剩余不足
 

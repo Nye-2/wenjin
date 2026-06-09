@@ -12,13 +12,7 @@ from src.sandbox.workspace_layout import (
 )
 
 HARNESS_CONTEXT_BUNDLE_SCHEMA = "wenjin.harness.context_bundle.v1"
-_VISIBLE_WORKSPACE_ROOTS = (
-    "/workspace/main",
-    "/workspace/datasets",
-    "/workspace/scripts",
-    "/workspace/outputs",
-    "/workspace/reports",
-)
+_PUBLIC_PATH_CLASS_ORDER = ("workspace", "datasets", "scripts", "artifacts")
 _MAX_FILE_SUMMARY_ITEMS = 20
 
 
@@ -37,7 +31,13 @@ def build_harness_context_bundle(
     safe_task = _safe_dict(task or {})
     safe_workspace_data = workspace_data or {}
     sandbox = _sandbox_contract(workspace_id=workspace_id, workspace_type=workspace_type)
-    workspace_file_summary = _workspace_file_summary(safe_workspace_data)
+    visible_roots = _visible_workspace_roots(sandbox)
+    dataset_roots = _dataset_workspace_roots(sandbox)
+    workspace_file_summary = _workspace_file_summary(
+        safe_workspace_data,
+        visible_roots=visible_roots,
+        dataset_roots=dataset_roots,
+    )
     bundle = {
         "schema": HARNESS_CONTEXT_BUNDLE_SCHEMA,
         "workspace_id": str(workspace_id or ""),
@@ -45,7 +45,7 @@ def build_harness_context_bundle(
         "capability_goal": _capability_goal(safe_task),
         "member_role": _member_role(safe_task),
         "allowed_tools": _safe_string_list(allowed_tools),
-        "workspace_roots": list(workspace_file_summary.get("visible_roots") or _VISIBLE_WORKSPACE_ROOTS),
+        "workspace_roots": list(workspace_file_summary.get("visible_roots") or visible_roots),
         "search_ignored_names": list(sandbox.get("search_ignored_names") or []),
         "recent_file_change_summary": _latest_harness_summary(
             safe_workspace_data,
@@ -63,6 +63,7 @@ def build_harness_context_bundle(
         "upstream_artifact_candidates": _upstream_artifact_candidates(
             safe_task,
             safe_workspace_data,
+            visible_roots=visible_roots,
         ),
         "task": safe_task,
         "sandbox": sandbox,
@@ -135,6 +136,33 @@ def _safe_workspace_profile(value: Any) -> dict[str, Any]:
         "report_paths": _safe_string_list(value.get("report_paths")),
         "rules": _safe_string_list(value.get("rules")),
     }
+
+
+def _visible_workspace_roots(sandbox: dict[str, Any]) -> list[str]:
+    return _path_class_roots(sandbox, _PUBLIC_PATH_CLASS_ORDER)
+
+
+def _dataset_workspace_roots(sandbox: dict[str, Any]) -> list[str]:
+    return _path_class_roots(sandbox, ("datasets",))
+
+
+def _path_class_roots(sandbox: dict[str, Any], class_names: tuple[str, ...]) -> list[str]:
+    path_classes = sandbox.get("path_classes")
+    path_classes = path_classes if isinstance(path_classes, dict) else {}
+    roots: list[str] = []
+    for class_name in class_names:
+        for root in _safe_string_list(path_classes.get(class_name)):
+            if _is_public_root_candidate(root) and root not in roots:
+                roots.append(root)
+    return roots
+
+
+def _is_public_root_candidate(path: str) -> bool:
+    if "*" in path:
+        return False
+    if path != "/workspace" and not path.startswith("/workspace/"):
+        return False
+    return not is_workspace_internal_path(path) and not is_workspace_protected_path(path)
 
 
 def _task_inputs(task: dict[str, Any]) -> dict[str, Any]:
@@ -231,6 +259,8 @@ def _harness_replan_signals(
 def _upstream_artifact_candidates(
     task: dict[str, Any],
     workspace_data: dict[str, Any],
+    *,
+    visible_roots: list[str],
 ) -> list[dict[str, Any]]:
     inputs = _task_inputs(task)
     upstream_context = inputs.get("upstream_context")
@@ -245,7 +275,7 @@ def _upstream_artifact_candidates(
         if not isinstance(candidate, list):
             continue
         for item in candidate:
-            ref = _safe_file_ref(item)
+            ref = _safe_file_ref(item, visible_roots=visible_roots)
             if ref:
                 result.append(ref)
     return result[:_MAX_FILE_SUMMARY_ITEMS]
@@ -276,18 +306,24 @@ def _recent_execution_evidence(workspace_data: dict[str, Any]) -> list[dict[str,
     return evidence
 
 
-def _workspace_file_summary(workspace_data: dict[str, Any]) -> dict[str, Any]:
+def _workspace_file_summary(
+    workspace_data: dict[str, Any],
+    *,
+    visible_roots: list[str],
+    dataset_roots: list[str],
+) -> dict[str, Any]:
     raw = workspace_data.get("workspace_file_summary")
     if raw is None:
         raw = workspace_data.get("workspace_files")
     raw = raw if isinstance(raw, dict) else {}
-    recent_outputs, outputs_truncated = _safe_file_refs(raw.get("recent_outputs"))
-    recent_scripts, scripts_truncated = _safe_file_refs(raw.get("recent_scripts"))
+    recent_outputs, outputs_truncated = _safe_file_refs(raw.get("recent_outputs"), visible_roots=visible_roots)
+    recent_scripts, scripts_truncated = _safe_file_refs(raw.get("recent_scripts"), visible_roots=visible_roots)
     dataset_provenance, datasets_truncated = _safe_dataset_refs(
-        raw.get("dataset_provenance") or raw.get("datasets")
+        raw.get("dataset_provenance") or raw.get("datasets"),
+        dataset_roots=dataset_roots,
     )
     return {
-        "visible_roots": list(_VISIBLE_WORKSPACE_ROOTS),
+        "visible_roots": list(visible_roots),
         "dataset_provenance": dataset_provenance,
         "recent_outputs": recent_outputs,
         "recent_scripts": recent_scripts,
@@ -295,42 +331,42 @@ def _workspace_file_summary(workspace_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _safe_file_refs(value: Any) -> tuple[list[dict[str, Any]], bool]:
+def _safe_file_refs(value: Any, *, visible_roots: list[str]) -> tuple[list[dict[str, Any]], bool]:
     if not isinstance(value, list):
         return [], False
     result: list[dict[str, Any]] = []
     for item in value:
         if len(result) >= _MAX_FILE_SUMMARY_ITEMS:
             return result, True
-        ref = _safe_file_ref(item)
+        ref = _safe_file_ref(item, visible_roots=visible_roots)
         if ref:
             result.append(ref)
     return result, False
 
 
-def _safe_dataset_refs(value: Any) -> tuple[list[dict[str, Any]], bool]:
+def _safe_dataset_refs(value: Any, *, dataset_roots: list[str]) -> tuple[list[dict[str, Any]], bool]:
     if not isinstance(value, list):
         return [], False
     result: list[dict[str, Any]] = []
     for item in value:
         if len(result) >= _MAX_FILE_SUMMARY_ITEMS:
             return result, True
-        ref = _safe_dataset_ref(item)
+        ref = _safe_dataset_ref(item, dataset_roots=dataset_roots)
         if ref:
             result.append(ref)
     return result, False
 
 
-def _safe_dataset_ref(value: Any) -> dict[str, Any] | None:
+def _safe_dataset_ref(value: Any, *, dataset_roots: list[str]) -> dict[str, Any] | None:
     if isinstance(value, str):
         path = value.strip()
-        if not _is_public_dataset_path(path):
+        if not _is_public_dataset_path(path, dataset_roots=dataset_roots):
             return None
         return {"path": path}
     if not isinstance(value, dict):
         return None
     path = str(value.get("path") or "").strip()
-    if not _is_public_dataset_path(path):
+    if not _is_public_dataset_path(path, dataset_roots=dataset_roots):
         return None
     compact: dict[str, Any] = {"path": path}
     for key in (
@@ -354,16 +390,16 @@ def _safe_dataset_ref(value: Any) -> dict[str, Any] | None:
     return compact
 
 
-def _safe_file_ref(value: Any) -> dict[str, Any] | None:
+def _safe_file_ref(value: Any, *, visible_roots: list[str]) -> dict[str, Any] | None:
     if isinstance(value, str):
         path = value.strip()
-        if not _is_public_workspace_path(path):
+        if not _is_public_workspace_path(path, visible_roots=visible_roots):
             return None
         return {"path": path}
     if not isinstance(value, dict):
         return None
     path = str(value.get("path") or "").strip()
-    if not _is_public_workspace_path(path):
+    if not _is_public_workspace_path(path, visible_roots=visible_roots):
         return None
     compact: dict[str, Any] = {"path": path}
     for key in ("kind", "name", "title", "size_bytes", "updated_at"):
@@ -373,18 +409,20 @@ def _safe_file_ref(value: Any) -> dict[str, Any] | None:
     return compact
 
 
-def _is_public_workspace_path(path: str) -> bool:
+def _is_public_workspace_path(path: str, *, visible_roots: list[str]) -> bool:
     if not path.startswith("/workspace/"):
         return False
     if is_workspace_internal_path(path) or is_workspace_protected_path(path):
         return False
-    return any(path == root or path.startswith(f"{root}/") for root in _VISIBLE_WORKSPACE_ROOTS)
+    return any(path == root or path.startswith(f"{root}/") for root in visible_roots)
 
 
-def _is_public_dataset_path(path: str) -> bool:
-    if not _is_public_workspace_path(path):
+def _is_public_dataset_path(path: str, *, dataset_roots: list[str]) -> bool:
+    if not path.startswith("/workspace/"):
         return False
-    return path == "/workspace/datasets" or path.startswith("/workspace/datasets/")
+    if is_workspace_internal_path(path) or is_workspace_protected_path(path):
+        return False
+    return any(path == root or path.startswith(f"{root}/") for root in dataset_roots)
 
 
 def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
