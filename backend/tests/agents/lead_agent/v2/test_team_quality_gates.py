@@ -679,6 +679,24 @@ def test_quality_gates_fail_citation_audit_with_fabrication_risks() -> None:
             "severity": "high",
         }
     ]
+    assert gate.findings[0]["citation_source_audit"] == [
+        {
+            "schema": "wenjin.quality.citation_source_audit_finding.v1",
+            "invocation_id": "team.1.citation_auditor_v1.1",
+            "template_id": "citation_auditor.v1",
+            "display_name": "文献检索员",
+            "field": "fabrication_risks",
+            "index": 0,
+            "risk": "fabricated",
+            "severity": "high",
+            "citation_key": "smith2026",
+            "source_id": "source-1",
+            "unknown_refs": [],
+            "claim": "",
+            "message": "DOI and title do not match Library metadata.",
+            "suggested_action": "replace_or_remove_citation",
+        }
+    ]
     assert gate.required_fixes == [
         {
             "message": (

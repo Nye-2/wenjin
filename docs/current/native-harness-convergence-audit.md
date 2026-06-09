@@ -43,6 +43,7 @@ Chat Agent
 - **loop guard**：重复工具调用会触发 warning/hard-stop 逻辑，且不破坏 provider tool-call pairing。
 - **runtime journal 思路**：用 `run_journal_summary` 和 `journal` event envelope 给前端提供产品化进度摘要，而不是展示 debug payload。
 - **bounded context**：`_harness_context(schema=wenjin.harness.context_bundle.v1)` 固定注入任务、workspace、sandbox 文件系统、dataset provenance、protected/internal paths、recent evidence 和可复现实验摘要。
+- **source traceability checklist 产品化**：借鉴 DeerFlow 对 source traceability 和质量 checklist 的强调，TeamKernel citation/source gates 会把 high-risk `citation_key_audit`、`missing_sources`、`fabrication_risks` 与 `bibtex_projection_notes` 规范化为 bounded `citation_source_audit` evidence，附着在现有 `QualityGateResult.findings`，不要求用户或前端解析 raw auditor output。
 
 未吸收的 deer-flow 部分也是有意取舍：不迁移 agent factory、thread-local workspace、完整 middleware stack、ACP surface 或 allow-all bash 工具。
 
@@ -80,6 +81,10 @@ Chat Agent
   - `frontend`: `npx vitest run` -> 69 test files / 315 tests passed
   - `root`: `git diff --check` -> passed
   - production drift scan found no Codex SDK / cc-switch / deer-flow runtime import, no generic `sandbox.run_command`, no second harness store/table/stream; remaining hits are current function names or documentation/comment references.
+- 2026-06-09 citation/source audit evidence slice:
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_citation_source_audit.py -q` -> 4 passed
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py -q` -> 16 passed
+  - `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/team/citation_source_audit.py src/agents/lead_agent/v2/team/quality_gates.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py` -> passed
 
 ## 6. 剩余不足
 

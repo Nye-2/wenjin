@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from .citation_source_audit import collect_citation_source_audit_findings
 from .contracts import AgentInvocation, CapabilityTeamPolicy, QualityGateResult
 from .policy import DIRECT_COMMIT_TOOLS
 
@@ -319,6 +320,16 @@ def _foundation_field_gates(
             if invalid_entries:
                 finding["invalid_entries"] = invalid_entries
                 finding["message"] = _invalid_entries_message(gate_id)
+            citation_source_audit = collect_citation_source_audit_findings(
+                invocation_id=invocation.id,
+                template_id=invocation.template_id,
+                display_name=invocation.display_name,
+                output=output,
+                quality_contract=contract,
+                active_gate_ids={gate_id},
+            )
+            if citation_source_audit:
+                finding["citation_source_audit"] = citation_source_audit
             findings.append(finding)
             suggested.extend(
                 _revision_recruit(
