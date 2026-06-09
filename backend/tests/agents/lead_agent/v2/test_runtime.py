@@ -1,5 +1,6 @@
 """Tests for LeadAgentRuntime (Task 2.5)."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -643,11 +644,19 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
                                     {
                                         "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
                                         "path": "/workspace/reports/analysis.md",
+                                        "title": "Experiment analysis report",
+                                        "description": "Readable report for the completed sandbox analysis.",
                                         "root": "reports",
                                         "artifact_kind": "sandbox_report",
                                         "mime_type": "text/markdown",
                                         "size": 42,
                                         "content_hash": "sha256:analysis",
+                                        "source_script": "/workspace/scripts/analysis.py",
+                                        "dataset_paths": [
+                                            "/workspace/datasets/raw.csv",
+                                            "/workspace/.env",
+                                        ],
+                                        "notes": "Ready for user review.",
                                         "sandbox_job_id": "job-1",
                                         "sandbox_environment_id": "env-1",
                                         "review_surface": "sandbox_artifact",
@@ -672,6 +681,9 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
         async def list_review_items(self, **kwargs):
             if kwargs.get("target_domain") != "sandbox":
                 return []
+            artifact_payload = registered_artifacts[0]
+            metadata = artifact_payload.metadata_json
+            reproducibility = artifact_payload.reproducibility_json
             return [
                 SimpleNamespace(
                     id="review-1",
@@ -693,16 +705,26 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
                         "workspace_asset_id": "asset-1",
                         "artifact_kind": "sandbox_report",
                         "path": "/workspace/reports/analysis.md",
+                        "title": metadata.get("title"),
+                        "description": metadata.get("description"),
+                        "notes": metadata.get("notes"),
+                        "reproducibility": dict(reproducibility),
                     },
                     preview_json={
                         "path": "/workspace/reports/analysis.md",
                         "mime_type": "text/markdown",
                         "content_hash": "sha256:analysis",
+                        "title": metadata.get("title"),
+                        "description": metadata.get("description"),
                     },
                     provenance_json={
                         "source_kind": "sandbox_job",
                         "source_id": "job-1",
                         "execution_id": "exec-sandbox-artifact",
+                        "source_task_id": reproducibility.get("source_task_id"),
+                        "sandbox_environment_id": reproducibility.get("sandbox_environment_id"),
+                        "source_script": reproducibility.get("source_script"),
+                        "dataset_paths": reproducibility.get("dataset_paths"),
                     },
                     result_json=None,
                     error_text=None,
@@ -740,10 +762,16 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
     assert asset_payload.workspace_id == "ws-001"
     assert asset_payload.asset_kind == "sandbox_report"
     assert asset_payload.name == "analysis.md"
+    assert asset_payload.title == "Experiment analysis report"
     assert asset_payload.storage_backend == "sandbox"
     assert asset_payload.storage_path == "/workspace/reports/analysis.md"
     assert asset_payload.source_kind == "sandbox_job"
     assert asset_payload.source_id == "job-1"
+    assert asset_payload.metadata_json["description"] == "Readable report for the completed sandbox analysis."
+    assert asset_payload.metadata_json["source_script"] == "/workspace/scripts/analysis.py"
+    assert asset_payload.metadata_json["dataset_paths"] == ["/workspace/datasets/raw.csv"]
+    assert asset_payload.metadata_json["notes"] == "Ready for user review."
+    assert "/workspace/.env" not in json.dumps(asset_payload.metadata_json)
 
     assert len(registered_artifacts) == 1
     artifact_payload = registered_artifacts[0]
@@ -753,6 +781,10 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
     assert artifact_payload.artifact_kind == "sandbox_report"
     assert artifact_payload.path == "/workspace/reports/analysis.md"
     assert artifact_payload.metadata_json["source_task_id"] == "experiment_runner"
+    assert artifact_payload.metadata_json["title"] == "Experiment analysis report"
+    assert artifact_payload.reproducibility_json["source_script"] == "/workspace/scripts/analysis.py"
+    assert artifact_payload.reproducibility_json["dataset_paths"] == ["/workspace/datasets/raw.csv"]
+    assert "/workspace/.env" not in json.dumps(artifact_payload.model_dump(mode="json"))
 
     assert report.review_items == [
         {
@@ -777,6 +809,13 @@ async def test_run_session_stages_sandbox_artifact_review_items_from_harness_too
                 "mode": "artifact",
                 "path": "/workspace/reports/analysis.md",
                 "mime_type": "text/markdown",
+                "content_hash": "sha256:analysis",
+            },
+            "reproducibility": {
+                "source_task_id": "experiment_runner",
+                "sandbox_environment_id": "env-1",
+                "source_script": "/workspace/scripts/analysis.py",
+                "dataset_paths": ["/workspace/datasets/raw.csv"],
                 "content_hash": "sha256:analysis",
             },
             "actions": [

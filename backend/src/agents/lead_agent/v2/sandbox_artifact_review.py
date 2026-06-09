@@ -9,13 +9,24 @@ from src.agents.lead_agent.v2.sandbox_artifact_discovery import DISCOVERY_SCHEMA
 from src.dataservice_client.contracts.asset import WorkspaceAssetCreatePayload
 from src.dataservice_client.contracts.sandbox import SandboxArtifactCreatePayload
 from src.sandbox.workspace_layout import (
+    build_artifact_manifest,
     is_user_reviewable_workspace_artifact_path,
+    merge_artifact_manifest,
     normalize_workspace_virtual_path,
     workspace_artifact_root_for_path,
 )
 
 REVIEW_TARGET_DOMAIN = "sandbox"
 REVIEW_TARGET_KIND = "sandbox_artifact"
+_CANDIDATE_METADATA_FIELDS = (
+    "title",
+    "description",
+    "source_script",
+    "dataset_paths",
+    "notes",
+    "created_at",
+    "updated_at",
+)
 
 
 def collect_sandbox_artifact_candidates(node_results: Any) -> list[dict[str, Any]]:
@@ -80,22 +91,37 @@ def normalize_sandbox_artifact_candidate(
     if not is_user_reviewable_workspace_artifact_path(path):
         return None
 
-    artifact_kind = _clean_text(artifact.get("artifact_kind")) or _artifact_kind_for_path(path)
+    manifest_fields = _safe_manifest_fields(artifact, path=path)
+    artifact_kind = (
+        _clean_text(manifest_fields.get("artifact_kind"))
+        or _clean_text(artifact.get("artifact_kind"))
+        or _artifact_kind_for_path(path)
+    )
     size = _coerce_size(artifact.get("size"))
-    return {
+    if size is None:
+        size = _coerce_size(manifest_fields.get("size_bytes"))
+    candidate = {
         "schema": DISCOVERY_SCHEMA,
         "path": path,
         "root": _clean_text(artifact.get("root")) or _root_name_for_path(path),
         "artifact_kind": artifact_kind[:50],
-        "mime_type": _clean_text(artifact.get("mime_type")) or "application/octet-stream",
+        "mime_type": (
+            _clean_text(manifest_fields.get("mime_type"))
+            or _clean_text(artifact.get("mime_type"))
+            or "application/octet-stream"
+        ),
         "size": size,
-        "content_hash": _clean_text(artifact.get("content_hash")),
+        "content_hash": _clean_text(manifest_fields.get("content_hash")) or _clean_text(artifact.get("content_hash")),
         "sandbox_job_id": sandbox_job_id,
         "sandbox_environment_id": _clean_text(artifact.get("sandbox_environment_id")),
         "source_task_id": source_task_id,
         "review_surface": REVIEW_TARGET_KIND,
         "materialization_status": "candidate",
     }
+    for key in _CANDIDATE_METADATA_FIELDS:
+        if key in manifest_fields:
+            candidate[key] = manifest_fields[key]
+    return candidate
 
 
 def workspace_asset_payload_for_candidate(
@@ -107,11 +133,12 @@ def workspace_asset_payload_for_candidate(
     """Build the DataService workspace asset payload for a sandbox artifact."""
 
     path = candidate["path"]
+    title = _clean_text(candidate.get("title")) or PurePosixPath(path).name or path
     return WorkspaceAssetCreatePayload(
         workspace_id=workspace_id,
         asset_kind=candidate["artifact_kind"],
         name=PurePosixPath(path).name or "sandbox-artifact",
-        title=PurePosixPath(path).name or path,
+        title=title,
         mime_type=candidate.get("mime_type"),
         storage_backend="sandbox",
         storage_path=path,
@@ -134,6 +161,7 @@ def sandbox_artifact_payload_for_candidate(
     """Build the DataService sandbox artifact payload for a candidate."""
 
     metadata = _candidate_metadata(candidate, execution_id=execution_id)
+    reproducibility = _candidate_reproducibility(candidate, execution_id=execution_id)
     return SandboxArtifactCreatePayload(
         workspace_id=workspace_id,
         sandbox_job_id=candidate["sandbox_job_id"],
@@ -142,12 +170,7 @@ def sandbox_artifact_payload_for_candidate(
         path=candidate["path"],
         mime_type=candidate.get("mime_type"),
         content_hash=candidate.get("content_hash"),
-        reproducibility_json={
-            "source_execution_id": execution_id,
-            "source_task_id": candidate.get("source_task_id"),
-            "sandbox_environment_id": candidate.get("sandbox_environment_id"),
-            "root": candidate.get("root"),
-        },
+        reproducibility_json=reproducibility,
         metadata_json=metadata,
     )
 
@@ -164,13 +187,18 @@ def sandbox_review_item_projection(
     preview = _dict(getattr(item, "preview_json", None))
     provenance = _dict(getattr(item, "provenance_json", None))
     status = str(getattr(item, "status", "pending") or "pending")
+    reproducibility = _review_item_reproducibility(
+        payload=payload,
+        preview=preview,
+        provenance=provenance,
+    )
     actions: list[dict[str, str]] = []
     if status in {"pending", "accepted"}:
         actions = [
             {"action": "accept_sandbox_artifact", "label": "保存到产物库"},
             {"action": "reject_sandbox_artifact", "label": "忽略"},
         ]
-    return {
+    projection = {
         "id": str(getattr(item, "id", "")),
         "kind": REVIEW_TARGET_KIND,
         "status": status,
@@ -200,6 +228,9 @@ def sandbox_review_item_projection(
         "updated_at": _timestamp(getattr(item, "updated_at", None)),
         "applied_at": _timestamp(getattr(item, "applied_at", None)),
     }
+    if reproducibility:
+        projection["reproducibility"] = reproducibility
+    return projection
 
 
 def _candidate_metadata(candidate: dict[str, Any], *, execution_id: str) -> dict[str, Any]:
@@ -212,7 +243,56 @@ def _candidate_metadata(candidate: dict[str, Any], *, execution_id: str) -> dict
         "review_surface": REVIEW_TARGET_KIND,
         "materialization_status": "candidate",
     }
+    for key in _CANDIDATE_METADATA_FIELDS:
+        if key in candidate:
+            metadata[key] = candidate[key]
     return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _candidate_reproducibility(candidate: dict[str, Any], *, execution_id: str) -> dict[str, Any]:
+    reproducibility = {
+        "source_execution_id": execution_id,
+        "source_task_id": candidate.get("source_task_id"),
+        "sandbox_environment_id": candidate.get("sandbox_environment_id"),
+        "root": candidate.get("root"),
+        "source_script": candidate.get("source_script"),
+        "dataset_paths": candidate.get("dataset_paths"),
+        "content_hash": candidate.get("content_hash"),
+    }
+    return {key: value for key, value in reproducibility.items() if value is not None}
+
+
+def _safe_manifest_fields(artifact: dict[str, Any], *, path: str) -> dict[str, Any]:
+    manifest = merge_artifact_manifest(build_artifact_manifest(), [artifact])
+    artifacts = manifest.get("artifacts")
+    if not isinstance(artifacts, list):
+        return {}
+    for item in artifacts:
+        if isinstance(item, dict) and item.get("path") == path:
+            return dict(item)
+    return {}
+
+
+def _review_item_reproducibility(
+    *,
+    payload: dict[str, Any],
+    preview: dict[str, Any],
+    provenance: dict[str, Any],
+) -> dict[str, Any]:
+    raw = payload.get("reproducibility")
+    source = dict(raw) if isinstance(raw, dict) else {}
+    values: dict[str, Any] = {}
+    for key in ("source_task_id", "sandbox_environment_id", "source_script"):
+        value = _clean_text(source.get(key)) or _clean_text(provenance.get(key))
+        if value:
+            values[key] = value
+    dataset_paths = _string_list(source.get("dataset_paths") or provenance.get("dataset_paths"))
+    if dataset_paths:
+        values["dataset_paths"] = dataset_paths
+    content_hash = _clean_text(source.get("content_hash")) or _clean_text(preview.get("content_hash"))
+    if content_hash:
+        values["content_hash"] = content_hash
+    return values
 
 
 def _root_name_for_path(path: str) -> str:
@@ -242,6 +322,26 @@ def _coerce_size(value: Any) -> int | None:
 
 def _dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw = [value]
+    elif isinstance(value, list | tuple | set | frozenset):
+        raw = list(value)
+    else:
+        return []
+    result: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = _clean_text(item)
+        if not text or text in seen:
+            continue
+        result.append(text)
+        seen.add(text)
+        if len(result) >= 50:
+            break
+    return result
 
 
 def _timestamp(value: Any) -> str | None:

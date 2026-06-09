@@ -485,14 +485,22 @@ def _artifact_manifest(raw: Any) -> list[dict[str, Any]]:
             "artifact_kind",
             "root",
             "title",
+            "description",
             "mime_type",
             "content_hash",
             "review_surface",
             "materialization_status",
+            "notes",
         ):
             value = _safe_text(item.get(key), limit=120)
             if value:
                 artifact[key] = value
+        source_script = _workspace_script_path(item.get("source_script"))
+        if source_script:
+            artifact["source_script"] = source_script
+        dataset_paths = _workspace_dataset_paths(item.get("dataset_paths"))
+        if dataset_paths:
+            artifact["dataset_paths"] = dataset_paths
         size = _positive_int(item.get("size"))
         if size:
             artifact["size"] = size
@@ -525,6 +533,31 @@ def _workspace_path(raw: Any) -> str:
     if is_workspace_internal_path(path) or is_workspace_protected_path(path):
         return ""
     return path
+
+
+def _workspace_script_path(raw: Any) -> str:
+    path = _workspace_path(raw)
+    if not path.startswith("/workspace/scripts/") or not path.endswith(".py"):
+        return ""
+    return path
+
+
+def _workspace_dataset_paths(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, list | tuple | set | frozenset):
+        values = list(raw)
+    else:
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+    for value in values[:50]:
+        path = _workspace_path(value)
+        if not path.startswith("/workspace/datasets/") or path in seen:
+            continue
+        paths.append(path)
+        seen.add(path)
+    return paths
 
 
 def _safe_text(raw: Any, *, limit: int) -> str:

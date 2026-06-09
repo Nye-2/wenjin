@@ -477,7 +477,7 @@ async def test_environment_job_and_artifact_review_flow() -> None:
             workspace_id="ws-1",
             sandbox_id="sandbox-ext-1",
             provider="docker",
-            workspace_path="/mnt/user-data/ws-1",
+            workspace_path="/workspace",
         )
     )
     job = await service.create_job(
@@ -497,9 +497,21 @@ async def test_environment_job_and_artifact_review_flow() -> None:
             sandbox_job_id=job.id,
             workspace_asset_id="asset-1",
             artifact_kind="figure",
-            path="/mnt/user-data/ws-1/figure.png",
+            path="/workspace/outputs/figure.png",
             mime_type="image/png",
             content_hash="sha256:figure",
+            reproducibility_json={
+                "source_execution_id": "exec-1",
+                "source_task_id": "experiment_runner",
+                "sandbox_environment_id": environment.id,
+                "source_script": "/workspace/scripts/analysis.py",
+                "dataset_paths": ["/workspace/datasets/raw.csv"],
+            },
+            metadata_json={
+                "title": "Experiment figure",
+                "description": "User-facing figure produced by the sandbox run.",
+                "notes": "Ready for review.",
+            },
         )
     )
     listed = await service.list_artifacts(workspace_id="ws-1", materialization_status="pending_review")
@@ -511,10 +523,74 @@ async def test_environment_job_and_artifact_review_flow() -> None:
     assert artifact.review_batch_id == "review-batch-1"
     assert artifact.review_item_id == "review-item-1"
     assert artifact.reproducibility_json["runtime_image"] == "python:3.13-slim"
+    assert artifact.reproducibility_json["source_script"] == "/workspace/scripts/analysis.py"
+    assert artifact.reproducibility_json["dataset_paths"] == ["/workspace/datasets/raw.csv"]
     assert listed[0].id == artifact.id
-    assert review_service.created_commands[0].items[0].target_domain == "sandbox"
+    review_item = review_service.created_commands[0].items[0]
+    assert review_item.target_domain == "sandbox"
+    assert review_item.payload_json["title"] == "Experiment figure"
+    assert review_item.payload_json["description"] == "User-facing figure produced by the sandbox run."
+    assert review_item.payload_json["reproducibility"]["source_script"] == "/workspace/scripts/analysis.py"
+    assert review_item.payload_json["reproducibility"]["dataset_paths"] == ["/workspace/datasets/raw.csv"]
+    assert review_item.preview_json["title"] == "Experiment figure"
+    assert review_item.provenance_json["source_task_id"] == "experiment_runner"
+    assert review_item.provenance_json["source_script"] == "/workspace/scripts/analysis.py"
+    assert review_item.provenance_json["dataset_paths"] == ["/workspace/datasets/raw.csv"]
     assert repository.artifacts[artifact.id].materialization_status == "pending_review"
     assert session.commit_count == 4
+
+
+@pytest.mark.asyncio
+async def test_sandbox_artifact_review_flow_filters_unsafe_reproducibility_refs() -> None:
+    service, _, review_service, _ = _service()
+
+    environment = await service.create_environment(
+        SandboxEnvironmentCreateCommand(
+            workspace_id="ws-1",
+            sandbox_id="sandbox-ext-1",
+            provider="docker",
+            workspace_path="/workspace",
+        )
+    )
+    job = await service.create_job(
+        SandboxJobCreateCommand(
+            workspace_id="ws-1",
+            sandbox_environment_id=environment.id,
+            execution_id="exec-1",
+            command="python analysis.py",
+        )
+    )
+
+    await service.register_artifact(
+        SandboxArtifactCreateCommand(
+            workspace_id="ws-1",
+            sandbox_job_id=job.id,
+            workspace_asset_id="asset-1",
+            artifact_kind="table",
+            path="/workspace/outputs/result.csv",
+            mime_type="text/csv",
+            content_hash="sha256:result",
+            reproducibility_json={
+                "source_task_id": "experiment_runner",
+                "sandbox_environment_id": environment.id,
+                "source_script": "/workspace/main/paper.tex",
+                "dataset_paths": [
+                    "/workspace/datasets/raw.csv",
+                    "/workspace/.env",
+                    "/Users/ze/private.csv",
+                ],
+            },
+        )
+    )
+
+    review_item = review_service.created_commands[0].items[0]
+    reproducibility = review_item.payload_json["reproducibility"]
+    provenance = review_item.provenance_json
+
+    assert "source_script" not in reproducibility
+    assert reproducibility["dataset_paths"] == ["/workspace/datasets/raw.csv"]
+    assert "source_script" not in provenance
+    assert provenance["dataset_paths"] == ["/workspace/datasets/raw.csv"]
 
 
 @pytest.mark.asyncio

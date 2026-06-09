@@ -93,7 +93,11 @@ class _ReproducibleRunner:
                     "path": "/workspace/reports/analysis.md",
                     "name": "analysis.md",
                     "kind": "markdown",
+                    "description": "Readable experiment report.",
                     "size_bytes": 128,
+                    "source_script": "/workspace/scripts/analysis.py",
+                    "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                    "notes": "Ready for review.",
                 }
             ],
             "command_audit": {
@@ -427,7 +431,11 @@ async def test_run_python_returns_reproducibility_manifest() -> None:
                 "path": "/workspace/reports/analysis.md",
                 "name": "analysis.md",
                 "kind": "markdown",
+                "description": "Readable experiment report.",
                 "size_bytes": 128,
+                "source_script": "/workspace/scripts/analysis.py",
+                "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                "notes": "Ready for review.",
             }
         ],
         "command_audit": {
