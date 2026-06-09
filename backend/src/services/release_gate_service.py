@@ -229,6 +229,7 @@ class ReleaseGateService:
                     "tests/agents/harness/test_command_audit.py",
                     "tests/agents/harness/test_policy_and_registry.py",
                     "tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py",
+                    "tests/agents/harness/test_research_task_eval.py",
                     "tests/agents/harness/test_langchain_adapter.py",
                     "tests/agents/harness/test_context_assembly.py",
                     "tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py",

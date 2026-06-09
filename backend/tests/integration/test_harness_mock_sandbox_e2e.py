@@ -9,6 +9,7 @@ import pytest
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.harness.contracts import HarnessToolResult
+from src.agents.harness.research_task_eval import evaluate_research_task_evidence
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.dataservice_client.contracts.catalog import AgentTemplatePayload, CapabilitySkillPayload
 from src.subagents.v2.types.react import _resolve_tools
@@ -20,7 +21,36 @@ def _capability() -> SimpleNamespace:
         workspace_type="sci",
         display_name="科研实验团队",
         runtime={"mode": "team_kernel", "allowed_tools": ["sandbox.run_python"]},
-        graph_template={},
+        graph_template={
+            "phases": [
+                {
+                    "name": "research",
+                    "tasks": [
+                        {
+                            "name": "literature_data_curator",
+                            "skill_id": "literature-data-curator",
+                            "outputs": [
+                                {
+                                    "kind": "library_item",
+                                    "iterate_on": "output.papers",
+                                    "mapping": {
+                                        "title": "{{item.title}}",
+                                        "authors": "{{item.authors}}",
+                                        "year": "{{item.year}}",
+                                        "venue": "{{item.venue}}",
+                                        "url": "{{item.url}}",
+                                        "abstract": "{{item.abstract}}",
+                                        "source": "{{item.source}}",
+                                        "external_id": "{{item.external_id}}",
+                                        "evidence_level": "{{item.evidence_level}}",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        },
         definition_json={
             "mission": {"primary_surface": "sandbox"},
             "context_policy": {"room_reads": {"library": {"max_items": 3}}},
@@ -301,6 +331,19 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
             return json.dumps(
                 {
                     "text": "Dataset panel.csv supports the mock federated LLM experiment.",
+                    "papers": [
+                        {
+                            "title": "Federated LLM Experiment Benchmark",
+                            "authors": ["Smith", "Lee"],
+                            "year": 2025,
+                            "venue": "Mock SCI",
+                            "url": "https://example.org/federated-llm-benchmark",
+                            "abstract": "Verified benchmark context for federated LLM evaluation.",
+                            "source": "semantic_scholar",
+                            "external_id": "paper-verified-1",
+                            "evidence_level": "external_verified",
+                        }
+                    ],
                     "quality_gates_checked": ["harness_replan_signal"],
                 },
                 ensure_ascii=False,
@@ -474,6 +517,9 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
 
     assert report.status == "completed", report.model_dump(mode="json")
     assert captured["roles"] == ["文献与数据整理员", "实验分析工程师"]
+    assert len(report.outputs) == 1
+    assert report.outputs[0].kind == "library_item"
+    assert report.outputs[0].data.evidence_level == "external_verified"
     assert client.registered_assets
     assert client.registered_artifacts
     assert report.review_items == [
@@ -559,3 +605,11 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert harness["reproducibility_summary"]["next_actions"] == ["复核 result.json 指标"]
     assert "/workspace/.env" not in json.dumps(experiment_node, default=str)
     assert any(event_name == "execution.harness.tool_call.completed" for _, event_name, _ in harness_events)
+
+    evaluation = evaluate_research_task_evidence(
+        report,
+        node_events=node_events,
+        required_surfaces=("literature", "experiment"),
+    )
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"literature": "pass", "experiment": "pass"}

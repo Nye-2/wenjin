@@ -69,6 +69,7 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
     assert "tests/agents/harness/test_command_audit.py" in harness_command
     assert "tests/agents/harness/test_policy_and_registry.py" in harness_command
     assert "tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py" in harness_command
+    assert "tests/agents/harness/test_research_task_eval.py" in harness_command
     assert "tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py" in harness_command
     assert "tests/agents/harness/test_context_assembly.py" in harness_command
     assert "tests/agents/lead_agent/v2/test_citation_source_audit.py" in harness_command
