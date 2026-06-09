@@ -574,6 +574,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                     "invocation_id": "team.1.evidence_analyst_v1.1",
                     "script_name": "analysis.py",
                     "script_path": "/workspace/scripts/analysis.py",
+                    "task_scratch_path": "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1",
                     "dependency_hints": [],
                     "sandbox_job_id": "job-e2e-1",
                     "sandbox_environment_id": "env-e2e-1",
@@ -616,6 +617,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                     "schema": "wenjin.harness.run_python.experiment_narrative.v1",
                     "status": "completed",
                     "script_path": "/workspace/scripts/analysis.py",
+                    "task_scratch_path": "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1",
                     "dataset_paths": ["/workspace/datasets/panel.csv"],
                     "artifact_paths": ["/workspace/outputs/result.json"],
                     "dependency_names": [],
@@ -749,17 +751,29 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert harness["reproducibility_summary"]["dataset_paths"] == ["/workspace/datasets/panel.csv"]
     assert "/workspace/outputs/result.json" in harness["reproducibility_summary"]["artifact_paths"]
     assert harness["reproducibility_summary"]["next_actions"] == ["复核 result.json 指标"]
+    assert harness["member_execution_transcript"]["schema"] == (
+        "wenjin.harness.member_execution_transcript.v1"
+    )
+    assert harness["member_execution_transcript"]["tool_names"] == ["sandbox.run_python"]
+    assert harness["member_execution_transcript"]["scratch_refs"] == [
+        "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1"
+    ]
     assert "/workspace/.env" not in json.dumps(experiment_node, default=str)
     assert any(event_name == "execution.harness.tool_call.completed" for _, event_name, _ in harness_events)
 
     evaluation = evaluate_research_task_evidence(
         report,
         node_events=node_events,
-        required_surfaces=("literature", "experiment", "writing"),
+        required_surfaces=("literature", "experiment", "writing", "workflow_trace"),
     )
     assert evaluation.status == "pass"
     assert evaluation.coverage == {
         "literature": "pass",
         "experiment": "pass",
         "writing": "pass",
+        "workflow_trace": "pass",
     }
+    assert evaluation.evidence["workflow_trace"]["scratch_refs"] == [
+        "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1"
+    ]
+    assert evaluation.evidence["workflow_trace"]["sandbox_job_ids"] == ["job-e2e-1"]
