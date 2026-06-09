@@ -601,6 +601,12 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     assert layout.is_workspace_internal_path(
         "/workspace/outputs/harness/exec-1/node/tool.txt"
     )
+    assert layout.is_workspace_readable_internal_output_ref(
+        "/workspace/outputs/harness/exec-1/node/tool.txt"
+    )
+    assert not layout.is_workspace_readable_internal_output_ref(
+        "/workspace/.wenjin/state/debug.json"
+    )
     assert not layout.is_user_reviewable_workspace_artifact_path(
         "/workspace/outputs/harness/exec-1/node/tool.txt"
     )

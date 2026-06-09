@@ -959,6 +959,16 @@ def is_workspace_internal_path(path: str) -> bool:
     return any(_matches_workspace_pattern(normalized, pattern) for pattern in WORKSPACE_INTERNAL_PATHS)
 
 
+def is_workspace_readable_internal_output_ref(path: str) -> bool:
+    """Return whether a direct internal output ref may be read through bounded tools."""
+
+    try:
+        normalized = normalize_workspace_virtual_path(path)
+    except ValueError:
+        return False
+    return normalized.startswith(f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/")
+
+
 def is_workspace_search_ignored_path(path: str) -> bool:
     """Return whether search/listing tools should skip a generated/cache path."""
 

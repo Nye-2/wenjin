@@ -670,13 +670,14 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
 
 
 @pytest.mark.asyncio
-async def test_direct_file_tools_block_internal_harness_output_paths(sandbox: LocalSandbox) -> None:
+async def test_direct_file_tools_allow_read_only_internal_harness_output_refs(sandbox: LocalSandbox) -> None:
     internal_path = "/workspace/outputs/harness/exec-1/node-1/invocation-1/full-output.txt"
     await sandbox.write_file(internal_path, "internal full output\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
 
-    with pytest.raises(HarnessPathError, match="internal path"):
-        await tools.read_file(path=internal_path)
+    read_result = await tools.read_file(path=internal_path)
+
+    assert read_result.preview_text == "internal full output\n"
 
     with pytest.raises(HarnessPathError, match="internal path"):
         await tools.write_file(path=internal_path, content="changed\n")

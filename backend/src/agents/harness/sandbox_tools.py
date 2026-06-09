@@ -17,6 +17,7 @@ from src.sandbox.workspace_layout import (
     build_dataset_provenance_manifest,
     is_workspace_internal_path,
     is_workspace_protected_path,
+    is_workspace_readable_internal_output_ref,
     is_workspace_search_ignored_path,
     merge_artifact_manifest,
     merge_dataset_provenance_manifest,
@@ -59,7 +60,7 @@ class SandboxFileTools:
         self._require_read_permission()
         safe_path = self._validate_virtual_path(path, operation="read")
         self._require_workspace_physical_target(safe_path)
-        self._require_tool_visible_physical_target(safe_path)
+        self._require_readable_physical_target(safe_path)
         content = await self.sandbox.read_file(safe_path)
         selected = select_lines(content, start_line=start_line, end_line=end_line)
         budgeted = await budget_text_output(
@@ -484,7 +485,9 @@ class SandboxFileTools:
             raise HarnessPathError(str(exc)) from exc
         if self._is_protected(normalized):
             raise HarnessPathError(f"protected path is not accessible: {normalized}")
-        if is_workspace_internal_path(normalized):
+        if is_workspace_internal_path(normalized) and not (
+            operation == "read" and is_workspace_readable_internal_output_ref(normalized)
+        ):
             raise HarnessPathError(f"internal path is not accessible: {normalized}")
         if operation == "write":
             self._require_write_permissions()
@@ -601,6 +604,25 @@ class SandboxFileTools:
         if self._is_protected(target_virtual_path):
             raise HarnessPathError(f"protected target is not accessible: {virtual_path}")
         if is_workspace_internal_path(target_virtual_path):
+            raise HarnessPathError(f"internal target is not accessible: {virtual_path}")
+
+    def _require_readable_physical_target(self, virtual_path: str) -> None:
+        resolver = getattr(self.sandbox, "_resolve_path", None)
+        if not callable(resolver):
+            return
+        try:
+            physical_path = Path(resolver(virtual_path))
+        except Exception as exc:  # noqa: BLE001 - provider-specific path safety failures are normalized here.
+            raise HarnessPathError(f"path resolves outside workspace: {virtual_path}") from exc
+        target_virtual_path = self._workspace_target_virtual_path(physical_path)
+        if target_virtual_path is None:
+            raise HarnessPathError(f"path resolves outside workspace: {virtual_path}")
+        if self._is_protected(target_virtual_path):
+            raise HarnessPathError(f"protected target is not accessible: {virtual_path}")
+        if is_workspace_internal_path(target_virtual_path) and not (
+            is_workspace_readable_internal_output_ref(virtual_path)
+            and target_virtual_path == virtual_path
+        ):
             raise HarnessPathError(f"internal target is not accessible: {virtual_path}")
 
     def _is_tool_visible_physical_target(self, path: Path) -> bool:
