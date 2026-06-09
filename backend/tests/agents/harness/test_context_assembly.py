@@ -56,6 +56,7 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
     assert "/workspace/outputs" in bundle["sandbox"]["artifact_roots"]
     assert bundle["sandbox"]["datasets_manifest_path"] == "/workspace/datasets/manifest.json"
     assert bundle["sandbox"]["artifacts_manifest_path"] == "/workspace/reports/artifacts.json"
+    assert bundle["sandbox"]["task_scratch_root"] == "/workspace/tmp/tasks"
     assert bundle["sandbox"]["workspace_profile"]["workspace_type"] == "sci"
     assert bundle["sandbox"]["workspace_profile"]["primary_files"] == [
         "/workspace/main/main.tex",
@@ -68,6 +69,7 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
         "/workspace/reports",
     ]
     assert bundle["sandbox"]["path_classes"]["scratch"] == ["/workspace/tmp"]
+    assert bundle["sandbox"]["path_classes"]["task_scratch"] == ["/workspace/tmp/tasks"]
     assert "/workspace/outputs/README.md" in bundle["sandbox"]["guidance_paths"]
     assert "/workspace/reports/artifacts.json" in bundle["sandbox"]["guidance_paths"]
     assert "**/.env" in bundle["sandbox"]["protected_paths"]

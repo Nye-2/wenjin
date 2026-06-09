@@ -102,6 +102,7 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "artifact_roots": [str(path) for path in artifact_roots.values() if str(path).strip()],
         "datasets_manifest_path": str(contract.get("datasets_manifest_path") or ""),
         "artifacts_manifest_path": str(contract.get("artifacts_manifest_path") or ""),
+        "task_scratch_root": str(contract.get("task_scratch_root") or ""),
         "workspace_profile": _safe_workspace_profile(contract.get("workspace_profile")),
         "path_classes": _safe_path_classes(contract.get("path_classes")),
         "guidance_paths": _safe_string_list((contract.get("path_classes") or {}).get("guidance")),

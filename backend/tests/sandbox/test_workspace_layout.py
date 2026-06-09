@@ -42,6 +42,7 @@ def test_ensure_workspace_sandbox_layout_creates_standard_tree(tmp_path):
     assert persisted["directories"]["main"]["virtual_path"] == "/workspace/main"
     assert persisted["directories"]["outputs"]["review_surface"] == "artifact"
     assert persisted["datasets_manifest_path"] == "/workspace/datasets/manifest.json"
+    assert persisted["task_scratch_root"] == "/workspace/tmp/tasks"
     assert persisted["workspace_profile"]["workspace_type"] == "sci"
     assert "/workspace/main/main.tex" in persisted["workspace_profile"]["primary_files"]
     assert "/workspace/reports/experiment-report.md" in persisted["workspace_profile"]["report_paths"]
@@ -523,6 +524,8 @@ def test_agent_workspace_contract_exposes_path_classes():
     assert contract["path_classes"]["scripts"] == ["/workspace/scripts"]
     assert contract["path_classes"]["artifacts"] == ["/workspace/outputs", "/workspace/reports"]
     assert contract["path_classes"]["scratch"] == ["/workspace/tmp"]
+    assert contract["task_scratch_root"] == "/workspace/tmp/tasks"
+    assert contract["path_classes"]["task_scratch"] == ["/workspace/tmp/tasks"]
     assert contract["path_classes"]["runtime"] == [
         "/workspace/.wenjin/env",
         "/workspace/.wenjin/cache",
@@ -603,6 +606,7 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     )
     assert layout.is_user_reviewable_workspace_artifact_path("/workspace/outputs/figure.png")
     assert layout.is_user_reviewable_workspace_artifact_path("/workspace/reports/summary.md")
+    assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/tmp/tasks/exec-1/draft.json")
     assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/main/analysis.py")
     assert layout.workspace_artifact_root_for_path("/workspace/reports/summary.md") == {
         "name": "reports",
@@ -617,6 +621,7 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     assert layout.classify_workspace_path("/workspace/.wenjin/state/debug.json") == "protected"
     assert layout.classify_workspace_path("/workspace/main/.env") == "protected"
     assert layout.classify_workspace_path("/workspace/scripts/.env.local") == "protected"
+    assert layout.classify_workspace_path("/workspace/tmp/tasks/exec-1/draft.json") == "hidden"
     assert (
         layout.classify_workspace_path("/workspace/outputs/harness/exec/tool.txt")
         == "internal"

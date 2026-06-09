@@ -25,6 +25,8 @@ WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH = "reports/artifacts.json"
 WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH}"
 WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH = "outputs/harness"
 WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH}"
+WORKSPACE_TASK_SCRATCH_RELATIVE_ROOT = "tmp/tasks"
+WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_TASK_SCRATCH_RELATIVE_ROOT}"
 
 WORKSPACE_STANDARD_DIRS = (
     "main",
@@ -33,6 +35,7 @@ WORKSPACE_STANDARD_DIRS = (
     "outputs",
     "reports",
     "tmp",
+    WORKSPACE_TASK_SCRATCH_RELATIVE_ROOT,
     ".wenjin/env",
     ".wenjin/cache",
 )
@@ -170,6 +173,7 @@ WORKSPACE_PATH_CLASSES = {
     "scripts": [f"{WORKSPACE_ROOT}/scripts"],
     "artifacts": [f"{WORKSPACE_ROOT}/outputs", f"{WORKSPACE_ROOT}/reports"],
     "scratch": [f"{WORKSPACE_ROOT}/tmp"],
+    "task_scratch": [WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT],
     "runtime": [f"{WORKSPACE_ROOT}/.wenjin/env", f"{WORKSPACE_ROOT}/.wenjin/cache"],
     "protected": list(WORKSPACE_PROTECTED_PATHS),
     "internal": list(WORKSPACE_INTERNAL_PATHS),
@@ -517,6 +521,7 @@ def build_workspace_sandbox_manifest(
         "manifest_path": WORKSPACE_MANIFEST_VIRTUAL_PATH,
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+        "task_scratch_root": WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT,
         "directories": deepcopy(_DIRECTORY_CONTRACTS),
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "artifact_roots": {
@@ -858,6 +863,7 @@ def build_agent_workspace_contract(
         "path_classes": deepcopy(WORKSPACE_PATH_CLASSES),
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+        "task_scratch_root": WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT,
         "runtime_roots": manifest["runtime_roots"],
         "protected_paths": list(WORKSPACE_PROTECTED_PATHS),
         "internal_paths": list(WORKSPACE_INTERNAL_PATHS),
@@ -869,6 +875,7 @@ def build_agent_workspace_contract(
             "Write reusable scripts under /workspace/scripts.",
             "Write user-reviewable generated files under /workspace/outputs or /workspace/reports.",
             "Use /workspace/tmp only for scratch data that should not be surfaced by default.",
+            "Use /workspace/tmp/tasks for task-scoped scratch files that should not become artifacts.",
             "Do not read or write protected paths.",
             "Do not register or cite /workspace/outputs/harness/** as user-facing artifacts.",
         ],
