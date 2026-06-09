@@ -217,6 +217,64 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
     ]
 
 
+def test_context_includes_scratch_reference_without_promoting_it_to_artifact() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={
+            "execution_id": "exec-2",
+            "node_id": "writer",
+            "inputs": {
+                "upstream_context": {
+                    "sandbox_outputs": [
+                        {
+                            "task_scratch_path": "/workspace/tmp/tasks/exec-1/analysis_probe",
+                            "artifacts": [
+                                {"path": "/workspace/artifacts/result.csv", "kind": "dataset"},
+                                {"path": "/workspace/reports/result.md", "kind": "report"},
+                            ],
+                        },
+                        {
+                            "task_scratch_path": "/workspace/tmp/tasks/.harness/outputs/exec/node",
+                            "artifacts": [
+                                {"path": "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt"}
+                            ],
+                        },
+                    ]
+                }
+            },
+        },
+        workspace_data={
+            "upstream_sandbox_outputs": [
+                {
+                    "task_scratch_path": "/workspace/tmp/tasks/exec-1/analysis_probe",
+                    "generated_artifacts": [{"path": "/workspace/outputs/figure.png", "kind": "figure"}],
+                },
+                {
+                    "task_scratch_path": "/workspace/.wenjin/cache/secret",
+                    "generated_artifacts": [{"path": "/workspace/.wenjin/cache/secret.txt"}],
+                },
+            ]
+        },
+        allowed_tools=["sandbox.read_file", "sandbox.run_python"],
+    )
+
+    assert bundle["scratch_refs"] == [
+        {
+            "path": "/workspace/tmp/tasks/exec-1/analysis_probe",
+            "source": "upstream_sandbox_output",
+        }
+    ]
+    assert bundle["upstream_artifact_candidates"] == [
+        {"path": "/workspace/reports/result.md", "kind": "report"},
+        {"path": "/workspace/outputs/figure.png", "kind": "figure"},
+    ]
+    text = json.dumps(bundle, ensure_ascii=False)
+    assert "/workspace/artifacts/result.csv" not in text
+    assert "/workspace/tmp/tasks/.harness/outputs" not in text
+    assert "/workspace/.wenjin" not in text
+
+
 def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",

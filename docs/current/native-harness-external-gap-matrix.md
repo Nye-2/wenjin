@@ -60,7 +60,7 @@ deer-flow:
 
 4. **Workspace filesystem contract is usable; real-task scratch usage still needs tuning.**
 
-   Status: partially closed. Common layout remains shared across workspace types, and domain differences stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch root; harness context injects a safe per-execution/member `task_scratch_path`, and Lead-owned `sandbox.run_python` now creates `/workspace/tmp/tasks/{execution_id}/{node_id}`, executes with that directory as cwd, and injects `WENJIN_TASK_SCRATCH` / `WENJIN_WORKSPACE_ROOT`. Reviewable output still belongs under `outputs`/`reports`; the remaining work is real-task tuning: deciding which intermediates become review artifacts, which stay scratch-only, and how much scratch context later team members should receive.
+   Status: partially closed. Common layout remains shared across workspace types, and domain differences stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch root; harness context injects a safe per-execution/member `task_scratch_path`, Lead-owned `sandbox.run_python` now creates `/workspace/tmp/tasks/{execution_id}/{node_id}`, executes with that directory as cwd, and injects `WENJIN_TASK_SCRATCH` / `WENJIN_WORKSPACE_ROOT`. Safe upstream scratch dirs now flow to later members through top-level `scratch_refs[]` without being promoted to reviewable artifact candidates. Reviewable output still belongs under `outputs`/`reports`; the remaining work is real-task tuning: deciding which intermediates become review artifacts, which stay scratch-only, and how much scratch context later team members should receive.
 
 5. **Quality gates are structural, not yet outcome-quality complete.**
 

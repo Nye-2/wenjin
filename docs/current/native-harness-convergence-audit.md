@@ -215,6 +215,11 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py -q` -> 24 passed.
   - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_local_sandbox.py tests/sandbox/test_integration.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_langchain_adapter.py tests/agents/lead_agent/v2/test_sandbox_runtime.py -q` -> 114 passed.
   - `backend`: `.venv/bin/ruff check src/sandbox/base.py src/sandbox/providers/local.py src/sandbox/providers/docker.py src/agents/lead_agent/v2/sandbox_script_executor.py src/agents/lead_agent/v2/sandbox_job_runner.py src/agents/lead_agent/v2/sandbox_artifact_collector.py src/agents/harness/sandbox_execution_tools.py tests/agents/lead_agent/v2/test_sandbox_runtime.py` -> passed.
+- 2026-06-09 upstream scratch refs context slice:
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py::test_context_includes_scratch_reference_without_promoting_it_to_artifact -q` -> RED on missing `scratch_refs`, then RED again when raw `task.inputs.upstream_context.sandbox_outputs` leaked a non-contract `/workspace/artifacts/**` path through the bundle `task` field.
+  - Context assembly now projects safe upstream `/workspace/tmp/tasks/{execution_id}/{node_id}` paths as top-level `scratch_refs[]`, extracts reviewable `/workspace/outputs/**` / `/workspace/reports/**` candidates from sandbox output payloads, and strips raw `sandbox_outputs` / `upstream_sandbox_outputs` from the bundled task payload.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py tests/agents/harness/test_scheduler_and_python_tool.py -q` -> 24 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness/context_assembly.py tests/agents/harness/test_context_assembly.py` -> passed.
 
 ## 6. 剩余不足
 

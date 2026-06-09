@@ -32,12 +32,13 @@ def build_harness_context_bundle(
     """Build a compact harness context bundle for tool-using workers."""
 
     budget = max(500, int(max_chars or 12000))
-    safe_task = _safe_dict(task or {})
+    raw_task = _safe_dict(task or {})
+    safe_task = _task_bundle_payload(raw_task)
     safe_workspace_data = workspace_data or {}
     sandbox = _sandbox_contract(
         workspace_id=workspace_id,
         workspace_type=workspace_type,
-        task=safe_task,
+        task=raw_task,
     )
     visible_roots = _visible_workspace_roots(sandbox)
     dataset_roots = _dataset_workspace_roots(sandbox)
@@ -68,9 +69,10 @@ def build_harness_context_bundle(
             safe_workspace_data,
             "reproducibility_summary",
         ),
-        "harness_replan_signals": _harness_replan_signals(safe_task, safe_workspace_data),
+        "scratch_refs": _scratch_refs(raw_task, safe_workspace_data),
+        "harness_replan_signals": _harness_replan_signals(raw_task, safe_workspace_data),
         "upstream_artifact_candidates": _upstream_artifact_candidates(
-            safe_task,
+            raw_task,
             safe_workspace_data,
             visible_roots=visible_roots,
         ),
@@ -309,6 +311,7 @@ def _upstream_artifact_candidates(
         upstream_context.get("artifact_candidates") if isinstance(upstream_context, dict) else None,
         workspace_data.get("upstream_artifact_candidates"),
         workspace_data.get("artifact_candidates"),
+        _sandbox_output_artifact_candidates(task, workspace_data),
     ]
     result: list[dict[str, Any]] = []
     for candidate in candidates:
@@ -316,9 +319,69 @@ def _upstream_artifact_candidates(
             continue
         for item in candidate:
             ref = _safe_file_ref(item, visible_roots=visible_roots)
-            if ref:
+            if ref and ref not in result:
                 result.append(ref)
     return result[:_MAX_FILE_SUMMARY_ITEMS]
+
+
+def _scratch_refs(task: dict[str, Any], workspace_data: dict[str, Any]) -> list[dict[str, str]]:
+    result: list[dict[str, str]] = []
+    for item in _upstream_sandbox_outputs(task, workspace_data):
+        path = _safe_task_scratch_ref(item.get("task_scratch_path"))
+        if not path:
+            continue
+        ref = {"path": path, "source": "upstream_sandbox_output"}
+        if ref not in result:
+            result.append(ref)
+    return result[:_MAX_FILE_SUMMARY_ITEMS]
+
+
+def _sandbox_output_artifact_candidates(
+    task: dict[str, Any],
+    workspace_data: dict[str, Any],
+) -> list[Any]:
+    candidates: list[Any] = []
+    for item in _upstream_sandbox_outputs(task, workspace_data):
+        for key in ("artifacts", "generated_artifacts"):
+            value = item.get(key)
+            if isinstance(value, list):
+                candidates.extend(value)
+    return candidates
+
+
+def _upstream_sandbox_outputs(
+    task: dict[str, Any],
+    workspace_data: dict[str, Any],
+) -> list[dict[str, Any]]:
+    inputs = _task_inputs(task)
+    upstream_context = inputs.get("upstream_context")
+    candidates = [
+        inputs.get("sandbox_outputs"),
+        inputs.get("upstream_sandbox_outputs"),
+        upstream_context.get("sandbox_outputs") if isinstance(upstream_context, dict) else None,
+        upstream_context.get("upstream_sandbox_outputs") if isinstance(upstream_context, dict) else None,
+        workspace_data.get("sandbox_outputs"),
+        workspace_data.get("upstream_sandbox_outputs"),
+    ]
+    result: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if not isinstance(candidate, list):
+            continue
+        for item in candidate:
+            if isinstance(item, dict):
+                result.append(item)
+    return result[:_MAX_FILE_SUMMARY_ITEMS]
+
+
+def _safe_task_scratch_ref(value: Any) -> str:
+    path = _first_safe_string(value)
+    if not path.startswith("/workspace/tmp/tasks/"):
+        return ""
+    if path.startswith(f"{WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT}/"):
+        return ""
+    if is_workspace_internal_path(path) or is_workspace_protected_path(path):
+        return ""
+    return path
 
 
 def _recent_execution_evidence(workspace_data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -495,6 +558,27 @@ def _safe_dict(value: dict[str, Any]) -> dict[str, Any]:
     return safe if isinstance(safe, dict) else {}
 
 
+def _task_bundle_payload(task: dict[str, Any]) -> dict[str, Any]:
+    result = dict(task)
+    _drop_raw_sandbox_outputs(result)
+    inputs = result.get("inputs")
+    if isinstance(inputs, dict):
+        safe_inputs = dict(inputs)
+        _drop_raw_sandbox_outputs(safe_inputs)
+        upstream_context = safe_inputs.get("upstream_context")
+        if isinstance(upstream_context, dict):
+            safe_upstream_context = dict(upstream_context)
+            _drop_raw_sandbox_outputs(safe_upstream_context)
+            safe_inputs["upstream_context"] = safe_upstream_context
+        result["inputs"] = safe_inputs
+    return result
+
+
+def _drop_raw_sandbox_outputs(payload: dict[str, Any]) -> None:
+    payload.pop("sandbox_outputs", None)
+    payload.pop("upstream_sandbox_outputs", None)
+
+
 def _safe_value(value: Any) -> Any:
     if isinstance(value, str):
         text = value.strip()
@@ -545,6 +629,7 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
         compact["recent_execution_evidence"].pop()
     for key, empty in (
         ("upstream_artifact_candidates", []),
+        ("scratch_refs", []),
         ("harness_replan_signals", []),
         ("recent_file_change_summary", {}),
         ("sandbox_execution_summary", {}),
