@@ -48,6 +48,26 @@ def _capability() -> SimpleNamespace:
                             ],
                         }
                     ],
+                },
+                {
+                    "name": "writing",
+                    "tasks": [
+                        {
+                            "name": "manuscript_writer",
+                            "skill_id": "manuscript-writer",
+                            "outputs": [
+                                {
+                                    "kind": "prism_file_change",
+                                    "mapping": {
+                                        "logical_key": "project:main",
+                                        "path": "main.tex",
+                                        "reason": "e2e_review_package_revision",
+                                        "pending_content": "{{output.text}}",
+                                    },
+                                }
+                            ],
+                        }
+                    ],
                 }
             ]
         },
@@ -61,15 +81,23 @@ def _capability() -> SimpleNamespace:
             },
             "quality_gates": ["harness_replan_signal"],
             "team_policy": {
-                "core_templates": ["literature_data_curator.v1", "evidence_analyst.v1"],
+                "core_templates": [
+                    "literature_data_curator.v1",
+                    "evidence_analyst.v1",
+                    "manuscript_writer.v1",
+                ],
                 "optional_templates": [],
                 "capability_tools": ["sandbox.run_python"],
-                "capability_skills": ["literature-data-curator", "evidence-analyst"],
+                "capability_skills": [
+                    "literature-data-curator",
+                    "evidence-analyst",
+                    "manuscript-writer",
+                ],
                 "quality_pipeline": ["harness_replan_signal"],
                 "limits": {
                     "max_iterations": 1,
-                    "max_parallel_invocations": 2,
-                    "max_invocations_total": 2,
+                    "max_parallel_invocations": 3,
+                    "max_invocations_total": 3,
                 },
             },
         },
@@ -86,6 +114,10 @@ def _brief() -> TaskBrief:
             "workspace_type": "sci",
             "topic": "federated LLM experiment",
         },
+        manuscript_context={
+            "latex_project_id": "latex-e2e",
+            "main_file": "main.tex",
+        },
     )
 
 
@@ -93,6 +125,7 @@ class _MockCatalogAndReviewClient:
     def __init__(self) -> None:
         self.registered_assets: list[object] = []
         self.registered_artifacts: list[object] = []
+        self.staged_prism_commands: list[object] = []
 
     async def list_agent_templates(self, *, enabled_only: bool = True):
         return [
@@ -129,7 +162,24 @@ class _MockCatalogAndReviewClient:
                     "code_execution": "required",
                     "room_write": "staged_only",
                 },
-            )
+            ),
+            AgentTemplatePayload(
+                id="manuscript_writer.v1",
+                display_role="论文改稿员",
+                category="writing",
+                description="Stage manuscript revisions through Prism review.",
+                persona_prompt="You are Wenjin's manuscript writer.",
+                default_skills=["manuscript-writer"],
+                tool_affinity={
+                    "preferred": [],
+                    "can_request": [],
+                },
+                risk_profile={
+                    "filesystem": "read_only",
+                    "code_execution": "none",
+                    "room_write": "staged_only",
+                },
+            ),
         ]
 
     async def list_catalog_skills(self, *, enabled_only: bool = True):
@@ -186,8 +236,38 @@ class _MockCatalogAndReviewClient:
                     },
                     "quality_gates": ["harness_replan_signal"],
                 },
-            )
+            ),
+            CapabilitySkillPayload(
+                id="manuscript-writer",
+                display_name="Manuscript Writer",
+                worker_type="writing",
+                subagent_type="react",
+                prompt=(
+                    "Write a concise manuscript revision grounded in the verified "
+                    "literature and sandbox experiment result. Do not commit directly."
+                ),
+                config={"output_kind": "json"},
+                skill_json={
+                    "schema_version": "capability_skill.v2",
+                    "id": "manuscript-writer",
+                    "io_contract": {
+                        "output_schema": {
+                            "type": "object",
+                            "required": ["text", "quality_gates_checked"],
+                            "properties": {
+                                "text": {"type": "string"},
+                                "quality_gates_checked": {"type": "array"},
+                            },
+                        }
+                    },
+                    "quality_gates": ["harness_replan_signal"],
+                },
+            ),
         ]
+
+    async def upsert_pending_prism_file_change(self, command):
+        self.staged_prism_commands.append(command)
+        return SimpleNamespace(id="review-prism-1")
 
     async def register_asset(self, command):
         self.registered_assets.append(command)
@@ -198,6 +278,40 @@ class _MockCatalogAndReviewClient:
         return SimpleNamespace(id="artifact-1", review_item_id="review-1")
 
     async def list_review_items(self, **kwargs):
+        if kwargs.get("target_domain") == "prism":
+            if not self.staged_prism_commands:
+                return []
+            command = self.staged_prism_commands[0]
+            return [
+                SimpleNamespace(
+                    id="review-prism-1",
+                    target_kind="prism_file_change",
+                    target_ref_json={
+                        "latex_project_id": command.latex_project_id,
+                        "logical_key": command.logical_key,
+                        "path": command.path,
+                    },
+                    status="pending",
+                    title="Revise main.tex",
+                    summary="E2E review package revision",
+                    payload_json={
+                        "logical_key": command.logical_key,
+                        "path": command.path,
+                        "reason": command.reason,
+                        "pending_hash": command.pending_hash,
+                        "source_execution_id": command.source_execution_id,
+                        "source_task_id": command.source_task_id,
+                    },
+                    preview_json={
+                        "path": command.path,
+                        "pending_hash": command.pending_hash,
+                    },
+                    result_json=None,
+                    created_at=None,
+                    updated_at=None,
+                    applied_at=None,
+                )
+            ]
         if kwargs.get("target_domain") != "sandbox":
             return []
         if not self.registered_artifacts:
@@ -344,6 +458,23 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                             "evidence_level": "external_verified",
                         }
                     ],
+                    "quality_gates_checked": ["harness_replan_signal"],
+                },
+                ensure_ascii=False,
+            )
+        if role == "论文改稿员":
+            writer_context = user_payload["_harness_context"]
+            assert writer_context["schema"] == "wenjin.harness.context_bundle.v1"
+            assert writer_context["allowed_tools"] == []
+            return json.dumps(
+                {
+                    "text": (
+                        "\\documentclass{article}\\begin{document}"
+                        "\\section{Results}"
+                        "The verified benchmark context and sandbox metric of 0.91 "
+                        "support the revised federated LLM experiment summary."
+                        "\\end{document}"
+                    ),
                     "quality_gates_checked": ["harness_replan_signal"],
                 },
                 ensure_ascii=False,
@@ -516,53 +647,59 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     )
 
     assert report.status == "completed", report.model_dump(mode="json")
-    assert captured["roles"] == ["文献与数据整理员", "实验分析工程师"]
+    assert captured["roles"] == ["文献与数据整理员", "实验分析工程师", "论文改稿员"]
     assert len(report.outputs) == 1
     assert report.outputs[0].kind == "library_item"
     assert report.outputs[0].data.evidence_level == "external_verified"
     assert client.registered_assets
     assert client.registered_artifacts
-    assert report.review_items == [
-        {
-            "id": "review-1",
+    assert client.staged_prism_commands
+    sandbox_review_item = next(item for item in report.review_items if item["kind"] == "sandbox_artifact")
+    prism_review_item = next(item for item in report.review_items if item["kind"] == "prism_file_change")
+    assert sandbox_review_item == {
+        "id": "review-1",
+        "kind": "sandbox_artifact",
+        "status": "pending",
+        "title": "Accept sandbox artifact: sandbox_output",
+        "summary": "/workspace/outputs/result.json",
+        "source": {
+            "type": "sandbox_job",
+            "execution_id": "exec-harness-e2e",
+            "job_id": "job-e2e-1",
+        },
+        "target": {
             "kind": "sandbox_artifact",
-            "status": "pending",
-            "title": "Accept sandbox artifact: sandbox_output",
-            "summary": "/workspace/outputs/result.json",
-            "source": {
-                "type": "sandbox_job",
-                "execution_id": "exec-harness-e2e",
-                "job_id": "job-e2e-1",
-            },
-            "target": {
-                "kind": "sandbox_artifact",
-                "path": "/workspace/outputs/result.json",
-                "artifact_kind": "sandbox_output",
-                "asset_id": "asset-1",
-                "sandbox_artifact_id": "artifact-1",
-            },
-            "preview": {
-                "mode": "artifact",
-                "path": "/workspace/outputs/result.json",
-                "mime_type": "application/json",
-                "content_hash": "sha256:result",
-            },
-            "reproducibility": {
-                "source_task_id": "team.1.evidence_analyst_v1.1",
-                "sandbox_environment_id": "env-e2e-1",
-                "source_script": "/workspace/scripts/analysis.py",
-                "dataset_paths": ["/workspace/datasets/panel.csv"],
-                "content_hash": "sha256:result",
-            },
-            "actions": [
-                {"action": "accept_sandbox_artifact", "label": "保存到产物库"},
-                {"action": "reject_sandbox_artifact", "label": "忽略"},
-            ],
-            "created_at": None,
-            "updated_at": None,
-            "applied_at": None,
-        }
-    ]
+            "path": "/workspace/outputs/result.json",
+            "artifact_kind": "sandbox_output",
+            "asset_id": "asset-1",
+            "sandbox_artifact_id": "artifact-1",
+        },
+        "preview": {
+            "mode": "artifact",
+            "path": "/workspace/outputs/result.json",
+            "mime_type": "application/json",
+            "content_hash": "sha256:result",
+        },
+        "reproducibility": {
+            "source_task_id": "team.1.evidence_analyst_v1.1",
+            "sandbox_environment_id": "env-e2e-1",
+            "source_script": "/workspace/scripts/analysis.py",
+            "dataset_paths": ["/workspace/datasets/panel.csv"],
+            "content_hash": "sha256:result",
+        },
+        "actions": [
+            {"action": "accept_sandbox_artifact", "label": "保存到产物库"},
+            {"action": "reject_sandbox_artifact", "label": "忽略"},
+        ],
+        "created_at": None,
+        "updated_at": None,
+        "applied_at": None,
+    }
+    assert prism_review_item["id"] == "review-prism-1"
+    assert prism_review_item["target"]["logical_key"] == "project:main"
+    assert prism_review_item["target"]["file_path"] == "main.tex"
+    assert prism_review_item["source"]["execution_id"] == "exec-harness-e2e"
+    assert prism_review_item["source"]["task_id"] == "manuscript_writer"
     assert client.registered_assets[0].storage_path == "/workspace/outputs/result.json"
     assert client.registered_assets[0].title == "Mock experiment result"
     assert client.registered_assets[0].metadata_json["source_script"] == "/workspace/scripts/analysis.py"
@@ -584,6 +721,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert {node["node_metadata"]["template_id"] for node in completed_nodes} == {
         "literature_data_curator.v1",
         "evidence_analyst.v1",
+        "manuscript_writer.v1",
     }
     experiment_node = next(
         node
@@ -609,7 +747,11 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     evaluation = evaluate_research_task_evidence(
         report,
         node_events=node_events,
-        required_surfaces=("literature", "experiment"),
+        required_surfaces=("literature", "experiment", "writing"),
     )
     assert evaluation.status == "pass"
-    assert evaluation.coverage == {"literature": "pass", "experiment": "pass"}
+    assert evaluation.coverage == {
+        "literature": "pass",
+        "experiment": "pass",
+        "writing": "pass",
+    }

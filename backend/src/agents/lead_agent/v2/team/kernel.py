@@ -24,6 +24,9 @@ from src.agents.harness.diff_tracker import (
     build_harness_replan_signals_from_tool_calls,
 )
 from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
+from src.agents.lead_agent.v2.prism_review_staging import (
+    build_prism_file_change_command,
+)
 from src.agents.lead_agent.v2.sandbox_artifact_review import (
     collect_sandbox_artifact_candidates,
     sandbox_artifact_payload_for_candidate,
@@ -32,6 +35,7 @@ from src.agents.lead_agent.v2.sandbox_artifact_review import (
 )
 from src.dataservice_client.contracts.execution import ExecutionUpdatePayload
 from src.dataservice_client.provider import dataservice_client
+from src.services.prism_review_projection import prism_review_item_projection
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY
@@ -137,15 +141,23 @@ class TeamKernelRuntime:
                 *self._errors_from_quality_gates(gates),
             ]
             status = "failed_partial" if errors else "completed"
-            review_items = (
-                await self._stage_sandbox_artifact_review_items(
-                    invocations,
-                    brief=brief,
-                    execution_id=execution_id,
+            review_items: list[dict[str, Any]] = []
+            if status == "completed":
+                review_items.extend(
+                    await self._stage_sandbox_artifact_review_items(
+                        invocations,
+                        brief=brief,
+                        execution_id=execution_id,
+                    )
                 )
-                if status == "completed"
-                else []
-            )
+                review_items.extend(
+                    await self._stage_prism_review_items(
+                        capability,
+                        invocations,
+                        brief=brief,
+                        execution_id=execution_id,
+                    )
+                )
             return TaskReport(
                 execution_id=execution_id,
                 capability_id=brief.capability_id,
@@ -932,6 +944,73 @@ class TeamKernelRuntime:
                 ]
         except Exception:
             logger.warning("Failed to stage team sandbox artifact review items", exc_info=True)
+            return []
+
+    async def _stage_prism_review_items(
+        self,
+        capability: Any,
+        invocations: list[AgentInvocation],
+        *,
+        brief: TaskBrief,
+        execution_id: str,
+    ) -> list[dict[str, Any]]:
+        """Register team manuscript edits through the canonical Prism review flow."""
+
+        manuscript_context = brief.manuscript_context
+        if not isinstance(manuscript_context, dict):
+            return []
+        latex_project_id = str(manuscript_context.get("latex_project_id") or "").strip()
+        if not latex_project_id:
+            return []
+        graph_template = getattr(capability, "graph_template", None)
+        if not isinstance(graph_template, dict):
+            return []
+        node_results = self._node_results_for_graph_outputs(graph_template, invocations)
+        if not node_results:
+            return []
+
+        default_path = str(manuscript_context.get("main_file") or "main.tex").strip() or "main.tex"
+        commands = []
+        for phase in graph_template.get("phases") or []:
+            for task in phase.get("tasks") or []:
+                task_name = str(task.get("name") or "").strip()
+                node_result = node_results.get(task_name)
+                output = node_result.get("output") if isinstance(node_result, dict) else None
+                if not task_name or not isinstance(output, dict):
+                    continue
+                for decl in task.get("outputs") or []:
+                    if not isinstance(decl, dict) or decl.get("kind") != "prism_file_change":
+                        continue
+                    command = build_prism_file_change_command(
+                        decl,
+                        output,
+                        workspace_id=brief.workspace_id,
+                        latex_project_id=latex_project_id,
+                        task_name=task_name,
+                        execution_id=execution_id,
+                        default_path=default_path,
+                    )
+                    if command is not None:
+                        commands.append(command)
+        if not commands:
+            return []
+
+        try:
+            async with dataservice_client() as client:
+                for command in commands:
+                    await client.upsert_pending_prism_file_change(command)
+                items = await client.list_review_items(
+                    workspace_id=brief.workspace_id,
+                    execution_id=execution_id,
+                    target_domain="prism",
+                    target_kind="prism_file_change",
+                )
+                return [
+                    prism_review_item_projection(item, execution_id=execution_id)
+                    for item in items
+                ]
+        except Exception:
+            logger.warning("Failed to stage team Prism review items", exc_info=True)
             return []
 
     def _output_for_graph_task(

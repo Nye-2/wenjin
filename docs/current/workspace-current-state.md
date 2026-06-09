@@ -35,7 +35,7 @@
 5. 每个 capability 的 `mission` 定义产品目标、主 surface、document role 和允许交付物。
 6. 每个 capability 的 `context_policy`、`sandbox_policy`、`review_policy`、`quality_gates` 会进入 Lead Agent v2 `capability_policy`。
 7. 每个 capability 的 `graph_template` 定义执行阶段和 subagent task。
-8. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由 Lead runtime stage 到 DB-backed review item。
+8. `OutputMappingResolver` 将 subagent 输出转换为 typed `ResultOutput`；`kind: prism_file_change` 不进入普通 room outputs，而由普通 Lead runtime / TeamKernel 通过共享 Prism staging helper 写入 DB-backed review item。
 9. Capability launch context 只能来自用户显式输入、query seed、route params、source artifact 和已提交的 room context；不得用 workspace 名称/描述、capability 名称、通用卡片提示词或“未命名任务”合成 goal。
 
 ## 4. User-Facing Workspace Rooms
@@ -103,7 +103,7 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 6. Canonical `prism_protected_scopes` 记录用户手动保护的稿件范围，并进入后续 agent launch context
 7. `WorkspacePrismService` 对外提供 surface projection：main file、target files、pending/applied review items、source links、protected sections、activity、compile status
 8. `TaskBrief.manuscript_context` 只注入 lightweight manuscript projection，不传完整正文、完整 diff 或 PDF
-9. `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
+9. `research_question_to_paper`、`idea_to_thesis_manuscript` 和 TeamKernel 写作成员的 `manuscript_writer` 输出已声明为 `prism_file_change`，runtime 完成后写入 canonical review item。
 10. DataService review batch/action log 是 Prism review 的事务边界；batch/items 先 flush，action log 后写入，保证独立 DataService + Postgres 部署下 FK 顺序稳定。
 11. Prism adapter routers 和 LaTeX/WorkspacePrism runtime services 通过 DataService client 访问 Latex/Prism/Review/Source facts，不再携带 runtime DB session。
 12. Long-term memory runtime、memory compaction、Celery memory capture 与 workspace-context upload memory note 通过 Knowledge DataService client 访问 persistence，不再携带 runtime DB session 或执行 request-time commit/rollback。
