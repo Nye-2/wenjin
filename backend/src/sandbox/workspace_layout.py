@@ -164,6 +164,18 @@ WORKSPACE_INTERNAL_PATHS = (
     f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/**",
 )
 
+WORKSPACE_PATH_CLASSES = {
+    "workspace": [f"{WORKSPACE_ROOT}/main"],
+    "datasets": [f"{WORKSPACE_ROOT}/datasets"],
+    "scripts": [f"{WORKSPACE_ROOT}/scripts"],
+    "artifacts": [f"{WORKSPACE_ROOT}/outputs", f"{WORKSPACE_ROOT}/reports"],
+    "scratch": [f"{WORKSPACE_ROOT}/tmp"],
+    "runtime": [f"{WORKSPACE_ROOT}/.wenjin/env", f"{WORKSPACE_ROOT}/.wenjin/cache"],
+    "protected": list(WORKSPACE_PROTECTED_PATHS),
+    "internal": list(WORKSPACE_INTERNAL_PATHS),
+    "guidance": [f"{WORKSPACE_ROOT}/{path}" for path in WORKSPACE_GUIDANCE_RELATIVE_PATHS],
+}
+
 WORKSPACE_SEARCH_IGNORED_NAMES = (
     ".git",
     ".hg",
@@ -420,6 +432,8 @@ _WORKSPACE_TYPE_PROFILES: dict[str, dict[str, Any]] = {
     },
 }
 
+WORKSPACE_SUPPORTED_TYPES = tuple(_WORKSPACE_TYPE_PROFILES)
+
 
 def ensure_workspace_sandbox_layout(
     workspace_path: str | Path,
@@ -509,6 +523,7 @@ def build_workspace_sandbox_manifest(
             root["name"]: root["virtual_path"]
             for root in WORKSPACE_ARTIFACT_ROOTS
         },
+        "path_classes": deepcopy(WORKSPACE_PATH_CLASSES),
         "runtime_roots": {
             "python_env": f"{WORKSPACE_ROOT}/.wenjin/env",
             "cache": f"{WORKSPACE_ROOT}/.wenjin/cache",
@@ -534,6 +549,37 @@ def workspace_type_profile(workspace_type: str | None) -> dict[str, Any]:
 
     key = str(workspace_type or "").strip().lower()
     return deepcopy(_WORKSPACE_TYPE_PROFILES.get(key) or _GENERIC_WORKSPACE_PROFILE)
+
+
+def validate_workspace_type_profile(workspace_type: str) -> dict[str, Any]:
+    """Validate that workspace profile guidance stays within the common layout."""
+
+    profile = workspace_type_profile(workspace_type)
+    errors: list[str] = []
+    expected_roots = {
+        "primary_files": f"{WORKSPACE_ROOT}/main/",
+        "script_paths": f"{WORKSPACE_ROOT}/scripts/",
+        "output_paths": f"{WORKSPACE_ROOT}/outputs",
+        "report_paths": f"{WORKSPACE_ROOT}/reports/",
+    }
+    for field, root in expected_roots.items():
+        values = profile.get(field)
+        if not isinstance(values, list) or not values:
+            errors.append(f"{field} must be a non-empty list")
+            continue
+        for value in values:
+            try:
+                normalized = normalize_workspace_virtual_path(str(value))
+            except ValueError:
+                errors.append(f"{field} contains invalid path: {value}")
+                continue
+            if is_workspace_protected_path(normalized) or is_workspace_internal_path(normalized):
+                errors.append(f"{field} contains protected/internal path: {normalized}")
+            if root.endswith("/") and not normalized.startswith(root):
+                errors.append(f"{field} path must be under {root}: {normalized}")
+            if not root.endswith("/") and normalized != root and not normalized.startswith(f"{root}/"):
+                errors.append(f"{field} path must be under {root}: {normalized}")
+    return {"workspace_type": workspace_type, "valid": not errors, "errors": errors}
 
 
 def build_artifact_manifest(*, artifacts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
@@ -790,6 +836,7 @@ def build_agent_workspace_contract(
         "directories": directories,
         "workspace_profile": workspace_type_profile(workspace_type),
         "artifact_roots": manifest["artifact_roots"],
+        "path_classes": deepcopy(WORKSPACE_PATH_CLASSES),
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
         "runtime_roots": manifest["runtime_roots"],

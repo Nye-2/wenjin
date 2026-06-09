@@ -403,6 +403,39 @@ def test_workspace_type_profiles_keep_one_common_layout_with_domain_guidance():
     assert generic_contract["workspace_profile"]["primary_files"] == ["/workspace/main/README.md"]
 
 
+def test_all_workspace_type_profiles_use_valid_common_layout_paths():
+    assert layout.WORKSPACE_SUPPORTED_TYPES == (
+        "thesis",
+        "sci",
+        "proposal",
+        "software_copyright",
+        "patent",
+    )
+    for workspace_type in layout.WORKSPACE_SUPPORTED_TYPES:
+        assert layout.validate_workspace_type_profile(workspace_type) == {
+            "workspace_type": workspace_type,
+            "valid": True,
+            "errors": [],
+        }
+
+
+def test_agent_workspace_contract_exposes_path_classes():
+    contract = build_agent_workspace_contract(workspace_id="ws-1", workspace_type="sci")
+
+    assert contract["path_classes"]["workspace"] == ["/workspace/main"]
+    assert contract["path_classes"]["datasets"] == ["/workspace/datasets"]
+    assert contract["path_classes"]["scripts"] == ["/workspace/scripts"]
+    assert contract["path_classes"]["artifacts"] == ["/workspace/outputs", "/workspace/reports"]
+    assert contract["path_classes"]["scratch"] == ["/workspace/tmp"]
+    assert contract["path_classes"]["runtime"] == [
+        "/workspace/.wenjin/env",
+        "/workspace/.wenjin/cache",
+    ]
+    assert "/workspace/outputs/harness/**" in contract["path_classes"]["internal"]
+    assert "/workspace/outputs/README.md" in contract["path_classes"]["guidance"]
+    assert "/workspace/reports/artifacts.json" in contract["path_classes"]["guidance"]
+
+
 def test_workspace_protected_paths_include_runtime_and_secret_material():
     assert WORKSPACE_PROTECTED_PATHS == (
         ".git/**",

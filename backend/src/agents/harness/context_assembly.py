@@ -102,11 +102,24 @@ def _sandbox_contract(*, workspace_id: str, workspace_type: str | None) -> dict[
         "datasets_manifest_path": str(contract.get("datasets_manifest_path") or ""),
         "artifacts_manifest_path": str(contract.get("artifacts_manifest_path") or ""),
         "workspace_profile": _safe_workspace_profile(contract.get("workspace_profile")),
+        "path_classes": _safe_path_classes(contract.get("path_classes")),
+        "guidance_paths": _safe_string_list((contract.get("path_classes") or {}).get("guidance")),
         "protected_paths": [str(path) for path in contract.get("protected_paths") or ()],
         "internal_paths": [str(path) for path in contract.get("internal_paths") or ()],
         "search_ignored_names": [str(name) for name in contract.get("search_ignored_names") or ()],
         "rules": [str(rule) for rule in contract.get("rules") or ()],
     }
+
+
+def _safe_path_classes(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, list[str]] = {}
+    for key, items in value.items():
+        safe_items = _safe_string_list(items)
+        if safe_items:
+            result[str(key)] = safe_items
+    return result
 
 
 def _safe_workspace_profile(value: Any) -> dict[str, Any]:

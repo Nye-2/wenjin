@@ -31,12 +31,15 @@ from .providers.docker import DockerSandbox, DockerSandboxProvider
 from .providers.local import LocalSandbox, LocalSandboxProvider
 from .workspace_layout import (
     WORKSPACE_MANIFEST_RELATIVE_PATH,
+    WORKSPACE_PATH_CLASSES,
     WORKSPACE_PROTECTED_PATHS,
     WORKSPACE_ROOT,
     WORKSPACE_STANDARD_DIRS,
+    WORKSPACE_SUPPORTED_TYPES,
     WORKSPACE_TYPE_PROFILE_SCHEMA,
     ensure_workspace_sandbox_layout,
     is_workspace_guidance_path,
+    validate_workspace_type_profile,
     workspace_type_profile,
     workspace_virtual_path,
 )
@@ -55,11 +58,14 @@ __all__ = [
     "VirtualPathMapper",
     "WORKSPACE_ROOT",
     "WORKSPACE_STANDARD_DIRS",
+    "WORKSPACE_SUPPORTED_TYPES",
+    "WORKSPACE_PATH_CLASSES",
     "WORKSPACE_PROTECTED_PATHS",
     "WORKSPACE_TYPE_PROFILE_SCHEMA",
     "WORKSPACE_MANIFEST_RELATIVE_PATH",
     "ensure_workspace_sandbox_layout",
     "is_workspace_guidance_path",
+    "validate_workspace_type_profile",
     "workspace_type_profile",
     "workspace_virtual_path",
     # Configuration

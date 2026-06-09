@@ -175,7 +175,7 @@ git commit -m "feat: harden sandbox guidance artifacts"
 - Test: `backend/tests/sandbox/test_workspace_layout.py`
 - Test: `backend/tests/agents/harness/test_context_assembly.py`
 
-- [ ] **Step 1: Write failing contract test**
+- [x] **Step 1: Write failing contract test**
 
 Add a test that expects:
 
@@ -190,7 +190,7 @@ assert "/workspace/tmp" in contract["path_classes"]["scratch"]
 assert "/workspace/outputs/harness/**" in contract["path_classes"]["internal"]
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -200,7 +200,7 @@ cd backend && .venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py:
 
 Expected: fail because `path_classes` is missing.
 
-- [ ] **Step 3: Implement path classes**
+- [x] **Step 3: Implement path classes**
 
 Add `WORKSPACE_PATH_CLASSES` in `workspace_layout.py`:
 
@@ -220,7 +220,7 @@ WORKSPACE_PATH_CLASSES = {
 
 Return a deep copy from `build_workspace_sandbox_manifest()` and `build_agent_workspace_contract()`.
 
-- [ ] **Step 4: Project path classes in harness context**
+- [x] **Step 4: Project path classes in harness context**
 
 In `_sandbox_contract()`, include:
 
@@ -236,7 +236,7 @@ assert bundle["sandbox"]["path_classes"]["artifacts"] == ["/workspace/outputs", 
 assert "/workspace/outputs/README.md" in bundle["sandbox"]["guidance_paths"]
 ```
 
-- [ ] **Step 5: Verify GREEN**
+- [x] **Step 5: Verify GREEN**
 
 Run:
 
@@ -254,7 +254,7 @@ Expected: all selected tests pass.
 - Modify: `backend/src/sandbox/workspace_layout.py`
 - Test: `backend/tests/sandbox/test_workspace_layout.py`
 
-- [ ] **Step 1: Write failing invariant test**
+- [x] **Step 1: Write failing invariant test**
 
 Add:
 
@@ -269,7 +269,7 @@ def test_all_workspace_type_profiles_use_valid_common_layout_paths():
         }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run:
 
@@ -279,7 +279,7 @@ cd backend && .venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py:
 
 Expected: fail because `WORKSPACE_SUPPORTED_TYPES` and `validate_workspace_type_profile()` are missing.
 
-- [ ] **Step 3: Implement validator**
+- [x] **Step 3: Implement validator**
 
 Add:
 
@@ -315,7 +315,7 @@ def validate_workspace_type_profile(workspace_type: str) -> dict[str, Any]:
     return {"workspace_type": workspace_type, "valid": not errors, "errors": errors}
 ```
 
-- [ ] **Step 4: Add release-gate architecture check**
+- [x] **Step 4: Add release-gate architecture check**
 
 Extend `native_harness_quality_gate` coverage only if this test becomes part of the selected release suite. Otherwise leave the current gate unchanged and keep this as local sandbox layout coverage.
 
