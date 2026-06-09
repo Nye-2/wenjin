@@ -208,6 +208,13 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/unit/subagents/test_react.py::TestDefaultUserPayload::test_harness_context_uses_invocation_scoped_task_scratch_path -q` -> RED on ReactSubagent context using `/workspace/tmp/tasks/unassigned`, then 1 passed after forwarding `ctx.execution_id` and `ctx.invocation.id`.
   - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py tests/unit/subagents/test_react.py tests/agents/harness/test_policy_and_registry.py -q` -> 82 passed.
   - `backend`: `.venv/bin/ruff check src/sandbox/workspace_layout.py src/agents/harness/context_assembly.py src/subagents/v2/types/react.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_context_assembly.py tests/unit/subagents/test_react.py` -> passed.
+- 2026-06-09 run_python task scratch execution slice:
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py::test_run_python_script_uses_invocation_scoped_scratch_options tests/agents/lead_agent/v2/test_sandbox_runtime.py::test_run_python_script_local_provider_executes_inside_task_scratch -q` -> RED before cwd/env propagation, then 2 passed after `run_python` created `/workspace/tmp/tasks/{execution_id}/{node_id}`, executed with that path as cwd, and injected `WENJIN_TASK_SCRATCH` / `WENJIN_WORKSPACE_ROOT`.
+  - Local and Docker sandbox providers now accept audited `cwd` / `env` options; Local maps `/workspace` env refs to host paths during execution and masks stdout/stderr back to `/workspace`, while Docker passes the same virtual cwd/env into the short-lived task container.
+  - Artifact collector, execution manifest, reproducibility manifest, experiment narrative and report markdown now expose `task_scratch_path` when present, while empty mock/no-op payloads do not gain fake scratch fields.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_runtime.py -q` -> 24 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_local_sandbox.py tests/sandbox/test_integration.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_langchain_adapter.py tests/agents/lead_agent/v2/test_sandbox_runtime.py -q` -> 114 passed.
+  - `backend`: `.venv/bin/ruff check src/sandbox/base.py src/sandbox/providers/local.py src/sandbox/providers/docker.py src/agents/lead_agent/v2/sandbox_script_executor.py src/agents/lead_agent/v2/sandbox_job_runner.py src/agents/lead_agent/v2/sandbox_artifact_collector.py src/agents/harness/sandbox_execution_tools.py tests/agents/lead_agent/v2/test_sandbox_runtime.py` -> passed.
 
 ## 6. 剩余不足
 
