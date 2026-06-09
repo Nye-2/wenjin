@@ -364,6 +364,234 @@ def test_research_task_eval_accepts_team_quality_gate_citation_refs() -> None:
     ]
 
 
+def test_research_task_eval_passes_citation_strength_with_supported_audit_refs() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "citation_auditor.v1",
+                    "harness": {
+                        "citation_source_audit": [
+                            {
+                                "schema": "wenjin.quality.citation_source_audit_finding.v1",
+                                "source_id": "source-1",
+                                "citation_key": "smith2026",
+                                "status": "supported",
+                                "risk": "low",
+                                "severity": "medium",
+                                "claim": "The method comparison is supported by the cited paper.",
+                            }
+                        ]
+                    },
+                },
+            }
+        ],
+        required_surfaces=("citation_strength",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"citation_strength": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["citation_strength"] == {
+        "strong_refs": [
+            {
+                "source_id": "source-1",
+                "citation_key": "smith2026",
+                "status": "supported",
+                "risk": "low",
+                "severity": "medium",
+            }
+        ],
+        "weak_refs": [],
+        "rejected_refs": [],
+        "strong_count": 1,
+        "weak_count": 0,
+        "rejected_count": 0,
+    }
+
+
+def test_research_task_eval_fails_citation_strength_when_refs_are_only_weak() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "citation_auditor.v1",
+                    "harness": {
+                        "citation_source_audit": [
+                            {
+                                "schema": "wenjin.quality.citation_source_audit_finding.v1",
+                                "source_id": "source-1",
+                                "citation_key": "smith2026",
+                                "status": "weak",
+                                "risk": "weak",
+                                "severity": "medium",
+                                "claim": "The central claim has only partial support.",
+                            }
+                        ]
+                    },
+                },
+            }
+        ],
+        required_surfaces=("citation_strength",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"citation_strength": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "citation_strength",
+            "severity": "high",
+            "message": "No strong citation/source audit evidence was produced.",
+        }
+    ]
+    assert evaluation.evidence["citation_strength"] == {
+        "strong_refs": [],
+        "weak_refs": [
+            {
+                "source_id": "source-1",
+                "citation_key": "smith2026",
+                "status": "weak",
+                "risk": "weak",
+                "severity": "medium",
+            }
+        ],
+        "rejected_refs": [],
+        "strong_count": 0,
+        "weak_count": 1,
+        "rejected_count": 0,
+    }
+
+
+def test_research_task_eval_treats_weak_status_as_not_strong_even_with_low_risk() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "citation_auditor.v1",
+                    "harness": {
+                        "citation_source_audit": [
+                            {
+                                "schema": "wenjin.quality.citation_source_audit_finding.v1",
+                                "source_id": "source-1",
+                                "citation_key": "smith2026",
+                                "status": "weak",
+                                "risk": "low",
+                                "severity": "low",
+                                "claim": "Low risk cannot override weak support.",
+                            }
+                        ]
+                    },
+                },
+            }
+        ],
+        required_surfaces=("citation_strength",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.evidence["citation_strength"]["strong_refs"] == []
+    assert evaluation.evidence["citation_strength"]["weak_refs"] == [
+        {
+            "source_id": "source-1",
+            "citation_key": "smith2026",
+            "status": "weak",
+            "risk": "low",
+            "severity": "low",
+        }
+    ]
+
+
+def test_research_task_eval_rejects_citation_strength_with_fabricated_refs() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "citation_auditor.v1",
+                    "harness": {
+                        "citation_source_audit": [
+                            {
+                                "schema": "wenjin.quality.citation_source_audit_finding.v1",
+                                "source_id": "source-1",
+                                "citation_key": "smith2026",
+                                "status": "fabricated",
+                                "risk": "fabricated",
+                                "severity": "critical",
+                                "claim": "This should never satisfy citation strength.",
+                            }
+                        ]
+                    },
+                },
+            }
+        ],
+        required_surfaces=("citation_strength",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"citation_strength": "fail"}
+    assert evaluation.evidence["citation_strength"]["strong_refs"] == []
+    assert evaluation.evidence["citation_strength"]["rejected_refs"] == [
+        {
+            "source_id": "source-1",
+            "citation_key": "smith2026",
+            "status": "fabricated",
+            "risk": "fabricated",
+            "severity": "critical",
+        }
+    ]
+
+
+def test_research_task_eval_rejects_citation_strength_with_not_ready_refs() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "citation_auditor.v1",
+                    "harness": {
+                        "citation_source_audit": [
+                            {
+                                "schema": "wenjin.quality.citation_source_audit_finding.v1",
+                                "source_id": "source-1",
+                                "citation_key": "smith2026",
+                                "status": "not_ready",
+                                "risk": "not_ready",
+                                "severity": "medium",
+                                "claim": "This citation needs replacement before use.",
+                            }
+                        ]
+                    },
+                },
+            }
+        ],
+        required_surfaces=("citation_strength",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.evidence["citation_strength"]["weak_refs"] == []
+    assert evaluation.evidence["citation_strength"]["rejected_refs"] == [
+        {
+            "source_id": "source-1",
+            "citation_key": "smith2026",
+            "status": "not_ready",
+            "risk": "not_ready",
+            "severity": "medium",
+        }
+    ]
+
+
 def test_research_task_eval_passes_workflow_trace_from_member_transcripts() -> None:
     evaluation = evaluate_research_task_evidence(
         _report(),

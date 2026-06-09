@@ -8,7 +8,13 @@ from typing import Any, Literal
 from src.agents.contracts.task_report import TaskReport
 from src.sandbox.workspace_layout import WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT
 
-ResearchSurface = Literal["literature", "experiment", "writing", "workflow_trace"]
+ResearchSurface = Literal[
+    "literature",
+    "experiment",
+    "writing",
+    "workflow_trace",
+    "citation_strength",
+]
 EvalStatus = Literal["pass", "fail"]
 
 _VERIFIED_LITERATURE_LEVELS = {
@@ -20,11 +26,52 @@ _UNTRUSTED_CITATION_AUDIT_RISKS = {
     "blocked",
     "contradicted",
     "fabricated",
+    "incomplete",
     "missing",
+    "missing_metadata",
     "missing_source",
+    "needs_replacement",
+    "not_ready",
+    "replace",
     "unsupported",
 }
 _UNTRUSTED_CITATION_AUDIT_SEVERITIES = {"blocking", "critical", "high"}
+_STRONG_CITATION_AUDIT_STATUSES = {
+    "accepted",
+    "grounded",
+    "ready",
+    "supported",
+    "verified",
+}
+_STRONG_CITATION_AUDIT_RISKS = {
+    "grounded",
+    "low",
+    "verified",
+}
+_WEAK_CITATION_AUDIT_STATUSES = {
+    "partial",
+    "uncertain",
+    "weak",
+}
+_WEAK_CITATION_AUDIT_RISKS = {
+    "medium",
+    "partial",
+    "uncertain",
+    "weak",
+}
+_REJECTED_CITATION_AUDIT_STATUSES = {
+    "blocked",
+    "contradicted",
+    "fabricated",
+    "incomplete",
+    "missing",
+    "missing_metadata",
+    "missing_source",
+    "needs_replacement",
+    "not_ready",
+    "replace",
+    "unsupported",
+}
 
 
 @dataclass(slots=True)
@@ -60,6 +107,7 @@ def evaluate_research_task_evidence(
         "experiment": _evaluate_experiment,
         "writing": _evaluate_writing,
         "workflow_trace": _evaluate_workflow_trace,
+        "citation_strength": _evaluate_citation_strength,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -118,6 +166,21 @@ def _evaluate_literature(
         False,
         evidence,
         "No verified literature output or citation/source audit refs were produced.",
+    )
+
+
+def _evaluate_citation_strength(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del report
+    evidence = _citation_strength_evidence(node_events)
+    if evidence["strong_count"] > 0:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        "No strong citation/source audit evidence was produced.",
     )
 
 
@@ -318,19 +381,50 @@ def _prism_content_contract(item: dict[str, Any]) -> dict[str, Any]:
 
 def _citation_audit_refs(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
+    for finding in _citation_source_findings(node_events):
+        ref = _citation_audit_ref(finding)
+        if ref:
+            refs.append(ref)
+    return _dedupe_citation_refs(refs)[:50]
+
+
+def _citation_strength_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
+    strong_refs: list[dict[str, str]] = []
+    weak_refs: list[dict[str, str]] = []
+    rejected_refs: list[dict[str, str]] = []
+    for finding in _citation_source_findings(node_events):
+        ref = _citation_strength_ref(finding)
+        if not ref:
+            continue
+        if _citation_strength_ref_is_rejected(ref):
+            _append_unique_dict(rejected_refs, ref)
+            continue
+        if _citation_strength_ref_is_strong(ref):
+            _append_unique_dict(strong_refs, ref)
+            continue
+        if _citation_strength_ref_is_weak(ref):
+            _append_unique_dict(weak_refs, ref)
+    return {
+        "strong_refs": strong_refs[:50],
+        "weak_refs": weak_refs[:50],
+        "rejected_refs": rejected_refs[:50],
+        "strong_count": len(strong_refs),
+        "weak_count": len(weak_refs),
+        "rejected_count": len(rejected_refs),
+    }
+
+
+def _citation_source_findings(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    findings: list[dict[str, Any]] = []
     for event in node_events:
         harness = _harness_metadata(event)
-        for finding in _citation_source_findings_from_value(
-            harness.get("citation_source_audit")
-        ):
-            ref = _citation_audit_ref(finding)
-            if ref:
-                refs.append(ref)
-        for finding in _team_quality_gate_citation_findings(event):
-            ref = _citation_audit_ref(finding)
-            if ref:
-                refs.append(ref)
-    return _dedupe_citation_refs(refs)[:50]
+        findings.extend(
+            _citation_source_findings_from_value(
+                harness.get("citation_source_audit")
+            )
+        )
+        findings.extend(_team_quality_gate_citation_findings(event))
+    return findings
 
 
 def _citation_source_findings_from_value(value: Any) -> list[dict[str, Any]]:
@@ -374,8 +468,8 @@ def _team_quality_gates(event: dict[str, Any]) -> list[dict[str, Any]]:
 def _citation_audit_ref(finding: dict[str, Any]) -> dict[str, str] | None:
     source_id = _clean_text(finding.get("source_id"))
     citation_key = _clean_text(finding.get("citation_key"))
-    risk = _clean_text(finding.get("risk"))
-    severity = _clean_text(finding.get("severity"))
+    risk = _clean_text(finding.get("risk")).lower()
+    severity = _clean_text(finding.get("severity")).lower()
     if risk in _UNTRUSTED_CITATION_AUDIT_RISKS:
         return None
     if severity in _UNTRUSTED_CITATION_AUDIT_SEVERITIES:
@@ -387,6 +481,51 @@ def _citation_audit_ref(finding: dict[str, Any]) -> dict[str, str] | None:
             "risk": risk,
         }
     return None
+
+
+def _citation_strength_ref(finding: dict[str, Any]) -> dict[str, str] | None:
+    source_id = _clean_text(finding.get("source_id"))
+    citation_key = _clean_text(finding.get("citation_key"))
+    if not source_id and not citation_key:
+        return None
+    ref = {
+        "source_id": source_id,
+        "citation_key": citation_key,
+        "status": _clean_text(finding.get("status")).lower(),
+        "risk": _clean_text(finding.get("risk")).lower(),
+        "severity": _clean_text(finding.get("severity")).lower(),
+    }
+    return {key: value for key, value in ref.items() if value}
+
+
+def _citation_strength_ref_is_rejected(ref: dict[str, str]) -> bool:
+    return (
+        ref.get("status") in _REJECTED_CITATION_AUDIT_STATUSES
+        or ref.get("risk") in _UNTRUSTED_CITATION_AUDIT_RISKS
+        or ref.get("severity") in _UNTRUSTED_CITATION_AUDIT_SEVERITIES
+    )
+
+
+def _citation_strength_ref_is_strong(ref: dict[str, str]) -> bool:
+    if _citation_strength_ref_has_weak_signal(ref):
+        return False
+    return (
+        ref.get("status") in _STRONG_CITATION_AUDIT_STATUSES
+        or ref.get("risk") in _STRONG_CITATION_AUDIT_RISKS
+    ) and not _citation_strength_ref_is_rejected(ref)
+
+
+def _citation_strength_ref_is_weak(ref: dict[str, str]) -> bool:
+    return _citation_strength_ref_has_weak_signal(ref) or bool(
+        ref.get("source_id") or ref.get("citation_key")
+    )
+
+
+def _citation_strength_ref_has_weak_signal(ref: dict[str, str]) -> bool:
+    return (
+        ref.get("status") in _WEAK_CITATION_AUDIT_STATUSES
+        or ref.get("risk") in _WEAK_CITATION_AUDIT_RISKS
+    )
 
 
 def _dedupe_citation_refs(refs: list[dict[str, str]]) -> list[dict[str, str]]:
@@ -531,6 +670,11 @@ def _append_unique(values: list[str], value: str) -> None:
     text = _clean_text(value)
     if text and text not in values:
         values.append(text)
+
+
+def _append_unique_dict(values: list[dict[str, str]], value: dict[str, str]) -> None:
+    if value not in values:
+        values.append(value)
 
 
 def _int_value(value: Any) -> int:

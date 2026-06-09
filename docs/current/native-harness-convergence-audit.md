@@ -232,12 +232,19 @@ Chat Agent
 - 2026-06-09 workflow trace eval slice:
   - Added optional `workflow_trace` to deterministic `research_task_eval`, backed only by existing `node_metadata.harness.member_execution_transcript`.
   - The eval aggregates completed/failed tool counts, tool names, changed paths, sandbox job/environment ids, safe scratch refs, generated artifact count, token usage, bounded credits and duration; it fails when no member transcript with completed tool activity exists.
-  - This closes the "review items exist but no team execution trace" structural gap without creating a new runtime, event stream or billing source. It still does not score paper relevance, citation strength, experiment interpretation or writing semantic preservation.
+  - This closes the "review items exist but no team execution trace" structural gap without creating a new runtime, event stream or billing source. Outcome-quality scoring still needs paper relevance, experiment interpretation and writing semantic preservation coverage.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> 7 passed.
 - 2026-06-09 workflow trace E2E gate slice:
   - Mock TeamKernel sandbox E2E now requires `evaluate_research_task_evidence(required_surfaces=("literature","experiment","writing","workflow_trace"))` to pass against the actual runtime `TaskReport` and recorded node events.
   - The E2E also asserts `member_execution_transcript.scratch_refs` carries the sandbox task scratch path `/workspace/tmp/tasks/{execution_id}/{node_id}`, so long-running experiment continuity stays covered by the native harness gate.
   - `backend`: `.venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py::test_team_harness_mock_sandbox_flow_stages_reviewable_artifact -q` -> RED on missing scratch refs in workflow trace, then 1 passed after aligning the mock `sandbox.run_python` manifest with production task-scratch output.
+- 2026-06-09 citation strength eval slice:
+  - Added optional `citation_strength` research-eval surface.
+  - Preserved `literature` as structural coverage so weak citation/source refs can still show that evidence exists.
+  - Required supported/verified/low-risk citation/source audit evidence for the stricter outcome-quality gate, while fabricated/missing/unsupported/high-risk refs are rejected.
+  - The implementation reads existing `citation_source_audit` findings from harness metadata and TeamKernel quality-gate runtime state only; no new runtime, SDK bridge, event stream, table or raw member-output UI parser was added.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> RED on missing `citation_strength`, then 12 passed.
+  - `backend`: native harness regression gate -> 300 passed.
 - 2026-06-09 closed workspace directory contract slice:
   - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
   - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.

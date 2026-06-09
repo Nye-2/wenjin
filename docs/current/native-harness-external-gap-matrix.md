@@ -69,9 +69,9 @@ deer-flow:
 
    Status: partially closed. Common layout remains shared across workspace types, and domain differences stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch root; harness context injects a safe per-execution/member `task_scratch_path`, Lead-owned `sandbox.run_python` now creates `/workspace/tmp/tasks/{execution_id}/{node_id}`, executes with that directory as cwd, and injects `WENJIN_TASK_SCRATCH` / `WENJIN_WORKSPACE_ROOT`. Safe upstream scratch dirs now flow to later members through top-level `scratch_refs[]` without being promoted to reviewable artifact candidates. Reviewable output still belongs under `outputs`/`reports`; the remaining work is real-task tuning: deciding which intermediates become review artifacts, which stay scratch-only, and how much scratch context later team members should receive.
 
-5. **Quality gates now include workflow trace, but not outcome-quality scoring.**
+5. **Quality gates now include workflow trace and first outcome-quality scoring.**
 
-   Literature, experiment, Prism writing evidence, and team `workflow_trace` now have deterministic structure checks. The workflow trace check consumes existing `member_execution_transcript` metadata so a SCI workflow can fail release-gate evaluation when review items exist but no team member transcript shows completed tool activity. Remaining gap: outcome-quality eval still needs relevance of papers, citation strength, experiment interpretation, and whether writing edits improve academic style without semantic drift.
+   Literature, experiment, Prism writing evidence, and team `workflow_trace` now have deterministic structure checks. The workflow trace check consumes existing `member_execution_transcript` metadata so a SCI workflow can fail release-gate evaluation when review items exist but no team member transcript shows completed tool activity. `citation_strength` is the first deterministic outcome-quality surface: weak citation/source refs can still prove structural literature coverage, but only supported/verified/low-risk refs satisfy strong citation support, while fabricated/missing/unsupported/high-risk refs are rejected. Remaining gap: outcome-quality eval still needs relevance of papers, experiment interpretation, reviewer-facing scoring, and whether writing edits improve academic style without semantic drift.
 
 6. **Member-level usage and execution transcript now has a backend projection.**
 
@@ -83,6 +83,6 @@ deer-flow:
 
 1. Run one real SCI workflow through the native harness gate with `workflow_trace` required, then tune prompts/tools from the failures.
 2. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs or ignore member transcripts.
-3. Add outcome-quality evals for citation strength, experiment interpretation, and Prism semantic preservation.
+3. Add outcome-quality evals for experiment interpretation, paper relevance, and Prism semantic preservation.
 4. Design frontend/team-roster usage display only after real runs prove which transcript fields help users.
 5. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.
