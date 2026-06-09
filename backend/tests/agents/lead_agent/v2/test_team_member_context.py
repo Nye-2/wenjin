@@ -36,7 +36,7 @@ def test_member_context_preserves_explicit_query_and_filters_internal_refs() -> 
                 "topic": "federated LLM",
                 "source_refs": [
                     "/workspace/reports/visible.md",
-                    "/workspace/outputs/harness/exec/node/raw.log",
+                    "/workspace/tmp/tasks/.harness/outputs/exec/node/raw.log",
                     "/workspace/.wenjin/manifest.json",
                 ],
             },
@@ -54,5 +54,5 @@ def test_member_context_preserves_explicit_query_and_filters_internal_refs() -> 
     assert payload["topic"] == "federated LLM"
     assert payload["upstream_context"]["latest_leader_summary"] == "检索到 federated LLM 来源。"
     assert "/workspace/reports/visible.md" in payload["source_refs"]
-    assert all("/workspace/outputs/harness" not in ref for ref in payload["source_refs"])
+    assert all("/workspace/tmp/tasks/.harness/outputs" not in ref for ref in payload["source_refs"])
     assert all("/workspace/.wenjin" not in ref for ref in payload["source_refs"])

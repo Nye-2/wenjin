@@ -46,9 +46,9 @@ deer-flow:
 
 ## Current Wenjin Gaps
 
-1. **Output refs are still located under `/workspace/outputs/harness`.**
+1. **Output refs have moved under task scratch, but recovery UX can be clearer.**
 
-   This is safe because they are classified as internal, hidden from listing/search/artifact discovery, and now read-only through explicit refs. The cleaner long-term target is moving new internal refs under a task scratch namespace such as `/workspace/tmp/tasks/.harness/outputs`, while keeping artifact roots reserved for user-reviewable outputs.
+   New internal refs are now under `/workspace/tmp/tasks/.harness/outputs`, classified as internal, hidden from listing/search/artifact discovery, and read-only through explicit refs. The remaining improvement is a clearer `read_output_ref` facade or tool guidance so agents do not try to list internal directories.
 
 2. **Command audit is strong for Python execution but not yet a reusable policy language.**
 
@@ -58,9 +58,9 @@ deer-flow:
 
    The harness now permits bounded `sandbox.read_file` on explicit output refs. The next improvement is a small `sandbox.read_output_ref` facade or documented `read_file` guidance that prevents models from trying to list internal directories.
 
-4. **Workspace filesystem contract is usable but output/scratch semantics should converge.**
+4. **Workspace filesystem contract is usable but task scratch semantics should keep tightening.**
 
-   Common layout should remain shared across workspace types. Domain differences should stay in `workspace_profile`, not new directories. `tmp/tasks` should become the canonical task scratch surface, while reviewable output stays under `outputs`/`reports`.
+   Common layout should remain shared across workspace types. Domain differences should stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch surface, while reviewable output stays under `outputs`/`reports`.
 
 5. **Quality gates are structural, not yet outcome-quality complete.**
 
@@ -69,8 +69,6 @@ deer-flow:
 ## Near-Term Implementation Order
 
 1. Keep output refs hidden but directly readable through bounded `sandbox.read_file` by explicit ref.
-2. Move new harness internal output refs from `/workspace/outputs/harness` to a task scratch internal root, once tests and docs are updated together.
-3. Add a compact command-policy decision contract test shared by `run_python`, install, and future smoke checks.
-4. Add context guidance that tells members where to put scratch files, user artifacts, reports, and output refs without exposing raw internal paths in UI.
-5. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.
-
+2. Add a compact command-policy decision contract test shared by `run_python`, install, and future smoke checks.
+3. Add context guidance that tells members where to put scratch files, user artifacts, reports, and output refs without exposing raw internal paths in UI.
+4. Add targeted quality evals for one real SCI workflow: literature package, experiment result, and Prism revision.

@@ -70,7 +70,8 @@ def test_ensure_workspace_sandbox_layout_creates_guidance_and_keep_files(tmp_pat
     assert (tmp_path / "datasets" / "README.md").is_file()
     assert outputs_readme_path.is_file()
     assert reports_readme_path.is_file()
-    assert "/workspace/outputs/harness" in outputs_readme_path.read_text(encoding="utf-8")
+    assert "internal tool refs" in outputs_readme_path.read_text(encoding="utf-8")
+    assert "/workspace/tmp/tasks/.harness" in reports_readme_path.read_text(encoding="utf-8")
     assert "/workspace/reports/artifacts.json" in reports_readme_path.read_text(encoding="utf-8")
     assert layout.is_workspace_guidance_path("/workspace/outputs/README.md")
     assert layout.is_workspace_guidance_path("/workspace/reports/README.md")
@@ -87,7 +88,7 @@ def test_ensure_workspace_sandbox_layout_creates_guidance_and_keep_files(tmp_pat
         "rules": [
             "Record user-reviewable generated artifacts under /workspace/outputs or /workspace/reports.",
             "Use /workspace virtual paths only.",
-            "Do not register /workspace/outputs/harness internal refs or protected files.",
+            "Do not register internal refs or protected files.",
             "Prefer title, artifact_kind, content_hash, source_script, dataset_paths, and review notes when known.",
         ],
     }
@@ -227,7 +228,7 @@ def test_merge_dataset_provenance_manifest_rejects_non_dataset_and_guidance_refs
             {"path": "/workspace/datasets/README.md"},
             {"path": "/workspace/datasets/.gitkeep"},
             {"path": "/workspace/outputs/result.csv"},
-            {"path": "/workspace/outputs/harness/exec/tool.txt"},
+            {"path": "/workspace/tmp/tasks/.harness/outputs/exec/tool.txt"},
             {"path": "/workspace/main/.env"},
             {"path": "/mnt/user-data/datasets/raw.csv"},
             {"path": "/workspace/datasets/raw/valid.csv", "source_id": "source-1"},
@@ -327,7 +328,7 @@ def test_merge_artifact_manifest_rejects_internal_guidance_and_non_artifact_refs
         build_artifact_manifest(),
         [
             {"path": "/workspace/reports/artifacts.json"},
-            {"path": "/workspace/outputs/harness/exec/tool.txt"},
+            {"path": "/workspace/tmp/tasks/.harness/outputs/exec/tool.txt"},
             {"path": "/workspace/main/paper.tex"},
             {"path": "/workspace/datasets/raw.csv"},
             {"path": "/workspace/main/.env"},
@@ -361,7 +362,7 @@ def test_merge_artifact_manifest_accepts_only_safe_source_script_refs():
             {
                 "path": "/workspace/outputs/internal-source.csv",
                 "title": "Internal source should be dropped",
-                "source_script": "/workspace/outputs/harness/exec/tool.py",
+                "source_script": "/workspace/tmp/tasks/.harness/outputs/exec/tool.py",
             },
             {
                 "path": "/workspace/outputs/host-source.csv",
@@ -530,7 +531,8 @@ def test_agent_workspace_contract_exposes_path_classes():
         "/workspace/.wenjin/env",
         "/workspace/.wenjin/cache",
     ]
-    assert "/workspace/outputs/harness/**" in contract["path_classes"]["internal"]
+    assert "/workspace/tmp/tasks/.harness/**" in contract["path_classes"]["internal"]
+    assert "/workspace/tmp/tasks/.harness/outputs/**" not in contract["path_classes"]["internal"]
     assert "/workspace/outputs/README.md" in contract["path_classes"]["guidance"]
     assert "/workspace/reports/artifacts.json" in contract["path_classes"]["guidance"]
 
@@ -599,16 +601,16 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     assert layout.is_workspace_protected_path("/workspace/main/.env")
     assert layout.is_workspace_protected_path("/workspace/scripts/.env.local")
     assert layout.is_workspace_internal_path(
-        "/workspace/outputs/harness/exec-1/node/tool.txt"
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/tool.txt"
     )
     assert layout.is_workspace_readable_internal_output_ref(
-        "/workspace/outputs/harness/exec-1/node/tool.txt"
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/tool.txt"
     )
     assert not layout.is_workspace_readable_internal_output_ref(
         "/workspace/.wenjin/state/debug.json"
     )
     assert not layout.is_user_reviewable_workspace_artifact_path(
-        "/workspace/outputs/harness/exec-1/node/tool.txt"
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/tool.txt"
     )
     assert layout.is_user_reviewable_workspace_artifact_path("/workspace/outputs/figure.png")
     assert layout.is_user_reviewable_workspace_artifact_path("/workspace/reports/summary.md")
@@ -629,7 +631,7 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     assert layout.classify_workspace_path("/workspace/scripts/.env.local") == "protected"
     assert layout.classify_workspace_path("/workspace/tmp/tasks/exec-1/draft.json") == "hidden"
     assert (
-        layout.classify_workspace_path("/workspace/outputs/harness/exec/tool.txt")
+        layout.classify_workspace_path("/workspace/tmp/tasks/.harness/outputs/exec/tool.txt")
         == "internal"
     )
     assert layout.classify_workspace_path("/workspace/outputs/README.md") == "hidden"

@@ -23,10 +23,12 @@ WORKSPACE_ARTIFACT_MANIFEST_SCHEMA = "wenjin.workspace_sandbox.artifact_manifest
 WORKSPACE_ARTIFACT_MANIFEST_VERSION = 1
 WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH = "reports/artifacts.json"
 WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH}"
-WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH = "outputs/harness"
-WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH}"
 WORKSPACE_TASK_SCRATCH_RELATIVE_ROOT = "tmp/tasks"
 WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_TASK_SCRATCH_RELATIVE_ROOT}"
+WORKSPACE_HARNESS_INTERNAL_RELATIVE_ROOT = f"{WORKSPACE_TASK_SCRATCH_RELATIVE_ROOT}/.harness"
+WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_HARNESS_INTERNAL_RELATIVE_ROOT}"
+WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH = f"{WORKSPACE_HARNESS_INTERNAL_RELATIVE_ROOT}/outputs"
+WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT = f"{WORKSPACE_ROOT}/{WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH}"
 
 WORKSPACE_STANDARD_DIRS = (
     "main",
@@ -36,6 +38,7 @@ WORKSPACE_STANDARD_DIRS = (
     "reports",
     "tmp",
     WORKSPACE_TASK_SCRATCH_RELATIVE_ROOT,
+    WORKSPACE_HARNESS_OUTPUTS_RELATIVE_PATH,
     ".wenjin/env",
     ".wenjin/cache",
 )
@@ -61,6 +64,7 @@ Use this sandbox as the persistent workspace filesystem for this research task.
 - Put generated figures, tables, metrics, and run outputs under /workspace/outputs.
 - Put readable analysis notes and reports under /workspace/reports.
 - Use /workspace/tmp only for scratch files that should not be surfaced by default.
+- Internal tool output refs live under /workspace/tmp/tasks/.harness and are read-only by explicit ref.
 - Do not read or write .wenjin, .git, .env, *.pem, or *.key paths.
 """
 
@@ -80,7 +84,7 @@ Use this directory for generated figures, tables, metrics, and other files that 
 
 - Put reviewable generated files directly under /workspace/outputs or a clear subdirectory.
 - Do not write model-visible debug dumps under /workspace/outputs.
-- Do not register /workspace/outputs/harness internal refs as user-facing artifacts.
+- Do not register internal tool refs as user-facing artifacts.
 - Keep temporary scratch data under /workspace/tmp instead.
 """
 
@@ -91,7 +95,7 @@ Use this directory for readable reports, audits, revision plans, and experiment 
 - Put user-facing Markdown or text reports under /workspace/reports.
 - Record artifact metadata in /workspace/reports/artifacts.json when known.
 - Do not store secrets, credentials, API keys, or private tokens here.
-- Keep raw stdout, stderr, and tool dumps under /workspace/outputs/harness only.
+- Keep raw stdout, stderr, and tool dumps under /workspace/tmp/tasks/.harness only.
 """
 
 WORKSPACE_GUIDANCE_RELATIVE_PATHS = (
@@ -133,7 +137,7 @@ DATASET_PROVENANCE_MANIFEST_ALLOWED_FIELDS = (
 WORKSPACE_ARTIFACT_MANIFEST_RULES = (
     "Record user-reviewable generated artifacts under /workspace/outputs or /workspace/reports.",
     "Use /workspace virtual paths only.",
-    "Do not register /workspace/outputs/harness internal refs or protected files.",
+    "Do not register internal refs or protected files.",
     "Prefer title, artifact_kind, content_hash, source_script, dataset_paths, and review notes when known.",
 )
 
@@ -164,7 +168,7 @@ WORKSPACE_PROTECTED_PATHS = (
 )
 
 WORKSPACE_INTERNAL_PATHS = (
-    f"{WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT}/**",
+    f"{WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT}/**",
 )
 
 WORKSPACE_PATH_CLASSES = {
@@ -816,7 +820,7 @@ def _contains_workspace_secret_ref(text: str) -> bool:
         marker in text
         for marker in (
             f"{WORKSPACE_ROOT}/.wenjin",
-            f"{WORKSPACE_ROOT}/outputs/harness",
+            WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT,
             f"{WORKSPACE_ROOT}/.env",
             "/.env",
             ".pem",
@@ -877,7 +881,7 @@ def build_agent_workspace_contract(
             "Use /workspace/tmp only for scratch data that should not be surfaced by default.",
             "Use /workspace/tmp/tasks for task-scoped scratch files that should not become artifacts.",
             "Do not read or write protected paths.",
-            "Do not register or cite /workspace/outputs/harness/** as user-facing artifacts.",
+            "Do not register or cite internal harness refs as user-facing artifacts.",
         ],
     }
 

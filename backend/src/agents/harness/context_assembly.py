@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from src.sandbox.workspace_layout import (
+    WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT,
     build_agent_workspace_contract,
     is_workspace_internal_path,
     is_workspace_protected_path,
@@ -486,7 +487,7 @@ def _safe_value(value: Any) -> Any:
 
 def _contains_protected_or_internal_path(text: str) -> bool:
     markers = (
-        "/workspace/outputs/harness",
+        WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT,
         "/workspace/.wenjin",
         "/workspace/.git",
         "/workspace/.env",

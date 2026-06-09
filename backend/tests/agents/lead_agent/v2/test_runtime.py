@@ -1190,7 +1190,7 @@ def test_collect_sandbox_artifact_candidates_rejects_internal_and_traversal_path
                         },
                         {
                             "schema": DISCOVERY_SCHEMA,
-                            "path": "/workspace/outputs/harness/exec/node/tool.txt",
+                            "path": "/workspace/tmp/tasks/.harness/outputs/exec/node/tool.txt",
                             "artifact_kind": "sandbox_output",
                             "review_surface": "sandbox_artifact",
                             "materialization_status": "candidate",

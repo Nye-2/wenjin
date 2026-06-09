@@ -161,7 +161,7 @@ LiveWorkflowPanel 选择当前展示 run 时必须按以下优先级：
 
 Backend API 返回 execution list/detail 时，`ExecutionService` 可以从 `ExecutionNodeRecord` hydrate `ExecutionRecord.node_states`，供 `RunView` 计算 team member count、harness metadata 和 node progress；前端不得把这个 projection 写回成第二套节点事实源。
 
-TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish` 五个流程节点；实名成员模板、成员状态和 harness activity 只进入 team roster。`runtime_state.quality_gates` 在 `RunView` 中按 gate id 聚合，显示最新状态，避免默认视图重复展示历史 quality gate event。成员 activity 和 Evidence tab 可以消费 `run_journal_summary`、`reproducibility_summary`、`sandbox_execution_summary`、`file_change_summary` 和 `citation_source_audit`，但只能输出用户可理解的短标签，例如“已完成可复现实验：1 个脚本 · 1 个数据集 · 1 个产物”“脚本：analysis.py · 数据：panel.csv · 产物：result.json”或“对象：未确认 fake2026 · 问题：not found in library · 建议：替换或删除”，不得把 raw args、stdout、stderr、manifest JSON、schema id 或 `/workspace/outputs/harness/**` 内部 refs 放进默认视图。
+TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish` 五个流程节点；实名成员模板、成员状态和 harness activity 只进入 team roster。`runtime_state.quality_gates` 在 `RunView` 中按 gate id 聚合，显示最新状态，避免默认视图重复展示历史 quality gate event。成员 activity 和 Evidence tab 可以消费 `run_journal_summary`、`reproducibility_summary`、`sandbox_execution_summary`、`file_change_summary` 和 `citation_source_audit`，但只能输出用户可理解的短标签，例如“已完成可复现实验：1 个脚本 · 1 个数据集 · 1 个产物”“脚本：analysis.py · 数据：panel.csv · 产物：result.json”或“对象：未确认 fake2026 · 问题：not found in library · 建议：替换或删除”，不得把 raw args、stdout、stderr、manifest JSON、schema id 或 `/workspace/tmp/tasks/.harness/outputs/**` 内部 refs 放进默认视图。
 
 `run-ui-store` 只允许保存：
 

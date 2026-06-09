@@ -60,7 +60,7 @@ async def test_discover_generated_artifacts_enriches_candidates_from_manifest(tm
                         "notes": "ready for review",
                     },
                     {
-                        "path": "/workspace/outputs/harness/exec/stdout.txt",
+                        "path": "/workspace/tmp/tasks/.harness/outputs/exec/stdout.txt",
                         "title": "Internal ref must not enrich",
                     },
                 ],

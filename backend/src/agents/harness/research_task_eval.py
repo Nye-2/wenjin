@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from src.agents.contracts.task_report import TaskReport
+from src.sandbox.workspace_layout import WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT
 
 ResearchSurface = Literal["literature", "experiment", "writing"]
 EvalStatus = Literal["pass", "fail"]
@@ -391,7 +392,7 @@ def _workspace_dataset_paths(value: Any) -> list[str]:
 def _workspace_artifact_path(value: Any) -> str:
     path = _workspace_path(value)
     if path.startswith("/workspace/outputs/") or path.startswith("/workspace/reports/"):
-        if path.startswith("/workspace/outputs/harness/"):
+        if path.startswith(f"{WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT}/"):
             return ""
         return path
     return ""

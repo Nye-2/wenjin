@@ -555,7 +555,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                         },
                     {
                         "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
-                        "path": "/workspace/outputs/harness/exec/tool/raw.txt",
+                        "path": "/workspace/tmp/tasks/.harness/outputs/exec/tool/raw.txt",
                         "root": "outputs",
                         "artifact_kind": "sandbox_output",
                         "mime_type": "text/plain",

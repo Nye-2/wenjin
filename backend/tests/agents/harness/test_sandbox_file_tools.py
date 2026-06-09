@@ -131,7 +131,7 @@ async def test_read_file_externalizes_large_selected_output(sandbox: LocalSandbo
     assert result.externalized
     assert len(result.output_refs) == 1
     assert result.output_refs[0].startswith(
-        "/workspace/outputs/harness/exec-1/node-1/invocation-1/sandbox.read_file-"
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/invocation-1/sandbox.read_file-"
     )
     assert result.output_refs[0].endswith(".txt")
     assert "Full sandbox.read_file output saved to" in result.preview_text
@@ -506,7 +506,7 @@ async def test_register_artifact_rejects_internal_and_non_artifact_paths(sandbox
         await tools.register_artifact(path="/workspace/main/paper.tex", title="bad")
 
     with pytest.raises(HarnessPathError, match="artifact path must be under /workspace/outputs or /workspace/reports"):
-        await tools.register_artifact(path="/workspace/outputs/harness/exec/stdout.txt", title="bad")
+        await tools.register_artifact(path="/workspace/tmp/tasks/.harness/outputs/exec/stdout.txt", title="bad")
 
     await tools.register_artifact(
         path="/workspace/outputs/result.csv",
@@ -597,7 +597,7 @@ async def test_write_file_externalizes_large_diff(sandbox: LocalSandbox) -> None
     assert len(change["diff_output_refs"]) == 1
     diff_ref = change["diff_output_refs"][0]
     assert diff_ref.startswith(
-        "/workspace/outputs/harness/exec-1/node-1/invocation-1/sandbox.write_file.diff-"
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/invocation-1/sandbox.write_file.diff-"
     )
     assert diff_ref.endswith(".diff")
     assert "Full sandbox.write_file.diff output saved to" in change["unified_diff"]
@@ -641,7 +641,7 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
     await sandbox.write_file("/workspace/outputs/result.txt", "alpha artifact\n")
     await sandbox.write_file("/workspace/.env", "alpha secret\n")
     await sandbox.write_file("/workspace/.wenjin/env/python/bin/python", "alpha runtime\n")
-    await sandbox.write_file("/workspace/outputs/harness/exec/node/tool.txt", "alpha internal\n")
+    await sandbox.write_file("/workspace/tmp/tasks/.harness/outputs/exec/node/tool.txt", "alpha internal\n")
     tools = SandboxFileTools(
         sandbox=sandbox,
         context=_ctx(),
@@ -660,18 +660,18 @@ async def test_listing_and_search_hide_protected_and_internal_paths(sandbox: Loc
     assert "/workspace/outputs/result.txt" in searched_paths
     assert all(not path.startswith("/workspace/.env") for path in listed_paths)
     assert all(not path.startswith("/workspace/.wenjin") for path in listed_paths)
-    assert all(not path.startswith("/workspace/outputs/harness") for path in listed_paths)
+    assert all(not path.startswith("/workspace/tmp/tasks/.harness/outputs") for path in listed_paths)
     assert all(not path.startswith("/workspace/.env") for path in glob_result.structured_payload["matches"])
     assert all(not path.startswith("/workspace/.wenjin") for path in glob_result.structured_payload["matches"])
-    assert all(not path.startswith("/workspace/outputs/harness") for path in glob_result.structured_payload["matches"])
+    assert all(not path.startswith("/workspace/tmp/tasks/.harness/outputs") for path in glob_result.structured_payload["matches"])
     assert all(not path.startswith("/workspace/.env") for path in searched_paths)
     assert all(not path.startswith("/workspace/.wenjin") for path in searched_paths)
-    assert all(not path.startswith("/workspace/outputs/harness") for path in searched_paths)
+    assert all(not path.startswith("/workspace/tmp/tasks/.harness/outputs") for path in searched_paths)
 
 
 @pytest.mark.asyncio
 async def test_direct_file_tools_allow_read_only_internal_harness_output_refs(sandbox: LocalSandbox) -> None:
-    internal_path = "/workspace/outputs/harness/exec-1/node-1/invocation-1/full-output.txt"
+    internal_path = "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/invocation-1/full-output.txt"
     await sandbox.write_file(internal_path, "internal full output\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
 
@@ -838,13 +838,23 @@ async def test_listing_and_search_hide_symlinks_to_protected_workspace_targets(s
 
 @pytest.mark.asyncio
 async def test_file_tools_hide_symlinks_to_internal_workspace_targets(sandbox: LocalSandbox) -> None:
-    internal_path = "/workspace/outputs/harness/exec-1/node-1/invocation-1/full-output.txt"
+    internal_path = "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/invocation-1/full-output.txt"
     await sandbox.write_file(internal_path, "alpha internal\n")
     await sandbox.write_file("/workspace/main/visible.txt", "alpha visible\n")
     workspace_root = Path(sandbox.path_mappings["/workspace"])
     link_path = workspace_root / "main" / "linked-internal.txt"
     link_path.parent.mkdir(parents=True, exist_ok=True)
-    internal_target = workspace_root / "outputs" / "harness" / "exec-1" / "node-1" / "invocation-1" / "full-output.txt"
+    internal_target = (
+        workspace_root
+        / "tmp"
+        / "tasks"
+        / ".harness"
+        / "outputs"
+        / "exec-1"
+        / "node-1"
+        / "invocation-1"
+        / "full-output.txt"
+    )
     try:
         link_path.symlink_to(internal_target)
     except (NotImplementedError, OSError) as exc:

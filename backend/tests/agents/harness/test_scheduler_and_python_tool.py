@@ -642,13 +642,13 @@ async def test_run_python_propagates_externalized_output_refs() -> None:
         async def run_python_script(self, **kwargs):
             return {
                 "status": "completed",
-                "stdout": "Total output lines: 30\n\nrow 001\n\n[Full sandbox.run_python.stdout output saved to /workspace/outputs/harness/exec-1/node-1/node-1/sandbox.run_python.stdout.txt]\n\nrow 030",
+                "stdout": "Total output lines: 30\n\nrow 001\n\n[Full sandbox.run_python.stdout output saved to /workspace/tmp/tasks/.harness/outputs/exec-1/node-1/node-1/sandbox.run_python.stdout.txt]\n\nrow 030",
                 "stderr": "",
                 "parsed_stdout": {},
                 "sandbox_job_id": "job-1",
                 "stdout_externalized": True,
                 "output_refs": [
-                    "/workspace/outputs/harness/exec-1/node-1/node-1/sandbox.run_python.stdout.txt"
+                    "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/node-1/sandbox.run_python.stdout.txt"
                 ],
             }
 
@@ -667,7 +667,7 @@ async def test_run_python_propagates_externalized_output_refs() -> None:
     assert result.externalized
     assert result.truncated
     assert result.output_refs == (
-        "/workspace/outputs/harness/exec-1/node-1/node-1/sandbox.run_python.stdout.txt",
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node-1/node-1/sandbox.run_python.stdout.txt",
     )
 
 

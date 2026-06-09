@@ -127,7 +127,7 @@ def test_file_change_summary_preserves_externalized_diff_refs() -> None:
                         "after_hash": "sha256:new",
                         "unified_diff": "Total output lines: 100\n\n[preview]",
                         "diff_output_refs": [
-                            "/workspace/outputs/harness/exec/node/invocation/sandbox.write_file.diff-abc.diff"
+                            "/workspace/tmp/tasks/.harness/outputs/exec/node/invocation/sandbox.write_file.diff-abc.diff"
                         ],
                         "diff_externalized": True,
                         "diff_truncated": True,
@@ -142,7 +142,7 @@ def test_file_change_summary_preserves_externalized_diff_refs() -> None:
     assert diff["diff_externalized"] is True
     assert diff["diff_truncated"] is True
     assert diff["diff_output_refs"] == [
-        "/workspace/outputs/harness/exec/node/invocation/sandbox.write_file.diff-abc.diff"
+        "/workspace/tmp/tasks/.harness/outputs/exec/node/invocation/sandbox.write_file.diff-abc.diff"
     ]
 
 

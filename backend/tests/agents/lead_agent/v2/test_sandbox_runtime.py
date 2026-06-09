@@ -511,7 +511,7 @@ async def test_run_python_script_externalizes_large_stdout_before_returning_payl
     assert len(result["output_refs"]) == 1
     stdout_ref = result["output_refs"][0]
     assert stdout_ref.startswith(
-        "/workspace/outputs/harness/exec-1/analysis_probe/analysis_probe/sandbox.run_python.stdout-"
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/analysis_probe/analysis_probe/sandbox.run_python.stdout-"
     )
     assert stdout_ref.endswith(".txt")
     assert provider.sandbox.files[stdout_ref] == stdout
@@ -540,7 +540,7 @@ async def test_run_python_script_discovers_user_reviewable_generated_artifacts()
             provider.sandbox.files["/workspace/outputs/figure.png"] = "fake image bytes"
             provider.sandbox.files["/workspace/outputs/data/metrics.json"] = '{"accuracy": 0.91}'
             provider.sandbox.files["/workspace/reports/summary.md"] = "# Summary\n\nDone."
-            provider.sandbox.files["/workspace/outputs/harness/exec-1/internal/tool.txt"] = "internal"
+            provider.sandbox.files["/workspace/tmp/tasks/.harness/outputs/exec-1/internal/tool.txt"] = "internal"
         return result
 
     provider.sandbox.execute_command = _execute_and_generate  # type: ignore[method-assign]
@@ -570,7 +570,7 @@ async def test_run_python_script_discovers_user_reviewable_generated_artifacts()
     assert all(artifact["materialization_status"] == "candidate" for artifact in generated)
     assert all(artifact["review_surface"] == "sandbox_artifact" for artifact in generated)
     assert all("content_hash" in artifact for artifact in generated)
-    assert "/workspace/outputs/harness/exec-1/internal/tool.txt" not in {
+    assert "/workspace/tmp/tasks/.harness/outputs/exec-1/internal/tool.txt" not in {
         artifact["path"] for artifact in generated
     }
     assert "Generated artifacts" in result["report_markdown"]

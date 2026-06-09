@@ -64,7 +64,7 @@ async def budget_text_output(
 ) -> BudgetedText:
     """Externalize oversized text output, otherwise return a bounded preview.
 
-    The full output is written under `/workspace/outputs/harness/...` so it
+    The full output is written under the workspace harness output-ref root so it
     stays inside the workspace sandbox contract and can be read by follow-up
     sandbox tools. If persistence fails, the caller still receives a bounded
     preview instead of unbounded text.

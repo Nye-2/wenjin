@@ -133,7 +133,7 @@ class TestDefaultUserPayload:
         assert context["sandbox"]["root"] == "/workspace"
         assert "/workspace/scripts" in context["sandbox"]["standard_dirs"]
         assert "/workspace/outputs" in context["sandbox"]["artifact_roots"]
-        assert "/workspace/outputs/harness/**" in context["sandbox"]["internal_paths"]
+        assert "/workspace/tmp/tasks/.harness/**" in context["sandbox"]["internal_paths"]
         assert ".wenjin/**" in context["sandbox"]["protected_paths"]
         assert "**/.env" in context["sandbox"]["protected_paths"]
 

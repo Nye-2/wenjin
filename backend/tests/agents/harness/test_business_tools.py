@@ -36,7 +36,7 @@ def _ctx() -> SubagentContext:
                     {
                         "title": "Internal Trace",
                         "citation_key": "internal_trace",
-                        "path": "/workspace/outputs/harness/exec/node/stdout.txt",
+                        "path": "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt",
                     },
                 ]
             },
@@ -81,7 +81,7 @@ async def test_library_read_returns_bounded_public_sources() -> None:
 
     assert payload["payload"]["returned"] == 1
     assert payload["payload"]["items"][0]["citation_key"] == "smith2026federated"
-    assert "/workspace/outputs/harness" not in raw
+    assert "/workspace/tmp/tasks/.harness/outputs" not in raw
     assert payload["truncated"] is False
 
 

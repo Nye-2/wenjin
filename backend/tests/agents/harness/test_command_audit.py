@@ -120,7 +120,7 @@ def test_audit_blocks_embedded_absolute_paths_outside_workspace() -> None:
     "path",
     [
         "/workspace/.wenjin/env/leak.txt",
-        "/workspace/outputs/harness/exec/node/stdout.txt",
+        "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt",
         "/workspace/main/.env",
         "/workspace/main/secret.pem",
     ],

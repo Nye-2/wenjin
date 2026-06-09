@@ -73,7 +73,7 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
     assert "/workspace/outputs/README.md" in bundle["sandbox"]["guidance_paths"]
     assert "/workspace/reports/artifacts.json" in bundle["sandbox"]["guidance_paths"]
     assert "**/.env" in bundle["sandbox"]["protected_paths"]
-    assert "/workspace/outputs/harness/**" in bundle["sandbox"]["internal_paths"]
+    assert "/workspace/tmp/tasks/.harness/**" in bundle["sandbox"]["internal_paths"]
     assert "node_modules" in bundle["sandbox"]["search_ignored_names"]
     assert "__pycache__" in bundle["sandbox"]["search_ignored_names"]
     assert bundle["recent_execution_evidence"] == [
@@ -130,7 +130,7 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
                             "title": "Model evaluation",
                         },
                         {
-                            "path": "/workspace/outputs/harness/exec/node/stdout.txt",
+                            "path": "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt",
                             "kind": "debug",
                         },
                     ]
@@ -231,7 +231,7 @@ def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> Non
                 "recent_outputs": [
                     {"path": "/workspace/outputs/result.json", "kind": "sandbox_output"},
                     {"path": "/workspace/reports/lit-review.md", "kind": "sandbox_report"},
-                    {"path": "/workspace/outputs/harness/exec/node/stdout.txt", "kind": "debug"},
+                    {"path": "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt", "kind": "debug"},
                 ],
                 "recent_scripts": [
                     {"path": "/workspace/scripts/analysis.py"},
@@ -266,7 +266,7 @@ def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> Non
     ]
     assert summary["truncated"] is False
     text = json.dumps(summary, ensure_ascii=False)
-    assert "/workspace/outputs/harness" not in text
+    assert "/workspace/tmp/tasks/.harness/outputs" not in text
     assert "/workspace/.wenjin" not in text
 
 
@@ -344,7 +344,7 @@ def test_harness_context_bundle_filters_protected_and_internal_workspace_paths()
                     {
                         "execution_id": "exec-secret",
                         "display_name": "debug",
-                        "summary": "Full output at /workspace/outputs/harness/exec/node/tool.txt",
+                        "summary": "Full output at /workspace/tmp/tasks/.harness/outputs/exec/node/tool.txt",
                         "node_metadata": {
                             "harness": {
                                 "tool_failure_summary": {
@@ -360,7 +360,7 @@ def test_harness_context_bundle_filters_protected_and_internal_workspace_paths()
     )
 
     text = json.dumps(bundle["recent_execution_evidence"], ensure_ascii=False)
-    assert "/workspace/outputs/harness" not in text
+    assert "/workspace/tmp/tasks/.harness/outputs" not in text
     assert "/workspace/.wenjin" not in text
     assert bundle["recent_execution_evidence"] == [
         {
