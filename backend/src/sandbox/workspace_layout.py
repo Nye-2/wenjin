@@ -46,6 +46,8 @@ WORKSPACE_KEEP_FILE_DIRS = (
 
 WORKSPACE_MAIN_README_RELATIVE_PATH = "main/README.md"
 WORKSPACE_DATASETS_README_RELATIVE_PATH = "datasets/README.md"
+WORKSPACE_OUTPUTS_README_RELATIVE_PATH = "outputs/README.md"
+WORKSPACE_REPORTS_README_RELATIVE_PATH = "reports/README.md"
 WORKSPACE_MAIN_README_TEXT = """# Wenjin Workspace
 
 Use this sandbox as the persistent workspace filesystem for this research task.
@@ -68,6 +70,39 @@ Use this directory for datasets and input materials that sandbox experiments may
 - Include source_id, content_hash, license, preparation notes, and source path when known.
 - Do not store secrets, credentials, API keys, or private tokens here.
 """
+
+WORKSPACE_OUTPUTS_README_TEXT = """# Workspace Outputs
+
+Use this directory for generated figures, tables, metrics, and other files that may be reviewed by the user.
+
+- Put reviewable generated files directly under /workspace/outputs or a clear subdirectory.
+- Do not write model-visible debug dumps under /workspace/outputs.
+- Do not register /workspace/outputs/harness internal refs as user-facing artifacts.
+- Keep temporary scratch data under /workspace/tmp instead.
+"""
+
+WORKSPACE_REPORTS_README_TEXT = """# Workspace Reports
+
+Use this directory for readable reports, audits, revision plans, and experiment notes.
+
+- Put user-facing Markdown or text reports under /workspace/reports.
+- Record artifact metadata in /workspace/reports/artifacts.json when known.
+- Do not store secrets, credentials, API keys, or private tokens here.
+- Keep raw stdout, stderr, and tool dumps under /workspace/outputs/harness only.
+"""
+
+WORKSPACE_GUIDANCE_RELATIVE_PATHS = (
+    WORKSPACE_MAIN_README_RELATIVE_PATH,
+    WORKSPACE_DATASETS_README_RELATIVE_PATH,
+    WORKSPACE_OUTPUTS_README_RELATIVE_PATH,
+    WORKSPACE_REPORTS_README_RELATIVE_PATH,
+    WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH,
+    WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH,
+    "datasets/.gitkeep",
+    "scripts/.gitkeep",
+    "outputs/.gitkeep",
+    "reports/.gitkeep",
+)
 
 WORKSPACE_DATASET_PROVENANCE_RULES = (
     "Record every reusable dataset or uploaded input used by sandbox experiments.",
@@ -423,6 +458,14 @@ def _ensure_workspace_guidance_files(root: Path) -> None:
     datasets_readme_path.parent.mkdir(parents=True, exist_ok=True)
     if not datasets_readme_path.exists():
         datasets_readme_path.write_text(WORKSPACE_DATASETS_README_TEXT, encoding="utf-8")
+    outputs_readme_path = root / WORKSPACE_OUTPUTS_README_RELATIVE_PATH
+    outputs_readme_path.parent.mkdir(parents=True, exist_ok=True)
+    if not outputs_readme_path.exists():
+        outputs_readme_path.write_text(WORKSPACE_OUTPUTS_README_TEXT, encoding="utf-8")
+    reports_readme_path = root / WORKSPACE_REPORTS_README_RELATIVE_PATH
+    reports_readme_path.parent.mkdir(parents=True, exist_ok=True)
+    if not reports_readme_path.exists():
+        reports_readme_path.write_text(WORKSPACE_REPORTS_README_TEXT, encoding="utf-8")
     dataset_manifest_path = root / WORKSPACE_DATASETS_MANIFEST_RELATIVE_PATH
     if not dataset_manifest_path.exists():
         dataset_manifest_path.write_text(
@@ -638,14 +681,7 @@ def _safe_artifact_manifest_path(raw_path: Any) -> str | None:
         return None
     if not is_user_reviewable_workspace_artifact_path(path):
         return None
-    if is_workspace_protected_path(path) or is_workspace_internal_path(path):
-        return None
-    relative = workspace_relative_path(path)
-    if relative in {
-        WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH,
-        "reports/.gitkeep",
-        "outputs/.gitkeep",
-    }:
+    if is_workspace_guidance_path(path) or is_workspace_protected_path(path) or is_workspace_internal_path(path):
         return None
     return path
 
@@ -883,7 +919,19 @@ def workspace_artifact_root_for_path(path: str) -> dict[str, str] | None:
 def is_user_reviewable_workspace_artifact_path(path: str) -> bool:
     """Return whether a sandbox path can be staged as a user-reviewable artifact."""
 
+    if is_workspace_guidance_path(path):
+        return False
     return workspace_artifact_root_for_path(path) is not None
+
+
+def is_workspace_guidance_path(path: str) -> bool:
+    """Return whether a path is layout guidance or manifest state, not user output."""
+
+    try:
+        relative = workspace_relative_path(path)
+    except ValueError:
+        return False
+    return relative in WORKSPACE_GUIDANCE_RELATIVE_PATHS
 
 
 def classify_workspace_path(path: str) -> WorkspacePathClass:
@@ -894,6 +942,8 @@ def classify_workspace_path(path: str) -> WorkspacePathClass:
         return "protected"
     if is_workspace_internal_path(normalized):
         return "internal"
+    if is_workspace_guidance_path(normalized):
+        return "hidden"
     if workspace_artifact_root_for_path(normalized) is not None:
         return "artifact"
     relative = workspace_relative_path(normalized)

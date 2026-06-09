@@ -36,6 +36,7 @@ from .workspace_layout import (
     WORKSPACE_STANDARD_DIRS,
     WORKSPACE_TYPE_PROFILE_SCHEMA,
     ensure_workspace_sandbox_layout,
+    is_workspace_guidance_path,
     workspace_type_profile,
     workspace_virtual_path,
 )
@@ -58,6 +59,7 @@ __all__ = [
     "WORKSPACE_TYPE_PROFILE_SCHEMA",
     "WORKSPACE_MANIFEST_RELATIVE_PATH",
     "ensure_workspace_sandbox_layout",
+    "is_workspace_guidance_path",
     "workspace_type_profile",
     "workspace_virtual_path",
     # Configuration

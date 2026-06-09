@@ -13,6 +13,7 @@ from src.sandbox.workspace_layout import (
     WORKSPACE_ARTIFACT_ROOTS,
     WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
     build_artifact_manifest,
+    is_workspace_guidance_path,
     is_workspace_internal_path,
     merge_artifact_manifest,
     normalize_workspace_virtual_path,
@@ -121,11 +122,7 @@ def _guess_mime_type(path: str) -> str:
 
 
 def _is_guidance_artifact_path(path: str) -> bool:
-    return path in {
-        WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
-        "/workspace/outputs/.gitkeep",
-        "/workspace/reports/.gitkeep",
-    }
+    return is_workspace_guidance_path(path)
 
 
 async def _artifact_manifest_metadata(sandbox: Any) -> dict[str, dict[str, Any]]:

@@ -25,6 +25,19 @@ async def test_discover_generated_artifacts_skips_artifact_manifest(tmp_path) ->
 
 
 @pytest.mark.asyncio
+async def test_discover_generated_artifacts_skips_layout_guidance_files(tmp_path) -> None:
+    ensure_workspace_sandbox_layout(tmp_path)
+    sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(tmp_path)})
+    await sandbox.write_file("/workspace/reports/summary.md", "# Summary\n")
+
+    generated = await discover_generated_artifacts(sandbox)
+
+    assert [item["path"] for item in generated] == ["/workspace/reports/summary.md"]
+    assert "/workspace/outputs/README.md" not in {item["path"] for item in generated}
+    assert "/workspace/reports/README.md" not in {item["path"] for item in generated}
+
+
+@pytest.mark.asyncio
 async def test_discover_generated_artifacts_enriches_candidates_from_manifest(tmp_path) -> None:
     ensure_workspace_sandbox_layout(tmp_path)
     sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(tmp_path)})

@@ -66,5 +66,6 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
     harness_command = " ".join(command_by_id["native_harness_quality_gate"])
     assert "tests/agents/harness/test_scheduler_and_python_tool.py" in harness_command
     assert "tests/agents/harness/test_sandbox_file_tools.py" in harness_command
+    assert "tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py" in harness_command
     assert "tests/agents/lead_agent/v2/test_citation_source_audit.py" in harness_command
     assert "tests/integration/test_harness_mock_sandbox_e2e.py" in harness_command

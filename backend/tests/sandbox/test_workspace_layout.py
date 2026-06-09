@@ -61,10 +61,20 @@ def test_ensure_workspace_sandbox_layout_creates_guidance_and_keep_files(tmp_pat
 
     readme_path = tmp_path / "main" / "README.md"
     readme = readme_path.read_text(encoding="utf-8")
+    outputs_readme_path = tmp_path / "outputs" / "README.md"
+    reports_readme_path = tmp_path / "reports" / "README.md"
 
     assert readme_path.is_file()
     assert "/workspace/datasets" in readme
     assert (tmp_path / "datasets" / "README.md").is_file()
+    assert outputs_readme_path.is_file()
+    assert reports_readme_path.is_file()
+    assert "/workspace/outputs/harness" in outputs_readme_path.read_text(encoding="utf-8")
+    assert "/workspace/reports/artifacts.json" in reports_readme_path.read_text(encoding="utf-8")
+    assert layout.is_workspace_guidance_path("/workspace/outputs/README.md")
+    assert layout.is_workspace_guidance_path("/workspace/reports/README.md")
+    assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/outputs/README.md")
+    assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/reports/README.md")
     artifact_manifest = json.loads(
         (tmp_path / WORKSPACE_ARTIFACTS_MANIFEST_RELATIVE_PATH).read_text(encoding="utf-8")
     )
@@ -482,6 +492,8 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
         layout.classify_workspace_path("/workspace/outputs/harness/exec/tool.txt")
         == "internal"
     )
+    assert layout.classify_workspace_path("/workspace/outputs/README.md") == "hidden"
+    assert layout.classify_workspace_path("/workspace/reports/README.md") == "hidden"
     assert layout.classify_workspace_path("/workspace/reports/summary.md") == "artifact"
     assert layout.classify_workspace_path("/workspace/tmp/scratch.json") == "hidden"
     assert layout.classify_workspace_path("/workspace/main/paper.tex") == "workspace"
