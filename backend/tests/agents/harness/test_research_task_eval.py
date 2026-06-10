@@ -1149,3 +1149,106 @@ def test_research_task_eval_fails_workflow_trace_without_member_transcripts() ->
         "billing": {"credits_charged": 0},
         "duration_ms": 0,
     }
+
+
+def test_research_task_eval_passes_output_ref_reuse_when_member_reads_recoverable_ref() -> None:
+    ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/experiment_runner/stdout.txt"
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_metadata": {
+                    "harness": {
+                        "sandbox_execution_summary": {
+                            "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                            "output_refs": [
+                                ref,
+                                "/workspace/tmp/tasks/.harness/debug.txt",
+                                "/workspace/.env",
+                                ref,
+                            ],
+                        }
+                    }
+                }
+            },
+            {
+                "node_metadata": {
+                    "harness": {
+                        "member_execution_transcript": {
+                            "schema": "wenjin.harness.member_execution_transcript.v1",
+                            "tool_call_count": 1,
+                            "tool_names": ["sandbox.read_output_ref"],
+                            "completed_tool_count": 1,
+                            "failed_tool_count": 0,
+                            "output_refs_read": [ref],
+                        }
+                    }
+                }
+            },
+        ],
+        required_surfaces=("output_ref_reuse",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"output_ref_reuse": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["output_ref_reuse"] == {
+        "recoverable_output_refs": [ref],
+        "output_refs_read": [ref],
+        "reused_output_refs": [ref],
+        "recoverable_output_ref_count": 1,
+        "output_ref_read_count": 1,
+        "reused_output_ref_count": 1,
+    }
+
+
+def test_research_task_eval_fails_output_ref_reuse_when_recoverable_refs_are_ignored() -> None:
+    ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/experiment_runner/stdout.txt"
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_metadata": {
+                    "harness": {
+                        "sandbox_execution_summary": {
+                            "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                            "output_refs": [ref],
+                        }
+                    }
+                }
+            },
+            {
+                "node_metadata": {
+                    "harness": {
+                        "member_execution_transcript": {
+                            "schema": "wenjin.harness.member_execution_transcript.v1",
+                            "tool_call_count": 1,
+                            "tool_names": ["sandbox.run_python"],
+                            "completed_tool_count": 1,
+                            "failed_tool_count": 0,
+                            "output_refs_read": [],
+                        }
+                    }
+                }
+            },
+        ],
+        required_surfaces=("output_ref_reuse",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"output_ref_reuse": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "output_ref_reuse",
+            "severity": "high",
+            "message": "Recoverable sandbox output refs were available but no member read them.",
+        }
+    ]
+    assert evaluation.evidence["output_ref_reuse"] == {
+        "recoverable_output_refs": [ref],
+        "output_refs_read": [],
+        "reused_output_refs": [],
+        "recoverable_output_ref_count": 1,
+        "output_ref_read_count": 0,
+        "reused_output_ref_count": 0,
+    }

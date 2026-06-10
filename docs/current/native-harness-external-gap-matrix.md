@@ -78,7 +78,7 @@ deer-flow:
 
 3. **Context recovery after large omitted output has a facade and run tool companion.**
 
-   The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file` and `sandbox.run_python`. `execution_lifecycle` output refs now roll into `sandbox_execution_summary.output_refs`, and context assembly preserves only explicit `/workspace/tmp/tasks/.harness/outputs/**` refs there. It also projects `output_ref_recovery(schema=wenjin.harness.output_ref_recovery.v1)` at the top level with the read tool and guidance to inspect refs before rerunning expensive sandbox work. This keeps internal refs hidden from list/search/artifact discovery while making omitted stdout/stderr or large diff recovery visible to later members. Member transcripts now also record `output_refs_read` for refs actually read through `sandbox.read_output_ref`, and deterministic `workflow_trace` projects the filtered refs plus `output_ref_read_count`; this closes the structural observability gap. Remaining real-task tuning is deciding when repeated commands are acceptable versus when the team prompt should prefer ref reuse.
+   The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file` and `sandbox.run_python`. `execution_lifecycle` output refs now roll into `sandbox_execution_summary.output_refs`, and context assembly preserves only explicit `/workspace/tmp/tasks/.harness/outputs/**` refs there. It also projects `output_ref_recovery(schema=wenjin.harness.output_ref_recovery.v1)` at the top level with the read tool and guidance to inspect refs before rerunning expensive sandbox work. This keeps internal refs hidden from list/search/artifact discovery while making omitted stdout/stderr or large diff recovery visible to later members. Member transcripts now also record `output_refs_read` for refs actually read through `sandbox.read_output_ref`, and deterministic `workflow_trace` projects the filtered refs plus `output_ref_read_count`. The optional `output_ref_reuse` research-task surface now fails when recoverable refs exist but no member reads one through the companion tool, so SCI workflow gates can enforce "inspect prior expensive output before rerunning" without exposing hidden refs to list/search/artifact discovery. Remaining real-task tuning is deciding when repeated commands are acceptable because inputs changed versus when the team prompt should prefer ref reuse.
 
 4. **Workspace filesystem contract is usable; real-task scratch usage still needs tuning.**
 
@@ -96,8 +96,8 @@ deer-flow:
 
 ## Near-Term Implementation Order
 
-1. Run one real SCI workflow through the native harness gate with `workflow_trace` required, then tune prompts/tools from the failures.
-2. Tune prompt/tool guidance from real runs where `workflow_trace.output_refs_read` stays empty despite recoverable output refs, or where repeated commands are justified by changed inputs.
+1. Run one real SCI workflow through the native harness gate with `workflow_trace` and optional `output_ref_reuse` required, then tune prompts/tools from the failures.
+2. Tune prompt/tool guidance from real runs where `output_ref_reuse` fails despite recoverable output refs, or where repeated commands are justified by changed inputs.
 3. Add reviewer-facing quality scoring for academic style improvement beyond bounded structural semantic preservation.
 4. Design frontend/team-roster and quality-evidence display only after real runs prove which transcript and eval fields help users.
 5. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.

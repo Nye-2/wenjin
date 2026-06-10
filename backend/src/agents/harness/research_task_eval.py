@@ -21,6 +21,7 @@ ResearchSurface = Literal[
     "paper_relevance",
     "statistical_robustness",
     "writing_semantic_preservation",
+    "output_ref_reuse",
 ]
 EvalStatus = Literal["pass", "fail"]
 
@@ -119,6 +120,7 @@ def evaluate_research_task_evidence(
         "paper_relevance": _evaluate_paper_relevance,
         "statistical_robustness": _evaluate_statistical_robustness,
         "writing_semantic_preservation": _evaluate_writing_semantic_preservation,
+        "output_ref_reuse": _evaluate_output_ref_reuse,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -406,6 +408,54 @@ def _evaluate_workflow_trace(
         evidence,
         "No member execution transcript with completed tool activity was produced.",
     )
+
+
+def _evaluate_output_ref_reuse(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del report
+    evidence = _output_ref_reuse_evidence(node_events)
+    if evidence["recoverable_output_ref_count"] == 0:
+        return (
+            False,
+            evidence,
+            "No recoverable sandbox output refs were available for reuse.",
+        )
+    if evidence["reused_output_ref_count"] > 0:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        "Recoverable sandbox output refs were available but no member read them.",
+    )
+
+
+def _output_ref_reuse_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
+    recoverable_output_refs: list[str] = []
+    output_refs_read: list[str] = []
+    for event in node_events:
+        harness = _harness_metadata(event)
+        summary = _dict_value(harness.get("sandbox_execution_summary"))
+        for ref in (_workspace_output_ref(ref) for ref in _string_list(summary.get("output_refs"))):
+            _append_unique(recoverable_output_refs, ref)
+        transcript = _dict_value(harness.get("member_execution_transcript"))
+        for ref in (_workspace_output_ref(ref) for ref in _string_list(transcript.get("output_refs_read"))):
+            _append_unique(output_refs_read, ref)
+    read_ref_set = set(output_refs_read)
+    reused_output_refs = [
+        ref for ref in recoverable_output_refs if ref in read_ref_set
+    ][:50]
+    recoverable_output_refs = recoverable_output_refs[:50]
+    output_refs_read = output_refs_read[:50]
+    return {
+        "recoverable_output_refs": recoverable_output_refs,
+        "output_refs_read": output_refs_read,
+        "reused_output_refs": reused_output_refs,
+        "recoverable_output_ref_count": len(recoverable_output_refs),
+        "output_ref_read_count": len(output_refs_read),
+        "reused_output_ref_count": len(reused_output_refs),
+    }
 
 
 def _workflow_trace_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:

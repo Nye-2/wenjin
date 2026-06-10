@@ -85,6 +85,7 @@ async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> 
 
 @pytest.mark.asyncio
 async def test_langchain_read_output_ref_tool_uses_explicit_ref_schema() -> None:
+    records: list[dict] = []
     with tempfile.TemporaryDirectory() as tmpdir:
         workspace = Path(tmpdir) / "workspace"
         workspace.mkdir()
@@ -94,6 +95,7 @@ async def test_langchain_read_output_ref_tool_uses_explicit_ref_schema() -> None
         [tool] = build_langchain_tools(
             _ctx(
                 sandbox,
+                tool_records=records,
                 tools=["sandbox.read_output_ref"],
                 capability_policy={
                     "allowed_tools": ["sandbox.read_output_ref"],
@@ -116,6 +118,9 @@ async def test_langchain_read_output_ref_tool_uses_explicit_ref_schema() -> None
     payload = json.loads(raw)
     assert payload["preview"] == "beta\n"
     assert payload["payload"]["output_ref"] == output_ref
+    assert records[-1]["name"] == "sandbox.read_output_ref"
+    assert records[-1]["status"] == "completed"
+    assert records[-1]["args"]["output_ref"] == output_ref
 
 
 @pytest.mark.asyncio

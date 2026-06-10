@@ -564,6 +564,9 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         ]
         assert ".env" not in json.dumps(context_bundle["recent_execution_evidence"])
 
+        harness_context.workspace_data["_harness_sandbox"] = SimpleNamespace(
+            read_file=AsyncMock(return_value='{"ok": true, "metric": 0.91}\n')
+        )
         tools = _resolve_tools(["sandbox.run_python"], harness_context)
         assert [tool.name for tool in tools] == ["sandbox_run_python", "sandbox_read_output_ref"]
         tool = next(item for item in tools if item.name == "sandbox_run_python")
@@ -581,6 +584,15 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
             }
         )
         captured["tool_payload"] = json.loads(result_text)
+        read_tool = next(item for item in tools if item.name == "sandbox_read_output_ref")
+        read_result_text = await read_tool.ainvoke(
+            {
+                "output_ref": captured["tool_payload"]["output_refs"][0],
+                "start_line": 1,
+                "end_line": 1,
+            }
+        )
+        captured["read_output_ref_payload"] = json.loads(read_result_text)
         return json.dumps(
             {
                 "text": "experiment complete",
@@ -879,7 +891,15 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert harness["member_execution_transcript"]["schema"] == (
         "wenjin.harness.member_execution_transcript.v1"
     )
-    assert harness["member_execution_transcript"]["tool_names"] == ["sandbox.run_python"]
+    assert harness["member_execution_transcript"]["tool_names"] == [
+        "sandbox.run_python",
+        "sandbox.read_output_ref",
+    ]
+    assert harness["member_execution_transcript"]["output_refs_read"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+        "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
+    ]
+    assert harness["member_execution_transcript"]["output_ref_read_count"] == 1
     assert harness["member_execution_transcript"]["scratch_refs"] == [
         "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1"
     ]
@@ -895,6 +915,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
             "writing",
             "workflow_trace",
             "experiment_interpretation",
+            "output_ref_reuse",
         ),
     )
     assert evaluation.status == "pass"
@@ -904,8 +925,17 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         "writing": "pass",
         "workflow_trace": "pass",
         "experiment_interpretation": "pass",
+        "output_ref_reuse": "pass",
     }
     assert evaluation.evidence["workflow_trace"]["scratch_refs"] == [
         "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1"
     ]
     assert evaluation.evidence["workflow_trace"]["sandbox_job_ids"] == ["job-e2e-1"]
+    assert evaluation.evidence["workflow_trace"]["output_refs_read"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+        "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
+    ]
+    assert evaluation.evidence["output_ref_reuse"]["reused_output_refs"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+        "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
+    ]
