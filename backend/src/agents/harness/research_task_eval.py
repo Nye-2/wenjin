@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast, get_args
 
 from src.agents.contracts.task_report import TaskReport
 from src.sandbox.workspace_layout import (
@@ -24,6 +24,8 @@ ResearchSurface = Literal[
     "output_ref_reuse",
 ]
 EvalStatus = Literal["pass", "fail"]
+DEFAULT_RESEARCH_SURFACES: tuple[ResearchSurface, ...] = ("literature", "experiment", "writing")
+KNOWN_RESEARCH_SURFACES = frozenset(str(item) for item in get_args(ResearchSurface))
 
 _VERIFIED_LITERATURE_LEVELS = {
     "external_verified",
@@ -96,7 +98,7 @@ def evaluate_research_task_evidence(
     report: TaskReport,
     *,
     node_events: list[dict[str, Any]] | None = None,
-    required_surfaces: tuple[ResearchSurface, ...] = ("literature", "experiment", "writing"),
+    required_surfaces: tuple[ResearchSurface, ...] = DEFAULT_RESEARCH_SURFACES,
 ) -> ResearchTaskEvidenceEval:
     """Evaluate whether a research task produced reviewable, grounded evidence.
 
@@ -142,6 +144,27 @@ def evaluate_research_task_evidence(
         findings=findings,
         evidence=evidence,
     )
+
+
+def required_surfaces_from_capability_policy(
+    capability_policy: dict[str, Any] | None,
+    *,
+    default: tuple[ResearchSurface, ...] = DEFAULT_RESEARCH_SURFACES,
+) -> tuple[ResearchSurface, ...]:
+    """Read deterministic research evidence surfaces from capability policy."""
+
+    policy = capability_policy if isinstance(capability_policy, dict) else {}
+    research_evidence = policy.get("research_evidence")
+    research_evidence = research_evidence if isinstance(research_evidence, dict) else {}
+    raw_surfaces = _string_list(research_evidence.get("required_surfaces"))
+    if not raw_surfaces:
+        return default
+
+    invalid = [surface for surface in raw_surfaces if surface not in KNOWN_RESEARCH_SURFACES]
+    if invalid:
+        raise ValueError(f"unknown research evidence surfaces: {', '.join(_unique(invalid))}")
+
+    return tuple(cast(ResearchSurface, surface) for surface in _unique(raw_surfaces))
 
 
 def _evaluate_literature(

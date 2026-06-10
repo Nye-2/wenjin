@@ -9,7 +9,10 @@ import pytest
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.harness.contracts import HarnessToolResult
-from src.agents.harness.research_task_eval import evaluate_research_task_evidence
+from src.agents.harness.research_task_eval import (
+    evaluate_research_task_evidence,
+    required_surfaces_from_capability_policy,
+)
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.dataservice_client.contracts.catalog import AgentTemplatePayload, CapabilitySkillPayload
 from src.subagents.v2.types.react import _resolve_tools
@@ -80,6 +83,16 @@ def _capability() -> SimpleNamespace:
                 "resource_limits": {"timeout_seconds": 60},
             },
             "quality_gates": ["harness_replan_signal"],
+            "research_evidence": {
+                "required_surfaces": [
+                    "literature",
+                    "experiment",
+                    "writing",
+                    "workflow_trace",
+                    "experiment_interpretation",
+                    "output_ref_reuse",
+                ],
+            },
             "team_policy": {
                 "core_templates": [
                     "literature_data_curator.v1",
@@ -909,13 +922,8 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     evaluation = evaluate_research_task_evidence(
         report,
         node_events=node_events,
-        required_surfaces=(
-            "literature",
-            "experiment",
-            "writing",
-            "workflow_trace",
-            "experiment_interpretation",
-            "output_ref_reuse",
+        required_surfaces=required_surfaces_from_capability_policy(
+            LeadAgentRuntime._capability_policy(_capability())
         ),
     )
     assert evaluation.status == "pass"
