@@ -200,6 +200,8 @@ def test_harness_node_metadata_includes_sandbox_execution_summary() -> None:
                 "generated_artifacts": [
                     {"path": "/workspace/outputs/result.json"},
                     {"path": "/workspace/reports/analysis.md"},
+                    {"path": "/workspace/tmp/tasks/.harness/outputs/exec-1/node/internal.txt"},
+                    {"path": "/workspace/.env"},
                 ],
             },
             {

@@ -6,7 +6,10 @@ import hashlib
 from difflib import unified_diff
 from typing import Any
 
-from src.sandbox.workspace_layout import is_workspace_readable_internal_output_ref
+from src.sandbox.workspace_layout import (
+    is_user_reviewable_workspace_artifact_path,
+    is_workspace_readable_internal_output_ref,
+)
 
 FILE_CHANGE_SUMMARY_SCHEMA = "wenjin.harness.file_change_summary.v1"
 TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
@@ -359,8 +362,8 @@ def build_sandbox_execution_summary_from_tool_calls(
             _append_unique(failure_codes, error_code)
         if _is_recoverable_failure(tool_call, metadata, classification):
             recoverable_failures += 1
-        generated_artifact_count += len(_list_of_dicts(tool_call.get("generated_artifacts")))
-        generated_artifact_count += len(_list_of_dicts(metadata.get("generated_artifacts")))
+        generated_artifact_count += _reviewable_artifact_count(tool_call.get("generated_artifacts"))
+        generated_artifact_count += _reviewable_artifact_count(metadata.get("generated_artifacts"))
 
     if python_runs == 0:
         return None
@@ -810,6 +813,15 @@ def _append_safe_output_ref(values: list[str], value: str) -> None:
     text = str(value or "").strip()
     if is_workspace_readable_internal_output_ref(text):
         _append_unique(values, text)
+
+
+def _reviewable_artifact_count(value: Any) -> int:
+    total = 0
+    for artifact in _list_of_dicts(value):
+        path = str(artifact.get("path") or "").strip()
+        if is_user_reviewable_workspace_artifact_path(path):
+            total += 1
+    return total
 
 
 def _append_safe_artifact_path(values: list[str], value: str) -> None:

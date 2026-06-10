@@ -824,7 +824,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert harness["sandbox_execution_summary"]["python_runs"] == 1
     assert harness["sandbox_execution_summary"]["sandbox_job_ids"] == ["job-e2e-1"]
     assert harness["sandbox_execution_summary"]["sandbox_environment_ids"] == ["env-e2e-1"]
-    assert harness["sandbox_execution_summary"]["generated_artifact_count"] == 2
+    assert harness["sandbox_execution_summary"]["generated_artifact_count"] == 1
     assert harness["sandbox_execution_summary"]["execution_lifecycle_count"] == 1
     assert harness["sandbox_execution_summary"]["job_statuses"] == ["succeeded"]
     assert harness["sandbox_execution_summary"]["exit_codes"] == [0]
