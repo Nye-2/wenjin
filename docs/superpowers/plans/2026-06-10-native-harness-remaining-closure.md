@@ -44,8 +44,8 @@
   - `a151807a feat: surface research evidence contract to team members`
   - `5c6b0082 fix: align sandbox script names with workspace layout`
   - `51ff3532 fix: filter protected sandbox artifacts`
-- Current verified native harness gate: `357 passed` in this continuation pass after the command-audit input-boundary slice.
-- The next work must be a convergence pass, not a feature expansion pass. The plan below replaces broad exploration with six bounded closure slices.
+- Current verified native harness gate: `360 passed` after the Prism academic-style evidence slice.
+- The current continuation has added bounded Prism `academic_style_contract` projection and optional `writing_academic_style` research-eval coverage. The next work must remain a convergence pass: calibrate the new surface on real rewrite tasks, improve prompts/tools from failures, and avoid feature expansion or external runtime drift.
 
 ## Current Continuation Plan
 

@@ -701,6 +701,116 @@ def test_research_task_eval_fails_writing_semantic_preservation_for_high_risk_pr
     ]
 
 
+def test_research_task_eval_passes_writing_academic_style_for_reviewable_prism_change() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(
+            review_items=[
+                {
+                    "id": "prism-review-1",
+                    "kind": "prism_file_change",
+                    "target": {
+                        "logical_key": "project:main",
+                        "file_path": "main.tex",
+                    },
+                    "preview": {
+                        "academic_style_contract": {
+                            "schema": "wenjin.prism.academic_style_contract.v1",
+                            "target_path": "main.tex",
+                            "basis": "bounded_academic_style_heuristic",
+                            "risk": "low",
+                            "academic_style_score": 4,
+                            "signal_count": 4,
+                            "anti_pattern_count": 0,
+                            "citation_key_count": 1,
+                            "signals": [
+                                "citation_grounding",
+                                "research_noun",
+                                "measured_claim",
+                                "formal_register",
+                            ],
+                            "anti_patterns": [],
+                        }
+                    },
+                }
+            ]
+        ),
+        required_surfaces=("writing_academic_style",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"writing_academic_style": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["writing_academic_style"] == {
+        "review_item_count": 1,
+        "checked_item_count": 1,
+        "missing_style_contract_count": 0,
+        "high_risk_count": 0,
+        "low_score_count": 0,
+        "anti_pattern_count": 0,
+        "min_academic_style_score": 4,
+        "style_items": [
+            {
+                "review_item_id": "prism-review-1",
+                "file_path": "main.tex",
+                "risk": "low",
+                "academic_style_score": 4,
+                "signals": [
+                    "citation_grounding",
+                    "research_noun",
+                    "measured_claim",
+                    "formal_register",
+                ],
+                "anti_patterns": [],
+            }
+        ],
+    }
+
+
+def test_research_task_eval_fails_writing_academic_style_for_ai_like_or_low_score_prism_change() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(
+            review_items=[
+                {
+                    "id": "prism-review-1",
+                    "kind": "prism_file_change",
+                    "target": {
+                        "logical_key": "project:main",
+                        "file_path": "main.tex",
+                    },
+                    "preview": {
+                        "academic_style_contract": {
+                            "schema": "wenjin.prism.academic_style_contract.v1",
+                            "target_path": "main.tex",
+                            "basis": "bounded_academic_style_heuristic",
+                            "risk": "high",
+                            "academic_style_score": 1,
+                            "signal_count": 1,
+                            "anti_pattern_count": 2,
+                            "citation_key_count": 0,
+                            "signals": ["formal_register"],
+                            "anti_patterns": ["ai_meta", "vague_noun"],
+                        }
+                    },
+                }
+            ]
+        ),
+        required_surfaces=("writing_academic_style",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"writing_academic_style": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "writing_academic_style",
+            "severity": "high",
+            "message": "No Prism academic-style improvement contract passed the writing quality gate.",
+        }
+    ]
+    assert evaluation.evidence["writing_academic_style"]["high_risk_count"] == 1
+    assert evaluation.evidence["writing_academic_style"]["low_score_count"] == 1
+    assert evaluation.evidence["writing_academic_style"]["anti_pattern_count"] == 2
+
+
 def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None:
     report = _report(
         review_items=[

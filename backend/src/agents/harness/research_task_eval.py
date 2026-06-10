@@ -21,6 +21,7 @@ ResearchSurface = Literal[
     "paper_relevance",
     "statistical_robustness",
     "writing_semantic_preservation",
+    "writing_academic_style",
     "output_ref_reuse",
 ]
 EvalStatus = Literal["pass", "fail"]
@@ -122,6 +123,7 @@ def evaluate_research_task_evidence(
         "paper_relevance": _evaluate_paper_relevance,
         "statistical_robustness": _evaluate_statistical_robustness,
         "writing_semantic_preservation": _evaluate_writing_semantic_preservation,
+        "writing_academic_style": _evaluate_writing_academic_style,
         "output_ref_reuse": _evaluate_output_ref_reuse,
     }
     for surface in required_surfaces:
@@ -415,6 +417,29 @@ def _evaluate_writing_semantic_preservation(
         False,
         evidence,
         "No low-risk Prism semantic preservation contract was produced for writing review.",
+    )
+
+
+def _evaluate_writing_academic_style(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del node_events
+    evidence = _writing_academic_style_evidence(report)
+    passed = (
+        evidence["review_item_count"] > 0
+        and evidence["checked_item_count"] == evidence["review_item_count"]
+        and evidence["missing_style_contract_count"] == 0
+        and evidence["high_risk_count"] == 0
+        and evidence["low_score_count"] == 0
+        and evidence["anti_pattern_count"] == 0
+    )
+    if passed:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        "No Prism academic-style improvement contract passed the writing quality gate.",
     )
 
 
@@ -738,6 +763,59 @@ def _writing_semantic_preservation_evidence(report: TaskReport) -> dict[str, Any
     }
 
 
+def _writing_academic_style_evidence(report: TaskReport) -> dict[str, Any]:
+    review_item_count = 0
+    checked_item_count = 0
+    missing_style_contract_count = 0
+    high_risk_count = 0
+    low_score_count = 0
+    anti_pattern_count = 0
+    min_score: int | None = None
+    style_items: list[dict[str, Any]] = []
+    for item in report.review_items:
+        if not isinstance(item, dict) or item.get("kind") != "prism_file_change":
+            continue
+        review_item_count += 1
+        target = item.get("target") if isinstance(item.get("target"), dict) else {}
+        review_item_id = _clean_text(item.get("id"))
+        file_path = _clean_text(target.get("file_path"))
+        contract = _prism_academic_style_contract(item)
+        if not contract:
+            missing_style_contract_count += 1
+            continue
+        checked_item_count += 1
+        risk = _clean_text(contract.get("risk")).lower() or "medium"
+        score = min(_int_value(contract.get("academic_style_score")), 5)
+        signals = _string_list(contract.get("signals"))[:10]
+        anti_patterns = _string_list(contract.get("anti_patterns"))[:10]
+        if risk == "high":
+            high_risk_count += 1
+        if score < 3:
+            low_score_count += 1
+        anti_pattern_count += len(anti_patterns)
+        min_score = score if min_score is None else min(min_score, score)
+        style_items.append(
+            {
+                "review_item_id": review_item_id,
+                "file_path": file_path,
+                "risk": risk,
+                "academic_style_score": score,
+                "signals": signals,
+                "anti_patterns": anti_patterns,
+            }
+        )
+    return {
+        "review_item_count": review_item_count,
+        "checked_item_count": checked_item_count,
+        "missing_style_contract_count": missing_style_contract_count,
+        "high_risk_count": high_risk_count,
+        "low_score_count": low_score_count,
+        "anti_pattern_count": anti_pattern_count,
+        "min_academic_style_score": min_score or 0,
+        "style_items": style_items[:20],
+    }
+
+
 def _append_risky_prism_item(
     values: list[dict[str, Any]],
     *,
@@ -792,6 +870,12 @@ def _prism_content_contract(item: dict[str, Any]) -> dict[str, Any]:
 def _prism_semantic_contract(item: dict[str, Any]) -> dict[str, Any]:
     preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
     contract = preview.get("semantic_contract")
+    return dict(contract) if isinstance(contract, dict) else {}
+
+
+def _prism_academic_style_contract(item: dict[str, Any]) -> dict[str, Any]:
+    preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
+    contract = preview.get("academic_style_contract")
     return dict(contract) if isinstance(contract, dict) else {}
 
 

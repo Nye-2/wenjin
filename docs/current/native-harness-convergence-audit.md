@@ -474,12 +474,22 @@ Chat Agent
   - `backend`: `.venv/bin/ruff check src/agents/harness/command_audit.py tests/agents/harness/test_command_audit.py` -> passed.
   - `backend`: native harness release gate -> 357 passed.
   - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 src/sandbox tests/agents/harness tests/agents/lead_agent/v2 tests/sandbox tests/integration/test_harness_mock_sandbox_e2e.py` -> passed.
+- 2026-06-10 Prism academic-style evidence slice:
+  - Added `preview.academic_style_contract(schema=wenjin.prism.academic_style_contract.v1)` to canonical Prism review projection. It is a bounded heuristic or sanitized upstream contract, not a model judge and not a raw manuscript/diff payload.
+  - The contract records target path, basis, risk, academic style score, signal counts, citation-key count, bounded style signals, and bounded anti-pattern names such as AI-meta, first-person opinion, casual intensifier, and vague noun.
+  - Added optional `writing_academic_style` research-eval surface. It requires each Prism file-change review item to carry a style contract, score at least 3, avoid high risk, and avoid style anti-patterns before it can count as academic-style writing evidence.
+  - `backend`: `.venv/bin/python -m pytest tests/services/test_prism_review_projection.py::test_prism_review_projection_includes_tex_content_contract_without_raw_pending_content tests/services/test_prism_review_projection.py::test_prism_review_projection_marks_academic_style_contract_high_risk_for_casual_ai_prose tests/agents/harness/test_research_task_eval.py::test_research_task_eval_passes_writing_academic_style_for_reviewable_prism_change tests/agents/harness/test_research_task_eval.py::test_research_task_eval_fails_writing_academic_style_for_ai_like_or_low_score_prism_change -q` -> RED on missing style contract/surface, then 4 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/services/test_prism_review_projection.py tests/agents/harness/test_research_task_eval.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 31 passed.
+  - `backend`: native harness release gate -> 360 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 src/sandbox src/services/prism_file_content.py src/services/prism_review_projection.py tests/agents/harness tests/agents/lead_agent/v2 tests/sandbox tests/services/test_prism_review_projection.py tests/integration/test_harness_mock_sandbox_e2e.py` -> passed.
+  - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or generic `sandbox.run_command`; documentation and negative/historical tests remain the only expected hits.
+  - code-review-graph incremental update completed on `/Users/ze/wenjin`; review context marked `research_task_eval.py` as high impact because it is a shared evaluator, so the 360-test gate is the evidence used for this slice.
 
 ## 6. 剩余不足
 
 ### P1: 模型可靠性仍是最大产出瓶颈
 
-当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：创新点可发表性、综合论证一致性、Prism 改稿是否真正改善学术表达。文献贴题度、实验解释、统计稳健性和 Prism bounded semantic preservation 已经有 deterministic 结构门，但还不是完整的学术质量评分。
+当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：创新点可发表性、综合论证一致性、Prism 改稿是否真正改善学术表达。文献贴题度、实验解释、统计稳健性、Prism bounded semantic preservation 和 Prism bounded academic style 已经有 deterministic 结构门，但还不是完整的学术质量评分；`writing_academic_style` 只能拦截明显 AI 味/口语化/低信号改稿，不能证明文章已经达到可发表写作质量。
 
 ### P1: 来源质量和引用核验还不够硬
 

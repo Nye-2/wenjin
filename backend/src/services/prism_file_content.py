@@ -49,6 +49,23 @@ _EQUATION_ENVS = {
     "split",
 }
 _TABLE_ENVS = {"longtable", "tabular", "tabular*", "table", "table*"}
+PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA = "wenjin.prism.academic_style_contract.v1"
+_RESEARCH_NOUN_RE = re.compile(
+    r"\b(analysis|claim|data|dataset|evidence|experiment|finding|method|model|result|study)\b",
+    re.IGNORECASE,
+)
+_MEASURED_CLAIM_RE = re.compile(
+    r"\b(estimate|effect|measure|metric|sample|significant|robust|variance|coefficient)\b|[0-9]",
+    re.IGNORECASE,
+)
+_FORMAL_REGISTER_RE = re.compile(
+    r"\b(therefore|however|moreover|suggests?|indicates?|consistent|associated|observed|demonstrates?)\b",
+    re.IGNORECASE,
+)
+_AI_META_RE = re.compile(r"\b(as an ai|ai[- ]?generated|large language model|chatgpt)\b", re.IGNORECASE)
+_FIRST_PERSON_OPINION_RE = re.compile(r"\b(i think|i believe|in my opinion)\b", re.IGNORECASE)
+_CASUAL_INTENSIFIER_RE = re.compile(r"\b(awesome|basically|really|super|very)\b", re.IGNORECASE)
+_VAGUE_NOUN_RE = re.compile(r"\b(stuff|thing|things|a lot)\b", re.IGNORECASE)
 
 
 def normalize_prism_file_change_content(
@@ -168,6 +185,63 @@ def summarize_prism_file_change_semantic_contract(
     }
 
 
+def summarize_prism_file_change_academic_style_contract(
+    content: str,
+    *,
+    path: str,
+    source_contract: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Return bounded academic-style signals for a Prism review item.
+
+    This is a deterministic heuristic, not a model judge. It gives downstream
+    quality gates a stable contract for obvious academic-register evidence and
+    obvious non-academic / AI-meta anti-patterns without exposing manuscript text.
+    """
+
+    file_path = str(path or "").strip()
+    if isinstance(source_contract, dict) and source_contract:
+        return _sanitize_academic_style_contract(source_contract, target_path=file_path)
+
+    text = str(content or "")
+    citation_keys = _extract_citation_keys(text)
+    has_equations = _has_equation_constructs(text)
+    has_tables = _has_table_constructs(text)
+    signals: list[str] = []
+    anti_patterns: list[str] = []
+    if citation_keys:
+        signals.append("citation_grounding")
+    if _RESEARCH_NOUN_RE.search(text):
+        signals.append("research_noun")
+    if has_equations or has_tables or _MEASURED_CLAIM_RE.search(text):
+        signals.append("measured_claim")
+    if _FORMAL_REGISTER_RE.search(text) or (len(_plain_words(text)) >= 8 and not _style_anti_patterns(text)):
+        signals.append("formal_register")
+    for name, pattern in (
+        ("ai_meta", _AI_META_RE),
+        ("first_person_opinion", _FIRST_PERSON_OPINION_RE),
+        ("casual_intensifier", _CASUAL_INTENSIFIER_RE),
+        ("vague_noun", _VAGUE_NOUN_RE),
+    ):
+        if pattern.search(text):
+            anti_patterns.append(name)
+    score = max(0, min(5, len(signals) - min(len(anti_patterns), 3)))
+    risk = "low" if score >= 3 and not anti_patterns else "medium"
+    if score < 2 or len(anti_patterns) >= 2:
+        risk = "high"
+    return {
+        "schema": PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA,
+        "target_path": file_path,
+        "basis": "bounded_academic_style_heuristic",
+        "risk": risk,
+        "academic_style_score": score,
+        "signal_count": len(signals),
+        "anti_pattern_count": len(anti_patterns),
+        "citation_key_count": len(citation_keys),
+        "signals": signals[:10],
+        "anti_patterns": anti_patterns[:10],
+    }
+
+
 def ensure_latex_document(content: str) -> str:
     """Return a complete LaTeX document for manuscript content."""
 
@@ -234,6 +308,26 @@ def _sanitize_semantic_contract(value: dict[str, object], *, target_path: str) -
     }
 
 
+def _sanitize_academic_style_contract(value: dict[str, object], *, target_path: str) -> dict[str, object]:
+    risk = str(value.get("risk") or "medium").strip().lower()
+    if risk not in {"low", "medium", "high"}:
+        risk = "medium"
+    signals = _bounded_string_list(value.get("signals"))
+    anti_patterns = _bounded_string_list(value.get("anti_patterns"))
+    return {
+        "schema": PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA,
+        "target_path": str(value.get("target_path") or target_path),
+        "basis": str(value.get("basis") or "upstream_contract")[:80],
+        "risk": risk,
+        "academic_style_score": min(_nonnegative_int(value.get("academic_style_score")), 5),
+        "signal_count": _nonnegative_int(value.get("signal_count")) or len(signals),
+        "anti_pattern_count": _nonnegative_int(value.get("anti_pattern_count")) or len(anti_patterns),
+        "citation_key_count": _nonnegative_int(value.get("citation_key_count")),
+        "signals": signals,
+        "anti_patterns": anti_patterns,
+    }
+
+
 def _extract_citation_keys(content: str) -> list[str]:
     keys: list[str] = []
     seen: set[str] = set()
@@ -247,6 +341,35 @@ def _extract_citation_keys(content: str) -> list[str]:
             seen.add(key)
             keys.append(key)
     return keys
+
+
+def _style_anti_patterns(content: str) -> list[str]:
+    text = str(content or "")
+    return [
+        name
+        for name, pattern in (
+            ("ai_meta", _AI_META_RE),
+            ("first_person_opinion", _FIRST_PERSON_OPINION_RE),
+            ("casual_intensifier", _CASUAL_INTENSIFIER_RE),
+            ("vague_noun", _VAGUE_NOUN_RE),
+        )
+        if pattern.search(text)
+    ]
+
+
+def _plain_words(content: str) -> list[str]:
+    text = re.sub(r"\\[A-Za-z]+(?:\[[^\]]*\])?(?:\{[^}]*\})?", " ", str(content or ""))
+    return re.findall(r"[A-Za-z][A-Za-z-]+", text)
+
+
+def _bounded_string_list(value: object) -> list[str]:
+    raw = value if isinstance(value, list | tuple | set | frozenset) else []
+    result: list[str] = []
+    for item in list(raw)[:10]:
+        text = str(item or "").strip()[:80]
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def _has_equation_constructs(content: str) -> bool:

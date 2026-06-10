@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.services.prism_file_content import (
+    summarize_prism_file_change_academic_style_contract,
     summarize_prism_file_change_content_contract,
     summarize_prism_file_change_semantic_contract,
 )
@@ -78,6 +79,14 @@ def prism_review_item_projection(
             path=path,
             content_contract=content_contract,
             source_contract=source_semantic_contract or None,
+        )
+        source_academic_style_contract = _json_object(
+            preview.get("academic_style_contract") or payload.get("academic_style_contract")
+        )
+        preview_payload["academic_style_contract"] = summarize_prism_file_change_academic_style_contract(
+            pending_content,
+            path=path,
+            source_contract=source_academic_style_contract or None,
         )
     return {
         "id": str(item.id),
