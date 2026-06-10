@@ -87,6 +87,10 @@ export function RunView({
           </button>
         </div>
 
+        {view.qualityHighlights.length > 0 ? (
+          <QualityHighlights highlights={view.qualityHighlights} />
+        ) : null}
+
         {view.team ? <TeamRoster team={view.team} /> : null}
 
         <div style={styles.timelinePanel}>
@@ -142,6 +146,30 @@ export function RunView({
           <NodeInspector node={activeNode} state={activeNodeState} />
         </details>
       </section>
+    </div>
+  );
+}
+
+function QualityHighlights({
+  highlights,
+}: {
+  highlights: ReturnType<typeof runViewFromExecution>["qualityHighlights"];
+}) {
+  return (
+    <div style={styles.gateStrip} aria-label="质量摘要">
+      {highlights.map((item) => (
+        <span key={`${item.label}:${item.detail}`} style={styles.gateItem}>
+          <span style={styles.gateName}>{item.label}</span>
+          <span
+            style={{
+              ...styles.gateBadge,
+              ...qualityGateTone(item.status),
+            }}
+          >
+            {item.detail}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }

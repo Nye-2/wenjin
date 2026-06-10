@@ -270,6 +270,65 @@ describe("execution run view projection", () => {
     ]);
   });
 
+  it("projects concise quality highlights without raw harness details", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        runtime_state: {
+          quality_gates: [
+            {
+              gate_id: "citation_strength",
+              status: "pass",
+              evidence: {
+                schema: "wenjin.harness.research_eval.v1",
+                strong_count: 2,
+                artifact_paths: ["/workspace/tmp/tasks/.harness/outputs/stdout.txt"],
+              },
+            },
+            {
+              gate_id: "experiment_interpretation",
+              status: "pass",
+              evidence: {
+                metric_names: ["accuracy"],
+                artifact_paths: ["/workspace/outputs/result.json"],
+              },
+            },
+            {
+              gate_id: "statistical_robustness",
+              status: "pass",
+              evidence: {
+                sample_size_count: 1,
+                passed_robustness_check_count: 2,
+              },
+            },
+            {
+              gate_id: "writing_semantic_preservation",
+              status: "warning",
+              evidence: {
+                risky_items: [
+                  {
+                    file_path: "main.tex",
+                    failed_flags: ["citations"],
+                    raw: "wenjin.prism.semantic_contract.v1",
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(view.qualityHighlights).toEqual([
+      { label: "引用支撑", status: "pass", detail: "2 条强支撑" },
+      { label: "实验解释", status: "pass", detail: "指标、限制与产物已对齐" },
+      { label: "统计稳健", status: "pass", detail: "方法、样本量与稳健性已检查" },
+      { label: "语义保持", status: "warning", detail: "1 处改写需要确认" },
+    ]);
+    expect(JSON.stringify(view.qualityHighlights)).not.toContain("wenjin.");
+    expect(JSON.stringify(view.qualityHighlights)).not.toContain("/workspace/tmp/tasks");
+    expect(JSON.stringify(view.qualityHighlights)).not.toContain("stdout");
+  });
+
   it("projects team harness activity without exposing raw tool payload by default", () => {
     const record = makeExecution({
       graph_structure: {

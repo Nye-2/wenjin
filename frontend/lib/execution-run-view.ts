@@ -51,6 +51,12 @@ export interface RunViewQualityGate {
   nextAction?: string | null;
 }
 
+export interface RunViewQualityHighlight {
+  label: string;
+  status: "pass" | "warning" | "fail";
+  detail: string;
+}
+
 export interface RunViewTeam {
   mode: "team_kernel";
   members: RunViewTeamMember[];
@@ -94,6 +100,7 @@ export interface RunView {
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
   team?: RunViewTeam | null;
+  qualityHighlights: RunViewQualityHighlight[];
   actions: RunPrimaryAction[];
 }
 
@@ -143,6 +150,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   const failureCategory =
     failureCategoryFromRecord(record, failedNodeCount, failureMessage);
   const team = teamViewFromExecution(record);
+  const qualityHighlights = qualityHighlightsFromRuntimeState(record.runtime_state);
 
   return {
     id: record.id,
@@ -173,6 +181,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     failureCategory,
     failureMessage,
     team,
+    qualityHighlights,
     actions: actionsForRun({
       status,
       hasPrismChanges: prismReviewCount > 0,
@@ -297,6 +306,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    qualityHighlights: [],
     actions: actionsForRun({
       status,
       hasPrismChanges: Boolean(record.has_prism_changes || prismReviewCount > 0),
@@ -342,6 +352,7 @@ export function runViewFromResultCard(
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    qualityHighlights: [],
     actions: actionsForRun({
       status,
       hasPrismChanges: prismReviewCount > 0,
@@ -382,6 +393,9 @@ export function mergeRunViews(
     failureCategory: live.failureCategory ?? historical.failureCategory,
     failureMessage: live.failureMessage ?? historical.failureMessage,
     team: live.team ?? historical.team,
+    qualityHighlights: live.qualityHighlights.length
+      ? live.qualityHighlights
+      : historical.qualityHighlights,
     actions: Array.from(new Set([...live.actions, ...historical.actions])),
   };
 }
@@ -580,6 +594,77 @@ function normalizeQualityGateSeverity(
 ): RunViewQualityGate["severity"] {
   if (value === "low" || value === "medium" || value === "high") return value;
   return undefined;
+}
+
+function qualityHighlightsFromRuntimeState(
+  runtimeState: Record<string, unknown> | null | undefined,
+): RunViewQualityHighlight[] {
+  const gates = teamQualityGatesFromRuntimeState(runtimeState);
+  const rawGates = [
+    ...arrayValue(runtimeState?.quality_gates),
+    ...arrayValue(objectValue(runtimeState?.team)?.quality_gates),
+  ];
+  const rawById = new Map<string, Record<string, unknown>>();
+  for (const rawGate of rawGates) {
+    const gate = objectValue(rawGate);
+    if (!gate) continue;
+    const id = stringValue(gate.gate_id) ?? stringValue(gate.id);
+    if (id) rawById.set(id, gate);
+  }
+
+  const highlights: RunViewQualityHighlight[] = [];
+  for (const gate of gates) {
+    const normalized = normalizeTechnicalName(gate.id);
+    const rawGate = rawById.get(gate.id) ?? {};
+    const evidence = objectValue(rawGate.evidence) ?? objectValue(rawGate.result) ?? {};
+    const highlight = qualityHighlightFromGate(gate, normalized, evidence);
+    if (highlight) highlights.push(highlight);
+  }
+  return highlights.slice(0, 6);
+}
+
+function qualityHighlightFromGate(
+  gate: RunViewQualityGate,
+  normalizedId: string,
+  evidence: Record<string, unknown>,
+): RunViewQualityHighlight | null {
+  if (normalizedId.includes("citation_strength")) {
+    const strongCount = numberValue(evidence.strong_count);
+    return {
+      label: "引用支撑",
+      status: gate.status,
+      detail: strongCount > 0 ? `${strongCount} 条强支撑` : qualityDetailForStatus(gate.status),
+    };
+  }
+  if (normalizedId.includes("experiment_interpretation")) {
+    return {
+      label: "实验解释",
+      status: gate.status,
+      detail: gate.status === "pass" ? "指标、限制与产物已对齐" : qualityDetailForStatus(gate.status),
+    };
+  }
+  if (normalizedId.includes("statistical_robustness")) {
+    return {
+      label: "统计稳健",
+      status: gate.status,
+      detail: gate.status === "pass" ? "方法、样本量与稳健性已检查" : qualityDetailForStatus(gate.status),
+    };
+  }
+  if (normalizedId.includes("writing_semantic_preservation")) {
+    const riskyCount = arrayValue(evidence.risky_items).length || numberValue(evidence.high_risk_count);
+    return {
+      label: "语义保持",
+      status: gate.status,
+      detail: riskyCount > 0 ? `${riskyCount} 处改写需要确认` : qualityDetailForStatus(gate.status),
+    };
+  }
+  return null;
+}
+
+function qualityDetailForStatus(status: RunViewQualityHighlight["status"]): string {
+  if (status === "pass") return "已检查";
+  if (status === "fail") return "需要修订";
+  return "需要确认";
 }
 
 function failureCategoryFromRecord(
@@ -1023,6 +1108,15 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, value);
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  }
+  return 0;
 }
 
 function stringArrayValue(value: unknown): string[] {

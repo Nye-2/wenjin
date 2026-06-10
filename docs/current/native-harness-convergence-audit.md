@@ -282,6 +282,12 @@ Chat Agent
   - `backend`: `.venv/bin/ruff check src/services/prism_file_content.py src/services/prism_review_projection.py src/agents/harness/research_task_eval.py tests/services/test_prism_review_projection.py tests/agents/harness/test_research_task_eval.py` -> passed.
   - `backend`: Prism/runtime focused suite -> 25 passed.
   - `backend`: native harness regression gate -> 313 passed.
+- 2026-06-10 frontend quality highlight projection slice:
+  - Added `RunView.qualityHighlights` in `frontend/lib/execution-run-view.ts` as the single presenter-level projection for known outcome-quality gates: citation strength, experiment interpretation, statistical robustness and Prism semantic preservation.
+  - Highlights use short user-facing labels and bounded count/fixed details only. The projection deliberately does not expose `*.v1` schemas, raw findings, raw stdout/stderr, raw tool args or `/workspace/tmp/tasks/.harness/**` internal refs.
+  - LiveWorkflowPanel renders these highlights with existing compact quality-pill styling; no second frontend store, stream or raw execution parser was added.
+  - `frontend`: `npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/v2/LiveWorkflowPanel.test.tsx` -> 29 passed.
+  - `frontend`: `npm run typecheck` -> passed.
 - 2026-06-09 closed workspace directory contract slice:
   - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
   - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.

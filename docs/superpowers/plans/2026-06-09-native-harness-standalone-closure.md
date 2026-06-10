@@ -641,7 +641,7 @@ Expected: commit contains only files actually touched.
 - Modify if needed: `frontend/tests/unit/v2/LiveWorkflowPanel.test.tsx`
 - Modify: `docs/current/workspace-current-state.md`
 
-- [ ] **Step 1: Add projection tests**
+- [x] **Step 1: Add projection tests**
 
 Add tests that convert backend quality findings into concise UI labels:
 
@@ -660,7 +660,7 @@ Ensure no UI projection contains:
 - `*.v1` schema names;
 - `/workspace/tmp/tasks/.harness/outputs/**`.
 
-- [ ] **Step 2: Run tests and confirm RED**
+- [x] **Step 2: Run tests and confirm RED**
 
 Run:
 
@@ -670,7 +670,7 @@ cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts
 
 Expected: missing `qualityHighlights` or missing sanitization.
 
-- [ ] **Step 3: Implement projection**
+- [x] **Step 3: Implement projection**
 
 Implementation boundary:
 
@@ -679,7 +679,7 @@ Implementation boundary:
 - do not add a second store or second stream;
 - render concise, human-readable quality summary in `LiveWorkflowPanel`.
 
-- [ ] **Step 4: Run frontend focused tests**
+- [x] **Step 4: Run frontend focused tests**
 
 Run:
 
@@ -690,7 +690,7 @@ cd frontend && npx vitest run \
   tests/unit/v2/LiveWorkflowPanel.test.tsx
 ```
 
-Expected: typecheck and tests pass.
+Expected: typecheck and tests pass. Current evidence: `npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/v2/LiveWorkflowPanel.test.tsx` passed with 29 tests, and `npm run typecheck` passed.
 
 - [ ] **Step 5: Commit**
 
