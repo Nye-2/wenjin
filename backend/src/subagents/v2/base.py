@@ -32,6 +32,7 @@ class SubagentContext:
     team_context: dict[str, Any] = field(default_factory=dict)
     invocation: dict[str, Any] | None = None
     emit_delta: Callable[[str, str], Awaitable[None]] | None = None
+    publish_event: Callable[[str, str, dict[str, Any]], Awaitable[None]] | None = None
 
     async def emit(self, event_type: str, content: str) -> None:
         """Emit an incremental delta event. No-op when emit_delta is not set."""

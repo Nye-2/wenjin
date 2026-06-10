@@ -251,6 +251,12 @@ class CapabilityV2TeamPolicyModel(BaseModel):
     budget: dict[str, Any] = Field(default_factory=dict)
 
 
+class CapabilityV2ResearchEvidenceModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    required_surfaces: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class CapabilityV2YamlModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["capability.v2"]
@@ -266,6 +272,9 @@ class CapabilityV2YamlModel(BaseModel):
     review_policy: CapabilityV2ReviewPolicyModel
     citation_policy: CapabilityV2CitationPolicyModel = Field(default_factory=CapabilityV2CitationPolicyModel)
     quality_gates: list[str] = Field(default_factory=list)
+    research_evidence: CapabilityV2ResearchEvidenceModel = Field(
+        default_factory=CapabilityV2ResearchEvidenceModel,
+    )
     runtime: CapabilityV2RuntimeModel | None = None
     team_policy: CapabilityV2TeamPolicyModel | None = None
     graph_template: GraphTemplateModel
@@ -274,6 +283,10 @@ class CapabilityV2YamlModel(BaseModel):
     @model_validator(mode="after")
     def validate_team_kernel_contract(self) -> CapabilityV2YamlModel:
         _validate_non_blank_ids(self.quality_gates, "quality_gates")
+        _validate_non_blank_ids(
+            self.research_evidence.required_surfaces,
+            "research_evidence.required_surfaces",
+        )
         if self.runtime is None:
             if self.team_policy is not None:
                 raise ValueError("team_policy requires runtime.mode=team_kernel")

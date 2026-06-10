@@ -27,6 +27,7 @@ def compile_graph(
     runner_factory: Callable[[type[SubagentBase], dict], Callable] | None = None,
     abort_check: Callable | None = None,
     skills: dict[str, Any] | None = None,
+    publish_event: Callable | None = None,
 ):
     """Compile capability graph_template → LangGraph StateGraph.
 
@@ -44,6 +45,8 @@ def compile_graph(
             an ExecutionAborted exception is raised to halt the graph.
         skills: Optional dict mapping skill_id → catalog skill record, pre-loaded
             by the caller. Tasks with skill_id will have the skill attached.
+        publish_event: Optional existing execution-event publisher forwarded to
+            default runner subagent contexts.
 
     Returns:
         A compiled LangGraph CompiledStateGraph ready for invocation.
@@ -55,7 +58,15 @@ def compile_graph(
 
     _skills = skills or {}
     builder = StateGraph(state_class)
-    factory = runner_factory or _default_runner_factory
+    if runner_factory is None:
+        def factory(subagent_cls: type[SubagentBase], task_spec: dict) -> Callable:
+            return _default_runner_factory(
+                subagent_cls,
+                task_spec,
+                publish_event=publish_event,
+            )
+    else:
+        factory = runner_factory
 
     # Phase → task index used at run time by the renderer to resolve
     # ``{{phases.<phase>.<task>.output.X}}`` references against node_results.
@@ -113,6 +124,7 @@ def _default_runner_factory(
     subagent_cls: type[SubagentBase],
     task_spec: dict,
     emit_delta: Callable | None = None,
+    publish_event: Callable | None = None,
 ) -> Callable:
     """Build a default async node function that runs the subagent and stores results.
 
@@ -125,6 +137,8 @@ def _default_runner_factory(
         task_spec: Task specification dict from the capability template.
         emit_delta: Optional async callback ``(event_type, content)`` forwarded
             to SubagentContext for streaming thinking deltas.
+        publish_event: Optional existing execution-event publisher forwarded to
+            SubagentContext for harness tool events.
     """
 
     _max_attempts = (task_spec.get("retry_on_failure") or 0) + 1
@@ -169,6 +183,7 @@ def _default_runner_factory(
             capability_policy=state.get("capability_policy", {}),
             skill=task_spec.get("_skill"),
             emit_delta=emit_delta,
+            publish_event=publish_event,
         )
         last_error: Exception | None = None
         for attempt in range(_max_attempts):

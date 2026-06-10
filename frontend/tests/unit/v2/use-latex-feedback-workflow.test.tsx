@@ -29,6 +29,8 @@ vi.mock("@/lib/api", () => ({
 
 function renderWorkflow(overrides: Partial<Parameters<typeof useLatexFeedbackWorkflow>[0]> = {}) {
   const sendChatMessage = vi.fn().mockResolvedValue({ executionId: "exec-1" });
+  const setFeedbackStatus = vi.fn();
+  const setFeedbackError = vi.fn();
   const prismOptimization = {
     addJob: vi.fn(),
     updateJob: vi.fn(),
@@ -52,8 +54,8 @@ function renderWorkflow(overrides: Partial<Parameters<typeof useLatexFeedbackWor
     transientPdfAnchor: null,
     feedbackItems: [],
     setFeedbackItems: vi.fn(),
-    setFeedbackStatus: vi.fn(),
-    setFeedbackError: vi.fn(),
+    setFeedbackStatus,
+    setFeedbackError,
     editorRef: { current: null },
     prismOptimization,
     sendChatMessage,
@@ -72,6 +74,8 @@ function renderWorkflow(overrides: Partial<Parameters<typeof useLatexFeedbackWor
     ...renderHook(() => useLatexFeedbackWorkflow(options)),
     prismOptimization,
     sendChatMessage,
+    setFeedbackStatus: options.setFeedbackStatus,
+    setFeedbackError: options.setFeedbackError,
   };
 }
 
@@ -142,5 +146,25 @@ describe("useLatexFeedbackWorkflow", () => {
     expect(params.selection_start).toBe(0);
     expect(params.selection_end).toBe(mockLatexState.activeFileContent.length);
     expect(params.instruction).toBe("这篇文章 AI 味太浓了");
+  });
+
+  it("clears document optimization pending status when launch does not return an execution", async () => {
+    const sendChatMessage = vi.fn().mockResolvedValue({
+      status: "failed",
+      toolResult: { detail: "未能生成全文修改，请稍后重试。" },
+    });
+    const { result, setFeedbackStatus, setFeedbackError } = renderWorkflow({
+      sendChatMessage,
+    });
+
+    act(() => {
+      result.current.actions.setFeedbackDraftComment("这篇文章 AI 味太浓了");
+    });
+    await act(async () => {
+      await result.current.actions.launchDocumentOptimization();
+    });
+
+    expect(setFeedbackError).toHaveBeenCalledWith("未能生成全文修改，请稍后重试。");
+    expect(setFeedbackStatus).toHaveBeenLastCalledWith("");
   });
 });

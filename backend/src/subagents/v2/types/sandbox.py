@@ -88,6 +88,7 @@ class SandboxPythonSubagent(SubagentBase):
             if operation == "smoke_check":
                 output = await run_python_smoke_check(
                     workspace_id=ctx.workspace_id,
+                    workspace_type=str(ctx.inputs.get("workspace_type") or ""),
                     execution_id=ctx.execution_id,
                     node_id=node_id,
                     sandbox_policy=sandbox_policy,
@@ -96,6 +97,7 @@ class SandboxPythonSubagent(SubagentBase):
             else:
                 output = await run_python_script(
                     workspace_id=ctx.workspace_id,
+                    workspace_type=str(ctx.inputs.get("workspace_type") or ""),
                     execution_id=ctx.execution_id,
                     node_id=node_id,
                     sandbox_policy=sandbox_policy,

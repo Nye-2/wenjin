@@ -2,10 +2,40 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
+
+from src.agents.harness.builtins import BUILTIN_TOOL_SPECS
+from src.agents.harness.tool_names import CANONICAL_TOOL_ALIASES, canonical_tool_name, expand_tool_names
 
 if TYPE_CHECKING:
     from .base import SubagentBase
+
+
+BUSINESS_TEAM_TOOLS = frozenset(
+    {
+        "artifact_create",
+        "citation_parser",
+        "document_read",
+        "library_read",
+        "memory_read",
+        "prism_change_staged",
+        "prism_read",
+        "web_search",
+    }
+)
+HARNESS_TEAM_TOOLS = frozenset(spec.name for spec in BUILTIN_TOOL_SPECS)
+KNOWN_TEAM_TOOLS = BUSINESS_TEAM_TOOLS | HARNESS_TEAM_TOOLS
+SANDBOX_WRITE_TOOLS = frozenset(
+    {
+        "sandbox.write_file",
+        "sandbox.str_replace",
+        "sandbox.apply_patch",
+        "sandbox.register_dataset",
+        "sandbox.register_artifact",
+    }
+)
+SANDBOX_EXECUTE_TOOLS = frozenset({"sandbox.run_python"})
 
 
 class _Registry:
@@ -56,3 +86,109 @@ def subagent(name: str):
         return cls
 
     return decorator
+
+
+def normalize_agent_template_tool_affinity(template: Mapping[str, Any]) -> dict[str, list[str]]:
+    """Return canonical preferred/can_request tools for an agent template."""
+
+    affinity = template.get("tool_affinity")
+    if not isinstance(affinity, Mapping):
+        return {"preferred": [], "can_request": []}
+    return {
+        "preferred": _canonical_tool_list(affinity.get("preferred")),
+        "can_request": _canonical_tool_list(affinity.get("can_request")),
+    }
+
+
+def agent_template_requires_harness_context(template: Mapping[str, Any]) -> bool:
+    """Whether the template can invoke Wenjin-native harness tools."""
+
+    affinity = normalize_agent_template_tool_affinity(template)
+    return any(
+        tool.startswith("sandbox.")
+        for tool in [*affinity["preferred"], *affinity["can_request"]]
+    )
+
+
+def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
+    """Validate seed/admin agent template declarations against harness/team tools.
+
+    Business tools are intentionally kept as team-level tools. Harness tools are
+    required to use canonical built-in names so runtime policy can narrow them
+    deterministically.
+    """
+
+    template_id = str(template.get("id") or "<unknown>").strip() or "<unknown>"
+    errors: list[str] = []
+    affinity = template.get("tool_affinity")
+    if not isinstance(affinity, Mapping):
+        return errors
+
+    raw_tools_by_field = {
+        "preferred": _raw_string_list(affinity.get("preferred")),
+        "can_request": _raw_string_list(affinity.get("can_request")),
+    }
+    canonical_tools: list[str] = []
+    for field, raw_tools in raw_tools_by_field.items():
+        for raw_tool in raw_tools:
+            canonical = canonical_tool_name(raw_tool)
+            if raw_tool in CANONICAL_TOOL_ALIASES:
+                errors.append(
+                    f"{template_id}: tool_affinity.{field} uses retired harness tool "
+                    f"'{raw_tool}'; use '{canonical}'"
+                )
+            if canonical not in KNOWN_TEAM_TOOLS:
+                errors.append(
+                    f"{template_id}: tool_affinity.{field} declares unknown team tool "
+                    f"'{raw_tool}'"
+                )
+            if canonical not in canonical_tools:
+                canonical_tools.append(canonical)
+        for companion in expand_tool_names(raw_tools):
+            if companion not in canonical_tools:
+                canonical_tools.append(companion)
+
+    risk_profile = template.get("risk_profile")
+    if not isinstance(risk_profile, Mapping):
+        risk_profile = {}
+    if SANDBOX_WRITE_TOOLS.intersection(canonical_tools) and risk_profile.get("filesystem") != "sandbox_only":
+        errors.append(
+            f"{template_id}: sandbox write tools require "
+            "risk_profile.filesystem='sandbox_only'"
+        )
+    code_execution = str(risk_profile.get("code_execution") or "").strip()
+    if SANDBOX_EXECUTE_TOOLS.intersection(canonical_tools) and code_execution not in {
+        "optional",
+        "required",
+    }:
+        errors.append(
+            f"{template_id}: sandbox.run_python requires "
+            "risk_profile.code_execution optional|required"
+        )
+    return errors
+
+
+def _canonical_tool_list(value: Any) -> list[str]:
+    result: list[str] = []
+    for raw in _raw_string_list(value):
+        canonical = canonical_tool_name(raw)
+        if canonical and canonical not in result:
+            result.append(canonical)
+    return result
+
+
+def _raw_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        items = list(value)
+    else:
+        return []
+    result: list[str] = []
+    for item in items:
+        text = str(item).strip()
+        if text and text not in result:
+            result.append(text)
+    return result

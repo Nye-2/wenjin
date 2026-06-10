@@ -36,6 +36,7 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
         "execution_commit_writeback_security",
         "execution_resume_runtime_config",
         "execution_ux_convergence",
+        "native_harness_quality_gate",
         "model_catalog_pricing_gate",
         "frontend_execution_ux_unit_tests",
         "frontend_static_build",
@@ -62,3 +63,25 @@ def test_release_gate_includes_current_execution_architecture_checks() -> None:
     assert "src.quality.model_catalog_pricing_gate" in " ".join(
         command_by_id["model_catalog_pricing_gate"]
     )
+    harness_command = " ".join(command_by_id["native_harness_quality_gate"])
+    assert "tests/agents/harness/test_scheduler_and_python_tool.py" in harness_command
+    assert "tests/agents/harness/test_sandbox_file_tools.py" in harness_command
+    assert "tests/agents/harness/test_command_audit.py" in harness_command
+    assert "tests/agents/harness/test_policy_and_registry.py" in harness_command
+    assert "tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py" in harness_command
+    assert "tests/agents/harness/test_research_task_eval.py" in harness_command
+    assert "tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py" in harness_command
+    assert "tests/agents/harness/test_context_assembly.py" in harness_command
+    assert "tests/unit/subagents/test_react.py" in harness_command
+    assert "tests/subagents/v2/test_registry.py" in harness_command
+    assert "tests/agents/lead_agent/v2/test_team_policy.py" in harness_command
+    assert "tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py" in harness_command
+    assert "tests/agents/lead_agent/v2/test_sandbox_runtime.py" in harness_command
+    assert "test_run_session_prism_review_items_satisfy_writing_evidence_eval" in harness_command
+    assert "tests/agents/lead_agent/v2/test_citation_source_audit.py" in harness_command
+    assert "test_surface_projection_includes_review_provenance_and_protection" in harness_command
+    assert "tests/services/test_prism_review_projection.py" in harness_command
+    assert "tests/architecture/test_native_harness_boundaries.py" in harness_command
+    assert "tests/dataservice/test_sandbox_domain.py" in harness_command
+    assert "tests/sandbox/test_docker_provider.py" in harness_command
+    assert "tests/integration/test_harness_mock_sandbox_e2e.py" in harness_command

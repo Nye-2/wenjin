@@ -11,8 +11,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { LatexCompileLogDialog } from "@/components/latex/latex-editor/LatexCompileLogDialog";
 import { LatexEditorPanes } from "@/components/latex/latex-editor/LatexEditorPanes";
 import { LatexEditorProjectBar } from "@/components/latex/latex-editor/LatexEditorProjectBar";
-import { PrismAssistPanel } from "@/components/latex/latex-editor/PrismAssistPanel";
-import { PrismFloatingAssist } from "@/components/latex/latex-editor/PrismFloatingAssist";
+import { LatexInspector } from "@/components/latex/latex-editor/LatexInspector";
 import { LatexResourceRail } from "@/components/latex/latex-editor/LatexResourceRail";
 import {
   type PrismTextEditorHandle,
@@ -234,16 +233,10 @@ export function LatexEditorShell({
   ]);
 
   useEffect(() => {
-    if (fileChanges.length > 0) {
+    if (reviewQueue.focusedReviewItemId || reviewQueue.focusedLogicalKey) {
       setIsAssistOpen(true);
     }
-  }, [fileChanges.length]);
-
-  useEffect(() => {
-    if (prismOptimization.activeJobId) {
-      setIsAssistOpen(true);
-    }
-  }, [prismOptimization.activeJobId]);
+  }, [reviewQueue.focusedLogicalKey, reviewQueue.focusedReviewItemId]);
 
   const deleteCurrentProject = useCallback(async () => {
     if (!project) {
@@ -283,7 +276,7 @@ export function LatexEditorShell({
   const selectedCharacterCount = feedbackWorkflow.selectionText.trim()
     ? feedbackWorkflow.selectionText.trim().length
     : pdfDraftSelection?.text.trim().length || 0;
-  const pendingRewriteCount = feedbackView.selectedRewriteCandidate ? 1 : 0;
+  const pendingRewriteCount = (feedbackView.selectedRewriteCandidate ? 1 : 0) + fileChanges.length;
   const runningJobCount = prismOptimization.jobs.filter(
     (job) => job.status === "launching" || job.status === "running",
   ).length;
@@ -374,20 +367,11 @@ export function LatexEditorShell({
         />
       </div>
 
-      <PrismFloatingAssist
-        isPanelOpen={isAssistOpen}
+      <LatexInspector
+        open={isAssistOpen}
         selectedCharacterCount={selectedCharacterCount}
         pendingRewriteCount={pendingRewriteCount}
-        runningJobCount={runningJobCount}
         hasError={Boolean(feedbackError)}
-        onOpen={() => setIsAssistOpen(true)}
-        onAnnotate={() => setIsAssistOpen(true)}
-        onQuickRewrite={() => setIsAssistOpen(true)}
-        onDeepAssist={() => setIsAssistOpen(true)}
-      />
-
-      <PrismAssistPanel
-        open={isAssistOpen}
         contextText={feedbackView.feedbackContextText}
         draftComment={feedbackView.feedbackDraftComment}
         scope={feedbackView.feedbackScope}
@@ -439,6 +423,10 @@ export function LatexEditorShell({
         onDeepAssistAnnotation={(item) => void feedbackActions.launchPrismOptimization(item)}
         onRemoveAnnotation={feedbackActions.removeFeedback}
         onSelectCandidate={feedbackActions.selectRewriteCandidate}
+        onOpenPanel={() => setIsAssistOpen(true)}
+        onAnnotateSelection={() => setIsAssistOpen(true)}
+        onOpenQuickRewrite={() => setIsAssistOpen(true)}
+        onOpenDeepAssist={() => setIsAssistOpen(true)}
         onRegenerate={() => void feedbackActions.regenerateRewrite()}
         onDiffViewModeChange={feedbackActions.setDiffViewMode}
         onToggleWhitespaceOnlyDiff={feedbackActions.toggleWhitespaceOnlyDiff}

@@ -36,6 +36,7 @@ def require_run_python_allowed(policy: Mapping[str, Any]) -> None:
 async def run_python_smoke_check(
     *,
     workspace_id: str,
+    workspace_type: str | None = None,
     execution_id: str,
     node_id: str,
     sandbox_policy: Mapping[str, Any],
@@ -53,6 +54,7 @@ async def run_python_smoke_check(
         collector=SandboxArtifactCollector(),
     ).run_smoke_check(
         workspace_id=workspace_id,
+        workspace_type=workspace_type,
         execution_id=execution_id,
         node_id=node_id,
         sandbox_policy=sandbox_policy,
@@ -63,12 +65,14 @@ async def run_python_smoke_check(
 async def run_python_script(
     *,
     workspace_id: str,
+    workspace_type: str | None = None,
     execution_id: str,
     node_id: str,
     sandbox_policy: Mapping[str, Any],
     script: str,
     script_name: str = "analysis.py",
     dependency_hints: list[str] | str | None = None,
+    dataset_provenance: list[dict[str, Any]] | None = None,
     provider: DockerSandboxProvider | None = None,
     manager: WorkspaceSandboxManager | None = None,
     billing_reservation_id: str | None = None,
@@ -83,11 +87,13 @@ async def run_python_script(
         collector=SandboxArtifactCollector(),
     ).run_python_script(
         workspace_id=workspace_id,
+        workspace_type=workspace_type,
         execution_id=execution_id,
         node_id=node_id,
         sandbox_policy=sandbox_policy,
         script=script,
         script_name=script_name,
         dependency_hints=dependency_hints,
+        dataset_provenance=dataset_provenance,
         billing_reservation_id=billing_reservation_id,
     )

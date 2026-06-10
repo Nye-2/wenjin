@@ -10,6 +10,7 @@ from src.sandbox.providers.local import (
     LocalSandboxProvider,
     SandboxSecurityError,
 )
+from src.sandbox.workspace_layout import WORKSPACE_MANIFEST_RELATIVE_PATH, WORKSPACE_STANDARD_DIRS
 
 
 class TestLocalSandbox:
@@ -23,13 +24,8 @@ class TestLocalSandbox:
     def sandbox(self, temp_dir):
         """Create LocalSandbox instance."""
         thread_dir = Path(temp_dir) / "thread-123"
-        user_data_dir = thread_dir / "user-data"
-        user_data_dir.mkdir(parents=True)
-        path_mappings = {
-            "/mnt/user-data/workspace": str(user_data_dir / "workspace"),
-            "/mnt/user-data/uploads": str(user_data_dir / "uploads"),
-            "/mnt/user-data/outputs": str(user_data_dir / "outputs"),
-        }
+        workspace_dir = thread_dir / "workspace"
+        path_mappings = {"/workspace": str(workspace_dir)}
         for mapped_path in path_mappings.values():
             Path(mapped_path).mkdir(parents=True, exist_ok=True)
         return LocalSandbox(id="thread-123", path_mappings=path_mappings)
@@ -47,6 +43,23 @@ class TestLocalSandbox:
         assert "hello world" in result.stdout
 
     @pytest.mark.asyncio
+    async def test_execute_command_masks_physical_workspace_paths(self, temp_dir):
+        """Command output should preserve the public /workspace contract."""
+        workspace = Path(temp_dir) / "workspace"
+        workspace.mkdir(parents=True)
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+
+        result = await sandbox.execute_command(
+            "python3 -c \"import os, sys; print(os.getcwd()); sys.stderr.write(os.getcwd())\""
+        )
+
+        assert result.success
+        assert str(workspace.resolve()) not in result.stdout
+        assert str(workspace.resolve()) not in result.stderr
+        assert "/workspace" in result.stdout
+        assert "/workspace" in result.stderr
+
+    @pytest.mark.asyncio
     async def test_execute_command_failure(self, sandbox):
         """Should handle command failure."""
         result = await sandbox.execute_command("ls /nonexistent_directory_12345")
@@ -58,12 +71,12 @@ class TestLocalSandbox:
         """Should write and read file through virtual path."""
         # Write file
         await sandbox.write_file(
-            "/mnt/user-data/workspace/test.txt",
+            "/workspace/test.txt",
             "Hello, Sandbox!",
         )
 
         # Read file
-        content = await sandbox.read_file("/mnt/user-data/workspace/test.txt")
+        content = await sandbox.read_file("/workspace/test.txt")
         assert content == "Hello, Sandbox!"
 
     def test_allows_workspace_virtual_paths(self, temp_dir):
@@ -80,16 +93,16 @@ class TestLocalSandbox:
     async def test_write_file_append(self, sandbox):
         """Should append to existing file."""
         await sandbox.write_file(
-            "/mnt/user-data/workspace/append.txt",
+            "/workspace/append.txt",
             "Line 1\n",
         )
         await sandbox.write_file(
-            "/mnt/user-data/workspace/append.txt",
+            "/workspace/append.txt",
             "Line 2\n",
             append=True,
         )
 
-        content = await sandbox.read_file("/mnt/user-data/workspace/append.txt")
+        content = await sandbox.read_file("/workspace/append.txt")
         assert "Line 1" in content
         assert "Line 2" in content
 
@@ -97,10 +110,10 @@ class TestLocalSandbox:
     async def test_list_dir(self, sandbox):
         """Should list directory contents."""
         # Create some files
-        await sandbox.write_file("/mnt/user-data/workspace/file1.txt", "content1")
-        await sandbox.write_file("/mnt/user-data/workspace/file2.txt", "content2")
+        await sandbox.write_file("/workspace/file1.txt", "content1")
+        await sandbox.write_file("/workspace/file2.txt", "content2")
 
-        entries = await sandbox.list_dir("/mnt/user-data/workspace")
+        entries = await sandbox.list_dir("/workspace")
         assert len(entries) >= 2
         names = [e.name for e in entries]
         assert "file1.txt" in names
@@ -110,20 +123,61 @@ class TestLocalSandbox:
     async def test_list_dir_with_subdirectory(self, sandbox):
         """Should list subdirectories."""
         await sandbox.write_file(
-            "/mnt/user-data/workspace/subdir/file.txt",
+            "/workspace/subdir/file.txt",
             "content",
         )
 
-        entries = await sandbox.list_dir("/mnt/user-data/workspace")
+        entries = await sandbox.list_dir("/workspace")
         subdir_entries = [e for e in entries if e.name == "subdir"]
         assert len(subdir_entries) == 1
         assert subdir_entries[0].is_dir
 
     @pytest.mark.asyncio
+    async def test_list_dir_does_not_follow_symlink_escape(self, sandbox, temp_dir):
+        """Directory listing should not expose files through symlinks outside sandbox roots."""
+        outside_dir = Path(temp_dir) / "outside"
+        outside_dir.mkdir()
+        outside_file = outside_dir / "secret.txt"
+        outside_file.write_text("host-secret", encoding="utf-8")
+        workspace_root = Path(sandbox.path_mappings["/workspace"])
+        link_path = workspace_root / "linked-secret.txt"
+        try:
+            link_path.symlink_to(outside_file)
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlink creation is not available: {exc}")
+        await sandbox.write_file("/workspace/visible.txt", "visible")
+
+        entries = await sandbox.list_dir("/workspace")
+
+        paths = [entry.path for entry in entries]
+        assert "/workspace/visible.txt" in paths
+        assert "/workspace/linked-secret.txt" not in paths
+        assert str(link_path) not in paths
+        assert str(outside_file) not in paths
+        assert all(path.startswith("/workspace") for path in paths)
+
+    @pytest.mark.asyncio
+    async def test_list_dir_reports_internal_symlink_path_not_target_path(self, sandbox):
+        """Directory listing should preserve symlink entry paths inside the virtual namespace."""
+        await sandbox.write_file("/workspace/target.txt", "target")
+        workspace_root = Path(sandbox.path_mappings["/workspace"])
+        link_path = workspace_root / "linked.txt"
+        try:
+            link_path.symlink_to(workspace_root / "target.txt")
+        except (NotImplementedError, OSError) as exc:
+            pytest.skip(f"symlink creation is not available: {exc}")
+
+        entries = await sandbox.list_dir("/workspace")
+
+        path_by_name = {entry.name: entry.path for entry in entries}
+        assert path_by_name["linked.txt"] == "/workspace/linked.txt"
+        assert path_by_name["target.txt"] == "/workspace/target.txt"
+
+    @pytest.mark.asyncio
     async def test_read_nonexistent_file(self, sandbox):
         """Should raise FileNotFoundError for missing file."""
         with pytest.raises(FileNotFoundError):
-            await sandbox.read_file("/mnt/user-data/workspace/nonexistent.txt")
+            await sandbox.read_file("/workspace/nonexistent.txt")
 
     @pytest.mark.asyncio
     async def test_command_timeout(self, sandbox):
@@ -139,9 +193,9 @@ class TestLocalSandbox:
         assert "outside sandbox" in result.stderr
 
     @pytest.mark.asyncio
-    async def test_execute_command_rejects_unmapped_workspace_root(self, sandbox):
-        """Virtual roots are only allowed when this sandbox mapped them."""
-        result = await sandbox.execute_command("cat /workspace/analysis.py")
+    async def test_execute_command_rejects_legacy_virtual_root(self, sandbox):
+        """Only the canonical /workspace virtual root is allowed."""
+        result = await sandbox.execute_command("cat /mnt/user-data/workspace/analysis.py")
         assert not result.success
         assert "outside sandbox" in result.stderr
 
@@ -156,14 +210,14 @@ class TestLocalSandbox:
         assert "outside sandbox" in result.stderr
 
     @pytest.mark.asyncio
-    async def test_execute_command_allows_relative_paths_within_user_data(self, sandbox):
-        """Relative traversal to sibling sandbox dirs should remain available."""
-        await sandbox.write_file("/mnt/user-data/uploads/input.txt", "upload-data")
+    async def test_execute_command_allows_relative_paths_within_workspace(self, sandbox):
+        """Relative paths should remain available inside the workspace root."""
+        await sandbox.write_file("/workspace/datasets/input.txt", "dataset")
 
-        result = await sandbox.execute_command("cat ../uploads/input.txt")
+        result = await sandbox.execute_command("cat datasets/input.txt")
 
         assert result.success
-        assert "upload-data" in result.stdout
+        assert "dataset" in result.stdout
 
     @pytest.mark.asyncio
     async def test_execute_command_rejects_host_paths_embedded_in_script_strings(self, sandbox):
@@ -220,14 +274,14 @@ class TestLocalSandboxProvider:
 
     @pytest.mark.asyncio
     async def test_acquire_creates_directories(self, provider, temp_dir):
-        """Should create thread directories on acquire."""
-        await provider.acquire("thread-dirs")
+        """Should create the canonical workspace sandbox layout on acquire."""
+        sandbox = await provider.acquire("thread-dirs")
 
-        thread_path = Path(temp_dir) / "thread-dirs" / "user-data"
-        assert thread_path.exists()
-        assert (thread_path / "workspace").exists()
-        assert (thread_path / "uploads").exists()
-        assert (thread_path / "outputs").exists()
+        workspace_path = Path(temp_dir).resolve() / "thread-dirs" / "workspace"
+        assert sandbox.path_mappings == {"/workspace": str(workspace_path)}
+        for relative_path in WORKSPACE_STANDARD_DIRS:
+            assert (workspace_path / relative_path).exists()
+        assert (workspace_path / WORKSPACE_MANIFEST_RELATIVE_PATH).exists()
 
 
 class TestLocalSandboxSecurity:
@@ -243,13 +297,8 @@ class TestLocalSandboxSecurity:
     def sandbox(self, temp_dir):
         """Create LocalSandbox instance."""
         thread_dir = Path(temp_dir) / "thread-sec"
-        user_data_dir = thread_dir / "user-data"
-        user_data_dir.mkdir(parents=True)
-        path_mappings = {
-            "/mnt/user-data/workspace": str(user_data_dir / "workspace"),
-            "/mnt/user-data/uploads": str(user_data_dir / "uploads"),
-            "/mnt/user-data/outputs": str(user_data_dir / "outputs"),
-        }
+        workspace_dir = thread_dir / "workspace"
+        path_mappings = {"/workspace": str(workspace_dir)}
         for mapped_path in path_mappings.values():
             Path(mapped_path).mkdir(parents=True, exist_ok=True)
         return LocalSandbox(id="thread-sec", path_mappings=path_mappings)
@@ -264,13 +313,13 @@ class TestLocalSandboxSecurity:
     async def test_reject_path_traversal(self, sandbox):
         """Should reject path traversal attempts."""
         with pytest.raises(SandboxSecurityError):
-            await sandbox.read_file("/mnt/user-data/workspace/../../../etc/passwd")
+            await sandbox.read_file("/workspace/../../../etc/passwd")
 
     @pytest.mark.asyncio
     async def test_reject_null_byte_in_path(self, sandbox):
         """Should reject paths with null bytes."""
         with pytest.raises(SandboxSecurityError):
-            await sandbox.read_file("/mnt/user-data/workspace/test\x00.txt")
+            await sandbox.read_file("/workspace/test\x00.txt")
 
     @pytest.mark.asyncio
     async def test_reject_non_virtual_absolute_path(self, sandbox):
@@ -282,8 +331,8 @@ class TestLocalSandboxSecurity:
     async def test_allow_virtual_path(self, sandbox):
         """Should allow valid virtual paths."""
         # This should NOT raise an error
-        await sandbox.write_file("/mnt/user-data/workspace/safe.txt", "content")
-        content = await sandbox.read_file("/mnt/user-data/workspace/safe.txt")
+        await sandbox.write_file("/workspace/safe.txt", "content")
+        content = await sandbox.read_file("/workspace/safe.txt")
         assert content == "content"
 
     @pytest.mark.asyncio
@@ -291,18 +340,18 @@ class TestLocalSandboxSecurity:
         """Should respect max_depth parameter."""
         # Create nested directories
         await sandbox.write_file(
-            "/mnt/user-data/workspace/level1/level2/level3/file.txt",
+            "/workspace/level1/level2/level3/file.txt",
             "deep content",
         )
 
         # max_depth=0 should only list current directory
-        entries = await sandbox.list_dir("/mnt/user-data/workspace", max_depth=0)
+        entries = await sandbox.list_dir("/workspace", max_depth=0)
         names = [e.name for e in entries]
         assert "level1" in names
         assert "level2" not in names
 
         # max_depth=1 should include one level of subdirectories
-        entries = await sandbox.list_dir("/mnt/user-data/workspace", max_depth=1)
+        entries = await sandbox.list_dir("/workspace", max_depth=1)
         names = [e.name for e in entries]
         assert "level1" in names
         assert "level2" in names
@@ -325,7 +374,7 @@ class TestLocalSandboxProviderCleanup:
         sandbox = await provider.acquire("thread-cleanup-1")
 
         # Write a file
-        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+        await sandbox.write_file("/workspace/main/test.txt", "content")
 
         # Release sandbox
         await provider.release(sandbox)
@@ -340,7 +389,7 @@ class TestLocalSandboxProviderCleanup:
         sandbox = await provider.acquire("thread-cleanup-2")
 
         # Write a file
-        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+        await sandbox.write_file("/workspace/main/test.txt", "content")
 
         # Release sandbox
         await provider.release(sandbox)
@@ -355,7 +404,7 @@ class TestLocalSandboxProviderCleanup:
         sandbox = await provider.acquire("thread-cleanup-3")
 
         # Write a file
-        await sandbox.write_file("/mnt/user-data/workspace/test.txt", "content")
+        await sandbox.write_file("/workspace/main/test.txt", "content")
 
         # Release with cleanup=True override
         await provider.release(sandbox, cleanup=True)

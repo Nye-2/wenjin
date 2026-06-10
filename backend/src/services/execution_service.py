@@ -66,6 +66,26 @@ def _execution_node_state(record: Any) -> dict[str, Any]:
     return state
 
 
+def _set_execution_node_states(record: Any, node_states: dict[str, Any]) -> None:
+    if hasattr(record, "node_states_json"):
+        record.node_states_json = node_states
+        return
+    record.node_states = node_states
+
+
+def _hydrate_execution_node_states(record: Any, node_records: list[Any]) -> Any:
+    if not node_records:
+        return record
+    node_states = dict(getattr(record, "node_states", None) or {})
+    for node_record in node_records:
+        node_id = getattr(node_record, "node_id", None)
+        if not node_id:
+            continue
+        node_states[str(node_id)] = _execution_node_state(node_record)
+    _set_execution_node_states(record, node_states)
+    return record
+
+
 def serialize_execution_record(record: Any) -> dict[str, Any]:
     """Serialize an execution record into the canonical API shape."""
     return {
@@ -165,7 +185,14 @@ class ExecutionService:
     # ------------------------------------------------------------------
     async def get_by_id(self, execution_id: str):
         async with self._client() as client:
-            return await client.get_execution(execution_id)
+            record = await client.get_execution(execution_id)
+            if record is None:
+                return None
+            list_nodes = getattr(client, "list_execution_nodes", None)
+            if callable(list_nodes):
+                node_records = await list_nodes(execution_id)
+                return _hydrate_execution_node_states(record, list(node_records))
+            return record
 
     async def list_executions(
         self,
@@ -178,7 +205,7 @@ class ExecutionService:
         limit: int = 50,
     ) -> list:
         async with self._client() as client:
-            return await client.list_executions(
+            records = await client.list_executions(
                 user_id=user_id,
                 workspace_id=workspace_id,
                 thread_id=thread_id,
@@ -186,6 +213,43 @@ class ExecutionService:
                 status=status,
                 limit=limit,
             )
+            return await self._hydrate_list_execution_node_states(client, list(records))
+
+    async def _hydrate_list_execution_node_states(
+        self,
+        client: Any,
+        records: list[Any],
+    ) -> list[Any]:
+        execution_ids = [
+            str(record.id)
+            for record in records
+            if getattr(record, "id", None)
+        ]
+        if not execution_ids:
+            return records
+        node_records: list[Any] = []
+        list_batch = getattr(client, "list_execution_nodes_by_execution_ids", None)
+        if callable(list_batch):
+            node_records = list(await list_batch(execution_ids))
+        else:
+            list_nodes = getattr(client, "list_execution_nodes", None)
+            if callable(list_nodes):
+                for execution_id in execution_ids:
+                    node_records.extend(await list_nodes(execution_id))
+        if not node_records:
+            return records
+        nodes_by_execution: dict[str, list[Any]] = {}
+        for node_record in node_records:
+            execution_id = getattr(node_record, "execution_id", None)
+            if execution_id is None and len(execution_ids) == 1:
+                execution_id = execution_ids[0]
+            if execution_id is None:
+                continue
+            nodes_by_execution.setdefault(str(execution_id), []).append(node_record)
+        for record in records:
+            execution_id = str(getattr(record, "id", ""))
+            _hydrate_execution_node_states(record, nodes_by_execution.get(execution_id, []))
+        return records
 
     async def reconcile_interrupted_executions(self) -> int:
         """Mark stale in-flight executions terminal after process restart.

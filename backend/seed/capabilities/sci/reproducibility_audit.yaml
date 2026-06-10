@@ -140,6 +140,14 @@ quality_gates:
 - imrad_or_journal_structure_respected
 - methods_results_discussion_consistent
 - data_code_availability_considered
+research_evidence:
+  required_surfaces:
+  - experiment
+  - workflow_trace
+  - experiment_interpretation
+  - output_ref_reuse
+  notes:
+  - The audit focuses on reproducible sandbox evidence, member execution trace, interpreted results, and output-ref reuse before rerunning expensive work.
 graph_template:
   phases:
   - name: step_01_evidence_analyst

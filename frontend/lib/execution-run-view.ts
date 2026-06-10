@@ -39,6 +39,9 @@ export interface RunViewTeamMember {
   status: string;
   effectiveTools: string[];
   effectiveSkills: string[];
+  activityLabel?: string;
+  artifactCount?: number;
+  debugToolCount?: number;
 }
 
 export interface RunViewQualityGate {
@@ -46,6 +49,12 @@ export interface RunViewQualityGate {
   status: "pass" | "warning" | "fail";
   severity?: "low" | "medium" | "high";
   nextAction?: string | null;
+}
+
+export interface RunViewQualityHighlight {
+  label: string;
+  status: "pass" | "warning" | "fail";
+  detail: string;
 }
 
 export interface RunViewTeam {
@@ -85,10 +94,13 @@ export interface RunView {
   tokenUsage?: { input: number; output: number } | null;
   primarySurface?: "prism" | "rooms" | "sandbox" | "none";
   prismReviewCount?: number;
+  sandboxReviewCount?: number;
   hasPrismChanges: boolean;
+  hasSandboxArtifacts?: boolean;
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
   team?: RunViewTeam | null;
+  qualityHighlights: RunViewQualityHighlight[];
   actions: RunPrimaryAction[];
 }
 
@@ -96,6 +108,14 @@ type TaskReportProjection = Record<string, unknown> & {
   errors?: Array<Record<string, unknown>>;
   review_items?: unknown[];
 };
+
+const TEAM_KERNEL_PROGRESS_ORDER = [
+  "team_prepare",
+  "team_recruit",
+  "team_dispatch",
+  "team_quality_gate",
+  "team_finish",
+] as const;
 
 export function isTerminalRunStatus(status: RunViewStatus | string): boolean {
   return ["completed", "failed_partial", "failed", "cancelled"].includes(status);
@@ -109,12 +129,19 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   const prismReviewCount = countPrismReviewItems(
     record.review_items ?? reviewItemsFromTaskReport(taskReport),
   );
+  const sandboxReviewCount = countSandboxReviewItems(
+    record.review_items ?? reviewItemsFromTaskReport(taskReport),
+  );
   const status = normalizeExecutionStatus(record.status);
   const failedNodeCount = countNodesByStatus(record, "failed");
-  const completedNodeCount = countNodesByStatus(record, "completed");
-  const nodeCount =
-    record.graph_structure?.nodes.length ??
-    Object.keys(record.node_states ?? {}).length;
+  const progressItems = buildRunProgressItems(record);
+  const completedNodeCount = progressItems.length
+    ? countProgressItemsByStatus(progressItems, "completed")
+    : countNodesByStatus(record, "completed");
+  const nodeCount = progressItems.length
+    ? progressItems.length
+    : (record.graph_structure?.nodes.length ??
+      Object.keys(record.node_states ?? {}).length);
   const failureMessage =
     record.last_error ??
     record.error ??
@@ -123,6 +150,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   const failureCategory =
     failureCategoryFromRecord(record, failedNodeCount, failureMessage);
   const team = teamViewFromExecution(record);
+  const qualityHighlights = qualityHighlightsFromRuntimeState(record.runtime_state);
 
   return {
     id: record.id,
@@ -144,16 +172,20 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     completedNodeCount,
     failedNodeCount,
     tokenUsage,
-    primarySurface: prismReviewCount > 0 ? "prism" : "rooms",
+    primarySurface:
+      prismReviewCount > 0 ? "prism" : sandboxReviewCount > 0 ? "sandbox" : "rooms",
     prismReviewCount,
+    sandboxReviewCount,
     hasPrismChanges: prismReviewCount > 0,
+    hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
     team,
+    qualityHighlights,
     actions: actionsForRun({
       status,
       hasPrismChanges: prismReviewCount > 0,
-      hasResults: Boolean(record.result || taskReport),
+      hasResults: Boolean(record.result || taskReport || sandboxReviewCount > 0),
       failureCategory,
     }),
   };
@@ -161,6 +193,9 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
 
 export function buildRunProgressItems(record: ExecutionRecord): RunProgressItem[] {
   const nodes = record.graph_structure?.nodes ?? [];
+  if (record.graph_structure?.mode === "team_kernel") {
+    return buildTeamKernelProgressItems(record, nodes);
+  }
   if (nodes.length === 0) {
     return Object.entries(record.node_states ?? {}).map(([id, state]) =>
       runProgressItemFromNode(
@@ -240,6 +275,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
       : record.has_prism_changes
         ? 1
         : 0;
+  const sandboxReviewCount = record.primary_surface === "sandbox" ? 1 : 0;
   const failureMessage = record.failure_message ?? null;
   const failureCategory =
     record.failure_category ??
@@ -259,11 +295,18 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     tokenUsage: record.token_usage ?? null,
     primarySurface:
       record.primary_surface ??
-      (prismReviewCount > 0 || record.has_prism_changes ? "prism" : "rooms"),
+      (prismReviewCount > 0 || record.has_prism_changes
+        ? "prism"
+        : sandboxReviewCount > 0
+          ? "sandbox"
+          : "rooms"),
     prismReviewCount,
+    sandboxReviewCount,
     hasPrismChanges: Boolean(record.has_prism_changes || prismReviewCount > 0),
+    hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    qualityHighlights: [],
     actions: actionsForRun({
       status,
       hasPrismChanges: Boolean(record.has_prism_changes || prismReviewCount > 0),
@@ -279,6 +322,7 @@ export function runViewFromResultCard(
 ): RunView {
   const status = normalizeRunRecordStatus(data.status);
   const prismReviewCount = countPrismReviewItems(data.review_items ?? []);
+  const sandboxReviewCount = countSandboxReviewItems(data.review_items ?? []);
   const failureMessage = data.errors?.[0]?.message ?? null;
   const failureCategory =
     status === "failed_partial" || status === "failed"
@@ -300,11 +344,15 @@ export function runViewFromResultCard(
         ? formatSeconds(data.duration_seconds)
         : null,
     tokenUsage: tokenUsageFromUnknown(data.token_usage),
-    primarySurface: prismReviewCount > 0 ? "prism" : "rooms",
+    primarySurface:
+      prismReviewCount > 0 ? "prism" : sandboxReviewCount > 0 ? "sandbox" : "rooms",
     prismReviewCount,
+    sandboxReviewCount,
     hasPrismChanges: prismReviewCount > 0,
+    hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    qualityHighlights: [],
     actions: actionsForRun({
       status,
       hasPrismChanges: prismReviewCount > 0,
@@ -336,10 +384,18 @@ export function mergeRunViews(
       live.prismReviewCount ?? 0,
       historical.prismReviewCount ?? 0,
     ),
+    sandboxReviewCount: Math.max(
+      live.sandboxReviewCount ?? 0,
+      historical.sandboxReviewCount ?? 0,
+    ),
     hasPrismChanges: live.hasPrismChanges || historical.hasPrismChanges,
+    hasSandboxArtifacts: Boolean(live.hasSandboxArtifacts || historical.hasSandboxArtifacts),
     failureCategory: live.failureCategory ?? historical.failureCategory,
     failureMessage: live.failureMessage ?? historical.failureMessage,
     team: live.team ?? historical.team,
+    qualityHighlights: live.qualityHighlights.length
+      ? live.qualityHighlights
+      : historical.qualityHighlights,
     actions: Array.from(new Set([...live.actions, ...historical.actions])),
   };
 }
@@ -387,6 +443,20 @@ function countPrismReviewItems(items: unknown[]): number {
       (entry.target &&
         typeof entry.target === "object" &&
         (entry.target as Record<string, unknown>).kind === "prism_file_change")
+    );
+  }).length;
+}
+
+function countSandboxReviewItems(items: unknown[]): number {
+  return items.filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const entry = item as Record<string, unknown>;
+    return (
+      entry.kind === "sandbox_artifact" ||
+      entry.target_domain === "sandbox" ||
+      (entry.target &&
+        typeof entry.target === "object" &&
+        (entry.target as Record<string, unknown>).kind === "sandbox_artifact")
     );
   }).length;
 }
@@ -460,6 +530,8 @@ function teamMembersFromNodeStates(
       },
       rawNode,
     );
+    const activity = harnessActivityFromNodeState(rawNode);
+    const debugToolCount = rawNode.tool_calls?.length ?? 0;
     members.push({
       id,
       templateId,
@@ -467,6 +539,9 @@ function teamMembersFromNodeStates(
       status: stringValue(node.status) ?? "pending",
       effectiveTools: stringArrayValue(metadata?.effective_tools),
       effectiveSkills: stringArrayValue(metadata?.effective_skills),
+      ...(activity.label ? { activityLabel: activity.label } : {}),
+      ...(activity.artifactCount > 0 ? { artifactCount: activity.artifactCount } : {}),
+      ...(debugToolCount > 0 ? { debugToolCount } : {}),
     });
   }
   if (graphNodes?.length) {
@@ -488,21 +563,25 @@ function teamQualityGatesFromRuntimeState(
 ): RunViewQualityGate[] {
   const direct = arrayValue(runtimeState?.quality_gates);
   const nested = arrayValue(objectValue(runtimeState?.team)?.quality_gates);
-  const qualityGates: RunViewQualityGate[] = [];
+  const orderedIds: string[] = [];
+  const byId = new Map<string, RunViewQualityGate>();
   for (const rawGate of [...direct, ...nested]) {
     const gate = objectValue(rawGate);
     if (!gate) continue;
     const id = stringValue(gate.gate_id) ?? stringValue(gate.id);
     if (!id) continue;
     const severity = normalizeQualityGateSeverity(gate.severity);
-    qualityGates.push({
+    if (!byId.has(id)) orderedIds.push(id);
+    byId.set(id, {
       id,
       status: normalizeQualityGateStatus(gate.status),
       ...(severity ? { severity } : {}),
       nextAction: stringValue(gate.next_action) ?? stringValue(gate.nextAction),
     });
   }
-  return qualityGates;
+  return orderedIds
+    .map((id) => byId.get(id))
+    .filter((gate): gate is RunViewQualityGate => Boolean(gate));
 }
 
 function normalizeQualityGateStatus(value: unknown): RunViewQualityGate["status"] {
@@ -515,6 +594,77 @@ function normalizeQualityGateSeverity(
 ): RunViewQualityGate["severity"] {
   if (value === "low" || value === "medium" || value === "high") return value;
   return undefined;
+}
+
+function qualityHighlightsFromRuntimeState(
+  runtimeState: Record<string, unknown> | null | undefined,
+): RunViewQualityHighlight[] {
+  const gates = teamQualityGatesFromRuntimeState(runtimeState);
+  const rawGates = [
+    ...arrayValue(runtimeState?.quality_gates),
+    ...arrayValue(objectValue(runtimeState?.team)?.quality_gates),
+  ];
+  const rawById = new Map<string, Record<string, unknown>>();
+  for (const rawGate of rawGates) {
+    const gate = objectValue(rawGate);
+    if (!gate) continue;
+    const id = stringValue(gate.gate_id) ?? stringValue(gate.id);
+    if (id) rawById.set(id, gate);
+  }
+
+  const highlights: RunViewQualityHighlight[] = [];
+  for (const gate of gates) {
+    const normalized = normalizeTechnicalName(gate.id);
+    const rawGate = rawById.get(gate.id) ?? {};
+    const evidence = objectValue(rawGate.evidence) ?? objectValue(rawGate.result) ?? {};
+    const highlight = qualityHighlightFromGate(gate, normalized, evidence);
+    if (highlight) highlights.push(highlight);
+  }
+  return highlights.slice(0, 6);
+}
+
+function qualityHighlightFromGate(
+  gate: RunViewQualityGate,
+  normalizedId: string,
+  evidence: Record<string, unknown>,
+): RunViewQualityHighlight | null {
+  if (normalizedId.includes("citation_strength")) {
+    const strongCount = numberValue(evidence.strong_count);
+    return {
+      label: "引用支撑",
+      status: gate.status,
+      detail: strongCount > 0 ? `${strongCount} 条强支撑` : qualityDetailForStatus(gate.status),
+    };
+  }
+  if (normalizedId.includes("experiment_interpretation")) {
+    return {
+      label: "实验解释",
+      status: gate.status,
+      detail: gate.status === "pass" ? "指标、限制与产物已对齐" : qualityDetailForStatus(gate.status),
+    };
+  }
+  if (normalizedId.includes("statistical_robustness")) {
+    return {
+      label: "统计稳健",
+      status: gate.status,
+      detail: gate.status === "pass" ? "方法、样本量与稳健性已检查" : qualityDetailForStatus(gate.status),
+    };
+  }
+  if (normalizedId.includes("writing_semantic_preservation")) {
+    const riskyCount = arrayValue(evidence.risky_items).length || numberValue(evidence.high_risk_count);
+    return {
+      label: "语义保持",
+      status: gate.status,
+      detail: riskyCount > 0 ? `${riskyCount} 处改写需要确认` : qualityDetailForStatus(gate.status),
+    };
+  }
+  return null;
+}
+
+function qualityDetailForStatus(status: RunViewQualityHighlight["status"]): string {
+  if (status === "pass") return "已检查";
+  if (status === "fail") return "需要修订";
+  return "需要确认";
 }
 
 function failureCategoryFromRecord(
@@ -595,12 +745,238 @@ function runProgressItemFromNode(
   };
 }
 
+function buildTeamKernelProgressItems(
+  record: ExecutionRecord,
+  nodes: ExecutionGraphNode[],
+): RunProgressItem[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const teamNodes = TEAM_KERNEL_PROGRESS_ORDER
+    .map((id) => nodeById.get(id))
+    .filter((node): node is ExecutionGraphNode => Boolean(node));
+
+  return teamNodes.map((node) => {
+    const status = teamKernelProgressStatus(record, node.id);
+    return {
+      id: node.id,
+      title: executionNodeDisplayName(node, null),
+      phaseTitle: executionPhaseDisplayName(node.phase),
+      status,
+      detail: teamKernelProgressDetail(record, node.id, status),
+      technicalName: node.id,
+      startedAt: record.started_at ?? record.created_at,
+      completedAt: isTerminalRunStatus(status) ? record.completed_at ?? null : null,
+      toolCount: 0,
+      hasInput: false,
+      hasOutput: node.id === "team_finish" && Boolean(record.result),
+    };
+  });
+}
+
+function teamKernelProgressStatus(
+  record: ExecutionRecord,
+  nodeId: string,
+): string {
+  const runStatus = normalizeExecutionStatus(record.status);
+  const terminal = isTerminalRunStatus(runStatus);
+  const members = teamMembersFromNodeStates(record.node_states);
+  const qualityGates = teamQualityGatesFromRuntimeState(record.runtime_state);
+  const dispatchStatus = aggregateTeamMemberStatus(members.map((member) => member.status));
+
+  if (nodeId === "team_prepare") {
+    if (runStatus === "queued" || runStatus === "launching") return "pending";
+    return terminal || members.length > 0 ? "completed" : "running";
+  }
+
+  if (nodeId === "team_recruit") {
+    if (members.length > 0) return "completed";
+    return terminal ? "failed" : runStatus === "queued" ? "pending" : "running";
+  }
+
+  if (nodeId === "team_dispatch") {
+    return dispatchStatus;
+  }
+
+  if (nodeId === "team_quality_gate") {
+    if (qualityGates.length > 0) {
+      if (qualityGates.some((gate) => gate.status === "fail")) return "failed";
+      if (qualityGates.some((gate) => gate.status === "warning")) return "failed_partial";
+      return "completed";
+    }
+    if (dispatchStatus === "completed" && terminal) return "completed";
+    if (dispatchStatus === "running") return "pending";
+    return dispatchStatus === "failed" ? "failed" : "pending";
+  }
+
+  if (nodeId === "team_finish") {
+    if (!terminal) {
+      return dispatchStatus === "completed" ? "running" : "pending";
+    }
+    if (runStatus === "failed" && !record.result) return "failed";
+    if (runStatus === "cancelled") return "cancelled";
+    return record.result || record.result_summary || record.completed_at
+      ? "completed"
+      : runStatus;
+  }
+
+  return "pending";
+}
+
+function aggregateTeamMemberStatus(statuses: string[]): string {
+  if (statuses.length === 0) return "pending";
+  if (statuses.some((status) => status === "running" || status === "launching")) {
+    return "running";
+  }
+  if (statuses.some((status) => status === "failed")) {
+    return statuses.some((status) => status === "completed") ? "failed_partial" : "failed";
+  }
+  if (statuses.some((status) => status === "cancelled")) return "cancelled";
+  if (statuses.every((status) => status === "completed")) return "completed";
+  return "running";
+}
+
+function teamKernelProgressDetail(
+  record: ExecutionRecord,
+  nodeId: string,
+  status: string,
+): string | null {
+  const members = teamMembersFromNodeStates(record.node_states);
+  if (nodeId === "team_recruit" && members.length > 0) {
+    return `${members.length} 个团队成员已就绪`;
+  }
+  if (nodeId === "team_dispatch" && members.length > 0) {
+    const completed = members.filter((member) => member.status === "completed").length;
+    const failed = members.filter((member) => member.status === "failed").length;
+    if (failed > 0) return `${completed} 个成员完成，${failed} 个成员需要复核`;
+    return `${completed}/${members.length} 个成员完成`;
+  }
+  if (nodeId === "team_quality_gate") {
+    const gates = teamQualityGatesFromRuntimeState(record.runtime_state);
+    if (gates.length > 0) {
+      const warnings = gates.filter((gate) => gate.status === "warning").length;
+      const failed = gates.filter((gate) => gate.status === "fail").length;
+      if (failed > 0) return `${failed} 个质量检查未通过`;
+      if (warnings > 0) return `${warnings} 个质量检查需要注意`;
+      return `${gates.length} 个质量检查已通过`;
+    }
+  }
+  if (nodeId === "team_finish" && status === "completed") {
+    return "结果已进入审阅";
+  }
+  return null;
+}
+
+function countProgressItemsByStatus(
+  items: RunProgressItem[],
+  status: string,
+): number {
+  return items.filter((item) => item.status === status).length;
+}
+
 function progressDetailFromNodeState(state: ExecutionNodeState | null): string | null {
   if (!state) return null;
   if (state.error) return trimForDisplay(state.error, 120);
+  const harnessActivity = harnessActivityFromNodeState(state).label;
+  if (harnessActivity) return harnessActivity;
   if (state.thinking) return trimForDisplay(state.thinking, 140);
   if (state.output_preview) return trimForDisplay(state.output_preview, 140);
   return null;
+}
+
+function harnessActivityFromNodeState(
+  state: ExecutionNodeState | null | undefined,
+): { label: string | null; artifactCount: number } {
+  const harness = objectValue(objectValue(state?.node_metadata)?.harness);
+  if (!harness) return { label: null, artifactCount: 0 };
+  const sandboxSummary = objectValue(harness.sandbox_execution_summary);
+  const failureSummary = objectValue(harness.tool_failure_summary);
+  const fileSummary = objectValue(harness.file_change_summary);
+  const failedTools = Number(failureSummary?.total_failed_calls ?? 0);
+  if (Number.isFinite(failedTools) && failedTools > 0) {
+    return { label: "工具异常待处理", artifactCount: 0 };
+  }
+  const failedPythonRuns = Number(sandboxSummary?.failed_python_runs ?? 0);
+  if (Number.isFinite(failedPythonRuns) && failedPythonRuns > 0) {
+    return { label: "实验需要修订", artifactCount: 0 };
+  }
+  const journalSummary = objectValue(harness.run_journal_summary);
+  const journalLabel = stringValue(journalSummary?.summary);
+  if (journalLabel) {
+    const artifactCount = Number(journalSummary?.artifact_count ?? 0);
+    return {
+      label: trimForDisplay(journalLabel, 120),
+      artifactCount: Number.isFinite(artifactCount) && artifactCount > 0 ? artifactCount : 0,
+    };
+  }
+  const reproducibilityActivity = reproducibilityActivityFromHarnessSummary(
+    objectValue(harness.reproducibility_summary),
+    state?.status,
+  );
+  if (reproducibilityActivity.label) {
+    return reproducibilityActivity;
+  }
+  const artifactCount = Number(sandboxSummary?.generated_artifact_count ?? 0);
+  if (Number.isFinite(artifactCount) && artifactCount > 0) {
+    return {
+      label: `已生成 ${artifactCount} 个产物`,
+      artifactCount,
+    };
+  }
+  const pythonRuns = Number(sandboxSummary?.python_runs ?? 0);
+  if (Number.isFinite(pythonRuns) && pythonRuns > 0) {
+    return {
+      label: state?.status === "running" ? "正在运行实验" : "已完成实验",
+      artifactCount: 0,
+    };
+  }
+  const changedPaths = arrayValue(fileSummary?.changed_paths).length;
+  if (changedPaths > 0) {
+    return { label: `已更新 ${changedPaths} 个文件`, artifactCount: 0 };
+  }
+  return { label: null, artifactCount: 0 };
+}
+
+function reproducibilityActivityFromHarnessSummary(
+  summary: Record<string, unknown> | null,
+  status?: string | null,
+): { label: string | null; artifactCount: number } {
+  if (!summary) return { label: null, artifactCount: 0 };
+  const scriptCount = countSummaryItems(summary.script_paths);
+  const datasetCount = countSummaryItems(summary.dataset_paths);
+  const artifactCount = countSummaryItems(summary.artifact_paths);
+  const nextActionCount = countSummaryItems(summary.next_actions);
+  const pythonRuns = Number(summary.python_runs ?? 0);
+  const hasRunEvidence =
+    scriptCount > 0 ||
+    datasetCount > 0 ||
+    artifactCount > 0 ||
+    (Number.isFinite(pythonRuns) && pythonRuns > 0);
+
+  if (status === "running" && hasRunEvidence) {
+    return { label: "正在运行可复现实验", artifactCount };
+  }
+
+  const parts = [
+    scriptCount > 0 ? `${scriptCount} 个脚本` : null,
+    datasetCount > 0 ? `${datasetCount} 个数据集` : null,
+    artifactCount > 0 ? `${artifactCount} 个产物` : null,
+  ].filter((part): part is string => Boolean(part));
+  if (parts.length > 0) {
+    return {
+      label: `已完成可复现实验：${parts.join(" · ")}`,
+      artifactCount,
+    };
+  }
+  if (nextActionCount > 0) {
+    return { label: "实验已完成，等待复核", artifactCount: 0 };
+  }
+  if (Number.isFinite(pythonRuns) && pythonRuns > 0) {
+    return { label: "已完成可复现实验", artifactCount: 0 };
+  }
+  return { label: null, artifactCount: 0 };
+}
+
+function countSummaryItems(value: unknown): number {
+  return arrayValue(value).filter((item) => stringValue(item)).length;
 }
 
 function humanizeCapabilityName(value: string | null | undefined): string | null {
@@ -732,6 +1108,15 @@ function objectValue(value: unknown): Record<string, unknown> | null {
 
 function arrayValue(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function numberValue(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, value);
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+  }
+  return 0;
 }
 
 function stringArrayValue(value: unknown): string[] {

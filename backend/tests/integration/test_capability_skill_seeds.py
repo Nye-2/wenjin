@@ -115,6 +115,15 @@ def test_foundation_template_default_skills_exist():
         assert (data.get("risk_profile") or {}).get("room_write") == "staged_only"
 
 
+def test_foundation_template_tool_contracts_match_team_registry():
+    from src.subagents.v2.registry import validate_agent_template_contract
+
+    records = _collect_agent_template_records()
+    for template_id in sorted(FOUNDATION_AGENT_TEMPLATES):
+        errors = validate_agent_template_contract(records[template_id])
+        assert not errors, f"{template_id}: invalid tool contract {errors}"
+
+
 def test_workspace_overlay_skills_are_seeded():
     skill_ids = _collect_skill_ids()
     missing = FOUNDATION_OVERLAY_SKILLS - skill_ids
@@ -457,6 +466,37 @@ def test_workspace_specific_quality_gates_present():
         expected = expected_by_workspace[data["workspace_type"]]
         missing = expected - gates
         assert not missing, f"{cap_path}: missing workspace-specific gates {sorted(missing)}"
+
+
+def test_sci_sandbox_research_capabilities_declare_evidence_surfaces():
+    required = {
+        "sci_empirical_package": {
+            "literature",
+            "experiment",
+            "writing",
+            "workflow_trace",
+            "experiment_interpretation",
+            "output_ref_reuse",
+        },
+        "reproducibility_audit": {
+            "experiment",
+            "workflow_trace",
+            "experiment_interpretation",
+            "output_ref_reuse",
+        },
+    }
+    by_id = {
+        yaml.safe_load(path.read_text())["id"]: path
+        for path in _collect_capability_files()
+    }
+    for capability_id, required_surfaces in required.items():
+        data = yaml.safe_load(by_id[capability_id].read_text())
+        research_evidence = data.get("research_evidence") or {}
+        surfaces = set(research_evidence.get("required_surfaces") or [])
+        assert required_surfaces <= surfaces, (
+            f"{capability_id}: missing research evidence surfaces "
+            f"{sorted(required_surfaces - surfaces)}"
+        )
 
 
 def test_china_jurisdiction_defaults_for_software_copyright_and_patent():

@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import re
 
+from src.services.prism_review_contracts import (
+    PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA,
+    sanitize_academic_style_contract_for_projection,
+)
+
 _LATEX_DOCUMENT_RE = re.compile(
     r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}.*?\\begin\{document\}.*?\\end\{document\}",
     re.DOTALL,
@@ -29,6 +34,42 @@ _COMMON_THEOREM_ENVIRONMENTS = {
     "corollary": "Corollary",
     "example": "Example",
 }
+PRISM_SEMANTIC_CONTRACT_SCHEMA = "wenjin.prism.semantic_contract.v1"
+_LATEX_CITE_RE = re.compile(
+    r"\\(?:cite|citep|citet|citealp|citealt|parencite|textcite|autocite|supercite)"
+    r"(?:\[[^\]]*\])*\{([^}]+)\}"
+)
+_SAFE_CITATION_KEY_RE = re.compile(r"^[A-Za-z0-9_:-]+$")
+_LATEX_ENV_RE = re.compile(r"\\(?P<op>begin|end)\{(?P<env>[^{}]+)\}")
+_EQUATION_ENVS = {
+    "align",
+    "align*",
+    "equation",
+    "equation*",
+    "gather",
+    "gather*",
+    "math",
+    "multline",
+    "multline*",
+    "split",
+}
+_TABLE_ENVS = {"longtable", "tabular", "tabular*", "table", "table*"}
+_RESEARCH_NOUN_RE = re.compile(
+    r"\b(analysis|claim|data|dataset|evidence|experiment|finding|method|model|result|study)\b",
+    re.IGNORECASE,
+)
+_MEASURED_CLAIM_RE = re.compile(
+    r"\b(estimate|effect|measure|metric|sample|significant|robust|variance|coefficient)\b|[0-9]",
+    re.IGNORECASE,
+)
+_FORMAL_REGISTER_RE = re.compile(
+    r"\b(therefore|however|moreover|suggests?|indicates?|consistent|associated|observed|demonstrates?)\b",
+    re.IGNORECASE,
+)
+_AI_META_RE = re.compile(r"\b(as an ai|ai[- ]?generated|large language model|chatgpt)\b", re.IGNORECASE)
+_FIRST_PERSON_OPINION_RE = re.compile(r"\b(i think|i believe|in my opinion)\b", re.IGNORECASE)
+_CASUAL_INTENSIFIER_RE = re.compile(r"\b(awesome|basically|really|super|very)\b", re.IGNORECASE)
+_VAGUE_NOUN_RE = re.compile(r"\b(stuff|thing|things|a lot)\b", re.IGNORECASE)
 
 
 def normalize_prism_file_change_content(
@@ -51,6 +92,161 @@ def normalize_prism_file_change_content(
     if normalized_format in {"latex", "latex_document", "tex"} or path.lower().endswith(".tex"):
         return ensure_latex_document(content)
     return content
+
+
+def summarize_prism_file_change_content_contract(
+    content: str,
+    *,
+    path: str,
+) -> dict[str, object]:
+    """Return a bounded structural contract for Prism review projections."""
+
+    file_path = str(path or "").strip()
+    text = str(content or "")
+    if not file_path.lower().endswith(".tex"):
+        return {
+            "path": file_path,
+            "content_format": "text",
+            "latex_shape": "not_latex",
+            "balanced_braces": True,
+        }
+    balanced = _has_balanced_latex_braces(text)
+    if _LATEX_DOCUMENT_RE.search(text):
+        latex_shape = "document"
+        content_format = "latex_document"
+    elif text.strip():
+        latex_shape = "fragment" if balanced else "invalid"
+        content_format = "latex_fragment"
+    else:
+        latex_shape = "invalid"
+        content_format = "latex_fragment"
+    return {
+        "path": file_path,
+        "content_format": content_format,
+        "latex_shape": latex_shape,
+        "balanced_braces": balanced,
+    }
+
+
+def summarize_prism_file_change_semantic_contract(
+    content: str,
+    *,
+    path: str,
+    content_contract: dict[str, object] | None = None,
+    source_contract: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Return bounded semantic-preservation signals for a Prism review item.
+
+    This is a deterministic structural heuristic, not a model judge. If a
+    trusted upstream contract is already present, we sanitize and preserve it.
+    """
+
+    file_path = str(path or "").strip()
+    if isinstance(source_contract, dict) and source_contract:
+        return _sanitize_semantic_contract(source_contract, target_path=file_path)
+
+    text = str(content or "")
+    structural_contract = content_contract or summarize_prism_file_change_content_contract(
+        text,
+        path=file_path,
+    )
+    structurally_valid = (
+        structural_contract.get("balanced_braces") is True
+        and str(structural_contract.get("latex_shape") or "") != "invalid"
+    )
+    citation_keys = _extract_citation_keys(text)
+    has_malformed_citation = bool(_MALFORMED_ARGUMENT_COMMAND_RE.search(text))
+    has_equations = _has_equation_constructs(text)
+    has_tables = _has_table_constructs(text)
+    equations_balanced = _has_balanced_named_environments(text, _EQUATION_ENVS) and _has_balanced_math_delimiters(text)
+    tables_balanced = _has_balanced_named_environments(text, _TABLE_ENVS)
+    preserves_claims = structurally_valid and bool(text.strip())
+    preserves_citations = not has_malformed_citation
+    preserves_equations = equations_balanced
+    preserves_tables = tables_balanced
+    risk = (
+        "high"
+        if not (
+            preserves_claims
+            and preserves_citations
+            and preserves_equations
+            and preserves_tables
+        )
+        else "low"
+    )
+    return {
+        "schema": PRISM_SEMANTIC_CONTRACT_SCHEMA,
+        "target_path": file_path,
+        "basis": "bounded_structural_heuristic",
+        "preserves_claims": preserves_claims,
+        "preserves_citations": preserves_citations,
+        "preserves_equations": preserves_equations,
+        "preserves_tables": preserves_tables,
+        "risk": risk,
+        "citation_key_count": len(citation_keys),
+        "has_equations": has_equations,
+        "has_tables": has_tables,
+    }
+
+
+def summarize_prism_file_change_academic_style_contract(
+    content: str,
+    *,
+    path: str,
+    source_contract: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Return bounded academic-style signals for a Prism review item.
+
+    This is a deterministic heuristic, not a model judge. It gives downstream
+    quality gates a stable contract for obvious academic-register evidence and
+    obvious non-academic / AI-meta anti-patterns without exposing manuscript text.
+    """
+
+    file_path = str(path or "").strip()
+    if isinstance(source_contract, dict) and source_contract:
+        return sanitize_academic_style_contract_for_projection(
+            source_contract,
+            target_path=file_path,
+        )
+
+    text = str(content or "")
+    citation_keys = _extract_citation_keys(text)
+    has_equations = _has_equation_constructs(text)
+    has_tables = _has_table_constructs(text)
+    signals: list[str] = []
+    anti_patterns: list[str] = []
+    if citation_keys:
+        signals.append("citation_grounding")
+    if _RESEARCH_NOUN_RE.search(text):
+        signals.append("research_noun")
+    if has_equations or has_tables or _MEASURED_CLAIM_RE.search(text):
+        signals.append("measured_claim")
+    if _FORMAL_REGISTER_RE.search(text) or (len(_plain_words(text)) >= 8 and not _style_anti_patterns(text)):
+        signals.append("formal_register")
+    for name, pattern in (
+        ("ai_meta", _AI_META_RE),
+        ("first_person_opinion", _FIRST_PERSON_OPINION_RE),
+        ("casual_intensifier", _CASUAL_INTENSIFIER_RE),
+        ("vague_noun", _VAGUE_NOUN_RE),
+    ):
+        if pattern.search(text):
+            anti_patterns.append(name)
+    score = max(0, min(5, len(signals) - min(len(anti_patterns), 3)))
+    risk = "low" if score >= 3 and not anti_patterns else "medium"
+    if score < 2 or len(anti_patterns) >= 2:
+        risk = "high"
+    return {
+        "schema": PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA,
+        "target_path": file_path,
+        "basis": "bounded_academic_style_heuristic",
+        "risk": risk,
+        "academic_style_score": score,
+        "signal_count": len(signals),
+        "anti_pattern_count": len(anti_patterns),
+        "citation_key_count": len(citation_keys),
+        "signals": signals[:10],
+        "anti_patterns": anti_patterns[:10],
+    }
 
 
 def ensure_latex_document(content: str) -> str:
@@ -79,6 +275,132 @@ def _repair_common_latex_argument_braces(content: str) -> str:
         lambda match: f"\\{match.group('command')}{{{match.group('argument')}}}",
         content,
     )
+
+
+def _has_balanced_latex_braces(content: str) -> bool:
+    depth = 0
+    escaped = False
+    for char in content:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def _sanitize_semantic_contract(value: dict[str, object], *, target_path: str) -> dict[str, object]:
+    risk = str(value.get("risk") or "medium").strip().lower()
+    if risk not in {"low", "medium", "high"}:
+        risk = "medium"
+    return {
+        "schema": PRISM_SEMANTIC_CONTRACT_SCHEMA,
+        "target_path": str(value.get("target_path") or target_path),
+        "basis": str(value.get("basis") or "upstream_contract")[:80],
+        "preserves_claims": value.get("preserves_claims") is True,
+        "preserves_citations": value.get("preserves_citations") is True,
+        "preserves_equations": value.get("preserves_equations") is True,
+        "preserves_tables": value.get("preserves_tables") is True,
+        "risk": risk,
+        "citation_key_count": _nonnegative_int(value.get("citation_key_count")),
+        "has_equations": value.get("has_equations") is True,
+        "has_tables": value.get("has_tables") is True,
+    }
+
+
+def _extract_citation_keys(content: str) -> list[str]:
+    keys: list[str] = []
+    seen: set[str] = set()
+    for match in _LATEX_CITE_RE.finditer(str(content or "")):
+        for raw_key in match.group(1).split(","):
+            key = raw_key.strip()
+            if not key or key == "*" or not _SAFE_CITATION_KEY_RE.fullmatch(key):
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            keys.append(key)
+    return keys
+
+
+def _style_anti_patterns(content: str) -> list[str]:
+    text = str(content or "")
+    return [
+        name
+        for name, pattern in (
+            ("ai_meta", _AI_META_RE),
+            ("first_person_opinion", _FIRST_PERSON_OPINION_RE),
+            ("casual_intensifier", _CASUAL_INTENSIFIER_RE),
+            ("vague_noun", _VAGUE_NOUN_RE),
+        )
+        if pattern.search(text)
+    ]
+
+
+def _plain_words(content: str) -> list[str]:
+    text = re.sub(r"\\[A-Za-z]+(?:\[[^\]]*\])?(?:\{[^}]*\})?", " ", str(content or ""))
+    return re.findall(r"[A-Za-z][A-Za-z-]+", text)
+
+
+def _has_equation_constructs(content: str) -> bool:
+    text = str(content or "")
+    return (
+        any(rf"\begin{{{env}}}" in text for env in _EQUATION_ENVS)
+        or r"\[" in text
+        or r"\(" in text
+        or bool(re.search(r"(?<!\\)\$", text))
+    )
+
+
+def _has_table_constructs(content: str) -> bool:
+    text = str(content or "")
+    return any(rf"\begin{{{env}}}" in text for env in _TABLE_ENVS)
+
+
+def _has_balanced_named_environments(content: str, names: set[str]) -> bool:
+    stack: list[str] = []
+    for match in _LATEX_ENV_RE.finditer(str(content or "")):
+        env_name = str(match.group("env") or "").strip()
+        if env_name not in names:
+            continue
+        if match.group("op") == "begin":
+            stack.append(env_name)
+            continue
+        if not stack or stack.pop() != env_name:
+            return False
+    return not stack
+
+
+def _has_balanced_math_delimiters(content: str) -> bool:
+    text = str(content or "")
+    if text.count(r"\[") != text.count(r"\]"):
+        return False
+    if text.count(r"\(") != text.count(r"\)"):
+        return False
+    stripped = re.sub(r"\\.", "", text)
+    display_dollars = stripped.count("$$")
+    stripped = stripped.replace("$$", "")
+    inline_dollars = stripped.count("$")
+    return display_dollars % 2 == 0 and inline_dollars % 2 == 0
+
+
+def _nonnegative_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(value, 0)
+    try:
+        parsed = int(str(value))
+    except (TypeError, ValueError):
+        return 0
+    return max(parsed, 0)
 
 
 def _ensure_common_theorem_environment_declarations(content: str) -> str:

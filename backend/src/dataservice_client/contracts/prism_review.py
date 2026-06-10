@@ -16,6 +16,7 @@ class PrismFileChangeUpsertPayload(BaseModel):
     pending_content: str
     pending_hash: str
     current_hash: str | None = None
+    academic_style_contract: dict[str, Any] | None = None
     source_execution_id: str | None = None
     source_task_id: str | None = None
 

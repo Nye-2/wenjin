@@ -614,6 +614,7 @@ export function useLatexFeedbackWorkflow({
           error: detail,
         }),
       );
+      setFeedbackStatus("");
       setFeedbackError(detail);
     } catch (err) {
       const message = readClientErrorMessage(err);
@@ -625,6 +626,7 @@ export function useLatexFeedbackWorkflow({
           error: message,
         }),
       );
+      setFeedbackStatus("");
       setFeedbackError(`启动全文改稿失败: ${message}`);
     } finally {
       setFeedbackBusyId(null);

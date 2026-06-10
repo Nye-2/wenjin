@@ -110,6 +110,37 @@ def test_effective_tools_keep_high_ceiling_but_block_direct_commit() -> None:
     assert "room_commit" not in effective
 
 
+def test_effective_tools_canonicalize_sandbox_tool_aliases() -> None:
+    template = AgentTemplate(
+        id="code_engineer.v1",
+        display_role="码农一号",
+        category="engineering",
+        description="Runs code experiments",
+        persona_prompt="code",
+        default_skills=[],
+        tool_affinity={
+            "preferred": ["sandbox_python"],
+            "can_request": ["sandbox.read_file"],
+        },
+        risk_profile={},
+        output_contracts=[],
+        quality_expectations=[],
+        runtime_defaults={},
+    )
+    policy = CapabilityTeamPolicy(
+        core_templates=["code_engineer.v1"],
+        optional_templates=[],
+        capability_tools=["sandbox.run_python", "sandbox.read_file"],
+        workspace_tools=["sandbox.run_python", "sandbox.read_file"],
+        user_tools=["sandbox.run_python", "sandbox.read_file"],
+    )
+
+    assert resolve_effective_tools(template, policy) == [
+        "sandbox.run_python",
+        "sandbox.read_file",
+    ]
+
+
 def test_capability_team_policy_respects_empty_user_tool_allowlist() -> None:
     cap = SimpleNamespace(
         definition_json={

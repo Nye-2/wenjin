@@ -30,6 +30,10 @@ io_contract:
     required:
     - text
     - quality_gates_checked
+    - citation_key_audit
+    - missing_sources
+    - fabrication_risks
+    - bibtex_projection_notes
     properties:
       text:
         type: string

@@ -1,14 +1,22 @@
 import json
+import sys
 from unittest.mock import AsyncMock
 
 import pytest
 
+from src.agents.harness.command_audit import HarnessCommand, audit_command
+from src.agents.lead_agent.v2.sandbox_execution_lifecycle import (
+    build_sandbox_execution_lifecycle,
+    finalize_sandbox_execution_lifecycle,
+)
 from src.agents.lead_agent.v2.sandbox_runtime import (
     SandboxCommandExecutionError,
     run_python_script,
     run_python_smoke_check,
 )
-from src.sandbox.base import CommandResult
+from src.agents.lead_agent.v2.workspace_sandbox import ENSURE_WORKSPACE_VENV_COMMAND
+from src.sandbox.base import CommandResult, FileInfo
+from src.sandbox.providers.local import LocalSandbox
 from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.sandbox import SandboxPythonSubagent
@@ -31,6 +39,79 @@ class _FakeSandbox:
     async def write_file(self, path: str, content: str, append: bool = False) -> None:
         self.files[path] = self.files.get(path, "") + content if append else content
 
+    async def read_file(self, path: str) -> str:
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
+
+    async def list_dir(self, path: str, max_depth: int = 2) -> list[FileInfo]:
+        root = path.rstrip("/")
+        entries: dict[str, FileInfo] = {}
+        for file_path, content in self.files.items():
+            if not file_path.startswith(f"{root}/"):
+                continue
+            relative = file_path[len(root) + 1 :]
+            parts = relative.split("/")
+            if len(parts) > max_depth + 1:
+                continue
+            current = root
+            for part in parts[:-1]:
+                current = f"{current}/{part}"
+                entries.setdefault(
+                    current,
+                    FileInfo(name=part, path=current, is_dir=True, size=None),
+                )
+            entries[file_path] = FileInfo(
+                name=parts[-1],
+                path=file_path,
+                is_dir=False,
+                size=len(content.encode("utf-8")),
+            )
+        return [entries[key] for key in sorted(entries)]
+
+
+def test_execution_lifecycle_counts_only_reviewable_generated_artifacts() -> None:
+    lifecycle = build_sandbox_execution_lifecycle(
+        status="queued",
+        operation="run_python",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        environment_id="env-1",
+        runtime_image="fake-python:3.13",
+        provider_image="fake-python:3.13",
+        command_preview="python analysis.py",
+        command_argv=["python", "analysis.py"],
+        cwd="/workspace/tmp/tasks/exec-1/analysis_probe",
+        env={"WENJIN_TASK_SCRATCH": "/workspace/tmp/tasks/exec-1/analysis_probe"},
+        network_profile="none",
+        timeout_seconds=60,
+    )
+
+    final_lifecycle = finalize_sandbox_execution_lifecycle(
+        lifecycle,
+        sandbox_job_id="job-1",
+        status="succeeded",
+        exit_code=0,
+        stdout_externalized=False,
+        stderr_externalized=False,
+        output_refs=[
+            "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt",
+            "/workspace/main/not-output.txt",
+        ],
+        generated_artifacts=[
+            {"path": "/workspace/outputs/result.json"},
+            {"path": "/workspace/reports/analysis.md"},
+            {"path": "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt"},
+            {"path": "/workspace/.env"},
+        ],
+    )
+
+    assert final_lifecycle["outputs"]["generated_artifact_count"] == 2
+    assert final_lifecycle["outputs"]["output_refs"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt"
+    ]
+
 
 class _FakeProvider:
     image = "fake-python:3.13"
@@ -48,6 +129,22 @@ class _FakeProvider:
         self.released.append(sandbox)
 
 
+class _LocalProvider:
+    image = "local-python:3.13"
+
+    def __init__(self, sandbox: LocalSandbox) -> None:
+        self.sandbox = sandbox
+        self.acquired: list[str] = []
+        self.released: list[LocalSandbox] = []
+
+    async def acquire(self, thread_id: str) -> LocalSandbox:
+        self.acquired.append(thread_id)
+        return self.sandbox
+
+    async def release(self, sandbox: LocalSandbox) -> None:
+        self.released.append(sandbox)
+
+
 class _FakeWorkspaceSandboxManager:
     def __init__(self) -> None:
         self.created_jobs: list[dict] = []
@@ -59,6 +156,7 @@ class _FakeWorkspaceSandboxManager:
         self,
         *,
         workspace_id,
+        workspace_type=None,
         sandbox_policy,
         resource_limits,
         runtime_image,
@@ -103,6 +201,24 @@ def _install_policy() -> dict:
     return policy
 
 
+def _assert_policy_decision_contract(
+    audit: dict,
+    *,
+    operation: str,
+    billable: bool,
+    decision: str = "allow",
+) -> None:
+    policy_decision = audit["policy_decision"]
+    assert policy_decision["schema"] == "wenjin.harness.command_policy_decision.v1"
+    assert policy_decision["operation"] == operation
+    assert policy_decision["decision"] == decision
+    assert policy_decision["risk_level"] == audit["risk_level"]
+    assert policy_decision["network_profile"] == audit["command"]["network_profile"]
+    assert policy_decision["billable"] is billable
+    assert policy_decision["blocked_before_job"] is (decision == "forbid")
+    assert policy_decision["command_preview"]
+
+
 @pytest.mark.asyncio
 async def test_run_python_smoke_check_uses_fixed_command_and_releases_sandbox() -> None:
     stdout = json.dumps(
@@ -139,6 +255,42 @@ async def test_run_python_smoke_check_uses_fixed_command_and_releases_sandbox() 
     assert "LeadAgentRuntime / subagent node" in result["report_markdown"]
     assert manager.created_jobs[0]["operation"] == "smoke_check"
     assert manager.created_jobs[0]["metadata"]["credit_reservation_id"] == "reservation-1"
+    _assert_policy_decision_contract(
+        manager.created_jobs[0]["metadata"]["command_audit"],
+        operation="smoke_check",
+        billable=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_python_smoke_check_runs_when_only_python3_is_on_path(tmp_path, monkeypatch) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    monkeypatch.setenv("PATH", str(bin_dir))
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_smoke_check(
+        workspace_id="ws-local",
+        execution_id="exec-local",
+        node_id="sandbox_validation__python_smoke",
+        sandbox_policy=_policy(),
+        provider=provider,
+        manager=manager,
+    )
+
+    assert result["status"] == "completed"
+    assert result["mean"] == 5
+    assert result["engine"] == "lead_agent_docker_sandbox"
+    assert provider.acquired == ["workspace-ws-local"]
+    assert provider.released == [sandbox]
 
 
 @pytest.mark.asyncio
@@ -180,6 +332,7 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
     assert provider.sandbox.files["/workspace/scripts/analysis_probe.py"].startswith("import json")
     [(venv_command, _), (command, timeout)] = provider.sandbox.commands
     assert "python -m venv /workspace/.wenjin/env/python" in venv_command
+    assert "python3 -m venv /workspace/.wenjin/env/python" in venv_command
     assert command == "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py"
     assert timeout == 60
     assert result["status"] == "completed"
@@ -191,6 +344,489 @@ async def test_run_python_script_writes_script_and_returns_report() -> None:
     assert "analysis_probe.py" in result["report_markdown"]
     assert manager.created_jobs[0]["operation"] == "run_python"
     assert manager.created_jobs[0]["metadata"]["credit_reservation_id"] == "reservation-1"
+    run_audit = manager.created_jobs[0]["metadata"]["command_audit"]
+    assert run_audit["verdict"] == "pass"
+    assert run_audit["risk_level"] == "low"
+    assert run_audit["command"]["argv"] == [
+        "/workspace/.wenjin/env/python/bin/python",
+        "/workspace/scripts/analysis_probe.py",
+    ]
+    _assert_policy_decision_contract(run_audit, operation="run_python", billable=True)
+    assert result["command_audit"] == run_audit
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_uses_invocation_scoped_scratch_options() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    scratch_path = "/workspace/tmp/tasks/exec-1/analysis_probe"
+    assert provider.sandbox.files[f"{scratch_path}/.gitkeep"] == ""
+    assert provider.sandbox.command_options[-1] == {
+        "network_profile": "none",
+        "cwd": scratch_path,
+        "env": {
+            "WENJIN_TASK_SCRATCH": scratch_path,
+            "WENJIN_WORKSPACE_ROOT": "/workspace",
+        },
+    }
+    assert manager.created_jobs[0]["metadata"]["task_scratch_path"] == scratch_path
+    assert manager.created_jobs[0]["metadata"]["task_contract"] == {
+        "schema": "wenjin.workspace_sandbox.task_contract.v1",
+        "execution_id": "exec-1",
+        "node_id": "analysis_probe",
+        "invocation_id": "",
+        "scratch_path": scratch_path,
+        "read_output_ref_tool": "sandbox.read_output_ref",
+        "writable_scratch_roots": [scratch_path],
+        "reviewable_artifact_roots": ["/workspace/outputs", "/workspace/reports"],
+        "manifest_paths": {
+            "datasets": "/workspace/datasets/manifest.json",
+            "artifacts": "/workspace/reports/artifacts.json",
+        },
+        "rules": [
+            "Use scratch_path for temporary task-local files that should not become user-facing artifacts.",
+            "Do not list, search, edit, register, or cite output_ref_root paths as user-facing artifacts.",
+            "Inspect explicit output refs under output_ref_root only with sandbox.read_output_ref.",
+            "Promote durable files to /workspace/outputs or /workspace/reports and register them with sandbox.register_artifact.",
+        ],
+    }
+    assert result["task_scratch_path"] == scratch_path
+    assert scratch_path in result["report_markdown"]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_records_bounded_execution_lifecycle() -> None:
+    stdout = json.dumps({"ok": True, "metric": 0.42})
+    provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('secret script body should not appear in lifecycle')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    queued_lifecycle = manager.created_jobs[0]["metadata"]["execution_lifecycle"]
+    assert queued_lifecycle["schema"] == "wenjin.sandbox.execution_lifecycle.v1"
+    assert queued_lifecycle["status"] == "queued"
+    assert queued_lifecycle["operation"] == "run_python"
+    assert queued_lifecycle["execution"] == {
+        "workspace_id": "ws-1",
+        "execution_id": "exec-1",
+        "node_id": "analysis_probe",
+    }
+    assert queued_lifecycle["sandbox"] == {
+        "environment_id": "env-1",
+        "runtime_image": "fake-python:3.13",
+        "provider_image": "fake-python:3.13",
+    }
+    assert queued_lifecycle["command"] == {
+        "preview": "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",
+        "argv": [
+            "/workspace/.wenjin/env/python/bin/python",
+            "/workspace/scripts/analysis_probe.py",
+        ],
+        "cwd": "/workspace/tmp/tasks/exec-1/analysis_probe",
+        "env_keys": ["WENJIN_TASK_SCRATCH", "WENJIN_WORKSPACE_ROOT"],
+        "network_profile": "none",
+        "timeout_seconds": 60,
+    }
+    assert "stdout" not in json.dumps(queued_lifecycle)
+    assert "secret script body" not in json.dumps(queued_lifecycle)
+
+    final_lifecycle = result["execution_lifecycle"]
+    assert final_lifecycle["status"] == "succeeded"
+    assert final_lifecycle["sandbox_job_id"] == "job-1"
+    assert final_lifecycle["exit_code"] == 0
+    assert final_lifecycle["outputs"] == {
+        "stdout_externalized": False,
+        "stderr_externalized": False,
+        "output_refs": [],
+        "generated_artifact_count": 0,
+    }
+    assert manager.updated_jobs[-1]["metadata_json"]["execution_lifecycle"] == final_lifecycle
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_syncs_dataset_manifest_before_script_execution() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+    original_execute = provider.sandbox.execute_command
+
+    async def _assert_manifest_before_script(command: str, timeout: int = 300, **kwargs) -> CommandResult:
+        if command == "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py":
+            manifest = json.loads(provider.sandbox.files["/workspace/datasets/manifest.json"])
+            assert manifest["datasets"] == [
+                {
+                    "path": "/workspace/datasets/raw/survey.csv",
+                    "source_id": "source-1",
+                    "title": "Survey data",
+                }
+            ]
+        return await original_execute(command, timeout=timeout, **kwargs)
+
+    provider.sandbox.execute_command = _assert_manifest_before_script  # type: ignore[method-assign]
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+        dataset_provenance=[
+            {
+                "path": "/workspace/datasets/raw/survey.csv",
+                "source_id": "source-1",
+                "title": "Survey data",
+            },
+            {"path": "/workspace/outputs/result.csv", "source_id": "bad"},
+        ],
+    )
+
+    assert result["status"] == "completed"
+    assert json.loads(provider.sandbox.files["/workspace/datasets/manifest.json"])["datasets"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_id": "source-1",
+            "title": "Survey data",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_reports_synced_dataset_provenance() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+        dataset_provenance=[
+            {
+                "path": "/workspace/datasets/raw/survey.csv",
+                "source_id": "source-1",
+                "title": "Survey data",
+                "content_hash": "sha256:abc",
+            },
+            {"path": "/workspace/outputs/result.csv", "source_id": "bad"},
+        ],
+    )
+
+    assert result["dataset_provenance"] == [
+        {
+            "path": "/workspace/datasets/raw/survey.csv",
+            "source_id": "source-1",
+            "title": "Survey data",
+            "content_hash": "sha256:abc",
+        }
+    ]
+    report = result["report_markdown"]
+    assert "## Dataset provenance" in report
+    assert "/workspace/datasets/manifest.json" in report
+    assert "/workspace/datasets/raw/survey.csv" in report
+    assert "source-1" in report
+    assert "/workspace/outputs/result.csv" not in report
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_blocks_forbidden_command_policy_before_job(monkeypatch) -> None:
+    provider = _FakeProvider(CommandResult(stdout="", stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    def _forbidden_audit(*_args, **_kwargs):
+        return audit_command(HarnessCommand(argv=("curl", "https://example.invalid"), cwd="/workspace"))
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.sandbox_job_runner.audit_command",
+        _forbidden_audit,
+    )
+
+    with pytest.raises(PermissionError, match="program_forbidden"):
+        await run_python_script(
+            workspace_id="ws-1",
+            execution_id="exec-1",
+            node_id="analysis_probe",
+            sandbox_policy=_policy(),
+            script="print('blocked')",
+            script_name="analysis_probe.py",
+            provider=provider,
+            manager=manager,
+        )
+
+    assert manager.created_jobs == []
+    assert provider.acquired == []
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_runs_with_local_sandbox_provider_interface(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-local",
+        execution_id="exec-local",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="import json\nprint(json.dumps({'ok': True, 'rows': 2}, sort_keys=True))\n",
+        script_name="probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    assert provider.acquired == ["workspace-ws-local"]
+    assert provider.released == [sandbox]
+    assert await sandbox.read_file("/workspace/scripts/probe.py")
+    assert result["status"] == "completed"
+    assert result["parsed_stdout"] == {"ok": True, "rows": 2}
+    assert manager.created_jobs[0]["operation"] == "run_python"
+    assert manager.updated_jobs[-1]["job_id"] == "job-1"
+    assert manager.updated_jobs[-1]["status"] == "succeeded"
+    assert manager.updated_jobs[-1]["exit_code"] == 0
+    assert manager.updated_jobs[-1]["metadata_json"]["execution_lifecycle"]["status"] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_local_provider_executes_inside_task_scratch(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-local",
+        execution_id="exec-local",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script=(
+            "import json, os\n"
+            "print(json.dumps({"
+            "'cwd': os.getcwd(), "
+            "'scratch': os.environ.get('WENJIN_TASK_SCRATCH')"
+            "}, sort_keys=True))\n"
+        ),
+        script_name="probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    scratch_path = "/workspace/tmp/tasks/exec-local/analysis_probe"
+    assert result["parsed_stdout"] == {
+        "cwd": scratch_path,
+        "scratch": scratch_path,
+    }
+    assert (workspace / "tmp" / "tasks" / "exec-local" / "analysis_probe" / ".gitkeep").is_file()
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_persists_workspace_type_profile_in_layout_manifest(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    sandbox = LocalSandbox(
+        id="workspace-ws-local",
+        path_mappings={"/workspace": str(workspace)},
+    )
+    provider = _LocalProvider(sandbox)
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-local",
+        workspace_type="sci",
+        execution_id="exec-local",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="import json\nprint(json.dumps({'ok': True}, sort_keys=True))\n",
+        script_name="probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    manifest = json.loads((workspace / ".wenjin" / "manifest.json").read_text(encoding="utf-8"))
+    assert result["status"] == "completed"
+    assert manifest["workspace_id"] == "ws-local"
+    assert manifest["sandbox_id"] == "workspace-ws-local"
+    assert manifest["workspace_type"] == "sci"
+    assert manifest["workspace_profile"]["workspace_type"] == "sci"
+    assert "/workspace/main/main.tex" in manifest["workspace_profile"]["primary_files"]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_externalizes_large_stdout_before_returning_payload() -> None:
+    stdout = "\n".join(f"row {index:03d} {'x' * 20}" for index in range(1, 31))
+    provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy={
+            **_policy(),
+            "output_budget": {
+                "externalize_above_chars": 120,
+                "preview_head_chars": 60,
+                "preview_tail_chars": 40,
+                "stdout_max_chars": 80,
+            },
+        },
+        script="print('large')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    assert result["stdout_externalized"]
+    assert len(result["output_refs"]) == 1
+    stdout_ref = result["output_refs"][0]
+    assert stdout_ref.startswith(
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/analysis_probe/analysis_probe/sandbox.run_python.stdout-"
+    )
+    assert stdout_ref.endswith(".txt")
+    assert provider.sandbox.files[stdout_ref] == stdout
+    assert "Full sandbox.run_python.stdout output saved to" in result["stdout"]
+    assert "row 001" in result["stdout"]
+    assert "row 030" in result["stdout"]
+    assert stdout not in result["report_markdown"]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_discovers_user_reviewable_generated_artifacts() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    original_execute = provider.sandbox.execute_command
+
+    async def _execute_and_generate(command: str, timeout: int = 300, **kwargs) -> CommandResult:
+        result = await original_execute(command, timeout=timeout, **kwargs)
+        if command == "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py":
+            provider.sandbox.files["/workspace/outputs/figure.png"] = "fake image bytes"
+            provider.sandbox.files["/workspace/outputs/data/metrics.json"] = '{"accuracy": 0.91}'
+            provider.sandbox.files["/workspace/reports/summary.md"] = "# Summary\n\nDone."
+            provider.sandbox.files["/workspace/tmp/tasks/.harness/outputs/exec-1/internal/tool.txt"] = "internal"
+        return result
+
+    provider.sandbox.execute_command = _execute_and_generate  # type: ignore[method-assign]
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    generated = result["generated_artifacts"]
+    assert [artifact["path"] for artifact in generated] == [
+        "/workspace/outputs/data/metrics.json",
+        "/workspace/outputs/figure.png",
+        "/workspace/reports/summary.md",
+    ]
+    assert [artifact["artifact_kind"] for artifact in generated] == [
+        "sandbox_output",
+        "sandbox_output",
+        "sandbox_report",
+    ]
+    assert all(artifact["materialization_status"] == "candidate" for artifact in generated)
+    assert all(artifact["review_surface"] == "sandbox_artifact" for artifact in generated)
+    assert all("content_hash" in artifact for artifact in generated)
+    assert "/workspace/tmp/tasks/.harness/outputs/exec-1/internal/tool.txt" not in {
+        artifact["path"] for artifact in generated
+    }
+    assert "Generated artifacts" in result["report_markdown"]
+    assert "/workspace/reports/summary.md" in result["report_markdown"]
+
+
+@pytest.mark.asyncio
+async def test_run_python_script_keeps_success_when_artifact_discovery_fails() -> None:
+    stdout = json.dumps({"ok": True})
+    provider = _FakeProvider(
+        [
+            CommandResult(stdout="", stderr="", exit_code=0),
+            CommandResult(stdout=stdout, stderr="", exit_code=0),
+        ]
+    )
+    manager = _FakeWorkspaceSandboxManager()
+
+    async def _broken_list_dir(path: str, max_depth: int = 2) -> list[FileInfo]:
+        raise PermissionError(path)
+
+    provider.sandbox.list_dir = _broken_list_dir  # type: ignore[method-assign]
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('{\"ok\": true}')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    assert result["status"] == "completed"
+    assert result["parsed_stdout"] == {"ok": True}
+    assert result["generated_artifacts"] == []
+    assert manager.updated_jobs[-1]["job_id"] == "job-1"
+    assert manager.updated_jobs[-1]["status"] == "succeeded"
+    assert manager.updated_jobs[-1]["exit_code"] == 0
+    assert manager.updated_jobs[-1]["metadata_json"]["execution_lifecycle"]["status"] == "succeeded"
 
 
 @pytest.mark.asyncio
@@ -221,6 +857,17 @@ async def test_run_python_script_installs_declared_dependency_hints_before_execu
     install_job = manager.created_jobs[1]
     assert install_job["billable"] is False
     assert install_job["metadata"]["packages"] == ["pandas==2.2.3"]
+    install_audit = install_job["metadata"]["command_audit"]
+    assert install_audit["verdict"] == "warn"
+    assert install_audit["risk_level"] == "medium"
+    assert "package_install" in install_audit["reasons"]
+    assert install_audit["command"]["network_profile"] == "package_index_only"
+    _assert_policy_decision_contract(
+        install_audit,
+        operation="install_dependencies",
+        billable=False,
+    )
+    assert result["install_command_audits"] == [install_audit]
     assert [options["network_profile"] for options in provider.sandbox.command_options] == [
         "none",
         "package_index_only",
@@ -233,6 +880,14 @@ async def test_run_python_script_installs_declared_dependency_hints_before_execu
     assert "pandas==2.2.3" in provider.sandbox.commands[1][0]
     assert result["installed_packages"] == ["pandas==2.2.3"]
     assert result["retry_count"] == 0
+    report = result["report_markdown"]
+    assert "## Reproducibility" in report
+    assert "/workspace/scripts/analysis_probe.py" in report
+    assert "Requested dependencies: `pandas==2.2.3`" in report
+    assert "Installed dependencies: `pandas==2.2.3`" in report
+    assert "Install job ids: `job-2`" in report
+    assert "Retry count: 0" in report
+    assert "Run command audit: pass / low" in report
 
 
 @pytest.mark.asyncio
@@ -266,7 +921,7 @@ async def test_run_python_script_installs_missing_module_and_retries_once() -> N
     assert [job["operation"] for job in manager.created_jobs] == ["run_python", "install_dependencies"]
     assert manager.created_jobs[1]["metadata"]["packages"] == ["requests"]
     assert [command for command, _ in provider.sandbox.commands] == [
-        "test -x /workspace/.wenjin/env/python/bin/python || python -m venv /workspace/.wenjin/env/python",
+        ENSURE_WORKSPACE_VENV_COMMAND,
         "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",
         "/workspace/.wenjin/env/python/bin/python -m pip install --disable-pip-version-check --no-input --cache-dir /workspace/.wenjin/cache/pip requests",
         "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",
@@ -304,6 +959,11 @@ async def test_run_python_script_marks_run_job_failed_when_dependency_install_fa
         )
 
     assert exc_info.value.output["operation"] == "install_dependencies"
+    report = exc_info.value.output["report_markdown"]
+    assert "## Recovery guidance" in report
+    assert "Dependency installation failed before the Python script could be retried." in report
+    assert "Check dependency_hints for a valid pinned package spec" in report
+    assert "Install job ids: `job-2`" in report
     failed_updates = [
         update for update in manager.updated_jobs
         if update["status"] == "failed"
@@ -334,6 +994,10 @@ async def test_run_python_script_preserves_setup_failure_exit_code() -> None:
         update for update in manager.updated_jobs if update["job_id"] == "job-1" and update["status"] == "failed"
     ]
     assert run_failed_updates[-1]["exit_code"] == 127
+    lifecycle = run_failed_updates[-1]["metadata_json"]["execution_lifecycle"]
+    assert lifecycle["status"] == "failed"
+    assert lifecycle["sandbox_job_id"] == "job-1"
+    assert lifecycle["exit_code"] == 127
 
 
 @pytest.mark.asyncio
@@ -362,6 +1026,14 @@ async def test_run_python_script_raises_billable_error_for_nonzero_exit() -> Non
     assert exc_info.value.output["status"] == "failed"
     assert exc_info.value.output["exit_code"] == 2
     assert "boom" in exc_info.value.output["report_markdown"]
+    lifecycle = exc_info.value.output["execution_lifecycle"]
+    assert lifecycle["status"] == "failed"
+    assert lifecycle["sandbox_job_id"] == "job-1"
+    assert lifecycle["exit_code"] == 2
+    failed_update = [
+        update for update in manager.updated_jobs if update["job_id"] == "job-1" and update["status"] == "failed"
+    ][-1]
+    assert failed_update["metadata_json"]["execution_lifecycle"] == lifecycle
 
 
 @pytest.mark.asyncio

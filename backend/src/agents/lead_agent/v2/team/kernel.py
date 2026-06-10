@@ -19,8 +19,23 @@ from src.agents.contracts.task_report import (
     ResultOutput,
     TaskReport,
 )
+from src.agents.harness.diff_tracker import (
+    build_harness_node_metadata_from_tool_calls,
+    build_harness_replan_signals_from_tool_calls,
+)
 from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
+from src.agents.lead_agent.v2.prism_review_staging import (
+    build_prism_file_change_command,
+)
+from src.agents.lead_agent.v2.sandbox_artifact_review import (
+    collect_sandbox_artifact_candidates,
+    sandbox_artifact_payload_for_candidate,
+    sandbox_review_item_projection,
+    workspace_asset_payload_for_candidate,
+)
+from src.dataservice_client.contracts.execution import ExecutionUpdatePayload
 from src.dataservice_client.provider import dataservice_client
+from src.services.prism_review_projection import prism_review_item_projection
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY
@@ -32,6 +47,14 @@ from .contracts import (
     QualityGateResult,
     TeamBlackboard,
 )
+from .episode import (
+    bounded_harness_episode,
+    finish_harness_episode,
+    record_replan_decision,
+    start_harness_episode,
+    stop_reason_from_gates,
+)
+from .member_context import build_team_member_context
 from .policy import (
     TeamPolicyError,
     build_capability_team_policy,
@@ -124,14 +147,33 @@ class TeamKernelRuntime:
                 *self._errors_from_invocations(invocations),
                 *self._errors_from_quality_gates(gates),
             ]
+            status = "failed_partial" if errors else "completed"
+            review_items: list[dict[str, Any]] = []
+            if status == "completed":
+                review_items.extend(
+                    await self._stage_sandbox_artifact_review_items(
+                        invocations,
+                        brief=brief,
+                        execution_id=execution_id,
+                    )
+                )
+                review_items.extend(
+                    await self._stage_prism_review_items(
+                        capability,
+                        invocations,
+                        brief=brief,
+                        execution_id=execution_id,
+                    )
+                )
             return TaskReport(
                 execution_id=execution_id,
                 capability_id=brief.capability_id,
-                status="failed_partial" if errors else "completed",
+                status=status,
                 duration_seconds=duration,
                 token_usage=self._aggregate_token_usage(invocations),
                 narrative=self._build_narrative(capability, invocations, gates),
                 outputs=outputs,
+                review_items=review_items,
                 errors=errors,
             )
         except TeamPolicyError as exc:
@@ -169,6 +211,10 @@ class TeamKernelRuntime:
         invocations: list[AgentInvocation] = []
         gates: list[QualityGateResult] = []
         skill_cache = SkillCatalogCache()
+        blackboard.harness_episode = start_harness_episode(
+            execution_id=execution_id,
+            core_templates=team_policy.core_templates,
+        )
 
         core_invocations = await self._run_core_phase(
             execution_id=execution_id,
@@ -185,17 +231,23 @@ class TeamKernelRuntime:
         )
 
         if self._all_cancelled(invocations):
+            finish_harness_episode(blackboard.harness_episode, stop_reason="cancelled")
+            await self._persist_runtime_state(execution_id, blackboard)
             return invocations, gates
         if not invocations:
+            finish_harness_episode(blackboard.harness_episode, stop_reason="no_invocations")
+            await self._persist_runtime_state(execution_id, blackboard)
             return invocations, gates
 
         batch_gates = await self._evaluate_quality_gates(
             execution_id=execution_id,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             counts=counts,
             invocations=invocations,
             latest_invocations=core_invocations,
             blackboard=blackboard,
+            workspace_data=workspace_data,
         )
         gates.extend(batch_gates)
         next_batch = self._next_recruits_from_gates(
@@ -204,6 +256,24 @@ class TeamKernelRuntime:
             len(invocations),
             team_policy,
         )
+        self._record_replan_decision(
+            blackboard,
+            iteration=1,
+            phase="core",
+            gates=batch_gates,
+            selected_recruits=next_batch,
+        )
+        if not next_batch:
+            finish_harness_episode(
+                blackboard.harness_episode,
+                stop_reason=stop_reason_from_gates(
+                    batch_gates,
+                    selected_recruits=[],
+                ),
+            )
+            await self._persist_runtime_state(execution_id, blackboard)
+            return invocations, gates
+        await self._persist_runtime_state(execution_id, blackboard)
         gates.extend(
             await self._run_dynamic_recruitment_phase(
                 execution_id=execution_id,
@@ -267,6 +337,7 @@ class TeamKernelRuntime:
             if not latest_batch:
                 break
             core_invocations.extend(latest_batch)
+            self._sync_current_harness_evidence(workspace_data, latest_batch)
             if self._all_cancelled(invocations):
                 break
         return core_invocations
@@ -313,15 +384,19 @@ class TeamKernelRuntime:
             if not batch:
                 break
             if self._all_cancelled(invocations):
+                finish_harness_episode(blackboard.harness_episode, stop_reason="cancelled")
+                await self._persist_runtime_state(execution_id, blackboard)
                 break
 
             batch_gates = await self._evaluate_quality_gates(
                 execution_id=execution_id,
                 team_policy=team_policy,
+                capability_policy=capability_policy,
                 counts=counts,
                 invocations=invocations,
                 latest_invocations=batch,
                 blackboard=blackboard,
+                workspace_data=workspace_data,
             )
             gates.extend(batch_gates)
             recruits = self._next_recruits_from_gates(
@@ -330,7 +405,22 @@ class TeamKernelRuntime:
                 len(invocations),
                 team_policy,
             )
+            self._record_replan_decision(
+                blackboard,
+                iteration=iteration,
+                phase="dynamic_recruitment",
+                gates=batch_gates,
+                selected_recruits=recruits,
+            )
             if not recruits:
+                finish_harness_episode(
+                    blackboard.harness_episode,
+                    stop_reason=stop_reason_from_gates(
+                        batch_gates,
+                        selected_recruits=[],
+                    ),
+                )
+                await self._persist_runtime_state(execution_id, blackboard)
                 if any(gate.next_action == "recruit_more" for gate in batch_gates):
                     no_progress_rounds += 1
                     if no_progress_rounds >= team_policy.limits.no_progress_rounds_before_stop:
@@ -339,8 +429,19 @@ class TeamKernelRuntime:
 
             no_progress_rounds = 0
             next_batch = recruits
+            await self._persist_runtime_state(execution_id, blackboard)
             iteration += 1
 
+        if blackboard.harness_episode.get("status") != "finished":
+            finish_harness_episode(
+                blackboard.harness_episode,
+                stop_reason=self._dynamic_stop_reason(
+                    iteration=iteration,
+                    team_policy=team_policy,
+                    invocations=invocations,
+                ),
+            )
+            await self._persist_runtime_state(execution_id, blackboard)
         return gates
 
     @staticmethod
@@ -373,6 +474,7 @@ class TeamKernelRuntime:
             capability=capability,
             templates=templates,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             blackboard=blackboard,
             counts=counts,
             iteration=iteration,
@@ -393,6 +495,7 @@ class TeamKernelRuntime:
                 templates=templates,
                 team_policy=team_policy,
                 skill_records=skill_cache.records,
+                workspace_data=workspace_data,
                 invocations=batch,
             )
         await asyncio.gather(
@@ -411,6 +514,68 @@ class TeamKernelRuntime:
         )
         return batch
 
+    @staticmethod
+    def _sync_harness_replan_signals(
+        blackboard: TeamBlackboard,
+        latest_invocations: list[AgentInvocation],
+    ) -> list[dict[str, Any]]:
+        latest_signals: list[dict[str, Any]] = []
+        for invocation in latest_invocations:
+            for signal in build_harness_replan_signals_from_tool_calls(invocation.tool_calls):
+                enriched = dict(signal)
+                enriched["source_invocation_id"] = invocation.id
+                enriched["source_template_id"] = invocation.template_id
+                enriched["source_display_name"] = invocation.display_name
+                latest_signals.append(enriched)
+        if not latest_signals:
+            return []
+        existing = {
+            _replan_signal_key(signal)
+            for signal in blackboard.harness_replan_signals
+        }
+        for signal in latest_signals:
+            key = _replan_signal_key(signal)
+            if key in existing:
+                continue
+            blackboard.harness_replan_signals.append(signal)
+            existing.add(key)
+        return latest_signals
+
+    @staticmethod
+    def _sync_current_harness_evidence(
+        workspace_data: dict[str, Any],
+        latest_invocations: list[AgentInvocation],
+    ) -> None:
+        entries: list[dict[str, Any]] = []
+        for invocation in latest_invocations:
+            harness_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+            if not harness_metadata:
+                continue
+            entries.append(
+                {
+                    "execution_id": invocation.execution_id or "",
+                    "node_id": invocation.id,
+                    "display_name": invocation.display_name,
+                    "template_id": invocation.template_id,
+                    "node_metadata": harness_metadata,
+                }
+            )
+        if not entries:
+            return
+
+        history = workspace_data.get("workspace_history")
+        history = history if isinstance(history, dict) else None
+        if history is not None:
+            current = history.get("recent_executions")
+            current = current if isinstance(current, list) else []
+            history["recent_executions"] = _prepend_current_harness_evidence(entries, current)
+            workspace_data["workspace_history"] = history
+            return
+
+        current = workspace_data.get("recent_executions")
+        current = current if isinstance(current, list) else []
+        workspace_data["recent_executions"] = _prepend_current_harness_evidence(entries, current)
+
     def _inject_quality_contracts(
         self,
         *,
@@ -418,6 +583,7 @@ class TeamKernelRuntime:
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
         skill_records: dict[str, Any | None],
+        workspace_data: dict[str, Any],
         invocations: list[AgentInvocation],
     ) -> None:
         for invocation in invocations:
@@ -427,6 +593,7 @@ class TeamKernelRuntime:
                 team_policy=team_policy,
                 effective_skill_ids=invocation.effective_skills,
                 skill_records=skill_records,
+                workspace_data=workspace_data,
             ).model_dump(mode="json")
 
     async def _should_prefetch_skills(self, execution_id: str) -> bool:
@@ -462,17 +629,25 @@ class TeamKernelRuntime:
         *,
         execution_id: str,
         team_policy: CapabilityTeamPolicy,
+        capability_policy: dict[str, Any],
         counts: Counter[str],
         invocations: list[AgentInvocation],
         latest_invocations: list[AgentInvocation],
         blackboard: TeamBlackboard,
+        workspace_data: dict[str, Any],
     ) -> list[QualityGateResult]:
+        self._sync_current_harness_evidence(workspace_data, latest_invocations)
         gates = self._run_quality_gates(
             team_policy.quality_pipeline,
             invocations,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             counts=counts,
             latest_invocations=latest_invocations,
+            harness_replan_signals=self._sync_harness_replan_signals(
+                blackboard,
+                latest_invocations,
+            ),
         )
         blackboard.quality_gate_history.extend(
             gate.model_dump(mode="json") for gate in gates
@@ -485,6 +660,67 @@ class TeamKernelRuntime:
             )
         return gates
 
+    async def _persist_runtime_state(
+        self,
+        execution_id: str,
+        blackboard: TeamBlackboard,
+    ) -> None:
+        if not blackboard.quality_gate_history and not blackboard.harness_episode:
+            return
+        try:
+            async with dataservice_client() as client:
+                update_execution = getattr(client, "update_execution", None)
+                if not callable(update_execution):
+                    return
+                runtime_state: dict[str, Any] = {}
+                get_execution = getattr(client, "get_execution", None)
+                if callable(get_execution):
+                    record = await get_execution(execution_id)
+                    existing = getattr(record, "runtime_state_json", None)
+                    if isinstance(existing, dict):
+                        runtime_state.update(existing)
+                runtime_state["quality_gates"] = list(blackboard.quality_gate_history)
+                if blackboard.harness_episode:
+                    runtime_state["harness_episode"] = bounded_harness_episode(
+                        blackboard.harness_episode,
+                    )
+                await update_execution(
+                    execution_id,
+                    ExecutionUpdatePayload(runtime_state_json=runtime_state),
+                )
+        except Exception:
+            logger.warning("Failed to persist team quality gate runtime state", exc_info=True)
+
+    @staticmethod
+    def _record_replan_decision(
+        blackboard: TeamBlackboard,
+        *,
+        iteration: int,
+        phase: str,
+        gates: list[QualityGateResult],
+        selected_recruits: list[RecruitmentCandidate],
+    ) -> None:
+        record_replan_decision(
+            blackboard.harness_episode,
+            iteration=iteration,
+            phase=phase,
+            gates=gates,
+            selected_recruits=[recruit.template_id for recruit in selected_recruits],
+        )
+
+    @staticmethod
+    def _dynamic_stop_reason(
+        *,
+        iteration: int,
+        team_policy: CapabilityTeamPolicy,
+        invocations: list[AgentInvocation],
+    ) -> str:
+        if len(invocations) >= team_policy.limits.max_invocations_total:
+            return "max_invocations_reached"
+        if iteration > team_policy.limits.max_iterations:
+            return "max_iterations_reached"
+        return "dynamic_recruitment_stopped"
+
     def _build_invocation_batch(
         self,
         *,
@@ -493,6 +729,7 @@ class TeamKernelRuntime:
         capability: Any,
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
+        capability_policy: dict[str, Any],
         blackboard: TeamBlackboard,
         counts: Counter[str],
         iteration: int,
@@ -520,7 +757,13 @@ class TeamKernelRuntime:
                 iteration=iteration,
                 template_invocation_count=counts[template_id],
                 reason=recruit.reason,
-                input_brief=self._build_member_brief(brief, capability, template, blackboard),
+                input_brief=self._build_member_brief(
+                    brief,
+                    capability,
+                    template,
+                    blackboard,
+                    capability_policy=capability_policy,
+                ),
                 effective_tools=effective_tools,
                 effective_skills=effective_skills,
             )
@@ -534,17 +777,17 @@ class TeamKernelRuntime:
         capability: Any,
         template: AgentTemplate,
         blackboard: TeamBlackboard,
+        *,
+        capability_policy: dict[str, Any],
     ) -> dict[str, Any]:
-        payload = dict(brief.brief or {})
-        payload.setdefault("raw_message", brief.raw_message)
-        payload.setdefault("workspace_id", brief.workspace_id)
-        payload.setdefault("capability_id", brief.capability_id)
-        if brief.user_id:
-            payload.setdefault("user_id", brief.user_id)
-        payload["team_role"] = template.display_role
-        payload["team_blackboard"] = blackboard.model_dump(mode="json")
-        payload["capability_name"] = getattr(capability, "display_name", brief.capability_id)
-        return payload
+        return build_team_member_context(
+            brief=brief,
+            capability_name=getattr(capability, "display_name", brief.capability_id),
+            template_id=template.id,
+            display_role=template.display_role,
+            blackboard=blackboard,
+            capability_policy=capability_policy,
+        )
 
     async def _run_invocation(
         self,
@@ -585,6 +828,7 @@ class TeamKernelRuntime:
                     skill=skill,
                     team_context=blackboard.model_dump(mode="json"),
                     invocation=invocation.model_dump(mode="json"),
+                    publish_event=self.publish_event,
                 )
                 result: SubagentResult = await subagent_cls().run(ctx)
                 invocation.status = "succeeded"
@@ -611,6 +855,19 @@ class TeamKernelRuntime:
         started_at: datetime | None = None,
         completed_at: datetime | None = None,
     ) -> None:
+        node_metadata = {
+            "team": True,
+            "template_id": invocation.template_id,
+            "display_name": invocation.display_name,
+            "assigned_role": invocation.assigned_role,
+            "recruitment_reason": invocation.recruitment_reason,
+            "effective_tools": invocation.effective_tools,
+            "effective_skills": invocation.effective_skills,
+        }
+        harness_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+        if harness_metadata:
+            node_metadata.update(harness_metadata)
+
         await self.record_node_event(
             execution_id=invocation.execution_id or "",
             node_id=invocation.id,
@@ -622,15 +879,7 @@ class TeamKernelRuntime:
             tool_calls=invocation.tool_calls,
             token_usage=invocation.token_usage,
             error=invocation.error["message"] if invocation.error else None,
-            node_metadata={
-                "team": True,
-                "template_id": invocation.template_id,
-                "display_name": invocation.display_name,
-                "assigned_role": invocation.assigned_role,
-                "recruitment_reason": invocation.recruitment_reason,
-                "effective_tools": invocation.effective_tools,
-                "effective_skills": invocation.effective_skills,
-            },
+            node_metadata=node_metadata,
             started_at=started_at,
             completed_at=completed_at,
         )
@@ -696,15 +945,19 @@ class TeamKernelRuntime:
         invocations: list[AgentInvocation],
         *,
         team_policy: CapabilityTeamPolicy | None = None,
+        capability_policy: dict[str, Any] | None = None,
         counts: Counter[str] | None = None,
         latest_invocations: list[AgentInvocation] | None = None,
+        harness_replan_signals: list[dict[str, Any]] | None = None,
     ) -> list[QualityGateResult]:
         return evaluate_quality_gates(
             quality_pipeline,
             invocations,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             counts=counts,
             latest_invocations=latest_invocations,
+            harness_replan_signals=harness_replan_signals,
         )
 
     def _outputs_from_invocations(self, invocations: list[AgentInvocation]) -> list[DocumentOutput]:
@@ -755,6 +1008,122 @@ class TeamKernelRuntime:
                 if output is not None:
                     node_results[str(task["name"])] = {"output": output}
         return node_results
+
+    async def _stage_sandbox_artifact_review_items(
+        self,
+        invocations: list[AgentInvocation],
+        *,
+        brief: TaskBrief,
+        execution_id: str,
+    ) -> list[dict[str, Any]]:
+        """Register team harness sandbox artifacts through the existing review flow."""
+
+        candidates = collect_sandbox_artifact_candidates(
+            {
+                invocation.id: {"tool_calls": invocation.tool_calls}
+                for invocation in invocations
+            }
+        )
+        if not candidates:
+            return []
+        try:
+            async with dataservice_client() as client:
+                for candidate in candidates:
+                    asset = await client.register_asset(
+                        workspace_asset_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            candidate=candidate,
+                        )
+                    )
+                    await client.register_sandbox_artifact(
+                        sandbox_artifact_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            workspace_asset_id=str(asset.id),
+                            candidate=candidate,
+                        )
+                    )
+                items = await client.list_review_items(
+                    workspace_id=brief.workspace_id,
+                    execution_id=execution_id,
+                    target_domain="sandbox",
+                    target_kind="sandbox_artifact",
+                )
+                return [
+                    sandbox_review_item_projection(item, execution_id=execution_id)
+                    for item in items
+                ]
+        except Exception:
+            logger.warning("Failed to stage team sandbox artifact review items", exc_info=True)
+            return []
+
+    async def _stage_prism_review_items(
+        self,
+        capability: Any,
+        invocations: list[AgentInvocation],
+        *,
+        brief: TaskBrief,
+        execution_id: str,
+    ) -> list[dict[str, Any]]:
+        """Register team manuscript edits through the canonical Prism review flow."""
+
+        manuscript_context = brief.manuscript_context
+        if not isinstance(manuscript_context, dict):
+            return []
+        latex_project_id = str(manuscript_context.get("latex_project_id") or "").strip()
+        if not latex_project_id:
+            return []
+        graph_template = getattr(capability, "graph_template", None)
+        if not isinstance(graph_template, dict):
+            return []
+        node_results = self._node_results_for_graph_outputs(graph_template, invocations)
+        if not node_results:
+            return []
+
+        default_path = str(manuscript_context.get("main_file") or "main.tex").strip() or "main.tex"
+        commands = []
+        for phase in graph_template.get("phases") or []:
+            for task in phase.get("tasks") or []:
+                task_name = str(task.get("name") or "").strip()
+                node_result = node_results.get(task_name)
+                output = node_result.get("output") if isinstance(node_result, dict) else None
+                if not task_name or not isinstance(output, dict):
+                    continue
+                for decl in task.get("outputs") or []:
+                    if not isinstance(decl, dict) or decl.get("kind") != "prism_file_change":
+                        continue
+                    command = build_prism_file_change_command(
+                        decl,
+                        output,
+                        workspace_id=brief.workspace_id,
+                        latex_project_id=latex_project_id,
+                        task_name=task_name,
+                        execution_id=execution_id,
+                        default_path=default_path,
+                    )
+                    if command is not None:
+                        commands.append(command)
+        if not commands:
+            return []
+
+        try:
+            async with dataservice_client() as client:
+                for command in commands:
+                    await client.upsert_pending_prism_file_change(command)
+                items = await client.list_review_items(
+                    workspace_id=brief.workspace_id,
+                    execution_id=execution_id,
+                    target_domain="prism",
+                    target_kind="prism_file_change",
+                )
+                return [
+                    prism_review_item_projection(item, execution_id=execution_id)
+                    for item in items
+                ]
+        except Exception:
+            logger.warning("Failed to stage team Prism review items", exc_info=True)
+            return []
 
     def _output_for_graph_task(
         self,
@@ -894,3 +1263,34 @@ class TeamKernelRuntime:
                     return value.strip()
             return json.dumps(output, ensure_ascii=False, sort_keys=True)
         return str(output or "")
+
+
+def _replan_signal_key(signal: dict[str, Any]) -> str:
+    return "|".join(
+        [
+            str(signal.get("source_invocation_id") or ""),
+            str(signal.get("trigger") or ""),
+            ",".join(str(code) for code in signal.get("failure_codes") or []),
+            str(signal.get("recommended_action") or ""),
+        ]
+    )
+
+
+def _prepend_current_harness_evidence(
+    entries: list[dict[str, Any]],
+    current: list[Any],
+) -> list[dict[str, Any]]:
+    seen = {
+        str(entry.get("node_id") or "")
+        for entry in entries
+        if str(entry.get("node_id") or "").strip()
+    }
+    retained: list[dict[str, Any]] = []
+    for item in current:
+        if not isinstance(item, dict):
+            continue
+        node_id = str(item.get("node_id") or "").strip()
+        if node_id and node_id in seen:
+            continue
+        retained.append(item)
+    return [*entries, *retained][:8]

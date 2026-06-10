@@ -99,3 +99,51 @@ async def test_agent_template_loader_validates_required_shape(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="display_role is required"):
         await loader.load_seeds_if_empty()
+
+
+@pytest.mark.asyncio
+async def test_agent_template_loader_rejects_invalid_harness_tool_contract(tmp_path) -> None:
+    seed_dir = tmp_path / "agent_templates"
+    seed_dir.mkdir()
+    (seed_dir / "bad_sandbox_agent.yaml").write_text(
+        textwrap.dedent("""\
+            schema_version: agent_template.v1
+            id: bad_sandbox_agent.v1
+            enabled: true
+            display_role: 坏实验员
+            category: evidence
+            description: Bad sandbox role.
+            persona_prompt: You are an experiment role.
+            default_skills:
+            - evidence-analyst
+            tool_affinity:
+              preferred:
+              - sandbox_python
+              can_request:
+              - sandbox.run_command
+            risk_profile:
+              filesystem: no_direct_write
+              code_execution: not_needed
+              room_write: staged_only
+            output_contracts:
+            - reproducible_evidence_report.v1
+            quality_expectations:
+            - evidence is reproducible
+            runtime_defaults:
+              max_turns: 8
+        """),
+        encoding="utf-8",
+    )
+
+    from src.services.agent_template_loader import AgentTemplateLoader
+
+    dataservice = AsyncMock()
+    dataservice.has_agent_templates.return_value = False
+    loader = AgentTemplateLoader(
+        seed_dir=seed_dir,
+        dataservice=dataservice,
+    )
+
+    with pytest.raises(ValueError, match="retired harness tool 'sandbox_python'"):
+        await loader.load_seeds_if_empty()
+    dataservice.load_agent_template_seed_items.assert_not_awaited()

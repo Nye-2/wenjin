@@ -523,7 +523,9 @@ export function PrismAssistPanel({
                 );
               }}
               renderDetails={(item) => {
-                const preview = fileChangePreviews[item.logical_key] ?? null;
+                const preview = item.logical_key
+                  ? (fileChangePreviews[item.logical_key] ?? null)
+                  : null;
                 return preview ? (
                   <LatexFileChangeDiffPreview
                     preview={preview}

@@ -20,11 +20,25 @@ from src.dataservice_client.contracts.sandbox import (
     SandboxLeaseReleasePayload,
 )
 from src.dataservice_client.provider import dataservice_client
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_LAYOUT_SCHEMA,
+    WORKSPACE_LAYOUT_VERSION,
+    WORKSPACE_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_ROOT,
+    workspace_type_profile,
+)
 
 WORKSPACE_VENV_DIR = "/workspace/.wenjin/env/python"
 WORKSPACE_VENV_PYTHON = f"{WORKSPACE_VENV_DIR}/bin/python"
 WORKSPACE_PIP_CACHE_DIR = "/workspace/.wenjin/cache/pip"
-ENSURE_WORKSPACE_VENV_COMMAND = f"test -x {WORKSPACE_VENV_PYTHON} || python -m venv {WORKSPACE_VENV_DIR}"
+ENSURE_WORKSPACE_VENV_COMMAND = (
+    f"test -x {WORKSPACE_VENV_PYTHON} || "
+    f"{{ command -v python > /workspace/tmp/python-bootstrap-check.txt 2>&1 "
+    f"&& python -m venv {WORKSPACE_VENV_DIR} || "
+    f"python3 -m venv {WORKSPACE_VENV_DIR}; }}"
+)
 
 _MAX_DEPENDENCY_HINTS = 20
 _SAFE_PACKAGE_RE = re.compile(
@@ -100,13 +114,28 @@ def policy_allows_package_install(policy: dict[str, Any]) -> bool:
 def build_pip_install_command(package_specs: list[str]) -> str:
     """Build the controlled pip install command run inside the workspace venv."""
 
-    packages = normalize_dependency_hints(package_specs)
-    if not packages:
-        raise ValueError("package install requires at least one package")
+    packages = _normalized_install_packages(package_specs)
     quoted = " ".join(shlex.quote(package) for package in packages)
     return (
         f"{WORKSPACE_VENV_PYTHON} -m pip install --disable-pip-version-check "
         f"--no-input --cache-dir {WORKSPACE_PIP_CACHE_DIR} {quoted}"
+    )
+
+
+def build_pip_install_argv(package_specs: list[str]) -> tuple[str, ...]:
+    """Build the argv form used for command audit and future exec contracts."""
+
+    packages = _normalized_install_packages(package_specs)
+    return (
+        WORKSPACE_VENV_PYTHON,
+        "-m",
+        "pip",
+        "install",
+        "--disable-pip-version-check",
+        "--no-input",
+        "--cache-dir",
+        WORKSPACE_PIP_CACHE_DIR,
+        *packages,
     )
 
 
@@ -148,6 +177,13 @@ def _package_key(package_spec: str) -> str:
     return base.lower().replace("_", "-")
 
 
+def _normalized_install_packages(package_specs: list[str]) -> list[str]:
+    packages = normalize_dependency_hints(package_specs)
+    if not packages:
+        raise ValueError("package install requires at least one package")
+    return packages
+
+
 class WorkspaceSandboxManager:
     """DataService-backed manager for one workspace sandbox environment."""
 
@@ -166,6 +202,7 @@ class WorkspaceSandboxManager:
         self,
         *,
         workspace_id: str,
+        workspace_type: str | None = None,
         sandbox_policy: dict[str, Any],
         resource_limits: dict[str, Any],
         runtime_image: str,
@@ -184,10 +221,11 @@ class WorkspaceSandboxManager:
                     policy_json=dict(sandbox_policy or {}),
                     resource_limits_json=dict(resource_limits or {}),
                     created_by="lead_agent",
-                    metadata_json={
-                        "provider_key": provider_key,
-                        "runtime_image": runtime_image,
-                    },
+                    metadata_json=sandbox_environment_metadata(
+                        provider_key=provider_key,
+                        runtime_image=runtime_image,
+                        workspace_type=workspace_type,
+                    ),
                 ),
             )
 
@@ -279,3 +317,28 @@ class WorkspaceSandboxManager:
                     lease_token=lease_token,
                 )
             )
+
+
+def sandbox_environment_metadata(
+    *,
+    provider_key: str,
+    runtime_image: str,
+    workspace_type: str | None = None,
+) -> dict[str, Any]:
+    """Return lightweight DataService metadata for the workspace sandbox contract."""
+
+    normalized_type = str(workspace_type or "").strip() or None
+    return {
+        "provider_key": provider_key,
+        "runtime_image": runtime_image,
+        "workspace_layout": {
+            "schema": WORKSPACE_LAYOUT_SCHEMA,
+            "version": WORKSPACE_LAYOUT_VERSION,
+            "virtual_root": WORKSPACE_ROOT,
+            "manifest_path": WORKSPACE_MANIFEST_VIRTUAL_PATH,
+            "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+            "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+            "workspace_type": normalized_type,
+        },
+        "workspace_profile": workspace_type_profile(normalized_type),
+    }

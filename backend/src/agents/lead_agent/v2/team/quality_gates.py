@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
+from src.agents.contracts.task_report import TaskReport
+from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
+from src.agents.harness.research_eval_surfaces import (
+    ResearchSurface,
+    required_surfaces_from_capability_policy,
+)
+from src.agents.harness.research_task_eval import evaluate_research_task_evidence
+from src.sandbox.workspace_layout import is_workspace_readable_internal_output_ref
+
+from .citation_source_audit import collect_citation_source_audit_findings
 from .contracts import AgentInvocation, CapabilityTeamPolicy, QualityGateResult
 from .policy import DIRECT_COMMIT_TOOLS
 
@@ -22,12 +32,63 @@ FOUNDATION_GATE_REQUIRED_FIELDS = {
     "reproducibility_status_declared": ["verified_results", "artifact_refs"],
     "review_findings_actionable": ["findings_by_severity", "required_fixes"],
     "format_requirements_checked": ["checked_requirements"],
+    "source_authority_checked": ["citation_key_audit"],
+    "metadata_completeness_checked": ["citation_key_audit", "missing_sources"],
+    "weak_support_flagged": ["missing_sources", "fabrication_risks"],
+    "no_fabricated_citations": ["fabrication_risks"],
+    "claim_source_binding_checked": ["citation_key_audit", "missing_sources"],
+    "style_consistency_checked": ["bibtex_projection_notes"],
 }
 
 FOUNDATION_GATE_ALLOW_EMPTY_FIELDS = {
     "borderline_sources",
     "rejected_sources",
     "unsupported_claims",
+    "bibtex_projection_notes",
+    "citation_key_audit",
+    "fabrication_risks",
+    "missing_sources",
+}
+
+CITATION_AUDIT_REF_FIELDS_BY_GATE = {
+    "source_authority_checked": ("citation_key_audit",),
+    "metadata_completeness_checked": ("citation_key_audit",),
+    "claim_source_binding_checked": ("citation_key_audit",),
+    "style_consistency_checked": ("bibtex_projection_notes",),
+}
+
+CITATION_AUDIT_RISK_FIELDS_BY_GATE = {
+    "source_authority_checked": ("citation_key_audit",),
+    "metadata_completeness_checked": ("citation_key_audit", "missing_sources"),
+    "weak_support_flagged": ("missing_sources", "fabrication_risks"),
+    "no_fabricated_citations": ("fabrication_risks",),
+    "claim_source_binding_checked": ("citation_key_audit", "missing_sources"),
+    "style_consistency_checked": ("bibtex_projection_notes",),
+}
+
+CITATION_AUDIT_BLOCKING_STATUSES = {
+    "blocked",
+    "contradicted",
+    "fabricated",
+    "incomplete",
+    "missing",
+    "missing_metadata",
+    "needs_replacement",
+    "not_ready",
+    "replace",
+    "unsupported",
+    "weak",
+    "weakly_supported",
+}
+
+CITATION_AUDIT_BLOCKING_SEVERITIES = {"blocking", "critical", "high"}
+RUNTIME_RESEARCH_EVIDENCE_SURFACES = {
+    "workflow_trace",
+    "citation_strength",
+    "experiment_interpretation",
+    "paper_relevance",
+    "statistical_robustness",
+    "output_ref_reuse",
 }
 
 
@@ -36,8 +97,10 @@ def evaluate_quality_gates(
     invocations: list[AgentInvocation],
     *,
     team_policy: CapabilityTeamPolicy | None = None,
+    capability_policy: dict[str, Any] | None = None,
     counts: Counter[str] | None = None,
     latest_invocations: list[AgentInvocation] | None = None,
+    harness_replan_signals: list[dict[str, Any]] | None = None,
 ) -> list[QualityGateResult]:
     """Evaluate runtime quality gates without mutating team state."""
 
@@ -85,6 +148,24 @@ def evaluate_quality_gates(
             total_invocations=total_invocations,
         )
     )
+    gates.extend(
+        _harness_replan_signal_gates(
+            harness_replan_signals or [],
+            team_policy=team_policy,
+            counts=counts,
+            total_invocations=total_invocations,
+        )
+    )
+    gates.extend(
+        _research_evidence_required(
+            invocations,
+            latest=latest,
+            capability_policy=capability_policy,
+            team_policy=team_policy,
+            counts=counts,
+            total_invocations=total_invocations,
+        )
+    )
     gates.extend(_no_direct_commit_intent(latest))
     gates.extend(
         _citation_and_evidence_required(
@@ -95,6 +176,217 @@ def evaluate_quality_gates(
         )
     )
     return gates
+
+
+def _research_evidence_required(
+    invocations: list[AgentInvocation],
+    *,
+    latest: list[AgentInvocation],
+    capability_policy: dict[str, Any] | None,
+    team_policy: CapabilityTeamPolicy | None,
+    counts: Counter[str] | None,
+    total_invocations: int,
+) -> list[QualityGateResult]:
+    surfaces = required_surfaces_from_capability_policy(capability_policy, default=())
+    runtime_surfaces = tuple(
+        cast(ResearchSurface, surface)
+        for surface in surfaces
+        if surface in RUNTIME_RESEARCH_EVIDENCE_SURFACES
+    )
+    if not runtime_surfaces:
+        return []
+
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="team-quality-gate",
+            capability_id="team-quality-gate",
+            status="completed",
+            duration_seconds=0,
+            narrative="Runtime research evidence quality gate.",
+            outputs=[],
+            review_items=[],
+            errors=[],
+        ),
+        node_events=_node_events_from_invocations(invocations),
+        required_surfaces=runtime_surfaces,
+    )
+    if evaluation.status == "pass":
+        return [
+            QualityGateResult(
+                gate_id="research_evidence_required",
+                status="pass",
+                severity="low",
+                findings=[],
+                required_fixes=[],
+                next_action="finish",
+            )
+        ]
+
+    failed_surfaces = _dedupe(
+        [
+            str(finding.get("surface") or "")
+            for finding in evaluation.findings
+            if str(finding.get("surface") or "").strip()
+        ]
+    )
+    suggested: list[dict[str, str]] = []
+    for invocation in _research_revision_candidates(latest or invocations):
+        suggested.extend(
+            _revision_recruit(
+                invocation,
+                reason="research_evidence_required",
+                team_policy=team_policy,
+                counts=counts,
+                total_invocations=total_invocations,
+                already_suggested=len(suggested),
+            )
+        )
+    surface_text = ", ".join(failed_surfaces) if failed_surfaces else "research evidence"
+    repair_context = _research_evidence_repair_context(
+        failed_surfaces=failed_surfaces,
+        evidence=evaluation.evidence,
+    )
+    return [
+        QualityGateResult(
+            gate_id="research_evidence_required",
+            status="fail",
+            severity="high",
+            findings=evaluation.findings,
+            required_fixes=[
+                {
+                    "message": (
+                        "Satisfy capability-required research evidence surfaces before "
+                        f"finalizing: {surface_text}."
+                    ),
+                    "repair_context": repair_context,
+                }
+            ],
+            suggested_recruits=_dedupe_recruits(suggested),
+            next_action="revise_existing" if suggested else "stop_with_warning",
+        )
+    ]
+
+
+def _research_evidence_repair_context(
+    *,
+    failed_surfaces: list[str],
+    evidence: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    required_actions: list[str] = []
+    if "output_ref_reuse" in failed_surfaces:
+        required_actions.append(
+            "Use sandbox.read_output_ref to inspect available output refs before rerunning expensive sandbox work."
+        )
+    return {
+        "schema": "wenjin.team.quality_repair_context.v1",
+        "source_gates": ["research_evidence_required"],
+        "missing_research_surfaces": failed_surfaces,
+        "safe_output_refs": _safe_repair_output_refs(evidence),
+        "required_actions": required_actions,
+    }
+
+
+def _safe_repair_output_refs(evidence: dict[str, dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for surface_evidence in evidence.values():
+        if not isinstance(surface_evidence, dict):
+            continue
+        for key in ("recoverable_output_refs", "output_refs"):
+            for ref in _string_list(surface_evidence.get(key)):
+                if is_workspace_readable_internal_output_ref(ref):
+                    refs.append(ref)
+    return _dedupe(refs)[:10]
+
+
+def _node_events_from_invocations(invocations: list[AgentInvocation]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for invocation in invocations:
+        node_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+        if not node_metadata:
+            continue
+        node_metadata = {
+            "template_id": invocation.template_id,
+            "display_name": invocation.display_name,
+            **node_metadata,
+        }
+        events.append(
+            {
+                "node_type": "agent_invocation",
+                "status": "completed" if invocation.status == "succeeded" else invocation.status,
+                "node_metadata": node_metadata,
+            }
+        )
+    return events
+
+
+def _research_revision_candidates(invocations: list[AgentInvocation]) -> list[AgentInvocation]:
+    return [
+        invocation
+        for invocation in invocations
+        if invocation.status == "succeeded" and invocation.tool_calls
+    ]
+
+
+def _harness_replan_signal_gates(
+    signals: list[dict[str, Any]],
+    *,
+    team_policy: CapabilityTeamPolicy | None,
+    counts: Counter[str] | None,
+    total_invocations: int,
+) -> list[QualityGateResult]:
+    findings: list[dict[str, Any]] = []
+    suggested: list[dict[str, str]] = []
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        action = str(signal.get("recommended_action") or "").strip()
+        source_template_id = str(signal.get("source_template_id") or "").strip()
+        failure_codes = _string_list(signal.get("failure_codes"))
+        max_extra_iterations = _int_value(signal.get("max_extra_iterations"))
+        finding = {
+            "trigger": str(signal.get("trigger") or "harness_replan"),
+            "failure_codes": failure_codes,
+            "recommended_action": action,
+            "max_extra_iterations": max_extra_iterations,
+        }
+        if source_template_id:
+            finding["source_template_id"] = source_template_id
+        source_invocation_id = str(signal.get("source_invocation_id") or "").strip()
+        if source_invocation_id:
+            finding["source_invocation_id"] = source_invocation_id
+        findings.append(finding)
+        if action in {
+            "revise_script_or_recruit_code_agent",
+            "revise_tool_call_args",
+        } and source_template_id and max_extra_iterations > 0:
+            suggested.extend(
+                _trigger_recruits(
+                    [source_template_id],
+                    reason=action,
+                    team_policy=team_policy,
+                    counts=counts,
+                    total_invocations=total_invocations,
+                    already_suggested=len(suggested),
+                )
+            )
+    if not findings:
+        return []
+    suggested = _dedupe_recruits(suggested)
+    return [
+        QualityGateResult(
+            gate_id="harness_replan_signal",
+            status="warning",
+            severity="medium",
+            findings=findings,
+            required_fixes=[
+                {
+                    "message": "Use harness failure evidence to revise code, wait, or stop without parsing raw tool JSON."
+                }
+            ],
+            suggested_recruits=suggested,
+            next_action="revise_existing" if suggested else "stop_with_warning",
+        )
+    ]
 
 
 def _pipeline_gates(
@@ -172,16 +464,50 @@ def _foundation_field_gates(
                 field for field in required_fields
                 if not _has_meaningful_field(output, field)
             ]
-            if not missing:
+            invalid_entries = []
+            if not missing and gate_id == "claim_evidence_map_required":
+                invalid_entries = _invalid_claim_evidence_entries(
+                    output.get("claim_evidence_map"),
+                    allowed_source_ids=_string_list(contract.get("allowed_source_ids")),
+                    allowed_citation_keys=_string_list(contract.get("allowed_citation_keys")),
+                )
+            elif not missing and gate_id in CITATION_AUDIT_REF_FIELDS_BY_GATE:
+                invalid_entries = _invalid_source_citation_audit_entries(
+                    output,
+                    fields=CITATION_AUDIT_REF_FIELDS_BY_GATE[gate_id],
+                    allowed_source_ids=_string_list(contract.get("allowed_source_ids")),
+                    allowed_citation_keys=_string_list(contract.get("allowed_citation_keys")),
+                )
+            if not missing and gate_id in CITATION_AUDIT_RISK_FIELDS_BY_GATE:
+                invalid_entries.extend(
+                    _invalid_source_citation_risk_entries(
+                        output,
+                        fields=CITATION_AUDIT_RISK_FIELDS_BY_GATE[gate_id],
+                    )
+                )
+            if not missing and not invalid_entries:
                 continue
-            findings.append(
-                {
-                    "invocation_id": invocation.id,
-                    "template_id": invocation.template_id,
-                    "missing_fields": missing,
-                    "message": f"required fields for {gate_id} are missing",
-                }
+            finding = {
+                "invocation_id": invocation.id,
+                "template_id": invocation.template_id,
+                "message": f"required fields for {gate_id} are missing",
+            }
+            if missing:
+                finding["missing_fields"] = missing
+            if invalid_entries:
+                finding["invalid_entries"] = invalid_entries
+                finding["message"] = _invalid_entries_message(gate_id)
+            citation_source_audit = collect_citation_source_audit_findings(
+                invocation_id=invocation.id,
+                template_id=invocation.template_id,
+                display_name=invocation.display_name,
+                output=output,
+                quality_contract=contract,
+                active_gate_ids={gate_id},
             )
+            if citation_source_audit:
+                finding["citation_source_audit"] = citation_source_audit
+            findings.append(finding)
             suggested.extend(
                 _revision_recruit(
                     invocation,
@@ -194,27 +520,72 @@ def _foundation_field_gates(
             )
         if not findings:
             continue
-        missing_for_message = _dedupe(
-            [
-                field
-                for finding in findings
-                for field in _string_list(finding.get("missing_fields"))
-            ]
+        invalid_claim_map = gate_id == "claim_evidence_map_required" and any(
+            finding.get("invalid_entries") for finding in findings
         )
+        invalid_citation_audit = gate_id in {
+            *CITATION_AUDIT_REF_FIELDS_BY_GATE,
+            *CITATION_AUDIT_RISK_FIELDS_BY_GATE,
+        } and any(
+            finding.get("invalid_entries") for finding in findings
+        )
+        if invalid_claim_map:
+            has_allowlist = any(
+                _string_list(_quality_contract(invocation).get(key))
+                for invocation in invocations
+                for key in ("allowed_source_ids", "allowed_citation_keys")
+            )
+            suffix = (
+                " from the current workspace Library context"
+                if has_allowlist
+                else " for every supported claim"
+            )
+            required_fixes = [
+                {
+                    "message": (
+                        "Return claim_evidence_map entries with claim plus source_id "
+                        f"or citation_key{suffix}."
+                    )
+                }
+            ]
+        elif invalid_citation_audit:
+            has_risk_entries = any(
+                any("risk_status" in item for item in finding.get("invalid_entries") or [])
+                for finding in findings
+            )
+            message = (
+                "Resolve high-risk citation/source audit findings before finalizing "
+                "evidence-dependent output."
+                if has_risk_entries
+                else (
+                    "Return citation/source audit entries with source_id or citation_key "
+                    "from the current workspace Library context."
+                )
+            )
+            required_fixes = [{"message": message}]
+        else:
+            missing_for_message = _dedupe(
+                [
+                    field
+                    for finding in findings
+                    for field in _string_list(finding.get("missing_fields"))
+                ]
+            )
+            required_fixes = [
+                {
+                    "message": (
+                        f"Return required fields for {gate_id}: "
+                        f"{', '.join(missing_for_message)}."
+                    )
+                }
+            ]
         results.append(
             QualityGateResult(
                 gate_id=gate_id,
                 status="fail",
                 severity="medium",
                 findings=findings,
-                required_fixes=[
-                    {
-                        "message": (
-                            f"Return required fields for {gate_id}: "
-                            f"{', '.join(missing_for_message)}."
-                        )
-                    }
-                ],
+                required_fixes=required_fixes,
                 suggested_recruits=_dedupe_recruits(suggested),
                 next_action="revise_existing" if suggested else "stop_with_warning",
             )
@@ -513,7 +884,7 @@ def _replacement_recruits(
             candidate_pairs.extend(_trigger_template_pairs(team_policy, trigger))
     if not candidate_pairs:
         candidate_pairs = [
-            (template_id, "optional_fallback")
+            (template_id, "standby_member")
             for template_id in team_policy.optional_templates
         ]
     suggested: list[dict[str, str]] = []
@@ -647,6 +1018,186 @@ def _has_meaningful_field(output: dict[str, Any], field: str) -> bool:
     return True
 
 
+def _invalid_claim_evidence_entries(
+    value: Any,
+    *,
+    allowed_source_ids: list[str] | None = None,
+    allowed_citation_keys: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    entries = _claim_evidence_entries(value)
+    allowed_sources = set(allowed_source_ids or [])
+    allowed_citations = set(allowed_citation_keys or [])
+    invalid: list[dict[str, Any]] = []
+    for index, item in entries:
+        missing_fields: list[str] = []
+        unknown_refs: list[str] = []
+        claim = _claim_text(item)
+        if not claim:
+            missing_fields.append("claim")
+        refs = _claim_ref_values(item)
+        if not [*refs["source_ids"], *refs["citation_keys"]]:
+            missing_fields.append("source_id_or_citation_key")
+        if allowed_sources:
+            unknown_refs.extend(
+                ref for ref in refs["source_ids"] if ref not in allowed_sources
+            )
+        if allowed_citations:
+            unknown_refs.extend(
+                ref for ref in refs["citation_keys"] if ref not in allowed_citations
+            )
+        if missing_fields:
+            invalid.append({"index": index, "missing_fields": missing_fields})
+        elif unknown_refs:
+            invalid.append({"index": index, "unknown_refs": _dedupe(unknown_refs)})
+    return invalid
+
+
+def _invalid_source_citation_audit_entries(
+    output: dict[str, Any],
+    *,
+    fields: tuple[str, ...],
+    allowed_source_ids: list[str] | None = None,
+    allowed_citation_keys: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    allowed_sources = set(allowed_source_ids or [])
+    allowed_citations = set(allowed_citation_keys or [])
+    invalid: list[dict[str, Any]] = []
+    for field in fields:
+        raw_entries = output.get(field)
+        if not isinstance(raw_entries, list):
+            continue
+        for index, item in enumerate(raw_entries):
+            if not isinstance(item, dict):
+                invalid.append({"field": field, "index": index, "missing_fields": ["object"]})
+                continue
+            refs = _claim_ref_values(item)
+            unknown_refs: list[str] = []
+            if allowed_sources:
+                unknown_refs.extend(
+                    ref for ref in refs["source_ids"] if ref not in allowed_sources
+                )
+            if allowed_citations:
+                unknown_refs.extend(
+                    ref for ref in refs["citation_keys"] if ref not in allowed_citations
+                )
+            if unknown_refs:
+                invalid.append(
+                    {
+                        "field": field,
+                        "index": index,
+                        "unknown_refs": _dedupe(unknown_refs),
+                    }
+                )
+    return invalid
+
+
+def _invalid_source_citation_risk_entries(
+    output: dict[str, Any],
+    *,
+    fields: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    invalid: list[dict[str, Any]] = []
+    for field in fields:
+        raw_entries = output.get(field)
+        if not isinstance(raw_entries, list):
+            continue
+        for index, item in enumerate(raw_entries):
+            if not isinstance(item, dict):
+                continue
+            risk_status = _audit_risk_status(item, field=field)
+            severity = _audit_severity(item)
+            if not risk_status and not severity:
+                continue
+            finding = {"field": field, "index": index}
+            if risk_status:
+                finding["risk_status"] = risk_status
+            if severity:
+                finding["severity"] = severity
+            invalid.append(finding)
+    return invalid
+
+
+def _audit_risk_status(item: dict[str, Any], *, field: str) -> str:
+    for key in ("status", "decision", "readiness", "result"):
+        value = _normalized_token(item.get(key))
+        if value in CITATION_AUDIT_BLOCKING_STATUSES:
+            return value
+    if field == "fabrication_risks":
+        return _normalized_token(item.get("status")) or "present"
+    if field == "missing_sources":
+        return _normalized_token(item.get("status")) or "missing_source"
+    return ""
+
+
+def _audit_severity(item: dict[str, Any]) -> str:
+    for key in ("severity", "risk_level"):
+        value = _normalized_token(item.get(key))
+        if value in CITATION_AUDIT_BLOCKING_SEVERITIES:
+            return value
+    return ""
+
+
+def _normalized_token(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    return text.replace(" ", "_").replace("-", "_")
+
+
+def _invalid_entries_message(gate_id: str) -> str:
+    if gate_id == "claim_evidence_map_required":
+        return "claim_evidence_map entries must use current workspace source refs"
+    return "citation/source audit entries must use current workspace source refs"
+
+
+def _claim_evidence_entries(value: Any) -> list[tuple[int, Any]]:
+    if isinstance(value, list):
+        return list(enumerate(value))
+    if not isinstance(value, dict):
+        return []
+    claims = value.get("claims")
+    if isinstance(claims, list):
+        return list(enumerate(claims))
+    entries: list[tuple[int, Any]] = []
+    for index, (claim, refs) in enumerate(value.items()):
+        item = refs if isinstance(refs, dict) else {"claim": claim, "source_refs": refs}
+        if isinstance(item, dict):
+            item = {"claim": claim, **item}
+        entries.append((index, item))
+    return entries
+
+
+def _claim_text(item: Any) -> str:
+    if not isinstance(item, dict):
+        return ""
+    for key in ("claim", "statement", "text"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _claim_ref_values(item: Any) -> dict[str, list[str]]:
+    if not isinstance(item, dict):
+        return {"source_ids": [], "citation_keys": []}
+    source_ids: list[str] = []
+    for key in (
+        "source_id",
+        "source_ids",
+        "source_ref",
+        "source_refs",
+    ):
+        source_ids.extend(_string_list(item.get(key)))
+    citation_keys: list[str] = []
+    for key in (
+        "citation_key",
+        "citation_keys",
+    ):
+        citation_keys.extend(_string_list(item.get(key)))
+    return {
+        "source_ids": _dedupe(source_ids),
+        "citation_keys": _dedupe(citation_keys),
+    }
+
+
 def _open_question_triggers(output: dict[str, Any]) -> list[str]:
     triggers: list[str] = []
     for item in output.get("open_questions") or []:
@@ -692,6 +1243,17 @@ def _string_list(value: Any) -> list[str]:
                 result.append(text)
         return result
     return []
+
+
+def _int_value(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _dedupe(items: list[str]) -> list[str]:

@@ -9,8 +9,13 @@ import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+from src.agents.harness.context_assembly import (
+    build_harness_context_bundle,
+    render_harness_context_for_prompt,
+)
 from src.models import create_chat_model
 from src.services.thread_billing import extract_message_usage
 from src.services.token_usage_collector import record_token_usage
@@ -205,6 +210,24 @@ def _with_output_contract(system_prompt: str, config: dict[str, Any]) -> str:
     return f"{system_prompt}{contract}" if system_prompt else contract.strip()
 
 
+def _with_harness_context_bundle(system_prompt: str, ctx: SubagentContext) -> str:
+    """Append the bounded harness context bundle for sandbox-capable agents."""
+
+    if not _uses_sandbox_tools(ctx):
+        return system_prompt
+    bundle = _build_harness_context(ctx)
+    section = (
+        "\n\nHarness context bundle:\n"
+        "- Use this bounded context when planning sandbox tool work.\n"
+        "- If output_ref_recovery.refs is non-empty and sandbox.read_output_ref is available, use it before rerunning expensive sandbox work.\n"
+        "- Reuse scratch_refs, reproducibility_summary, experiment_interpretation_summary, and statistical_robustness_summary before recreating prior experiments.\n"
+        "- Use task_scratch_path for temporary task-local files; write user-reviewable artifacts under /workspace/outputs or /workspace/reports.\n"
+        "- Do not list, search, write, or register internal /workspace/tmp/tasks/.harness refs as user artifacts.\n"
+        f"- Context JSON: {render_harness_context_for_prompt(bundle)}"
+    )
+    return f"{system_prompt}{section}" if system_prompt else section.strip()
+
+
 def _string_list(value: Any) -> list[str]:
     if value is None:
         return []
@@ -237,11 +260,169 @@ def _build_default_user_payload(ctx: SubagentContext, config: dict[str, Any]) ->
     if ctx.capability_policy:
         payload["_capability_policy"] = ctx.capability_policy
 
+    if _uses_sandbox_tools(ctx):
+        payload["_harness_context"] = _build_harness_context(ctx)
+
     quality_gates = config.get("quality_gates")
     if quality_gates:
         payload["_skill_quality_gates"] = quality_gates
 
     return payload
+
+
+def _uses_sandbox_tools(ctx: SubagentContext) -> bool:
+    tools = [str(tool).strip() for tool in ctx.tools or []]
+    if any(tool.startswith("sandbox.") or tool in {"sandbox_python", "sandbox_exec"} for tool in tools):
+        return True
+    sandbox_policy = ctx.capability_policy.get("sandbox_policy")
+    return isinstance(sandbox_policy, dict) and bool(sandbox_policy.get("allowed_operations"))
+
+
+def _build_harness_context(ctx: SubagentContext) -> dict[str, Any]:
+    inputs = ctx.inputs or {}
+    return build_harness_context_bundle(
+        workspace_id=ctx.workspace_id,
+        workspace_type=str(inputs.get("workspace_type") or ""),
+        task={
+            "execution_id": ctx.execution_id,
+            "node_id": _context_node_id(ctx),
+            "invocation": ctx.invocation or {},
+            "prompt": ctx.prompt,
+            "inputs": inputs,
+        },
+        workspace_data=ctx.workspace_data or {},
+        allowed_tools=ctx.tools or [],
+    )
+
+
+def _context_node_id(ctx: SubagentContext) -> str:
+    invocation = ctx.invocation if isinstance(ctx.invocation, dict) else {}
+    return str(
+        invocation.get("id")
+        or (ctx.inputs or {}).get("node_id")
+        or (ctx.inputs or {}).get("template_id")
+        or ""
+    )
+
+
+def _patch_dangling_tool_messages(state: dict[str, Any]) -> dict[str, Any]:
+    """Patch missing tool results before LangGraph sends messages to the model."""
+
+    messages = list(state.get("messages") or [])
+    if not messages:
+        return {}
+
+    existing_result_ids = {
+        str(getattr(message, "tool_call_id", "") or "").strip()
+        for message in messages
+        if isinstance(message, ToolMessage)
+    }
+    patched: list[BaseMessage] = []
+    changed = False
+
+    for message in messages:
+        patched.append(message)
+        if not isinstance(message, AIMessage):
+            continue
+
+        for call in _missing_tool_calls_for_message(message, existing_result_ids):
+            patched.append(
+                ToolMessage(
+                    content=_synthetic_tool_recovery_content(call),
+                    tool_call_id=call["id"],
+                    name=call.get("name") or "unknown_tool",
+                    status="error",
+                )
+            )
+            existing_result_ids.add(call["id"])
+            changed = True
+
+    if not changed:
+        return {}
+    return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *patched]}
+
+
+def _react_pre_model_hook(state: dict[str, Any]) -> dict[str, Any]:
+    """Return a LangGraph-valid pre-model state update for ReactSubagent."""
+
+    patched = _patch_dangling_tool_messages(state)
+    if patched:
+        return patched
+    return {"llm_input_messages": list(state.get("messages") or [])}
+
+
+def _missing_tool_calls_for_message(
+    message: AIMessage,
+    existing_result_ids: set[str],
+) -> list[dict[str, str]]:
+    missing: list[dict[str, str]] = []
+    seen: set[str] = set(existing_result_ids)
+    for call in _iter_message_tool_call_refs(message):
+        call_id = str(call.get("id") or "").strip()
+        if not call_id or call_id in seen:
+            continue
+        seen.add(call_id)
+        missing.append(
+            {
+                "id": call_id,
+                "name": str(call.get("name") or "").strip() or "unknown_tool",
+                "kind": str(call.get("kind") or "tool_call"),
+                "error": str(call.get("error") or "").strip(),
+            }
+        )
+    return missing
+
+
+def _iter_message_tool_call_refs(message: AIMessage):
+    for call in getattr(message, "tool_calls", None) or []:
+        if not isinstance(call, dict):
+            continue
+        yield {
+            "id": call.get("id"),
+            "name": call.get("name"),
+            "kind": "tool_call",
+        }
+
+    additional_kwargs = getattr(message, "additional_kwargs", None)
+    raw_calls = additional_kwargs.get("tool_calls") if isinstance(additional_kwargs, dict) else None
+    if isinstance(raw_calls, list):
+        for raw_call in raw_calls:
+            if not isinstance(raw_call, dict):
+                continue
+            function = raw_call.get("function")
+            function_name = function.get("name") if isinstance(function, dict) else None
+            yield {
+                "id": raw_call.get("id"),
+                "name": raw_call.get("name") or function_name,
+                "kind": "raw_tool_call",
+            }
+
+    for invalid_call in getattr(message, "invalid_tool_calls", None) or []:
+        if not isinstance(invalid_call, dict):
+            continue
+        yield {
+            "id": invalid_call.get("id"),
+            "name": invalid_call.get("name"),
+            "kind": "invalid_tool_call",
+            "error": invalid_call.get("error"),
+        }
+
+
+def _synthetic_tool_recovery_content(call: dict[str, str]) -> str:
+    base = (
+        "Recoverable tool-call repair: this previous tool call did not produce "
+        "a matching tool result. Continue with available context, or retry the "
+        "tool using valid schema-compliant arguments if the result is still required."
+    )
+    if call.get("kind") == "invalid_tool_call" and call.get("error"):
+        return f"{base} Validation error: {_safe_tool_error_text(call['error'])}"
+    return base
+
+
+def _safe_tool_error_text(value: str, *, max_chars: int = 240) -> str:
+    text = re.sub(r"/workspace/[^\s,\"'}]+", "[workspace_path]", str(value))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +453,14 @@ class ReactSubagent(SubagentBase):
         # Assemble prompts
         config = _runtime_output_config(ctx.skill.config or {}, ctx.inputs or {})
         system_prompt = _with_output_contract(ctx.skill.prompt or "", config)
+        system_prompt = _with_harness_context_bundle(system_prompt, ctx)
         user_template = config.get("user_template")
         user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)
         user_message = _render_user_message(user_template, user_inputs)
+        tool_records: list[dict[str, Any]] = []
+        if ctx.tools:
+            ctx.workspace_data = dict(ctx.workspace_data or {})
+            ctx.workspace_data["_harness_tool_records"] = tool_records
 
         # Run the ReAct loop (or plain invoke if no tools)
         try:
@@ -282,6 +468,7 @@ class ReactSubagent(SubagentBase):
                 system_prompt=system_prompt,
                 user_message=user_message,
                 tools=ctx.tools,
+                harness_context=ctx,
                 emit_delta=ctx.emit_delta,
             )
         except Exception as exc:
@@ -299,7 +486,7 @@ class ReactSubagent(SubagentBase):
 
         return SubagentResult(
             output=output,
-            tool_calls=[],
+            tool_calls=tool_records,
             token_usage=None,
         )
 
@@ -308,6 +495,7 @@ async def _run_react_loop(
     system_prompt: str,
     user_message: str,
     tools: list[str] | None = None,
+    harness_context: SubagentContext | None = None,
     emit_delta: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> str:
     """Run the MiMo ReAct loop (or plain model invoke if no tools).
@@ -325,7 +513,7 @@ async def _run_react_loop(
     ]
 
     if tools:
-        resolved_tools = _resolve_tools(tools)
+        resolved_tools = _resolve_tools(tools, harness_context)
         if not resolved_tools:
             requested = ", ".join(str(tool).strip() for tool in tools if str(tool).strip())
             raise RuntimeError(
@@ -339,6 +527,7 @@ async def _run_react_loop(
             model=model,
             tools=resolved_tools,
             state_modifier=system_prompt,
+            pre_model_hook=_react_pre_model_hook,
         )
         result = await agent.ainvoke({"messages": [HumanMessage(content=user_message)]})
         # Extract last AI message content
@@ -408,13 +597,17 @@ async def _run_react_loop(
     return "".join(collected_content)
 
 
-def _resolve_tools(tool_names: list[str]) -> list:
+def _resolve_tools(tool_names: list[str], harness_context: SubagentContext | None = None) -> list:
     """Resolve tool names to callables.
 
-    The current runtime has no React tool registry bridge. Callers that request
-    tools must receive an explicit failure instead of a plain-LLM execution.
+    Callers that request tools must receive an explicit failure instead of a
+    plain-LLM execution when no harness-backed callable can be resolved.
     """
-    return []
+    if harness_context is None:
+        return []
+    from src.agents.harness.langchain_adapter import build_langchain_tools
+
+    return build_langchain_tools(harness_context, tool_names)
 
 
 def _is_transient_model_error(exc: Exception) -> bool:

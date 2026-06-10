@@ -680,7 +680,41 @@ async def test_pending_file_change_records_canonical_source_links_from_citations
         current_hash="hash-old",
         source_execution_id="exec-1",
         source_task_id="task-1",
+        academic_style_contract={
+            "schema": "wenjin.prism.academic_style_contract.v1",
+            "target_path": "sections/intro.tex",
+            "basis": "member_self_check",
+            "risk": "low",
+            "academic_style_score": 4,
+            "signals": ["citation_grounding", "formal_register"],
+            "anti_patterns": [],
+            "raw_before": "As an AI, this section is very good.",
+            "style_delta": {
+                "schema": "wenjin.prism.academic_style_delta.v1",
+                "baseline_academic_style_score": 1,
+                "raw_after": "Generated section",
+            },
+        },
     )
+
+    assert review_item.payload_json["academic_style_contract"] == {
+        "schema": "wenjin.prism.academic_style_contract.v1",
+        "target_path": "sections/intro.tex",
+        "basis": "member_self_check",
+        "risk": "low",
+        "academic_style_score": 4,
+        "signals": ["citation_grounding", "formal_register"],
+        "anti_patterns": [],
+        "style_delta": {
+            "schema": "wenjin.prism.academic_style_delta.v1",
+            "baseline_academic_style_score": 1,
+        },
+    }
+    assert "raw_before" not in review_item.payload_json["academic_style_contract"]
+    assert "raw_after" not in review_item.payload_json["academic_style_contract"]["style_delta"]
+    assert review_item.preview_json["academic_style_contract"] == review_item.payload_json[
+        "academic_style_contract"
+    ]
 
     result = await db.execute(
         text(
@@ -828,12 +862,36 @@ async def test_surface_projection_includes_review_provenance_and_protection(
                 'file_change', 'prism', 'prism_file_change',
                 '{"latex_project_id":"latex-prism","logical_key":"section:intro","file_path":"sections/intro.tex"}',
                 'Intro rewrite', 'feature_proposal', 'pending',
-                '{"source_execution_id":"exec-1","source_task_id":"task-1","path":"sections/intro.tex","pending_content":"Generated intro"}',
+                :payload_json,
                 '{"pending_content":"Generated intro"}'
             )
             """
         ),
-        {"workspace_id": workspace.id},
+        {
+            "workspace_id": workspace.id,
+            "payload_json": json.dumps(
+                {
+                    "source_execution_id": "exec-1",
+                    "source_task_id": "task-1",
+                    "path": "sections/intro.tex",
+                    "pending_content": "Generated intro",
+                    "academic_style_contract": {
+                        "schema": "untrusted",
+                        "target_path": "sections/intro.tex",
+                        "basis": "member_self_check",
+                        "risk": "low",
+                        "academic_style_score": 4,
+                        "signals": ["formal_register"],
+                        "anti_patterns": [],
+                        "raw_before": "As an AI, this intro is very good.",
+                        "style_delta": {
+                            "baseline_academic_style_score": 1,
+                            "raw_after": "Generated intro",
+                        },
+                    },
+                }
+            ),
+        },
     )
     await db.execute(
         text(
@@ -927,9 +985,22 @@ async def test_surface_projection_includes_review_provenance_and_protection(
     }
     assert projection["file_changes"][0]["source_execution_id"] == "exec-1"
     assert projection["file_changes"][0]["pending_content"] == "Generated intro"
+    assert "academic_style_contract" not in projection["file_changes"][0]
     assert projection["review_items"][0]["id"] == "review-1"
     assert projection["review_items"][0]["kind"] == "prism_file_change"
+    assert projection["review_items"][0]["target"]["logical_key"] == "section:intro"
     assert projection["review_items"][0]["target"]["file_path"] == "sections/intro.tex"
+    style_contract = projection["review_items"][0]["preview"]["academic_style_contract"]
+    assert style_contract["schema"] == "wenjin.prism.academic_style_contract.v1"
+    assert style_contract["style_delta"] == {
+        "schema": "wenjin.prism.academic_style_delta.v1",
+        "baseline_academic_style_score": 1,
+        "pending_academic_style_score": style_contract["academic_style_score"],
+        "score_delta": style_contract["academic_style_score"] - 1,
+        "improves_academic_style": style_contract["academic_style_score"] > 1,
+    }
+    assert "raw_before" not in style_contract
+    assert "raw_after" not in style_contract["style_delta"]
     assert {
         action["action"] for action in projection["review_items"][0]["actions"]
     } == {

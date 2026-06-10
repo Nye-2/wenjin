@@ -29,7 +29,7 @@ export function PrismFloatingAssist({
     return null;
   }
 
-  const pillLabel = hasError
+  const statusLabel = hasError
     ? "需要处理"
     : pendingRewriteCount > 0
       ? "待应用修改"
@@ -37,7 +37,8 @@ export function PrismFloatingAssist({
         ? "团队处理中"
         : selectedCharacterCount > 0
           ? `已选 ${selectedCharacterCount} 字`
-          : "AI 改稿";
+          : null;
+  const pillLabel = statusLabel ? `AI 改稿，${statusLabel}` : "AI 改稿";
 
   return (
     <div className="pointer-events-none fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">

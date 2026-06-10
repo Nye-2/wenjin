@@ -12,6 +12,7 @@ from typing import Any
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.workspace_sandbox import WorkspaceSandboxManager, workspace_provider_key
 from src.sandbox.providers.docker import DockerSandboxProvider
+from src.sandbox.workspace_layout import WORKSPACE_ROOT, ensure_workspace_sandbox_layout
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,7 @@ class SandboxRuntimeContext:
     manager: WorkspaceSandboxManager
     environment: Any
     sandbox_key: str
+    workspace_type: str | None = None
 
 
 class SandboxRuntimeSession:
@@ -44,6 +46,7 @@ class SandboxRuntimeSession:
         *,
         workspace_id: str,
         sandbox_policy: Mapping[str, Any],
+        workspace_type: str | None = None,
     ) -> SandboxRuntimeContext:
         limits = resource_limits(sandbox_policy)
         provider = self.provider or provider_from_policy(sandbox_policy)
@@ -51,6 +54,7 @@ class SandboxRuntimeSession:
         manager = self.manager or WorkspaceSandboxManager()
         environment = await manager.get_or_create_environment(
             workspace_id=workspace_id,
+            workspace_type=workspace_type,
             sandbox_policy=dict(sandbox_policy),
             resource_limits=dict(limits),
             runtime_image=runtime_image,
@@ -63,6 +67,7 @@ class SandboxRuntimeSession:
             manager=manager,
             environment=environment,
             sandbox_key=environment_provider_key(environment, workspace_id),
+            workspace_type=str(workspace_type or "").strip() or None,
         )
 
     @asynccontextmanager
@@ -85,6 +90,12 @@ class SandboxRuntimeSession:
                 ttl_seconds=max(ctx.sandbox_timeout + 60, 120),
             )
             sandbox = await ctx.provider.acquire(ctx.sandbox_key)
+            ensure_runtime_workspace_layout(
+                sandbox=sandbox,
+                workspace_id=workspace_id,
+                sandbox_id=ctx.sandbox_key,
+                workspace_type=ctx.workspace_type,
+            )
             await ctx.manager.update_job(job_id, status="running")
             yield sandbox
         finally:
@@ -153,12 +164,46 @@ def environment_provider_key(environment: Any, workspace_id: str) -> str:
     )
 
 
+def ensure_runtime_workspace_layout(
+    *,
+    sandbox: Any,
+    workspace_id: str,
+    sandbox_id: str,
+    workspace_type: str | None,
+) -> None:
+    """Refresh the mounted `/workspace` manifest with Lead-known workspace metadata."""
+
+    workspace_root = runtime_workspace_physical_root(sandbox)
+    if workspace_root is None:
+        return
+    ensure_workspace_sandbox_layout(
+        workspace_root,
+        workspace_id=workspace_id,
+        sandbox_id=sandbox_id,
+        workspace_type=workspace_type,
+    )
+
+
+def runtime_workspace_physical_root(sandbox: Any) -> Path | None:
+    resolver = getattr(sandbox, "_resolve_path", None)
+    if callable(resolver):
+        try:
+            return Path(resolver(WORKSPACE_ROOT))
+        except Exception:  # noqa: BLE001 - provider-specific path mapping failures are ignored here.
+            return None
+    mappings = getattr(sandbox, "path_mappings", None)
+    if isinstance(mappings, dict) and WORKSPACE_ROOT in mappings:
+        return Path(str(mappings[WORKSPACE_ROOT]))
+    return None
+
+
 async def mark_job_failed(
     manager: Any,
     job_id: str,
     *,
     exit_code: int | None = None,
     error_text: str | None = None,
+    metadata_json: dict[str, Any] | None = None,
 ) -> None:
     with suppress(Exception):
         await manager.update_job(
@@ -166,6 +211,7 @@ async def mark_job_failed(
             status="failed",
             exit_code=exit_code,
             error_text=error_text,
+            metadata_json=metadata_json,
         )
 
 

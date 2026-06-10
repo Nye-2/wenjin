@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.agents.harness.command_audit import (
+    CommandAuditPolicy,
+    HarnessCommand,
+    audit_command,
+    require_command_policy_allowed,
+)
+from src.agents.lead_agent.v2.sandbox_artifact_collector import build_dependency_install_failure_report
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.workspace_sandbox import (
     ENSURE_WORKSPACE_VENV_COMMAND,
+    build_pip_install_argv,
     build_pip_install_command,
     install_policy_snapshot,
     normalize_dependency_hints,
@@ -46,12 +54,26 @@ class SandboxEnvironmentInstaller:
         packages: list[str],
         reason: str,
         timeout: int,
-    ) -> tuple[list[str], str]:
+    ) -> tuple[list[str], str, dict[str, Any]]:
         if not policy_allows_package_install(sandbox_policy):
             raise PermissionError("capability sandbox_policy does not allow package installation")
 
         normalized_packages = normalize_dependency_hints(packages)
         command = build_pip_install_command(normalized_packages)
+        command_audit_result = audit_command(
+            HarnessCommand(
+                argv=build_pip_install_argv(normalized_packages),
+                network_profile="package_index_only",
+                operation="install_dependencies",
+                billable=False,
+            ),
+            CommandAuditPolicy(
+                allow_package_install=True,
+                allowed_network_profiles=("none", "package_index_only"),
+            ),
+        )
+        require_command_policy_allowed(command_audit_result)
+        command_audit = command_audit_result.model_dump()
         install_job = await manager.create_job(
             workspace_id=workspace_id,
             environment_id=environment_id,
@@ -68,6 +90,7 @@ class SandboxEnvironmentInstaller:
                 "run_job_id": run_job_id,
                 "reason": reason,
                 "packages": normalized_packages,
+                "command_audit": command_audit,
             },
             network_policy="package_index_only",
         )
@@ -78,6 +101,7 @@ class SandboxEnvironmentInstaller:
             network_profile="package_index_only",
         )
         if not result.success:
+            stdout = result.stdout.strip()
             stderr = result.stderr.strip()
             await manager.update_job(
                 str(install_job.id),
@@ -92,16 +116,26 @@ class SandboxEnvironmentInstaller:
                     "status": "failed",
                     "operation": "install_dependencies",
                     "packages": normalized_packages,
-                    "stdout": result.stdout.strip(),
+                    "stdout": stdout,
                     "stderr": stderr,
                     "exit_code": result.exit_code,
                     "sandbox_environment_id": environment_id,
                     "sandbox_job_id": str(install_job.id),
+                    "run_sandbox_job_id": run_job_id,
+                    "install_job_ids": [str(install_job.id)],
+                    "report_markdown": build_dependency_install_failure_report(
+                        packages=normalized_packages,
+                        run_job_id=run_job_id,
+                        install_job_id=str(install_job.id),
+                        stdout=stdout,
+                        stderr=stderr,
+                        exit_code=result.exit_code,
+                    ),
                 },
             )
 
         await manager.update_job(str(install_job.id), status="succeeded", exit_code=result.exit_code)
-        return normalized_packages, str(install_job.id)
+        return normalized_packages, str(install_job.id), command_audit
 
     def package_not_installed(self, package_spec: str, installed_packages: list[str]) -> bool:
         normalized = normalize_dependency_hints([package_spec])[0].lower().replace("_", "-")

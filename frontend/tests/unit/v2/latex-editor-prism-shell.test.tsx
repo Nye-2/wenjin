@@ -7,6 +7,11 @@ const mockCompileProject = vi.hoisted(() => vi.fn());
 const mockLoadProject = vi.hoisted(() => vi.fn());
 const mockLatexStoreOverrides = vi.hoisted(() => ({
   compileResult: null as unknown,
+  fileChanges: [] as unknown[],
+}));
+const mockReviewQueueState = vi.hoisted(() => ({
+  focusedReviewItemId: null as string | null,
+  focusedLogicalKey: null as string | null,
 }));
 const mockWorkflowActions = vi.hoisted(() => ({
   setFeedbackDraftComment: vi.fn(),
@@ -124,8 +129,8 @@ vi.mock("@/components/latex/latex-editor/usePrismReviewQueue", () => ({
     fileChangesRef: { current: null },
     pendingReviewItems: [],
     appliedReviewItems: [],
-    focusedReviewItemId: null,
-    focusedLogicalKey: null,
+    focusedReviewItemId: mockReviewQueueState.focusedReviewItemId,
+    focusedLogicalKey: mockReviewQueueState.focusedLogicalKey,
     fileChangePreviews: {},
     busyFileChangeKey: null,
     fileChangeError: "",
@@ -195,7 +200,7 @@ vi.mock("@/stores/latex", () => ({
     activeFileContent: "\\begin{document}x\\end{document}",
     activeFileSavedContent: "\\begin{document}x\\end{document}",
     activeBlobUrl: null,
-    fileChanges: [],
+    fileChanges: mockLatexStoreOverrides.fileChanges as never[],
     appliedFileChanges: [],
     compileResult: mockLatexStoreOverrides.compileResult,
     compileLog: "",
@@ -240,6 +245,9 @@ describe("Prism editor shell", () => {
     mockFeedbackWorkflowState.view.previewFeedbackItem = null;
     mockFeedbackWorkflowState.view.feedbackBusyId = null;
     mockLatexStoreOverrides.compileResult = null;
+    mockLatexStoreOverrides.fileChanges = [];
+    mockReviewQueueState.focusedReviewItemId = null;
+    mockReviewQueueState.focusedLogicalKey = null;
     mockCompileProject.mockReset();
     mockCompileProject.mockResolvedValue(undefined);
     mockLoadProject.mockReset();
@@ -286,6 +294,23 @@ describe("Prism editor shell", () => {
     expect(screen.getByRole("button", { name: "AI 改稿" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "关闭 AI 改稿" })).not.toBeInTheDocument();
+  });
+
+  it("keeps pending review changes behind the floating entry unless a review link is focused", async () => {
+    mockLatexStoreOverrides.fileChanges = [{ id: "change-1", file_path: "main.tex" }];
+
+    render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
+
+    expect(screen.getByRole("button", { name: "AI 改稿，待应用修改" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
+  });
+
+  it("opens the assist panel when the route focuses a review item", async () => {
+    mockReviewQueueState.focusedReviewItemId = "review-1";
+
+    render(<LatexEditorShell projectId="latex-1" workspaceId="ws-1" />);
+
+    expect(screen.getByRole("dialog", { name: "AI 改稿" })).toBeInTheDocument();
   });
 
   it("opens the assist panel from selection shortcuts without launching work immediately", async () => {

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+from src.agents.harness.contracts import HarnessToolResult
 from src.subagents.v2.base import SubagentContext
 from src.subagents.v2.registry import REGISTRY
 from src.subagents.v2.types.react import (
@@ -14,9 +19,13 @@ from src.subagents.v2.types.react import (
     _build_default_user_payload,
     _build_degraded_react_text,
     _parse_output,
+    _patch_dangling_tool_messages,
+    _react_pre_model_hook,
     _render_user_message,
+    _resolve_tools,
     _run_react_loop,
     _runtime_output_config,
+    _with_harness_context_bundle,
 )
 
 # ---------------------------------------------------------------------------
@@ -30,6 +39,9 @@ def _make_ctx(
     tools=None,
     prompt: str = "",
     capability_policy: dict | None = None,
+    workspace_data: dict | None = None,
+    invocation: dict | None = None,
+    publish_event=None,
 ) -> SubagentContext:
     return SubagentContext(
         workspace_id="ws-test",
@@ -37,9 +49,11 @@ def _make_ctx(
         prompt=prompt,
         inputs=inputs or {},
         tools=tools or [],
-        workspace_data={},
+        workspace_data=workspace_data or {},
         capability_policy=capability_policy or {},
         skill=skill,
+        invocation=invocation,
+        publish_event=publish_event,
     )
 
 
@@ -103,6 +117,202 @@ class TestDefaultUserPayload:
             "quality_gates": ["claim_source_binding_checked"]
         }
         assert payload["_skill_quality_gates"] == ["no_fabrication"]
+
+    def test_includes_harness_context_for_sandbox_tools(self):
+        ctx = _make_ctx(
+            inputs={"topic": "federated LLM experiments"},
+            tools=["sandbox.run_python"],
+            capability_policy={
+                "sandbox_policy": {"allowed_operations": ["run_python"]},
+            },
+        )
+
+        payload = _build_default_user_payload(ctx, {})
+
+        context = payload["_harness_context"]
+        assert "_sandbox_workspace" not in payload
+        assert context["schema"] == "wenjin.harness.context_bundle.v1"
+        assert context["sandbox"]["root"] == "/workspace"
+        assert "/workspace/scripts" in context["sandbox"]["standard_dirs"]
+        assert "/workspace/outputs" in context["sandbox"]["artifact_roots"]
+        assert "/workspace/tmp/tasks/.harness/**" in context["sandbox"]["internal_paths"]
+        assert ".wenjin/**" in context["sandbox"]["protected_paths"]
+        assert "**/.env" in context["sandbox"]["protected_paths"]
+
+    def test_harness_context_uses_invocation_scoped_task_scratch_path(self):
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            invocation={"id": "research_scout.v1__1", "execution_id": "exec-test"},
+        )
+
+        payload = _build_default_user_payload(ctx, {})
+
+        context = payload["_harness_context"]
+        assert context["task_scratch_path"] == "/workspace/tmp/tasks/exec-test/research_scout.v1__1"
+        assert context["sandbox"]["task_scratch_path"] == (
+            "/workspace/tmp/tasks/exec-test/research_scout.v1__1"
+        )
+
+
+class TestSandboxWorkspaceContractPrompt:
+    def test_appends_contract_to_system_prompt_for_sandbox_tool_agents(self):
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            inputs={"workspace_type": "sci"},
+        )
+
+        prompt = _with_harness_context_bundle("你是实验专家", ctx)
+
+        assert "你是实验专家" in prompt
+        assert "Harness context bundle" in prompt
+        assert "wenjin.harness.context_bundle.v1" in prompt
+        assert "/workspace/scripts" in prompt
+        assert "/workspace/reports" in prompt
+
+    def test_harness_prompt_instructs_agents_to_reuse_recoverable_evidence(self):
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            inputs={"workspace_type": "sci"},
+        )
+
+        prompt = _with_harness_context_bundle("你是实验专家", ctx)
+
+        assert "If output_ref_recovery.refs is non-empty" in prompt
+        assert "sandbox.read_output_ref is available" in prompt
+        assert "sandbox.read_output_ref" in prompt
+        assert "before rerunning expensive sandbox work" in prompt
+        assert "Reuse scratch_refs" in prompt
+        assert "task_scratch_path" in prompt
+        assert "/workspace/outputs or /workspace/reports" in prompt
+
+    def test_leaves_system_prompt_unchanged_without_sandbox_tools(self):
+        ctx = _make_ctx(tools=[])
+
+        assert _with_harness_context_bundle("你是综述专家", ctx) == "你是综述专家"
+
+
+class TestDanglingToolCallRepair:
+    def test_patch_dangling_tool_messages_inserts_synthetic_error_result(self):
+        messages = [
+            HumanMessage(content="read file"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "name": "sandbox.read_file",
+                        "args": {"path": "/workspace/main/a.tex"},
+                    }
+                ],
+            ),
+        ]
+
+        patched = _patch_dangling_tool_messages({"messages": messages})
+
+        assert "messages" in patched
+        assert len(patched["messages"]) == 4
+        assert isinstance(patched["messages"][0], RemoveMessage)
+        assert patched["messages"][0].id == REMOVE_ALL_MESSAGES
+        tool_message = patched["messages"][3]
+        assert isinstance(tool_message, ToolMessage)
+        assert tool_message.tool_call_id == "call-1"
+        assert tool_message.name == "sandbox.read_file"
+        assert tool_message.status == "error"
+        assert "recoverable" in str(tool_message.content).lower()
+        assert "/workspace/main/a.tex" not in str(tool_message.content)
+
+    def test_patch_dangling_tool_messages_noops_when_result_exists(self):
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call-1",
+                        "name": "sandbox.read_file",
+                        "args": {},
+                    }
+                ],
+            ),
+            ToolMessage(content="ok", tool_call_id="call-1", name="sandbox.read_file"),
+        ]
+
+        assert _patch_dangling_tool_messages({"messages": messages}) == {}
+
+    def test_patch_dangling_tool_messages_repairs_raw_provider_tool_call(self):
+        messages = [
+            AIMessage(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "id": "raw-call-1",
+                            "type": "function",
+                            "function": {
+                                "name": "sandbox.grep",
+                                "arguments": "{\"pattern\":\"secret\",\"glob\":\"/workspace/main/*.tex\"}",
+                            },
+                        }
+                    ]
+                },
+            )
+        ]
+
+        patched = _patch_dangling_tool_messages({"messages": messages})
+
+        assert isinstance(patched["messages"][0], RemoveMessage)
+        assert patched["messages"][0].id == REMOVE_ALL_MESSAGES
+        tool_message = patched["messages"][2]
+        assert isinstance(tool_message, ToolMessage)
+        assert tool_message.tool_call_id == "raw-call-1"
+        assert tool_message.name == "sandbox.grep"
+        assert tool_message.status == "error"
+        assert "secret" not in str(tool_message.content)
+        assert "/workspace/main/*.tex" not in str(tool_message.content)
+
+    def test_patch_dangling_tool_messages_repairs_invalid_tool_call_without_raw_args(self):
+        message = AIMessage(content="")
+        message.invalid_tool_calls = [
+            {
+                "id": "invalid-call-1",
+                "name": "sandbox.write_file",
+                "args": "{\"path\":\"/workspace/main/a.tex\",\"content\":\"raw draft\"",
+                "error": "Invalid JSON: missing closing brace",
+            }
+        ]
+
+        patched = _patch_dangling_tool_messages({"messages": [message]})
+
+        assert isinstance(patched["messages"][0], RemoveMessage)
+        assert patched["messages"][0].id == REMOVE_ALL_MESSAGES
+        tool_message = patched["messages"][2]
+        assert isinstance(tool_message, ToolMessage)
+        assert tool_message.tool_call_id == "invalid-call-1"
+        assert tool_message.name == "sandbox.write_file"
+        assert tool_message.status == "error"
+        assert "Invalid JSON" in str(tool_message.content)
+        assert "raw draft" not in str(tool_message.content)
+        assert "/workspace/main/a.tex" not in str(tool_message.content)
+
+    def test_react_pre_model_hook_returns_llm_input_messages_when_no_patch_needed(self):
+        messages = [HumanMessage(content="continue")]
+
+        patched = _react_pre_model_hook({"messages": messages})
+
+        assert patched == {"llm_input_messages": messages}
+
+    def test_react_pre_model_hook_returns_overwrite_messages_when_patch_needed(self):
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "call-1", "name": "sandbox.read_file", "args": {}}],
+            )
+        ]
+
+        patched = _react_pre_model_hook({"messages": messages})
+
+        assert "messages" in patched
+        assert "llm_input_messages" not in patched
+        assert isinstance(patched["messages"][0], RemoveMessage)
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +549,451 @@ class TestMockLLM:
                 await _run_react_loop(
                     system_prompt="system",
                     user_message="user",
-                    tools=["sandbox_python"],
+                    tools=["unknown.tool"],
                 )
 
         fake_model.astream.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resolve_tools_returns_harness_backed_read_file_tool(self):
+        class FakeSandbox:
+            async def read_file(self, path: str) -> str:
+                assert path == "/workspace/main.tex"
+                return "hello harness"
+
+        tool_records = []
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+        )
+
+        tools = _resolve_tools(["sandbox.read_file"], ctx)
+
+        assert [tool.name for tool in tools] == ["sandbox_read_file", "sandbox_read_output_ref"]
+        result = await tools[0].ainvoke({"path": "/workspace/main.tex"})
+        assert "hello harness" in result
+        assert tool_records == [
+            {
+                "name": "sandbox.read_file",
+                "status": "completed",
+                "args": {"path": "/workspace/main.tex"},
+                "result_preview": result[:500],
+            }
+        ]
+
+    @pytest.mark.asyncio
+    async def test_harness_grep_invalid_regex_returns_recoverable_json_error(self):
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            workspace = Path(tmpdir) / "workspace"
+            main_dir = workspace / "main"
+            main_dir.mkdir(parents=True)
+            (main_dir / "file.txt").write_text("alpha\n", encoding="utf-8")
+
+            class FakeSandbox:
+                path_mappings = {"/workspace": str(workspace)}
+
+            tool_records = []
+            ctx = _make_ctx(
+                tools=["sandbox.grep"],
+                workspace_data={
+                    "_harness_sandbox": FakeSandbox(),
+                    "_harness_tool_records": tool_records,
+                },
+                capability_policy={
+                    "allowed_tools": ["sandbox.grep"],
+                    "permissions": ["filesystem.read"],
+                },
+                skill=_make_skill(allowed_tools=["sandbox.grep"]),
+                publish_event=publish_event,
+            )
+
+            tool = _resolve_tools(["sandbox.grep"], ctx)[0]
+            result = await tool.ainvoke({"pattern": "[", "glob": "main/*.txt"})
+
+        payload = json.loads(result)
+
+        assert payload["error"].startswith("invalid_regex:")
+        assert payload["payload"]["error_code"] == "invalid_regex"
+        assert payload["payload"]["matches"] == []
+        assert payload["payload"]["scanned_files"] == 0
+        assert tool_records[-1]["status"] == "completed"
+        assert tool_records[-1]["recoverable_error"].startswith("invalid_regex:")
+        assert tool_records[-1]["error_code"] == "invalid_regex"
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        completed_payload = completed_events[-1][2]["payload"]
+        assert completed_payload["recoverable_error"].startswith("invalid_regex:")
+        assert completed_payload["error_code"] == "invalid_regex"
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_record_and_events_include_externalized_output_refs(self):
+        class FakeSandbox:
+            def __init__(self) -> None:
+                self.files: dict[str, str] = {}
+
+            async def read_file(self, path: str) -> str:
+                assert path == "/workspace/main/large.txt"
+                return "large line\n" * 80
+
+            async def write_file(self, path: str, content: str, append: bool = False) -> None:
+                self.files[path] = self.files.get(path, "") + content if append else content
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+                "sandbox_policy": {
+                    "output_budget": {
+                        "externalize_above_chars": 100,
+                        "preview_head_chars": 40,
+                        "preview_tail_chars": 40,
+                    }
+                },
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.read_file"], ctx)[0]
+        result = await tool.ainvoke({"path": "/workspace/main/large.txt"})
+        payload = json.loads(result)
+
+        assert payload["externalized"] is True
+        assert payload["output_refs"]
+        assert tool_records == [
+            {
+                "name": "sandbox.read_file",
+                "status": "completed",
+                "args": {"path": "/workspace/main/large.txt"},
+                "result_preview": result[:500],
+                "output_refs": payload["output_refs"],
+                "truncated": True,
+                "externalized": True,
+            }
+        ]
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        externalized_events = [event for event in events if event[1] == "execution.harness.output_externalized"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["output_refs"] == payload["output_refs"]
+        assert externalized_events
+        assert externalized_events[-1][2]["payload"]["output_refs"] == payload["output_refs"]
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_record_and_events_include_generated_artifacts(self, monkeypatch):
+        artifact = {
+            "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
+            "path": "/workspace/reports/summary.md",
+            "root": "reports",
+            "artifact_kind": "sandbox_report",
+            "mime_type": "text/markdown",
+            "size": 18,
+            "content_hash": "sha256:abc",
+            "review_surface": "sandbox_artifact",
+            "materialization_status": "candidate",
+        }
+
+        async def fake_run_python(self, **kwargs):
+            return HarnessToolResult(
+                preview_text="Python execution completed",
+                structured_payload={
+                    "sandbox_job_id": "job-1",
+                    "sandbox_environment_id": "env-1",
+                    "generated_artifacts": [artifact],
+                },
+            )
+
+        monkeypatch.setattr(
+            "src.agents.harness.sandbox_execution_tools.SandboxExecutionTools.run_python",
+            fake_run_python,
+        )
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        skill = _make_skill()
+        skill.skill_json = {"sandbox_access": {"mode": "required", "profiles": ["analysis"]}}
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            workspace_data={"_harness_tool_records": tool_records},
+            capability_policy={
+                "sandbox_policy": {
+                    "mode": "required",
+                    "allowed_operations": ["run_python"],
+                }
+            },
+            skill=skill,
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.run_python"], ctx)[0]
+        result = await tool.ainvoke({"script": "print('ok')", "script_name": "analysis.py"})
+        payload = json.loads(result)
+
+        expected_artifact = {
+            **artifact,
+            "sandbox_job_id": "job-1",
+            "sandbox_environment_id": "env-1",
+        }
+        assert payload["payload"]["generated_artifacts"] == [artifact]
+        assert tool_records[-1]["generated_artifacts"] == [expected_artifact]
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["generated_artifacts"] == [expected_artifact]
+
+    @pytest.mark.asyncio
+    async def test_harness_run_python_record_and_events_include_command_audit(self, monkeypatch):
+        command_audit = {
+            "verdict": "pass",
+            "risk_level": "low",
+            "reasons": [],
+            "command": {
+                "argv": [
+                    "/workspace/.wenjin/env/python/bin/python",
+                    "/workspace/scripts/analysis.py",
+                ],
+                "shell_command": None,
+                "cwd": "/workspace",
+                "env": {},
+                "network_profile": "none",
+                "timeout_seconds": None,
+                "output_bytes_cap": None,
+            },
+        }
+
+        async def fake_run_python(self, **kwargs):
+            return HarnessToolResult(
+                preview_text="Python execution completed",
+                structured_payload={
+                    "sandbox_job_id": "job-1",
+                    "command_audit": command_audit,
+                },
+            )
+
+        monkeypatch.setattr(
+            "src.agents.harness.sandbox_execution_tools.SandboxExecutionTools.run_python",
+            fake_run_python,
+        )
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        skill = _make_skill()
+        skill.skill_json = {"sandbox_access": {"mode": "required", "profiles": ["analysis"]}}
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            workspace_data={"_harness_tool_records": tool_records},
+            capability_policy={
+                "sandbox_policy": {
+                    "mode": "required",
+                    "allowed_operations": ["run_python"],
+                }
+            },
+            skill=skill,
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.run_python"], ctx)[0]
+        await tool.ainvoke({"script": "print('ok')", "script_name": "analysis.py"})
+
+        assert tool_records[-1]["command_audit"] == command_audit
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["command_audit"] == command_audit
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_record_and_events_include_file_changes(self):
+        class FakeSandbox:
+            def __init__(self) -> None:
+                self.files = {"/workspace/main.tex": "old\n"}
+
+            async def read_file(self, path: str) -> str:
+                if path not in self.files:
+                    raise FileNotFoundError(path)
+                return self.files[path]
+
+            async def write_file(self, path: str, content: str, append: bool = False) -> None:
+                self.files[path] = self.files.get(path, "") + content if append else content
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        ctx = _make_ctx(
+            tools=["sandbox.write_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.write_file"],
+                "permissions": ["filesystem.write", "filesystem.diff"],
+            },
+            skill=_make_skill(allowed_tools=["sandbox.write_file"]),
+            publish_event=publish_event,
+        )
+
+        tool = _resolve_tools(["sandbox.write_file"], ctx)[0]
+        result = await tool.ainvoke({"path": "/workspace/main.tex", "content": "new\n"})
+        payload = json.loads(result)
+
+        file_change = payload["file_change"]
+        assert file_change["path"] == "/workspace/main.tex"
+        assert file_change["operation"] == "update"
+        assert tool_records[-1]["file_changes"] == [file_change]
+        file_change_events = [event for event in events if event[1] == "execution.harness.file_change"]
+        assert file_change_events
+        assert file_change_events[-1][2]["payload"]["file_changes"] == [file_change]
+        completed_events = [event for event in events if event[1] == "execution.harness.tool_call.completed"]
+        assert completed_events
+        assert completed_events[-1][2]["payload"]["file_changes"] == [file_change]
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_loop_guard_blocks_repeated_calls(self):
+        class FakeSandbox:
+            async def read_file(self, path: str) -> str:
+                return f"content from {path}"
+
+        tool_records = []
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+                "sandbox_policy": {"max_tool_calls": 3},
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+        )
+        tool = _resolve_tools(["sandbox.read_file"], ctx)[0]
+
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        with pytest.raises(RuntimeError, match="repeated tool call"):
+            await tool.ainvoke({"path": "/workspace/main.tex"})
+
+        assert tool_records[-1]["status"] == "failed"
+        assert tool_records[-1]["error"] == "tool_loop_hard_stop"
+
+    @pytest.mark.asyncio
+    async def test_harness_tool_loop_guard_publishes_warning_event_without_blocking(self):
+        class FakeSandbox:
+            async def read_file(self, path: str) -> str:
+                return f"content from {path}"
+
+        tool_records = []
+        events: list[tuple[str, str, dict]] = []
+
+        async def publish_event(execution_id: str, event_type: str, payload: dict) -> None:
+            events.append((execution_id, event_type, payload))
+
+        ctx = _make_ctx(
+            tools=["sandbox.read_file"],
+            workspace_data={
+                "_harness_sandbox": FakeSandbox(),
+                "_harness_tool_records": tool_records,
+            },
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+                "sandbox_policy": {"max_tool_calls": 5},
+            },
+            skill=_make_skill(allowed_tools=["sandbox.read_file"]),
+            publish_event=publish_event,
+        )
+        tool = _resolve_tools(["sandbox.read_file"], ctx)[0]
+
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+        await tool.ainvoke({"path": "/workspace/main.tex"})
+
+        warning_events = [event for event in events if event[1] == "execution.harness.loop_warning"]
+        assert warning_events
+        payload = warning_events[-1][2]
+        assert payload["visibility"] == "team_visible"
+        assert payload["sequence_kind"] == "loop"
+        assert payload["payload"] == {
+            "name": "sandbox.read_file",
+            "args": {"path": "/workspace/main.tex"},
+            "repeat_count": 3,
+            "warn_threshold": 3,
+        }
+        assert tool_records[-1]["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_react_subagent_returns_harness_tool_records(self):
+        async def fake_loop(**kwargs):
+            harness_context = kwargs["harness_context"]
+            harness_context.workspace_data["_harness_tool_records"].append(
+                {"name": "sandbox.read_file", "status": "completed"}
+            )
+            return "final text"
+
+        skill = _make_skill(
+            prompt="Use tools",
+            config={"output_kind": "text"},
+            allowed_tools=["sandbox.read_file"],
+        )
+        ctx = _make_ctx(
+            skill=skill,
+            tools=["sandbox.read_file"],
+            capability_policy={
+                "allowed_tools": ["sandbox.read_file"],
+                "permissions": ["filesystem.read"],
+            },
+        )
+
+        with patch("src.subagents.v2.types.react._run_react_loop", side_effect=fake_loop):
+            result = await ReactSubagent().run(ctx)
+
+        assert result.output == {"text": "final text"}
+        assert result.tool_calls == [{"name": "sandbox.read_file", "status": "completed"}]
+
+    def test_resolve_tools_accepts_existing_sandbox_python_alias(self):
+        ctx = _make_ctx(
+            tools=["sandbox_python"],
+            capability_policy={"allowed_tools": ["sandbox_python"]},
+            skill=MagicMock(
+                allowed_tools=[],
+                config={},
+                skill_json={"sandbox_access": {"mode": "required", "profiles": ["analysis"]}},
+            ),
+        )
+
+        tools = _resolve_tools(["sandbox_python"], ctx)
+
+        assert [tool.name for tool in tools] == ["sandbox_run_python", "sandbox_read_output_ref"]

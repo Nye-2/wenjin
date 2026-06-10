@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.sandbox.workspace_layout import workspace_virtual_path
+
 from ..base import ExecutionProvider
 from ..types import ProviderResult
 
@@ -33,7 +35,8 @@ class MermaidProvider(ExecutionProvider):
         pre-write the file in the host.
         """
         output_format = options.get("format", "svg")
-        output_path = f"/workspace/output/diagram.{output_format}"
+        outputs_path = workspace_virtual_path("outputs")
+        output_path = f"{outputs_path}/diagram.{output_format}"
 
         # Use shell to write content to file then run mmdc
         escaped_content = content.replace("'", "'\\''")
@@ -41,7 +44,7 @@ class MermaidProvider(ExecutionProvider):
             "sh",
             "-c",
             (
-                f"mkdir -p /workspace/output && "
+                f"mkdir -p {outputs_path} && "
                 f"echo '{escaped_content}' > /workspace/input.mmd && "
                 f"mmdc -i /workspace/input.mmd -o {output_path} -b transparent"
             ),
@@ -67,7 +70,7 @@ class MermaidProvider(ExecutionProvider):
     ) -> ProviderResult:
         """Process Docker execution result for Mermaid."""
         work_path = Path(work_dir)
-        output_dir = work_path / "output"
+        output_dir = work_path / "outputs"
 
         if exit_code == 0 and output_dir.exists():
             outputs = (
@@ -78,7 +81,7 @@ class MermaidProvider(ExecutionProvider):
             if outputs:
                 return ProviderResult(
                     success=True,
-                    output_files=[f"output/{f.name}" for f in outputs],
+                    output_files=[f"outputs/{f.name}" for f in outputs],
                     metadata={"format": options.get("format", "svg")},
                     logs=stdout,
                 )

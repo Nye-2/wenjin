@@ -17,6 +17,12 @@ from src.execution.docker.client import (
 from src.sandbox.base import CommandResult, Sandbox
 from src.sandbox.providers.base import SandboxProvider
 from src.sandbox.providers.local import LocalSandbox, SandboxSecurityError
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ROOT,
+    ensure_workspace_sandbox_layout,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +30,7 @@ logger = logging.getLogger(__name__)
 class DockerSandbox(LocalSandbox):
     """Sandbox that executes shell commands inside ephemeral Docker containers."""
 
-    _CONTAINER_WORKSPACE_ROOT = "/workspace"
+    _CONTAINER_WORKSPACE_ROOT = WORKSPACE_ROOT
     _CONTAINER_KIND = "sandbox_exec"
     _NETWORK_PROFILES = frozenset({"none", "restricted_egress", "package_index_only"})
 
@@ -53,6 +59,8 @@ class DockerSandbox(LocalSandbox):
         timeout: int = 300,
         *,
         network_profile: str = "none",
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> CommandResult:
         if network_profile not in self._NETWORK_PROFILES:
             return CommandResult(
@@ -65,6 +73,11 @@ class DockerSandbox(LocalSandbox):
         except SandboxSecurityError as exc:
             return CommandResult(stdout="", stderr=str(exc), exit_code=1)
 
+        try:
+            working_dir = self._resolve_container_cwd(cwd)
+        except SandboxSecurityError as exc:
+            return CommandResult(stdout="", stderr=str(exc), exit_code=1)
+
         network_disabled = network_profile == "none"
         try:
             exit_code, stdout, stderr = await self._docker_client.run_container(
@@ -74,7 +87,8 @@ class DockerSandbox(LocalSandbox):
                     self._host_workspace_root(),
                     self._CONTAINER_WORKSPACE_ROOT,
                 ),
-                working_dir=self._CONTAINER_WORKSPACE_ROOT,
+                working_dir=working_dir,
+                environment=dict(env or {}),
                 timeout=timeout,
                 remove=True,
                 network_disabled=network_disabled,
@@ -105,6 +119,18 @@ class DockerSandbox(LocalSandbox):
         except Exception as exc:
             logger.exception("Docker sandbox command failed")
             return CommandResult(stdout="", stderr=str(exc), exit_code=1)
+
+    def _resolve_container_cwd(self, cwd: str | None) -> str:
+        if cwd is None:
+            return self._CONTAINER_WORKSPACE_ROOT
+        path = str(cwd or "").strip()
+        if (
+            not self._is_allowed_virtual_path(path)
+            or is_workspace_protected_path(path)
+            or is_workspace_internal_path(path)
+        ):
+            raise SandboxSecurityError(f"Command cwd outside sandbox: {cwd}")
+        return path
 
 
 class DockerSandboxProvider(SandboxProvider):
@@ -142,12 +168,11 @@ class DockerSandboxProvider(SandboxProvider):
         }
         try:
             removed = await self._docker_client.cleanup_containers_by_label(labels)
+            self._reconciled = True
             if removed:
                 logger.info("Reconciled %d orphaned sandbox execution container(s)", removed)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to reconcile orphaned sandbox containers: %s", exc)
-        finally:
-            self._reconciled = True
 
     async def acquire(self, thread_id: str) -> DockerSandbox:
         async with self._lock:
@@ -157,8 +182,11 @@ class DockerSandboxProvider(SandboxProvider):
             await self._reconcile_orphaned_exec_containers()
 
             workspace_path = Path(self.base_dir) / thread_id / "workspace"
-            for subdir in (".wenjin/env", ".wenjin/cache", "datasets", "scripts", "outputs"):
-                (workspace_path / subdir).mkdir(parents=True, exist_ok=True)
+            ensure_workspace_sandbox_layout(
+                workspace_path,
+                sandbox_id=thread_id,
+                workspace_id=thread_id.removeprefix("workspace-"),
+            )
 
             await self._docker_client.ensure_image(self.image)
 

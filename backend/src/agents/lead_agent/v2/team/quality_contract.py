@@ -26,6 +26,8 @@ class ResolvedQualityContract(BaseModel):
     should_rules: list[str] = Field(default_factory=list)
     may_rules: list[str] = Field(default_factory=list)
     recruitment_hints: dict[str, list[str]] = Field(default_factory=dict)
+    allowed_citation_keys: list[str] = Field(default_factory=list)
+    allowed_source_ids: list[str] = Field(default_factory=list)
     source_refs: dict[str, list[str]] = Field(default_factory=dict)
 
 
@@ -41,6 +43,7 @@ class QualityContractResolver:
         team_policy: CapabilityTeamPolicy,
         effective_skill_ids: list[str],
         skill_records: dict[str, Any | None],
+        workspace_data: dict[str, Any] | None = None,
     ) -> ResolvedQualityContract:
         definition = _as_dict(getattr(capability, "definition_json", None))
         output_schema = _empty_object_schema()
@@ -121,6 +124,8 @@ class QualityContractResolver:
             should_rules=_dedupe(should_rules),
             may_rules=[],
             recruitment_hints=_recruitment_hints(team_policy),
+            allowed_citation_keys=_allowed_citation_keys(workspace_data),
+            allowed_source_ids=_allowed_source_ids(workspace_data),
             source_refs=source_refs,
         )
 
@@ -173,6 +178,29 @@ def _recruitment_hints(team_policy: CapabilityTeamPolicy) -> dict[str, list[str]
     return hints
 
 
+def _allowed_citation_keys(workspace_data: dict[str, Any] | None) -> list[str]:
+    data = _as_dict(workspace_data)
+    library_context = _as_dict(data.get("library_context"))
+    keys = _string_list(library_context.get("citation_keys"))
+    for item in _as_list(data.get("related_documents")):
+        document = _as_dict(item)
+        key = str(document.get("citation_key") or "").strip()
+        if key:
+            keys.append(key)
+    return _dedupe(keys)[:80]
+
+
+def _allowed_source_ids(workspace_data: dict[str, Any] | None) -> list[str]:
+    data = _as_dict(workspace_data)
+    ids: list[str] = []
+    for item in _as_list(data.get("related_documents")):
+        document = _as_dict(item)
+        source_id = str(document.get("id") or document.get("source_id") or "").strip()
+        if source_id:
+            ids.append(source_id)
+    return _dedupe(ids)[:80]
+
+
 def _merge_object_schemas(
     left: dict[str, Any],
     right: dict[str, Any],
@@ -209,6 +237,10 @@ def _add_source_ref(
 
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
 def _string_list(value: Any) -> list[str]:

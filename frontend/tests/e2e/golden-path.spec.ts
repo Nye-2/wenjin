@@ -101,6 +101,74 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
   }
 });
 
+test("sandbox artifact review items render as artifact saves, not Prism edits", async ({
+  page,
+  context,
+}) => {
+  await installWorkspaceRouteMocks(page, context, {
+    runStreamBody: buildEventStreamBody([
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "result_card",
+            data: {
+              execution_id: "ex-sandbox-artifact",
+              capability_name: "实验复现",
+              status: "completed",
+              narrative: "已生成可保存的实验分析报告。",
+              outputs: [],
+              review_items: [
+                {
+                  id: "review-artifact-1",
+                  kind: "sandbox_artifact",
+                  status: "pending",
+                  title: "Accept sandbox artifact: sandbox_report",
+                  summary: "/workspace/reports/analysis.md",
+                  source: {
+                    type: "sandbox_job",
+                    execution_id: "ex-sandbox-artifact",
+                    job_id: "job-1",
+                  },
+                  target: {
+                    kind: "sandbox_artifact",
+                    path: "/workspace/reports/analysis.md",
+                    artifact_kind: "sandbox_report",
+                    asset_id: "asset-1",
+                    sandbox_artifact_id: "artifact-1",
+                  },
+                  preview: {
+                    mode: "artifact",
+                    path: "/workspace/reports/analysis.md",
+                    mime_type: "text/markdown",
+                    content_hash: "sha256:analysis",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]),
+  });
+
+  await page.goto(
+    `/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=${encodeURIComponent(
+      "联邦学习+大模型",
+    )}`,
+  );
+
+  await expect(page.getByText("产物有 1 项待确认保存")).toBeVisible();
+  await expect(
+    page.getByText("Accept sandbox artifact: sandbox_report"),
+  ).toBeVisible();
+  await expect(page.getByText("/workspace/reports/analysis.md")).toBeVisible();
+  await expect(page.getByText(/Prism 有/)).toHaveCount(0);
+  await expect(
+    page.getByRole("link", { name: "预览待确认修改" }),
+  ).toHaveCount(0);
+});
+
 test("canonical result card links open workspace rooms without resetting the current thread", async ({
   page,
   context,

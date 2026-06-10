@@ -7,7 +7,7 @@ import logging
 import time
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from hashlib import sha256
+from pathlib import PurePosixPath
 from typing import Annotated, Any, TypedDict
 
 from src.agents.contracts.task_brief import TaskBrief
@@ -18,15 +18,28 @@ from src.agents.contracts.task_report import (
     ResultOutput,
     TaskReport,
 )
+from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
 from src.agents.lead_agent.v2.compiler import compile_graph
-from src.agents.lead_agent.v2.output_mapping import (
-    OutputMappingResolver,
-    resolve_output_mapping_value,
+from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
+from src.agents.lead_agent.v2.prism_review_staging import (
+    build_prism_file_change_command,
+)
+from src.agents.lead_agent.v2.sandbox_artifact_review import (
+    collect_sandbox_artifact_candidates,
+    sandbox_artifact_payload_for_candidate,
+    sandbox_review_item_projection,
+    workspace_asset_payload_for_candidate,
 )
 from src.dataservice_client.contracts.source import SourceCitationUsageCreatePayload
 from src.dataservice_client.provider import dataservice_client
+from src.sandbox.workspace_layout import (
+    WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+    WORKSPACE_ROOT,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+    normalize_workspace_virtual_path,
+)
 from src.services.capability_resolver import CapabilityResolver
-from src.services.prism_file_content import normalize_prism_file_change_content
 from src.services.references.utils import extract_citation_keys_from_text
 from src.services.thread_billing import TokenUsage
 from src.services.token_usage_collector import (
@@ -106,16 +119,6 @@ def _stringify_memory_value(value: Any) -> str | None:
     if not text or text.lower() in _EMPTY_MEMORY_VALUES:
         return None
     return text[:500]
-
-
-def _ensure_latex_bibliography_call(content: str) -> str:
-    """Ensure a complete LaTeX manuscript points at Prism's Library BibTeX file."""
-    if "\\bibliography{" in content or "\\printbibliography" in content:
-        return content
-    insertion = "\n\\bibliographystyle{plain}\n\\bibliography{refs}\n"
-    if "\\end{document}" in content:
-        return content.replace("\\end{document}", f"{insertion}\\end{{document}}", 1)
-    return f"{content.rstrip()}\n{insertion}\n"
 
 
 class ExecutionState(TypedDict, total=False):
@@ -347,6 +350,11 @@ class LeadAgentRuntime:
                 brief=brief,
                 execution_id=execution_id,
             )
+            await self._stage_sandbox_artifact_review_items(
+                final_state,
+                brief=brief,
+                execution_id=execution_id,
+            )
             await self._sync_prism_bibliography(
                 brief=brief,
                 state=final_state,
@@ -390,6 +398,7 @@ class LeadAgentRuntime:
             "sandbox_policy": dict(definition.get("sandbox_policy") or {}),
             "review_policy": dict(definition.get("review_policy") or {}),
             "citation_policy": dict(definition.get("citation_policy") or {}),
+            "research_evidence": dict(definition.get("research_evidence") or {}),
             "quality_gates": list(definition.get("quality_gates") or []),
         }
 
@@ -481,17 +490,23 @@ class LeadAgentRuntime:
             async with dataservice_client() as client:
                 if include_library or include_related_documents:
                     try:
-                        sources = await client.list_sources(
+                        (
+                            sources,
+                            dataset_provenance,
+                        ) = await self._load_source_records_for_workspace_context(
+                            client,
                             workspace_id=normalized_workspace_id,
-                            include_deleted=False,
-                            include_excluded=False,
-                            limit=40,
                         )
                     except Exception:
                         logger.warning("Failed to load workspace source context", exc_info=True)
                         sources = []
+                        dataset_provenance = []
                     source_context = self._build_source_context(sources)
                     workspace_data.update(source_context)
+                    if dataset_provenance:
+                        workspace_data.setdefault("workspace_file_summary", {})[
+                            "dataset_provenance"
+                        ] = dataset_provenance
 
                 if include_workspace_history:
                     workspace_data["workspace_history"] = await self._load_workspace_history_context(
@@ -508,24 +523,44 @@ class LeadAgentRuntime:
             logger.warning("Failed to load workspace context", exc_info=True)
         return workspace_data
 
-    @staticmethod
-    def _build_source_context(sources: list[Any]) -> dict[str, Any]:
+    @classmethod
+    async def _load_source_records_for_workspace_context(
+        cls,
+        client: Any,
+        *,
+        workspace_id: str,
+    ) -> tuple[list[Any], list[dict[str, Any]]]:
+        page = await client.list_sources_page(
+            workspace_id=workspace_id,
+            offset=0,
+            limit=40,
+        )
+        if isinstance(page, Mapping):
+            items = page.get("items")
+            sources = list(items) if isinstance(items, list) else []
+            return sources, cls._dataset_provenance_from_embedded_source_assets(sources)
+        return [], []
+
+    @classmethod
+    def _build_source_context(cls, sources: list[Any]) -> dict[str, Any]:
         citable_sources: list[dict[str, Any]] = []
         related_documents: list[dict[str, Any]] = []
         for source in sources:
-            citation_key = str(getattr(source, "citation_key", "") or "").strip()
-            abstract = str(getattr(source, "abstract", "") or "").strip()
+            if str(cls._source_field(source, "library_status") or "") == "excluded":
+                continue
+            citation_key = str(cls._source_field(source, "citation_key") or "").strip()
+            abstract = str(cls._source_field(source, "abstract") or "").strip()
             document = {
-                "id": str(getattr(source, "id", "") or ""),
+                "id": str(cls._source_field(source, "id") or ""),
                 "citation_key": citation_key,
-                "title": str(getattr(source, "title", "") or ""),
-                "authors": list(getattr(source, "authors_json", None) or [])[:12],
-                "year": getattr(source, "year", None),
-                "venue": getattr(source, "venue", None),
-                "doi": getattr(source, "doi", None),
-                "url": getattr(source, "url", None),
-                "library_status": str(getattr(source, "library_status", "") or ""),
-                "evidence_level": str(getattr(source, "evidence_level", "") or ""),
+                "title": str(cls._source_field(source, "title") or ""),
+                "authors": list(cls._source_field(source, "authors_json") or [])[:12],
+                "year": cls._source_field(source, "year"),
+                "venue": cls._source_field(source, "venue"),
+                "doi": cls._source_field(source, "doi"),
+                "url": cls._source_field(source, "url"),
+                "library_status": str(cls._source_field(source, "library_status") or ""),
+                "evidence_level": str(cls._source_field(source, "evidence_level") or ""),
                 "abstract_excerpt": abstract[:500],
             }
             related_documents.append(document)
@@ -555,6 +590,109 @@ class LeadAgentRuntime:
                 ),
             }
         return context
+
+    @classmethod
+    def _dataset_provenance_from_embedded_source_assets(
+        cls,
+        sources: list[Any],
+    ) -> list[dict[str, Any]]:
+        dataset_refs: list[dict[str, Any]] = []
+        seen_paths: set[str] = set()
+        for source in sources[:40]:
+            if str(cls._source_field(source, "library_status") or "") == "excluded":
+                continue
+            assets = cls._source_field(source, "assets")
+            if not isinstance(assets, list):
+                continue
+            for asset in assets:
+                ref = cls._dataset_provenance_ref_from_source_asset(source, asset)
+                if not ref:
+                    continue
+                path = str(ref.get("path") or "")
+                if path in seen_paths:
+                    continue
+                seen_paths.add(path)
+                dataset_refs.append(ref)
+                if len(dataset_refs) >= 20:
+                    return dataset_refs
+        return dataset_refs
+
+    @classmethod
+    def _dataset_provenance_ref_from_source_asset(
+        cls,
+        source: Any,
+        asset: Any,
+    ) -> dict[str, Any] | None:
+        if not isinstance(asset, Mapping):
+            return None
+        path = cls._dataset_asset_workspace_path(asset)
+        if path is None:
+            return None
+        metadata = asset.get("metadata") or asset.get("metadata_json")
+        metadata = metadata if isinstance(metadata, Mapping) else {}
+        ref: dict[str, Any] = {
+            "path": path,
+            "source_kind": "source_asset",
+            "source_id": str(cls._source_field(source, "id") or ""),
+            "name": str(asset.get("name") or PurePosixPath(path).name),
+        }
+        title = str(asset.get("title") or cls._source_field(source, "title") or "").strip()
+        if title:
+            ref["title"] = title[:500]
+        abstract = str(cls._source_field(source, "abstract") or "").strip()
+        if abstract:
+            ref["description"] = abstract[:500]
+        field_map = (
+            ("asset_type", "format"),
+            ("content_type", "mime_type"),
+            ("mime_type", "mime_type"),
+            ("file_size", "size_bytes"),
+            ("size_bytes", "size_bytes"),
+            ("file_hash", "content_hash"),
+            ("content_hash", "content_hash"),
+            ("created_at", "created_at"),
+            ("updated_at", "updated_at"),
+        )
+        for source_key, target_key in field_map:
+            value = asset.get(source_key)
+            if value in (None, "", {}, []):
+                continue
+            ref.setdefault(target_key, value)
+        for key in ("license", "preparation"):
+            value = metadata.get(key)
+            if value not in (None, "", {}, []):
+                ref[key] = value
+        return ref
+
+    @staticmethod
+    def _dataset_asset_workspace_path(asset: Mapping[str, Any]) -> str | None:
+        raw_path = asset.get("virtual_path") or asset.get("file_path") or asset.get("path")
+        raw_text = str(raw_path or "").strip()
+        if not raw_text:
+            return None
+        try:
+            path = normalize_workspace_virtual_path(raw_text)
+        except ValueError:
+            return None
+        if not path.startswith(f"{WORKSPACE_ROOT}/datasets/"):
+            return None
+        if (
+            path == WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH
+            or path.endswith("/README.md")
+            or path.endswith("/.gitkeep")
+            or is_workspace_protected_path(path)
+            or is_workspace_internal_path(path)
+        ):
+            return None
+        return path
+
+    @staticmethod
+    def _source_field(source: Any, key: str) -> Any:
+        if isinstance(source, Mapping):
+            if key == "authors_json":
+                return source.get("authors_json") or source.get("authors")
+            return source.get(key)
+        return getattr(source, key, None)
 
     @staticmethod
     def _iso_timestamp(value: Any) -> str | None:
@@ -734,24 +872,35 @@ class LeadAgentRuntime:
         workspace_id: str,
         execution_id: str,
     ) -> list[dict[str, Any]]:
-        """Load canonical Prism review items produced by this execution."""
+        """Load canonical review items produced by this execution."""
         from src.dataservice_client.provider import dataservice_client
         from src.services.prism_review_projection import prism_review_item_projection
 
+        review_items: list[dict[str, Any]] = []
         try:
             async with dataservice_client() as client:
-                items = await client.list_review_items(
+                prism_items = await client.list_review_items(
                     workspace_id=workspace_id,
                     execution_id=execution_id,
                     target_domain="prism",
                 )
-                return [
+                review_items.extend(
                     prism_review_item_projection(item, execution_id=execution_id)
-                    for item in items
-                ]
+                    for item in prism_items
+                )
+                sandbox_items = await client.list_review_items(
+                    workspace_id=workspace_id,
+                    execution_id=execution_id,
+                    target_domain="sandbox",
+                    target_kind="sandbox_artifact",
+                )
+                review_items.extend(
+                    sandbox_review_item_projection(item, execution_id=execution_id)
+                    for item in sandbox_items
+                )
         except Exception:
-            logger.warning("Failed to load Prism review items", exc_info=True)
-            return []
+            logger.warning("Failed to load execution review items", exc_info=True)
+        return review_items
 
     async def _check_abort(self, execution_id: str) -> bool:
         """Return True if a Redis abort signal exists for this execution."""
@@ -849,7 +998,12 @@ class LeadAgentRuntime:
                 if event_type == "thinking":
                     await _emit_delta(meta["node_id"], content)
 
-            inner = _default_runner_factory(subagent_cls, task_spec, emit_delta=_node_emit_delta)
+            inner = _default_runner_factory(
+                subagent_cls,
+                task_spec,
+                emit_delta=_node_emit_delta,
+                publish_event=publish,
+            )
             raw_inputs_template = task_spec.get("inputs") or {}
 
             async def persisting_run(state: dict) -> dict:
@@ -926,6 +1080,7 @@ class LeadAgentRuntime:
                         thinking = node_result.get("thinking") if isinstance(node_result, dict) else None
                         tool_calls = node_result.get("tool_calls") if isinstance(node_result, dict) else None
                         token_usage = node_result.get("token_usage") if isinstance(node_result, dict) else None
+                        node_metadata = build_harness_node_metadata_from_tool_calls(tool_calls)
                         await recorder(
                             execution_id=execution_id,
                             node_id=meta["node_id"],
@@ -936,6 +1091,7 @@ class LeadAgentRuntime:
                             thinking=thinking,
                             tool_calls=tool_calls,
                             token_usage=token_usage,
+                            node_metadata=node_metadata,
                             completed_at=completed_at,
                         )
                         await _emit(
@@ -946,6 +1102,7 @@ class LeadAgentRuntime:
                             thinking=thinking,
                             tool_calls=tool_calls,
                             token_usage=token_usage,
+                            node_metadata=node_metadata,
                             completed_at=completed_at.isoformat(),
                         )
                 except Exception:
@@ -995,10 +1152,6 @@ class LeadAgentRuntime:
 
     def _to_team_panel_graph(self, cap: Any) -> dict[str, Any]:
         """Return the stable team-kernel graph projection for the panel."""
-        definition = getattr(cap, "definition_json", None)
-        if not isinstance(definition, dict):
-            definition = {}
-        policy = definition.get("team_policy") if isinstance(definition.get("team_policy"), dict) else {}
         nodes: list[dict[str, Any]] = [
             {
                 "id": "team_prepare",
@@ -1036,18 +1189,6 @@ class LeadAgentRuntime:
                 "label": "整理结果",
             },
         ]
-        core_templates = list(policy.get("core_templates") or [])
-        for index, template_id in enumerate(core_templates):
-            nodes.append(
-                {
-                    "id": f"team_template_{index + 1}",
-                    "phase": "team_members",
-                    "task": template_id,
-                    "subagent_type": "agent_template",
-                    "label": template_id,
-                    "team": {"template_id": template_id, "core": True},
-                }
-            )
         edges = [
             {"from": "team_prepare", "to": "team_recruit"},
             {"from": "team_recruit", "to": "team_dispatch"},
@@ -1253,6 +1394,42 @@ class LeadAgentRuntime:
         except Exception:
             logger.warning("Failed to stage Prism review items", exc_info=True)
 
+    async def _stage_sandbox_artifact_review_items(
+        self,
+        state: dict,
+        *,
+        brief: TaskBrief,
+        execution_id: str,
+    ) -> None:
+        """Register sandbox-generated artifact candidates as review items."""
+
+        candidates = collect_sandbox_artifact_candidates(state.get("node_results", {}))
+        if not candidates:
+            return
+
+        from src.dataservice_client.provider import dataservice_client
+
+        try:
+            async with dataservice_client() as client:
+                for candidate in candidates:
+                    asset = await client.register_asset(
+                        workspace_asset_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            candidate=candidate,
+                        )
+                    )
+                    await client.register_sandbox_artifact(
+                        sandbox_artifact_payload_for_candidate(
+                            workspace_id=brief.workspace_id,
+                            execution_id=execution_id,
+                            workspace_asset_id=str(asset.id),
+                            candidate=candidate,
+                        )
+                    )
+        except Exception:
+            logger.warning("Failed to stage sandbox artifact review items", exc_info=True)
+
     @staticmethod
     def _library_citation_keys(library_context: Any) -> set[str]:
         if not isinstance(library_context, dict):
@@ -1353,75 +1530,15 @@ class LeadAgentRuntime:
         default_path: str,
         require_bibliography: bool = False,
     ) -> Any | None:
-        from src.dataservice_client.contracts.prism_review import (
-            PrismFileChangeUpsertPayload,
-        )
-
-        mapping = decl.get("mapping") if isinstance(decl.get("mapping"), dict) else {}
-        path_value = resolve_output_mapping_value(
-            str(mapping.get("path") or default_path),
+        return build_prism_file_change_command(
+            decl,
             output,
-        )
-        path = str(path_value or default_path).strip() or default_path
-        content_format_value = (
-            resolve_output_mapping_value(str(mapping["content_format"]), output)
-            if "content_format" in mapping
-            else None
-        )
-        content_format = (
-            str(content_format_value).strip()
-            if content_format_value is not None and str(content_format_value).strip()
-            else None
-        )
-        pending_content = resolve_output_mapping_value(
-            str(
-                mapping.get("pending_content")
-                or mapping.get("content")
-                or "{{output.text}}"
-            ),
-            output,
-        )
-        if not isinstance(pending_content, str) or not pending_content.strip():
-            return None
-        pending_content = normalize_prism_file_change_content(
-            pending_content,
-            path=path,
-            content_format=content_format,
-        )
-        if path == "main.tex" and require_bibliography:
-            pending_content = _ensure_latex_bibliography_call(pending_content)
-        logical_key_value = resolve_output_mapping_value(
-            str(mapping.get("logical_key") or f"project:{path}"),
-            output,
-        )
-        logical_key = str(logical_key_value or f"project:{path}").strip()
-        reason_value = resolve_output_mapping_value(
-            str(mapping.get("reason") or "feature_proposal"),
-            output,
-        )
-        reason = str(reason_value or "feature_proposal").strip() or "feature_proposal"
-        current_hash_value = (
-            resolve_output_mapping_value(str(mapping["current_hash"]), output)
-            if "current_hash" in mapping
-            else None
-        )
-        current_hash = (
-            str(current_hash_value).strip()
-            if current_hash_value is not None and str(current_hash_value).strip()
-            else None
-        )
-
-        return PrismFileChangeUpsertPayload(
             workspace_id=workspace_id,
             latex_project_id=latex_project_id,
-            logical_key=logical_key,
-            path=path,
-            reason=reason,
-            pending_content=pending_content,
-            pending_hash=sha256(pending_content.encode("utf-8")).hexdigest(),
-            current_hash=current_hash,
-            source_execution_id=execution_id,
-            source_task_id=task_name,
+            task_name=task_name,
+            execution_id=execution_id,
+            default_path=default_path,
+            require_bibliography=require_bibliography,
         )
 
     def _build_narrative(self, cap: Any, state: dict) -> str:

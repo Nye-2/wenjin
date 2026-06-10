@@ -10,6 +10,12 @@ from pathlib import Path
 
 from src.sandbox.base import CommandResult, FileInfo, Sandbox
 from src.sandbox.providers.base import SandboxProvider
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ROOT,
+    ensure_workspace_sandbox_layout,
+    is_workspace_internal_path,
+    is_workspace_protected_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,7 @@ class LocalSandbox(Sandbox):
     _COMMAND_HOME_PATH_RE = re.compile(
         r"(?<![A-Za-z0-9_])(~(?:\/[^ \t\r\n'\"`|&;<>(),]*)?)"
     )
+    _NETWORK_PROFILES = frozenset({"none", "restricted_egress", "package_index_only"})
 
     def __init__(self, id: str, path_mappings: dict[str, str]):
         """Initialize local sandbox.
@@ -55,7 +62,7 @@ class LocalSandbox(Sandbox):
         self._resolved_base_paths = {
             vp: str(Path(pp).resolve()) for vp, pp in path_mappings.items()
         }
-        self._workspace_path = path_mappings.get("/workspace") or path_mappings.get("/mnt/user-data/workspace")
+        self._workspace_path = path_mappings.get(WORKSPACE_ROOT)
 
     @staticmethod
     def _is_within_root(path: str, root: str) -> bool:
@@ -150,7 +157,6 @@ class LocalSandbox(Sandbox):
     def _reverse_resolve_path(self, path: str) -> str:
         """Resolve physical path back to virtual path."""
         resolved = str(Path(path).resolve())
-
         for virtual_path, physical_path in sorted(
             self.path_mappings.items(),
             key=lambda x: len(x[1]),
@@ -159,6 +165,23 @@ class LocalSandbox(Sandbox):
             physical_resolved = str(Path(physical_path).resolve())
             if self._is_within_root(resolved, physical_resolved):
                 relative = resolved[len(physical_resolved):].lstrip("/")
+                if relative:
+                    return f"{virtual_path}/{relative}"
+                return virtual_path
+
+        return path
+
+    def _reverse_resolve_literal_path(self, path: str) -> str:
+        """Resolve a physical path to virtual path without following final symlinks."""
+        absolute = str(Path(path).absolute())
+        for virtual_path, physical_path in sorted(
+            self.path_mappings.items(),
+            key=lambda x: len(x[1]),
+            reverse=True,
+        ):
+            physical_absolute = str(Path(physical_path).absolute())
+            if self._is_within_root(absolute, physical_absolute):
+                relative = absolute[len(physical_absolute):].lstrip("/")
                 if relative:
                     return f"{virtual_path}/{relative}"
                 return virtual_path
@@ -217,8 +240,18 @@ class LocalSandbox(Sandbox):
         self,
         command: str,
         timeout: int = 300,
+        *,
+        network_profile: str = "none",
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> CommandResult:
         """Execute shell command."""
+        if network_profile not in self._NETWORK_PROFILES:
+            return CommandResult(
+                stdout="",
+                stderr=f"Unsupported sandbox network profile: {network_profile}",
+                exit_code=1,
+            )
         try:
             self._validate_command(command)
         except SandboxSecurityError as exc:
@@ -240,6 +273,10 @@ class LocalSandbox(Sandbox):
                     virtual_path,
                     physical_path,
                 )
+        try:
+            resolved_cwd = self._resolve_command_cwd(cwd)
+        except SandboxSecurityError as exc:
+            return CommandResult(stdout="", stderr=str(exc), exit_code=1)
 
         try:
             process = await asyncio.create_subprocess_shell(
@@ -247,7 +284,8 @@ class LocalSandbox(Sandbox):
                 executable=self._get_shell(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=self._workspace_path,
+                cwd=resolved_cwd,
+                env=self._command_env(env),
             )
 
             try:
@@ -257,8 +295,12 @@ class LocalSandbox(Sandbox):
                 )
 
                 return CommandResult(
-                    stdout=stdout.decode("utf-8", errors="replace"),
-                    stderr=stderr.decode("utf-8", errors="replace"),
+                    stdout=self._mask_physical_paths_in_output(
+                        stdout.decode("utf-8", errors="replace")
+                    ),
+                    stderr=self._mask_physical_paths_in_output(
+                        stderr.decode("utf-8", errors="replace")
+                    ),
                     exit_code=process.returncode or 0,
                     timed_out=False,
                 )
@@ -276,9 +318,60 @@ class LocalSandbox(Sandbox):
         except Exception as e:
             return CommandResult(
                 stdout="",
-                stderr=str(e),
+                stderr=self._mask_physical_paths_in_output(str(e)),
                 exit_code=1,
             )
+
+    def _resolve_command_cwd(self, cwd: str | None) -> str | None:
+        if cwd is None:
+            return self._workspace_path
+        cwd_text = str(cwd or "").strip()
+        if (
+            not self._is_allowed_virtual_path(cwd_text)
+            or is_workspace_protected_path(cwd_text)
+            or is_workspace_internal_path(cwd_text)
+        ):
+            raise SandboxSecurityError(f"Command cwd outside sandbox: {cwd}")
+        resolved = self._resolve_path(cwd)
+        Path(resolved).mkdir(parents=True, exist_ok=True)
+        return resolved
+
+    def _command_env(self, env: dict[str, str] | None) -> dict[str, str] | None:
+        if env is None:
+            return None
+        merged = dict(os.environ)
+        for key, value in env.items():
+            merged[str(key)] = self._resolve_virtual_refs_in_text(str(value))
+        return merged
+
+    def _resolve_virtual_refs_in_text(self, text: str) -> str:
+        resolved = str(text or "")
+        for virtual_path, physical_path in sorted(
+            self.path_mappings.items(),
+            key=lambda x: len(x[0]),
+            reverse=True,
+        ):
+            if virtual_path in resolved:
+                resolved = resolved.replace(virtual_path, physical_path)
+        return resolved
+
+    def _mask_physical_paths_in_output(self, output: str) -> str:
+        """Map sandbox host paths back to public virtual paths."""
+
+        masked = str(output or "")
+        for virtual_path, physical_path in sorted(
+            self.path_mappings.items(),
+            key=lambda item: len(str(Path(item[1]).resolve())),
+            reverse=True,
+        ):
+            physical_variants = {
+                str(Path(physical_path).resolve()),
+                str(Path(physical_path).absolute()),
+            }
+            for physical in sorted(physical_variants, key=len, reverse=True):
+                if physical:
+                    masked = masked.replace(physical, virtual_path)
+        return masked
 
     async def read_file(self, path: str) -> str:
         """Read file contents."""
@@ -325,12 +418,14 @@ class LocalSandbox(Sandbox):
         Returns:
             List of FileInfo for directory contents.
         """
-        # For recursion, path might already be physical
-        # Check if it's a virtual path or already resolved
-        if path.startswith("/mnt/user-data"):
+        # For recursion, path might already be physical. Public callers use the
+        # canonical /workspace virtual root.
+        if self._is_allowed_virtual_path(path):
             resolved = self._resolve_path(path)
         else:
             # Already a physical path from recursion
+            if not self._is_within_allowed_roots(path):
+                raise SandboxSecurityError(f"Path escape detected: {path}")
             resolved = path
 
         if not os.path.exists(resolved):
@@ -341,14 +436,16 @@ class LocalSandbox(Sandbox):
 
         entries = []
         try:
-            for entry in sorted(os.listdir(resolved)):
-                entry_path = os.path.join(resolved, entry)
-                is_dir = os.path.isdir(entry_path)
-                size = None if is_dir else os.path.getsize(entry_path)
+            for entry in sorted(os.scandir(resolved), key=lambda item: item.name):
+                entry_path = entry.path
+                if entry.is_symlink() and not self._is_within_allowed_roots(entry_path):
+                    continue
+                is_dir = entry.is_dir(follow_symlinks=False)
+                size = None if is_dir else entry.stat(follow_symlinks=False).st_size
 
                 entries.append(FileInfo(
-                    name=entry,
-                    path=self._reverse_resolve_path(entry_path),
+                    name=entry.name,
+                    path=self._reverse_resolve_literal_path(entry_path),
                     is_dir=is_dir,
                     size=size,
                 ))
@@ -372,7 +469,7 @@ class LocalSandbox(Sandbox):
 class LocalSandboxProvider(SandboxProvider):
     """Provider for LocalSandbox instances.
 
-    Manages sandbox lifecycle with thread-isolated directories.
+    Manages sandbox lifecycle with workspace-isolated directories.
     """
 
     def __init__(self, base_dir: str, cleanup_on_release: bool = False):
@@ -388,9 +485,9 @@ class LocalSandboxProvider(SandboxProvider):
         self._cleanup_on_release = cleanup_on_release
 
     @staticmethod
-    def _get_user_data_root(base_dir: str, thread_id: str) -> Path:
-        """Resolve the persistent per-thread user-data directory."""
-        return Path(base_dir) / thread_id / "user-data"
+    def _get_workspace_root(base_dir: str, sandbox_id: str) -> Path:
+        """Resolve the persistent workspace sandbox directory."""
+        return Path(base_dir) / sandbox_id / "workspace"
 
     async def acquire(self, thread_id: str) -> LocalSandbox:
         """Acquire or create sandbox for thread."""
@@ -398,15 +495,15 @@ class LocalSandboxProvider(SandboxProvider):
             if thread_id in self._sandboxes:
                 return self._sandboxes[thread_id]
 
-            # Create thread directories
-            user_data_path = self._get_user_data_root(self.base_dir, thread_id)
-            for subdir in ["workspace", "uploads", "outputs"]:
-                (user_data_path / subdir).mkdir(parents=True, exist_ok=True)
+            workspace_path = self._get_workspace_root(self.base_dir, thread_id)
+            ensure_workspace_sandbox_layout(
+                workspace_path,
+                sandbox_id=thread_id,
+                workspace_id=thread_id.removeprefix("workspace-"),
+            )
 
-            # Create path mappings
             path_mappings = {
-                f"/mnt/user-data/{subdir}": str(user_data_path / subdir)
-                for subdir in ["workspace", "uploads", "outputs"]
+                WORKSPACE_ROOT: str(workspace_path),
             }
 
             sandbox = LocalSandbox(id=thread_id, path_mappings=path_mappings)

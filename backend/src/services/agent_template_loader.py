@@ -12,6 +12,7 @@ import yaml
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import CatalogSeedItemPayload, CatalogSeedLoadPayload
 from src.dataservice_client.provider import dataservice_client
+from src.subagents.v2.registry import validate_agent_template_contract
 
 logger = logging.getLogger(__name__)
 
@@ -101,4 +102,8 @@ class AgentTemplateLoader:
         for key in ("tool_affinity", "risk_profile"):
             if not isinstance(raw.get(key), dict):
                 raise ValueError(f"Invalid agent_template.v1 seed in {path}: {key} must be an object")
+        contract_errors = validate_agent_template_contract(raw)
+        if contract_errors:
+            detail = "; ".join(contract_errors)
+            raise ValueError(f"Invalid agent_template.v1 seed in {path}: {detail}")
         return raw

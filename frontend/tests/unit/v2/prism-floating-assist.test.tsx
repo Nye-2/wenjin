@@ -36,7 +36,7 @@ describe("PrismFloatingAssist", () => {
   it("shows selection actions when text is selected", () => {
     const props = renderAssist({ selectedCharacterCount: 42 });
 
-    expect(screen.getByText("已选 42 字")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 改稿，已选 42 字" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "批注" }));
     fireEvent.click(screen.getByRole("button", { name: "改这段" }));
     fireEvent.click(screen.getByRole("button", { name: "修改全文" }));
@@ -67,7 +67,7 @@ describe("PrismFloatingAssist", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "待应用修改" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 改稿，待应用修改" })).toBeInTheDocument();
 
     rerender(
       <PrismFloatingAssist
@@ -83,6 +83,6 @@ describe("PrismFloatingAssist", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "团队处理中" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 改稿，团队处理中" })).toBeInTheDocument();
   });
 });

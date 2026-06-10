@@ -16,6 +16,11 @@ from src.agents.lead_agent.v2.workspace_sandbox import (
     normalize_dependency_hints,
     resolve_package_for_missing_module,
 )
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ROOT,
+    build_workspace_task_contract,
+    is_user_editable_workspace_path,
+)
 
 SCRIPT_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 MAX_SCRIPT_BYTES = 128 * 1024
@@ -31,6 +36,7 @@ class SandboxScriptPlan:
     script_path: str
     script_hash: str
     command: str
+    command_argv: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -38,8 +44,10 @@ class SandboxScriptExecutionState:
     """Script process result plus installation side effects."""
 
     result: Any
+    task_scratch_path: str
     installed_packages: list[str]
     install_job_ids: list[str]
+    install_command_audits: list[dict[str, Any]]
     retry_count: int
 
 
@@ -57,7 +65,7 @@ class SandboxScriptExecutor:
         dependency_hints: list[str] | str | None,
     ) -> SandboxScriptPlan:
         script_bytes = _validate_script(script)
-        safe_name = _safe_script_name(script_name)
+        safe_name = sanitize_script_name(script_name)
         script_path = f"/workspace/scripts/{safe_name}"
         return SandboxScriptPlan(
             script=script,
@@ -66,6 +74,7 @@ class SandboxScriptExecutor:
             script_path=script_path,
             script_hash=hashlib.sha256(script_bytes).hexdigest(),
             command=f"{WORKSPACE_VENV_PYTHON} {script_path}",
+            command_argv=(WORKSPACE_VENV_PYTHON, script_path),
         )
 
     async def execute(
@@ -86,7 +95,7 @@ class SandboxScriptExecutor:
             run_job_id=run_job_id,
             plan=plan,
         )
-        installed_packages, install_job_ids = await self._install_declared_dependencies(
+        installed_packages, install_job_ids, install_command_audits = await self._install_declared_dependencies(
             sandbox=sandbox,
             ctx=ctx,
             workspace_id=workspace_id,
@@ -96,11 +105,20 @@ class SandboxScriptExecutor:
             sandbox_policy=sandbox_policy,
             dependency_hints=plan.dependency_hints,
         )
+        task_contract = build_workspace_task_contract(
+            execution_id=execution_id,
+            node_id=node_id,
+        )
+        task_scratch_path = str(task_contract.get("scratch_path") or "")
+        execution_env = sandbox_script_execution_env(task_scratch_path)
+        await sandbox.write_file(f"{task_scratch_path}/.gitkeep", "")
         await sandbox.write_file(plan.script_path, plan.script)
         result = await sandbox.execute_command(
             plan.command,
             timeout=ctx.sandbox_timeout,
             network_profile="none",
+            cwd=task_scratch_path,
+            env=execution_env,
         )
         retry_count, final_result = await self._retry_missing_dependency_once(
             sandbox=sandbox,
@@ -111,15 +129,20 @@ class SandboxScriptExecutor:
             run_job_id=run_job_id,
             sandbox_policy=sandbox_policy,
             command=plan.command,
+            task_scratch_path=task_scratch_path,
+            execution_env=execution_env,
             dependency_hints=plan.dependency_hints,
             installed_packages=installed_packages,
             install_job_ids=install_job_ids,
+            install_command_audits=install_command_audits,
             result=result,
         )
         return SandboxScriptExecutionState(
             result=final_result,
+            task_scratch_path=task_scratch_path,
             installed_packages=installed_packages,
             install_job_ids=install_job_ids,
+            install_command_audits=install_command_audits,
             retry_count=retry_count,
         )
 
@@ -156,12 +179,13 @@ class SandboxScriptExecutor:
         run_job_id: str,
         sandbox_policy: dict[str, Any],
         dependency_hints: list[str],
-    ) -> tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str], list[dict[str, Any]]]:
         installed_packages: list[str] = []
         install_job_ids: list[str] = []
+        install_command_audits: list[dict[str, Any]] = []
         if not dependency_hints:
-            return installed_packages, install_job_ids
-        packages, install_job_id = await self._install_dependency_packages(
+            return installed_packages, install_job_ids, install_command_audits
+        packages, install_job_id, command_audit = await self._install_dependency_packages(
             sandbox=sandbox,
             ctx=ctx,
             workspace_id=workspace_id,
@@ -174,7 +198,8 @@ class SandboxScriptExecutor:
         )
         installed_packages.extend(packages)
         install_job_ids.append(install_job_id)
-        return installed_packages, install_job_ids
+        install_command_audits.append(command_audit)
+        return installed_packages, install_job_ids, install_command_audits
 
     async def _retry_missing_dependency_once(
         self,
@@ -187,9 +212,12 @@ class SandboxScriptExecutor:
         run_job_id: str,
         sandbox_policy: dict[str, Any],
         command: str,
+        task_scratch_path: str,
+        execution_env: dict[str, str],
         dependency_hints: list[str],
         installed_packages: list[str],
         install_job_ids: list[str],
+        install_command_audits: list[dict[str, Any]],
         result: Any,
     ) -> tuple[int, Any]:
         missing_package = _resolve_missing_package(result, dependency_hints)
@@ -199,7 +227,7 @@ class SandboxScriptExecutor:
             or not self.installer.package_not_installed(missing_package, installed_packages)
         ):
             return 0, result
-        packages, install_job_id = await self._install_dependency_packages(
+        packages, install_job_id, command_audit = await self._install_dependency_packages(
             sandbox=sandbox,
             ctx=ctx,
             workspace_id=workspace_id,
@@ -212,10 +240,13 @@ class SandboxScriptExecutor:
         )
         installed_packages.extend(packages)
         install_job_ids.append(install_job_id)
+        install_command_audits.append(command_audit)
         retry_result = await sandbox.execute_command(
             command,
             timeout=ctx.sandbox_timeout,
             network_profile="none",
+            cwd=task_scratch_path,
+            env=execution_env,
         )
         return 1, retry_result
 
@@ -231,7 +262,7 @@ class SandboxScriptExecutor:
         sandbox_policy: dict[str, Any],
         packages: list[str],
         reason: str,
-    ) -> tuple[list[str], str]:
+    ) -> tuple[list[str], str, dict[str, Any]]:
         return await self.installer.install_dependencies(
             sandbox=sandbox,
             manager=ctx.manager,
@@ -295,15 +326,30 @@ def _validate_script(script: str) -> bytes:
     return script_bytes
 
 
-def _safe_script_name(value: str) -> str:
-    name = SCRIPT_NAME_RE.sub("_", str(value or "").strip())
-    if not name or name in {".", ".."}:
-        name = "analysis.py"
-    if not name.endswith(".py"):
-        name = f"{name}.py"
-    return name[:80]
+def sanitize_script_name(value: str) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    segments: list[str] = []
+    for item in raw.split("/"):
+        segment = SCRIPT_NAME_RE.sub("_", item).strip("._-")
+        if segment and segment not in {".", ".."}:
+            segments.append(segment)
+    base = "_".join(segments).strip("._-") or "analysis"
+    if base.endswith(".py"):
+        base = base[:-3]
+    base = base[:77].strip("._-") or "analysis"
+    name = f"{base}.py"
+    if not is_user_editable_workspace_path(f"{WORKSPACE_ROOT}/scripts/{name}"):
+        return "analysis.py"
+    return name
 
 
 def _resolve_missing_package(result: Any, dependency_hints: list[str]) -> str | None:
     missing_module = detect_missing_python_module("\n".join([result.stderr, result.stdout]))
     return resolve_package_for_missing_module(missing_module, dependency_hints) if missing_module else None
+
+
+def sandbox_script_execution_env(task_scratch_path: str) -> dict[str, str]:
+    return {
+        "WENJIN_TASK_SCRATCH": task_scratch_path,
+        "WENJIN_WORKSPACE_ROOT": WORKSPACE_ROOT,
+    }
