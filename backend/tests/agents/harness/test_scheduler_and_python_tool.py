@@ -460,8 +460,8 @@ async def test_run_python_returns_execution_manifest() -> None:
     assert manifest["workspace_id"] == "ws-1"
     assert manifest["execution_id"] == "exec-1"
     assert manifest["node_id"] == "node-1"
-    assert manifest["script_name"] == ".._.._bad_script.py"
-    assert manifest["script_path"] == "/workspace/scripts/.._.._bad_script.py"
+    assert manifest["script_name"] == "bad_script.py"
+    assert manifest["script_path"] == "/workspace/scripts/bad_script.py"
     assert manifest["dependency_hints"] == ["pandas"]
     assert manifest["network_profile"] == "none"
     assert manifest["timeout_seconds"] == 30
@@ -680,7 +680,26 @@ async def test_run_python_sanitizes_script_name_before_runner_boundary() -> None
     )
 
     [call] = runner.calls
-    assert call["script_name"] == ".._.._bad_script.py"
+    assert call["script_name"] == "bad_script.py"
+
+
+@pytest.mark.asyncio
+async def test_run_python_sanitizes_hidden_or_protected_script_name_before_runner_boundary() -> None:
+    runner = _FakeRunner()
+    tool = SandboxExecutionTools(
+        context=_ctx(),
+        policy=HarnessPolicy(permissions=frozenset({"sandbox.run_python"})),
+        runner=runner,
+        scheduler=WorkspaceToolScheduler(),
+    )
+
+    await tool.run_python(
+        script="print('ok')",
+        script_name=".env",
+    )
+
+    [call] = runner.calls
+    assert call["script_name"] == "env.py"
 
 
 @pytest.mark.asyncio

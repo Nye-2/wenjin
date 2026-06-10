@@ -439,6 +439,13 @@ Chat Agent
   - `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/team/member_context.py src/agents/lead_agent/v2/team/kernel.py src/agents/harness/context_assembly.py tests/agents/lead_agent/v2/test_team_member_context.py tests/agents/harness/test_context_assembly.py tests/integration/test_harness_mock_sandbox_e2e.py` -> passed.
   - `backend`: native harness release gate -> 354 passed.
   - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or generic `sandbox.run_command`; documentation and negative/historical tests remain the only expected hits. `git diff --check` passed.
+- 2026-06-10 sandbox run script-name path hygiene slice:
+  - `sandbox.run_python` script names now sanitize path traversal and hidden/protected-looking names before entering the Lead-owned runner. `../../bad script` becomes `bad_script.py`, and `.env` becomes `env.py` instead of creating `/workspace/scripts/.env.py`.
+  - The sanitizer now verifies the final `/workspace/scripts/{safe_name}` with `is_user_editable_workspace_path()`, so Lead-owned direct script writes obey the same workspace layout boundary as model-facing file tools.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py::test_run_python_sanitizes_script_name_before_runner_boundary tests/agents/harness/test_scheduler_and_python_tool.py::test_run_python_sanitizes_hidden_or_protected_script_name_before_runner_boundary -q` -> RED on old `.._.._bad_script.py` / `.env.py`, then 2 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/lead_agent/v2/test_sandbox_runtime.py -q` -> 46 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/sandbox_script_executor.py tests/agents/harness/test_scheduler_and_python_tool.py` -> passed.
+  - `backend`: native harness release gate -> 355 passed.
 
 ## 6. 剩余不足
 

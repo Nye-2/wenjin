@@ -16,7 +16,11 @@ from src.agents.lead_agent.v2.workspace_sandbox import (
     normalize_dependency_hints,
     resolve_package_for_missing_module,
 )
-from src.sandbox.workspace_layout import WORKSPACE_ROOT, build_workspace_task_contract
+from src.sandbox.workspace_layout import (
+    WORKSPACE_ROOT,
+    build_workspace_task_contract,
+    is_user_editable_workspace_path,
+)
 
 SCRIPT_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 MAX_SCRIPT_BYTES = 128 * 1024
@@ -323,12 +327,20 @@ def _validate_script(script: str) -> bytes:
 
 
 def sanitize_script_name(value: str) -> str:
-    name = SCRIPT_NAME_RE.sub("_", str(value or "").strip())
-    if not name or name in {".", ".."}:
-        name = "analysis.py"
-    if not name.endswith(".py"):
-        name = f"{name}.py"
-    return name[:80]
+    raw = str(value or "").strip().replace("\\", "/")
+    segments: list[str] = []
+    for item in raw.split("/"):
+        segment = SCRIPT_NAME_RE.sub("_", item).strip("._-")
+        if segment and segment not in {".", ".."}:
+            segments.append(segment)
+    base = "_".join(segments).strip("._-") or "analysis"
+    if base.endswith(".py"):
+        base = base[:-3]
+    base = base[:77].strip("._-") or "analysis"
+    name = f"{base}.py"
+    if not is_user_editable_workspace_path(f"{WORKSPACE_ROOT}/scripts/{name}"):
+        return "analysis.py"
+    return name
 
 
 def _resolve_missing_package(result: Any, dependency_hints: list[str]) -> str | None:
