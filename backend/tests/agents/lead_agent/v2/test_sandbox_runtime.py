@@ -5,6 +5,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from src.agents.harness.command_audit import HarnessCommand, audit_command
+from src.agents.lead_agent.v2.sandbox_execution_lifecycle import (
+    build_sandbox_execution_lifecycle,
+    finalize_sandbox_execution_lifecycle,
+)
 from src.agents.lead_agent.v2.sandbox_runtime import (
     SandboxCommandExecutionError,
     run_python_script,
@@ -64,6 +68,49 @@ class _FakeSandbox:
                 size=len(content.encode("utf-8")),
             )
         return [entries[key] for key in sorted(entries)]
+
+
+def test_execution_lifecycle_counts_only_reviewable_generated_artifacts() -> None:
+    lifecycle = build_sandbox_execution_lifecycle(
+        status="queued",
+        operation="run_python",
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        environment_id="env-1",
+        runtime_image="fake-python:3.13",
+        provider_image="fake-python:3.13",
+        command_preview="python analysis.py",
+        command_argv=["python", "analysis.py"],
+        cwd="/workspace/tmp/tasks/exec-1/analysis_probe",
+        env={"WENJIN_TASK_SCRATCH": "/workspace/tmp/tasks/exec-1/analysis_probe"},
+        network_profile="none",
+        timeout_seconds=60,
+    )
+
+    final_lifecycle = finalize_sandbox_execution_lifecycle(
+        lifecycle,
+        sandbox_job_id="job-1",
+        status="succeeded",
+        exit_code=0,
+        stdout_externalized=False,
+        stderr_externalized=False,
+        output_refs=[
+            "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt",
+            "/workspace/main/not-output.txt",
+        ],
+        generated_artifacts=[
+            {"path": "/workspace/outputs/result.json"},
+            {"path": "/workspace/reports/analysis.md"},
+            {"path": "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt"},
+            {"path": "/workspace/.env"},
+        ],
+    )
+
+    assert final_lifecycle["outputs"]["generated_artifact_count"] == 2
+    assert final_lifecycle["outputs"]["output_refs"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt"
+    ]
 
 
 class _FakeProvider:

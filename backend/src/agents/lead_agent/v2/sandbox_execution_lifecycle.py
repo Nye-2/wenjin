@@ -6,6 +6,11 @@ from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from typing import Any
 
+from src.sandbox.workspace_layout import (
+    is_user_reviewable_workspace_artifact_path,
+    is_workspace_readable_internal_output_ref,
+)
+
 SANDBOX_EXECUTION_LIFECYCLE_SCHEMA = "wenjin.sandbox.execution_lifecycle.v1"
 
 
@@ -73,10 +78,30 @@ def finalize_sandbox_execution_lifecycle(
     finalized["outputs"] = {
         "stdout_externalized": bool(stdout_externalized),
         "stderr_externalized": bool(stderr_externalized),
-        "output_refs": [_safe_text(ref, limit=500) for ref in output_refs if _safe_text(ref)],
-        "generated_artifact_count": len(list(generated_artifacts or [])),
+        "output_refs": _safe_output_refs(output_refs),
+        "generated_artifact_count": _reviewable_artifact_count(generated_artifacts),
     }
     return finalized
+
+
+def _safe_output_refs(output_refs: Iterable[str]) -> list[str]:
+    refs: list[str] = []
+    for ref in output_refs:
+        text = _safe_text(ref, limit=500)
+        if text and is_workspace_readable_internal_output_ref(text) and text not in refs:
+            refs.append(text)
+    return refs
+
+
+def _reviewable_artifact_count(generated_artifacts: Iterable[Mapping[str, Any]] | None) -> int:
+    total = 0
+    for artifact in generated_artifacts or []:
+        if not isinstance(artifact, Mapping):
+            continue
+        path = _safe_text(artifact.get("path"), limit=500)
+        if is_user_reviewable_workspace_artifact_path(path):
+            total += 1
+    return total
 
 
 def _safe_text(value: Any, *, limit: int = 200) -> str:
