@@ -15,6 +15,7 @@ WORKSPACE_LAYOUT_SCHEMA = "wenjin.workspace_sandbox.layout.v1"
 WORKSPACE_LAYOUT_VERSION = 1
 WORKSPACE_TYPE_PROFILE_SCHEMA = "wenjin.workspace_sandbox.type_profile.v1"
 WORKSPACE_OPERATION_POLICY_SCHEMA = "wenjin.workspace_sandbox.operation_policy.v1"
+WORKSPACE_TASK_CONTRACT_SCHEMA = "wenjin.workspace_sandbox.task_contract.v1"
 WORKSPACE_MANIFEST_RELATIVE_PATH = ".wenjin/manifest.json"
 WORKSPACE_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_MANIFEST_RELATIVE_PATH}"
 WORKSPACE_DATASET_PROVENANCE_SCHEMA = "wenjin.workspace_sandbox.dataset_provenance.v1"
@@ -250,6 +251,7 @@ WORKSPACE_DIRECT_WRITE_DENIED_PATH_CLASSES = (
 )
 
 _TASK_SCRATCH_SEGMENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_HARNESS_OUTPUT_REF_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 _DIRECTORY_CONTRACTS: dict[str, dict[str, Any]] = {
     "main": {
@@ -977,6 +979,96 @@ def workspace_task_scratch_path(
     return f"{WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT}/{execution_segment}"
 
 
+def build_workspace_task_contract(
+    *,
+    execution_id: str | None,
+    node_id: str | None = None,
+    invocation_id: str | None = None,
+) -> dict[str, Any]:
+    """Return task-scoped filesystem rules for one workspace execution member."""
+
+    return {
+        "schema": WORKSPACE_TASK_CONTRACT_SCHEMA,
+        "execution_id": str(execution_id or ""),
+        "node_id": str(node_id or ""),
+        "invocation_id": str(invocation_id or ""),
+        "scratch_path": workspace_task_scratch_path(
+            execution_id=execution_id,
+            node_id=node_id,
+        ),
+        "output_ref_root": workspace_harness_output_ref_root(
+            execution_id=execution_id,
+            node_id=node_id,
+            invocation_id=invocation_id,
+        ),
+        "read_output_ref_tool": "sandbox.read_output_ref",
+        "writable_scratch_roots": [
+            workspace_task_scratch_path(
+                execution_id=execution_id,
+                node_id=node_id,
+            )
+        ],
+        "reviewable_artifact_roots": [
+            root["virtual_path"]
+            for root in WORKSPACE_ARTIFACT_ROOTS
+        ],
+        "manifest_paths": {
+            "datasets": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+            "artifacts": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+        },
+        "rules": [
+            "Use scratch_path for temporary task-local files that should not become user-facing artifacts.",
+            "Do not list, search, edit, register, or cite output_ref_root paths as user-facing artifacts.",
+            "Inspect explicit output refs under output_ref_root only with sandbox.read_output_ref.",
+            "Promote durable files to /workspace/outputs or /workspace/reports and register them with sandbox.register_artifact.",
+        ],
+    }
+
+
+def workspace_harness_output_ref_root(
+    *,
+    execution_id: str | None,
+    node_id: str | None = None,
+    invocation_id: str | None = None,
+) -> str:
+    """Return the internal output-ref root for one harness execution scope."""
+
+    parts = [
+        WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT,
+        _safe_harness_output_ref_segment(execution_id, default="execution"),
+        _safe_harness_output_ref_segment(node_id, default="node"),
+    ]
+    invocation_segment = _safe_harness_output_ref_segment(invocation_id, default="")
+    if invocation_segment:
+        parts.append(invocation_segment)
+    return "/".join(parts)
+
+
+def workspace_harness_output_ref_path(
+    *,
+    execution_id: str | None,
+    node_id: str | None = None,
+    invocation_id: str | None = None,
+    tool_name: str | None = None,
+    extension: str = "txt",
+    content_fingerprint: str | None = None,
+) -> str:
+    """Return a stable internal output-ref path for one harness tool result."""
+
+    safe_tool_name = _safe_harness_output_ref_segment(tool_name, default="tool")
+    safe_extension = _safe_harness_output_ref_segment(
+        str(extension or "txt").strip().lstrip("."),
+        default="txt",
+    )
+    suffix = ""
+    if content_fingerprint:
+        suffix = f"-{_safe_harness_output_ref_segment(content_fingerprint, default='output')}"
+    return (
+        f"{workspace_harness_output_ref_root(execution_id=execution_id, node_id=node_id, invocation_id=invocation_id)}"
+        f"/{safe_tool_name}{suffix}.{safe_extension}"
+    )
+
+
 def _safe_task_scratch_segment(value: str | None, *, default: str) -> str:
     raw = str(value or "").strip().replace("\\", "/")
     parts: list[str] = []
@@ -988,6 +1080,19 @@ def _safe_task_scratch_segment(value: str | None, *, default: str) -> str:
     if not safe:
         return default
     return safe[:80]
+
+
+def _safe_harness_output_ref_segment(value: str | None, *, default: str) -> str:
+    raw = str(value or "").strip().replace("\\", "/")
+    parts: list[str] = []
+    for item in raw.split("/"):
+        segment = _HARNESS_OUTPUT_REF_SEGMENT_RE.sub("-", item).strip(".-")
+        if segment and segment not in {".", ".."}:
+            parts.append(segment)
+    safe = "-".join(parts).strip(".-")
+    if not safe:
+        return default
+    return safe[:100]
 
 
 def normalize_workspace_virtual_path(path: str) -> str:

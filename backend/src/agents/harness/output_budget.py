@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
-from src.sandbox.workspace_layout import WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT
+from src.sandbox.workspace_layout import (
+    WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT,
+    workspace_harness_output_ref_path,
+)
 
 HARNESS_OUTPUTS_ROOT = WORKSPACE_HARNESS_OUTPUTS_VIRTUAL_ROOT
 DEFAULT_EXTERNALIZE_ABOVE_CHARS = 12_000
 DEFAULT_PREVIEW_HEAD_CHARS = 4_000
 DEFAULT_PREVIEW_TAIL_CHARS = 2_000
-_SAFE_SEGMENT_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,17 +120,13 @@ def harness_output_path(
 ) -> str:
     """Return a deterministic workspace path for one harness tool output."""
 
-    safe_extension = _safe_segment(extension.strip().lstrip("."), "txt")
-    safe_tool_name = _safe_segment(tool_name, "tool")
-    suffix = f"-{_safe_segment(content_fingerprint, 'output')}" if content_fingerprint else ""
-    return "/".join(
-        (
-            HARNESS_OUTPUTS_ROOT,
-            _safe_segment(getattr(context, "execution_id", None), "execution"),
-            _safe_segment(getattr(context, "node_id", None), "node"),
-            _safe_segment(getattr(context, "invocation_id", None), "invocation"),
-            f"{safe_tool_name}{suffix}.{safe_extension}",
-        )
+    return workspace_harness_output_ref_path(
+        execution_id=getattr(context, "execution_id", None),
+        node_id=getattr(context, "node_id", None),
+        invocation_id=getattr(context, "invocation_id", None),
+        tool_name=tool_name,
+        extension=extension,
+        content_fingerprint=content_fingerprint,
     )
 
 
@@ -190,12 +187,6 @@ def bounded_externalized_preview_budget(
     if remaining > 0 and bounded_tail < tail:
         bounded_tail += min(remaining, tail - bounded_tail)
     return bounded_head, bounded_tail
-
-
-def _safe_segment(value: Any, default: str) -> str:
-    text = str(value or "").strip()
-    text = _SAFE_SEGMENT_RE.sub("-", text).strip(".-")
-    return (text or default)[:100]
 
 
 def _content_fingerprint(text: str) -> str:

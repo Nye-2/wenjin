@@ -650,6 +650,39 @@ def test_workspace_task_scratch_path_is_stable_and_sanitized():
     assert not layout.is_user_reviewable_workspace_artifact_path(f"{scratch_path}/notes.md")
 
 
+def test_workspace_task_contract_projects_member_scoped_paths():
+    contract = layout.build_workspace_task_contract(
+        execution_id="exec 1/../../secret",
+        node_id=".research/synth:v1",
+        invocation_id="tool run/1",
+    )
+
+    assert contract == {
+        "schema": "wenjin.workspace_sandbox.task_contract.v1",
+        "execution_id": "exec 1/../../secret",
+        "node_id": ".research/synth:v1",
+        "invocation_id": "tool run/1",
+        "scratch_path": "/workspace/tmp/tasks/exec_1_secret/research_synth_v1",
+        "output_ref_root": "/workspace/tmp/tasks/.harness/outputs/exec-1-secret/research-synth-v1/tool-run-1",
+        "read_output_ref_tool": "sandbox.read_output_ref",
+        "writable_scratch_roots": ["/workspace/tmp/tasks/exec_1_secret/research_synth_v1"],
+        "reviewable_artifact_roots": ["/workspace/outputs", "/workspace/reports"],
+        "manifest_paths": {
+            "datasets": "/workspace/datasets/manifest.json",
+            "artifacts": "/workspace/reports/artifacts.json",
+        },
+        "rules": [
+            "Use scratch_path for temporary task-local files that should not become user-facing artifacts.",
+            "Do not list, search, edit, register, or cite output_ref_root paths as user-facing artifacts.",
+            "Inspect explicit output refs under output_ref_root only with sandbox.read_output_ref.",
+            "Promote durable files to /workspace/outputs or /workspace/reports and register them with sandbox.register_artifact.",
+        ],
+    }
+    assert layout.is_workspace_internal_path(f"{contract['output_ref_root']}/stdout.txt")
+    assert layout.is_workspace_readable_internal_output_ref(f"{contract['output_ref_root']}/stdout.txt")
+    assert not layout.is_user_reviewable_workspace_artifact_path(f"{contract['output_ref_root']}/stdout.txt")
+
+
 def test_workspace_protected_paths_include_runtime_and_secret_material():
     assert WORKSPACE_PROTECTED_PATHS == (
         ".git/**",

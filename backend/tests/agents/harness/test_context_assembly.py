@@ -304,6 +304,26 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         "/workspace/reports",
     ]
     assert bundle["sandbox"]["task_scratch_path"] == "/workspace/tmp/tasks/exec-1/research_scout.v1__1"
+    assert bundle["sandbox"]["task_contract"] == {
+        "schema": "wenjin.workspace_sandbox.task_contract.v1",
+        "execution_id": "exec-1",
+        "node_id": "research_scout.v1__1",
+        "invocation_id": "",
+        "scratch_path": "/workspace/tmp/tasks/exec-1/research_scout.v1__1",
+        "read_output_ref_tool": "sandbox.read_output_ref",
+        "writable_scratch_roots": ["/workspace/tmp/tasks/exec-1/research_scout.v1__1"],
+        "reviewable_artifact_roots": ["/workspace/outputs", "/workspace/reports"],
+        "manifest_paths": {
+            "datasets": "/workspace/datasets/manifest.json",
+            "artifacts": "/workspace/reports/artifacts.json",
+        },
+        "rules": [
+            "Use scratch_path for temporary task-local files that should not become user-facing artifacts.",
+            "Do not list, search, edit, register, or cite output_ref_root paths as user-facing artifacts.",
+            "Inspect explicit output refs under output_ref_root only with sandbox.read_output_ref.",
+            "Promote durable files to /workspace/outputs or /workspace/reports and register them with sandbox.register_artifact.",
+        ],
+    }
     assert bundle["task_scratch_path"] == "/workspace/tmp/tasks/exec-1/research_scout.v1__1"
     assert "node_modules" in bundle["search_ignored_names"]
     assert bundle["recent_file_change_summary"] == {
