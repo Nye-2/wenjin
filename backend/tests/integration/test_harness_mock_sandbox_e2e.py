@@ -487,6 +487,23 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                 "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
                 "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
             ]
+            assert writer_context["output_ref_recovery"] == {
+                "schema": "wenjin.harness.output_ref_recovery.v1",
+                "read_tool": "sandbox.read_output_ref",
+                "guidance": (
+                    "Use sandbox.read_output_ref with output_ref and optional start_line/end_line "
+                    "before rerunning expensive sandbox work."
+                ),
+                "refs": [
+                    {
+                        "output_ref": (
+                            "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+                            "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
+                        ),
+                        "source": "sandbox_execution_summary",
+                    }
+                ],
+            }
             assert writer_context["experiment_interpretation_summary"] == {
                 "schema": "wenjin.harness.experiment_interpretation_summary.v1",
                 "interpretation_count": 1,

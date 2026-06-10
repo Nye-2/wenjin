@@ -319,6 +319,20 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         "exit_codes": [0],
         "output_refs": ["/workspace/tmp/tasks/.harness/outputs/exec-1/research_scout/stdout.txt"],
     }
+    assert bundle["output_ref_recovery"] == {
+        "schema": "wenjin.harness.output_ref_recovery.v1",
+        "read_tool": "sandbox.read_output_ref",
+        "guidance": (
+            "Use sandbox.read_output_ref with output_ref and optional start_line/end_line "
+            "before rerunning expensive sandbox work."
+        ),
+        "refs": [
+            {
+                "output_ref": "/workspace/tmp/tasks/.harness/outputs/exec-1/research_scout/stdout.txt",
+                "source": "sandbox_execution_summary",
+            }
+        ],
+    }
     assert bundle["reproducibility_summary"] == {
         "schema": "wenjin.harness.reproducibility_summary.v1",
         "script_paths": ["/workspace/scripts/eval.py"],

@@ -17,6 +17,7 @@ from src.sandbox.workspace_layout import (
 from .tool_names import expand_tool_names
 
 HARNESS_CONTEXT_BUNDLE_SCHEMA = "wenjin.harness.context_bundle.v1"
+OUTPUT_REF_RECOVERY_SCHEMA = "wenjin.harness.output_ref_recovery.v1"
 _PUBLIC_PATH_CLASS_ORDER = ("workspace", "datasets", "scripts", "artifacts")
 _MAX_FILE_SUMMARY_ITEMS = 20
 
@@ -48,6 +49,10 @@ def build_harness_context_bundle(
         visible_roots=visible_roots,
         dataset_roots=dataset_roots,
     )
+    sandbox_execution_summary = _latest_harness_summary(
+        safe_workspace_data,
+        "sandbox_execution_summary",
+    )
     bundle = {
         "schema": HARNESS_CONTEXT_BUNDLE_SCHEMA,
         "workspace_id": str(workspace_id or ""),
@@ -62,10 +67,8 @@ def build_harness_context_bundle(
             safe_workspace_data,
             "file_change_summary",
         ),
-        "sandbox_execution_summary": _latest_harness_summary(
-            safe_workspace_data,
-            "sandbox_execution_summary",
-        ),
+        "sandbox_execution_summary": sandbox_execution_summary,
+        "output_ref_recovery": _output_ref_recovery(sandbox_execution_summary),
         "reproducibility_summary": _latest_harness_summary(
             safe_workspace_data,
             "reproducibility_summary",
@@ -633,6 +636,31 @@ def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
     return result
 
 
+def _output_ref_recovery(sandbox_execution_summary: dict[str, Any]) -> dict[str, Any]:
+    refs = []
+    raw_refs = sandbox_execution_summary.get("output_refs")
+    for ref in raw_refs if isinstance(raw_refs, list | tuple) else []:
+        text = str(ref or "").strip()
+        if is_workspace_readable_internal_output_ref(text):
+            refs.append(
+                {
+                    "output_ref": text,
+                    "source": "sandbox_execution_summary",
+                }
+            )
+    if not refs:
+        return {}
+    return {
+        "schema": OUTPUT_REF_RECOVERY_SCHEMA,
+        "read_tool": "sandbox.read_output_ref",
+        "guidance": (
+            "Use sandbox.read_output_ref with output_ref and optional start_line/end_line "
+            "before rerunning expensive sandbox work."
+        ),
+        "refs": refs[:20],
+    }
+
+
 def _copy_safe_string(target: dict[str, Any], key: str, value: Any) -> None:
     safe = _safe_value(value)
     if isinstance(safe, str) and safe:
@@ -717,6 +745,7 @@ def _fit_budget(bundle: dict[str, Any], max_chars: int) -> dict[str, Any]:
         ("upstream_artifact_candidates", []),
         ("scratch_refs", []),
         ("harness_replan_signals", []),
+        ("output_ref_recovery", {}),
         ("recent_file_change_summary", {}),
         ("sandbox_execution_summary", {}),
         ("reproducibility_summary", {}),
