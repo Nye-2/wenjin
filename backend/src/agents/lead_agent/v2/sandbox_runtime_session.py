@@ -203,6 +203,7 @@ async def mark_job_failed(
     *,
     exit_code: int | None = None,
     error_text: str | None = None,
+    metadata_json: dict[str, Any] | None = None,
 ) -> None:
     with suppress(Exception):
         await manager.update_job(
@@ -210,6 +211,7 @@ async def mark_job_failed(
             status="failed",
             exit_code=exit_code,
             error_text=error_text,
+            metadata_json=metadata_json,
         )
 
 

@@ -711,6 +711,9 @@ def _run_python_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     failure_classification = structured_payload.get("failure_classification")
     if isinstance(failure_classification, dict):
         metadata["failure_classification"] = dict(failure_classification)
+    execution_lifecycle = structured_payload.get("execution_lifecycle")
+    if isinstance(execution_lifecycle, dict):
+        metadata["execution_lifecycle"] = dict(execution_lifecycle)
     return metadata
 
 

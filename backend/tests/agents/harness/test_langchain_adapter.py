@@ -411,6 +411,12 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
                     "exit_code": 2,
                     "recoverable": True,
                 },
+                "execution_lifecycle": {
+                    "schema": "wenjin.sandbox.execution_lifecycle.v1",
+                    "status": "failed",
+                    "sandbox_job_id": "job-1",
+                    "exit_code": 2,
+                },
                 "experiment_interpretation": {
                     "schema": "wenjin.harness.experiment_interpretation.v1",
                     "method_summary": "Compared model accuracy on a held-out benchmark split.",
@@ -450,6 +456,8 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
         "/workspace/datasets/raw/survey.csv"
     ]
     assert metadata["failure_classification"]["failure_code"] == "python_exit_nonzero"
+    assert metadata["execution_lifecycle"]["schema"] == "wenjin.sandbox.execution_lifecycle.v1"
+    assert metadata["execution_lifecycle"]["sandbox_job_id"] == "job-1"
     assert metadata["experiment_interpretation"]["metric_definitions"] == [{"name": "accuracy"}]
     assert metadata["experiment_interpretation"]["dataset_paths"] == [
         "/workspace/datasets/raw/survey.csv"

@@ -341,6 +341,64 @@ async def test_run_python_script_uses_invocation_scoped_scratch_options() -> Non
 
 
 @pytest.mark.asyncio
+async def test_run_python_script_records_bounded_execution_lifecycle() -> None:
+    stdout = json.dumps({"ok": True, "metric": 0.42})
+    provider = _FakeProvider(CommandResult(stdout=stdout, stderr="", exit_code=0))
+    manager = _FakeWorkspaceSandboxManager()
+
+    result = await run_python_script(
+        workspace_id="ws-1",
+        execution_id="exec-1",
+        node_id="analysis_probe",
+        sandbox_policy=_policy(),
+        script="print('secret script body should not appear in lifecycle')\n",
+        script_name="analysis_probe.py",
+        provider=provider,
+        manager=manager,
+    )
+
+    queued_lifecycle = manager.created_jobs[0]["metadata"]["execution_lifecycle"]
+    assert queued_lifecycle["schema"] == "wenjin.sandbox.execution_lifecycle.v1"
+    assert queued_lifecycle["status"] == "queued"
+    assert queued_lifecycle["operation"] == "run_python"
+    assert queued_lifecycle["execution"] == {
+        "workspace_id": "ws-1",
+        "execution_id": "exec-1",
+        "node_id": "analysis_probe",
+    }
+    assert queued_lifecycle["sandbox"] == {
+        "environment_id": "env-1",
+        "runtime_image": "fake-python:3.13",
+        "provider_image": "fake-python:3.13",
+    }
+    assert queued_lifecycle["command"] == {
+        "preview": "/workspace/.wenjin/env/python/bin/python /workspace/scripts/analysis_probe.py",
+        "argv": [
+            "/workspace/.wenjin/env/python/bin/python",
+            "/workspace/scripts/analysis_probe.py",
+        ],
+        "cwd": "/workspace/tmp/tasks/exec-1/analysis_probe",
+        "env_keys": ["WENJIN_TASK_SCRATCH", "WENJIN_WORKSPACE_ROOT"],
+        "network_profile": "none",
+        "timeout_seconds": 60,
+    }
+    assert "stdout" not in json.dumps(queued_lifecycle)
+    assert "secret script body" not in json.dumps(queued_lifecycle)
+
+    final_lifecycle = result["execution_lifecycle"]
+    assert final_lifecycle["status"] == "succeeded"
+    assert final_lifecycle["sandbox_job_id"] == "job-1"
+    assert final_lifecycle["exit_code"] == 0
+    assert final_lifecycle["outputs"] == {
+        "stdout_externalized": False,
+        "stderr_externalized": False,
+        "output_refs": [],
+        "generated_artifact_count": 0,
+    }
+    assert manager.updated_jobs[-1]["metadata_json"]["execution_lifecycle"] == final_lifecycle
+
+
+@pytest.mark.asyncio
 async def test_run_python_script_syncs_dataset_manifest_before_script_execution() -> None:
     stdout = json.dumps({"ok": True})
     provider = _FakeProvider(
@@ -499,11 +557,10 @@ async def test_run_python_script_runs_with_local_sandbox_provider_interface(tmp_
     assert result["status"] == "completed"
     assert result["parsed_stdout"] == {"ok": True, "rows": 2}
     assert manager.created_jobs[0]["operation"] == "run_python"
-    assert manager.updated_jobs[-1] == {
-        "job_id": "job-1",
-        "status": "succeeded",
-        "exit_code": 0,
-    }
+    assert manager.updated_jobs[-1]["job_id"] == "job-1"
+    assert manager.updated_jobs[-1]["status"] == "succeeded"
+    assert manager.updated_jobs[-1]["exit_code"] == 0
+    assert manager.updated_jobs[-1]["metadata_json"]["execution_lifecycle"]["status"] == "succeeded"
 
 
 @pytest.mark.asyncio
@@ -699,7 +756,10 @@ async def test_run_python_script_keeps_success_when_artifact_discovery_fails() -
     assert result["status"] == "completed"
     assert result["parsed_stdout"] == {"ok": True}
     assert result["generated_artifacts"] == []
-    assert manager.updated_jobs[-1] == {"job_id": "job-1", "status": "succeeded", "exit_code": 0}
+    assert manager.updated_jobs[-1]["job_id"] == "job-1"
+    assert manager.updated_jobs[-1]["status"] == "succeeded"
+    assert manager.updated_jobs[-1]["exit_code"] == 0
+    assert manager.updated_jobs[-1]["metadata_json"]["execution_lifecycle"]["status"] == "succeeded"
 
 
 @pytest.mark.asyncio
@@ -867,6 +927,10 @@ async def test_run_python_script_preserves_setup_failure_exit_code() -> None:
         update for update in manager.updated_jobs if update["job_id"] == "job-1" and update["status"] == "failed"
     ]
     assert run_failed_updates[-1]["exit_code"] == 127
+    lifecycle = run_failed_updates[-1]["metadata_json"]["execution_lifecycle"]
+    assert lifecycle["status"] == "failed"
+    assert lifecycle["sandbox_job_id"] == "job-1"
+    assert lifecycle["exit_code"] == 127
 
 
 @pytest.mark.asyncio
@@ -895,6 +959,14 @@ async def test_run_python_script_raises_billable_error_for_nonzero_exit() -> Non
     assert exc_info.value.output["status"] == "failed"
     assert exc_info.value.output["exit_code"] == 2
     assert "boom" in exc_info.value.output["report_markdown"]
+    lifecycle = exc_info.value.output["execution_lifecycle"]
+    assert lifecycle["status"] == "failed"
+    assert lifecycle["sandbox_job_id"] == "job-1"
+    assert lifecycle["exit_code"] == 2
+    failed_update = [
+        update for update in manager.updated_jobs if update["job_id"] == "job-1" and update["status"] == "failed"
+    ][-1]
+    assert failed_update["metadata_json"]["execution_lifecycle"] == lifecycle
 
 
 @pytest.mark.asyncio

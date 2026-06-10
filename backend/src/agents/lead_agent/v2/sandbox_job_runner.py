@@ -16,6 +16,10 @@ from src.agents.lead_agent.v2.sandbox_artifact_discovery import discover_generat
 from src.agents.lead_agent.v2.sandbox_dataset_manifest import sync_dataset_manifest
 from src.agents.lead_agent.v2.sandbox_environment_installer import SandboxEnvironmentInstaller
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
+from src.agents.lead_agent.v2.sandbox_execution_lifecycle import (
+    build_sandbox_execution_lifecycle,
+    finalize_sandbox_execution_lifecycle,
+)
 from src.agents.lead_agent.v2.sandbox_runtime_session import (
     SandboxRuntimeSession,
     exception_exit_code_for_job,
@@ -189,6 +193,29 @@ class SandboxJobRunner:
         )
         require_command_policy_allowed(command_audit_result)
         command_audit = command_audit_result.model_dump()
+        execution_lifecycle = build_sandbox_execution_lifecycle(
+            status="queued",
+            operation="run_python",
+            workspace_id=workspace_id,
+            execution_id=execution_id,
+            node_id=node_id,
+            environment_id=str(ctx.environment.id),
+            runtime_image=ctx.runtime_image,
+            provider_image=provider_image(ctx.provider),
+            command_preview=plan.command,
+            command_argv=plan.command_argv,
+            cwd=task_scratch_path,
+            env=execution_env,
+            network_profile="none",
+            timeout_seconds=ctx.sandbox_timeout,
+        )
+        job_metadata = _runtime_job_metadata(
+            script_name=plan.safe_name,
+            billing_reservation_id=billing_reservation_id,
+            command_audit=command_audit,
+            task_scratch_path=task_scratch_path,
+            execution_lifecycle=execution_lifecycle,
+        )
         job = await ctx.manager.create_job(
             workspace_id=workspace_id,
             environment_id=str(ctx.environment.id),
@@ -200,12 +227,7 @@ class SandboxJobRunner:
             runtime_image=ctx.runtime_image,
             sandbox_policy=dict(sandbox_policy),
             resource_limits=dict(ctx.limits),
-            metadata=_runtime_job_metadata(
-                script_name=plan.safe_name,
-                billing_reservation_id=billing_reservation_id,
-                command_audit=command_audit,
-                task_scratch_path=task_scratch_path,
-            ),
+            metadata=job_metadata,
             script_hash=plan.script_hash,
             network_policy="none",
         )
@@ -242,11 +264,26 @@ class SandboxJobRunner:
                 )
                 generated_artifacts = await discover_generated_artifacts(sandbox)
         except Exception as exc:
+            failed_exit_code = exception_exit_code_for_job(exc, str(job.id))
+            failed_lifecycle = finalize_sandbox_execution_lifecycle(
+                execution_lifecycle,
+                sandbox_job_id=str(job.id),
+                status="failed",
+                exit_code=failed_exit_code,
+                stdout_externalized=False,
+                stderr_externalized=False,
+                output_refs=[],
+                generated_artifacts=[],
+            )
             await mark_job_failed(
                 ctx.manager,
                 str(job.id),
-                exit_code=exception_exit_code_for_job(exc, str(job.id)),
+                exit_code=failed_exit_code,
                 error_text=str(exc) or type(exc).__name__,
+                metadata_json={
+                    **job_metadata,
+                    "execution_lifecycle": failed_lifecycle,
+                },
             )
             raise
 
@@ -276,6 +313,21 @@ class SandboxJobRunner:
             generated_artifacts=generated_artifacts,
             dataset_provenance=synced_dataset_provenance,
         )
+        final_lifecycle = finalize_sandbox_execution_lifecycle(
+            execution_lifecycle,
+            sandbox_job_id=str(job.id),
+            status="failed" if not script_state.result.success else "succeeded",
+            exit_code=script_state.result.exit_code,
+            stdout_externalized=bool(output.get("stdout_externalized")),
+            stderr_externalized=bool(output.get("stderr_externalized")),
+            output_refs=[str(ref) for ref in output.get("output_refs") or [] if str(ref).strip()],
+            generated_artifacts=generated_artifacts,
+        )
+        output["execution_lifecycle"] = final_lifecycle
+        final_job_metadata = {
+            **job_metadata,
+            "execution_lifecycle": final_lifecycle,
+        }
         if not script_state.result.success:
             output["status"] = "failed"
             await ctx.manager.update_job(
@@ -283,6 +335,7 @@ class SandboxJobRunner:
                 status="failed",
                 exit_code=script_state.result.exit_code,
                 error_text=output["stderr"] or None,
+                metadata_json=final_job_metadata,
             )
             raise SandboxCommandExecutionError(
                 "Docker sandbox Python script failed "
@@ -290,7 +343,12 @@ class SandboxJobRunner:
                 output=output,
             )
 
-        await ctx.manager.update_job(str(job.id), status="succeeded", exit_code=script_state.result.exit_code)
+        await ctx.manager.update_job(
+            str(job.id),
+            status="succeeded",
+            exit_code=script_state.result.exit_code,
+            metadata_json=final_job_metadata,
+        )
         return output
 
 
@@ -300,6 +358,7 @@ def _runtime_job_metadata(
     billing_reservation_id: str | None = None,
     command_audit: dict[str, Any] | None = None,
     task_scratch_path: str | None = None,
+    execution_lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata = {"source": "lead_agent_sandbox_runtime"}
     if script_name is not None:
@@ -310,4 +369,6 @@ def _runtime_job_metadata(
         metadata["credit_reservation_id"] = billing_reservation_id
     if command_audit is not None:
         metadata["command_audit"] = command_audit
+    if execution_lifecycle is not None:
+        metadata["execution_lifecycle"] = execution_lifecycle
     return metadata
