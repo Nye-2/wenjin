@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import tempfile
 from pathlib import Path
@@ -9,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import src.agents.harness.langchain_adapter as langchain_adapter
 from src.agents.harness.args_summary import summarize_tool_args
 from src.agents.harness.langchain_adapter import _tool_result_metadata, build_langchain_tools
 from src.sandbox.providers.local import LocalSandbox
@@ -60,6 +62,24 @@ class _Provider:
         return None
 
 
+class _RecordingScheduler:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    async def run(self, workspace_id, operation, *, timeout_seconds=30, mode="write"):
+        self.calls.append(
+            {
+                "workspace_id": workspace_id,
+                "timeout_seconds": timeout_seconds,
+                "mode": mode,
+            }
+        )
+        value = operation()
+        if inspect.isawaitable(value):
+            return await value
+        return value
+
+
 @pytest.mark.asyncio
 async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -81,6 +101,39 @@ async def test_langchain_read_file_tool_accepts_max_chars_to_narrow_budget() -> 
     payload = json.loads(raw)
     assert payload["preview"] == "abcd"
     assert payload["truncated"] is True
+
+
+@pytest.mark.asyncio
+async def test_langchain_file_tools_use_read_write_scheduler_modes(monkeypatch) -> None:
+    scheduler = _RecordingScheduler()
+    monkeypatch.setattr(langchain_adapter, "default_workspace_tool_scheduler", scheduler)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+        sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(workspace)})
+        await sandbox.write_file("/workspace/main/paper.txt", "draft\n")
+        tools = build_langchain_tools(
+            _ctx(
+                sandbox,
+                tools=["sandbox.read_file", "sandbox.write_file"],
+                capability_policy={
+                    "allowed_tools": ["sandbox.read_file", "sandbox.write_file"],
+                    "permissions": ["filesystem.read", "filesystem.write", "filesystem.diff"],
+                    "sandbox_policy": {},
+                },
+                skill={"allowed_tools": ["sandbox.read_file", "sandbox.write_file"]},
+            ),
+            ["sandbox.read_file", "sandbox.write_file"],
+        )
+        by_name = {tool.name: tool for tool in tools}
+
+        await by_name["sandbox_read_file"].ainvoke({"path": "/workspace/main/paper.txt"})
+        await by_name["sandbox_write_file"].ainvoke(
+            {"path": "/workspace/main/paper.txt", "content": "updated\n"}
+        )
+
+    assert [call["mode"] for call in scheduler.calls] == ["read", "write"]
 
 
 @pytest.mark.asyncio

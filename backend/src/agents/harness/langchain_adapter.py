@@ -118,6 +118,15 @@ class RunPythonInput(BaseModel):
 
 
 ToolHandler = Callable[..., Awaitable[str]]
+_READ_FILE_TOOL_METHODS = frozenset(
+    {
+        "read_file",
+        "read_output_ref",
+        "list_dir",
+        "glob",
+        "grep",
+    }
+)
 
 
 def build_harness_run_context(ctx: SubagentContext) -> HarnessRunContext:
@@ -458,7 +467,8 @@ async def _with_file_tools(
             with suppress(Exception):
                 await runtime_ctx.provider.release(sandbox)
 
-    return await default_workspace_tool_scheduler.run(ctx.workspace_id, _run)
+    mode = "read" if method_name in _READ_FILE_TOOL_METHODS else "write"
+    return await default_workspace_tool_scheduler.run(ctx.workspace_id, _run, mode=mode)
 
 
 def _format_tool_result(result: HarnessToolResult) -> str:

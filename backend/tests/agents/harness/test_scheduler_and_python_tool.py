@@ -233,6 +233,90 @@ async def test_scheduler_serializes_same_workspace_calls() -> None:
 
 
 @pytest.mark.asyncio
+async def test_scheduler_allows_concurrent_same_workspace_reads() -> None:
+    scheduler = WorkspaceToolScheduler()
+    running = 0
+    max_running = 0
+
+    async def read_job() -> str:
+        nonlocal running, max_running
+        running += 1
+        max_running = max(max_running, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        return "read"
+
+    result = await asyncio.gather(
+        scheduler.run("ws-1", read_job, mode="read"),
+        scheduler.run("ws-1", read_job, mode="read"),
+    )
+
+    assert result == ["read", "read"]
+    assert max_running == 2
+
+
+@pytest.mark.asyncio
+async def test_scheduler_blocks_workspace_write_while_read_is_active() -> None:
+    scheduler = WorkspaceToolScheduler()
+    release = asyncio.Event()
+    write_started = False
+
+    async def read_job() -> str:
+        await release.wait()
+        return "read"
+
+    async def write_job() -> str:
+        nonlocal write_started
+        write_started = True
+        return "write"
+
+    read_task = asyncio.create_task(scheduler.run("ws-1", read_job, mode="read"))
+    await asyncio.sleep(0)
+    write_task = asyncio.create_task(scheduler.run("ws-1", write_job))
+    await asyncio.sleep(0.01)
+
+    assert not write_started
+    release.set()
+    assert await read_task == "read"
+    assert await write_task == "write"
+
+
+@pytest.mark.asyncio
+async def test_scheduler_blocks_new_reads_behind_waiting_workspace_write() -> None:
+    scheduler = WorkspaceToolScheduler()
+    release = asyncio.Event()
+    events: list[str] = []
+
+    async def active_read() -> str:
+        events.append("read-1-start")
+        await release.wait()
+        events.append("read-1-end")
+        return "read-1"
+
+    async def write_job() -> str:
+        events.append("write")
+        return "write"
+
+    async def queued_read() -> str:
+        events.append("read-2")
+        return "read-2"
+
+    read_task = asyncio.create_task(scheduler.run("ws-1", active_read, mode="read"))
+    await asyncio.sleep(0)
+    write_task = asyncio.create_task(scheduler.run("ws-1", write_job))
+    await asyncio.sleep(0)
+    read_2_task = asyncio.create_task(scheduler.run("ws-1", queued_read, mode="read"))
+    await asyncio.sleep(0.01)
+
+    assert events == ["read-1-start"]
+    release.set()
+    assert await read_task == "read-1"
+    assert await write_task == "write"
+    assert await read_2_task == "read-2"
+    assert events == ["read-1-start", "read-1-end", "write", "read-2"]
+
+
+@pytest.mark.asyncio
 async def test_scheduler_releases_idle_workspace_lock_after_run() -> None:
     scheduler = WorkspaceToolScheduler()
 
