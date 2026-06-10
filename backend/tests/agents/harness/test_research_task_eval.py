@@ -311,6 +311,120 @@ def test_research_task_eval_fails_experiment_interpretation_without_interpretati
     }
 
 
+def test_research_task_eval_passes_paper_relevance_with_topic_aligned_sources() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "literature_synthesizer.v1",
+                    "harness": {
+                        "paper_relevance_summary": {
+                            "schema": "wenjin.harness.paper_relevance_summary.v1",
+                            "aligned_count": 2,
+                            "weak_count": 0,
+                            "off_topic_count": 0,
+                            "aligned_refs": [
+                                {
+                                    "source_id": "source-1",
+                                    "citation_key": "smith2026",
+                                    "reason": "directly studies federated LLM fine-tuning",
+                                },
+                                {
+                                    "source_id": "source-2",
+                                    "citation_key": "lee2025",
+                                    "reason": "reports privacy-preserving LLM training benchmark",
+                                },
+                            ],
+                        }
+                    },
+                },
+            }
+        ],
+        required_surfaces=("paper_relevance",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"paper_relevance": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["paper_relevance"] == {
+        "aligned_count": 2,
+        "weak_count": 0,
+        "off_topic_count": 0,
+        "aligned_refs": [
+            {
+                "source_id": "source-1",
+                "citation_key": "smith2026",
+                "reason": "directly studies federated LLM fine-tuning",
+            },
+            {
+                "source_id": "source-2",
+                "citation_key": "lee2025",
+                "reason": "reports privacy-preserving LLM training benchmark",
+            },
+        ],
+        "weak_refs": [],
+        "off_topic_refs": [],
+    }
+
+
+def test_research_task_eval_fails_paper_relevance_with_only_off_topic_sources() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "literature_synthesizer.v1",
+                    "harness": {
+                        "paper_relevance_summary": {
+                            "schema": "wenjin.harness.paper_relevance_summary.v1",
+                            "aligned_count": 0,
+                            "weak_count": 0,
+                            "off_topic_count": 1,
+                            "off_topic_refs": [
+                                {
+                                    "source_id": "source-x",
+                                    "citation_key": "soil2025",
+                                    "reason": "soil moisture forecasting is unrelated to federated LLM experiments",
+                                }
+                            ],
+                        }
+                    },
+                },
+            }
+        ],
+        required_surfaces=("paper_relevance",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"paper_relevance": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "paper_relevance",
+            "severity": "high",
+            "message": "No topic-aligned paper relevance evidence was produced.",
+        }
+    ]
+    assert evaluation.evidence["paper_relevance"] == {
+        "aligned_count": 0,
+        "weak_count": 0,
+        "off_topic_count": 1,
+        "aligned_refs": [],
+        "weak_refs": [],
+        "off_topic_refs": [
+            {
+                "source_id": "source-x",
+                "citation_key": "soil2025",
+                "reason": "soil moisture forecasting is unrelated to federated LLM experiments",
+            }
+        ],
+    }
+
+
 def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None:
     report = _report(
         review_items=[

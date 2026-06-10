@@ -15,6 +15,7 @@ ResearchSurface = Literal[
     "workflow_trace",
     "citation_strength",
     "experiment_interpretation",
+    "paper_relevance",
 ]
 EvalStatus = Literal["pass", "fail"]
 
@@ -110,6 +111,7 @@ def evaluate_research_task_evidence(
         "workflow_trace": _evaluate_workflow_trace,
         "citation_strength": _evaluate_citation_strength,
         "experiment_interpretation": _evaluate_experiment_interpretation,
+        "paper_relevance": _evaluate_paper_relevance,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -183,6 +185,21 @@ def _evaluate_citation_strength(
         False,
         evidence,
         "No strong citation/source audit evidence was produced.",
+    )
+
+
+def _evaluate_paper_relevance(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del report
+    evidence = _paper_relevance_evidence(node_events)
+    if evidence["aligned_count"] > 0 and evidence["off_topic_count"] == 0 and evidence["aligned_refs"]:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        "No topic-aligned paper relevance evidence was produced.",
     )
 
 
@@ -495,6 +512,66 @@ def _citation_strength_evidence(node_events: list[dict[str, Any]]) -> dict[str, 
         "weak_count": len(weak_refs),
         "rejected_count": len(rejected_refs),
     }
+
+
+def _paper_relevance_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
+    aligned_refs: list[dict[str, str]] = []
+    weak_refs: list[dict[str, str]] = []
+    off_topic_refs: list[dict[str, str]] = []
+    aligned_count = 0
+    weak_count = 0
+    off_topic_count = 0
+    for summary in _paper_relevance_summaries(node_events):
+        summary_aligned_refs = _paper_relevance_refs(summary.get("aligned_refs"))
+        summary_weak_refs = _paper_relevance_refs(summary.get("weak_refs"))
+        summary_off_topic_refs = _paper_relevance_refs(summary.get("off_topic_refs"))
+        aligned_count += _int_value(summary.get("aligned_count")) or len(summary_aligned_refs)
+        weak_count += _int_value(summary.get("weak_count")) or len(summary_weak_refs)
+        off_topic_count += _int_value(summary.get("off_topic_count")) or len(summary_off_topic_refs)
+        for ref in summary_aligned_refs:
+            _append_unique_dict(aligned_refs, ref)
+        for ref in summary_weak_refs:
+            _append_unique_dict(weak_refs, ref)
+        for ref in summary_off_topic_refs:
+            _append_unique_dict(off_topic_refs, ref)
+    return {
+        "aligned_count": aligned_count,
+        "weak_count": weak_count,
+        "off_topic_count": off_topic_count,
+        "aligned_refs": aligned_refs[:50],
+        "weak_refs": weak_refs[:50],
+        "off_topic_refs": off_topic_refs[:50],
+    }
+
+
+def _paper_relevance_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for event in node_events:
+        harness = _harness_metadata(event)
+        summary = harness.get("paper_relevance_summary")
+        if isinstance(summary, dict):
+            summaries.append(summary)
+    return summaries[:20]
+
+
+def _paper_relevance_refs(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    refs: list[dict[str, str]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        source_id = _clean_text(item.get("source_id"))
+        citation_key = _clean_text(item.get("citation_key"))
+        if not source_id and not citation_key:
+            continue
+        ref = {
+            "source_id": source_id,
+            "citation_key": citation_key,
+            "reason": _clean_text(item.get("reason"))[:300],
+        }
+        refs.append({key: value for key, value in ref.items() if value})
+    return refs
 
 
 def _citation_source_findings(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:

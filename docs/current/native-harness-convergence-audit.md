@@ -260,6 +260,12 @@ Chat Agent
   - Context assembly now also derives top-level `scratch_refs[]` from existing `member_execution_transcript.scratch_refs` in recent harness evidence, not only from raw upstream sandbox output payloads.
   - Mock SCI sandbox E2E now runs a sequential literature -> experiment -> writing chain and asserts the writer sees scratch refs, reproducibility summary and experiment interpretation summary before staging Prism review.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_policy_and_registry.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_context_assembly.py tests/unit/subagents/test_react.py tests/agents/lead_agent/v2/test_team_kernel.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 99 passed.
+- 2026-06-10 paper relevance eval slice:
+  - Added optional `paper_relevance` research-eval surface over existing `node_metadata.harness.paper_relevance_summary`.
+  - The gate requires at least one topic-aligned ref with `source_id` or `citation_key`, rejects any off-topic refs, and reports bounded aligned/weak/off-topic refs; it does not run model judging or retrieval.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> RED on missing `paper_relevance`, then 16 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness/research_task_eval.py tests/agents/harness/test_research_task_eval.py` -> passed.
+  - `backend`: native harness regression gate -> 306 passed.
 - 2026-06-09 closed workspace directory contract slice:
   - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
   - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.
