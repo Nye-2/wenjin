@@ -398,6 +398,7 @@ class LeadAgentRuntime:
             "sandbox_policy": dict(definition.get("sandbox_policy") or {}),
             "review_policy": dict(definition.get("review_policy") or {}),
             "citation_policy": dict(definition.get("citation_policy") or {}),
+            "research_evidence": dict(definition.get("research_evidence") or {}),
             "quality_gates": list(definition.get("quality_gates") or []),
         }
 

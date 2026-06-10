@@ -140,6 +140,16 @@ quality_gates:
 - imrad_or_journal_structure_respected
 - methods_results_discussion_consistent
 - data_code_availability_considered
+research_evidence:
+  required_surfaces:
+  - literature
+  - experiment
+  - writing
+  - workflow_trace
+  - experiment_interpretation
+  - output_ref_reuse
+  notes:
+  - The workflow must produce reviewable literature, sandbox artifact, writing output, member execution trace, interpreted experiment evidence, and reused output refs when recoverable refs exist.
 graph_template:
   phases:
   - name: step_01_evidence_analyst

@@ -468,6 +468,37 @@ def test_workspace_specific_quality_gates_present():
         assert not missing, f"{cap_path}: missing workspace-specific gates {sorted(missing)}"
 
 
+def test_sci_sandbox_research_capabilities_declare_evidence_surfaces():
+    required = {
+        "sci_empirical_package": {
+            "literature",
+            "experiment",
+            "writing",
+            "workflow_trace",
+            "experiment_interpretation",
+            "output_ref_reuse",
+        },
+        "reproducibility_audit": {
+            "experiment",
+            "workflow_trace",
+            "experiment_interpretation",
+            "output_ref_reuse",
+        },
+    }
+    by_id = {
+        yaml.safe_load(path.read_text())["id"]: path
+        for path in _collect_capability_files()
+    }
+    for capability_id, required_surfaces in required.items():
+        data = yaml.safe_load(by_id[capability_id].read_text())
+        research_evidence = data.get("research_evidence") or {}
+        surfaces = set(research_evidence.get("required_surfaces") or [])
+        assert required_surfaces <= surfaces, (
+            f"{capability_id}: missing research evidence surfaces "
+            f"{sorted(required_surfaces - surfaces)}"
+        )
+
+
 def test_china_jurisdiction_defaults_for_software_copyright_and_patent():
     for cap_path in _collect_capability_files():
         data = yaml.safe_load(cap_path.read_text())

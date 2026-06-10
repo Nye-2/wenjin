@@ -68,6 +68,24 @@ def _make_resolver(cap_obj) -> MagicMock:
     return resolver
 
 
+def test_capability_policy_preserves_research_evidence_contract() -> None:
+    capability = SimpleNamespace(
+        definition_json={
+            "research_evidence": {
+                "required_surfaces": ["workflow_trace", "output_ref_reuse"],
+                "notes": ["reuse output refs before rerunning"],
+            }
+        }
+    )
+
+    policy = LeadAgentRuntime._capability_policy(capability)
+
+    assert policy["research_evidence"] == {
+        "required_surfaces": ["workflow_trace", "output_ref_reuse"],
+        "notes": ["reuse output refs before rerunning"],
+    }
+
+
 @pytest.mark.asyncio
 async def test_load_workspace_data_projects_dataset_assets_into_file_summary():
     class _FakeClient:
