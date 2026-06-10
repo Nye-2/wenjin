@@ -326,6 +326,14 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_scheduler_and_python_tool.py -q` -> 52 passed.
   - `backend`: `.venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py::test_team_harness_mock_sandbox_flow_stages_reviewable_artifact -q` -> RED until the mock production payload included lifecycle output refs, then passed with assertions on node summary, downstream writer context and `output_ref_recovery`.
   - Native harness gate: 318 selected backend tests passed.
+- 2026-06-10 native harness final hardening slice:
+  - `diff_tracker.py` now de-duplicates `sandbox_execution_summary.generated_artifact_count` by reviewable `/workspace/outputs/**` or `/workspace/reports/**` virtual path across top-level tool records and metadata. Internal output refs, protected paths and duplicate metadata projections cannot inflate artifact counts.
+  - Replan signal semantics are pinned by tests: duplicate `python_exit_nonzero` tool failures produce one bounded replan signal, while `sandbox_queue_timeout` remains non-iterative with `max_extra_iterations=0`.
+  - `docs/current/architecture.md` now records `build_workspace_task_contract()` as the full task-scoped path source, `build_agent_workspace_task_contract()` as the safe model-facing projection, and `workspace_harness_output_ref_path()` as the only output-ref path generator.
+  - `docs/current/native-harness-external-gap-matrix.md` now includes the final decision table: adopt Codex/deer-flow evidence, policy, output-budget and regression-density patterns; do not adopt their runtimes, workspace roots, provider bridges, run stores, or generic shell.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py -q` -> 17 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py -q` -> 8 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness/diff_tracker.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py` -> passed.
 
 ## 6. 剩余不足
 

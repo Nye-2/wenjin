@@ -260,7 +260,7 @@ Expected: all selected tests pass. The runtime tests must continue to show:
 - `sandbox_queue_timeout` stops with warning.
 - `tool_forbidden` stops with warning.
 
-- [ ] **Step 5: Commit only if code or tests changed**
+- [x] **Step 5: Commit only if code or tests changed**
 
 Run:
 
@@ -282,7 +282,7 @@ If only the plan file is changed because existing tests already cover the behavi
 - Modify: `docs/current/native-harness-convergence-audit.md`
 - Modify: `docs/current/release-gate-checklist.md`
 
-- [ ] **Step 1: Update the architecture source of truth**
+- [x] **Step 1: Update the architecture source of truth**
 
 Ensure `docs/current/architecture.md` states:
 
@@ -294,7 +294,7 @@ Ensure `docs/current/architecture.md` states:
 - Codex and deer-flow are reference projects only; their runtimes, protocol bridges, workspace roots, and stream stores are not part of Wenjin.
 ```
 
-- [ ] **Step 2: Update workspace current behavior**
+- [x] **Step 2: Update workspace current behavior**
 
 Ensure `docs/current/workspace-current-state.md` includes:
 
@@ -304,7 +304,7 @@ Ensure `docs/current/workspace-current-state.md` includes:
 - Full task-contract internals remain in `workspace_layout.py` and runtime code, not in model-facing prompts.
 ```
 
-- [ ] **Step 3: Update the external gap matrix**
+- [x] **Step 3: Update the external gap matrix**
 
 Ensure `docs/current/native-harness-external-gap-matrix.md` has this final decision table:
 
@@ -317,11 +317,11 @@ Ensure `docs/current/native-harness-external-gap-matrix.md` has this final decis
 | deer-flow regression density | Small deterministic tests for path, truncation, tool evidence, and replan semantics | Broad compatibility layer |
 ```
 
-- [ ] **Step 4: Update release gate**
+- [x] **Step 4: Update release gate**
 
 Ensure `docs/current/release-gate-checklist.md` includes the final native harness gate command from Task 4.
 
-- [ ] **Step 5: Commit docs**
+- [x] **Step 5: Commit docs**
 
 Run:
 

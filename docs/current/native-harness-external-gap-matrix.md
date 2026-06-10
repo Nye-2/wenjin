@@ -57,6 +57,15 @@ deer-flow:
 | deer-flow sandbox providers | Wenjin has Local/Docker providers | Learn hygiene only | One workspace owns one sandbox; no cross-thread sandbox manager or `/mnt/user-data` alias. |
 | deer-flow local path gate and file-operation lock | Partially implemented | Adopt selected hygiene | Wenjin validates virtual `/workspace` paths, resolved physical targets and symlink escapes. Direct guidance/manifest writes now fail closed; a future slice can add per-workspace/path async write locks if concurrent same-path writes show up in real runs. |
 
+## Final Boundary Decision Table
+
+| External pattern | Bring into Wenjin | Do not bring |
+| --- | --- | --- |
+| Codex structured tool evidence | Bounded harness tool-call metadata, file diffs, output refs, command audits, lifecycle summaries | Codex SDK runtime, provider bridge, generic terminal agent |
+| Codex sandbox/file discipline | Explicit path policy, protected/internal path masking, read-only output refs, task-scoped cwd/env evidence | `/mnt/user-data`, ACP workspace root, persistent shell sessions |
+| deer-flow planner/reporter discipline | TeamKernel quality gates, bounded replan signals, final report/evidence checks | deer-flow graph runtime, message bus, run store |
+| deer-flow regression density | Small deterministic tests for path rules, truncation, tool evidence, lifecycle summaries, and replan semantics | Broad compatibility layer or fallback runtime |
+
 ## Current Wenjin Gaps
 
 1. **Output refs have moved under task scratch and now have an explicit recovery tool.**
