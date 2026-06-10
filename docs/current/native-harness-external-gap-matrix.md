@@ -48,7 +48,7 @@ deer-flow:
 | Codex unified exec sessions | Not implemented | Do not migrate | Wenjin should not expose a generic persistent shell. Experiments run through `sandbox.run_python` and lead-owned job runner. |
 | Codex SDK/app-server | Removed from current direction | Do not migrate | Too heavy for Wenjin's vertical workflow; would create a second run/thread model. |
 | deer-flow tool-output externalization | Implemented, now read-only output refs are supported | Keep and refine | Explicit refs let agent recover omitted content without listing/searching hidden internals. |
-| deer-flow sandbox audit middleware | Partially implemented | Adopt selected checks | Regex/shlex risk classification is useful for install/run audit; keep Wenjin's command contract narrower. |
+| deer-flow sandbox audit middleware | Implemented for current command audit boundary | Keep narrow and harden | Wenjin rejects null-byte and oversized command payloads before job creation, sanitizes audit metadata/previews, and keeps regex/path/package checks scoped to `run_python`, install and smoke checks rather than opening a generic bash tool. |
 | deer-flow task/subagent tool | Wenjin has TeamKernel + templates | Do not migrate runtime | The useful idea is delegated context isolation; implementation remains TeamKernel member execution. |
 | deer-flow parent-child subagent usage reporting | Implemented as harness member transcript projection | Keep as existing metadata projection | `task_tool` reports subagent usage back to `RunJournal`; Wenjin now rolls member tool usage, duration, token usage, scratch refs and evidence paths into `ExecutionNodeRecord.node_metadata.harness.member_execution_transcript`, without creating a parallel RunJournal. |
 | deer-flow subagent lifecycle stream | Partially implemented as TeamKernel/RunView progress | Adopt vocabulary only | `task_started` / `task_running` / `task_completed` / timeout/cancel is a useful lifecycle vocabulary. Wenjin should keep existing execution events and team roster projection. |
@@ -74,7 +74,7 @@ deer-flow:
 
 2. **Command audit is strong for current sandbox actions but not a reusable shell policy language.**
 
-   The current decision contract covers `run_python`, dependency install, and smoke checks with `operation`, `decision`, `risk_level`, `reason`, `network_profile`, `billable`, `blocked_before_job`, and `command_preview`. Wenjin should still not copy Codex's full execpolicy DSL unless a future dedicated `sandbox.run_command` design is approved with DataService policy, output budget, artifact discovery, kill/cancel, and UI audit.
+   The current decision contract covers `run_python`, dependency install, and smoke checks with `operation`, `decision`, `risk_level`, `reason`, `network_profile`, `billable`, `blocked_before_job`, and `command_preview`. It now also fail-closes null-byte and oversized command payloads before job creation and sanitizes command audit metadata/previews so control characters do not leak into DataService job metadata. Wenjin should still not copy Codex's full execpolicy DSL unless a future dedicated `sandbox.run_command` design is approved with DataService policy, output budget, artifact discovery, kill/cancel, and UI audit.
 
 3. **Context recovery after large omitted output has a facade and run tool companion.**
 

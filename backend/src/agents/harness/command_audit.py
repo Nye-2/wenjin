@@ -19,6 +19,9 @@ CommandPolicyDecision = Literal["allow", "forbid"]
 
 _SECRET_ENV_NAME_RE = re.compile(r"(api[_-]?key|secret|token|password|credential)", re.IGNORECASE)
 _ABSOLUTE_PATH_FRAGMENT_RE = re.compile(r"(?<![A-Za-z0-9_.:/])(/(?!/)[^ \t\r\n'\"`|&;<>(),]*)")
+_MAX_COMMAND_PAYLOAD_CHARS = 10_000
+_METADATA_TEXT_LIMIT = 1_000
+_COMMAND_PREVIEW_LIMIT = 300
 _SAFE_PACKAGE_SPEC_RE = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9_.-]*"
     r"(?:\[[A-Za-z0-9_,.-]+\])?"
@@ -113,11 +116,15 @@ class CommandAuditResult:
             "reasons": list(self.reasons),
             "policy_decision": _policy_decision(self),
             "command": {
-                "argv": list(self.command.argv),
-                "shell_command": self.command.shell_command,
-                "cwd": self.command.cwd,
+                "argv": [_safe_metadata_text(item) for item in self.command.argv],
+                "shell_command": (
+                    _safe_metadata_text(self.command.shell_command)
+                    if self.command.shell_command is not None
+                    else None
+                ),
+                "cwd": _safe_metadata_text(self.command.cwd),
                 "env": _masked_env(self.command.env),
-                "network_profile": self.command.network_profile,
+                "network_profile": _safe_metadata_text(self.command.network_profile),
                 "timeout_seconds": self.command.timeout_seconds,
                 "output_bytes_cap": self.command.output_bytes_cap,
             },
@@ -133,6 +140,8 @@ def audit_command(
     effective_policy = policy or CommandAuditPolicy()
     reasons: list[str] = []
     warnings: list[str] = []
+
+    _audit_command_input_shape(command, reasons)
 
     if command.network_profile not in set(effective_policy.allowed_network_profiles):
         reasons.append("network_profile_not_allowed")
@@ -176,6 +185,30 @@ def require_command_policy_allowed(result: CommandAuditResult) -> None:
             "sandbox command policy forbids execution: "
             f"{decision['reason']} ({decision['command_preview']})"
         )
+
+
+def _audit_command_input_shape(command: HarnessCommand, reasons: list[str]) -> None:
+    fields = [
+        str(command.cwd or ""),
+        str(command.network_profile or ""),
+        str(command.operation or ""),
+    ]
+    if command.shell_command is not None:
+        command_payload = str(command.shell_command or "")
+        fields.append(command_payload)
+    else:
+        command_payload = " ".join(str(item) for item in command.argv)
+        fields.extend(str(item) for item in command.argv)
+    for key, value in command.env.items():
+        fields.append(str(key or ""))
+        if value is not None:
+            fields.append(str(value))
+    if any("\x00" in field for field in fields):
+        reasons.append("command_null_byte")
+    if len(command_payload) > _MAX_COMMAND_PAYLOAD_CHARS or any(
+        len(field) > _MAX_COMMAND_PAYLOAD_CHARS for field in fields
+    ):
+        reasons.append("command_too_long")
 
 
 def _audit_shell_command(
@@ -378,11 +411,11 @@ def _policy_decision(result: CommandAuditResult) -> dict[str, Any]:
     decision: CommandPolicyDecision = "forbid" if result.verdict == "block" else "allow"
     return {
         "schema": "wenjin.harness.command_policy_decision.v1",
-        "operation": str(result.command.operation or "sandbox_command"),
+        "operation": _safe_metadata_text(result.command.operation or "sandbox_command"),
         "decision": decision,
         "risk_level": result.risk_level,
         "reason": _policy_reason(result),
-        "network_profile": result.command.network_profile,
+        "network_profile": _safe_metadata_text(result.command.network_profile),
         "billable": result.command.billable,
         "blocked_before_job": decision == "forbid",
         "command_preview": _command_preview(result.command),
@@ -392,6 +425,8 @@ def _policy_decision(result: CommandAuditResult) -> dict[str, Any]:
 def _policy_reason(result: CommandAuditResult) -> str:
     reasons = set(result.reasons)
     if result.verdict == "block":
+        if {"command_null_byte", "command_too_long"}.intersection(reasons):
+            return "invalid_command_input"
         if "unsafe_package_spec" in reasons:
             return "unsafe_package_spec"
         if "blocked_program" in reasons:
@@ -428,10 +463,10 @@ def _looks_like_workspace_python(command: HarnessCommand) -> bool:
 
 def _command_preview(command: HarnessCommand) -> str:
     if command.shell_command is not None:
-        preview = " ".join(str(command.shell_command or "").split())
+        preview = " ".join(_safe_metadata_text(command.shell_command, limit=_MAX_COMMAND_PAYLOAD_CHARS).split())
     else:
-        preview = " ".join(str(item) for item in command.argv)
-    return preview if len(preview) <= 300 else f"{preview[:297]}..."
+        preview = " ".join(_safe_metadata_text(item, limit=_MAX_COMMAND_PAYLOAD_CHARS) for item in command.argv)
+    return preview if len(preview) <= _COMMAND_PREVIEW_LIMIT else f"{preview[: _COMMAND_PREVIEW_LIMIT - 3]}..."
 
 
 def _split_shellish_tokens(command: str) -> tuple[str, ...]:
@@ -441,5 +476,14 @@ def _split_shellish_tokens(command: str) -> tuple[str, ...]:
 def _masked_env(env: dict[str, str | None]) -> dict[str, str | None]:
     masked: dict[str, str | None] = {}
     for key, value in env.items():
-        masked[key] = "***" if _SECRET_ENV_NAME_RE.search(key) and value is not None else value
+        safe_key = _safe_metadata_text(key)
+        if _SECRET_ENV_NAME_RE.search(str(key)) and value is not None:
+            masked[safe_key] = "***"
+        else:
+            masked[safe_key] = _safe_metadata_text(value) if value is not None else None
     return masked
+
+
+def _safe_metadata_text(value: Any, *, limit: int = _METADATA_TEXT_LIMIT) -> str:
+    text = str(value or "").replace("\x00", "\\0")
+    return text if len(text) <= limit else f"{text[: limit - 3]}..."

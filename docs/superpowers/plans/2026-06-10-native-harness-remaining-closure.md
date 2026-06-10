@@ -44,7 +44,7 @@
   - `a151807a feat: surface research evidence contract to team members`
   - `5c6b0082 fix: align sandbox script names with workspace layout`
   - `51ff3532 fix: filter protected sandbox artifacts`
-- Current verified native harness gate: `354 passed` in this continuation pass.
+- Current verified native harness gate: `357 passed` in this continuation pass after the command-audit input-boundary slice.
 - The next work must be a convergence pass, not a feature expansion pass. The plan below replaces broad exploration with six bounded closure slices.
 
 ## Current Continuation Plan

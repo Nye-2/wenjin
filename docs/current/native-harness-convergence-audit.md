@@ -466,6 +466,14 @@ Chat Agent
   - `backend`: native harness release gate -> 354 passed.
   - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 src/sandbox tests/agents/harness tests/agents/lead_agent/v2 tests/sandbox tests/integration/test_harness_mock_sandbox_e2e.py` -> passed.
   - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or generic `sandbox.run_command`; documentation and negative/historical tests remain the only expected hits. `git diff --check` passed.
+- 2026-06-10 command audit input-boundary slice:
+  - Re-sampled deer-flow `sandbox_audit_middleware.py` and adopted only the input-shape safety pattern, not the generic bash middleware/runtime. `audit_command()` now fail-closes null-byte and oversized command payloads before sandbox job creation and sanitizes command audit metadata/previews.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_command_audit.py::test_audit_blocks_null_byte_in_shell_command_even_when_shell_is_allowed tests/agents/harness/test_command_audit.py::test_audit_blocks_null_byte_in_argv_command tests/agents/harness/test_command_audit.py::test_audit_blocks_unreasonably_long_command_payloads -q` -> RED on missing `command_null_byte` / `command_too_long`, then passed after command audit hardening.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_command_audit.py -q` -> 25 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_command_audit.py tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py -q` -> 52 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness/command_audit.py tests/agents/harness/test_command_audit.py` -> passed.
+  - `backend`: native harness release gate -> 357 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 src/sandbox tests/agents/harness tests/agents/lead_agent/v2 tests/sandbox tests/integration/test_harness_mock_sandbox_e2e.py` -> passed.
 
 ## 6. 剩余不足
 

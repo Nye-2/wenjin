@@ -136,6 +136,48 @@ def test_audit_rejects_empty_shell_command() -> None:
     assert "shell_command_required" in result.reasons
 
 
+def test_audit_blocks_null_byte_in_shell_command_even_when_shell_is_allowed() -> None:
+    result = audit_command(
+        HarnessCommand(shell_command="python /workspace/scripts/analysis.py\x00"),
+        CommandAuditPolicy(allow_shell=True),
+    )
+
+    assert result.verdict == "block"
+    assert result.risk_level == "high"
+    assert "command_null_byte" in result.reasons
+    decision = result.model_dump()["policy_decision"]
+    assert decision["reason"] == "invalid_command_input"
+    assert "\x00" not in decision["command_preview"]
+
+
+def test_audit_blocks_null_byte_in_argv_command() -> None:
+    result = audit_command(
+        HarnessCommand(argv=("python", "/workspace/scripts/analysis.py\x00")),
+        CommandAuditPolicy(allowed_network_profiles=("none",)),
+    )
+
+    assert result.verdict == "block"
+    assert result.risk_level == "high"
+    assert "command_null_byte" in result.reasons
+    decision = result.model_dump()["policy_decision"]
+    assert decision["reason"] == "invalid_command_input"
+    assert "\x00" not in decision["command_preview"]
+
+
+def test_audit_blocks_unreasonably_long_command_payloads() -> None:
+    result = audit_command(
+        HarnessCommand(shell_command="python /workspace/scripts/analysis.py " + ("x" * 10001)),
+        CommandAuditPolicy(allow_shell=True),
+    )
+
+    assert result.verdict == "block"
+    assert result.risk_level == "high"
+    assert "command_too_long" in result.reasons
+    decision = result.model_dump()["policy_decision"]
+    assert decision["reason"] == "invalid_command_input"
+    assert len(decision["command_preview"]) <= 300
+
+
 def test_audit_blocks_paths_outside_workspace() -> None:
     result = audit_command(
         HarnessCommand(
