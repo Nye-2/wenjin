@@ -20,6 +20,7 @@ from src.agents.lead_agent.v2.sandbox_execution_lifecycle import (
     build_sandbox_execution_lifecycle,
     finalize_sandbox_execution_lifecycle,
 )
+from src.agents.lead_agent.v2.sandbox_job_metadata import runtime_job_metadata
 from src.agents.lead_agent.v2.sandbox_runtime_session import (
     SandboxRuntimeSession,
     exception_exit_code_for_job,
@@ -30,19 +31,11 @@ from src.agents.lead_agent.v2.sandbox_script_executor import (
     SandboxScriptExecutor,
     sandbox_script_execution_env,
 )
+from src.agents.lead_agent.v2.sandbox_smoke_command import SMOKE_COMMAND, smoke_command_audit
 from src.agents.lead_agent.v2.sandbox_stream_budgeting import budget_script_streams
 from src.agents.lead_agent.v2.workspace_sandbox import WorkspaceSandboxManager
 from src.sandbox.providers.docker import DockerSandboxProvider
 from src.sandbox.workspace_layout import build_agent_workspace_task_contract
-
-SMOKE_COMMAND = (
-    "PYTHON_BIN=$(command -v python || command -v python3) && "
-    "\"$PYTHON_BIN\" -c \"import json, platform, statistics; "
-    "data=[2,4,6,8]; "
-    "print(json.dumps({'ok': True, 'mean': statistics.mean(data), "
-    "'python': platform.python_version(), 'engine': 'lead_agent_docker_sandbox'}, "
-    "ensure_ascii=False, sort_keys=True))\""
-)
 
 
 class SandboxJobRunner:
@@ -77,15 +70,7 @@ class SandboxJobRunner:
             workspace_type=workspace_type,
             sandbox_policy=sandbox_policy,
         )
-        command_audit = audit_command(
-            HarnessCommand(
-                shell_command=SMOKE_COMMAND,
-                operation="smoke_check",
-                billable=True,
-            ),
-            CommandAuditPolicy(allow_shell=True),
-        )
-        require_command_policy_allowed(command_audit)
+        command_audit = smoke_command_audit()
         job = await ctx.manager.create_job(
             workspace_id=workspace_id,
             environment_id=str(ctx.environment.id),
@@ -97,7 +82,7 @@ class SandboxJobRunner:
             runtime_image=ctx.runtime_image,
             sandbox_policy=dict(sandbox_policy),
             resource_limits=dict(ctx.limits),
-            metadata=_runtime_job_metadata(
+            metadata=runtime_job_metadata(
                 billing_reservation_id=billing_reservation_id,
                 command_audit=command_audit.model_dump(),
             ),
@@ -210,7 +195,7 @@ class SandboxJobRunner:
             network_profile="none",
             timeout_seconds=ctx.sandbox_timeout,
         )
-        job_metadata = _runtime_job_metadata(
+        job_metadata = runtime_job_metadata(
             script_name=plan.safe_name,
             billing_reservation_id=billing_reservation_id,
             command_audit=command_audit,
@@ -352,28 +337,3 @@ class SandboxJobRunner:
             metadata_json=final_job_metadata,
         )
         return output
-
-
-def _runtime_job_metadata(
-    *,
-    script_name: str | None = None,
-    billing_reservation_id: str | None = None,
-    command_audit: dict[str, Any] | None = None,
-    task_scratch_path: str | None = None,
-    task_contract: dict[str, Any] | None = None,
-    execution_lifecycle: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    metadata = {"source": "lead_agent_sandbox_runtime"}
-    if script_name is not None:
-        metadata["script_name"] = script_name
-    if task_scratch_path:
-        metadata["task_scratch_path"] = task_scratch_path
-    if task_contract is not None:
-        metadata["task_contract"] = dict(task_contract)
-    if billing_reservation_id:
-        metadata["credit_reservation_id"] = billing_reservation_id
-    if command_audit is not None:
-        metadata["command_audit"] = command_audit
-    if execution_lifecycle is not None:
-        metadata["execution_lifecycle"] = execution_lifecycle
-    return metadata

@@ -3,30 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast, get_args
+from typing import Any, Literal
 
 from src.agents.contracts.task_report import TaskReport
+from src.agents.harness.research_eval_surfaces import (
+    DEFAULT_RESEARCH_SURFACES,
+    ResearchSurface,
+)
 from src.sandbox.workspace_layout import (
     WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT,
     is_workspace_readable_internal_output_ref,
 )
+from src.services.prism_review_contracts import is_valid_academic_style_delta_contract
 
-ResearchSurface = Literal[
-    "literature",
-    "experiment",
-    "writing",
-    "workflow_trace",
-    "citation_strength",
-    "experiment_interpretation",
-    "paper_relevance",
-    "statistical_robustness",
-    "writing_semantic_preservation",
-    "writing_academic_style",
-    "output_ref_reuse",
-]
 EvalStatus = Literal["pass", "fail"]
-DEFAULT_RESEARCH_SURFACES: tuple[ResearchSurface, ...] = ("literature", "experiment", "writing")
-KNOWN_RESEARCH_SURFACES = frozenset(str(item) for item in get_args(ResearchSurface))
 
 _VERIFIED_LITERATURE_LEVELS = {
     "external_verified",
@@ -146,27 +136,6 @@ def evaluate_research_task_evidence(
         findings=findings,
         evidence=evidence,
     )
-
-
-def required_surfaces_from_capability_policy(
-    capability_policy: dict[str, Any] | None,
-    *,
-    default: tuple[ResearchSurface, ...] = DEFAULT_RESEARCH_SURFACES,
-) -> tuple[ResearchSurface, ...]:
-    """Read deterministic research evidence surfaces from capability policy."""
-
-    policy = capability_policy if isinstance(capability_policy, dict) else {}
-    research_evidence = policy.get("research_evidence")
-    research_evidence = research_evidence if isinstance(research_evidence, dict) else {}
-    raw_surfaces = _string_list(research_evidence.get("required_surfaces"))
-    if not raw_surfaces:
-        return default
-
-    invalid = [surface for surface in raw_surfaces if surface not in KNOWN_RESEARCH_SURFACES]
-    if invalid:
-        raise ValueError(f"unknown research evidence surfaces: {', '.join(_unique(invalid))}")
-
-    return tuple(cast(ResearchSurface, surface) for surface in _unique(raw_surfaces))
 
 
 def _evaluate_literature(
@@ -433,6 +402,7 @@ def _evaluate_writing_academic_style(
         and evidence["high_risk_count"] == 0
         and evidence["low_score_count"] == 0
         and evidence["anti_pattern_count"] == 0
+        and evidence["improvement_fail_count"] == 0
     )
     if passed:
         return True, evidence, ""
@@ -767,9 +737,11 @@ def _writing_academic_style_evidence(report: TaskReport) -> dict[str, Any]:
     review_item_count = 0
     checked_item_count = 0
     missing_style_contract_count = 0
+    delta_checked_count = 0
     high_risk_count = 0
     low_score_count = 0
     anti_pattern_count = 0
+    improvement_fail_count = 0
     min_score: int | None = None
     style_items: list[dict[str, Any]] = []
     for item in report.review_items:
@@ -788,29 +760,37 @@ def _writing_academic_style_evidence(report: TaskReport) -> dict[str, Any]:
         score = min(_int_value(contract.get("academic_style_score")), 5)
         signals = _string_list(contract.get("signals"))[:10]
         anti_patterns = _string_list(contract.get("anti_patterns"))[:10]
+        style_delta = _prism_academic_style_delta_contract(contract)
         if risk == "high":
             high_risk_count += 1
         if score < 3:
             low_score_count += 1
         anti_pattern_count += len(anti_patterns)
+        if style_delta:
+            delta_checked_count += 1
+            if not is_valid_academic_style_delta_contract(style_delta, pending_score=score):
+                improvement_fail_count += 1
         min_score = score if min_score is None else min(min_score, score)
-        style_items.append(
-            {
-                "review_item_id": review_item_id,
-                "file_path": file_path,
-                "risk": risk,
-                "academic_style_score": score,
-                "signals": signals,
-                "anti_patterns": anti_patterns,
-            }
-        )
+        style_item = {
+            "review_item_id": review_item_id,
+            "file_path": file_path,
+            "risk": risk,
+            "academic_style_score": score,
+            "signals": signals,
+            "anti_patterns": anti_patterns,
+        }
+        if style_delta:
+            style_item["style_delta"] = style_delta
+        style_items.append(style_item)
     return {
         "review_item_count": review_item_count,
         "checked_item_count": checked_item_count,
         "missing_style_contract_count": missing_style_contract_count,
+        "delta_checked_count": delta_checked_count,
         "high_risk_count": high_risk_count,
         "low_score_count": low_score_count,
         "anti_pattern_count": anti_pattern_count,
+        "improvement_fail_count": improvement_fail_count,
         "min_academic_style_score": min_score or 0,
         "style_items": style_items[:20],
     }
@@ -877,6 +857,11 @@ def _prism_academic_style_contract(item: dict[str, Any]) -> dict[str, Any]:
     preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
     contract = preview.get("academic_style_contract")
     return dict(contract) if isinstance(contract, dict) else {}
+
+
+def _prism_academic_style_delta_contract(contract: dict[str, Any]) -> dict[str, Any]:
+    delta = contract.get("style_delta")
+    return dict(delta) if isinstance(delta, dict) else {}
 
 
 def _citation_audit_refs(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:

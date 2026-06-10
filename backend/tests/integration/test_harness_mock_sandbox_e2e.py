@@ -9,10 +9,8 @@ import pytest
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.harness.contracts import HarnessToolResult
-from src.agents.harness.research_task_eval import (
-    evaluate_research_task_evidence,
-    required_surfaces_from_capability_policy,
-)
+from src.agents.harness.research_eval_surfaces import required_surfaces_from_capability_policy
+from src.agents.harness.research_task_eval import evaluate_research_task_evidence
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.dataservice_client.contracts.catalog import AgentTemplatePayload, CapabilitySkillPayload
 from src.subagents.v2.types.react import _resolve_tools

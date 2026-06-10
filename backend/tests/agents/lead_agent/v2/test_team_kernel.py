@@ -453,6 +453,17 @@ class CapturingQualityGateRuntimeStateClient(FakeCriticalReviewerFailingTeamCata
         return SimpleNamespace(runtime_state_json=command.runtime_state_json)
 
 
+class CapturingCancelledEpisodeClient(FakeTeamCatalogClient):
+    runtime_state_updates: list[dict] = []
+
+    async def get_execution(self, execution_id: str):
+        return SimpleNamespace(runtime_state_json={})
+
+    async def update_execution(self, execution_id: str, command):
+        type(self).runtime_state_updates.append(command.model_dump(mode="json"))
+        return SimpleNamespace(runtime_state_json=command.runtime_state_json)
+
+
 class CountingGeneralistNewSkillCatalogClient(FakeCriticalReviewerFailingTeamCatalogClient):
     skill_list_calls = 0
 
@@ -1044,6 +1055,7 @@ async def test_team_kernel_runtime_stops_when_template_policy_invalid(monkeypatc
 async def test_team_kernel_runtime_records_cancelled_invocations(monkeypatch) -> None:
     published: list[tuple[str, str, dict]] = []
     node_events: list[dict] = []
+    CapturingCancelledEpisodeClient.runtime_state_updates.clear()
 
     async def publish(execution_id, event_name, payload):
         published.append((execution_id, event_name, payload))
@@ -1053,7 +1065,7 @@ async def test_team_kernel_runtime_records_cancelled_invocations(monkeypatch) ->
 
     monkeypatch.setattr(
         "src.agents.lead_agent.v2.team.kernel.dataservice_client",
-        lambda: FakeTeamCatalogClient(),
+        lambda: CapturingCancelledEpisodeClient(),
     )
 
     cap = _team_capability()
@@ -1078,6 +1090,9 @@ async def test_team_kernel_runtime_records_cancelled_invocations(monkeypatch) ->
     assert report.status == "cancelled"
     assert "cancelled" in node_statuses
     assert "cancelled" in invocation_statuses
+    runtime_state = CapturingCancelledEpisodeClient.runtime_state_updates[-1]["runtime_state_json"]
+    assert runtime_state["harness_episode"]["status"] == "finished"
+    assert runtime_state["harness_episode"]["stop_reason"] == "cancelled"
 
 
 @pytest.mark.asyncio

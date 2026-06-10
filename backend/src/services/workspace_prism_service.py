@@ -160,6 +160,8 @@ def _review_file_change_payload(item: Any) -> dict[str, Any]:
         "applied_at": _isoformat(item.applied_at),
     }
     for key, value in payload.items():
+        if key in {"content_contract", "semantic_contract", "academic_style_contract"}:
+            continue
         if key not in result and value is not None:
             result[key] = value
     return result

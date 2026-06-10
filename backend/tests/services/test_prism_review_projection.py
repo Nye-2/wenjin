@@ -170,3 +170,85 @@ def test_prism_review_projection_marks_academic_style_contract_high_risk_for_cas
         "vague_noun",
     ]
     assert "pending_content" not in projection["preview"]
+
+
+def test_prism_review_projection_sanitizes_upstream_academic_style_delta_contract():
+    content = (
+        "\\documentclass{article}\\begin{document}"
+        "Therefore, the analysis indicates a robust effect \\cite{smith2026}."
+        "\\end{document}"
+    )
+    item = SimpleNamespace(
+        id="review-4",
+        target_kind="prism_file_change",
+        target_ref_json={
+            "latex_project_id": "latex-1",
+            "logical_key": "project:main",
+            "path": "main.tex",
+        },
+        status="pending",
+        title="main.tex",
+        summary="Style-improving rewrite",
+        payload_json={
+            "logical_key": "project:main",
+            "path": "main.tex",
+            "reason": "full_revision",
+            "pending_hash": "sha256:pending",
+            "pending_content": content,
+            "academic_style_contract": {
+                "schema": "untrusted",
+                "target_path": "main.tex",
+                "basis": "member_self_check",
+                "risk": "low",
+                "academic_style_score": 4,
+                "signal_count": 99,
+                "anti_pattern_count": 99,
+                "citation_key_count": 99,
+                "signals": ["citation_grounding", "formal_register", "formal_register"],
+                "anti_patterns": [],
+                "raw_before": "As an AI, I think this thing is very good.",
+                "style_delta": {
+                    "schema": "untrusted-delta",
+                    "baseline_academic_style_score": 1,
+                    "score_delta": 999,
+                    "improves_academic_style": False,
+                    "raw_after": content,
+                },
+            },
+        },
+        preview_json={
+            "mode": "diff",
+            "path": "main.tex",
+            "pending_hash": "sha256:pending",
+            "pending_content": content,
+        },
+        result_json=None,
+        created_at=None,
+        updated_at=None,
+        applied_at=None,
+    )
+
+    projection = prism_review_item_projection(item, execution_id="exec-1")
+
+    assert projection["preview"]["academic_style_contract"] == {
+        "schema": "wenjin.prism.academic_style_contract.v1",
+        "target_path": "main.tex",
+        "basis": "member_self_check",
+        "risk": "low",
+        "academic_style_score": 4,
+        "signal_count": 2,
+        "anti_pattern_count": 0,
+        "citation_key_count": 50,
+        "signals": ["citation_grounding", "formal_register"],
+        "anti_patterns": [],
+        "style_delta": {
+            "schema": "wenjin.prism.academic_style_delta.v1",
+            "baseline_academic_style_score": 1,
+            "pending_academic_style_score": 4,
+            "score_delta": 3,
+            "improves_academic_style": True,
+        },
+    }
+    assert "raw_before" not in projection["preview"]["academic_style_contract"]
+    assert "raw_after" not in projection["preview"]["academic_style_contract"]["style_delta"]
+    assert "pending_content" not in projection["preview"]

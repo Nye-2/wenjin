@@ -136,6 +136,18 @@ class HarnessReplanCatalogClient:
         ]
 
 
+class PersistingHarnessReplanCatalogClient(HarnessReplanCatalogClient):
+    def __init__(self, subagent_type: str) -> None:
+        super().__init__(subagent_type)
+        self.runtime_state_updates: list[dict] = []
+
+    async def get_execution(self, execution_id: str):
+        return SimpleNamespace(runtime_state_json={"existing_state": True})
+
+    async def update_execution(self, execution_id: str, payload):
+        self.runtime_state_updates.append(payload.runtime_state_json)
+
+
 def _capability() -> SimpleNamespace:
     return SimpleNamespace(
         id="sandbox_experiment",
@@ -246,6 +258,58 @@ async def test_python_exit_nonzero_replan_signal_revises_code_agent_once(monkeyp
         and gate["suggested_recruits"][0]["template_id"] == "code_runner.v1"
         for gate in gates
     )
+
+
+@pytest.mark.asyncio
+async def test_replan_episode_state_is_persisted_with_iteration_decisions(monkeypatch) -> None:
+    TeamHarnessPythonReplanFake.calls.clear()
+    client = PersistingHarnessReplanCatalogClient("team_harness_python_replan_fake")
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: client,
+    )
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=_capability())
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-harness-replan-episode", brief=_brief())
+
+    assert report.status == "completed"
+    assert client.runtime_state_updates
+    latest_state = client.runtime_state_updates[-1]
+    assert latest_state["existing_state"] is True
+    episode = latest_state["harness_episode"]
+    assert episode["schema"] == "wenjin.team.harness_episode.v1"
+    assert episode["execution_id"] == "exec-harness-replan-episode"
+    assert episode["status"] == "finished"
+    assert episode["stop_reason"] == "quality_gates_satisfied"
+    assert [
+        {
+            "iteration": item["iteration"],
+            "phase": item["phase"],
+            "next_action": item["next_action"],
+            "selected_recruits": item["selected_recruits"],
+        }
+        for item in episode["decisions"]
+    ] == [
+        {
+            "iteration": 1,
+            "phase": "core",
+            "next_action": "revise_existing",
+            "selected_recruits": ["code_runner.v1"],
+        },
+        {
+            "iteration": 2,
+            "phase": "dynamic_recruitment",
+            "next_action": "finish",
+            "selected_recruits": [],
+        },
+    ]
 
 
 @pytest.mark.asyncio

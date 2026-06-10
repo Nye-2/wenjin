@@ -47,6 +47,13 @@ from .contracts import (
     QualityGateResult,
     TeamBlackboard,
 )
+from .episode import (
+    bounded_harness_episode,
+    finish_harness_episode,
+    record_replan_decision,
+    start_harness_episode,
+    stop_reason_from_gates,
+)
 from .member_context import build_team_member_context
 from .policy import (
     TeamPolicyError,
@@ -204,6 +211,10 @@ class TeamKernelRuntime:
         invocations: list[AgentInvocation] = []
         gates: list[QualityGateResult] = []
         skill_cache = SkillCatalogCache()
+        blackboard.harness_episode = start_harness_episode(
+            execution_id=execution_id,
+            core_templates=team_policy.core_templates,
+        )
 
         core_invocations = await self._run_core_phase(
             execution_id=execution_id,
@@ -220,8 +231,12 @@ class TeamKernelRuntime:
         )
 
         if self._all_cancelled(invocations):
+            finish_harness_episode(blackboard.harness_episode, stop_reason="cancelled")
+            await self._persist_runtime_state(execution_id, blackboard)
             return invocations, gates
         if not invocations:
+            finish_harness_episode(blackboard.harness_episode, stop_reason="no_invocations")
+            await self._persist_runtime_state(execution_id, blackboard)
             return invocations, gates
 
         batch_gates = await self._evaluate_quality_gates(
@@ -241,6 +256,24 @@ class TeamKernelRuntime:
             len(invocations),
             team_policy,
         )
+        self._record_replan_decision(
+            blackboard,
+            iteration=1,
+            phase="core",
+            gates=batch_gates,
+            selected_recruits=next_batch,
+        )
+        if not next_batch:
+            finish_harness_episode(
+                blackboard.harness_episode,
+                stop_reason=stop_reason_from_gates(
+                    batch_gates,
+                    selected_recruits=[],
+                ),
+            )
+            await self._persist_runtime_state(execution_id, blackboard)
+            return invocations, gates
+        await self._persist_runtime_state(execution_id, blackboard)
         gates.extend(
             await self._run_dynamic_recruitment_phase(
                 execution_id=execution_id,
@@ -351,6 +384,8 @@ class TeamKernelRuntime:
             if not batch:
                 break
             if self._all_cancelled(invocations):
+                finish_harness_episode(blackboard.harness_episode, stop_reason="cancelled")
+                await self._persist_runtime_state(execution_id, blackboard)
                 break
 
             batch_gates = await self._evaluate_quality_gates(
@@ -370,7 +405,22 @@ class TeamKernelRuntime:
                 len(invocations),
                 team_policy,
             )
+            self._record_replan_decision(
+                blackboard,
+                iteration=iteration,
+                phase="dynamic_recruitment",
+                gates=batch_gates,
+                selected_recruits=recruits,
+            )
             if not recruits:
+                finish_harness_episode(
+                    blackboard.harness_episode,
+                    stop_reason=stop_reason_from_gates(
+                        batch_gates,
+                        selected_recruits=[],
+                    ),
+                )
+                await self._persist_runtime_state(execution_id, blackboard)
                 if any(gate.next_action == "recruit_more" for gate in batch_gates):
                     no_progress_rounds += 1
                     if no_progress_rounds >= team_policy.limits.no_progress_rounds_before_stop:
@@ -379,8 +429,19 @@ class TeamKernelRuntime:
 
             no_progress_rounds = 0
             next_batch = recruits
+            await self._persist_runtime_state(execution_id, blackboard)
             iteration += 1
 
+        if blackboard.harness_episode.get("status") != "finished":
+            finish_harness_episode(
+                blackboard.harness_episode,
+                stop_reason=self._dynamic_stop_reason(
+                    iteration=iteration,
+                    team_policy=team_policy,
+                    invocations=invocations,
+                ),
+            )
+            await self._persist_runtime_state(execution_id, blackboard)
         return gates
 
     @staticmethod
@@ -597,15 +658,14 @@ class TeamKernelRuntime:
                 "execution.team.quality_gate",
                 {"quality_gate": gate.model_dump(mode="json")},
             )
-        await self._persist_quality_gate_history(execution_id, blackboard)
         return gates
 
-    async def _persist_quality_gate_history(
+    async def _persist_runtime_state(
         self,
         execution_id: str,
         blackboard: TeamBlackboard,
     ) -> None:
-        if not blackboard.quality_gate_history:
+        if not blackboard.quality_gate_history and not blackboard.harness_episode:
             return
         try:
             async with dataservice_client() as client:
@@ -620,12 +680,46 @@ class TeamKernelRuntime:
                     if isinstance(existing, dict):
                         runtime_state.update(existing)
                 runtime_state["quality_gates"] = list(blackboard.quality_gate_history)
+                if blackboard.harness_episode:
+                    runtime_state["harness_episode"] = bounded_harness_episode(
+                        blackboard.harness_episode,
+                    )
                 await update_execution(
                     execution_id,
                     ExecutionUpdatePayload(runtime_state_json=runtime_state),
                 )
         except Exception:
             logger.warning("Failed to persist team quality gate runtime state", exc_info=True)
+
+    @staticmethod
+    def _record_replan_decision(
+        blackboard: TeamBlackboard,
+        *,
+        iteration: int,
+        phase: str,
+        gates: list[QualityGateResult],
+        selected_recruits: list[RecruitmentCandidate],
+    ) -> None:
+        record_replan_decision(
+            blackboard.harness_episode,
+            iteration=iteration,
+            phase=phase,
+            gates=gates,
+            selected_recruits=[recruit.template_id for recruit in selected_recruits],
+        )
+
+    @staticmethod
+    def _dynamic_stop_reason(
+        *,
+        iteration: int,
+        team_policy: CapabilityTeamPolicy,
+        invocations: list[AgentInvocation],
+    ) -> str:
+        if len(invocations) >= team_policy.limits.max_invocations_total:
+            return "max_invocations_reached"
+        if iteration > team_policy.limits.max_iterations:
+            return "max_iterations_reached"
+        return "dynamic_recruitment_stopped"
 
     def _build_invocation_batch(
         self,

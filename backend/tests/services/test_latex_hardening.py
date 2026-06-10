@@ -818,6 +818,7 @@ async def test_bridge_write_records_managed_change_as_feature_proposal(
             "pending_content": "new",
             "pending_hash": WorkspaceLatexProjectService._content_hash("new"),
             "current_hash": WorkspaceLatexProjectService._content_hash("old"),
+            "academic_style_contract": None,
             "source_execution_id": None,
             "source_task_id": None,
         }

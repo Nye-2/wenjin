@@ -637,6 +637,86 @@ def test_context_sandbox_execution_summary_drops_raw_runtime_payload() -> None:
     assert "nested raw output" not in rendered
 
 
+def test_context_budget_preserves_required_research_evidence_before_generic_context() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={
+            "goal": "continue experiment",
+            "inputs": {
+                "research_evidence_requirements": {
+                    "schema": "wenjin.team.research_evidence_requirements.v1",
+                    "required_surfaces": ["experiment_interpretation", "output_ref_reuse"],
+                },
+                "upstream_context": {
+                    "artifact_candidates": [
+                        {
+                            "path": f"/workspace/reports/generic-{index}.md",
+                            "kind": "sandbox_report",
+                            "title": "generic context " + ("x" * 240),
+                        }
+                        for index in range(20)
+                    ]
+                },
+            },
+        },
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "summary": "generic historical summary " + ("y" * 1600),
+                        "node_metadata": {
+                            "harness": {
+                                "sandbox_execution_summary": {
+                                    "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                                    "python_runs": 1,
+                                    "failed_python_runs": 0,
+                                    "output_refs": [
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"
+                                    ],
+                                },
+                                "reproducibility_summary": {
+                                    "schema": "wenjin.harness.reproducibility_summary.v1",
+                                    "script_paths": ["/workspace/scripts/analysis.py"],
+                                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                                    "artifact_paths": ["/workspace/reports/analysis.md"],
+                                },
+                                "experiment_interpretation_summary": {
+                                    "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                                    "interpretation_count": 1,
+                                    "method_summary_count": 1,
+                                    "metric_names": ["accuracy"],
+                                    "verified_result_count": 1,
+                                    "limitation_count": 1,
+                                    "artifact_paths": ["/workspace/reports/analysis.md"],
+                                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                                },
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+        allowed_tools=["sandbox.run_python", "sandbox.read_file"],
+        max_chars=5600,
+    )
+
+    assert bundle["budget"] == {"max_chars": 5600, "truncated": True}
+    assert bundle["upstream_artifact_candidates"] == []
+    assert bundle["experiment_interpretation_summary"]["interpretation_count"] == 1
+    assert bundle["reproducibility_summary"]["script_paths"] == ["/workspace/scripts/analysis.py"]
+    assert bundle["sandbox_execution_summary"]["output_refs"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"
+    ]
+    assert bundle["output_ref_recovery"]["refs"] == [
+        {
+            "output_ref": "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt",
+            "source": "sandbox_execution_summary",
+        }
+    ]
+
+
 def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",

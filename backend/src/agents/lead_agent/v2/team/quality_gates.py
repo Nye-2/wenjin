@@ -7,11 +7,11 @@ from typing import Any, cast
 
 from src.agents.contracts.task_report import TaskReport
 from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
-from src.agents.harness.research_task_eval import (
+from src.agents.harness.research_eval_surfaces import (
     ResearchSurface,
-    evaluate_research_task_evidence,
     required_surfaces_from_capability_policy,
 )
+from src.agents.harness.research_task_eval import evaluate_research_task_evidence
 from src.sandbox.workspace_layout import is_workspace_readable_internal_output_ref
 
 from .citation_source_audit import collect_citation_source_audit_findings

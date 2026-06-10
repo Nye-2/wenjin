@@ -6,7 +6,7 @@ import re
 from typing import Any
 
 from src.agents.contracts.task_brief import TaskBrief
-from src.agents.harness.research_task_eval import required_surfaces_from_capability_policy
+from src.agents.harness.research_eval_surfaces import required_surfaces_from_capability_policy
 from src.sandbox.workspace_layout import (
     is_workspace_internal_path,
     is_workspace_protected_path,

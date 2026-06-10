@@ -558,6 +558,7 @@ async def test_stage_prism_review_items_from_writer_output():
                                     "path": "main.tex",
                                     "reason": "feature_proposal",
                                     "pending_content": "{{output.text}}",
+                                    "academic_style_contract": "{{output.academic_style_contract}}",
                                 },
                             }
                         ],
@@ -604,6 +605,19 @@ async def test_stage_prism_review_items_from_writer_output():
                     "manuscript_writer": {
                         "output": {
                             "text": "\\documentclass{article}\\begin{document}Draft\\end{document}",
+                            "academic_style_contract": {
+                                "schema": "wenjin.prism.academic_style_contract.v1",
+                                "target_path": "main.tex",
+                                "basis": "member_self_check",
+                                "risk": "low",
+                                "academic_style_score": 4,
+                                "signals": ["research_noun", "formal_register"],
+                                "anti_patterns": [],
+                                "style_delta": {
+                                    "schema": "wenjin.prism.academic_style_delta.v1",
+                                    "baseline_academic_style_score": 1,
+                                },
+                            },
                         },
                     },
                 },
@@ -623,6 +637,19 @@ async def test_stage_prism_review_items_from_writer_output():
     assert command.source_task_id == "manuscript_writer"
     assert "Draft" in command.pending_content
     assert command.pending_hash
+    assert command.academic_style_contract == {
+        "schema": "wenjin.prism.academic_style_contract.v1",
+        "target_path": "main.tex",
+        "basis": "member_self_check",
+        "risk": "low",
+        "academic_style_score": 4,
+        "signals": ["research_noun", "formal_register"],
+        "anti_patterns": [],
+        "style_delta": {
+            "schema": "wenjin.prism.academic_style_delta.v1",
+            "baseline_academic_style_score": 1,
+        },
+    }
 
 
 @pytest.mark.asyncio

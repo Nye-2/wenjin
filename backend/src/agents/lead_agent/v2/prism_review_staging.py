@@ -84,6 +84,16 @@ def build_prism_file_change_command(
         if current_hash_value is not None and str(current_hash_value).strip()
         else None
     )
+    academic_style_contract_value = (
+        resolve_output_mapping_value(str(mapping["academic_style_contract"]), output)
+        if "academic_style_contract" in mapping
+        else output.get("academic_style_contract")
+    )
+    academic_style_contract = (
+        dict(academic_style_contract_value)
+        if isinstance(academic_style_contract_value, dict)
+        else None
+    )
 
     return PrismFileChangeUpsertPayload(
         workspace_id=workspace_id,
@@ -94,6 +104,7 @@ def build_prism_file_change_command(
         pending_content=pending_content,
         pending_hash=sha256(pending_content.encode("utf-8")).hexdigest(),
         current_hash=current_hash,
+        academic_style_contract=academic_style_contract,
         source_execution_id=execution_id,
         source_task_id=task_name,
     )

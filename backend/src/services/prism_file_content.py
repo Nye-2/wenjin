@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import re
 
+from src.services.prism_review_contracts import (
+    PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA,
+    sanitize_academic_style_contract_for_projection,
+)
+
 _LATEX_DOCUMENT_RE = re.compile(
     r"\\documentclass(?:\[[^\]]*\])?\{[^}]+\}.*?\\begin\{document\}.*?\\end\{document\}",
     re.DOTALL,
@@ -49,7 +54,6 @@ _EQUATION_ENVS = {
     "split",
 }
 _TABLE_ENVS = {"longtable", "tabular", "tabular*", "table", "table*"}
-PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA = "wenjin.prism.academic_style_contract.v1"
 _RESEARCH_NOUN_RE = re.compile(
     r"\b(analysis|claim|data|dataset|evidence|experiment|finding|method|model|result|study)\b",
     re.IGNORECASE,
@@ -200,7 +204,10 @@ def summarize_prism_file_change_academic_style_contract(
 
     file_path = str(path or "").strip()
     if isinstance(source_contract, dict) and source_contract:
-        return _sanitize_academic_style_contract(source_contract, target_path=file_path)
+        return sanitize_academic_style_contract_for_projection(
+            source_contract,
+            target_path=file_path,
+        )
 
     text = str(content or "")
     citation_keys = _extract_citation_keys(text)
@@ -308,26 +315,6 @@ def _sanitize_semantic_contract(value: dict[str, object], *, target_path: str) -
     }
 
 
-def _sanitize_academic_style_contract(value: dict[str, object], *, target_path: str) -> dict[str, object]:
-    risk = str(value.get("risk") or "medium").strip().lower()
-    if risk not in {"low", "medium", "high"}:
-        risk = "medium"
-    signals = _bounded_string_list(value.get("signals"))
-    anti_patterns = _bounded_string_list(value.get("anti_patterns"))
-    return {
-        "schema": PRISM_ACADEMIC_STYLE_CONTRACT_SCHEMA,
-        "target_path": str(value.get("target_path") or target_path),
-        "basis": str(value.get("basis") or "upstream_contract")[:80],
-        "risk": risk,
-        "academic_style_score": min(_nonnegative_int(value.get("academic_style_score")), 5),
-        "signal_count": _nonnegative_int(value.get("signal_count")) or len(signals),
-        "anti_pattern_count": _nonnegative_int(value.get("anti_pattern_count")) or len(anti_patterns),
-        "citation_key_count": _nonnegative_int(value.get("citation_key_count")),
-        "signals": signals,
-        "anti_patterns": anti_patterns,
-    }
-
-
 def _extract_citation_keys(content: str) -> list[str]:
     keys: list[str] = []
     seen: set[str] = set()
@@ -360,16 +347,6 @@ def _style_anti_patterns(content: str) -> list[str]:
 def _plain_words(content: str) -> list[str]:
     text = re.sub(r"\\[A-Za-z]+(?:\[[^\]]*\])?(?:\{[^}]*\})?", " ", str(content or ""))
     return re.findall(r"[A-Za-z][A-Za-z-]+", text)
-
-
-def _bounded_string_list(value: object) -> list[str]:
-    raw = value if isinstance(value, list | tuple | set | frozenset) else []
-    result: list[str] = []
-    for item in list(raw)[:10]:
-        text = str(item or "").strip()[:80]
-        if text and text not in result:
-            result.append(text)
-    return result
 
 
 def _has_equation_constructs(content: str) -> bool:

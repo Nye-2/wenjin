@@ -9,10 +9,7 @@ from src.agents.contracts.task_report import (
     LibraryItemOutput,
     TaskReport,
 )
-from src.agents.harness.research_task_eval import (
-    evaluate_research_task_evidence,
-    required_surfaces_from_capability_policy,
-)
+from src.agents.harness.research_task_eval import evaluate_research_task_evidence
 from src.agents.lead_agent.v2.team.contracts import AgentInvocation, CapabilityTeamPolicy
 from src.agents.lead_agent.v2.team.quality_gates import evaluate_quality_gates
 
@@ -28,50 +25,6 @@ def _report(*, review_items: list[dict] | None = None, outputs: list | None = No
         review_items=review_items or [],
         errors=[],
     )
-
-
-def test_required_surfaces_from_capability_policy_reads_research_evidence_contract() -> None:
-    surfaces = required_surfaces_from_capability_policy(
-        {
-            "research_evidence": {
-                "required_surfaces": [
-                    "literature",
-                    "experiment",
-                    "workflow_trace",
-                    "output_ref_reuse",
-                    "output_ref_reuse",
-                    "",
-                ]
-            }
-        }
-    )
-
-    assert surfaces == (
-        "literature",
-        "experiment",
-        "workflow_trace",
-        "output_ref_reuse",
-    )
-
-
-def test_required_surfaces_from_capability_policy_uses_default_when_contract_missing() -> None:
-    assert required_surfaces_from_capability_policy({}) == (
-        "literature",
-        "experiment",
-        "writing",
-    )
-
-
-def test_required_surfaces_from_capability_policy_rejects_unknown_surfaces() -> None:
-    try:
-        required_surfaces_from_capability_policy(
-            {"research_evidence": {"required_surfaces": ["workflow_trace", "unknown_surface"]}}
-        )
-    except ValueError as exc:
-        assert "unknown research evidence surfaces" in str(exc)
-        assert "unknown_surface" in str(exc)
-    else:
-        raise AssertionError("unknown research evidence surface should fail")
 
 
 def _node_metadata() -> list[dict]:
@@ -744,9 +697,11 @@ def test_research_task_eval_passes_writing_academic_style_for_reviewable_prism_c
         "review_item_count": 1,
         "checked_item_count": 1,
         "missing_style_contract_count": 0,
+        "delta_checked_count": 0,
         "high_risk_count": 0,
         "low_score_count": 0,
         "anti_pattern_count": 0,
+        "improvement_fail_count": 0,
         "min_academic_style_score": 4,
         "style_items": [
             {
@@ -809,6 +764,136 @@ def test_research_task_eval_fails_writing_academic_style_for_ai_like_or_low_scor
     assert evaluation.evidence["writing_academic_style"]["high_risk_count"] == 1
     assert evaluation.evidence["writing_academic_style"]["low_score_count"] == 1
     assert evaluation.evidence["writing_academic_style"]["anti_pattern_count"] == 2
+
+
+def test_research_task_eval_fails_writing_academic_style_when_delta_regresses() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(
+            review_items=[
+                {
+                    "id": "prism-review-1",
+                    "kind": "prism_file_change",
+                    "target": {
+                        "logical_key": "project:main",
+                        "file_path": "main.tex",
+                    },
+                    "preview": {
+                        "academic_style_contract": {
+                            "schema": "wenjin.prism.academic_style_contract.v1",
+                            "target_path": "main.tex",
+                            "basis": "bounded_academic_style_heuristic",
+                            "risk": "low",
+                            "academic_style_score": 3,
+                            "signal_count": 3,
+                            "anti_pattern_count": 0,
+                            "citation_key_count": 1,
+                            "signals": [
+                                "citation_grounding",
+                                "research_noun",
+                                "formal_register",
+                            ],
+                            "anti_patterns": [],
+                            "style_delta": {
+                                "schema": "wenjin.prism.academic_style_delta.v1",
+                                "baseline_academic_style_score": 4,
+                                "pending_academic_style_score": 3,
+                                "score_delta": -1,
+                                "improves_academic_style": False,
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        required_surfaces=("writing_academic_style",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"writing_academic_style": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "writing_academic_style",
+            "severity": "high",
+            "message": "No Prism academic-style improvement contract passed the writing quality gate.",
+        }
+    ]
+    assert evaluation.evidence["writing_academic_style"]["delta_checked_count"] == 1
+    assert evaluation.evidence["writing_academic_style"]["improvement_fail_count"] == 1
+    assert evaluation.evidence["writing_academic_style"]["style_items"] == [
+        {
+            "review_item_id": "prism-review-1",
+            "file_path": "main.tex",
+            "risk": "low",
+            "academic_style_score": 3,
+            "signals": [
+                "citation_grounding",
+                "research_noun",
+                "formal_register",
+            ],
+            "anti_patterns": [],
+            "style_delta": {
+                "schema": "wenjin.prism.academic_style_delta.v1",
+                "baseline_academic_style_score": 4,
+                "pending_academic_style_score": 3,
+                "score_delta": -1,
+                "improves_academic_style": False,
+            },
+        }
+    ]
+
+
+def test_research_task_eval_fails_writing_academic_style_when_delta_is_inconsistent() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(
+            review_items=[
+                {
+                    "id": "prism-review-1",
+                    "kind": "prism_file_change",
+                    "target": {
+                        "logical_key": "project:main",
+                        "file_path": "main.tex",
+                    },
+                    "preview": {
+                        "academic_style_contract": {
+                            "schema": "wenjin.prism.academic_style_contract.v1",
+                            "target_path": "main.tex",
+                            "basis": "bounded_academic_style_heuristic",
+                            "risk": "low",
+                            "academic_style_score": 3,
+                            "signal_count": 3,
+                            "anti_pattern_count": 0,
+                            "citation_key_count": 1,
+                            "signals": [
+                                "citation_grounding",
+                                "research_noun",
+                                "formal_register",
+                            ],
+                            "anti_patterns": [],
+                            "style_delta": {
+                                "schema": "untrusted",
+                                "baseline_academic_style_score": 1,
+                                "pending_academic_style_score": 5,
+                                "score_delta": 4,
+                                "improves_academic_style": True,
+                            },
+                        }
+                    },
+                }
+            ]
+        ),
+        required_surfaces=("writing_academic_style",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.evidence["writing_academic_style"]["delta_checked_count"] == 1
+    assert evaluation.evidence["writing_academic_style"]["improvement_fail_count"] == 1
+    assert evaluation.evidence["writing_academic_style"]["style_items"][0]["style_delta"] == {
+        "schema": "untrusted",
+        "baseline_academic_style_score": 1,
+        "pending_academic_style_score": 5,
+        "score_delta": 4,
+        "improves_academic_style": True,
+    }
 
 
 def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None:

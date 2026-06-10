@@ -484,12 +484,35 @@ Chat Agent
   - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 src/sandbox src/services/prism_file_content.py src/services/prism_review_projection.py tests/agents/harness tests/agents/lead_agent/v2 tests/sandbox tests/services/test_prism_review_projection.py tests/integration/test_harness_mock_sandbox_e2e.py` -> passed.
   - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or generic `sandbox.run_command`; documentation and negative/historical tests remain the only expected hits.
   - code-review-graph incremental update completed on `/Users/ze/wenjin`; review context marked `research_task_eval.py` as high impact because it is a shared evaluator, so the 360-test gate is the evidence used for this slice.
+- 2026-06-10 Prism academic-style delta contract slice:
+  - Extended canonical Prism file-change staging so a writer can provide `academic_style_contract` through output mapping or direct output. The contract is carried only through `PrismFileChangeUpsertPayload.academic_style_contract` into the DataService review item payload/preview.
+  - Prism DataService now stores only an allowlisted bounded academic style contract, and Prism projection sanitizes/recomputes the reviewer-facing contract: signal/anti-pattern counts, capped citation-key count, and optional `style_delta(schema=wenjin.prism.academic_style_delta.v1)` from baseline and pending scores. Raw before/after text, pending content, and untrusted upstream delta fields are stripped before they can become reviewer-facing evidence.
+  - `writing_academic_style` eval now fails if a present `style_delta` is not a valid delta contract: schema must match, pending score must match the outer style score, `score_delta` must equal pending minus baseline, and `improves_academic_style` must be true with positive delta.
+  - Legacy `prism.file_changes[]` projection now filters `content_contract`, `semantic_contract`, and `academic_style_contract`; reviewer-facing quality evidence lives on sanitized `review_items[].preview`, so untrusted upstream raw before/after fields cannot leak through the older file-change surface.
+  - This remains a bounded deterministic review-evidence surface. It does not judge publishability, does not run a model judge, and does not expose manuscript text outside the existing review-first Prism flow.
+  - `backend`: targeted Prism academic-style delta tests -> RED on inconsistent delta being accepted, then 6 passed.
+  - `backend`: related Prism/research/mock sandbox suite -> 49 passed.
+  - `backend`: native harness release gate -> 365 passed.
+- 2026-06-11 native harness acceptance closeout slice:
+  - Added `research_task_eval_pack(schema-free dataclass API)` as a small deterministic acceptance-pack runner over existing `evaluate_research_task_evidence()` cases. It groups failures by case id and research surface so future real SCI fixtures can report what prompt/tool contract needs tuning without introducing a model judge.
+  - TeamKernel now records a bounded `harness_episode(schema=wenjin.team.harness_episode.v1)` in `runtime_state_json` beside `quality_gates`. The episode captures core/dynamic iteration decisions, gate ids/statuses, selected recruits and stop reason without raw tool payloads, making dynamic recruitment auditable instead of only observable through event order.
+  - Context budgeting now drops generic task upstream artifact/sandbox context before protected research-evidence summaries. This closes a budget edge case where capability-required `experiment_interpretation` / `output_ref_reuse` evidence could be removed while duplicated generic artifact candidates remained in `task.inputs.upstream_context`.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py tests/agents/harness/test_research_task_eval_pack.py tests/agents/harness/test_context_assembly.py -q` -> 44 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py tests/agents/lead_agent/v2/test_team_kernel.py tests/agents/lead_agent/v2/test_team_quality_gates.py -q` -> 51 passed.
+- 2026-06-11 architecture convergence pass:
+  - Prism academic-style contract logic is now single-sourced in `backend/src/services/prism_review_contracts.py`: DataService uses storage allowlisting, Prism projection uses bounded recomputation, and deterministic eval uses the same delta validator.
+  - Research surface declaration and capability-policy parsing moved to `backend/src/agents/harness/research_eval_surfaces.py`, leaving `research_task_eval.py` focused on evidence evaluation.
+  - Context budget trimming moved to `backend/src/agents/harness/context_budget_policy.py`, so `context_assembly.py` builds the bundle and delegates budget reduction instead of owning policy growth.
+  - TeamKernel runtime-state persistence is named around `runtime_state`, not quality-gate history, because it now persists both `quality_gates` and bounded `harness_episode`.
+  - Sandbox job orchestration was kept under the architecture threshold by moving job metadata and smoke command contracts to focused helpers.
+  - `backend`: `.venv/bin/python -m pytest tests/ -q` -> 2584 passed when run outside the filesystem sandbox because TSX helper tests need to create `/var/folders/**/tsx-*.pipe`.
+  - `backend`: `.venv/bin/ruff check src tests` -> passed.
 
 ## 6. 剩余不足
 
 ### P1: 模型可靠性仍是最大产出瓶颈
 
-当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：创新点可发表性、综合论证一致性、Prism 改稿是否真正改善学术表达。文献贴题度、实验解释、统计稳健性、Prism bounded semantic preservation 和 Prism bounded academic style 已经有 deterministic 结构门，但还不是完整的学术质量评分；`writing_academic_style` 只能拦截明显 AI 味/口语化/低信号改稿，不能证明文章已经达到可发表写作质量。
+当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：创新点可发表性、综合论证一致性、Prism 改稿是否真正改善学术表达。文献贴题度、实验解释、统计稳健性、Prism bounded semantic preservation 和 Prism bounded academic style 已经有 deterministic 结构门；`style_delta` 能防止携带上游合同的改稿相对 baseline 退步，但还不是完整的学术质量评分，也不能证明文章已经达到可发表写作质量。
 
 ### P1: 来源质量和引用核验还不够硬
 

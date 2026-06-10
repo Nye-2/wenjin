@@ -16,6 +16,7 @@ from src.dataservice.domains.review.contracts import (
 from src.dataservice.provenance_api import ProvenanceDataService
 from src.dataservice.review_api import ReviewDataService
 from src.dataservice.source_api import SourceDataService
+from src.services.prism_review_contracts import sanitize_academic_style_contract_for_storage
 
 PRISM_REVIEW_TARGET_DOMAIN = "prism"
 PRISM_FILE_CHANGE_TARGET_KIND = "prism_file_change"
@@ -26,7 +27,6 @@ _LATEX_CITE_RE = re.compile(
     r"\\(?:cite|citep|citet|citealp|citealt|parencite|textcite|autocite|supercite)"
     r"(?:\[[^\]]*\])*\{([^}]+)\}"
 )
-
 
 def _json_object(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
@@ -120,6 +120,7 @@ class PrismReviewDataService:
         pending_content: str,
         pending_hash: str,
         current_hash: str | None,
+        academic_style_contract: dict[str, Any] | None = None,
         source_execution_id: str | None = None,
         source_task_id: str | None = None,
     ) -> ReviewItemProjection:
@@ -132,6 +133,11 @@ class PrismReviewDataService:
         }
         if current_hash is not None:
             payload_json["current_hash"] = current_hash
+        bounded_academic_style_contract = sanitize_academic_style_contract_for_storage(
+            academic_style_contract
+        )
+        if bounded_academic_style_contract:
+            payload_json["academic_style_contract"] = bounded_academic_style_contract
         if source_execution_id:
             payload_json["source_execution_id"] = source_execution_id
         if source_task_id:
