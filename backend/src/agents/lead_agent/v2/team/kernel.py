@@ -227,6 +227,7 @@ class TeamKernelRuntime:
         batch_gates = await self._evaluate_quality_gates(
             execution_id=execution_id,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             counts=counts,
             invocations=invocations,
             latest_invocations=core_invocations,
@@ -355,6 +356,7 @@ class TeamKernelRuntime:
             batch_gates = await self._evaluate_quality_gates(
                 execution_id=execution_id,
                 team_policy=team_policy,
+                capability_policy=capability_policy,
                 counts=counts,
                 invocations=invocations,
                 latest_invocations=batch,
@@ -565,6 +567,7 @@ class TeamKernelRuntime:
         *,
         execution_id: str,
         team_policy: CapabilityTeamPolicy,
+        capability_policy: dict[str, Any],
         counts: Counter[str],
         invocations: list[AgentInvocation],
         latest_invocations: list[AgentInvocation],
@@ -576,6 +579,7 @@ class TeamKernelRuntime:
             team_policy.quality_pipeline,
             invocations,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             counts=counts,
             latest_invocations=latest_invocations,
             harness_replan_signals=self._sync_harness_replan_signals(
@@ -836,6 +840,7 @@ class TeamKernelRuntime:
         invocations: list[AgentInvocation],
         *,
         team_policy: CapabilityTeamPolicy | None = None,
+        capability_policy: dict[str, Any] | None = None,
         counts: Counter[str] | None = None,
         latest_invocations: list[AgentInvocation] | None = None,
         harness_replan_signals: list[dict[str, Any]] | None = None,
@@ -844,6 +849,7 @@ class TeamKernelRuntime:
             quality_pipeline,
             invocations,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             counts=counts,
             latest_invocations=latest_invocations,
             harness_replan_signals=harness_replan_signals,

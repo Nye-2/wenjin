@@ -752,3 +752,71 @@ def test_quality_gates_fail_citation_audit_with_not_ready_bibtex_projection() ->
             "risk_status": "not_ready",
         }
     ]
+
+
+def test_quality_gates_enforce_capability_required_research_surfaces() -> None:
+    recoverable_ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/runner/stdout.txt"
+
+    gates = evaluate_quality_gates(
+        [],
+        [
+            _invocation(
+                template_id="evidence_analyst.v1",
+                output_report={"summary": "ran experiment but did not inspect prior output"},
+                tool_calls=[
+                    {
+                        "name": "sandbox.run_python",
+                        "status": "completed",
+                        "output_refs": [recoverable_ref],
+                        "execution_lifecycle": {
+                            "schema": "wenjin.sandbox.execution_lifecycle.v1",
+                            "sandbox_job_id": "job-1",
+                            "sandbox_environment_id": "env-1",
+                            "status": "succeeded",
+                            "final_status": "succeeded",
+                            "exit_code": 0,
+                            "outputs": {"output_refs": [recoverable_ref]},
+                        },
+                    }
+                ],
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(
+            core_templates=["evidence_analyst.v1"],
+            optional_templates=[],
+            quality_pipeline=[],
+        ),
+        capability_policy={
+            "research_evidence": {
+                "required_surfaces": ["workflow_trace", "output_ref_reuse"],
+            }
+        },
+        counts=Counter({"evidence_analyst.v1": 1}),
+        latest_invocations=[],
+    )
+
+    gate = next(item for item in gates if item.gate_id == "research_evidence_required")
+    assert gate.status == "fail"
+    assert gate.severity == "high"
+    assert gate.next_action == "revise_existing"
+    assert gate.required_fixes == [
+        {
+            "message": (
+                "Satisfy capability-required research evidence surfaces before "
+                "finalizing: output_ref_reuse."
+            )
+        }
+    ]
+    assert gate.findings == [
+        {
+            "surface": "output_ref_reuse",
+            "severity": "high",
+            "message": "Recoverable sandbox output refs were available but no member read them.",
+        }
+    ]
+    assert gate.suggested_recruits == [
+        {
+            "template_id": "evidence_analyst.v1",
+            "reason": "research_evidence_required",
+        }
+    ]

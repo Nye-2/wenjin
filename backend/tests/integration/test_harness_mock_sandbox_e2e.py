@@ -918,6 +918,15 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     ]
     assert "/workspace/.env" not in json.dumps(experiment_node, default=str)
     assert any(event_name == "execution.harness.tool_call.completed" for _, event_name, _ in harness_events)
+    quality_gate_events = [
+        payload["quality_gate"]
+        for _, event_name, payload in harness_events
+        if event_name == "execution.team.quality_gate"
+    ]
+    research_gate = next(
+        gate for gate in quality_gate_events if gate["gate_id"] == "research_evidence_required"
+    )
+    assert research_gate["status"] == "pass"
 
     evaluation = evaluate_research_task_evidence(
         report,

@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from typing import Any, cast
+
+from src.agents.contracts.task_report import TaskReport
+from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
+from src.agents.harness.research_task_eval import (
+    ResearchSurface,
+    evaluate_research_task_evidence,
+    required_surfaces_from_capability_policy,
+)
 
 from .citation_source_audit import collect_citation_source_audit_findings
 from .contracts import AgentInvocation, CapabilityTeamPolicy, QualityGateResult
@@ -73,6 +81,14 @@ CITATION_AUDIT_BLOCKING_STATUSES = {
 }
 
 CITATION_AUDIT_BLOCKING_SEVERITIES = {"blocking", "critical", "high"}
+RUNTIME_RESEARCH_EVIDENCE_SURFACES = {
+    "workflow_trace",
+    "citation_strength",
+    "experiment_interpretation",
+    "paper_relevance",
+    "statistical_robustness",
+    "output_ref_reuse",
+}
 
 
 def evaluate_quality_gates(
@@ -80,6 +96,7 @@ def evaluate_quality_gates(
     invocations: list[AgentInvocation],
     *,
     team_policy: CapabilityTeamPolicy | None = None,
+    capability_policy: dict[str, Any] | None = None,
     counts: Counter[str] | None = None,
     latest_invocations: list[AgentInvocation] | None = None,
     harness_replan_signals: list[dict[str, Any]] | None = None,
@@ -138,6 +155,16 @@ def evaluate_quality_gates(
             total_invocations=total_invocations,
         )
     )
+    gates.extend(
+        _research_evidence_required(
+            invocations,
+            latest=latest,
+            capability_policy=capability_policy,
+            team_policy=team_policy,
+            counts=counts,
+            total_invocations=total_invocations,
+        )
+    )
     gates.extend(_no_direct_commit_intent(latest))
     gates.extend(
         _citation_and_evidence_required(
@@ -148,6 +175,119 @@ def evaluate_quality_gates(
         )
     )
     return gates
+
+
+def _research_evidence_required(
+    invocations: list[AgentInvocation],
+    *,
+    latest: list[AgentInvocation],
+    capability_policy: dict[str, Any] | None,
+    team_policy: CapabilityTeamPolicy | None,
+    counts: Counter[str] | None,
+    total_invocations: int,
+) -> list[QualityGateResult]:
+    surfaces = required_surfaces_from_capability_policy(capability_policy, default=())
+    runtime_surfaces = tuple(
+        cast(ResearchSurface, surface)
+        for surface in surfaces
+        if surface in RUNTIME_RESEARCH_EVIDENCE_SURFACES
+    )
+    if not runtime_surfaces:
+        return []
+
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="team-quality-gate",
+            capability_id="team-quality-gate",
+            status="completed",
+            duration_seconds=0,
+            narrative="Runtime research evidence quality gate.",
+            outputs=[],
+            review_items=[],
+            errors=[],
+        ),
+        node_events=_node_events_from_invocations(invocations),
+        required_surfaces=runtime_surfaces,
+    )
+    if evaluation.status == "pass":
+        return [
+            QualityGateResult(
+                gate_id="research_evidence_required",
+                status="pass",
+                severity="low",
+                findings=[],
+                required_fixes=[],
+                next_action="finish",
+            )
+        ]
+
+    failed_surfaces = _dedupe(
+        [
+            str(finding.get("surface") or "")
+            for finding in evaluation.findings
+            if str(finding.get("surface") or "").strip()
+        ]
+    )
+    suggested: list[dict[str, str]] = []
+    for invocation in _research_revision_candidates(latest or invocations):
+        suggested.extend(
+            _revision_recruit(
+                invocation,
+                reason="research_evidence_required",
+                team_policy=team_policy,
+                counts=counts,
+                total_invocations=total_invocations,
+                already_suggested=len(suggested),
+            )
+        )
+    surface_text = ", ".join(failed_surfaces) if failed_surfaces else "research evidence"
+    return [
+        QualityGateResult(
+            gate_id="research_evidence_required",
+            status="fail",
+            severity="high",
+            findings=evaluation.findings,
+            required_fixes=[
+                {
+                    "message": (
+                        "Satisfy capability-required research evidence surfaces before "
+                        f"finalizing: {surface_text}."
+                    )
+                }
+            ],
+            suggested_recruits=_dedupe_recruits(suggested),
+            next_action="revise_existing" if suggested else "stop_with_warning",
+        )
+    ]
+
+
+def _node_events_from_invocations(invocations: list[AgentInvocation]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for invocation in invocations:
+        node_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+        if not node_metadata:
+            continue
+        node_metadata = {
+            "template_id": invocation.template_id,
+            "display_name": invocation.display_name,
+            **node_metadata,
+        }
+        events.append(
+            {
+                "node_type": "agent_invocation",
+                "status": "completed" if invocation.status == "succeeded" else invocation.status,
+                "node_metadata": node_metadata,
+            }
+        )
+    return events
+
+
+def _research_revision_candidates(invocations: list[AgentInvocation]) -> list[AgentInvocation]:
+    return [
+        invocation
+        for invocation in invocations
+        if invocation.status == "succeeded" and invocation.tool_calls
+    ]
 
 
 def _harness_replan_signal_gates(
