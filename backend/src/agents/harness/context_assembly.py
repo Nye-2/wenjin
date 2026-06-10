@@ -20,6 +20,22 @@ HARNESS_CONTEXT_BUNDLE_SCHEMA = "wenjin.harness.context_bundle.v1"
 OUTPUT_REF_RECOVERY_SCHEMA = "wenjin.harness.output_ref_recovery.v1"
 _PUBLIC_PATH_CLASS_ORDER = ("workspace", "datasets", "scripts", "artifacts")
 _MAX_FILE_SUMMARY_ITEMS = 20
+_SANDBOX_EXECUTION_SUMMARY_ALLOWED_KEYS = frozenset(
+    {
+        "schema",
+        "python_runs",
+        "failed_python_runs",
+        "recoverable_failures",
+        "sandbox_job_ids",
+        "sandbox_environment_ids",
+        "failure_codes",
+        "generated_artifact_count",
+        "execution_lifecycle_count",
+        "job_statuses",
+        "exit_codes",
+        "output_refs",
+    }
+)
 
 
 def build_harness_context_bundle(
@@ -638,7 +654,10 @@ def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
         return {}
     result: dict[str, Any] = {}
     for key, item in value.items():
-        if str(key) == "output_refs":
+        key_text = str(key)
+        if key_text not in _SANDBOX_EXECUTION_SUMMARY_ALLOWED_KEYS:
+            continue
+        if key_text == "output_refs":
             refs: list[str] = []
             if isinstance(item, list):
                 for ref in item:
@@ -650,7 +669,7 @@ def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
             continue
         safe = _safe_value(item)
         if safe not in (None, {}, []):
-            result[str(key)] = safe
+            result[key_text] = safe
     return result
 
 

@@ -500,6 +500,66 @@ def test_context_preserves_only_explicit_output_refs_in_sandbox_summary() -> Non
     ]
 
 
+def test_context_sandbox_execution_summary_drops_raw_runtime_payload() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={"goal": "continue experiment"},
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "node_metadata": {
+                            "harness": {
+                                "sandbox_execution_summary": {
+                                    "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                                    "python_runs": 1,
+                                    "failed_python_runs": 0,
+                                    "recoverable_failures": 0,
+                                    "sandbox_job_ids": ["job-1"],
+                                    "sandbox_environment_ids": ["env-1"],
+                                    "generated_artifact_count": 1,
+                                    "execution_lifecycle_count": 1,
+                                    "job_statuses": ["succeeded"],
+                                    "exit_codes": [0],
+                                    "output_refs": [
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"
+                                    ],
+                                    "stdout": "raw stdout should stay behind output refs",
+                                    "stderr": "raw stderr should stay behind output refs",
+                                    "traceback": "Traceback raw payload should not enter prompt context",
+                                    "command": "python /workspace/scripts/private.py",
+                                    "raw_payload": {"stdout": "nested raw output"},
+                                }
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+    )
+
+    assert bundle["sandbox_execution_summary"] == {
+        "schema": "wenjin.harness.sandbox_execution_summary.v1",
+        "python_runs": 1,
+        "failed_python_runs": 0,
+        "recoverable_failures": 0,
+        "sandbox_job_ids": ["job-1"],
+        "sandbox_environment_ids": ["env-1"],
+        "generated_artifact_count": 1,
+        "execution_lifecycle_count": 1,
+        "job_statuses": ["succeeded"],
+        "exit_codes": [0],
+        "output_refs": ["/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"],
+    }
+    rendered = render_harness_context_for_prompt(bundle)
+    assert "raw stdout should stay behind output refs" not in rendered
+    assert "raw stderr should stay behind output refs" not in rendered
+    assert "Traceback raw payload should not enter prompt context" not in rendered
+    assert "nested raw output" not in rendered
+
+
 def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",
