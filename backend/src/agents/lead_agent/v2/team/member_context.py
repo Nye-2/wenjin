@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from src.agents.contracts.task_brief import TaskBrief
+from src.agents.harness.research_task_eval import required_surfaces_from_capability_policy
 from src.sandbox.workspace_layout import (
     is_workspace_internal_path,
     is_workspace_protected_path,
@@ -15,6 +16,40 @@ from .contracts import TeamBlackboard
 
 _MAX_TEXT_CHARS = 4000
 _MAX_LIST_ITEMS = 30
+_RUNTIME_RESEARCH_EVIDENCE_SURFACES = {
+    "workflow_trace",
+    "citation_strength",
+    "experiment_interpretation",
+    "paper_relevance",
+    "statistical_robustness",
+    "output_ref_reuse",
+}
+_RESEARCH_SURFACE_GUIDANCE = {
+    "workflow_trace": (
+        "Record completed tool activity through normal harness tools; "
+        "do not summarize unsupported work."
+    ),
+    "output_ref_reuse": (
+        "If a prior sandbox output ref is available, inspect it with "
+        "sandbox.read_output_ref before rerunning expensive work."
+    ),
+    "experiment_interpretation": (
+        "For experiments, return method, metric, verified result, limitation, "
+        "artifact and dataset evidence aligned with reproducibility metadata."
+    ),
+    "citation_strength": (
+        "For citation-sensitive work, return supported or verified source refs "
+        "instead of weak prose-only support."
+    ),
+    "paper_relevance": (
+        "For literature work, keep topic-aligned source or citation refs and "
+        "flag off-topic candidates instead of mixing them into evidence."
+    ),
+    "statistical_robustness": (
+        "For statistical work, include method, sample size, metric, passed "
+        "robustness checks, limitations, artifact and dataset evidence."
+    ),
+}
 
 _TASK_FOCUS_BY_TEMPLATE = {
     "research_planner.v1": "拆解任务目标、交付物、质量门和成员分工，形成可执行研究计划。",
@@ -35,6 +70,7 @@ def build_team_member_context(
     template_id: str,
     display_role: str,
     blackboard: TeamBlackboard,
+    capability_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build bounded input for a recruited team member.
 
@@ -64,6 +100,9 @@ def build_team_member_context(
     upstream_context = _upstream_context(blackboard)
     if upstream_context:
         payload["upstream_context"] = upstream_context
+    research_requirements = _research_evidence_requirements(capability_policy)
+    if research_requirements:
+        payload["research_evidence_requirements"] = research_requirements
     return payload
 
 
@@ -123,6 +162,29 @@ def _task_focus(template_id: str, display_role: str) -> str:
         template_id,
         f"以{display_role}身份处理当前任务，复用团队上下文并返回可审阅结果。",
     )
+
+
+def _research_evidence_requirements(
+    capability_policy: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    surfaces = list(required_surfaces_from_capability_policy(capability_policy, default=()))
+    if not surfaces:
+        return None
+    runtime_surfaces = [
+        surface for surface in surfaces if surface in _RUNTIME_RESEARCH_EVIDENCE_SURFACES
+    ]
+    guidance: list[str] = []
+    for surface in surfaces:
+        item = _RESEARCH_SURFACE_GUIDANCE.get(surface)
+        if item and item not in guidance:
+            guidance.append(item)
+    return {
+        "schema": "wenjin.team.research_evidence_requirements.v1",
+        "quality_gate": "research_evidence_required",
+        "required_surfaces": surfaces,
+        "runtime_enforced_surfaces": runtime_surfaces,
+        "guidance": guidance[:10],
+    }
 
 
 def _sanitize_payload(value: Any) -> Any:

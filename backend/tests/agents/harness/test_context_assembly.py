@@ -821,6 +821,74 @@ def test_harness_context_bundle_marks_budget_truncation() -> None:
     assert bundle["task"] == {"goal": "run experiment"}
 
 
+def test_harness_context_budget_preserves_required_research_surface_evidence() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={
+            "goal": "interpret experiment",
+            "inputs": {
+                "research_evidence_requirements": {
+                    "schema": "wenjin.team.research_evidence_requirements.v1",
+                    "required_surfaces": ["experiment_interpretation"],
+                    "runtime_enforced_surfaces": ["experiment_interpretation"],
+                }
+            },
+        },
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "node_metadata": {
+                            "harness": {
+                                "sandbox_execution_summary": {
+                                    "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                                    "python_runs": 1,
+                                    "sandbox_job_ids": [f"job-{index}" for index in range(80)],
+                                },
+                                "reproducibility_summary": {
+                                    "schema": "wenjin.harness.reproducibility_summary.v1",
+                                    "script_paths": ["/workspace/scripts/analysis.py"],
+                                    "artifact_paths": ["/workspace/outputs/result.json"],
+                                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                                },
+                                "experiment_interpretation_summary": {
+                                    "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                                    "interpretation_count": 1,
+                                    "method_summary_count": 1,
+                                    "metric_names": ["accuracy"],
+                                    "verified_result_count": 1,
+                                    "limitation_count": 1,
+                                    "artifact_paths": ["/workspace/outputs/result.json"],
+                                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                                },
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+        max_chars=2800,
+    )
+
+    assert bundle["budget"]["truncated"] is True
+    assert bundle["experiment_interpretation_summary"] == {
+        "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+        "interpretation_count": 1,
+        "method_summary_count": 1,
+        "metric_names": ["accuracy"],
+        "verified_result_count": 1,
+        "limitation_count": 1,
+        "artifact_paths": ["/workspace/outputs/result.json"],
+        "dataset_paths": ["/workspace/datasets/panel.csv"],
+    }
+    assert bundle["reproducibility_summary"]["artifact_paths"] == [
+        "/workspace/outputs/result.json"
+    ]
+    assert bundle["sandbox_execution_summary"] == {}
+
+
 def test_render_harness_context_for_prompt_uses_bounded_json() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",

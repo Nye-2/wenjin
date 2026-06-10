@@ -575,6 +575,37 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                 "license": "research-use",
             }
         ]
+        assert user_payload["research_evidence_requirements"] == {
+            "schema": "wenjin.team.research_evidence_requirements.v1",
+            "quality_gate": "research_evidence_required",
+            "required_surfaces": [
+                "literature",
+                "experiment",
+                "writing",
+                "workflow_trace",
+                "experiment_interpretation",
+                "output_ref_reuse",
+            ],
+            "runtime_enforced_surfaces": [
+                "workflow_trace",
+                "experiment_interpretation",
+                "output_ref_reuse",
+            ],
+            "guidance": [
+                (
+                    "Record completed tool activity through normal harness tools; "
+                    "do not summarize unsupported work."
+                ),
+                (
+                    "For experiments, return method, metric, verified result, limitation, "
+                    "artifact and dataset evidence aligned with reproducibility metadata."
+                ),
+                (
+                    "If a prior sandbox output ref is available, inspect it with "
+                    "sandbox.read_output_ref before rerunning expensive work."
+                ),
+            ],
+        }
         assert ".env" not in json.dumps(context_bundle["recent_execution_evidence"])
 
         harness_context.workspace_data["_harness_sandbox"] = SimpleNamespace(

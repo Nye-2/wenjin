@@ -56,3 +56,47 @@ def test_member_context_preserves_explicit_query_and_filters_internal_refs() -> 
     assert "/workspace/reports/visible.md" in payload["source_refs"]
     assert all("/workspace/tmp/tasks/.harness/outputs" not in ref for ref in payload["source_refs"])
     assert all("/workspace/.wenjin" not in ref for ref in payload["source_refs"])
+
+
+def test_member_context_projects_capability_research_evidence_requirements() -> None:
+    payload = build_team_member_context(
+        brief=TaskBrief(
+            capability_id="sci_empirical_package",
+            workspace_id="ws-1",
+            raw_message="run a reproducible SCI analysis",
+            brief={},
+        ),
+        capability_name="SCI 实证包",
+        template_id="evidence_analyst.v1",
+        display_role="实验分析工程师",
+        blackboard=TeamBlackboard(mission_summary="SCI 实证包"),
+        capability_policy={
+            "research_evidence": {
+                "required_surfaces": [
+                    "workflow_trace",
+                    "experiment_interpretation",
+                    "output_ref_reuse",
+                ]
+            }
+        },
+    )
+
+    assert payload["research_evidence_requirements"] == {
+        "schema": "wenjin.team.research_evidence_requirements.v1",
+        "quality_gate": "research_evidence_required",
+        "required_surfaces": [
+            "workflow_trace",
+            "experiment_interpretation",
+            "output_ref_reuse",
+        ],
+        "runtime_enforced_surfaces": [
+            "workflow_trace",
+            "experiment_interpretation",
+            "output_ref_reuse",
+        ],
+        "guidance": [
+            "Record completed tool activity through normal harness tools; do not summarize unsupported work.",
+            "For experiments, return method, metric, verified result, limitation, artifact and dataset evidence aligned with reproducibility metadata.",
+            "If a prior sandbox output ref is available, inspect it with sandbox.read_output_ref before rerunning expensive work.",
+        ],
+    }

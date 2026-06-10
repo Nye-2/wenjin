@@ -413,6 +413,7 @@ class TeamKernelRuntime:
             capability=capability,
             templates=templates,
             team_policy=team_policy,
+            capability_policy=capability_policy,
             blackboard=blackboard,
             counts=counts,
             iteration=iteration,
@@ -634,6 +635,7 @@ class TeamKernelRuntime:
         capability: Any,
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
+        capability_policy: dict[str, Any],
         blackboard: TeamBlackboard,
         counts: Counter[str],
         iteration: int,
@@ -661,7 +663,13 @@ class TeamKernelRuntime:
                 iteration=iteration,
                 template_invocation_count=counts[template_id],
                 reason=recruit.reason,
-                input_brief=self._build_member_brief(brief, capability, template, blackboard),
+                input_brief=self._build_member_brief(
+                    brief,
+                    capability,
+                    template,
+                    blackboard,
+                    capability_policy=capability_policy,
+                ),
                 effective_tools=effective_tools,
                 effective_skills=effective_skills,
             )
@@ -675,6 +683,8 @@ class TeamKernelRuntime:
         capability: Any,
         template: AgentTemplate,
         blackboard: TeamBlackboard,
+        *,
+        capability_policy: dict[str, Any],
     ) -> dict[str, Any]:
         return build_team_member_context(
             brief=brief,
@@ -682,6 +692,7 @@ class TeamKernelRuntime:
             template_id=template.id,
             display_role=template.display_role,
             blackboard=blackboard,
+            capability_policy=capability_policy,
         )
 
     async def _run_invocation(
