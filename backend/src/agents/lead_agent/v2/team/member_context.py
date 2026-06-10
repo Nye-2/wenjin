@@ -10,6 +10,7 @@ from src.agents.harness.research_task_eval import required_surfaces_from_capabil
 from src.sandbox.workspace_layout import (
     is_workspace_internal_path,
     is_workspace_protected_path,
+    is_workspace_readable_internal_output_ref,
 )
 
 from .contracts import TeamBlackboard
@@ -140,6 +141,9 @@ def _upstream_context(blackboard: TeamBlackboard) -> dict[str, Any]:
     context: dict[str, Any] = {}
     if blackboard.latest_leader_summary:
         context["latest_leader_summary"] = _compact_text(blackboard.latest_leader_summary)
+    quality_repair_context = _quality_repair_context(blackboard)
+    if quality_repair_context:
+        context["quality_repair_context"] = quality_repair_context
     for field in (
         "confirmed_findings",
         "evidence_items",
@@ -184,6 +188,42 @@ def _research_evidence_requirements(
         "required_surfaces": surfaces,
         "runtime_enforced_surfaces": runtime_surfaces,
         "guidance": guidance[:10],
+    }
+
+
+def _quality_repair_context(blackboard: TeamBlackboard) -> dict[str, Any] | None:
+    source_gates: list[str] = []
+    missing_research_surfaces: list[str] = []
+    safe_output_refs: list[str] = []
+    required_actions: list[str] = []
+    for gate in blackboard.quality_gate_history:
+        if not isinstance(gate, dict) or gate.get("status") != "fail":
+            continue
+        gate_id = _compact_text(gate.get("gate_id") or "")
+        for fix in gate.get("required_fixes") or []:
+            if not isinstance(fix, dict):
+                continue
+            repair_context = fix.get("repair_context")
+            if not isinstance(repair_context, dict):
+                continue
+            _append_unique(source_gates, gate_id)
+            for source_gate in _string_list(repair_context.get("source_gates")):
+                _append_unique(source_gates, source_gate)
+            for surface in _string_list(repair_context.get("missing_research_surfaces")):
+                _append_unique(missing_research_surfaces, surface)
+            for ref in _string_list(repair_context.get("safe_output_refs")):
+                if is_workspace_readable_internal_output_ref(ref):
+                    _append_unique(safe_output_refs, ref)
+            for action in _string_list(repair_context.get("required_actions")):
+                _append_unique(required_actions, _compact_text(action))
+    if not source_gates and not missing_research_surfaces and not safe_output_refs and not required_actions:
+        return None
+    return {
+        "schema": "wenjin.team.quality_repair_context.v1",
+        "source_gates": source_gates[:10],
+        "missing_research_surfaces": missing_research_surfaces[:20],
+        "safe_output_refs": safe_output_refs[:10],
+        "required_actions": required_actions[:10],
     }
 
 
@@ -238,3 +278,25 @@ def _first_nonempty(*values: Any) -> str:
         if text:
             return text
     return ""
+
+
+def _string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        text = value.strip()
+        return [text] if text else []
+    if isinstance(value, list | tuple):
+        result: list[str] = []
+        for item in value[:_MAX_LIST_ITEMS]:
+            text = str(item or "").strip()
+            if text:
+                result.append(text)
+        return result
+    return []
+
+
+def _append_unique(items: list[str], value: str) -> None:
+    text = str(value or "").strip()
+    if text and text not in items:
+        items.append(text)

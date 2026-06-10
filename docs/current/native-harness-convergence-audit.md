@@ -454,6 +454,18 @@ Chat Agent
   - `backend`: `.venv/bin/ruff check src/sandbox/workspace_layout.py src/agents/lead_agent/v2/sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/sandbox/test_workspace_layout.py` -> passed.
   - `backend`: native harness release gate -> 356 passed.
   - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or generic `sandbox.run_command`; documentation and negative/historical tests remain the only expected hits. `git diff --check` passed.
+- 2026-06-10 sandbox artifact symlink-target and repair-context slice:
+  - `discover_generated_artifacts()` now requires both the candidate path and any provider-resolved target to pass `is_user_reviewable_workspace_artifact_path()`. A symlink under `/workspace/outputs` pointing to `/workspace/.env` or `/workspace/tmp/tasks/.harness/**` is therefore skipped before content hash, registration or review staging.
+  - `research_evidence_required` failures now include a bounded `quality_repair_context(schema=wenjin.team.quality_repair_context.v1)` with source gates, missing research surfaces, safe output refs and short required actions. `build_team_member_context()` projects that context to later members while filtering unsafe refs; it does not expose raw stdout/stderr/tool args or raw evaluator payload.
+  - Browser smoke against `http://localhost:2026/workspaces/787153c9-3e09-4a48-b683-e261bf8d18b3/prism` passed: the logged-in workspace opened without auth regression, the AI edit panel no longer displayed `异步大改` / `同步小改`, Workbench showed no duplicate `运行中` / `中断并补充` controls in the current state, visible team text used role names rather than `literature_synthesizer` / `research_scout` / `evidence_analyst` template ids, and browser console errors were empty.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py::test_discover_generated_artifacts_skips_symlinks_to_protected_and_internal_targets -q` -> RED on symlinked protected/internal targets being staged, then 1 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py::test_quality_gates_enforce_capability_required_research_surfaces tests/agents/lead_agent/v2/test_team_member_context.py::test_member_context_projects_quality_repair_context_from_failed_research_gate -q` -> RED on missing repair context projection, then 2 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_sandbox_file_tools.py -q` -> 76 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_quality_gates.py tests/agents/lead_agent/v2/test_team_member_context.py tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py tests/agents/harness/test_context_assembly.py -q` -> 41 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 1 passed.
+  - `backend`: native harness release gate -> 354 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness src/agents/lead_agent/v2 src/subagents/v2 src/sandbox tests/agents/harness tests/agents/lead_agent/v2 tests/sandbox tests/integration/test_harness_mock_sandbox_e2e.py` -> passed.
+  - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or generic `sandbox.run_command`; documentation and negative/historical tests remain the only expected hits. `git diff --check` passed.
 
 ## 6. 剩余不足
 

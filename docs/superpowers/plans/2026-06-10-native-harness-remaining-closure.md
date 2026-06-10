@@ -37,6 +37,371 @@
   - `git diff --check` -> passed.
 - Task 5 docs are updated; commit remains pending until final diff review.
 
+2026-06-10 continuation update:
+
+- Current branch is `codex/wenjin-native-harness`; `git status --short` is clean.
+- Latest completed commits:
+  - `a151807a feat: surface research evidence contract to team members`
+  - `5c6b0082 fix: align sandbox script names with workspace layout`
+  - `51ff3532 fix: filter protected sandbox artifacts`
+- Current verified native harness gate: `354 passed` in this continuation pass.
+- The next work must be a convergence pass, not a feature expansion pass. The plan below replaces broad exploration with six bounded closure slices.
+
+## Current Continuation Plan
+
+### Slice A: Re-baseline the Harness Surface Before More Edits
+
+**Purpose:** Start from facts, not memory, and prevent duplicate plan/doc drift.
+
+**Files:**
+- Read: `docs/current/native-harness-convergence-audit.md`
+- Read: `docs/current/native-harness-external-gap-matrix.md`
+- Read: `docs/current/release-gate-checklist.md`
+- Read: `backend/src/sandbox/workspace_layout.py`
+- Read: `backend/src/sandbox/providers/local.py`
+- Read: `backend/src/agents/lead_agent/v2/sandbox_artifact_discovery.py`
+- Read: `backend/src/agents/harness/context_assembly.py`
+- Read: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+
+- [x] **Step 1: Verify clean state**
+
+Run:
+
+```bash
+git status --short
+```
+
+Expected:
+
+```text
+
+```
+
+- [x] **Step 2: Re-run focused drift scan**
+
+Run:
+
+```bash
+rg -n "from .*codex|import .*codex|cc-switch|ccswitch|deerflow|deer-flow|sandbox\\.run_command|/mnt/user-data|codex sdk|Codex SDK" \
+  backend/src/agents/harness \
+  backend/src/agents/lead_agent/v2 \
+  backend/src/subagents/v2 \
+  backend/src/sandbox \
+  backend/tests/architecture \
+  backend/tests/agents \
+  docs/current -S
+```
+
+Expected:
+
+- No production runtime import/use of Codex SDK, cc-switch, deer-flow runtime, generic `sandbox.run_command`, or `/mnt/user-data`.
+- Allowed hits are documentation or negative boundary tests that explicitly reject those paths.
+
+- [x] **Step 3: Rebuild code-review graph after latest commits**
+
+Use the configured `code-review-graph` tool to refresh the graph for `/Users/ze/wenjin`.
+
+Expected:
+
+- Graph build completes.
+- Review starts from changed harness/sandbox/Lead files instead of scanning the whole repository manually first.
+
+### Slice B: Close Sandbox Artifact Discovery Target Safety
+
+**Purpose:** Make sure generated artifact discovery cannot turn protected, internal, guidance, symlink-escaped, or host-path targets into user-reviewable artifacts.
+
+**Files:**
+- Test: `backend/tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py`
+- Test: `backend/tests/sandbox/test_workspace_layout.py`
+- Test if provider behavior is involved: `backend/tests/sandbox/test_docker_provider.py`
+- Modify if needed: `backend/src/agents/lead_agent/v2/sandbox_artifact_discovery.py`
+- Modify if needed: `backend/src/sandbox/workspace_layout.py`
+- Modify if needed: `backend/src/sandbox/providers/local.py`
+
+- [x] **Step 1: Write RED coverage for discovery target classification**
+
+Add tests that prove these paths never enter `generated_artifacts[]`:
+
+```text
+/workspace/outputs/.env
+/workspace/reports/.env
+/workspace/outputs/README.md
+/workspace/reports/manifest.json
+/workspace/tmp/tasks/.harness/outputs/exec/node/invocation/stdout.txt
+```
+
+Also add one provider-level fixture where a listed `/workspace/outputs/leaked.csv` entry resolves to a target outside `/workspace` or to a protected target. Expected candidate list:
+
+```python
+assert [item["path"] for item in artifacts] == ["/workspace/outputs/result.csv"]
+```
+
+- [x] **Step 2: Run RED tests**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest \
+  tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py \
+  tests/sandbox/test_workspace_layout.py -q
+```
+
+Expected before any fix: at least one newly added test fails if the suspected boundary is not already covered.
+
+- [x] **Step 3: Implement the smallest central fix**
+
+Implementation rules:
+
+- Reuse `is_user_reviewable_workspace_artifact_path()` for virtual path classification.
+- Reuse existing provider/path resolver behavior for physical target checks.
+- Do not add a second artifact allowlist in `sandbox_artifact_discovery.py`.
+- Do not expose internal output-ref paths to list/search/artifact review.
+
+- [x] **Step 4: Run GREEN and related tests**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest \
+  tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py \
+  tests/sandbox/test_workspace_layout.py \
+  tests/agents/harness/test_sandbox_file_tools.py -q
+```
+
+Expected: all selected tests pass.
+
+### Slice C: Tighten Team Quality Failure to Replan Context
+
+**Purpose:** When a required research evidence surface fails, the next member should receive a concise repair brief with missing surfaces and safe evidence refs, not raw tool payloads or vague retry text.
+
+**Files:**
+- Test: `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`
+- Test: `backend/tests/agents/lead_agent/v2/test_team_quality_gates.py`
+- Modify if needed: `backend/src/agents/lead_agent/v2/team/kernel.py`
+- Modify if needed: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
+- Modify if needed: `backend/src/agents/lead_agent/v2/team/member_context.py`
+
+- [x] **Step 1: Write RED coverage for missing-surface repair brief**
+
+Construct a state where `capability_policy.research_evidence.required_surfaces` contains `output_ref_reuse`, `sandbox_execution_summary.output_refs` has one recoverable ref, and `member_execution_transcript.output_refs_read` is empty.
+
+Expected assertions:
+
+```python
+assert gate.status == "fail"
+assert "output_ref_reuse" in repair_context["missing_research_surfaces"]
+assert "/workspace/tmp/tasks/.harness/outputs/" in repair_context["safe_output_refs"][0]
+assert "stdout" not in str(repair_context).lower()
+assert "traceback" not in str(repair_context).lower()
+```
+
+- [x] **Step 2: Run RED test**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest \
+  tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py::test_replan_context_includes_missing_research_surfaces_without_raw_payload -q
+```
+
+Expected: failure until the repair context is projected cleanly.
+
+- [x] **Step 3: Implement bounded repair projection**
+
+Implementation rules:
+
+- Use existing quality-gate result/finding data.
+- Project only surface names, short reasons, safe output refs, and allowed sandbox/reproducibility summaries.
+- Do not include raw stdout/stderr/tool args/provider payloads/scripts.
+- Keep this inside TeamKernel/member-context projection, not in ReactSubagent or frontend code.
+
+- [x] **Step 4: Run GREEN and context tests**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest \
+  tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py \
+  tests/agents/lead_agent/v2/test_team_quality_gates.py \
+  tests/agents/harness/test_context_assembly.py -q
+```
+
+Expected: all selected tests pass.
+
+### Slice D: Prove Mock Sandbox Harness Still Runs as a Product Chain
+
+**Purpose:** Test the actual chain users care about: capability task -> team member -> sandbox job -> output ref reuse -> reviewable artifact -> DataService review item.
+
+**Files:**
+- Test: `backend/tests/integration/test_harness_mock_sandbox_e2e.py`
+- Modify only if test reveals a real bug: Lead/team/harness files touched by the failing assertion.
+
+- [x] **Step 1: Run current mock sandbox E2E**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py -q
+```
+
+Expected: all tests pass.
+
+- [x] **Step 2: Tighten assertions only where they prove user-facing value**
+
+The E2E must prove:
+
+```python
+assert any(item["target_kind"] == "sandbox_artifact" for item in review_items)
+assert any(item["target_kind"] == "prism_file_change" for item in review_items)
+assert evaluation.coverage["workflow_trace"] == "pass"
+assert evaluation.coverage["output_ref_reuse"] == "pass"
+assert quality_gate["name"] == "research_evidence_required"
+assert quality_gate["status"] == "pass"
+```
+
+- [x] **Step 3: Re-run E2E after any assertion/fix**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py -q
+```
+
+Expected: all integration tests pass without new runtime tables, frontend stores, or compatibility branches.
+
+### Slice E: Full Native Harness Gate, Ruff, and Browser Smoke
+
+**Purpose:** Verify the implementation as a system, including the browser-observable team/run UX, without expanding into unrelated UI redesign.
+
+**Files:**
+- No expected code changes unless verification reveals a bug.
+
+- [x] **Step 1: Run native harness regression gate**
+
+Run:
+
+```bash
+cd backend && .venv/bin/python -m pytest \
+  tests/agents/harness/test_scheduler_and_python_tool.py \
+  tests/agents/harness/test_sandbox_file_tools.py \
+  tests/agents/harness/test_command_audit.py \
+  tests/agents/harness/test_policy_and_registry.py \
+  tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py \
+  tests/agents/harness/test_research_task_eval.py \
+  tests/agents/harness/test_langchain_adapter.py \
+  tests/agents/harness/test_context_assembly.py \
+  tests/unit/subagents/test_react.py \
+  tests/subagents/v2/test_registry.py \
+  tests/agents/lead_agent/v2/test_team_policy.py \
+  tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py \
+  tests/agents/lead_agent/v2/test_sandbox_runtime.py \
+  tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py \
+  tests/agents/lead_agent/v2/test_runtime.py::test_run_session_prism_review_items_satisfy_writing_evidence_eval \
+  tests/architecture/test_native_harness_boundaries.py \
+  tests/dataservice/test_sandbox_domain.py \
+  tests/sandbox/test_docker_provider.py \
+  tests/sandbox/test_workspace_layout.py \
+  tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py \
+  tests/agents/lead_agent/v2/test_citation_source_audit.py \
+  tests/agents/lead_agent/v2/test_team_quality_gates.py \
+  tests/services/test_workspace_prism_service.py::test_surface_projection_includes_review_provenance_and_protection \
+  tests/services/test_prism_review_projection.py \
+  tests/integration/test_harness_mock_sandbox_e2e.py -q
+```
+
+Expected: all selected tests pass; record the exact count in docs.
+
+- [x] **Step 2: Run Ruff**
+
+Run:
+
+```bash
+cd backend && .venv/bin/ruff check \
+  src/agents/harness \
+  src/agents/lead_agent/v2 \
+  src/subagents/v2 \
+  src/sandbox \
+  tests/agents/harness \
+  tests/agents/lead_agent/v2 \
+  tests/sandbox \
+  tests/integration/test_harness_mock_sandbox_e2e.py
+```
+
+Expected:
+
+```text
+All checks passed!
+```
+
+- [x] **Step 3: Browser smoke via existing local stack**
+
+Use the browser automation tool against the running local Wenjin app.
+
+Expected user-observable checks:
+
+- Workspace opens without auth regression.
+- Launching a research task shows one current run, not duplicate run surfaces.
+- Team/member labels are readable and not exposing raw template ids as the main UI text.
+- Acceptable review items include sandbox artifact / Prism file change surfaces when produced.
+- No raw stdout/stderr/tool args appear in user-facing panels.
+
+### Slice F: Documentation, Graph, Commit Boundary
+
+**Purpose:** Leave the branch easy to merge and easy to review.
+
+**Files:**
+- Modify: `docs/current/architecture.md`
+- Modify: `docs/current/workspace-current-state.md`
+- Modify: `docs/current/native-harness-convergence-audit.md`
+- Modify: `docs/current/native-harness-external-gap-matrix.md`
+- Modify: `docs/current/release-gate-checklist.md`
+- Modify: `docs/superpowers/plans/2026-06-10-native-harness-remaining-closure.md`
+
+- [x] **Step 1: Update docs with exact verification evidence**
+
+Required doc facts:
+
+- latest native harness gate count
+- any new sandbox artifact / symlink / protected-path behavior
+- any new quality-gate repair-context behavior
+- browser smoke result
+- explicit statement that Codex SDK/cc-switch/deer-flow runtime were not imported
+
+- [x] **Step 2: Rebuild code-review graph after final edits**
+
+Use the configured `code-review-graph` tool for `/Users/ze/wenjin`.
+
+Expected: graph build completes after final code/doc changes.
+
+- [ ] **Step 3: Final diff review**
+
+Run:
+
+```bash
+git diff --stat
+git diff --check
+git diff -- backend/src/agents backend/src/sandbox backend/tests docs/current docs/superpowers/plans/2026-06-10-native-harness-remaining-closure.md
+```
+
+Expected:
+
+- No whitespace errors.
+- Diffs are limited to native harness/sandbox/team quality/docs.
+- No unrelated UI, billing, model-routing, SDK, or provider bridge changes.
+
+- [ ] **Step 4: Commit focused changes**
+
+Stage only files changed by the current pass and commit with one message that describes the closed slice, for example:
+
+```bash
+git commit -m "fix: harden native harness sandbox review loop"
+```
+
+Expected:
+
+- Commit succeeds.
+- `git status --short` is clean after commit.
+
 ## Non-Negotiable Boundaries
 
 Do:

@@ -804,7 +804,16 @@ def test_quality_gates_enforce_capability_required_research_surfaces() -> None:
             "message": (
                 "Satisfy capability-required research evidence surfaces before "
                 "finalizing: output_ref_reuse."
-            )
+            ),
+            "repair_context": {
+                "schema": "wenjin.team.quality_repair_context.v1",
+                "source_gates": ["research_evidence_required"],
+                "missing_research_surfaces": ["output_ref_reuse"],
+                "safe_output_refs": [recoverable_ref],
+                "required_actions": [
+                    "Use sandbox.read_output_ref to inspect available output refs before rerunning expensive sandbox work."
+                ],
+            },
         }
     ]
     assert gate.findings == [

@@ -12,6 +12,7 @@ from src.agents.harness.research_task_eval import (
     evaluate_research_task_evidence,
     required_surfaces_from_capability_policy,
 )
+from src.sandbox.workspace_layout import is_workspace_readable_internal_output_ref
 
 from .citation_source_audit import collect_citation_source_audit_findings
 from .contracts import AgentInvocation, CapabilityTeamPolicy, QualityGateResult
@@ -241,6 +242,10 @@ def _research_evidence_required(
             )
         )
     surface_text = ", ".join(failed_surfaces) if failed_surfaces else "research evidence"
+    repair_context = _research_evidence_repair_context(
+        failed_surfaces=failed_surfaces,
+        evidence=evaluation.evidence,
+    )
     return [
         QualityGateResult(
             gate_id="research_evidence_required",
@@ -252,13 +257,45 @@ def _research_evidence_required(
                     "message": (
                         "Satisfy capability-required research evidence surfaces before "
                         f"finalizing: {surface_text}."
-                    )
+                    ),
+                    "repair_context": repair_context,
                 }
             ],
             suggested_recruits=_dedupe_recruits(suggested),
             next_action="revise_existing" if suggested else "stop_with_warning",
         )
     ]
+
+
+def _research_evidence_repair_context(
+    *,
+    failed_surfaces: list[str],
+    evidence: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    required_actions: list[str] = []
+    if "output_ref_reuse" in failed_surfaces:
+        required_actions.append(
+            "Use sandbox.read_output_ref to inspect available output refs before rerunning expensive sandbox work."
+        )
+    return {
+        "schema": "wenjin.team.quality_repair_context.v1",
+        "source_gates": ["research_evidence_required"],
+        "missing_research_surfaces": failed_surfaces,
+        "safe_output_refs": _safe_repair_output_refs(evidence),
+        "required_actions": required_actions,
+    }
+
+
+def _safe_repair_output_refs(evidence: dict[str, dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for surface_evidence in evidence.values():
+        if not isinstance(surface_evidence, dict):
+            continue
+        for key in ("recoverable_output_refs", "output_refs"):
+            for ref in _string_list(surface_evidence.get(key)):
+                if is_workspace_readable_internal_output_ref(ref):
+                    refs.append(ref)
+    return _dedupe(refs)[:10]
 
 
 def _node_events_from_invocations(invocations: list[AgentInvocation]) -> list[dict[str, Any]]:

@@ -100,3 +100,58 @@ def test_member_context_projects_capability_research_evidence_requirements() -> 
             "If a prior sandbox output ref is available, inspect it with sandbox.read_output_ref before rerunning expensive work.",
         ],
     }
+
+
+def test_member_context_projects_quality_repair_context_from_failed_research_gate() -> None:
+    recoverable_ref = "/workspace/tmp/tasks/.harness/outputs/exec-1/runner/stdout.txt"
+
+    payload = build_team_member_context(
+        brief=TaskBrief(
+            capability_id="sci_empirical_package",
+            workspace_id="ws-1",
+            raw_message="continue the experiment",
+            brief={},
+        ),
+        capability_name="SCI 实证包",
+        template_id="evidence_analyst.v1",
+        display_role="实验分析工程师",
+        blackboard=TeamBlackboard(
+            mission_summary="SCI 实证包",
+            quality_gate_history=[
+                {
+                    "gate_id": "research_evidence_required",
+                    "status": "fail",
+                    "required_fixes": [
+                        {
+                            "message": "read the previous output ref",
+                            "repair_context": {
+                                "schema": "wenjin.team.quality_repair_context.v1",
+                                "source_gates": ["research_evidence_required"],
+                                "missing_research_surfaces": ["output_ref_reuse"],
+                                "safe_output_refs": [
+                                    recoverable_ref,
+                                    "/workspace/.env",
+                                    "/workspace/tmp/tasks/.harness/not-readable/raw.txt",
+                                ],
+                                "required_actions": [
+                                    "Use sandbox.read_output_ref to inspect available output refs before rerunning expensive sandbox work.",
+                                    "Do not expose raw stdout.",
+                                ],
+                            },
+                        }
+                    ],
+                }
+            ],
+        ),
+    )
+
+    assert payload["upstream_context"]["quality_repair_context"] == {
+        "schema": "wenjin.team.quality_repair_context.v1",
+        "source_gates": ["research_evidence_required"],
+        "missing_research_surfaces": ["output_ref_reuse"],
+        "safe_output_refs": [recoverable_ref],
+        "required_actions": [
+            "Use sandbox.read_output_ref to inspect available output refs before rerunning expensive sandbox work.",
+            "Do not expose raw stdout.",
+        ],
+    }

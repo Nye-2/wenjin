@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -44,6 +45,37 @@ async def test_discover_generated_artifacts_skips_protected_paths(tmp_path) -> N
     await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
     await sandbox.write_file("/workspace/outputs/.env", "SECRET=must-not-stage\n")
     await sandbox.write_file("/workspace/reports/.env", "TOKEN=must-not-stage\n")
+
+    generated = await discover_generated_artifacts(sandbox)
+
+    assert [item["path"] for item in generated] == ["/workspace/outputs/result.csv"]
+
+
+@pytest.mark.asyncio
+async def test_discover_generated_artifacts_skips_symlinks_to_protected_and_internal_targets(tmp_path) -> None:
+    ensure_workspace_sandbox_layout(tmp_path)
+    sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(tmp_path)})
+    await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
+    await sandbox.write_file("/workspace/.env", "SECRET=must-not-stage\n")
+    await sandbox.write_file(
+        "/workspace/tmp/tasks/.harness/outputs/exec/node/tool/stdout.txt",
+        "internal output must not stage\n",
+    )
+    try:
+        (Path(tmp_path) / "outputs" / "linked-secret.csv").symlink_to(Path(tmp_path) / ".env")
+        (Path(tmp_path) / "outputs" / "linked-internal.txt").symlink_to(
+            Path(tmp_path)
+            / "tmp"
+            / "tasks"
+            / ".harness"
+            / "outputs"
+            / "exec"
+            / "node"
+            / "tool"
+            / "stdout.txt"
+        )
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlink creation is not available: {exc}")
 
     generated = await discover_generated_artifacts(sandbox)
 

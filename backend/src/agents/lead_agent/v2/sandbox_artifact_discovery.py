@@ -7,6 +7,7 @@ import json
 import logging
 import mimetypes
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from src.sandbox.workspace_layout import (
@@ -57,7 +58,7 @@ async def discover_generated_artifacts(
             if (
                 not path
                 or getattr(entry, "is_dir", False)
-                or not is_user_reviewable_workspace_artifact_path(path)
+                or not _is_reviewable_artifact_target(sandbox, path)
             ):
                 continue
             size = _coerce_size(getattr(entry, "size", None))
@@ -105,6 +106,25 @@ def _normalize_virtual_path(path: str) -> str:
         return normalize_workspace_virtual_path(path)
     except ValueError:
         return ""
+
+
+def _is_reviewable_artifact_target(sandbox: Any, path: str) -> bool:
+    """Return whether an artifact candidate and its resolved target are safe."""
+
+    if not is_user_reviewable_workspace_artifact_path(path):
+        return False
+    resolver = getattr(sandbox, "_resolve_path", None)
+    reverser = getattr(sandbox, "_reverse_resolve_path", None)
+    if not callable(resolver) or not callable(reverser):
+        return True
+    try:
+        resolved_target = Path(str(resolver(path))).resolve()
+        target_virtual_path = _normalize_virtual_path(str(reverser(str(resolved_target))))
+    except Exception:  # noqa: BLE001 - provider-specific path failures fail closed.
+        return False
+    if not target_virtual_path:
+        return False
+    return is_user_reviewable_workspace_artifact_path(target_virtual_path)
 
 
 def _coerce_size(value: Any) -> int | None:
