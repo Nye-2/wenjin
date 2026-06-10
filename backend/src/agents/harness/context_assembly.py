@@ -341,6 +341,18 @@ def _scratch_refs(task: dict[str, Any], workspace_data: dict[str, Any]) -> list[
         ref = {"path": path, "source": "upstream_sandbox_output"}
         if ref not in result:
             result.append(ref)
+    for item in _recent_execution_items(workspace_data):
+        harness = _harness_summary(item)
+        transcript = harness.get("member_execution_transcript")
+        if not isinstance(transcript, dict):
+            continue
+        for raw_ref in _safe_string_list(transcript.get("scratch_refs")):
+            path = _safe_task_scratch_ref(raw_ref)
+            if not path:
+                continue
+            ref = {"path": path, "source": "member_execution_transcript"}
+            if ref not in result:
+                result.append(ref)
     return result[:_MAX_FILE_SUMMARY_ITEMS]
 
 
@@ -393,17 +405,8 @@ def _safe_task_scratch_ref(value: Any) -> str:
 
 
 def _recent_execution_evidence(workspace_data: dict[str, Any]) -> list[dict[str, Any]]:
-    history = workspace_data.get("workspace_history")
-    history = history if isinstance(history, dict) else {}
-    recent = history.get("recent_executions")
-    if recent is None:
-        recent = workspace_data.get("recent_executions")
-    if not isinstance(recent, list):
-        return []
     evidence: list[dict[str, Any]] = []
-    for item in recent[:8]:
-        if not isinstance(item, dict):
-            continue
+    for item in _recent_execution_items(workspace_data):
         compact: dict[str, Any] = {}
         _copy_safe_string(compact, "execution_id", item.get("execution_id") or item.get("id"))
         _copy_safe_string(compact, "display_name", item.get("display_name") or item.get("name"))
@@ -415,6 +418,17 @@ def _recent_execution_evidence(workspace_data: dict[str, Any]) -> list[dict[str,
         if compact:
             evidence.append(compact)
     return evidence
+
+
+def _recent_execution_items(workspace_data: dict[str, Any]) -> list[dict[str, Any]]:
+    history = workspace_data.get("workspace_history")
+    history = history if isinstance(history, dict) else {}
+    recent = history.get("recent_executions")
+    if recent is None:
+        recent = workspace_data.get("recent_executions")
+    if not isinstance(recent, list):
+        return []
+    return [item for item in recent[:8] if isinstance(item, dict)]
 
 
 def _workspace_file_summary(

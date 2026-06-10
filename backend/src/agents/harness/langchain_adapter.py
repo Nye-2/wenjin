@@ -705,6 +705,9 @@ def _run_python_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     experiment_narrative = structured_payload.get("experiment_narrative")
     if isinstance(experiment_narrative, dict):
         metadata["experiment_narrative"] = dict(experiment_narrative)
+    experiment_interpretation = structured_payload.get("experiment_interpretation")
+    if isinstance(experiment_interpretation, dict):
+        metadata["experiment_interpretation"] = dict(experiment_interpretation)
     failure_classification = structured_payload.get("failure_classification")
     if isinstance(failure_classification, dict):
         metadata["failure_classification"] = dict(failure_classification)

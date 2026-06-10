@@ -303,6 +303,7 @@ class TeamKernelRuntime:
             if not latest_batch:
                 break
             core_invocations.extend(latest_batch)
+            self._sync_current_harness_evidence(workspace_data, latest_batch)
             if self._all_cancelled(invocations):
                 break
         return core_invocations

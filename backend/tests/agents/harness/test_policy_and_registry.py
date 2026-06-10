@@ -83,8 +83,8 @@ def test_policy_derives_sandbox_tools_from_skill_sandbox_access() -> None:
         )
     )
 
-    assert policy.allowed_tools == ("sandbox.run_python",)
-    assert policy.permissions == frozenset({"sandbox.run_python"})
+    assert policy.allowed_tools == ("sandbox.run_python", "sandbox.read_output_ref")
+    assert policy.permissions == frozenset({"sandbox.run_python", "filesystem.read"})
 
 
 def test_policy_canonicalizes_existing_sandbox_python_alias() -> None:
@@ -100,7 +100,7 @@ def test_policy_canonicalizes_existing_sandbox_python_alias() -> None:
         )
     )
 
-    assert policy.allowed_tools == ("sandbox.run_python",)
+    assert policy.allowed_tools == ("sandbox.run_python", "sandbox.read_output_ref")
 
 
 def test_policy_uses_workspace_layout_protected_paths() -> None:

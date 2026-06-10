@@ -980,4 +980,4 @@ class TestMockLLM:
 
         tools = _resolve_tools(["sandbox_python"], ctx)
 
-        assert [tool.name for tool in tools] == ["sandbox_run_python"]
+        assert [tool.name for tool in tools] == ["sandbox_run_python", "sandbox_read_output_ref"]

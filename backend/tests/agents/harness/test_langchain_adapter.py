@@ -411,6 +411,20 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
                     "exit_code": 2,
                     "recoverable": True,
                 },
+                "experiment_interpretation": {
+                    "schema": "wenjin.harness.experiment_interpretation.v1",
+                    "method_summary": "Compared model accuracy on a held-out benchmark split.",
+                    "metric_definitions": [{"name": "accuracy"}],
+                    "verified_results": [
+                        {
+                            "metric": "accuracy",
+                            "value": 0.91,
+                            "artifact_path": "/workspace/outputs/result.json",
+                        }
+                    ],
+                    "limitations": ["Only one benchmark split was evaluated."],
+                    "dataset_paths": ["/workspace/datasets/raw/survey.csv"],
+                },
             },
             "truncated": False,
             "externalized": False,
@@ -436,6 +450,10 @@ def test_tool_result_metadata_exposes_run_python_manifest_and_failure_classifica
         "/workspace/datasets/raw/survey.csv"
     ]
     assert metadata["failure_classification"]["failure_code"] == "python_exit_nonzero"
+    assert metadata["experiment_interpretation"]["metric_definitions"] == [{"name": "accuracy"}]
+    assert metadata["experiment_interpretation"]["dataset_paths"] == [
+        "/workspace/datasets/raw/survey.csv"
+    ]
 
 
 def test_summarize_args_redacts_large_tool_text_payloads() -> None:

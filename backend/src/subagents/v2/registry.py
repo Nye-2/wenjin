@@ -169,7 +169,12 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
 
 
 def _canonical_tool_list(value: Any) -> list[str]:
-    return list(expand_tool_names(_raw_string_list(value)))
+    result: list[str] = []
+    for raw in _raw_string_list(value):
+        canonical = canonical_tool_name(raw)
+        if canonical and canonical not in result:
+            result.append(canonical)
+    return result
 
 
 def _raw_string_list(value: Any) -> list[str]:

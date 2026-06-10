@@ -96,7 +96,7 @@ def _capability() -> SimpleNamespace:
                 "quality_pipeline": ["harness_replan_signal"],
                 "limits": {
                     "max_iterations": 1,
-                    "max_parallel_invocations": 3,
+                    "max_parallel_invocations": 1,
                     "max_invocations_total": 3,
                 },
             },
@@ -468,6 +468,34 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
             writer_context = user_payload["_harness_context"]
             assert writer_context["schema"] == "wenjin.harness.context_bundle.v1"
             assert writer_context["allowed_tools"] == []
+            assert writer_context["scratch_refs"] == [
+                {
+                    "path": "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1",
+                    "source": "member_execution_transcript",
+                }
+            ]
+            assert writer_context["reproducibility_summary"]["script_paths"] == [
+                "/workspace/scripts/analysis.py"
+            ]
+            assert writer_context["reproducibility_summary"]["artifact_paths"] == [
+                "/workspace/outputs/result.json"
+            ]
+            assert writer_context["experiment_interpretation_summary"] == {
+                "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                "interpretation_count": 1,
+                "method_summary_count": 1,
+                "metric_names": ["accuracy"],
+                "verified_result_count": 1,
+                "limitation_count": 1,
+                "artifact_paths": ["/workspace/outputs/result.json"],
+                "dataset_paths": ["/workspace/datasets/panel.csv"],
+                "method_summaries": [
+                    "Computed benchmark accuracy from the held-out panel split."
+                ],
+                "limitations": [
+                    "Single split only; robustness under non-IID clients is not verified."
+                ],
+            }
             return json.dumps(
                 {
                     "text": (
@@ -500,7 +528,9 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         ]
         assert ".env" not in json.dumps(context_bundle["recent_execution_evidence"])
 
-        [tool] = _resolve_tools(["sandbox.run_python"], harness_context)
+        tools = _resolve_tools(["sandbox.run_python"], harness_context)
+        assert [tool.name for tool in tools] == ["sandbox_run_python", "sandbox_read_output_ref"]
+        tool = next(item for item in tools if item.name == "sandbox_run_python")
         result_text = await tool.ainvoke(
             {
                 "script": (
@@ -613,6 +643,28 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                         }
                     ],
                 },
+                "experiment_interpretation": {
+                    "schema": "wenjin.harness.experiment_interpretation.v1",
+                    "method_summary": "Computed benchmark accuracy from the held-out panel split.",
+                    "metric_definitions": [
+                        {
+                            "name": "accuracy",
+                            "definition": "Correct predictions divided by evaluated samples.",
+                        }
+                    ],
+                    "verified_results": [
+                        {
+                            "metric": "accuracy",
+                            "value": 0.91,
+                            "artifact_path": "/workspace/outputs/result.json",
+                        }
+                    ],
+                    "limitations": [
+                        "Single split only; robustness under non-IID clients is not verified."
+                    ],
+                    "artifact_refs": ["/workspace/outputs/result.json"],
+                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                },
                 "experiment_narrative": {
                     "schema": "wenjin.harness.run_python.experiment_narrative.v1",
                     "status": "completed",
@@ -625,6 +677,10 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                     "next_actions": ["复核 result.json 指标"],
                 },
             },
+            output_refs=(
+                "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+                "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt",
+            ),
         )
 
     monkeypatch.setattr(
@@ -751,6 +807,16 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert harness["reproducibility_summary"]["dataset_paths"] == ["/workspace/datasets/panel.csv"]
     assert "/workspace/outputs/result.json" in harness["reproducibility_summary"]["artifact_paths"]
     assert harness["reproducibility_summary"]["next_actions"] == ["复核 result.json 指标"]
+    assert harness["experiment_interpretation_summary"]["schema"] == (
+        "wenjin.harness.experiment_interpretation_summary.v1"
+    )
+    assert harness["experiment_interpretation_summary"]["metric_names"] == ["accuracy"]
+    assert harness["experiment_interpretation_summary"]["artifact_paths"] == [
+        "/workspace/outputs/result.json"
+    ]
+    assert harness["experiment_interpretation_summary"]["dataset_paths"] == [
+        "/workspace/datasets/panel.csv"
+    ]
     assert harness["member_execution_transcript"]["schema"] == (
         "wenjin.harness.member_execution_transcript.v1"
     )
@@ -764,7 +830,13 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     evaluation = evaluate_research_task_evidence(
         report,
         node_events=node_events,
-        required_surfaces=("literature", "experiment", "writing", "workflow_trace"),
+        required_surfaces=(
+            "literature",
+            "experiment",
+            "writing",
+            "workflow_trace",
+            "experiment_interpretation",
+        ),
     )
     assert evaluation.status == "pass"
     assert evaluation.coverage == {
@@ -772,6 +844,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         "experiment": "pass",
         "writing": "pass",
         "workflow_trace": "pass",
+        "experiment_interpretation": "pass",
     }
     assert evaluation.evidence["workflow_trace"]["scratch_refs"] == [
         "/workspace/tmp/tasks/exec-harness-e2e/team.1.evidence_analyst_v1.1"
