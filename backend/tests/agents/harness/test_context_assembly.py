@@ -407,6 +407,83 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
     ]
 
 
+def test_context_member_execution_transcript_drops_raw_tool_payload() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={"goal": "continue experiment"},
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "node_metadata": {
+                            "harness": {
+                                "member_execution_transcript": {
+                                    "schema": "wenjin.harness.member_execution_transcript.v1",
+                                    "tool_call_count": 2,
+                                    "tool_names": ["sandbox.run_python", "sandbox.read_output_ref"],
+                                    "completed_tool_count": 2,
+                                    "failed_tool_count": 0,
+                                    "failed_tools": [],
+                                    "changed_paths": ["/workspace/reports/analysis.md"],
+                                    "sandbox_job_ids": ["job-1"],
+                                    "sandbox_environment_ids": ["env-1"],
+                                    "scratch_refs": ["/workspace/tmp/tasks/exec-1/analysis_probe"],
+                                    "generated_artifact_count": 1,
+                                    "usage": {
+                                        "input_tokens": 100,
+                                        "output_tokens": 20,
+                                        "total_tokens": 120,
+                                        "prompt": "raw prompt should not enter context",
+                                    },
+                                    "billing": {
+                                        "credits_charged": 1,
+                                        "provider_payload": "raw billing payload",
+                                    },
+                                    "duration_ms": 250,
+                                    "output_ref_read_count": 1,
+                                    "output_refs_read": [
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"
+                                    ],
+                                    "raw_args": {"script": "print('raw script')"},
+                                    "stdout": "raw stdout should not enter context",
+                                    "stderr": "raw stderr should not enter context",
+                                    "script": "print('raw script')",
+                                }
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+    )
+
+    assert bundle["member_execution_transcript"] == {
+        "schema": "wenjin.harness.member_execution_transcript.v1",
+        "tool_call_count": 2,
+        "tool_names": ["sandbox.run_python", "sandbox.read_output_ref"],
+        "completed_tool_count": 2,
+        "failed_tool_count": 0,
+        "changed_paths": ["/workspace/reports/analysis.md"],
+        "sandbox_job_ids": ["job-1"],
+        "sandbox_environment_ids": ["env-1"],
+        "scratch_refs": ["/workspace/tmp/tasks/exec-1/analysis_probe"],
+        "generated_artifact_count": 1,
+        "usage": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
+        "billing": {"credits_charged": 1},
+        "duration_ms": 250,
+        "output_ref_read_count": 1,
+        "output_refs_read": ["/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"],
+    }
+    rendered = render_harness_context_for_prompt(bundle)
+    assert "raw prompt should not enter context" not in rendered
+    assert "raw billing payload" not in rendered
+    assert "raw stdout should not enter context" not in rendered
+    assert "raw stderr should not enter context" not in rendered
+    assert "print('raw script')" not in rendered
+
+
 def test_context_includes_scratch_reference_without_promoting_it_to_artifact() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",

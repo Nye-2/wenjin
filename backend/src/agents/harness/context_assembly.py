@@ -36,6 +36,35 @@ _SANDBOX_EXECUTION_SUMMARY_ALLOWED_KEYS = frozenset(
         "output_refs",
     }
 )
+_MEMBER_EXECUTION_TRANSCRIPT_ALLOWED_KEYS = frozenset(
+    {
+        "schema",
+        "tool_call_count",
+        "tool_names",
+        "completed_tool_count",
+        "failed_tool_count",
+        "failed_tools",
+        "changed_paths",
+        "sandbox_job_ids",
+        "sandbox_environment_ids",
+        "scratch_refs",
+        "generated_artifact_count",
+        "usage",
+        "billing",
+        "duration_ms",
+        "output_refs_read",
+    }
+)
+_MEMBER_TRANSCRIPT_COUNT_KEYS = frozenset(
+    {
+        "tool_call_count",
+        "completed_tool_count",
+        "failed_tool_count",
+        "generated_artifact_count",
+        "duration_ms",
+    }
+)
+_MEMBER_USAGE_KEYS = ("input_tokens", "output_tokens", "total_tokens")
 
 
 def build_harness_context_bundle(
@@ -676,19 +705,82 @@ def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
 def _safe_member_execution_transcript(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return {}
-    result = _safe_value(value)
-    result = result if isinstance(result, dict) else {}
+    result: dict[str, Any] = {}
     refs: list[str] = []
-    raw_refs = value.get("output_refs_read")
-    if isinstance(raw_refs, list):
-        for ref in raw_refs:
-            text = str(ref).strip()
-            if is_workspace_readable_internal_output_ref(text) and text not in refs:
-                refs.append(text)
+    for key, item in value.items():
+        key_text = str(key)
+        if key_text not in _MEMBER_EXECUTION_TRANSCRIPT_ALLOWED_KEYS:
+            continue
+        if key_text == "output_refs_read":
+            if isinstance(item, list):
+                for ref in item:
+                    text = str(ref).strip()
+                    if is_workspace_readable_internal_output_ref(text) and text not in refs:
+                        refs.append(text)
+            continue
+        if key_text == "scratch_refs":
+            scratch_refs = []
+            for ref in _safe_string_list(item):
+                path = _safe_task_scratch_ref(ref)
+                if path and path not in scratch_refs:
+                    scratch_refs.append(path)
+            if scratch_refs:
+                result["scratch_refs"] = scratch_refs[:20]
+            continue
+        if key_text == "usage":
+            usage = _safe_member_usage(item)
+            if usage:
+                result["usage"] = usage
+            continue
+        if key_text == "billing":
+            billing = _safe_member_billing(item)
+            if billing:
+                result["billing"] = billing
+            continue
+        if key_text in _MEMBER_TRANSCRIPT_COUNT_KEYS:
+            number = _safe_nonnegative_int(item)
+            if number is not None:
+                result[key_text] = number
+            continue
+        safe = _safe_value(item)
+        if safe not in (None, {}, []):
+            result[key_text] = safe
     if refs:
         result["output_refs_read"] = refs[:20]
         result["output_ref_read_count"] = len(refs)
     return result
+
+
+def _safe_member_usage(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    usage: dict[str, int] = {}
+    for key in _MEMBER_USAGE_KEYS:
+        number = _safe_nonnegative_int(value.get(key))
+        if number is not None:
+            usage[key] = number
+    return usage
+
+
+def _safe_member_billing(value: Any) -> dict[str, int | float]:
+    if not isinstance(value, dict):
+        return {}
+    number = value.get("credits_charged")
+    if isinstance(number, bool) or not isinstance(number, int | float):
+        return {}
+    if number <= 0:
+        return {}
+    if isinstance(number, float) and number.is_integer():
+        return {"credits_charged": int(number)}
+    return {"credits_charged": number}
+
+
+def _safe_nonnegative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    if value < 0:
+        return None
+    return value
 
 
 def _output_ref_recovery(sandbox_execution_summary: dict[str, Any]) -> dict[str, Any]:
