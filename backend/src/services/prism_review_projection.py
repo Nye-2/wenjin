@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.services.prism_file_content import summarize_prism_file_change_content_contract
+from src.services.prism_file_content import (
+    summarize_prism_file_change_content_contract,
+    summarize_prism_file_change_semantic_contract,
+)
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -62,9 +65,19 @@ def prism_review_item_projection(
     }
     pending_content = preview.get("pending_content") or payload.get("pending_content")
     if isinstance(pending_content, str) and pending_content.strip():
-        preview_payload["content_contract"] = summarize_prism_file_change_content_contract(
+        content_contract = summarize_prism_file_change_content_contract(
             pending_content,
             path=path,
+        )
+        preview_payload["content_contract"] = content_contract
+        source_semantic_contract = _json_object(
+            preview.get("semantic_contract") or payload.get("semantic_contract")
+        )
+        preview_payload["semantic_contract"] = summarize_prism_file_change_semantic_contract(
+            pending_content,
+            path=path,
+            content_contract=content_contract,
+            source_contract=source_semantic_contract or None,
         )
     return {
         "id": str(item.id),

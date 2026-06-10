@@ -71,7 +71,7 @@ deer-flow:
 
 5. **Quality gates now include workflow trace and early outcome-quality scoring.**
 
-   Literature, experiment, Prism writing evidence, and team `workflow_trace` now have deterministic structure checks. The workflow trace check consumes existing `member_execution_transcript` metadata so a SCI workflow can fail release-gate evaluation when review items exist but no team member transcript shows completed tool activity. `citation_strength` checks strong citation/source support. `experiment_interpretation` checks that sandbox-backed results have method, metric, verified-result, limitation, artifact, and dataset evidence aligned with reproducibility metadata. `paper_relevance` checks that cited/selected papers include topic-aligned refs and no off-topic refs. `statistical_robustness` checks method, sample size, metrics, passed robustness checks, limitations, and artifact/dataset alignment while rejecting critical failed checks. Remaining gap: reviewer-facing scoring and whether writing edits improve academic style without semantic drift.
+   Literature, experiment, Prism writing evidence, and team `workflow_trace` now have deterministic structure checks. The workflow trace check consumes existing `member_execution_transcript` metadata so a SCI workflow can fail release-gate evaluation when review items exist but no team member transcript shows completed tool activity. `citation_strength` checks strong citation/source support. `experiment_interpretation` checks that sandbox-backed results have method, metric, verified-result, limitation, artifact, and dataset evidence aligned with reproducibility metadata. `paper_relevance` checks that cited/selected papers include topic-aligned refs and no off-topic refs. `statistical_robustness` checks method, sample size, metrics, passed robustness checks, limitations, and artifact/dataset alignment while rejecting critical failed checks. `writing_semantic_preservation` checks Prism review items for bounded structure/semantic-preservation contracts before they count as low-risk writing evidence. Remaining gap: reviewer-facing scoring and whether writing edits improve academic style beyond structural semantic preservation.
 
 6. **Member-level usage and execution transcript now has a backend projection.**
 
@@ -83,6 +83,6 @@ deer-flow:
 
 1. Run one real SCI workflow through the native harness gate with `workflow_trace` required, then tune prompts/tools from the failures.
 2. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs or ignore member transcripts.
-3. Add Prism semantic preservation evals for academic rewrite quality and no semantic drift.
+3. Add reviewer-facing quality scoring for academic style improvement beyond bounded structural semantic preservation.
 4. Design frontend/team-roster and quality-evidence display only after real runs prove which transcript and eval fields help users.
 5. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.

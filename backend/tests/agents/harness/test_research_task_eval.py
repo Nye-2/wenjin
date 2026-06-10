@@ -542,6 +542,118 @@ def test_research_task_eval_fails_statistical_robustness_with_critical_failed_ch
     ]
 
 
+def test_research_task_eval_passes_writing_semantic_preservation_for_low_risk_prism_change() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(
+            review_items=[
+                {
+                    "id": "prism-review-1",
+                    "kind": "prism_file_change",
+                    "target": {
+                        "logical_key": "project:main",
+                        "file_path": "main.tex",
+                    },
+                    "preview": {
+                        "content_contract": {
+                            "path": "main.tex",
+                            "content_format": "latex_document",
+                            "latex_shape": "document",
+                            "balanced_braces": True,
+                        },
+                        "semantic_contract": {
+                            "schema": "wenjin.prism.semantic_contract.v1",
+                            "target_path": "main.tex",
+                            "basis": "bounded_structural_heuristic",
+                            "preserves_claims": True,
+                            "preserves_citations": True,
+                            "preserves_equations": True,
+                            "preserves_tables": True,
+                            "risk": "low",
+                            "citation_key_count": 1,
+                            "has_equations": True,
+                            "has_tables": True,
+                        },
+                    },
+                }
+            ]
+        ),
+        required_surfaces=("writing_semantic_preservation",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"writing_semantic_preservation": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["writing_semantic_preservation"] == {
+        "review_item_count": 1,
+        "checked_item_count": 1,
+        "missing_semantic_contract_count": 0,
+        "high_risk_count": 0,
+        "claim_preservation_fail_count": 0,
+        "citation_preservation_fail_count": 0,
+        "equation_preservation_fail_count": 0,
+        "table_preservation_fail_count": 0,
+        "risky_items": [],
+    }
+
+
+def test_research_task_eval_fails_writing_semantic_preservation_for_high_risk_prism_change() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(
+            review_items=[
+                {
+                    "id": "prism-review-1",
+                    "kind": "prism_file_change",
+                    "target": {
+                        "logical_key": "project:main",
+                        "file_path": "main.tex",
+                    },
+                    "preview": {
+                        "content_contract": {
+                            "path": "main.tex",
+                            "content_format": "latex_fragment",
+                            "latex_shape": "invalid",
+                            "balanced_braces": False,
+                        },
+                        "semantic_contract": {
+                            "schema": "wenjin.prism.semantic_contract.v1",
+                            "target_path": "main.tex",
+                            "basis": "bounded_structural_heuristic",
+                            "preserves_claims": False,
+                            "preserves_citations": False,
+                            "preserves_equations": True,
+                            "preserves_tables": True,
+                            "risk": "high",
+                            "citation_key_count": 1,
+                            "has_equations": False,
+                            "has_tables": False,
+                        },
+                    },
+                }
+            ]
+        ),
+        required_surfaces=("writing_semantic_preservation",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"writing_semantic_preservation": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "writing_semantic_preservation",
+            "severity": "high",
+            "message": "No low-risk Prism semantic preservation contract was produced for writing review.",
+        }
+    ]
+    assert evaluation.evidence["writing_semantic_preservation"]["high_risk_count"] == 1
+    assert evaluation.evidence["writing_semantic_preservation"]["risky_items"] == [
+        {
+            "review_item_id": "prism-review-1",
+            "file_path": "main.tex",
+            "risk": "high",
+            "failed_flags": ["structure", "claims", "citations"],
+        }
+    ]
+
+
 def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None:
     report = _report(
         review_items=[

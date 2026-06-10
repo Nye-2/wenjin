@@ -17,6 +17,7 @@ ResearchSurface = Literal[
     "experiment_interpretation",
     "paper_relevance",
     "statistical_robustness",
+    "writing_semantic_preservation",
 ]
 EvalStatus = Literal["pass", "fail"]
 
@@ -114,6 +115,7 @@ def evaluate_research_task_evidence(
         "experiment_interpretation": _evaluate_experiment_interpretation,
         "paper_relevance": _evaluate_paper_relevance,
         "statistical_robustness": _evaluate_statistical_robustness,
+        "writing_semantic_preservation": _evaluate_writing_semantic_preservation,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -363,6 +365,31 @@ def _evaluate_writing(
     )
 
 
+def _evaluate_writing_semantic_preservation(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del node_events
+    evidence = _writing_semantic_preservation_evidence(report)
+    passed = (
+        evidence["review_item_count"] > 0
+        and evidence["checked_item_count"] == evidence["review_item_count"]
+        and evidence["missing_semantic_contract_count"] == 0
+        and evidence["high_risk_count"] == 0
+        and evidence["claim_preservation_fail_count"] == 0
+        and evidence["citation_preservation_fail_count"] == 0
+        and evidence["equation_preservation_fail_count"] == 0
+        and evidence["table_preservation_fail_count"] == 0
+    )
+    if passed:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        "No low-risk Prism semantic preservation contract was produced for writing review.",
+    )
+
+
 def _evaluate_workflow_trace(
     report: TaskReport,
     node_events: list[dict[str, Any]],
@@ -554,6 +581,100 @@ def _statistical_robustness_summaries(node_events: list[dict[str, Any]]) -> list
     return summaries[:20]
 
 
+def _writing_semantic_preservation_evidence(report: TaskReport) -> dict[str, Any]:
+    review_item_count = 0
+    checked_item_count = 0
+    missing_semantic_contract_count = 0
+    high_risk_count = 0
+    claim_preservation_fail_count = 0
+    citation_preservation_fail_count = 0
+    equation_preservation_fail_count = 0
+    table_preservation_fail_count = 0
+    risky_items: list[dict[str, Any]] = []
+    for item in report.review_items:
+        if not isinstance(item, dict) or item.get("kind") != "prism_file_change":
+            continue
+        review_item_count += 1
+        target = item.get("target") if isinstance(item.get("target"), dict) else {}
+        review_item_id = _clean_text(item.get("id"))
+        file_path = _clean_text(target.get("file_path"))
+        content_contract = _prism_content_contract(item)
+        semantic_contract = _prism_semantic_contract(item)
+        failed_flags: list[str] = []
+        if not content_contract or not _prism_change_is_structurally_reviewable(item):
+            failed_flags.append("structure")
+        if not semantic_contract:
+            missing_semantic_contract_count += 1
+            failed_flags.append("semantic_contract")
+            _append_risky_prism_item(
+                risky_items,
+                review_item_id=review_item_id,
+                file_path=file_path,
+                risk="high",
+                failed_flags=failed_flags,
+            )
+            continue
+        checked_item_count += 1
+        risk = _clean_text(semantic_contract.get("risk")).lower() or "medium"
+        if risk == "high":
+            high_risk_count += 1
+        if semantic_contract.get("preserves_claims") is not True:
+            claim_preservation_fail_count += 1
+            failed_flags.append("claims")
+        if semantic_contract.get("preserves_citations") is not True:
+            citation_preservation_fail_count += 1
+            failed_flags.append("citations")
+        if (
+            semantic_contract.get("has_equations") is True
+            and semantic_contract.get("preserves_equations") is not True
+        ):
+            equation_preservation_fail_count += 1
+            failed_flags.append("equations")
+        if (
+            semantic_contract.get("has_tables") is True
+            and semantic_contract.get("preserves_tables") is not True
+        ):
+            table_preservation_fail_count += 1
+            failed_flags.append("tables")
+        if risk == "high" or failed_flags:
+            _append_risky_prism_item(
+                risky_items,
+                review_item_id=review_item_id,
+                file_path=file_path,
+                risk=risk,
+                failed_flags=failed_flags,
+            )
+    return {
+        "review_item_count": review_item_count,
+        "checked_item_count": checked_item_count,
+        "missing_semantic_contract_count": missing_semantic_contract_count,
+        "high_risk_count": high_risk_count,
+        "claim_preservation_fail_count": claim_preservation_fail_count,
+        "citation_preservation_fail_count": citation_preservation_fail_count,
+        "equation_preservation_fail_count": equation_preservation_fail_count,
+        "table_preservation_fail_count": table_preservation_fail_count,
+        "risky_items": risky_items[:20],
+    }
+
+
+def _append_risky_prism_item(
+    values: list[dict[str, Any]],
+    *,
+    review_item_id: str,
+    file_path: str,
+    risk: str,
+    failed_flags: list[str],
+) -> None:
+    values.append(
+        {
+            "review_item_id": review_item_id,
+            "file_path": file_path,
+            "risk": risk or "medium",
+            "failed_flags": failed_flags,
+        }
+    )
+
+
 def _member_execution_transcripts(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     transcripts: list[dict[str, Any]] = []
     for event in node_events:
@@ -584,6 +705,12 @@ def _prism_change_is_structurally_reviewable(item: dict[str, Any]) -> bool:
 def _prism_content_contract(item: dict[str, Any]) -> dict[str, Any]:
     preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
     contract = preview.get("content_contract")
+    return dict(contract) if isinstance(contract, dict) else {}
+
+
+def _prism_semantic_contract(item: dict[str, Any]) -> dict[str, Any]:
+    preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
+    contract = preview.get("semantic_contract")
     return dict(contract) if isinstance(contract, dict) else {}
 
 

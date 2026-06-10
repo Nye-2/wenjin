@@ -274,6 +274,14 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_research_task_eval.py -q` -> RED on missing summary/context/eval surface, then 41 passed.
   - `backend`: `.venv/bin/ruff check src/agents/harness/diff_tracker.py src/agents/harness/context_assembly.py src/agents/harness/research_task_eval.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_research_task_eval.py` -> passed.
   - `backend`: native harness regression gate -> 310 passed.
+- 2026-06-10 Prism semantic preservation eval slice:
+  - Added `preview.semantic_contract(schema=wenjin.prism.semantic_contract.v1)` to canonical Prism review projection. It is a bounded structural heuristic or sanitized upstream contract, not a model judge and not a raw diff/full-text payload.
+  - The contract records target path, basis, risk, claim/citation/equation/table preservation flags, citation-key count, and whether the pending content contains equations/tables. It never exposes `pending_content` through the review projection.
+  - Added optional `writing_semantic_preservation` research-eval surface. It requires each Prism file-change review item to have a structurally reviewable `content_contract` and a low-risk semantic contract; high-risk items, invalid LaTeX structure, claim/citation failures, and equation/table preservation failures do not pass.
+  - `backend`: `.venv/bin/python -m pytest tests/services/test_prism_review_projection.py tests/agents/harness/test_research_task_eval.py -q` -> RED on missing `semantic_contract` and missing `writing_semantic_preservation`, then 22 passed.
+  - `backend`: `.venv/bin/ruff check src/services/prism_file_content.py src/services/prism_review_projection.py src/agents/harness/research_task_eval.py tests/services/test_prism_review_projection.py tests/agents/harness/test_research_task_eval.py` -> passed.
+  - `backend`: Prism/runtime focused suite -> 25 passed.
+  - `backend`: native harness regression gate -> 313 passed.
 - 2026-06-09 closed workspace directory contract slice:
   - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
   - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.
@@ -283,7 +291,7 @@ Chat Agent
 
 ### P1: 模型可靠性仍是最大产出瓶颈
 
-当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：创新点可发表性、综合论证一致性、Prism 改稿是否真正改善学术表达并保持上下文语义。文献贴题度、实验解释和统计稳健性已经有 deterministic 结构门，但还不是完整的学术质量评分。
+当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：创新点可发表性、综合论证一致性、Prism 改稿是否真正改善学术表达。文献贴题度、实验解释、统计稳健性和 Prism bounded semantic preservation 已经有 deterministic 结构门，但还不是完整的学术质量评分。
 
 ### P1: 来源质量和引用核验还不够硬
 

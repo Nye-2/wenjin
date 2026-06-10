@@ -546,7 +546,7 @@ Expected: commit succeeds when this slice is staged after docs and drift checks.
 - Modify: `docs/current/native-harness-external-gap-matrix.md`
 - Modify: `docs/current/release-gate-checklist.md`
 
-- [ ] **Step 1: Add projection tests**
+- [x] **Step 1: Add projection tests**
 
 In `backend/tests/services/test_prism_review_projection.py`, assert each Prism review item includes a bounded semantic contract:
 
@@ -563,7 +563,7 @@ assert item["preview"]["semantic_contract"] == {
 
 For incomplete or risky edits, assert `risk` is `medium` or `high` and missing preservation flags are explicit.
 
-- [ ] **Step 2: Add research eval tests**
+- [x] **Step 2: Add research eval tests**
 
 Add passing/failing tests for `writing_semantic_preservation`.
 
@@ -575,7 +575,7 @@ Pass criteria:
 - no item has `risk="high"`;
 - each review item still has the existing LaTeX content contract.
 
-- [ ] **Step 3: Run tests and confirm RED**
+- [x] **Step 3: Run tests and confirm RED**
 
 Run:
 
@@ -587,7 +587,7 @@ cd backend && .venv/bin/python -m pytest \
 
 Expected: missing `semantic_contract` or missing `writing_semantic_preservation`.
 
-- [ ] **Step 4: Implement projection and evaluator**
+- [x] **Step 4: Implement projection and evaluator**
 
 Implementation boundary:
 
@@ -596,7 +596,7 @@ Implementation boundary:
 - do not inspect full user documents outside bounded Prism service contracts;
 - keep `preview.semantic_contract` small and stable.
 
-- [ ] **Step 5: Run backend and frontend focused tests**
+- [x] **Step 5: Run backend focused tests**
 
 Run:
 
@@ -609,7 +609,7 @@ cd frontend && npm run typecheck
 cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts
 ```
 
-Expected: all selected tests pass.
+Expected: all selected backend tests pass. Current evidence: Prism projection + research eval focused suite passed with `22 passed`; Prism/runtime focused suite passed with `25 passed`; native harness regression gate passed with `313 passed`.
 
 - [ ] **Step 6: Commit**
 
