@@ -13,6 +13,7 @@ Do not introduce Codex SDK/app-server, cc-switch protocol bridges, deer-flow run
 Codex:
 
 - `/Users/ze/codex/codex-rs/execpolicy/src/policy.rs`
+- `/Users/ze/codex/codex-rs/linux-sandbox/src/bwrap.rs`
 - `/Users/ze/codex/codex-rs/core/src/turn_diff_tracker.rs`
 - `/Users/ze/codex/codex-rs/core/src/unified_exec/head_tail_buffer.rs`
 - `/Users/ze/codex/codex-rs/core/src/session/turn.rs`
@@ -27,6 +28,9 @@ deer-flow:
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/tools/builtins/task_tool.py`
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/runtime/journal.py`
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/sandbox/*`
+- `/Users/ze/deer-flow/backend/packages/harness/deerflow/sandbox/security.py`
+- `/Users/ze/deer-flow/backend/packages/harness/deerflow/sandbox/tools.py`
+- `/Users/ze/deer-flow/backend/packages/harness/deerflow/sandbox/file_operation_lock.py`
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/sandbox/local/local_sandbox.py`
 - `/Users/ze/deer-flow/backend/packages/harness/deerflow/agents/lead_agent/prompt.py`
 
@@ -40,6 +44,7 @@ deer-flow:
 | Codex unified exec lifecycle envelope | Partially implemented for `sandbox.run_python` jobs | Adopt narrow event shape later | Codex records command, cwd, env, sandbox cwd, process id, timeout/yield, output chunks, denial and final exit as one lifecycle. Wenjin should strengthen DataService sandbox job / harness event projection, not open a persistent shell session. |
 | Codex apply_patch interception and turn-level diff | Partially implemented through `sandbox.apply_patch` + file-change summaries | Adopt UX pattern later | Wenjin has safe structured patches and compact diffs, but still lacks a polished review surface for multi-file sandbox diffs comparable to Codex turn diffs. |
 | Codex explicit approval/runtime policy | Partially implemented | Adopt concept only | Wenjin maps this to capability/skill policy and DataService review, not interactive CLI approval. |
+| Codex writable-root + read-only/deny carveouts | Partially implemented at harness file boundary | Adopt fail-closed boundary, not bwrap runtime | Wenjin already rejects protected/internal paths and symlink escapes at tool boundary; guidance/manifest paths now also fail closed for direct write tools while structured register tools remain allowed. |
 | Codex unified exec sessions | Not implemented | Do not migrate | Wenjin should not expose a generic persistent shell. Experiments run through `sandbox.run_python` and lead-owned job runner. |
 | Codex SDK/app-server | Removed from current direction | Do not migrate | Too heavy for Wenjin's vertical workflow; would create a second run/thread model. |
 | deer-flow tool-output externalization | Implemented, now read-only output refs are supported | Keep and refine | Explicit refs let agent recover omitted content without listing/searching hidden internals. |
@@ -50,6 +55,7 @@ deer-flow:
 | deer-flow run journal | Partially implemented as harness node metadata/events | Adopt projection shape only | Wenjin already has ExecutionNodeRecord/DataService events; no new run-event table. |
 | deer-flow skills prompt injection | Wenjin has capability/skill templates | Adopt caching/selection idea, reject self-evolution loop | Skills remain DataService/capability-driven; dynamic cache/selection is useful, but mutable SOUL or autonomous skill evolution would drift from admin-managed capability contracts. |
 | deer-flow sandbox providers | Wenjin has Local/Docker providers | Learn hygiene only | One workspace owns one sandbox; no cross-thread sandbox manager or `/mnt/user-data` alias. |
+| deer-flow local path gate and file-operation lock | Partially implemented | Adopt selected hygiene | Wenjin validates virtual `/workspace` paths, resolved physical targets and symlink escapes. Direct guidance/manifest writes now fail closed; a future slice can add per-workspace/path async write locks if concurrent same-path writes show up in real runs. |
 
 ## Current Wenjin Gaps
 
@@ -67,7 +73,7 @@ deer-flow:
 
 4. **Workspace filesystem contract is usable; real-task scratch usage still needs tuning.**
 
-   Status: partially closed. Common layout remains shared across workspace types, and domain differences stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch root; harness context injects a safe per-execution/member `task_scratch_path`, Lead-owned `sandbox.run_python` now creates `/workspace/tmp/tasks/{execution_id}/{node_id}`, executes with that directory as cwd, and injects `WENJIN_TASK_SCRATCH` / `WENJIN_WORKSPACE_ROOT`. Safe upstream scratch dirs now flow to later members through top-level `scratch_refs[]` from raw upstream sandbox outputs and from existing `member_execution_transcript.scratch_refs`, without being promoted to reviewable artifact candidates. TeamKernel syncs current harness evidence after each core batch, so capabilities that declare `max_parallel_invocations=1` get sequential long-chain handoff. Reviewable output still belongs under `outputs`/`reports`; the remaining work is real-task tuning: deciding which intermediates become review artifacts, which stay scratch-only, and which workflows should run sequentially versus in parallel.
+   Status: partially closed. Common layout remains shared across workspace types, and domain differences stay in `workspace_profile`, not new directories. `tmp/tasks` is the canonical task scratch root; harness context injects a safe per-execution/member `task_scratch_path`, Lead-owned `sandbox.run_python` now creates `/workspace/tmp/tasks/{execution_id}/{node_id}`, executes with that directory as cwd, and injects `WENJIN_TASK_SCRATCH` / `WENJIN_WORKSPACE_ROOT`. Safe upstream scratch dirs now flow to later members through top-level `scratch_refs[]` from raw upstream sandbox outputs and from existing `member_execution_transcript.scratch_refs`, without being promoted to reviewable artifact candidates. TeamKernel syncs current harness evidence after each core batch, so capabilities that declare `max_parallel_invocations=1` get sequential long-chain handoff. Layout guidance/manifest paths are now machine-readable contract files rather than ordinary writable files: direct `sandbox.write_file` / `sandbox.str_replace` / `sandbox.apply_patch` reject them, while `sandbox.register_dataset` and `sandbox.register_artifact` remain the structured manifest update path. Reviewable output still belongs under `outputs`/`reports`; the remaining work is real-task tuning: deciding which intermediates become review artifacts, which stay scratch-only, and which workflows should run sequentially versus in parallel.
 
 5. **Quality gates now include workflow trace and early outcome-quality scoring.**
 

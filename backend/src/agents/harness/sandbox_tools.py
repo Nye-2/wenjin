@@ -15,6 +15,7 @@ from src.sandbox.workspace_layout import (
     WORKSPACE_ROOT,
     build_artifact_manifest,
     build_dataset_provenance_manifest,
+    is_workspace_guidance_path,
     is_workspace_internal_path,
     is_workspace_protected_path,
     is_workspace_readable_internal_output_ref,
@@ -293,6 +294,7 @@ class SandboxFileTools:
 
     async def write_file(self, *, path: str, content: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
+        self._require_user_editable_path(safe_path)
         self._require_workspace_physical_target(safe_path)
         self._require_tool_visible_physical_target(safe_path)
         before = await self._read_existing(safe_path)
@@ -314,6 +316,7 @@ class SandboxFileTools:
 
     async def str_replace(self, *, path: str, old: str, new: str) -> HarnessToolResult:
         safe_path = self._validate_virtual_path(path, operation="write")
+        self._require_user_editable_path(safe_path)
         self._require_workspace_physical_target(safe_path)
         self._require_tool_visible_physical_target(safe_path)
         before = await self.sandbox.read_file(safe_path)
@@ -553,6 +556,7 @@ class SandboxFileTools:
             if not isinstance(raw_edit, dict):
                 raise ValueError(f"apply_patch edit {index} must be an object")
             path = self._validate_virtual_path(str(raw_edit.get("path") or ""), operation="write")
+            self._require_user_editable_path(path)
             self._require_workspace_physical_target(path)
             self._require_tool_visible_physical_target(path)
             operation = str(raw_edit.get("operation") or "replace").strip().lower()
@@ -655,6 +659,13 @@ class SandboxFileTools:
             raise HarnessPathError(f"protected target is not accessible: {virtual_path}")
         if is_workspace_internal_path(target_virtual_path):
             raise HarnessPathError(f"internal target is not accessible: {virtual_path}")
+
+    @staticmethod
+    def _require_user_editable_path(virtual_path: str) -> None:
+        if is_workspace_guidance_path(virtual_path):
+            raise HarnessPathError(
+                f"layout guidance path is not directly editable; use structured sandbox manifest tools: {virtual_path}"
+            )
 
     def _require_readable_physical_target(self, virtual_path: str) -> None:
         resolver = getattr(self.sandbox, "_resolve_path", None)

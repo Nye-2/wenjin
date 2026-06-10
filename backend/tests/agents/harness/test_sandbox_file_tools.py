@@ -316,6 +316,49 @@ async def test_apply_patch_requires_explicit_new_text(sandbox: LocalSandbox) -> 
 
 
 @pytest.mark.asyncio
+async def test_direct_write_tools_reject_workspace_layout_guidance_paths(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/main/paper.tex", "alpha\n")
+    await sandbox.write_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH, "{}\n")
+    await sandbox.write_file(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH, "{}\n")
+    await sandbox.write_file("/workspace/outputs/README.md", "guidance\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
+
+    with pytest.raises(HarnessPathError, match="layout guidance path"):
+        await tools.write_file(path=WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH, content="bad\n")
+
+    with pytest.raises(HarnessPathError, match="layout guidance path"):
+        await tools.str_replace(
+            path=WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+            old="{}",
+            new='{"bad": true}',
+        )
+
+    with pytest.raises(HarnessPathError, match="layout guidance path"):
+        await tools.write_file(path="/workspace/outputs/README.md", content="bad\n")
+
+    with pytest.raises(HarnessPathError, match="layout guidance path"):
+        await tools.apply_patch(
+            edits=[
+                {
+                    "path": "/workspace/main/paper.tex",
+                    "old": "alpha",
+                    "new": "changed",
+                },
+                {
+                    "path": "/workspace/outputs/README.md",
+                    "old": "guidance",
+                    "new": "bad",
+                },
+            ]
+        )
+
+    assert await sandbox.read_file("/workspace/main/paper.tex") == "alpha\n"
+    assert await sandbox.read_file(WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH) == "{}\n"
+    assert await sandbox.read_file(WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH) == "{}\n"
+    assert await sandbox.read_file("/workspace/outputs/README.md") == "guidance\n"
+
+
+@pytest.mark.asyncio
 async def test_register_dataset_updates_manifest_and_records_diff(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/datasets/sample.csv", "x,y\n1,2\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_write_policy())
