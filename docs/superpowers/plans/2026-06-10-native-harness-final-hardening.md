@@ -337,7 +337,7 @@ git commit -m "docs: record native harness final boundaries"
 **Files:**
 - No expected code changes.
 
-- [ ] **Step 1: Run focused harness and sandbox tests**
+- [x] **Step 1: Run focused harness and sandbox tests**
 
 Run:
 
@@ -354,7 +354,7 @@ cd backend && .venv/bin/python -m pytest \
 
 Expected: all selected tests pass.
 
-- [ ] **Step 2: Run backend architecture drift scan**
+- [x] **Step 2: Run backend architecture drift scan**
 
 Run:
 
@@ -364,7 +364,7 @@ rg -n "from .*codex|import .*codex|cc-switch|ccswitch|deerflow|deer-flow|sandbox
 
 Expected: no output and exit code `1`.
 
-- [ ] **Step 3: Run Ruff**
+- [x] **Step 3: Run Ruff**
 
 Run:
 
@@ -380,7 +380,7 @@ cd backend && .venv/bin/ruff check \
 
 Expected: Ruff passes.
 
-- [ ] **Step 4: Run full native harness gate**
+- [x] **Step 4: Run full native harness gate**
 
 Run:
 
@@ -414,7 +414,7 @@ cd backend && .venv/bin/python -m pytest \
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Run whitespace diff check**
+- [x] **Step 5: Run whitespace diff check**
 
 Run:
 
@@ -424,7 +424,7 @@ git diff --check
 
 Expected: no output.
 
-- [ ] **Step 6: Final commit if verification documentation changed**
+- [x] **Step 6: Final commit if verification documentation changed**
 
 Run:
 

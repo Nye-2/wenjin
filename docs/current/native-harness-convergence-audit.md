@@ -334,6 +334,10 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py -q` -> 17 passed.
   - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py -q` -> 8 passed.
   - `backend`: `.venv/bin/ruff check src/agents/harness/diff_tracker.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py` -> passed.
+  - `backend`: focused final gate (`test_output_budget_loop_guard_and_diff_tracker.py`, `test_context_assembly.py`, `test_team_kernel_harness_replan.py`, `test_sandbox_runtime.py`, `test_sandbox_artifact_discovery.py`, `test_workspace_layout.py`, `test_harness_mock_sandbox_e2e.py`) -> 91 passed.
+  - Production drift scan over `backend/src/agents/harness`, `backend/src/agents/lead_agent/v2`, and `backend/src/subagents/v2` found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or `sandbox.run_command`.
+  - `backend`: final native harness release gate, now including `tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`, -> 331 passed.
+  - `root`: `git diff --check` -> passed.
 
 ## 6. 剩余不足
 
