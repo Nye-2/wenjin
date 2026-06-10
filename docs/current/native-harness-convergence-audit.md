@@ -298,6 +298,12 @@ Chat Agent
   - `sandbox.write_file`, `sandbox.str_replace`, and `sandbox.apply_patch` now reject layout guidance/manifest paths such as `/workspace/datasets/manifest.json`, `/workspace/reports/artifacts.json`, README guidance, and `.gitkeep`. Dataset/artifact manifests remain writable only through `sandbox.register_dataset` / `sandbox.register_artifact`, preserving structured sanitization and user-authored entries.
   - `build_agent_workspace_contract()` now tells tool-using agents not to directly edit layout guidance paths, so the boundary is visible in harness context before the tool call fails.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_sandbox_file_tools.py::test_direct_write_tools_reject_workspace_layout_guidance_paths tests/agents/harness/test_sandbox_file_tools.py::test_register_dataset_updates_manifest_and_records_diff tests/agents/harness/test_sandbox_file_tools.py::test_register_artifact_updates_manifest_and_records_diff -q` -> RED on direct manifest write being allowed, then 3 passed.
+- 2026-06-10 workspace operation policy slice:
+  - Converted the direct-write and manifest-update rules into `operation_policy(schema=wenjin.workspace_sandbox.operation_policy.v1)` inside `build_agent_workspace_contract()`.
+  - Added `is_user_editable_workspace_path()` to centralize direct-write decisions: root-level project files and files under project, dataset, script, output, report, and scratch roots are editable; protected, internal, guidance, arbitrary top-level directory trees, and non-`/workspace` paths are not.
+  - `SandboxFileTools` now delegates direct-write eligibility to this layout helper instead of carrying a local guidance-only check.
+  - `context_assembly.py` projects the same policy to `sandbox.operation_policy`, so ReactSubagent sees direct write tools, allowed roots, root-level file compatibility, denied path classes, structured manifest tools, and the internal output-ref reader in its harness context.
+  - `backend`: `.venv/bin/python -m pytest tests/sandbox/test_workspace_layout.py::test_agent_workspace_contract_exposes_operation_policy tests/sandbox/test_workspace_layout.py::test_workspace_user_editable_path_policy_is_centralized tests/agents/harness/test_context_assembly.py::test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence tests/agents/harness/test_sandbox_file_tools.py::test_direct_write_tools_reject_workspace_layout_guidance_paths -q` -> RED on missing `operation_policy` / helper / context projection, then 4 passed.
 
 ## 6. 剩余不足
 

@@ -581,6 +581,62 @@ def test_agent_workspace_contract_exposes_path_classes():
     assert "/workspace/reports/artifacts.json" in contract["path_classes"]["guidance"]
 
 
+def test_agent_workspace_contract_exposes_operation_policy():
+    contract = build_agent_workspace_contract(workspace_id="ws-1", workspace_type="sci")
+
+    assert contract["operation_policy"] == {
+        "schema": "wenjin.workspace_sandbox.operation_policy.v1",
+        "direct_write_tools": {
+            "tools": [
+                "sandbox.write_file",
+                "sandbox.str_replace",
+                "sandbox.apply_patch",
+            ],
+            "allowed_roots": [
+                "/workspace/main",
+                "/workspace/datasets",
+                "/workspace/scripts",
+                "/workspace/outputs",
+                "/workspace/reports",
+                "/workspace/tmp",
+            ],
+            "allowed_root_files": ["/workspace/*"],
+            "denied_path_classes": ["protected", "internal", "guidance"],
+            "rule": "Direct write tools may edit root-level project files and files under project, dataset, script, output, report, and scratch roots, but not protected, internal, layout guidance, or arbitrary top-level directory paths.",
+        },
+        "manifest_update_tools": {
+            "sandbox.register_dataset": {
+                "manifest_path": "/workspace/datasets/manifest.json",
+                "allowed_roots": ["/workspace/datasets"],
+            },
+            "sandbox.register_artifact": {
+                "manifest_path": "/workspace/reports/artifacts.json",
+                "allowed_roots": ["/workspace/outputs", "/workspace/reports"],
+            },
+        },
+        "read_internal_output_ref_tool": "sandbox.read_output_ref",
+    }
+
+
+def test_workspace_user_editable_path_policy_is_centralized():
+    assert layout.is_user_editable_workspace_path("/workspace/main.tex")
+    assert layout.is_user_editable_workspace_path("/workspace/main/paper.tex")
+    assert layout.is_user_editable_workspace_path("/workspace/datasets/raw.csv")
+    assert layout.is_user_editable_workspace_path("/workspace/scripts/analysis.py")
+    assert layout.is_user_editable_workspace_path("/workspace/outputs/figure.png")
+    assert layout.is_user_editable_workspace_path("/workspace/reports/summary.md")
+    assert layout.is_user_editable_workspace_path("/workspace/tmp/tasks/exec/member/scratch.json")
+
+    assert not layout.is_user_editable_workspace_path("/workspace/.env")
+    assert not layout.is_user_editable_workspace_path("/workspace/.wenjin/manifest.json")
+    assert not layout.is_user_editable_workspace_path("/workspace/tmp/tasks/.harness/outputs/exec/tool.txt")
+    assert not layout.is_user_editable_workspace_path("/workspace/datasets/manifest.json")
+    assert not layout.is_user_editable_workspace_path("/workspace/reports/artifacts.json")
+    assert not layout.is_user_editable_workspace_path("/workspace/outputs/README.md")
+    assert not layout.is_user_editable_workspace_path("/workspace/ad_hoc/experiment.py")
+    assert not layout.is_user_editable_workspace_path("/mnt/user-data/outputs/result.csv")
+
+
 def test_workspace_task_scratch_path_is_stable_and_sanitized():
     scratch_path = layout.workspace_task_scratch_path(
         execution_id="exec 1/../../secret",

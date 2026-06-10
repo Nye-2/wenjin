@@ -15,7 +15,7 @@ from src.sandbox.workspace_layout import (
     WORKSPACE_ROOT,
     build_artifact_manifest,
     build_dataset_provenance_manifest,
-    is_workspace_guidance_path,
+    is_user_editable_workspace_path,
     is_workspace_internal_path,
     is_workspace_protected_path,
     is_workspace_readable_internal_output_ref,
@@ -662,9 +662,9 @@ class SandboxFileTools:
 
     @staticmethod
     def _require_user_editable_path(virtual_path: str) -> None:
-        if is_workspace_guidance_path(virtual_path):
+        if not is_user_editable_workspace_path(virtual_path):
             raise HarnessPathError(
-                f"layout guidance path is not directly editable; use structured sandbox manifest tools: {virtual_path}"
+                f"path is not directly editable; use structured sandbox manifest tools for layout guidance paths: {virtual_path}"
             )
 
     def _require_readable_physical_target(self, virtual_path: str) -> None:

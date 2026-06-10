@@ -139,6 +139,7 @@ def _sandbox_contract(
         "workspace_profile": _safe_workspace_profile(contract.get("workspace_profile")),
         "path_classes": _safe_path_classes(contract.get("path_classes")),
         "guidance_paths": _safe_string_list((contract.get("path_classes") or {}).get("guidance")),
+        "operation_policy": _safe_operation_policy(contract.get("operation_policy")),
         "protected_paths": [str(path) for path in contract.get("protected_paths") or ()],
         "internal_paths": [str(path) for path in contract.get("internal_paths") or ()],
         "search_ignored_names": [str(name) for name in contract.get("search_ignored_names") or ()],
@@ -175,6 +176,34 @@ def _safe_path_classes(value: Any) -> dict[str, list[str]]:
         if safe_items:
             result[str(key)] = safe_items
     return result
+
+
+def _safe_operation_policy(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    direct_write = value.get("direct_write_tools")
+    direct_write = direct_write if isinstance(direct_write, dict) else {}
+    manifest_tools = value.get("manifest_update_tools")
+    manifest_tools = manifest_tools if isinstance(manifest_tools, dict) else {}
+    return {
+        "schema": str(value.get("schema") or ""),
+        "direct_write_tools": {
+            "tools": _safe_string_list(direct_write.get("tools")),
+            "allowed_roots": _safe_string_list(direct_write.get("allowed_roots")),
+            "allowed_root_files": _safe_string_list(direct_write.get("allowed_root_files")),
+            "denied_path_classes": _safe_string_list(direct_write.get("denied_path_classes")),
+            "rule": str(direct_write.get("rule") or ""),
+        },
+        "manifest_update_tools": {
+            str(name): {
+                "manifest_path": str(config.get("manifest_path") or ""),
+                "allowed_roots": _safe_string_list(config.get("allowed_roots")),
+            }
+            for name, config in manifest_tools.items()
+            if isinstance(config, dict)
+        },
+        "read_internal_output_ref_tool": str(value.get("read_internal_output_ref_tool") or ""),
+    }
 
 
 def _safe_workspace_profile(value: Any) -> dict[str, Any]:

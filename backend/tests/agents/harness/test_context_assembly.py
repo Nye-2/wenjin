@@ -97,6 +97,23 @@ def test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence
     assert bundle["sandbox"]["path_classes"]["task_scratch"] == ["/workspace/tmp/tasks"]
     assert "/workspace/outputs/README.md" in bundle["sandbox"]["guidance_paths"]
     assert "/workspace/reports/artifacts.json" in bundle["sandbox"]["guidance_paths"]
+    assert bundle["sandbox"]["operation_policy"]["direct_write_tools"]["tools"] == [
+        "sandbox.write_file",
+        "sandbox.str_replace",
+        "sandbox.apply_patch",
+    ]
+    assert bundle["sandbox"]["operation_policy"]["direct_write_tools"]["allowed_root_files"] == [
+        "/workspace/*",
+    ]
+    assert bundle["sandbox"]["operation_policy"]["direct_write_tools"]["denied_path_classes"] == [
+        "protected",
+        "internal",
+        "guidance",
+    ]
+    assert bundle["sandbox"]["operation_policy"]["manifest_update_tools"]["sandbox.register_dataset"] == {
+        "manifest_path": "/workspace/datasets/manifest.json",
+        "allowed_roots": ["/workspace/datasets"],
+    }
     assert "**/.env" in bundle["sandbox"]["protected_paths"]
     assert "/workspace/tmp/tasks/.harness/**" in bundle["sandbox"]["internal_paths"]
     assert "node_modules" in bundle["sandbox"]["search_ignored_names"]

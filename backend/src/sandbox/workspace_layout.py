@@ -14,6 +14,7 @@ WORKSPACE_ROOT = "/workspace"
 WORKSPACE_LAYOUT_SCHEMA = "wenjin.workspace_sandbox.layout.v1"
 WORKSPACE_LAYOUT_VERSION = 1
 WORKSPACE_TYPE_PROFILE_SCHEMA = "wenjin.workspace_sandbox.type_profile.v1"
+WORKSPACE_OPERATION_POLICY_SCHEMA = "wenjin.workspace_sandbox.operation_policy.v1"
 WORKSPACE_MANIFEST_RELATIVE_PATH = ".wenjin/manifest.json"
 WORKSPACE_MANIFEST_VIRTUAL_PATH = f"{WORKSPACE_ROOT}/{WORKSPACE_MANIFEST_RELATIVE_PATH}"
 WORKSPACE_DATASET_PROVENANCE_SCHEMA = "wenjin.workspace_sandbox.dataset_provenance.v1"
@@ -221,6 +222,31 @@ WORKSPACE_ARTIFACT_ROOTS = (
         "virtual_path": f"{WORKSPACE_ROOT}/reports",
         "artifact_kind": "sandbox_report",
     },
+)
+
+WORKSPACE_DIRECT_WRITE_TOOL_NAMES = (
+    "sandbox.write_file",
+    "sandbox.str_replace",
+    "sandbox.apply_patch",
+)
+
+WORKSPACE_DIRECT_WRITE_ALLOWED_ROOTS = (
+    f"{WORKSPACE_ROOT}/main",
+    f"{WORKSPACE_ROOT}/datasets",
+    f"{WORKSPACE_ROOT}/scripts",
+    f"{WORKSPACE_ROOT}/outputs",
+    f"{WORKSPACE_ROOT}/reports",
+    f"{WORKSPACE_ROOT}/tmp",
+)
+
+WORKSPACE_DIRECT_WRITE_ALLOWED_ROOT_FILES = (
+    f"{WORKSPACE_ROOT}/*",
+)
+
+WORKSPACE_DIRECT_WRITE_DENIED_PATH_CLASSES = (
+    "protected",
+    "internal",
+    "guidance",
 )
 
 _TASK_SCRATCH_SEGMENT_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -868,6 +894,7 @@ def build_agent_workspace_contract(
         "workspace_profile": workspace_type_profile(workspace_type),
         "artifact_roots": manifest["artifact_roots"],
         "path_classes": deepcopy(WORKSPACE_PATH_CLASSES),
+        "operation_policy": build_workspace_operation_policy(),
         "datasets_manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
         "artifacts_manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
         "task_scratch_root": WORKSPACE_TASK_SCRATCH_VIRTUAL_ROOT,
@@ -888,6 +915,36 @@ def build_agent_workspace_contract(
             "Do not list or search internal harness refs; inspect explicit output refs with sandbox.read_output_ref.",
             "Do not register or cite internal harness refs as user-facing artifacts.",
         ],
+    }
+
+
+def build_workspace_operation_policy() -> dict[str, Any]:
+    """Return the machine-readable operation policy for model-facing file tools."""
+
+    return {
+        "schema": WORKSPACE_OPERATION_POLICY_SCHEMA,
+        "direct_write_tools": {
+            "tools": list(WORKSPACE_DIRECT_WRITE_TOOL_NAMES),
+            "allowed_roots": list(WORKSPACE_DIRECT_WRITE_ALLOWED_ROOTS),
+            "allowed_root_files": list(WORKSPACE_DIRECT_WRITE_ALLOWED_ROOT_FILES),
+            "denied_path_classes": list(WORKSPACE_DIRECT_WRITE_DENIED_PATH_CLASSES),
+            "rule": (
+                "Direct write tools may edit root-level project files and files under project, dataset, "
+                "script, output, report, and scratch roots, but not protected, internal, layout guidance, "
+                "or arbitrary top-level directory paths."
+            ),
+        },
+        "manifest_update_tools": {
+            "sandbox.register_dataset": {
+                "manifest_path": WORKSPACE_DATASETS_MANIFEST_VIRTUAL_PATH,
+                "allowed_roots": [f"{WORKSPACE_ROOT}/datasets"],
+            },
+            "sandbox.register_artifact": {
+                "manifest_path": WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
+                "allowed_roots": [root["virtual_path"] for root in WORKSPACE_ARTIFACT_ROOTS],
+            },
+        },
+        "read_internal_output_ref_tool": "sandbox.read_output_ref",
     }
 
 
@@ -1051,6 +1108,28 @@ def is_workspace_guidance_path(path: str) -> bool:
     except ValueError:
         return False
     return relative in WORKSPACE_GUIDANCE_RELATIVE_PATHS
+
+
+def is_user_editable_workspace_path(path: str) -> bool:
+    """Return whether direct write tools may edit a workspace path."""
+
+    try:
+        normalized = normalize_workspace_virtual_path(path)
+    except ValueError:
+        return False
+    if is_workspace_protected_path(normalized):
+        return False
+    if is_workspace_internal_path(normalized):
+        return False
+    if is_workspace_guidance_path(normalized):
+        return False
+    relative = workspace_relative_path(normalized)
+    if relative and len(PurePosixPath(relative).parts) == 1:
+        return True
+    return any(
+        normalized == root or normalized.startswith(f"{root}/")
+        for root in WORKSPACE_DIRECT_WRITE_ALLOWED_ROOTS
+    )
 
 
 def classify_workspace_path(path: str) -> WorkspacePathClass:
