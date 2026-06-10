@@ -278,6 +278,32 @@ def test_harness_node_metadata_includes_sandbox_execution_summary() -> None:
     }
 
 
+def test_sandbox_execution_summary_dedupes_generated_artifacts_across_record_and_metadata() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "generated_artifacts": [
+                    {"path": "/workspace/outputs/result.json"},
+                    {"path": "/workspace/reports/analysis.md"},
+                ],
+                "metadata": {
+                    "generated_artifacts": [
+                        {"path": "/workspace/outputs/result.json"},
+                        {"path": "/workspace/reports/analysis.md"},
+                        {"path": "/workspace/tmp/tasks/.harness/outputs/exec/node/internal.txt"},
+                        {"path": "/workspace/.env"},
+                    ]
+                },
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["sandbox_execution_summary"]
+    assert summary["generated_artifact_count"] == 2
+
+
 def test_harness_node_metadata_includes_reproducibility_summary() -> None:
     metadata = build_harness_node_metadata_from_tool_calls(
         [

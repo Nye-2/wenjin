@@ -310,7 +310,7 @@ def build_sandbox_execution_summary_from_tool_calls(
     python_runs = 0
     failed_python_runs = 0
     recoverable_failures = 0
-    generated_artifact_count = 0
+    generated_artifact_paths: list[str] = []
     sandbox_job_ids: list[str] = []
     sandbox_environment_ids: list[str] = []
     failure_codes: list[str] = []
@@ -362,8 +362,8 @@ def build_sandbox_execution_summary_from_tool_calls(
             _append_unique(failure_codes, error_code)
         if _is_recoverable_failure(tool_call, metadata, classification):
             recoverable_failures += 1
-        generated_artifact_count += _reviewable_artifact_count(tool_call.get("generated_artifacts"))
-        generated_artifact_count += _reviewable_artifact_count(metadata.get("generated_artifacts"))
+        _append_reviewable_artifact_paths(generated_artifact_paths, tool_call.get("generated_artifacts"))
+        _append_reviewable_artifact_paths(generated_artifact_paths, metadata.get("generated_artifacts"))
 
     if python_runs == 0:
         return None
@@ -375,7 +375,7 @@ def build_sandbox_execution_summary_from_tool_calls(
         "sandbox_job_ids": sandbox_job_ids[:20],
         "sandbox_environment_ids": sandbox_environment_ids[:20],
         "failure_codes": failure_codes[:20],
-        "generated_artifact_count": generated_artifact_count,
+        "generated_artifact_count": len(generated_artifact_paths),
     }
     if execution_lifecycle_count > 0:
         result["execution_lifecycle_count"] = execution_lifecycle_count
@@ -822,6 +822,13 @@ def _reviewable_artifact_count(value: Any) -> int:
         if is_user_reviewable_workspace_artifact_path(path):
             total += 1
     return total
+
+
+def _append_reviewable_artifact_paths(values: list[str], value: Any) -> None:
+    for artifact in _list_of_dicts(value):
+        path = str(artifact.get("path") or "").strip()
+        if is_user_reviewable_workspace_artifact_path(path):
+            _append_unique(values, path)
 
 
 def _append_safe_artifact_path(values: list[str], value: str) -> None:
