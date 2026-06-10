@@ -437,6 +437,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         user_payload = json.loads(kwargs["user_message"])
         role = user_payload.get("team_role")
         captured.setdefault("roles", []).append(role)
+        captured.setdefault("system_prompts", {})[role] = kwargs["system_prompt"]
         if role == "文献与数据整理员":
             curator_context = user_payload["_harness_context"]
             assert curator_context["schema"] == "wenjin.harness.context_bundle.v1"
@@ -465,6 +466,12 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                 ensure_ascii=False,
             )
         if role == "论文改稿员":
+            writer_prompt = kwargs["system_prompt"]
+            assert "If output_ref_recovery.refs is non-empty" in writer_prompt
+            assert "Reuse scratch_refs" in writer_prompt
+            assert "before recreating prior experiments" in writer_prompt
+            assert "task_scratch_path" in writer_prompt
+            assert "/workspace/outputs or /workspace/reports" in writer_prompt
             writer_context = user_payload["_harness_context"]
             assert writer_context["schema"] == "wenjin.harness.context_bundle.v1"
             assert writer_context["allowed_tools"] == []
@@ -537,6 +544,11 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         harness_context = kwargs["harness_context"]
         context_bundle = user_payload["_harness_context"]
         captured["context_bundle"] = context_bundle
+        analyst_prompt = kwargs["system_prompt"]
+        assert "If output_ref_recovery.refs is non-empty" in analyst_prompt
+        assert "sandbox.read_output_ref is available" in analyst_prompt
+        assert "Reuse scratch_refs" in analyst_prompt
+        assert "Do not list, search, write, or register internal" in analyst_prompt
         assert context_bundle["schema"] == "wenjin.harness.context_bundle.v1"
         assert context_bundle["sandbox"]["root"] == "/workspace"
         assert "/workspace/scripts" in context_bundle["sandbox"]["standard_dirs"]

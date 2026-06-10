@@ -343,6 +343,8 @@ Chat Agent
   - The prompt also reminds agents not to list, search, write, or register `/workspace/tmp/tasks/.harness` internal refs as user artifacts. This migrates only Codex/deer-flow style execution discipline into Wenjin's existing harness prompt, without adding tools, runtimes, stores or compatibility layers.
   - `backend`: `.venv/bin/python -m pytest tests/unit/subagents/test_react.py -q` -> 42 passed.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py tests/agents/harness/test_policy_and_registry.py tests/subagents/v2/test_registry.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 42 passed.
+  - Mock TeamKernel SCI E2E now asserts the actual `system_prompt` received by the sandbox analyst and downstream manuscript writer contains the evidence-reuse rules, so the check covers the runtime prompt assembly path rather than only private prompt helpers.
+  - `backend`: `.venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py tests/unit/subagents/test_react.py -q` -> 43 passed.
   - `backend`: `.venv/bin/ruff check src/subagents/v2/types/react.py tests/unit/subagents/test_react.py` -> passed.
   - `backend`: final native harness release gate -> 332 passed.
   - Production drift scan over native harness paths still found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or `sandbox.run_command`; `git diff --check` passed.
