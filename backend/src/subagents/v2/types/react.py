@@ -219,6 +219,10 @@ def _with_harness_context_bundle(system_prompt: str, ctx: SubagentContext) -> st
     section = (
         "\n\nHarness context bundle:\n"
         "- Use this bounded context when planning sandbox tool work.\n"
+        "- If output_ref_recovery.refs is non-empty and sandbox.read_output_ref is available, use it before rerunning expensive sandbox work.\n"
+        "- Reuse scratch_refs, reproducibility_summary, experiment_interpretation_summary, and statistical_robustness_summary before recreating prior experiments.\n"
+        "- Use task_scratch_path for temporary task-local files; write user-reviewable artifacts under /workspace/outputs or /workspace/reports.\n"
+        "- Do not list, search, write, or register internal /workspace/tmp/tasks/.harness refs as user artifacts.\n"
         f"- Context JSON: {render_harness_context_for_prompt(bundle)}"
     )
     return f"{system_prompt}{section}" if system_prompt else section.strip()

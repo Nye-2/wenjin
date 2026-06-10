@@ -338,6 +338,14 @@ Chat Agent
   - Production drift scan over `backend/src/agents/harness`, `backend/src/agents/lead_agent/v2`, and `backend/src/subagents/v2` found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or `sandbox.run_command`.
   - `backend`: final native harness release gate, now including `tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`, -> 331 passed.
   - `root`: `git diff --check` -> passed.
+- 2026-06-10 real workflow prompt tuning slice:
+  - ReactSubagent harness prompts now give explicit operating rules before the bounded context JSON: inspect recoverable output refs with `sandbox.read_output_ref` when that tool is available before rerunning expensive work, reuse `scratch_refs` and existing reproducibility/interpretation/robustness summaries before recreating experiments, keep temporary files under `task_scratch_path`, and write user-reviewable artifacts only under `/workspace/outputs` or `/workspace/reports`.
+  - The prompt also reminds agents not to list, search, write, or register `/workspace/tmp/tasks/.harness` internal refs as user artifacts. This migrates only Codex/deer-flow style execution discipline into Wenjin's existing harness prompt, without adding tools, runtimes, stores or compatibility layers.
+  - `backend`: `.venv/bin/python -m pytest tests/unit/subagents/test_react.py -q` -> 42 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py tests/agents/harness/test_policy_and_registry.py tests/subagents/v2/test_registry.py tests/integration/test_harness_mock_sandbox_e2e.py -q` -> 42 passed.
+  - `backend`: `.venv/bin/ruff check src/subagents/v2/types/react.py tests/unit/subagents/test_react.py` -> passed.
+  - `backend`: final native harness release gate -> 332 passed.
+  - Production drift scan over native harness paths still found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or `sandbox.run_command`; `git diff --check` passed.
 
 ## 6. 剩余不足
 

@@ -169,6 +169,22 @@ class TestSandboxWorkspaceContractPrompt:
         assert "/workspace/scripts" in prompt
         assert "/workspace/reports" in prompt
 
+    def test_harness_prompt_instructs_agents_to_reuse_recoverable_evidence(self):
+        ctx = _make_ctx(
+            tools=["sandbox.run_python"],
+            inputs={"workspace_type": "sci"},
+        )
+
+        prompt = _with_harness_context_bundle("你是实验专家", ctx)
+
+        assert "If output_ref_recovery.refs is non-empty" in prompt
+        assert "sandbox.read_output_ref is available" in prompt
+        assert "sandbox.read_output_ref" in prompt
+        assert "before rerunning expensive sandbox work" in prompt
+        assert "Reuse scratch_refs" in prompt
+        assert "task_scratch_path" in prompt
+        assert "/workspace/outputs or /workspace/reports" in prompt
+
     def test_leaves_system_prompt_unchanged_without_sandbox_tools(self):
         ctx = _make_ctx(tools=[])
 
