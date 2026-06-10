@@ -246,6 +246,12 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
                                     "schema": "wenjin.harness.sandbox_execution_summary.v1",
                                     "python_runs": 1,
                                     "sandbox_job_ids": ["job-1"],
+                                    "execution_lifecycle_count": 1,
+                                    "job_statuses": ["succeeded"],
+                                    "exit_codes": [0],
+                                    "output_refs": [
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/research_scout/stdout.txt"
+                                    ],
                                 },
                                 "reproducibility_summary": {
                                     "schema": "wenjin.harness.reproducibility_summary.v1",
@@ -308,6 +314,10 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         "schema": "wenjin.harness.sandbox_execution_summary.v1",
         "python_runs": 1,
         "sandbox_job_ids": ["job-1"],
+        "execution_lifecycle_count": 1,
+        "job_statuses": ["succeeded"],
+        "exit_codes": [0],
+        "output_refs": ["/workspace/tmp/tasks/.harness/outputs/exec-1/research_scout/stdout.txt"],
     }
     assert bundle["reproducibility_summary"] == {
         "schema": "wenjin.harness.reproducibility_summary.v1",
@@ -410,6 +420,41 @@ def test_context_includes_scratch_reference_without_promoting_it_to_artifact() -
     assert "/workspace/artifacts/result.csv" not in text
     assert "/workspace/tmp/tasks/.harness/outputs" not in text
     assert "/workspace/.wenjin" not in text
+
+
+def test_context_preserves_only_explicit_output_refs_in_sandbox_summary() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={"goal": "continue experiment"},
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "node_metadata": {
+                            "harness": {
+                                "sandbox_execution_summary": {
+                                    "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                                    "python_runs": 1,
+                                    "output_refs": [
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt",
+                                        "/workspace/tmp/tasks/.harness/debug/private.json",
+                                        "/workspace/.env",
+                                        "/workspace/main/not-output.txt",
+                                    ],
+                                }
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+    )
+
+    assert bundle["sandbox_execution_summary"]["output_refs"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"
+    ]
 
 
 def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> None:

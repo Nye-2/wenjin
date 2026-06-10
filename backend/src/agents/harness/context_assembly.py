@@ -10,6 +10,7 @@ from src.sandbox.workspace_layout import (
     build_agent_workspace_contract,
     is_workspace_internal_path,
     is_workspace_protected_path,
+    is_workspace_readable_internal_output_ref,
     workspace_task_scratch_path,
 )
 
@@ -293,7 +294,7 @@ def _first_safe_string(*values: Any) -> str:
 
 
 def _latest_harness_summary(workspace_data: dict[str, Any], key: str) -> dict[str, Any]:
-    direct = _safe_value(workspace_data.get(key))
+    direct = _safe_harness_summary_value(key, workspace_data.get(key))
     if isinstance(direct, dict) and direct:
         return direct
     history = workspace_data.get("workspace_history")
@@ -599,10 +600,37 @@ def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
         "statistical_robustness_summary",
         "member_execution_transcript",
     ):
-        value = _safe_value(harness.get(key))
+        value = _safe_harness_summary_value(key, harness.get(key))
         if value not in (None, {}, []):
             compact[key] = value
     return compact
+
+
+def _safe_harness_summary_value(key: str, value: Any) -> Any:
+    if key == "sandbox_execution_summary":
+        return _safe_sandbox_execution_summary(value)
+    return _safe_value(value)
+
+
+def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    for key, item in value.items():
+        if str(key) == "output_refs":
+            refs: list[str] = []
+            if isinstance(item, list):
+                for ref in item:
+                    text = str(ref).strip()
+                    if is_workspace_readable_internal_output_ref(text) and text not in refs:
+                        refs.append(text)
+            if refs:
+                result["output_refs"] = refs[:20]
+            continue
+        safe = _safe_value(item)
+        if safe not in (None, {}, []):
+            result[str(key)] = safe
+    return result
 
 
 def _copy_safe_string(target: dict[str, Any], key: str, value: Any) -> None:

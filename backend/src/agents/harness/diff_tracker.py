@@ -6,6 +6,8 @@ import hashlib
 from difflib import unified_diff
 from typing import Any
 
+from src.sandbox.workspace_layout import is_workspace_readable_internal_output_ref
+
 FILE_CHANGE_SUMMARY_SCHEMA = "wenjin.harness.file_change_summary.v1"
 TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
 SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
@@ -309,6 +311,10 @@ def build_sandbox_execution_summary_from_tool_calls(
     sandbox_job_ids: list[str] = []
     sandbox_environment_ids: list[str] = []
     failure_codes: list[str] = []
+    execution_lifecycle_count = 0
+    job_statuses: list[str] = []
+    exit_codes: list[int] = []
+    output_refs: list[str] = []
     for tool_call in tool_calls:
         if not isinstance(tool_call, dict):
             continue
@@ -322,6 +328,16 @@ def build_sandbox_execution_summary_from_tool_calls(
         if manifest is not None:
             _append_unique(sandbox_job_ids, str(manifest.get("sandbox_job_id") or ""))
             _append_unique(sandbox_environment_ids, str(manifest.get("sandbox_environment_id") or ""))
+        lifecycle = _first_dict(tool_call.get("execution_lifecycle"), metadata.get("execution_lifecycle"))
+        if lifecycle is not None and str(lifecycle.get("schema") or "") == "wenjin.sandbox.execution_lifecycle.v1":
+            execution_lifecycle_count += 1
+            _append_unique(job_statuses, str(lifecycle.get("status") or ""))
+            exit_code = _int_or_none(lifecycle.get("exit_code"))
+            if exit_code is not None and exit_code not in exit_codes:
+                exit_codes.append(exit_code)
+            outputs = lifecycle.get("outputs") if isinstance(lifecycle.get("outputs"), dict) else {}
+            for ref in _list_value(outputs.get("output_refs")):
+                _append_safe_output_ref(output_refs, str(ref or ""))
         classification = _first_dict(
             tool_call.get("failure_classification"),
             metadata.get("failure_classification"),
@@ -348,7 +364,7 @@ def build_sandbox_execution_summary_from_tool_calls(
 
     if python_runs == 0:
         return None
-    return {
+    result: dict[str, Any] = {
         "schema": SANDBOX_EXECUTION_SUMMARY_SCHEMA,
         "python_runs": python_runs,
         "failed_python_runs": failed_python_runs,
@@ -358,6 +374,12 @@ def build_sandbox_execution_summary_from_tool_calls(
         "failure_codes": failure_codes[:20],
         "generated_artifact_count": generated_artifact_count,
     }
+    if execution_lifecycle_count > 0:
+        result["execution_lifecycle_count"] = execution_lifecycle_count
+        result["job_statuses"] = job_statuses[:20]
+        result["exit_codes"] = exit_codes[:20]
+        result["output_refs"] = output_refs[:20]
+    return result
 
 
 def build_reproducibility_summary_from_tool_calls(
@@ -784,6 +806,12 @@ def _append_safe_scratch_ref(values: list[str], value: str) -> None:
     _append_unique(values, text)
 
 
+def _append_safe_output_ref(values: list[str], value: str) -> None:
+    text = str(value or "").strip()
+    if is_workspace_readable_internal_output_ref(text):
+        _append_unique(values, text)
+
+
 def _append_safe_artifact_path(values: list[str], value: str) -> None:
     text = str(value or "").strip()
     if _is_safe_artifact_path(text):
@@ -972,6 +1000,15 @@ def _int_value(value: Any) -> int:
     except (TypeError, ValueError):
         return 0
     return parsed if parsed > 0 else 0
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _number_value(value: Any) -> float:

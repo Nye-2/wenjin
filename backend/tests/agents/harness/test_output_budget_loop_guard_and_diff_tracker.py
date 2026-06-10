@@ -219,6 +219,21 @@ def test_harness_node_metadata_includes_sandbox_execution_summary() -> None:
                     "failure_code": "python_exit_nonzero",
                     "recoverable": True,
                 },
+                "execution_lifecycle": {
+                    "schema": "wenjin.sandbox.execution_lifecycle.v1",
+                    "status": "failed",
+                    "sandbox_job_id": "job-2",
+                    "exit_code": 2,
+                    "outputs": {
+                        "stdout_externalized": True,
+                        "stderr_externalized": False,
+                        "output_refs": [
+                            "/workspace/tmp/tasks/.harness/outputs/exec-1/node-2/stdout.txt",
+                            "/workspace/main/not-an-output-ref.txt",
+                        ],
+                        "generated_artifact_count": 0,
+                    },
+                },
             },
         ]
     )
@@ -233,6 +248,10 @@ def test_harness_node_metadata_includes_sandbox_execution_summary() -> None:
         "sandbox_environment_ids": ["env-1"],
         "failure_codes": ["python_exit_nonzero"],
         "generated_artifact_count": 2,
+        "execution_lifecycle_count": 1,
+        "job_statuses": ["failed"],
+        "exit_codes": [2],
+        "output_refs": ["/workspace/tmp/tasks/.harness/outputs/exec-1/node-2/stdout.txt"],
     }
 
 

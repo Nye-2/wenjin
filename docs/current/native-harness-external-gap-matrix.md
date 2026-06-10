@@ -69,7 +69,7 @@ deer-flow:
 
 3. **Context recovery after large omitted output has a facade and run tool companion.**
 
-   The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file` and `sandbox.run_python`. This keeps internal refs hidden from list/search/artifact discovery while letting file-reading and experiment-running members recover explicit omitted output details. The remaining improvement is measuring whether real agents actually use refs instead of repeating expensive commands in live SCI workflows.
+   The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file` and `sandbox.run_python`. `execution_lifecycle` output refs now roll into `sandbox_execution_summary.output_refs`, and context assembly preserves only explicit `/workspace/tmp/tasks/.harness/outputs/**` refs there, so later members can recover omitted stdout/stderr or large diff details without parsing raw tool JSON. This keeps internal refs hidden from list/search/artifact discovery. The remaining improvement is measuring whether real agents actually use refs instead of repeating expensive commands in live SCI workflows.
 
 4. **Workspace filesystem contract is usable; real-task scratch usage still needs tuning.**
 
