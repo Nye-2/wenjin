@@ -446,6 +446,14 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/lead_agent/v2/test_sandbox_runtime.py -q` -> 46 passed.
   - `backend`: `.venv/bin/ruff check src/agents/lead_agent/v2/sandbox_script_executor.py tests/agents/harness/test_scheduler_and_python_tool.py` -> passed.
   - `backend`: native harness release gate -> 355 passed.
+- 2026-06-10 sandbox artifact protected-path discovery slice:
+  - `is_user_reviewable_workspace_artifact_path()` now rejects protected paths, so `/workspace/outputs/.env` and `/workspace/reports/.env` cannot be classified as reviewable artifacts just because they live under an artifact root.
+  - `discover_generated_artifacts()` now reuses that central layout predicate instead of checking only internal/guidance paths. Lead-owned artifact discovery therefore shares the same protected/internal/guidance boundary as file tools, artifact manifest registration and review staging.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py::test_discover_generated_artifacts_skips_protected_paths tests/sandbox/test_workspace_layout.py::test_workspace_path_classification_is_centralized_for_harness_boundaries -q` -> RED on protected `.env` being staged, then 2 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/sandbox/test_workspace_layout.py tests/agents/harness/test_sandbox_file_tools.py -q` -> 75 passed.
+  - `backend`: `.venv/bin/ruff check src/sandbox/workspace_layout.py src/agents/lead_agent/v2/sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/sandbox/test_workspace_layout.py` -> passed.
+  - `backend`: native harness release gate -> 356 passed.
+  - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or generic `sandbox.run_command`; documentation and negative/historical tests remain the only expected hits. `git diff --check` passed.
 
 ## 6. 剩余不足
 

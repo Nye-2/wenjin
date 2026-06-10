@@ -789,6 +789,8 @@ def test_workspace_path_classification_is_centralized_for_harness_boundaries():
     )
     assert layout.is_user_reviewable_workspace_artifact_path("/workspace/outputs/figure.png")
     assert layout.is_user_reviewable_workspace_artifact_path("/workspace/reports/summary.md")
+    assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/outputs/.env")
+    assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/reports/.env")
     assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/tmp/tasks/exec-1/draft.json")
     assert not layout.is_user_reviewable_workspace_artifact_path("/workspace/main/analysis.py")
     assert layout.workspace_artifact_root_for_path("/workspace/reports/summary.md") == {

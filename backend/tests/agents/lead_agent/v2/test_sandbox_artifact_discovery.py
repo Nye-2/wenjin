@@ -38,6 +38,19 @@ async def test_discover_generated_artifacts_skips_layout_guidance_files(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_discover_generated_artifacts_skips_protected_paths(tmp_path) -> None:
+    ensure_workspace_sandbox_layout(tmp_path)
+    sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(tmp_path)})
+    await sandbox.write_file("/workspace/outputs/result.csv", "x,y\n1,2\n")
+    await sandbox.write_file("/workspace/outputs/.env", "SECRET=must-not-stage\n")
+    await sandbox.write_file("/workspace/reports/.env", "TOKEN=must-not-stage\n")
+
+    generated = await discover_generated_artifacts(sandbox)
+
+    assert [item["path"] for item in generated] == ["/workspace/outputs/result.csv"]
+
+
+@pytest.mark.asyncio
 async def test_discover_generated_artifacts_enriches_candidates_from_manifest(tmp_path) -> None:
     ensure_workspace_sandbox_layout(tmp_path)
     sandbox = LocalSandbox(id="workspace-ws-1", path_mappings={"/workspace": str(tmp_path)})

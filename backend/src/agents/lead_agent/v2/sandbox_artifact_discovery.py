@@ -13,8 +13,7 @@ from src.sandbox.workspace_layout import (
     WORKSPACE_ARTIFACT_ROOTS,
     WORKSPACE_ARTIFACTS_MANIFEST_VIRTUAL_PATH,
     build_artifact_manifest,
-    is_workspace_guidance_path,
-    is_workspace_internal_path,
+    is_user_reviewable_workspace_artifact_path,
     merge_artifact_manifest,
     normalize_workspace_virtual_path,
 )
@@ -58,8 +57,7 @@ async def discover_generated_artifacts(
             if (
                 not path
                 or getattr(entry, "is_dir", False)
-                or is_workspace_internal_path(path)
-                or _is_guidance_artifact_path(path)
+                or not is_user_reviewable_workspace_artifact_path(path)
             ):
                 continue
             size = _coerce_size(getattr(entry, "size", None))
@@ -119,10 +117,6 @@ def _coerce_size(value: Any) -> int | None:
 
 def _guess_mime_type(path: str) -> str:
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
-
-
-def _is_guidance_artifact_path(path: str) -> bool:
-    return is_workspace_guidance_path(path)
 
 
 async def _artifact_manifest_metadata(sandbox: Any) -> dict[str, dict[str, Any]]:

@@ -1220,7 +1220,7 @@ def workspace_artifact_root_for_path(path: str) -> dict[str, str] | None:
 def is_user_reviewable_workspace_artifact_path(path: str) -> bool:
     """Return whether a sandbox path can be staged as a user-reviewable artifact."""
 
-    if is_workspace_guidance_path(path):
+    if is_workspace_guidance_path(path) or is_workspace_protected_path(path):
         return False
     return workspace_artifact_root_for_path(path) is not None
 
