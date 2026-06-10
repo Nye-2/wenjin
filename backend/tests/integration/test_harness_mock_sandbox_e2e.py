@@ -480,6 +480,13 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
             assert writer_context["reproducibility_summary"]["artifact_paths"] == [
                 "/workspace/outputs/result.json"
             ]
+            assert writer_context["sandbox_execution_summary"]["execution_lifecycle_count"] == 1
+            assert writer_context["sandbox_execution_summary"]["job_statuses"] == ["succeeded"]
+            assert writer_context["sandbox_execution_summary"]["exit_codes"] == [0]
+            assert writer_context["sandbox_execution_summary"]["output_refs"] == [
+                "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+                "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
+            ]
             assert writer_context["experiment_interpretation_summary"] == {
                 "schema": "wenjin.harness.experiment_interpretation_summary.v1",
                 "interpretation_count": 1,
@@ -566,6 +573,22 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                 "sandbox_job_id": "job-e2e-1",
                 "sandbox_environment_id": "env-e2e-1",
                 "parsed_stdout": {"ok": True, "metric": 0.91},
+                "execution_lifecycle": {
+                    "schema": "wenjin.sandbox.execution_lifecycle.v1",
+                    "status": "succeeded",
+                    "sandbox_job_id": "job-e2e-1",
+                    "exit_code": 0,
+                    "outputs": {
+                        "stdout_externalized": True,
+                        "stderr_externalized": False,
+                        "output_refs": [
+                            "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+                            "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt",
+                            "/workspace/main/not-output.txt",
+                        ],
+                        "generated_artifact_count": 2,
+                    },
+                },
                 "generated_artifacts": [
                         {
                             "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
@@ -802,6 +825,13 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     assert harness["sandbox_execution_summary"]["sandbox_job_ids"] == ["job-e2e-1"]
     assert harness["sandbox_execution_summary"]["sandbox_environment_ids"] == ["env-e2e-1"]
     assert harness["sandbox_execution_summary"]["generated_artifact_count"] == 2
+    assert harness["sandbox_execution_summary"]["execution_lifecycle_count"] == 1
+    assert harness["sandbox_execution_summary"]["job_statuses"] == ["succeeded"]
+    assert harness["sandbox_execution_summary"]["exit_codes"] == [0]
+    assert harness["sandbox_execution_summary"]["output_refs"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
+        "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
+    ]
     assert harness["reproducibility_summary"]["schema"] == "wenjin.harness.reproducibility_summary.v1"
     assert harness["reproducibility_summary"]["script_paths"] == ["/workspace/scripts/analysis.py"]
     assert harness["reproducibility_summary"]["dataset_paths"] == ["/workspace/datasets/panel.csv"]

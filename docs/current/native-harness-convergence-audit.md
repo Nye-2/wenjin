@@ -317,6 +317,7 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py::test_harness_node_metadata_includes_sandbox_execution_summary -q` -> RED on missing lifecycle summary fields, then passed.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_context_assembly.py::test_context_preserves_only_explicit_output_refs_in_sandbox_summary tests/agents/harness/test_context_assembly.py::test_harness_context_bundle_contains_sandbox_contract_and_execution_evidence -q` -> RED on unsafe output ref preservation, then 2 passed.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_scheduler_and_python_tool.py -q` -> 52 passed.
+  - `backend`: `.venv/bin/python -m pytest tests/integration/test_harness_mock_sandbox_e2e.py::test_team_harness_mock_sandbox_flow_stages_reviewable_artifact -q` -> RED until the mock production payload included lifecycle output refs, then passed with assertions on both node summary and the downstream writer context.
   - Native harness gate: 318 selected backend tests passed.
 
 ## 6. 剩余不足
