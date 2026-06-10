@@ -8,11 +8,10 @@ from typing import Any
 from src.sandbox.workspace_layout import (
     WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT,
     build_agent_workspace_contract,
-    build_workspace_task_contract,
+    build_agent_workspace_task_contract,
     is_workspace_internal_path,
     is_workspace_protected_path,
     is_workspace_readable_internal_output_ref,
-    workspace_task_scratch_path,
 )
 
 from .tool_names import expand_tool_names
@@ -141,8 +140,8 @@ def _sandbox_contract(
         "datasets_manifest_path": str(contract.get("datasets_manifest_path") or ""),
         "artifacts_manifest_path": str(contract.get("artifacts_manifest_path") or ""),
         "task_scratch_root": str(contract.get("task_scratch_root") or ""),
-        "task_scratch_path": str(task_contract.get("scratch_path") or _task_scratch_path(task)),
-        "task_contract": _safe_task_contract(task_contract),
+        "task_scratch_path": str(task_contract.get("scratch_path") or ""),
+        "task_contract": task_contract,
         "workspace_profile": _safe_workspace_profile(contract.get("workspace_profile")),
         "path_classes": _safe_path_classes(contract.get("path_classes")),
         "guidance_paths": _safe_string_list((contract.get("path_classes") or {}).get("guidance")),
@@ -154,43 +153,13 @@ def _sandbox_contract(
     }
 
 
-def _task_scratch_path(task: dict[str, Any]) -> str:
-    execution_id, node_id, _ = _task_identity(task)
-    return workspace_task_scratch_path(execution_id=execution_id, node_id=node_id)
-
-
 def _task_contract(task: dict[str, Any]) -> dict[str, Any]:
     execution_id, node_id, invocation_id = _task_identity(task)
-    return build_workspace_task_contract(
+    return build_agent_workspace_task_contract(
         execution_id=execution_id,
         node_id=node_id,
         invocation_id=invocation_id,
     )
-
-
-def _safe_task_contract(value: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "schema": str(value.get("schema") or ""),
-        "execution_id": str(value.get("execution_id") or ""),
-        "node_id": str(value.get("node_id") or ""),
-        "invocation_id": str(value.get("invocation_id") or ""),
-        "scratch_path": str(value.get("scratch_path") or ""),
-        "read_output_ref_tool": str(value.get("read_output_ref_tool") or ""),
-        "writable_scratch_roots": _safe_string_list(value.get("writable_scratch_roots")),
-        "reviewable_artifact_roots": _safe_string_list(value.get("reviewable_artifact_roots")),
-        "manifest_paths": _safe_task_manifest_paths(value.get("manifest_paths")),
-        "rules": _safe_string_list(value.get("rules")),
-    }
-
-
-def _safe_task_manifest_paths(value: Any) -> dict[str, str]:
-    if not isinstance(value, dict):
-        return {}
-    return {
-        str(key): str(path)
-        for key, path in value.items()
-        if str(key).strip() and str(path).strip()
-    }
 
 
 def _task_identity(task: dict[str, Any]) -> tuple[str, str, str]:

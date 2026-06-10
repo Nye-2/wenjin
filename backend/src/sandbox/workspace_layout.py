@@ -1025,6 +1025,26 @@ def build_workspace_task_contract(
     }
 
 
+def build_agent_workspace_task_contract(
+    *,
+    execution_id: str | None,
+    node_id: str | None = None,
+    invocation_id: str | None = None,
+) -> dict[str, Any]:
+    """Return the agent-safe task filesystem contract without raw internal roots."""
+
+    contract = build_workspace_task_contract(
+        execution_id=execution_id,
+        node_id=node_id,
+        invocation_id=invocation_id,
+    )
+    return {
+        key: deepcopy(value)
+        for key, value in contract.items()
+        if key != "output_ref_root"
+    }
+
+
 def workspace_harness_output_ref_root(
     *,
     execution_id: str | None,

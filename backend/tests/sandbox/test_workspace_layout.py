@@ -683,6 +683,35 @@ def test_workspace_task_contract_projects_member_scoped_paths():
     assert not layout.is_user_reviewable_workspace_artifact_path(f"{contract['output_ref_root']}/stdout.txt")
 
 
+def test_agent_workspace_task_contract_omits_raw_internal_output_root():
+    contract = layout.build_agent_workspace_task_contract(
+        execution_id="exec-1",
+        node_id="analysis_probe",
+    )
+
+    assert "output_ref_root" not in contract
+    assert contract == {
+        "schema": "wenjin.workspace_sandbox.task_contract.v1",
+        "execution_id": "exec-1",
+        "node_id": "analysis_probe",
+        "invocation_id": "",
+        "scratch_path": "/workspace/tmp/tasks/exec-1/analysis_probe",
+        "read_output_ref_tool": "sandbox.read_output_ref",
+        "writable_scratch_roots": ["/workspace/tmp/tasks/exec-1/analysis_probe"],
+        "reviewable_artifact_roots": ["/workspace/outputs", "/workspace/reports"],
+        "manifest_paths": {
+            "datasets": "/workspace/datasets/manifest.json",
+            "artifacts": "/workspace/reports/artifacts.json",
+        },
+        "rules": [
+            "Use scratch_path for temporary task-local files that should not become user-facing artifacts.",
+            "Do not list, search, edit, register, or cite output_ref_root paths as user-facing artifacts.",
+            "Inspect explicit output refs under output_ref_root only with sandbox.read_output_ref.",
+            "Promote durable files to /workspace/outputs or /workspace/reports and register them with sandbox.register_artifact.",
+        ],
+    }
+
+
 def test_workspace_protected_paths_include_runtime_and_secret_material():
     assert WORKSPACE_PROTECTED_PATHS == (
         ".git/**",

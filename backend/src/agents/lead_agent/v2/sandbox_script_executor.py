@@ -16,7 +16,7 @@ from src.agents.lead_agent.v2.workspace_sandbox import (
     normalize_dependency_hints,
     resolve_package_for_missing_module,
 )
-from src.sandbox.workspace_layout import WORKSPACE_ROOT, workspace_task_scratch_path
+from src.sandbox.workspace_layout import WORKSPACE_ROOT, build_workspace_task_contract
 
 SCRIPT_NAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 MAX_SCRIPT_BYTES = 128 * 1024
@@ -101,10 +101,11 @@ class SandboxScriptExecutor:
             sandbox_policy=sandbox_policy,
             dependency_hints=plan.dependency_hints,
         )
-        task_scratch_path = workspace_task_scratch_path(
+        task_contract = build_workspace_task_contract(
             execution_id=execution_id,
             node_id=node_id,
         )
+        task_scratch_path = str(task_contract.get("scratch_path") or "")
         execution_env = sandbox_script_execution_env(task_scratch_path)
         await sandbox.write_file(f"{task_scratch_path}/.gitkeep", "")
         await sandbox.write_file(plan.script_path, plan.script)

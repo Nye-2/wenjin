@@ -33,7 +33,7 @@ from src.agents.lead_agent.v2.sandbox_script_executor import (
 from src.agents.lead_agent.v2.sandbox_stream_budgeting import budget_script_streams
 from src.agents.lead_agent.v2.workspace_sandbox import WorkspaceSandboxManager
 from src.sandbox.providers.docker import DockerSandboxProvider
-from src.sandbox.workspace_layout import workspace_task_scratch_path
+from src.sandbox.workspace_layout import build_agent_workspace_task_contract
 
 SMOKE_COMMAND = (
     "PYTHON_BIN=$(command -v python || command -v python3) && "
@@ -176,10 +176,11 @@ class SandboxJobRunner:
             workspace_type=workspace_type,
             sandbox_policy=sandbox_policy,
         )
-        task_scratch_path = workspace_task_scratch_path(
+        task_contract = build_agent_workspace_task_contract(
             execution_id=execution_id,
             node_id=node_id,
         )
+        task_scratch_path = str(task_contract.get("scratch_path") or "")
         execution_env = sandbox_script_execution_env(task_scratch_path)
         command_audit_result = audit_command(
             HarnessCommand(
@@ -214,6 +215,7 @@ class SandboxJobRunner:
             billing_reservation_id=billing_reservation_id,
             command_audit=command_audit,
             task_scratch_path=task_scratch_path,
+            task_contract=task_contract,
             execution_lifecycle=execution_lifecycle,
         )
         job = await ctx.manager.create_job(
@@ -358,6 +360,7 @@ def _runtime_job_metadata(
     billing_reservation_id: str | None = None,
     command_audit: dict[str, Any] | None = None,
     task_scratch_path: str | None = None,
+    task_contract: dict[str, Any] | None = None,
     execution_lifecycle: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata = {"source": "lead_agent_sandbox_runtime"}
@@ -365,6 +368,8 @@ def _runtime_job_metadata(
         metadata["script_name"] = script_name
     if task_scratch_path:
         metadata["task_scratch_path"] = task_scratch_path
+    if task_contract is not None:
+        metadata["task_contract"] = dict(task_contract)
     if billing_reservation_id:
         metadata["credit_reservation_id"] = billing_reservation_id
     if command_audit is not None:

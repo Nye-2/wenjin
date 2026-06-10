@@ -383,6 +383,26 @@ async def test_run_python_script_uses_invocation_scoped_scratch_options() -> Non
         },
     }
     assert manager.created_jobs[0]["metadata"]["task_scratch_path"] == scratch_path
+    assert manager.created_jobs[0]["metadata"]["task_contract"] == {
+        "schema": "wenjin.workspace_sandbox.task_contract.v1",
+        "execution_id": "exec-1",
+        "node_id": "analysis_probe",
+        "invocation_id": "",
+        "scratch_path": scratch_path,
+        "read_output_ref_tool": "sandbox.read_output_ref",
+        "writable_scratch_roots": [scratch_path],
+        "reviewable_artifact_roots": ["/workspace/outputs", "/workspace/reports"],
+        "manifest_paths": {
+            "datasets": "/workspace/datasets/manifest.json",
+            "artifacts": "/workspace/reports/artifacts.json",
+        },
+        "rules": [
+            "Use scratch_path for temporary task-local files that should not become user-facing artifacts.",
+            "Do not list, search, edit, register, or cite output_ref_root paths as user-facing artifacts.",
+            "Inspect explicit output refs under output_ref_root only with sandbox.read_output_ref.",
+            "Promote durable files to /workspace/outputs or /workspace/reports and register them with sandbox.register_artifact.",
+        ],
+    }
     assert result["task_scratch_path"] == scratch_path
     assert scratch_path in result["report_markdown"]
 
