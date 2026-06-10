@@ -405,7 +405,7 @@ Expected: commit succeeds.
 - Modify: `docs/current/native-harness-external-gap-matrix.md`
 - Modify: `docs/current/release-gate-checklist.md`
 
-- [ ] **Step 1: Add summary extraction tests**
+- [x] **Step 1: Add summary extraction tests**
 
 Add diff-tracker tests where a tool call contains:
 
@@ -440,7 +440,7 @@ Expected summary:
 }
 ```
 
-- [ ] **Step 2: Run summary tests and confirm RED**
+- [x] **Step 2: Run summary tests and confirm RED**
 
 Run:
 
@@ -450,7 +450,7 @@ cd backend && .venv/bin/python -m pytest tests/agents/harness/test_output_budget
 
 Expected: missing `statistical_robustness_summary`.
 
-- [ ] **Step 3: Implement bounded summary extraction**
+- [x] **Step 3: Implement bounded summary extraction**
 
 Add `build_statistical_robustness_summary_from_tool_calls()` in `diff_tracker.py`.
 
@@ -463,7 +463,7 @@ Requirements:
 - copy only safe `/workspace/outputs/**`, `/workspace/reports/**`, `/workspace/datasets/**` paths;
 - filter `/workspace/tmp/tasks/.harness/**`, `.env`, `.git`, `.wenjin`, `.pem`, `.key`, and traversal paths.
 
-- [ ] **Step 4: Project summary into context**
+- [x] **Step 4: Project summary into context**
 
 Add `statistical_robustness_summary` to:
 
@@ -479,7 +479,7 @@ cd backend && .venv/bin/python -m pytest tests/agents/harness/test_context_assem
 
 Expected: all context tests pass.
 
-- [ ] **Step 5: Add evaluator**
+- [x] **Step 5: Add evaluator**
 
 Add `statistical_robustness` to `ResearchSurface`.
 
@@ -494,7 +494,7 @@ Pass criteria:
 - at least one artifact and dataset path;
 - artifact/dataset paths align with `reproducibility_summary`.
 
-- [ ] **Step 6: Run focused tests, Ruff, and commit**
+- [x] **Step 6: Run focused tests and Ruff**
 
 Run:
 
@@ -512,7 +512,7 @@ cd backend && .venv/bin/ruff check \
   tests/agents/harness/test_research_task_eval.py
 ```
 
-Expected: tests and Ruff pass.
+Expected: tests and Ruff pass. Current evidence: focused harness tests passed with `41 passed`, and Ruff passed for the changed harness files/tests.
 
 Run:
 
@@ -529,7 +529,7 @@ git add backend/src/agents/harness/diff_tracker.py \
 git commit -m "feat: add statistical robustness research eval"
 ```
 
-Expected: commit succeeds.
+Expected: commit succeeds when this slice is staged after docs and drift checks.
 
 ---
 

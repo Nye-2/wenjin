@@ -16,6 +16,7 @@ ResearchSurface = Literal[
     "citation_strength",
     "experiment_interpretation",
     "paper_relevance",
+    "statistical_robustness",
 ]
 EvalStatus = Literal["pass", "fail"]
 
@@ -112,6 +113,7 @@ def evaluate_research_task_evidence(
         "citation_strength": _evaluate_citation_strength,
         "experiment_interpretation": _evaluate_experiment_interpretation,
         "paper_relevance": _evaluate_paper_relevance,
+        "statistical_robustness": _evaluate_statistical_robustness,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -273,6 +275,41 @@ def _evaluate_experiment_interpretation(
         False,
         evidence,
         "No experiment interpretation with method, metric, result, limitation, artifact, and dataset evidence was produced.",
+    )
+
+
+def _evaluate_statistical_robustness(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del report
+    evidence = _statistical_robustness_evidence(node_events)
+    has_core_statistics = (
+        evidence["check_count"] > 0
+        and evidence["method_count"] > 0
+        and bool(evidence["metric_names"])
+        and evidence["sample_size_count"] > 0
+        and evidence["robustness_check_count"] > 0
+        and evidence["passed_robustness_check_count"] > 0
+        and evidence["critical_failed_robustness_check_count"] == 0
+        and evidence["limitation_count"] > 0
+        and bool(evidence["artifact_paths"])
+        and bool(evidence["dataset_paths"])
+    )
+    has_reproducibility_alignment = bool(
+        set(evidence["artifact_paths"]) & set(evidence["reproducibility_artifact_paths"])
+    ) and bool(
+        set(evidence["dataset_paths"]) & set(evidence["reproducibility_dataset_paths"])
+    )
+    if has_core_statistics and has_reproducibility_alignment:
+        return True, evidence, ""
+    return (
+        False,
+        evidence,
+        (
+            "No statistical robustness evidence with method, sample size, metrics, "
+            "passed checks, limitations, artifact, and dataset alignment was produced."
+        ),
     )
 
 
@@ -441,6 +478,77 @@ def _experiment_interpretation_summaries(node_events: list[dict[str, Any]]) -> l
     for event in node_events:
         harness = _harness_metadata(event)
         summary = harness.get("experiment_interpretation_summary")
+        if isinstance(summary, dict):
+            summaries.append(summary)
+    return summaries[:20]
+
+
+def _statistical_robustness_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:
+    check_count = 0
+    method_count = 0
+    sample_size_count = 0
+    robustness_check_count = 0
+    passed_robustness_check_count = 0
+    failed_robustness_check_count = 0
+    critical_failed_robustness_check_count = 0
+    limitation_count = 0
+    metric_names: list[str] = []
+    sample_sizes: list[int] = []
+    artifact_paths: list[str] = []
+    dataset_paths: list[str] = []
+    failed_robustness_checks: list[str] = []
+    for summary in _statistical_robustness_summaries(node_events):
+        check_count += _int_value(summary.get("check_count"))
+        method_count += _int_value(summary.get("method_count"))
+        sample_size_count += _int_value(summary.get("sample_size_count"))
+        robustness_check_count += _int_value(summary.get("robustness_check_count"))
+        passed_robustness_check_count += _int_value(summary.get("passed_robustness_check_count"))
+        failed_robustness_check_count += _int_value(summary.get("failed_robustness_check_count"))
+        critical_failed_robustness_check_count += _int_value(
+            summary.get("critical_failed_robustness_check_count")
+        )
+        limitation_count += _int_value(summary.get("limitation_count"))
+        for metric_name in _string_list(summary.get("metric_names")):
+            _append_unique(metric_names, metric_name)
+        for sample_size in (_int_value(value) for value in _string_list(summary.get("sample_sizes"))):
+            if sample_size and sample_size not in sample_sizes:
+                sample_sizes.append(sample_size)
+        for path in (_workspace_artifact_path(path) for path in _string_list(summary.get("artifact_paths"))):
+            _append_unique(artifact_paths, path)
+        for path in _workspace_dataset_paths(summary.get("dataset_paths")):
+            _append_unique(dataset_paths, path)
+        for name in _string_list(summary.get("failed_robustness_checks")):
+            _append_unique(failed_robustness_checks, name)
+
+    if sample_size_count == 0:
+        sample_size_count = len(sample_sizes)
+    reproducibility_summaries = _reproducibility_summaries(node_events)
+    reproducibility_artifact_paths = _unique(_summary_paths(reproducibility_summaries, "artifact_paths"))
+    reproducibility_dataset_paths = _unique(_summary_paths(reproducibility_summaries, "dataset_paths"))
+    return {
+        "check_count": check_count,
+        "method_count": method_count,
+        "metric_names": metric_names[:50],
+        "sample_size_count": sample_size_count,
+        "sample_sizes": sample_sizes[:20],
+        "robustness_check_count": robustness_check_count,
+        "passed_robustness_check_count": passed_robustness_check_count,
+        "failed_robustness_check_count": failed_robustness_check_count,
+        "critical_failed_robustness_check_count": critical_failed_robustness_check_count,
+        "limitation_count": limitation_count,
+        "artifact_paths": artifact_paths[:50],
+        "dataset_paths": dataset_paths[:50],
+        "reproducibility_artifact_paths": reproducibility_artifact_paths[:50],
+        "reproducibility_dataset_paths": reproducibility_dataset_paths[:50],
+        "failed_robustness_checks": failed_robustness_checks[:20],
+    }
+
+
+def _statistical_robustness_summaries(node_events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for event in node_events:
+        harness = _harness_metadata(event)
+        summary = harness.get("statistical_robustness_summary")
         if isinstance(summary, dict):
             summaries.append(summary)
     return summaries[:20]

@@ -1,6 +1,6 @@
 # Native Harness Convergence Audit
 
-更新时间：2026-06-09
+更新时间：2026-06-10
 状态：Current
 
 本审计记录 Wenjin 自研 agent harness 相对 Codex / deer-flow 的吸收、取舍和剩余风险。结论不等于发布完成；它只说明当前 harness 是否已经沿正确方向收敛，以及下一轮应该优先补哪里。
@@ -232,7 +232,7 @@ Chat Agent
 - 2026-06-09 workflow trace eval slice:
   - Added optional `workflow_trace` to deterministic `research_task_eval`, backed only by existing `node_metadata.harness.member_execution_transcript`.
   - The eval aggregates completed/failed tool counts, tool names, changed paths, sandbox job/environment ids, safe scratch refs, generated artifact count, token usage, bounded credits and duration; it fails when no member transcript with completed tool activity exists.
-  - This closes the "review items exist but no team execution trace" structural gap without creating a new runtime, event stream or billing source. Outcome-quality scoring still needs paper relevance, statistical/robustness sufficiency and writing semantic preservation coverage.
+  - This closes the "review items exist but no team execution trace" structural gap without creating a new runtime, event stream or billing source. At this point paper relevance, statistical robustness and writing semantic preservation were still future outcome-quality slices; later 2026-06-10 slices closed paper relevance and statistical robustness.
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> 7 passed.
 - 2026-06-09 workflow trace E2E gate slice:
   - Mock TeamKernel sandbox E2E now requires `evaluate_research_task_evidence(required_surfaces=("literature","experiment","writing","workflow_trace"))` to pass against the actual runtime `TaskReport` and recorded node events.
@@ -266,6 +266,14 @@ Chat Agent
   - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_research_task_eval.py -q` -> RED on missing `paper_relevance`, then 16 passed.
   - `backend`: `.venv/bin/ruff check src/agents/harness/research_task_eval.py tests/agents/harness/test_research_task_eval.py` -> passed.
   - `backend`: native harness regression gate -> 306 passed.
+- 2026-06-10 statistical robustness eval slice:
+  - Added `statistical_robustness_summary(schema=wenjin.harness.statistical_robustness_summary.v1)` as a compact projection over existing harness tool-call metadata, not a runner change, model judge, new table, SDK bridge or frontend stream.
+  - Summary keeps bounded method summaries, metric names, sample sizes, robustness check counts, failed check names, limitations, and safe `/workspace/datasets/**` plus `/workspace/outputs/**` / `/workspace/reports/**` refs; protected paths, traversal paths and internal harness output refs are filtered.
+  - Context assembly now exposes latest `statistical_robustness_summary` at top level and preserves it inside recent execution evidence, so later members can continue from robustness evidence without reading raw stdout/stderr or raw tool JSON.
+  - Added optional `statistical_robustness` research-eval surface. It requires method, sample size, metrics, passed robustness checks, limitations, artifact and dataset evidence, with artifact/dataset paths aligned to existing `reproducibility_summary`; critical/high/blocking failed checks do not pass.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_research_task_eval.py -q` -> RED on missing summary/context/eval surface, then 41 passed.
+  - `backend`: `.venv/bin/ruff check src/agents/harness/diff_tracker.py src/agents/harness/context_assembly.py src/agents/harness/research_task_eval.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py tests/agents/harness/test_research_task_eval.py` -> passed.
+  - `backend`: native harness regression gate -> 310 passed.
 - 2026-06-09 closed workspace directory contract slice:
   - Added an exact `WORKSPACE_STANDARD_DIRS` / path classes / artifact roots test so the sandbox layout remains a closed common contract: `/workspace/main`, `/workspace/datasets`, `/workspace/scripts`, `/workspace/outputs`, `/workspace/reports`, `/workspace/tmp`, `/workspace/tmp/tasks`, internal harness outputs, and managed `.wenjin` runtime/cache.
   - Documented that sandbox does not mirror DataService rooms as `/workspace/library`, `/workspace/documents`, `/workspace/decisions`, etc.; experimental inputs must enter through `/workspace/datasets` provenance.
@@ -275,7 +283,7 @@ Chat Agent
 
 ### P1: 模型可靠性仍是最大产出瓶颈
 
-当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：文献相关性、引用可核验、创新点可发表性、实验解释一致性、Prism 改稿是否真正改善学术表达并保持上下文语义。
+当前 harness 能把工具、上下文、证据和输出边界组织起来，但最终 research synthesis / writing quality 仍强依赖模型。需要后续做针对性 eval：创新点可发表性、综合论证一致性、Prism 改稿是否真正改善学术表达并保持上下文语义。文献贴题度、实验解释和统计稳健性已经有 deterministic 结构门，但还不是完整的学术质量评分。
 
 ### P1: 来源质量和引用核验还不够硬
 

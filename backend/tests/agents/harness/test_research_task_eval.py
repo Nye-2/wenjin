@@ -425,6 +425,123 @@ def test_research_task_eval_fails_paper_relevance_with_only_off_topic_sources() 
     }
 
 
+def test_research_task_eval_passes_statistical_robustness_with_method_sample_metrics_and_checks() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "evidence_analyst.v1",
+                    "harness": {
+                        "reproducibility_summary": {
+                            "schema": "wenjin.harness.reproducibility_summary.v1",
+                            "script_paths": ["/workspace/scripts/analysis.py"],
+                            "dataset_paths": ["/workspace/datasets/panel.csv"],
+                            "artifact_paths": ["/workspace/outputs/robustness.json"],
+                        },
+                        "statistical_robustness_summary": {
+                            "schema": "wenjin.harness.statistical_robustness_summary.v1",
+                            "check_count": 1,
+                            "method_count": 1,
+                            "metric_names": ["accuracy", "f1"],
+                            "sample_size_count": 1,
+                            "sample_sizes": [1250],
+                            "robustness_check_count": 2,
+                            "passed_robustness_check_count": 2,
+                            "failed_robustness_check_count": 0,
+                            "critical_failed_robustness_check_count": 0,
+                            "limitation_count": 1,
+                            "artifact_paths": ["/workspace/outputs/robustness.json"],
+                            "dataset_paths": ["/workspace/datasets/panel.csv"],
+                        },
+                    },
+                },
+            }
+        ],
+        required_surfaces=("statistical_robustness",),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {"statistical_robustness": "pass"}
+    assert evaluation.findings == []
+    assert evaluation.evidence["statistical_robustness"] == {
+        "check_count": 1,
+        "method_count": 1,
+        "metric_names": ["accuracy", "f1"],
+        "sample_size_count": 1,
+        "sample_sizes": [1250],
+        "robustness_check_count": 2,
+        "passed_robustness_check_count": 2,
+        "failed_robustness_check_count": 0,
+        "critical_failed_robustness_check_count": 0,
+        "limitation_count": 1,
+        "artifact_paths": ["/workspace/outputs/robustness.json"],
+        "dataset_paths": ["/workspace/datasets/panel.csv"],
+        "reproducibility_artifact_paths": ["/workspace/outputs/robustness.json"],
+        "reproducibility_dataset_paths": ["/workspace/datasets/panel.csv"],
+        "failed_robustness_checks": [],
+    }
+
+
+def test_research_task_eval_fails_statistical_robustness_with_critical_failed_check() -> None:
+    evaluation = evaluate_research_task_evidence(
+        _report(),
+        node_events=[
+            {
+                "node_type": "agent_invocation",
+                "status": "completed",
+                "node_metadata": {
+                    "template_id": "evidence_analyst.v1",
+                    "harness": {
+                        "reproducibility_summary": {
+                            "schema": "wenjin.harness.reproducibility_summary.v1",
+                            "script_paths": ["/workspace/scripts/analysis.py"],
+                            "dataset_paths": ["/workspace/datasets/panel.csv"],
+                            "artifact_paths": ["/workspace/outputs/robustness.json"],
+                        },
+                        "statistical_robustness_summary": {
+                            "schema": "wenjin.harness.statistical_robustness_summary.v1",
+                            "check_count": 1,
+                            "method_count": 1,
+                            "metric_names": ["accuracy"],
+                            "sample_size_count": 1,
+                            "sample_sizes": [1250],
+                            "robustness_check_count": 1,
+                            "passed_robustness_check_count": 0,
+                            "failed_robustness_check_count": 1,
+                            "critical_failed_robustness_check_count": 1,
+                            "limitation_count": 1,
+                            "artifact_paths": ["/workspace/outputs/robustness.json"],
+                            "dataset_paths": ["/workspace/datasets/panel.csv"],
+                            "failed_robustness_checks": ["seed_sensitivity"],
+                        },
+                    },
+                },
+            }
+        ],
+        required_surfaces=("statistical_robustness",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"statistical_robustness": "fail"}
+    assert evaluation.findings == [
+        {
+            "surface": "statistical_robustness",
+            "severity": "high",
+            "message": (
+                "No statistical robustness evidence with method, sample size, metrics, "
+                "passed checks, limitations, artifact, and dataset alignment was produced."
+            ),
+        }
+    ]
+    assert evaluation.evidence["statistical_robustness"]["critical_failed_robustness_check_count"] == 1
+    assert evaluation.evidence["statistical_robustness"]["failed_robustness_checks"] == [
+        "seed_sensitivity"
+    ]
+
+
 def test_research_task_eval_rejects_invalid_node_reproducibility_paths() -> None:
     report = _report(
         review_items=[

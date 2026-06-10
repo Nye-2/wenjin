@@ -13,6 +13,7 @@ REPLAN_SIGNAL_SCHEMA = "wenjin.harness.replan_signal.v1"
 RUN_JOURNAL_SUMMARY_SCHEMA = "wenjin.harness.run_journal_summary.v1"
 REPRODUCIBILITY_SUMMARY_SCHEMA = "wenjin.harness.reproducibility_summary.v1"
 EXPERIMENT_INTERPRETATION_SUMMARY_SCHEMA = "wenjin.harness.experiment_interpretation_summary.v1"
+STATISTICAL_ROBUSTNESS_SUMMARY_SCHEMA = "wenjin.harness.statistical_robustness_summary.v1"
 MEMBER_EXECUTION_TRANSCRIPT_SCHEMA = "wenjin.harness.member_execution_transcript.v1"
 
 
@@ -113,6 +114,9 @@ def build_harness_node_metadata_from_tool_calls(
     experiment_interpretation_summary = build_experiment_interpretation_summary_from_tool_calls(tool_calls)
     if experiment_interpretation_summary is not None:
         harness["experiment_interpretation_summary"] = experiment_interpretation_summary
+    statistical_robustness_summary = build_statistical_robustness_summary_from_tool_calls(tool_calls)
+    if statistical_robustness_summary is not None:
+        harness["statistical_robustness_summary"] = statistical_robustness_summary
     replan_signals = build_harness_replan_signals_from_tool_calls(tool_calls)
     if replan_signals:
         harness["replan_signals"] = replan_signals
@@ -513,6 +517,100 @@ def build_experiment_interpretation_summary_from_tool_calls(
     }
 
 
+def build_statistical_robustness_summary_from_tool_calls(
+    tool_calls: list[dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Build compact evidence that experiment statistics and robustness were checked."""
+
+    if not tool_calls:
+        return None
+
+    check_count = 0
+    method_summaries: list[str] = []
+    metric_names: list[str] = []
+    sample_sizes: list[int] = []
+    robustness_check_count = 0
+    passed_robustness_check_count = 0
+    failed_robustness_check_count = 0
+    critical_failed_robustness_check_count = 0
+    artifact_paths: list[str] = []
+    dataset_paths: list[str] = []
+    limitations: list[str] = []
+    failed_robustness_checks: list[str] = []
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
+            continue
+        metadata = tool_call.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        statistical_check = _first_dict(
+            tool_call.get("statistical_check"),
+            metadata.get("statistical_check"),
+        )
+        if statistical_check is None:
+            continue
+        has_check = False
+        artifact_path_count = len(artifact_paths)
+        dataset_path_count = len(dataset_paths)
+        for method_summary in _statistical_method_summaries(statistical_check):
+            has_check = True
+            _append_unique(method_summaries, method_summary)
+        for metric_name in _statistical_metric_names(statistical_check):
+            has_check = True
+            _append_unique(metric_names, metric_name)
+        for sample_size in _statistical_sample_sizes(statistical_check):
+            has_check = True
+            if sample_size not in sample_sizes:
+                sample_sizes.append(sample_size)
+        for robustness_check in _list_of_dicts(statistical_check.get("robustness_checks")):
+            has_check = True
+            robustness_check_count += 1
+            status = str(robustness_check.get("status") or "").strip().lower()
+            severity = str(robustness_check.get("severity") or "").strip().lower()
+            name = str(robustness_check.get("name") or robustness_check.get("check") or "").strip()
+            if _robustness_check_passed(status):
+                passed_robustness_check_count += 1
+            if _robustness_check_failed(status):
+                failed_robustness_check_count += 1
+                if name:
+                    _append_unique(failed_robustness_checks, name)
+                if severity in {"blocking", "critical", "high"}:
+                    critical_failed_robustness_check_count += 1
+        for limitation in _interpretation_limitations(statistical_check):
+            has_check = True
+            _append_unique(limitations, limitation)
+        for artifact_ref in _list_value(statistical_check.get("artifact_refs")):
+            _append_safe_artifact_path(artifact_paths, _path_from_ref(artifact_ref))
+        for artifact_ref in _list_value(statistical_check.get("artifact_paths")):
+            _append_safe_artifact_path(artifact_paths, _path_from_ref(artifact_ref))
+        for dataset_ref in _list_value(statistical_check.get("dataset_paths")):
+            _append_safe_dataset_path(dataset_paths, _path_from_ref(dataset_ref))
+        if len(artifact_paths) > artifact_path_count or len(dataset_paths) > dataset_path_count:
+            has_check = True
+        if has_check:
+            check_count += 1
+
+    if check_count == 0:
+        return None
+    return {
+        "schema": STATISTICAL_ROBUSTNESS_SUMMARY_SCHEMA,
+        "check_count": check_count,
+        "method_count": len(method_summaries),
+        "metric_names": metric_names[:50],
+        "sample_size_count": len(sample_sizes),
+        "sample_sizes": sample_sizes[:20],
+        "robustness_check_count": robustness_check_count,
+        "passed_robustness_check_count": passed_robustness_check_count,
+        "failed_robustness_check_count": failed_robustness_check_count,
+        "critical_failed_robustness_check_count": critical_failed_robustness_check_count,
+        "limitation_count": len(limitations),
+        "artifact_paths": artifact_paths[:50],
+        "dataset_paths": dataset_paths[:50],
+        "method_summaries": method_summaries[:20],
+        "limitations": limitations[:20],
+        "failed_robustness_checks": failed_robustness_checks[:20],
+    }
+
+
 def build_harness_replan_signals_from_tool_calls(
     tool_calls: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
@@ -771,11 +869,14 @@ def _interpretation_method_summaries(value: dict[str, Any]) -> list[str]:
 
 def _interpretation_metric_names(value: dict[str, Any]) -> list[str]:
     names: list[str] = []
-    for key in ("metric_definitions", "metrics"):
+    for key in ("metric_definitions", "metrics", "metric_names"):
         raw = value.get(key)
         if isinstance(raw, dict):
             for name in raw:
                 _append_unique(names, str(name or ""))
+            continue
+        if isinstance(raw, str):
+            _append_unique(names, raw)
             continue
         for item in _list_value(raw):
             if isinstance(item, dict):
@@ -783,6 +884,46 @@ def _interpretation_metric_names(value: dict[str, Any]) -> list[str]:
             else:
                 _append_unique(names, str(item or ""))
     return names
+
+
+def _statistical_method_summaries(value: dict[str, Any]) -> list[str]:
+    summaries: list[str] = []
+    for key in ("method_summary", "method", "analysis_method", "statistical_method"):
+        raw = value.get(key)
+        if isinstance(raw, str):
+            _append_unique(summaries, _compact_text(raw, limit=300))
+        elif isinstance(raw, dict):
+            for nested_key in ("summary", "method_summary", "name", "rationale"):
+                nested = str(raw.get(nested_key) or "").strip()
+                if nested:
+                    _append_unique(summaries, _compact_text(nested, limit=300))
+        elif isinstance(raw, list):
+            for item in raw:
+                text = str(item.get("summary") if isinstance(item, dict) else item).strip()
+                if text:
+                    _append_unique(summaries, _compact_text(text, limit=300))
+    return summaries
+
+
+def _statistical_metric_names(value: dict[str, Any]) -> list[str]:
+    return _interpretation_metric_names(value)
+
+
+def _statistical_sample_sizes(value: dict[str, Any]) -> list[int]:
+    sample_sizes: list[int] = []
+    for key in ("sample_size", "sample_count", "observation_count", "observations", "n"):
+        sample_size = _int_value(value.get(key))
+        if sample_size and sample_size not in sample_sizes:
+            sample_sizes.append(sample_size)
+    return sample_sizes
+
+
+def _robustness_check_passed(status: str) -> bool:
+    return status in {"ok", "pass", "passed", "success", "succeeded", "verified"}
+
+
+def _robustness_check_failed(status: str) -> bool:
+    return status in {"error", "fail", "failed", "not_passed", "rejected"}
 
 
 def _interpretation_limitations(value: dict[str, Any]) -> list[str]:

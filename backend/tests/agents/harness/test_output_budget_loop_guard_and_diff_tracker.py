@@ -406,6 +406,99 @@ def test_experiment_interpretation_summary_filters_unsafe_paths() -> None:
     assert summary["dataset_paths"] == ["/workspace/datasets/panel.csv"]
 
 
+def test_harness_node_metadata_includes_statistical_robustness_summary() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "statistical_check": {
+                    "schema": "wenjin.harness.statistical_check.v1",
+                    "method": "difference-in-differences",
+                    "sample_size": 1250,
+                    "metric_names": ["accuracy", "f1"],
+                    "robustness_checks": [
+                        {"name": "seed_sensitivity", "status": "passed"},
+                        {"name": "ablation_without_privacy_adapter", "status": "passed"},
+                    ],
+                    "limitations": ["single public benchmark"],
+                    "artifact_paths": ["/workspace/outputs/robustness.json"],
+                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                },
+            },
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "statistical_check": {},
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["statistical_robustness_summary"]
+    assert summary == {
+        "schema": "wenjin.harness.statistical_robustness_summary.v1",
+        "check_count": 1,
+        "method_count": 1,
+        "metric_names": ["accuracy", "f1"],
+        "sample_size_count": 1,
+        "sample_sizes": [1250],
+        "robustness_check_count": 2,
+        "passed_robustness_check_count": 2,
+        "failed_robustness_check_count": 0,
+        "critical_failed_robustness_check_count": 0,
+        "limitation_count": 1,
+        "artifact_paths": ["/workspace/outputs/robustness.json"],
+        "dataset_paths": ["/workspace/datasets/panel.csv"],
+        "method_summaries": ["difference-in-differences"],
+        "limitations": ["single public benchmark"],
+        "failed_robustness_checks": [],
+    }
+
+
+def test_statistical_robustness_summary_filters_unsafe_paths_and_counts_critical_failures() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "metadata": {
+                    "statistical_check": {
+                        "method_summary": "Evaluate robustness across random seeds.",
+                        "n": 250,
+                        "metrics": [{"name": "accuracy"}],
+                        "robustness_checks": [
+                            {
+                                "name": "seed_sensitivity",
+                                "status": "failed",
+                                "severity": "critical",
+                            }
+                        ],
+                        "limitations": [{"text": "Small sample."}],
+                        "artifact_paths": [
+                            "/workspace/tmp/tasks/.harness/outputs/exec/node/stdout.txt",
+                            "/workspace/reports/robustness.md",
+                        ],
+                        "dataset_paths": [
+                            "/workspace/datasets/panel.csv",
+                            "/workspace/datasets/../.env",
+                        ],
+                    }
+                },
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["statistical_robustness_summary"]
+    assert summary["sample_sizes"] == [250]
+    assert summary["metric_names"] == ["accuracy"]
+    assert summary["passed_robustness_check_count"] == 0
+    assert summary["failed_robustness_check_count"] == 1
+    assert summary["critical_failed_robustness_check_count"] == 1
+    assert summary["failed_robustness_checks"] == ["seed_sensitivity"]
+    assert summary["artifact_paths"] == ["/workspace/reports/robustness.md"]
+    assert summary["dataset_paths"] == ["/workspace/datasets/panel.csv"]
+
+
 def test_harness_node_metadata_includes_member_execution_transcript() -> None:
     metadata = build_harness_node_metadata_from_tool_calls(
         [
