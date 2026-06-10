@@ -54,7 +54,7 @@ deer-flow:
 | deer-flow subagent lifecycle stream | Partially implemented as TeamKernel/RunView progress | Adopt vocabulary only | `task_started` / `task_running` / `task_completed` / timeout/cancel is a useful lifecycle vocabulary. Wenjin should keep existing execution events and team roster projection. |
 | deer-flow run journal | Partially implemented as harness node metadata/events | Adopt projection shape only | Wenjin already has ExecutionNodeRecord/DataService events; no new run-event table. |
 | deer-flow skills prompt injection | Wenjin has capability/skill templates | Adopt caching/selection idea, reject self-evolution loop | Skills remain DataService/capability-driven; dynamic cache/selection is useful, but mutable SOUL or autonomous skill evolution would drift from admin-managed capability contracts. |
-| deer-flow sandbox providers | Wenjin has Local/Docker providers | Learn hygiene only | One workspace owns one sandbox; no cross-thread sandbox manager or `/mnt/user-data` alias. |
+| deer-flow sandbox providers | Wenjin has Local/Docker providers | Learn hygiene only | One workspace owns one sandbox; no cross-thread sandbox manager or `/mnt/user-data` alias. Borrowed hygiene stays provider-local: Docker provider reconciles Wenjin-labeled ephemeral exec containers and retries cleanup after transient failures without adding a second sandbox manager. |
 | deer-flow local path gate and file-operation lock | Partially implemented | Adopt selected hygiene | Wenjin validates virtual `/workspace` paths, resolved physical targets and symlink escapes. Direct guidance/manifest writes now fail closed; a future slice can add per-workspace/path async write locks if concurrent same-path writes show up in real runs. |
 
 ## Final Boundary Decision Table

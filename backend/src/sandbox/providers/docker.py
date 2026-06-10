@@ -168,12 +168,11 @@ class DockerSandboxProvider(SandboxProvider):
         }
         try:
             removed = await self._docker_client.cleanup_containers_by_label(labels)
+            self._reconciled = True
             if removed:
                 logger.info("Reconciled %d orphaned sandbox execution container(s)", removed)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Failed to reconcile orphaned sandbox containers: %s", exc)
-        finally:
-            self._reconciled = True
 
     async def acquire(self, thread_id: str) -> DockerSandbox:
         async with self._lock:

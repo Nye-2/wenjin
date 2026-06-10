@@ -109,3 +109,19 @@ async def test_docker_provider_reconcile_runs_only_once(tmp_path):
     await provider.acquire("thread-b")
 
     docker_client.cleanup_containers_by_label.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_docker_provider_retries_reconcile_after_cleanup_failure(tmp_path):
+    docker_client = _FakeDockerClient()
+    docker_client.cleanup_containers_by_label.side_effect = [RuntimeError("docker unavailable"), 0]
+    provider = DockerSandboxProvider(
+        base_dir=str(tmp_path),
+        image="wenjin/sandbox:test",
+        docker_client=docker_client,
+    )
+
+    await provider.acquire("thread-a")
+    await provider.acquire("thread-b")
+
+    assert docker_client.cleanup_containers_by_label.await_count == 2
