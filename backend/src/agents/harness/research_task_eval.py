@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from src.agents.contracts.task_report import TaskReport
-from src.sandbox.workspace_layout import WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT
+from src.sandbox.workspace_layout import (
+    WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT,
+    is_workspace_readable_internal_output_ref,
+)
 
 ResearchSurface = Literal[
     "literature",
@@ -418,6 +421,7 @@ def _workflow_trace_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any
     sandbox_job_ids: list[str] = []
     sandbox_environment_ids: list[str] = []
     scratch_refs: list[str] = []
+    output_refs_read: list[str] = []
     usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     for transcript in _member_execution_transcripts(node_events):
         member_count += 1
@@ -436,6 +440,8 @@ def _workflow_trace_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any
             _append_unique(sandbox_environment_ids, environment_id)
         for ref in (_workspace_task_scratch_ref(ref) for ref in _string_list(transcript.get("scratch_refs"))):
             _append_unique(scratch_refs, ref)
+        for ref in (_workspace_output_ref(ref) for ref in _string_list(transcript.get("output_refs_read"))):
+            _append_unique(output_refs_read, ref)
         raw_usage = _dict_value(transcript.get("usage"))
         for key in usage:
             usage[key] += _int_value(raw_usage.get(key))
@@ -451,6 +457,8 @@ def _workflow_trace_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any
         "sandbox_job_ids": sandbox_job_ids[:50],
         "sandbox_environment_ids": sandbox_environment_ids[:50],
         "scratch_refs": scratch_refs[:50],
+        "output_refs_read": output_refs_read[:50],
+        "output_ref_read_count": len(output_refs_read[:50]),
         "generated_artifact_count": generated_artifact_count,
         "usage": usage,
         "billing": {"credits_charged": _json_number(credits_charged)},
@@ -1035,6 +1043,13 @@ def _workspace_task_scratch_ref(value: Any) -> str:
         return ""
     parts = path.removeprefix("/workspace/tmp/tasks/").split("/")
     if len(parts) < 2 or any(part in {"", ".", ".."} for part in parts):
+        return ""
+    return path
+
+
+def _workspace_output_ref(value: Any) -> str:
+    path = _clean_text(value)
+    if not path or not is_workspace_readable_internal_output_ref(path):
         return ""
     return path
 

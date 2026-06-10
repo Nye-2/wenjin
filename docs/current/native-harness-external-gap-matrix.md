@@ -78,7 +78,7 @@ deer-flow:
 
 3. **Context recovery after large omitted output has a facade and run tool companion.**
 
-   The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file` and `sandbox.run_python`. `execution_lifecycle` output refs now roll into `sandbox_execution_summary.output_refs`, and context assembly preserves only explicit `/workspace/tmp/tasks/.harness/outputs/**` refs there. It also projects `output_ref_recovery(schema=wenjin.harness.output_ref_recovery.v1)` at the top level with the read tool and guidance to inspect refs before rerunning expensive sandbox work. This keeps internal refs hidden from list/search/artifact discovery while making omitted stdout/stderr or large diff recovery visible to later members. The remaining improvement is measuring whether real agents actually use refs instead of repeating expensive commands in live SCI workflows.
+   The harness now permits bounded `sandbox.read_output_ref` on explicit output refs and auto-exposes it beside `sandbox.read_file` and `sandbox.run_python`. `execution_lifecycle` output refs now roll into `sandbox_execution_summary.output_refs`, and context assembly preserves only explicit `/workspace/tmp/tasks/.harness/outputs/**` refs there. It also projects `output_ref_recovery(schema=wenjin.harness.output_ref_recovery.v1)` at the top level with the read tool and guidance to inspect refs before rerunning expensive sandbox work. This keeps internal refs hidden from list/search/artifact discovery while making omitted stdout/stderr or large diff recovery visible to later members. Member transcripts now also record `output_refs_read` for refs actually read through `sandbox.read_output_ref`, and deterministic `workflow_trace` projects the filtered refs plus `output_ref_read_count`; this closes the structural observability gap. Remaining real-task tuning is deciding when repeated commands are acceptable versus when the team prompt should prefer ref reuse.
 
 4. **Workspace filesystem contract is usable; real-task scratch usage still needs tuning.**
 
@@ -90,14 +90,14 @@ deer-flow:
 
 6. **Member-level usage and execution transcript now has a backend projection.**
 
-   Status: backend projection closed. Codex and deer-flow both make the execution lifecycle easy to audit: command cwd/env/process/output in Codex, caller-bucketed token usage and progress snapshots in deer-flow. Wenjin now projects `member_execution_transcript(schema=wenjin.harness.member_execution_transcript.v1)` from existing `ExecutionNodeRecord.tool_calls` into `node_metadata.harness` and bounded harness context. It records tool counts/names, failures, changed paths, sandbox job/environment ids, safe task scratch refs, generated artifact count, token usage and duration without raw args, scripts, stdout/stderr, protected paths, internal output refs, a new run table or a new stream. Remaining gap: frontend/team roster visualization and real-task tuning should decide how much of this execution memory is user-visible versus agent-only context.
+   Status: backend projection closed. Codex and deer-flow both make the execution lifecycle easy to audit: command cwd/env/process/output in Codex, caller-bucketed token usage and progress snapshots in deer-flow. Wenjin now projects `member_execution_transcript(schema=wenjin.harness.member_execution_transcript.v1)` from existing `ExecutionNodeRecord.tool_calls` into `node_metadata.harness` and bounded harness context. It records tool counts/names, failures, changed paths, sandbox job/environment ids, safe task scratch refs, explicit output refs read through `sandbox.read_output_ref`, generated artifact count, token usage and duration without raw args, scripts, stdout/stderr, protected paths, arbitrary internal paths, a new run table or a new stream. Remaining gap: frontend/team roster visualization and real-task tuning should decide how much of this execution memory is user-visible versus agent-only context.
 
    Billing is included only as a compact `billing.credits_charged` projection from existing tool calls. It is not a new billing source and does not replace DataService credit transactions.
 
 ## Near-Term Implementation Order
 
 1. Run one real SCI workflow through the native harness gate with `workflow_trace` required, then tune prompts/tools from the failures.
-2. Tune prompt/tool guidance from real runs where agents repeat commands instead of using output refs or ignore member transcripts.
+2. Tune prompt/tool guidance from real runs where `workflow_trace.output_refs_read` stays empty despite recoverable output refs, or where repeated commands are justified by changed inputs.
 3. Add reviewer-facing quality scoring for academic style improvement beyond bounded structural semantic preservation.
 4. Design frontend/team-roster and quality-evidence display only after real runs prove which transcript and eval fields help users.
 5. If a future generic command tool becomes necessary, design it as a first-class DataService policy feature instead of widening `run_python`.

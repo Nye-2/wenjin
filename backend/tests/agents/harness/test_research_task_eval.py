@@ -1063,6 +1063,13 @@ def test_research_task_eval_passes_workflow_trace_from_member_transcripts() -> N
                             "sandbox_job_ids": ["job-1"],
                             "sandbox_environment_ids": ["env-1"],
                             "scratch_refs": ["/workspace/tmp/tasks/exec-1/experiment_runner"],
+                            "output_refs_read": [
+                                "/workspace/tmp/tasks/.harness/outputs/exec-1/experiment_runner/stdout.txt",
+                                "/workspace/tmp/tasks/.harness/debug.txt",
+                                "/workspace/.env",
+                                "/workspace/tmp/tasks/.harness/outputs/exec-1/experiment_runner/stdout.txt",
+                            ],
+                            "output_ref_read_count": 4,
                             "generated_artifact_count": 1,
                             "billing": {"credits_charged": 1},
                             "duration_ms": 1500,
@@ -1087,6 +1094,10 @@ def test_research_task_eval_passes_workflow_trace_from_member_transcripts() -> N
         "sandbox_job_ids": ["job-1"],
         "sandbox_environment_ids": ["env-1"],
         "scratch_refs": ["/workspace/tmp/tasks/exec-1/experiment_runner"],
+        "output_refs_read": [
+            "/workspace/tmp/tasks/.harness/outputs/exec-1/experiment_runner/stdout.txt"
+        ],
+        "output_ref_read_count": 1,
         "generated_artifact_count": 1,
         "usage": {"input_tokens": 400, "output_tokens": 120, "total_tokens": 520},
         "billing": {"credits_charged": 1},
@@ -1131,6 +1142,8 @@ def test_research_task_eval_fails_workflow_trace_without_member_transcripts() ->
         "sandbox_job_ids": [],
         "sandbox_environment_ids": [],
         "scratch_refs": [],
+        "output_refs_read": [],
+        "output_ref_read_count": 0,
         "generated_artifact_count": 0,
         "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
         "billing": {"credits_charged": 0},
