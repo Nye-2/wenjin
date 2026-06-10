@@ -631,6 +631,40 @@ def test_harness_node_metadata_includes_member_execution_transcript() -> None:
     assert "must not leak" not in str(transcript)
 
 
+def test_member_execution_transcript_records_bounded_output_ref_reads() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.read_output_ref",
+                "status": "completed",
+                "args": {
+                    "output_ref": "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt",
+                    "max_chars": 1000,
+                },
+            },
+            {
+                "name": "sandbox.read_output_ref",
+                "status": "completed",
+                "args": {
+                    "output_ref": "/workspace/tmp/tasks/.harness/not-output/debug.txt",
+                },
+            },
+            {
+                "name": "sandbox.read_file",
+                "status": "completed",
+                "args": {"path": "/workspace/outputs/result.json"},
+            },
+        ]
+    )
+
+    transcript = metadata["harness"]["member_execution_transcript"]
+    assert transcript["output_ref_read_count"] == 1
+    assert transcript["output_refs_read"] == [
+        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"
+    ]
+    assert "/workspace/tmp/tasks/.harness/not-output/debug.txt" not in str(transcript)
+
+
 def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:
     guard = HarnessLoopGuard(warn_threshold=3, hard_limit=5)
     args = {"path": "/workspace/main.tex"}

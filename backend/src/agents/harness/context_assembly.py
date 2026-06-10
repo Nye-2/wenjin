@@ -628,6 +628,8 @@ def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
 def _safe_harness_summary_value(key: str, value: Any) -> Any:
     if key == "sandbox_execution_summary":
         return _safe_sandbox_execution_summary(value)
+    if key == "member_execution_transcript":
+        return _safe_member_execution_transcript(value)
     return _safe_value(value)
 
 
@@ -649,6 +651,24 @@ def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
         safe = _safe_value(item)
         if safe not in (None, {}, []):
             result[str(key)] = safe
+    return result
+
+
+def _safe_member_execution_transcript(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result = _safe_value(value)
+    result = result if isinstance(result, dict) else {}
+    refs: list[str] = []
+    raw_refs = value.get("output_refs_read")
+    if isinstance(raw_refs, list):
+        for ref in raw_refs:
+            text = str(ref).strip()
+            if is_workspace_readable_internal_output_ref(text) and text not in refs:
+                refs.append(text)
+    if refs:
+        result["output_refs_read"] = refs[:20]
+        result["output_ref_read_count"] = len(refs)
     return result
 
 

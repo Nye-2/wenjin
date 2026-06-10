@@ -189,6 +189,7 @@ def build_member_execution_transcript_from_tool_calls(
     tool_names: list[str] = []
     failed_tools: list[str] = []
     scratch_refs: list[str] = []
+    output_refs_read: list[str] = []
     usage = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
     credits_charged = 0.0
     duration_ms = 0
@@ -203,6 +204,10 @@ def build_member_execution_transcript_from_tool_calls(
             _append_unique(failed_tools, name)
         else:
             completed_tool_count += 1
+            if name == "sandbox.read_output_ref":
+                args = tool_call.get("args")
+                args = args if isinstance(args, dict) else {}
+                _append_safe_output_ref(output_refs_read, str(args.get("output_ref") or ""))
 
         metadata = tool_call.get("metadata")
         metadata = metadata if isinstance(metadata, dict) else {}
@@ -236,6 +241,9 @@ def build_member_execution_transcript_from_tool_calls(
         "scratch_refs": scratch_refs[:20],
         "generated_artifact_count": _int_value((sandbox_execution_summary or {}).get("generated_artifact_count")),
     }
+    if output_refs_read:
+        result["output_ref_read_count"] = len(output_refs_read)
+        result["output_refs_read"] = output_refs_read[:20]
     if any(usage.values()):
         result["usage"] = usage
     if credits_charged > 0:

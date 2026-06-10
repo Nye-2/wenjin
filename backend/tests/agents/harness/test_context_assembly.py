@@ -278,6 +278,11 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
                                     "sandbox_job_ids": ["job-1"],
                                     "sandbox_environment_ids": ["env-1"],
                                     "scratch_refs": ["/workspace/tmp/tasks/exec-1/research_scout"],
+                                    "output_ref_read_count": 2,
+                                    "output_refs_read": [
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/research_scout/stdout.txt",
+                                        "/workspace/tmp/tasks/.harness/not-output/debug.txt",
+                                    ],
                                     "generated_artifact_count": 1,
                                 },
                             }
@@ -378,6 +383,10 @@ def test_harness_context_bundle_exposes_team_member_execution_package() -> None:
         "sandbox_job_ids": ["job-1"],
         "sandbox_environment_ids": ["env-1"],
         "scratch_refs": ["/workspace/tmp/tasks/exec-1/research_scout"],
+        "output_ref_read_count": 1,
+        "output_refs_read": [
+            "/workspace/tmp/tasks/.harness/outputs/exec-1/research_scout/stdout.txt"
+        ],
         "generated_artifact_count": 1,
     }
     assert bundle["recent_execution_evidence"][0]["harness"]["member_execution_transcript"]["tool_call_count"] == 2

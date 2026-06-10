@@ -348,6 +348,13 @@ Chat Agent
   - `backend`: `.venv/bin/ruff check src/subagents/v2/types/react.py tests/unit/subagents/test_react.py` -> passed.
   - `backend`: final native harness release gate -> 332 passed.
   - Production drift scan over native harness paths still found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or `sandbox.run_command`; `git diff --check` passed.
+- 2026-06-10 output-ref read telemetry slice:
+  - `member_execution_transcript(schema=wenjin.harness.member_execution_transcript.v1)` now records bounded `output_ref_read_count` and `output_refs_read` when a member successfully calls `sandbox.read_output_ref`.
+  - Only explicit readable `/workspace/tmp/tasks/.harness/outputs/**` refs are retained; non-output internal refs, protected paths and failed reads are filtered. Context assembly preserves the same safe refs in downstream harness context, letting real workflow audits measure whether members inspect omitted stdout/stderr before rerunning expensive experiments.
+  - This is a projection over existing tool records, not a new run table, new billing source, new stream or retry controller.
+  - `backend`: `.venv/bin/python -m pytest tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_context_assembly.py -q` -> 27 passed.
+  - `backend`: final native harness release gate -> 333 passed.
+  - Production drift scan over native harness paths found no Codex SDK imports, cc-switch, deer-flow runtime imports, `/mnt/user-data`, or `sandbox.run_command`; `git diff --check` passed.
 
 ## 6. 剩余不足
 
