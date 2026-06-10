@@ -73,7 +73,7 @@ Do not do this:
 - Modify: `backend/src/agents/harness/diff_tracker.py`
 - Test: `backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py`
 
-- [ ] **Step 1: Write the failing regression test**
+- [x] **Step 1: Write the failing regression test**
 
 Add this test near `test_harness_node_metadata_includes_sandbox_execution_summary` in `backend/tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py`:
 
@@ -104,7 +104,7 @@ def test_sandbox_execution_summary_dedupes_generated_artifacts_across_record_and
     assert summary["generated_artifact_count"] == 2
 ```
 
-- [ ] **Step 2: Run the focused RED test**
+- [x] **Step 2: Run the focused RED test**
 
 Run:
 
@@ -120,7 +120,7 @@ FAILED
 
 The failure should show `generated_artifact_count` is `4` instead of `2`.
 
-- [ ] **Step 3: Implement path-level dedupe in the sandbox execution summary**
+- [x] **Step 3: Implement path-level dedupe in the sandbox execution summary**
 
 In `backend/src/agents/harness/diff_tracker.py`, replace the integer-only count accumulation with a list of unique reviewable artifact paths.
 
@@ -163,7 +163,7 @@ And set the result field:
 
 Keep the existing `_reviewable_artifact_count()` helper because other summaries may still use it.
 
-- [ ] **Step 4: Run GREEN verification**
+- [x] **Step 4: Run GREEN verification**
 
 Run:
 
@@ -173,7 +173,7 @@ cd backend && .venv/bin/python -m pytest tests/agents/harness/test_output_budget
 
 Expected: all selected tests pass.
 
-- [ ] **Step 5: Run targeted style check**
+- [x] **Step 5: Run targeted style check**
 
 Run:
 
@@ -183,7 +183,7 @@ cd backend && .venv/bin/ruff check src/agents/harness/diff_tracker.py tests/agen
 
 Expected: Ruff passes.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
@@ -201,7 +201,7 @@ git commit -m "fix: dedupe sandbox generated artifact summary"
 - Modify if needed: `backend/src/agents/lead_agent/v2/team/kernel.py`
 - Modify if needed: `backend/src/agents/lead_agent/v2/team/quality_gates.py`
 
-- [ ] **Step 1: Add a regression test for duplicate signals from the same invocation**
+- [x] **Step 1: Add a regression test for duplicate signals from the same invocation**
 
 Add this test to `backend/tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py`:
 
@@ -220,7 +220,7 @@ def test_harness_node_metadata_dedupes_replan_signals_from_duplicate_failures() 
     assert signals[0]["max_extra_iterations"] == 1
 ```
 
-- [ ] **Step 2: Run the focused test**
+- [x] **Step 2: Run the focused test**
 
 Run:
 
@@ -230,7 +230,7 @@ cd backend && .venv/bin/python -m pytest tests/agents/lead_agent/v2/test_team_ke
 
 Expected: pass if existing `_dedupe_replan_signals()` is sufficient. If it fails, fix `backend/src/agents/harness/diff_tracker.py` by preserving the first signal for each `_replan_signal_key()`.
 
-- [ ] **Step 3: Add a regression test that queue timeout does not suggest extra work**
+- [x] **Step 3: Add a regression test that queue timeout does not suggest extra work**
 
 Add this pure metadata test:
 
@@ -245,7 +245,7 @@ def test_harness_node_metadata_marks_queue_timeout_non_iterative() -> None:
     assert signal["max_extra_iterations"] == 0
 ```
 
-- [ ] **Step 4: Run the full replan test file**
+- [x] **Step 4: Run the full replan test file**
 
 Run:
 
@@ -455,4 +455,3 @@ The pass is complete only when all are true:
 2. Task 2 second because it confirms dynamic replan remains bounded.
 3. Task 3 third because docs should reflect verified behavior, not intended behavior.
 4. Task 4 last because it is the release gate.
-

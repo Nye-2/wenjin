@@ -402,3 +402,27 @@ def test_harness_node_metadata_includes_tool_input_validation_replan_signal() ->
         "recommended_action": "revise_tool_call_args",
         "max_extra_iterations": 1,
     }
+
+
+def test_harness_node_metadata_dedupes_replan_signals_from_duplicate_failures() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            _run_python_tool_call("python_exit_nonzero"),
+            _run_python_tool_call("python_exit_nonzero"),
+        ]
+    )
+
+    signals = metadata["harness"]["replan_signals"]
+    assert len(signals) == 1
+    assert signals[0]["failure_codes"] == ["python_exit_nonzero"]
+    assert signals[0]["max_extra_iterations"] == 1
+
+
+def test_harness_node_metadata_marks_queue_timeout_non_iterative() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [_run_python_tool_call("sandbox_queue_timeout")]
+    )
+
+    signal = metadata["harness"]["replan_signals"][0]
+    assert signal["recommended_action"] == "wait_or_stop"
+    assert signal["max_extra_iterations"] == 0
