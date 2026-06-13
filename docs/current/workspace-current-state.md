@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-06-10
+更新时间：2026-06-13
 状态：Current
 适用项目：`wenjin`
 
@@ -103,7 +103,7 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 ## 5.1 Execution UX 当前收敛
 
 1. `frontend/lib/execution-run-view.ts` 是前端执行展示投影事实源，负责从 `ExecutionRecord`、Runs `RunRecord`、chat `result_card` 派生统一 `RunView`
-2. `frontend/stores/run-ui-store.ts` 只保存 UI 焦点：active / focused / highlighted / completed run ids；不拥有执行状态事实
+2. `frontend/stores/run-ui-store.ts` 只保存 UI 焦点：active / focused / highlighted / preview item / completed run ids；不拥有执行状态事实
 3. LiveWorkflowPanel 会 pin 当前 run：running 时自动展开执行卡，completed 后保持 Current run 摘要；active/focused 的非终态 run 优先于历史抽屉里的 stale selection，避免新启动团队任务被旧记录遮住
 4. Runs toolbar 按钮显示运行中/已完成提示；Runs drawer 合并 live execution store 与 `/api/workspaces/{workspace_id}/runs` 历史记录
 5. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`

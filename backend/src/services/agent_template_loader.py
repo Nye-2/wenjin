@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from src.contracts.team_expert import ExpertProfileV1
+from src.contracts.team_presentation import ExpertProfileV1
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import CatalogSeedItemPayload, CatalogSeedLoadPayload
 from src.dataservice_client.provider import dataservice_client

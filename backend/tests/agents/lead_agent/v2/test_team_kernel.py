@@ -220,6 +220,79 @@ class TeamMetadataFakeSubagent(SubagentBase):
         )
 
 
+@subagent("team_streaming_metadata_fake")
+class TeamStreamingMetadataFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        invocation = ctx.invocation or {}
+        await ctx.emit_expert_snapshot(
+            {
+                "snapshot_id": "snap-from-stream",
+                "execution_id": ctx.execution_id,
+                "workspace_id": ctx.workspace_id,
+                "agent_invocation_id": invocation["id"],
+                "agent_template_id": invocation["template_id"],
+                "role_key": "research_scout",
+                "role_name": invocation["assigned_role"],
+                "status": "running",
+                "update_kind": "finding",
+                "stage": {"label": "检索中"},
+                "headline": "正在筛选候选文献",
+                "body": "已找到第一批候选来源，正在去重和初筛。",
+                "created_at": "2026-06-13T00:00:00Z",
+            }
+        )
+        return SubagentResult(
+            output={"text": "streaming metadata emitted"},
+            metadata={
+                "expert_snapshots": [
+                    {
+                        "snapshot_id": "snap-from-result",
+                        "execution_id": ctx.execution_id,
+                        "workspace_id": ctx.workspace_id,
+                        "agent_invocation_id": invocation["id"],
+                        "agent_template_id": invocation["template_id"],
+                        "role_key": "research_scout",
+                        "role_name": invocation["assigned_role"],
+                        "status": "completed",
+                        "update_kind": "output",
+                        "stage": {"label": "完成"},
+                        "headline": "已形成文献发现",
+                        "body": "已整理关键方向。",
+                        "created_at": "2026-06-13T00:00:01Z",
+                    }
+                ]
+            },
+            token_usage={"input": 1, "output": 1},
+        )
+
+
+@subagent("team_streaming_only_metadata_fake")
+class TeamStreamingOnlyMetadataFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        invocation = ctx.invocation or {}
+        await ctx.emit_expert_snapshot(
+            {
+                "snapshot_id": "snap-stream-only",
+                "execution_id": ctx.execution_id,
+                "workspace_id": ctx.workspace_id,
+                "agent_invocation_id": invocation["id"],
+                "agent_template_id": invocation["template_id"],
+                "role_key": "research_scout",
+                "role_name": invocation["assigned_role"],
+                "status": "running",
+                "update_kind": "finding",
+                "stage": {"label": "筛选中"},
+                "headline": "正在形成可引用线索",
+                "body": "已筛掉低相关来源。",
+                "created_at": "2026-06-13T00:00:00Z",
+            }
+        )
+        return SubagentResult(
+            output={"text": "streaming-only metadata emitted"},
+            token_usage={"input": 1, "output": 1},
+        )
+
+
 def _team_capability() -> SimpleNamespace:
     return SimpleNamespace(
         id="team_research",
@@ -566,8 +639,198 @@ async def test_run_invocation_persists_subagent_result_expert_metadata() -> None
 
     completed = [event for event in node_events if event["status"] == "completed"][-1]
     snapshots = completed["node_metadata"]["harness"]["expert_snapshots"]
-    assert snapshots[0]["snapshot_id"] == "snap-from-result"
-    assert snapshots[0]["headline"] == "已形成文献发现"
+    result_snapshot = next(
+        snapshot for snapshot in snapshots if snapshot["snapshot_id"] == "snap-from-result"
+    )
+    assert result_snapshot["headline"] == "已形成文献发现"
+
+
+@pytest.mark.asyncio
+async def test_run_invocation_keeps_streamed_expert_snapshots_in_final_node_metadata() -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=record_node_event,
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        input_brief={"workspace_id": "ws-1"},
+        effective_skills=["streaming-metadata-skill"],
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="research_scout.v1",
+            display_role="文献检索员",
+            category="research",
+            persona_prompt="research",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={
+            "streaming-metadata-skill": SimpleNamespace(
+                subagent_type="team_streaming_metadata_fake",
+            ),
+        },
+        skill_load_error=None,
+    )
+
+    running_events = [event for event in node_events if event["status"] == "running"]
+    assert any(
+        snapshot["snapshot_id"] == "snap-from-stream"
+        for event in running_events
+        for snapshot in event["node_metadata"]["harness"]["expert_snapshots"]
+    )
+
+    completed = [event for event in node_events if event["status"] == "completed"][-1]
+    snapshot_ids = [
+        snapshot["snapshot_id"]
+        for snapshot in completed["node_metadata"]["harness"]["expert_snapshots"]
+    ]
+    assert "snap-from-stream" in snapshot_ids
+    assert "snap-from-result" in snapshot_ids
+
+
+@pytest.mark.asyncio
+async def test_run_invocation_keeps_streamed_snapshots_when_result_metadata_is_empty() -> None:
+    node_events: list[dict] = []
+    invocation_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    async def publish_event(_execution_id: str, event_type: str, payload: dict):
+        if event_type == "execution.team.invocation":
+            invocation_events.append(payload)
+
+    runtime = TeamKernelRuntime(
+        publish_event=publish_event,
+        record_node_event=record_node_event,
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        input_brief={"workspace_id": "ws-1"},
+        effective_skills=["streaming-only-metadata-skill"],
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="research_scout.v1",
+            display_role="文献检索员",
+            category="research",
+            persona_prompt="research",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={
+            "streaming-only-metadata-skill": SimpleNamespace(
+                subagent_type="team_streaming_only_metadata_fake",
+            ),
+        },
+        skill_load_error=None,
+    )
+
+    completed = [event for event in node_events if event["status"] == "completed"][-1]
+    completed_snapshot_ids = [
+        snapshot["snapshot_id"]
+        for snapshot in completed["node_metadata"]["harness"]["expert_snapshots"]
+    ]
+    assert "snap-stream-only" in completed_snapshot_ids
+    assert any(
+        snapshot["snapshot_id"] == "snap-stream-only"
+        for payload in invocation_events
+        for snapshot in payload["invocation"]["expert_snapshots"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_streamed_expert_snapshot_recording_failure_does_not_fail_invocation() -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        snapshot_ids = [
+            snapshot.get("snapshot_id")
+            for snapshot in kwargs.get("node_metadata", {})
+            .get("harness", {})
+            .get("expert_snapshots", [])
+            if isinstance(snapshot, dict)
+        ]
+        if kwargs.get("status") == "running" and "snap-from-stream" in snapshot_ids:
+            raise RuntimeError("transient node recorder failure")
+        node_events.append(kwargs)
+
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=record_node_event,
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        input_brief={"workspace_id": "ws-1"},
+        effective_skills=["streaming-metadata-skill"],
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="research_scout.v1",
+            display_role="文献检索员",
+            category="research",
+            persona_prompt="research",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={
+            "streaming-metadata-skill": SimpleNamespace(
+                subagent_type="team_streaming_metadata_fake",
+            ),
+        },
+        skill_load_error=None,
+    )
+
+    assert invocation.status == "succeeded"
+    assert any(event["status"] == "completed" for event in node_events)
 
 
 class FakeTeamCatalogClient:

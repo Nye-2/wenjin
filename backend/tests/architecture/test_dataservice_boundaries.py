@@ -350,6 +350,29 @@ def test_dataservice_client_workspace_catalog_apis_live_in_dedicated_mixins() ->
             assert method not in client_source
 
 
+def test_catalog_expert_presentation_contract_is_shared_not_runtime_owned() -> None:
+    """Catalog expert display schema must stay separate from runtime events."""
+    forbidden = "src.contracts.team_expert"
+    checked_files = [
+        SRC_ROOT / "dataservice" / "domains" / "catalog" / "service.py",
+        SRC_ROOT / "dataservice" / "domains" / "catalog" / "projection.py",
+        SRC_ROOT / "services" / "agent_template_loader.py",
+        SRC_ROOT / "services" / "capability_schema.py",
+    ]
+
+    violations: list[str] = []
+    for path in checked_files:
+        imports = _imports(path)
+        if forbidden in imports:
+            violations.append(str(path.relative_to(SRC_ROOT)))
+
+    assert not violations, (
+        "Use src.contracts.team_presentation for expert profile/presentation; "
+        "do not import src.contracts.team_expert runtime snapshot/preview "
+        f"contracts:\n{chr(10).join(violations)}"
+    )
+
+
 def test_source_domain_service_is_facade_over_focused_services() -> None:
     """Source domain public service should stay a facade over focused services."""
     source_root = SRC_ROOT / "dataservice" / "domains" / "source"

@@ -1,16 +1,12 @@
 # Wenjin Research Navigation UIUX
 
-更新时间：2026-06-05
+更新时间：2026-06-13
 
 Wenjin keeps the name, but the product interface baseline is now **System-Grade Research Workbench**: a research operating-system surface with trusted chrome, quiet content, evidence-first execution, and mature institutional polish.
 
-Current baseline spec: `docs/superpowers/specs/2026-06-04-system-grade-research-workbench-uiux-design.md`.
-
-Current full-shell migration source: `docs/superpowers/specs/2026-06-05-full-shell-uiux-refactor-design.md`.
-
 Workspace now uses a single trusted chrome for workspace identity, Workbench/Prism switching, running/review status, and the Workspace Hub entry. The previous permanent room topbar is removed. Rooms are reached through Workspace Hub, while technical execution details remain available behind run diagnostics instead of default panels.
 
-The earlier Glass / visionOS direction in `docs/superpowers/specs/2026-05-09-v2-design-language.md` is superseded for new work. Existing `--v2-*` tokens may remain as compatibility aliases during migration, but new components should use `--wjn-*`.
+The earlier Glass / visionOS direction is superseded for new work. Existing `--v2-*` tokens may remain as compatibility aliases during migration, but new components should use `--wjn-*`.
 
 ## Positioning
 

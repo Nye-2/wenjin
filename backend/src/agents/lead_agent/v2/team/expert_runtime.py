@@ -32,12 +32,12 @@ def build_expert_node_metadata(
 
     preview_items = sanitize_expert_preview_items(invocation.expert_preview_items)
 
-    harness["expert_snapshots"] = _bounded_list(
+    harness["expert_snapshots"] = _bounded_unique_by_id(
         [*list(harness.get("expert_snapshots") or []), *snapshots],
         limit=20,
     )
     if preview_items:
-        harness["expert_preview_items"] = _bounded_list(
+        harness["expert_preview_items"] = _bounded_unique_by_id(
             [*list(harness.get("expert_preview_items") or []), *preview_items],
             limit=20,
         )
@@ -101,6 +101,30 @@ def sanitize_expert_preview_items(items: list[dict[str, Any]]) -> list[dict[str,
         except Exception:
             logger.debug("invalid expert preview item skipped", exc_info=True)
     return preview_items
+
+
+def merge_expert_snapshot_items(
+    *item_groups: list[dict[str, Any]],
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Sanitize, dedupe, and bound expert snapshot payloads."""
+
+    snapshots: list[dict[str, Any]] = []
+    for items in item_groups:
+        snapshots.extend(sanitize_expert_snapshot_items(list(items or [])))
+    return _bounded_unique_by_id(snapshots, limit=limit)
+
+
+def merge_expert_preview_items(
+    *item_groups: list[dict[str, Any]],
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Sanitize, dedupe, and bound expert preview payloads."""
+
+    preview_items: list[dict[str, Any]] = []
+    for items in item_groups:
+        preview_items.extend(sanitize_expert_preview_items(list(items or [])))
+    return _bounded_unique_by_id(preview_items, limit=limit)
 
 
 def _synthetic_snapshot_payload(invocation: AgentInvocation, *, status: str) -> dict[str, Any]:
@@ -189,3 +213,27 @@ def _output_kind_for_invocation(invocation: AgentInvocation) -> str:
 
 def _bounded_list(values: list[Any], *, limit: int) -> list[Any]:
     return values[-limit:]
+
+
+def _bounded_unique_by_id(values: list[Any], *, limit: int) -> list[Any]:
+    unique: list[Any] = []
+    positions: dict[str, int] = {}
+    for value in values:
+        key = _stable_item_key(value)
+        if key and key in positions:
+            unique[positions[key]] = value
+            continue
+        if key:
+            positions[key] = len(unique)
+        unique.append(value)
+    return _bounded_list(unique, limit=limit)
+
+
+def _stable_item_key(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return None
+    for key in ("snapshot_id", "preview_item_id", "id"):
+        item_id = str(value.get(key) or "").strip()
+        if item_id:
+            return item_id
+    return None

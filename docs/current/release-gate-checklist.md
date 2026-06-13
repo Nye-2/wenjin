@@ -1,208 +1,109 @@
 # Release Gate Checklist
 
-更新时间: 2026-06-11
+更新时间: 2026-06-13
+状态: Current
 
-用于发布前 Go/No-Go 决策，覆盖五类 workspace 的核心可用性。
+本文件只保留发布前 Go/No-Go 的当前门禁。历史验证流水不在 current docs 中维护；需要追溯时查 Git 历史。
 
-2026-06-11 最新增量验证：Native harness acceptance closeout focused checks 已补入；新增 `research_task_eval_pack` 用于小型真实任务 acceptance fixtures 的 deterministic 分组评估，失败可定位到 case id 与 research surface；TeamKernel 会在 `runtime_state_json.harness_episode(schema=wenjin.team.harness_episode.v1)` 记录 core/dynamic iteration decisions、gate ids/statuses、selected recruits 和 stop reason，且不携带 raw tool payload；Prism academic style 合同已收敛到 `services/prism_review_contracts.py`，research surface policy 已收敛到 `agents/harness/research_eval_surfaces.py`，context budget policy 已收敛到 `agents/harness/context_budget_policy.py`。Focused verification：`tests/agents/harness/test_research_eval_surfaces.py tests/agents/harness/test_research_task_eval.py tests/agents/harness/test_research_task_eval_pack.py tests/agents/harness/test_context_assembly.py` -> 47 passed；`tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py tests/agents/lead_agent/v2/test_team_kernel.py tests/agents/lead_agent/v2/test_team_quality_gates.py` -> 51 passed。
+## 1. Core Gate
 
-2026-06-10 最新增量验证：Native harness release gate 已进入 core checks；native harness gate command 365 passed，覆盖 harness filesystem、sandbox file tools、Docker provider orphan cleanup retry、command audit（含 null-byte / oversized payload fail-closed 与 bounded audit metadata）、policy/registry、output budget/loop/diff、output-ref read telemetry、workspace read/write scheduler、replan signal loop semantics、research-task eval（含 `workflow_trace` 成员执行痕迹、可选 `output_ref_reuse` 输出引用复用、`citation_strength` 引文强度、`experiment_interpretation` 实验解释、`paper_relevance` 文献贴题度、`statistical_robustness` 统计稳健性、`writing_semantic_preservation` Prism 语义保持和 `writing_academic_style` Prism 学术风格证据）、Prism writing evidence eval、Prism review projection structure/semantic/style contracts、LangChain adapter、harness context assembly、ReactSubagent/tool registry、TeamKernel policy/sandbox runtime、workspace sandbox metadata、workspace layout、sandbox artifact discovery（含 protected/guidance/internal path 与 resolved symlink target 过滤）、citation/source audit、team quality gates、mock sandbox E2E。WorkspaceToolScheduler 已支持同 workspace 多读并发、写/执行独占、已有写等待时后续读不插队；LangChain adapter 已把 read_file/read_output_ref/list_dir/glob/grep 走 read mode，写入、manifest 注册和 run_python 仍走 write/exclusive mode。`sandbox.run_python` 的 `script_name` 在 harness 边界和 Lead-owned runner 内复用同一 sanitizer，最终只能写入 `/workspace/scripts/{safe_name}.py`，并用 workspace layout 的 user-editable path 判断防止 hidden/protected-looking script path 绕过文件工具边界。sandbox artifact discovery 复用 `is_user_reviewable_workspace_artifact_path()`，protected `.env`、internal refs、guidance/manifest files 以及指向 protected/internal target 的 symlink 即使位于 `/workspace/outputs` 或 `/workspace/reports` 也不得进入 `generated_artifacts` / `sandbox_artifact` review candidates。TeamKernel 已把 capability 声明的 runtime 可验证 research surfaces 接入 `research_evidence_required` quality gate：`workflow_trace`、`output_ref_reuse`、`citation_strength`、`experiment_interpretation`、`paper_relevance`、`statistical_robustness` 通过现有 deterministic evaluator 检查，失败时进入 `revise_existing`，并通过 `quality_repair_context(schema=wenjin.team.quality_repair_context.v1)` 向下一轮成员投影 missing surfaces、安全 output refs 和简短 required actions，不新增运行态、不解析 raw tool JSON；同一 capability research evidence contract 也会投影进成员 brief 的 `research_evidence_requirements(schema=wenjin.team.research_evidence_requirements.v1)`，让成员在执行前看见 required surfaces、runtime-enforced surfaces 和简短产出指引。harness context assembly 已把 `sandbox_execution_summary` 和 `member_execution_transcript` 收敛为字段 allowlist，raw stdout/stderr/traceback/raw args/raw payload 不进入下游 prompt；需要恢复大输出时只能通过安全 `output_ref_recovery` 和 `sandbox.read_output_ref`；当 capability 要求 runtime evidence surface 时，context budget 必须先裁剪非关键历史、workspace/sandbox verbosity，再考虑丢弃对应 evidence summary，避免下游成员失去被要求使用的实验解释或复现实验摘要。mock TeamKernel E2E 已通过 `required_surfaces_from_capability_policy(LeadAgentRuntime._capability_policy(...))` 读取 capability 声明的 `research_evidence.required_surfaces`，要求文献、sandbox 实验、Prism 写作、workflow trace、experiment interpretation 和 output-ref reuse evidence surface 同时闭环，并断言 runtime 发布 `research_evidence_required=pass` quality gate；deterministic eval 还会要求现有 `member_execution_transcript` 证明团队成员完成过工具活动，并通过安全 task scratch ref 证明 sandbox 长程任务上下文连续；当成员读取过外部化 stdout/stderr/diff 时，`workflow_trace` 还必须只保留安全 `/workspace/tmp/tasks/.harness/outputs/**` 到 `output_refs_read` 并以过滤后 refs 计算 `output_ref_read_count`，非 output internal/protected path 不得进入 evidence。`output_ref_reuse` 是更严格的可选复用门：当 `sandbox_execution_summary.output_refs` 存在可恢复 refs 时，必须看到成员通过 `sandbox.read_output_ref` 实际读取至少一个同 ref，避免后续成员无视已有昂贵输出而直接重跑。`citation_strength` 是更严格的 outcome-quality surface：weak-only refs 不通过，supported/verified/low-risk refs 才能证明引文支撑强度。`experiment_interpretation` 要求方法、指标、已验证结果、限制、artifact 和 dataset 证据，并与可复现摘要路径对齐。`paper_relevance` 要求至少一个 topic-aligned source/citation ref，off-topic refs 不通过。`statistical_robustness` 要求方法、样本量、指标、通过的稳健性检查、限制、artifact 和 dataset 证据，并与可复现摘要路径对齐；critical/high/blocking 级失败检查不得通过。`writing_semantic_preservation` 要求每个 Prism 改稿 review item 都有结构可审查的 content contract 和低风险 semantic contract，不允许 high-risk、claim/citation/equation/table preservation failure。`writing_academic_style` 要求每个 Prism 改稿 review item 都有 bounded academic style contract，学术风格分数达标且没有 AI-meta、第一人称主观判断、口语化加强词或 vague noun 等反模式；如果合同携带 `style_delta`，schema、pending score、score_delta 公式和 `improves_academic_style=true` 必须一致且为正向提升，projection 不得暴露改前/改后全文或 raw diff。
+发布前必须满足：
 
-最新增量验证：2026-05-30 Model catalog/pricing runtime convergence：backend full pytest 2201 passed；backend ruff `src tests` passed；frontend typecheck/lint/build passed；frontend vitest 242 passed；Browser route-guard smoke passed（`/dashboard/admin/models` -> login redirect preserved）。2026-05-30 Gateway/Worker DataService lifecycle convergence：backend full pytest 2041 passed；gateway/worker/execution-commit/thread-helper target suite 80 passed；architecture boundary suite 41 passed；runtime DB/session scan no matches；changed-file ruff passed。2026-05-30 Audit/Reference contract boundary convergence：backend full pytest 2036 passed；audit/reference target suite 32 passed；architecture boundary suite 38 passed；changed-file ruff passed。2026-05-30 Production source legacy label cleanup：backend full pytest 2034 passed；migration bootstrap/architecture target suite 7 passed；architecture boundary suite 36 passed；production source legacy scan no matches；changed-file ruff passed。2026-05-30 Workspace capability runtime comment convergence：backend full pytest 2033 passed；frontend typecheck passed；runtime comment guard passed；architecture boundary suite 35 passed；changed-file ruff passed。2026-05-30 DataService stale naming cleanup：backend full pytest 2032 passed；source/rooms/architecture target suite 21 passed；architecture boundary suite 34 passed；DataService stale keyword scan no matches；changed-file ruff passed。2026-05-30 Execution generation usage naming convergence：backend full pytest 2031 passed；execution-contract architecture target 1 passed；architecture boundary suite 33 passed；changed-file ruff passed。2026-05-30 Conversation block canonical payload convergence：backend full pytest 2030 passed；conversation/architecture target suite 5 passed；architecture boundary suite 32 passed；changed-file ruff passed。2026-05-30 Source reference projection naming convergence：backend full pytest 2029 passed；source provenance/architecture target suite 17 passed；architecture boundary suite 31 passed；changed-file ruff passed。2026-05-30 Catalog skill canonical skill_json convergence：backend full pytest 2028 passed；catalog/foundation/resolver/admin-skill/architecture target suite 43 passed；architecture boundary suite 30 passed；changed-file ruff passed。2026-05-30 DataService Prism adapter metadata convergence：backend full pytest 2026 passed；Prism adapter/service/router/architecture target suite 15 passed；architecture boundary suite 29 passed；changed-file ruff passed。2026-05-30 frontend feature action explicit-goal convergence：frontend feature action unit 4 passed；frontend typecheck passed。2026-05-30 React requested-tools explicit failure convergence：backend full pytest 2025 passed；React/runtime/compiler/architecture target suite 43 passed；architecture boundary suite 29 passed；changed-file ruff passed。2026-05-30 workspace upload canonical stored path convergence：backend full pytest 2023 passed；upload/template/reference/middleware/preprocess/architecture target suite 28 passed；architecture boundary suite 28 passed；changed-file ruff passed。2026-05-30 feature action explicit-goal convergence：backend full pytest 2021 passed；feature action/activity/architecture target suite 36 passed；architecture boundary suite 27 passed；changed-file ruff passed。2026-05-30 feature launch canonical params convergence：backend full pytest 2020 passed；launch context/tool/chat integration/architecture target suite 18 passed；architecture boundary suite 26 passed；changed-file ruff passed。2026-05-30 execution workspace type no-default convergence：backend full pytest 2019 passed；execution/runtime/architecture target suite 49 passed；architecture boundary suite 25 passed；changed-file ruff passed。
+1. Chat Agent 只能通过 `launch_feature` 进入 execution；missing params advisory 不创建 execution、不扣积分、不触发外部检索。
+2. `ExecutionRecord` / `ExecutionNodeRecord` 是执行事实源；前端 LiveWorkflowPanel、Runs drawer、chat result 共享 `frontend/lib/execution-run-view.ts`。
+3. ResultCard / ReviewItem / Prism review flow 保持 review-first：生成内容先进入可审阅状态，用户接受后才写 rooms 或 Prism。
+4. DataService 是 workspace、catalog、model、pricing、credit、sandbox、source、review、execution persistence 的边界；Gateway/worker 不直接绕过到 DB session。
+5. Capability / skill / agent template 均来自 DataService Catalog；不得新增旧 workflow alias、fallback resolver 或双读兼容层。
+6. TeamKernel 默认流程只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish`；实名专家从 `agent_invocation` node metadata 投影。
+7. Agent harness 只能由 Lead Agent graph / TeamKernel subagent 调用；不得暴露用户侧 sandbox console、公开 arbitrary exec endpoint 或第二套 execution stream。
+8. Workspace 最多一个 active sandbox environment；任务容器可短生命周期，workspace `/workspace` 文件和环境保持连续。
+9. Sandbox file tools 必须隐藏 protected/internal paths，拒绝 host paths、symlink escape、guidance/manifest direct writes 和 generic shell widening。
+10. `sandbox.run_python`、依赖安装、artifact discovery、dataset/artifact manifest register 必须保留 bounded evidence、command audit、output refs、file diffs 和 reviewable artifact metadata。
+11. Research evidence gate 必须覆盖 workflow trace、citation/source audit、experiment interpretation、paper relevance、statistical robustness、Prism semantic/style contracts 等已声明 surfaces。
+12. Admin model catalog 不暴露明文 API key；生产 runtime model discovery 来自 DataService runtime cache，不从 `LLM_MODELS` fallback。
+13. Credit admission 使用 `spendable_credits = credits - reserved_credits`；sandbox start 和 token/model usage 走 DataService pricing / reservation / transaction 链路。
+14. UI 默认视图不展示 raw stdout/stderr、raw args、template id、schema id、internal refs 或日志墙；复杂证据进入预览/诊断层。
 
-最新验证：2026-05-30 Prism adapter metadata canonical field convergence：backend full pytest 2017 passed；Prism service/workspace Prism/execution/architecture target suite 23 passed；architecture boundary suite 25 passed；changed-file ruff passed。2026-05-30 gateway auth subject DataService boundary convergence：backend full pytest 2016 passed；gateway routers/auth-subject architecture target suite 210 passed；architecture boundary suite 24 passed；changed-file ruff passed。2026-05-30 workspace asset metadata boundary convergence：backend full pytest 2015 passed；document room/activity/architecture target suite 41 passed；architecture boundary suite 23 passed；changed-file ruff passed。2026-05-30 catalog/academic facade DataService boundary convergence：backend full pytest 2014 passed；capability/workspace/generation/router/architecture target suite 45 passed；architecture boundary suite 22 passed；changed-file ruff passed。2026-05-30 legacy helper DataService boundary convergence：backend full pytest 2014 passed；execution/task/upload/skill/architecture target suite 66 passed；architecture boundary suite 21 passed；changed-file ruff passed。2026-05-30 runtime service facade DataService boundary convergence：backend full pytest 2014 passed；thread/template/activity/admin-analytics/gateway/architecture target suite 101 passed；architecture boundary suite 20 passed；changed-file ruff passed。2026-05-30 Reference Library DataService boundary convergence：backend full pytest 2013 passed；reference/bibtex/access-control/architecture target suite 29 passed；architecture boundary suite 19 passed；changed-file ruff passed。2026-05-30 admin catalog DataService boundary convergence：backend full pytest 2012 passed；admin catalog service/loader/seed/integration/architecture target suite 42 passed；architecture boundary suite 18 passed；changed-file ruff passed。2026-05-30 workspace runtime DataService boundary convergence：backend full pytest 2011 passed；workspace route/middleware/Prism route/architecture target suite 46 passed；changed-file ruff passed；`git diff --check` passed。2026-05-30 dashboard runtime DataService boundary convergence：backend full pytest 2009 passed；dashboard/summary/router/architecture target suite 43 passed；changed-file ruff passed；`git diff --check` passed。2026-05-30 memory runtime DataService knowledge boundary convergence：backend full pytest 2008 passed；memory/knowledge/uploads target suite 52 passed；architecture boundary suite 15 passed；changed-file ruff passed；`git diff --check` passed。2026-05-30 thread gateway DataService dependency convergence：backend full pytest 2007 passed；thread/run/upload/artifact/task/architecture target suite 223 passed。2026-05-30 thread run/progress/sse DataService boundary convergence：backend full pytest 2007 passed；task/run/progress/sse target suite 54 passed；task/run/architecture suite 150 passed。2026-05-30 task worker DataService boundary convergence：backend full pytest 2007 passed；task/upload/architecture suite 141 passed；base worker architecture guard passed；`git diff --check` passed。2026-05-30 worker execution DataService boundary convergence：backend full pytest 2007 passed；execution/runtime target suite 59 passed；worker architecture guard passed；`git diff --check` passed。2026-05-30 runtime boundary convergence：backend full pytest 2005 passed；frontend `npm run typecheck` passed；frontend `npm run build` passed；backend Prism/LaTeX/Reference/architecture target suite 88 passed；frontend Prism adapter API unit 5 passed；`git diff --check` passed。2026-05-22 Prism writing review E2E：backend target suite 53 passed（Lead runtime Prism staging、DataService review batch/action log、Prism workflow gate、workspace Prism projection、Runs projection）；frontend Playwright `iteration.spec.ts prism-surface.spec.ts --project=chromium` 5 passed；Docker local-build 重建 gateway / worker / dataservice / bootstrap-admin 后服务 healthy；真实浏览器 smoke 通过：runtime staging -> canonical `review_items` pending -> workspace Prism route -> diff preview -> apply -> `review_summary.pending_count=0/applied_count=1`。workspace execution UX convergence：frontend `npx vitest run` 205 passed；frontend `npm run typecheck` passed；backend target suite 32 passed；`git diff --check` passed；Docker local-build 重建 gateway / worker / frontend 后服务 healthy；Browser smoke 通过：workspace query seed 启动 `sci_literature_positioning` -> chat launch receipt -> LiveWorkflowPanel Current run running -> completed -> Runs drawer 历史记录。Super Agent capability cutover target suite：backend 122 passed；frontend `npm run typecheck` passed；frontend `npx vitest run` 198 passed。DataService / Prism / Conversation cleanup 基线：backend full pytest 1952 passed；frontend typecheck / lint passed；Alembic single head 为 `075_enforce_workspace_owner_membership`。2026-05-20 workspace Prism rollout baseline：frontend unit 200 passed / production build 通过；full Playwright E2E 19 passed, 1 skipped；`docker compose config --quiet` 通过。
+## 2. Required Commands
 
-## 1. Core Gate (必须全绿)
-
-1. capability 执行主链路可用（提交、轮询、终态可见）。
-2. workspace workbench capability 入口可用（入口卡片 / artifact follow-up / activity retry 均能落到 `/workspaces/{workspace_id}?feature=<mission_id>` 并保留 orchestration seed）。
-3. Chat structured block action 契约全绿：所有 AgentBlock（`text`、`status_line`、`question_card`、`result_card`）的 action 都在前端白名单中，并有真实处理或显式兜底。
-4. Chat block 持久化只保存 canonical `kind`，不得写入旧 kind/type 的 shadow 字段。
-5. 文献检索只以 Semantic Scholar `verified_papers` 作为可导入事实来源，`model_synthesis` 和 `unverified_leads` 不进入文献库。
-6. 大文件上传预处理状态可见：pending/running 时 Chat 明确提示 Agent 暂不能引用全文，succeeded 后可引用 Markdown 摘要。
-7. Prism 写入链路可见：写作任务完成后优先进入 pending review，不能绕过 preview 直接覆盖主稿。
-8. Reference Library 写作闭环可回归：Evidence Pack、usage event、`refs.bib` sync、citation validation 保持同一 workspace SSOT。
-9. Artifact refresh 闭环可回归：feature 产物持久化后必须发布 `workspace.refresh(["artifacts"])`，前端必须重新拉取 artifact 列表。
-10. Artifact follow-up 闭环可回归：任务完成卡片必须显式输出 `open_artifact` 与带 `source_artifact_id/context_artifact_ids` 的 rerun seed，activity retry 必须复用任务结果 artifact。
-11. Failure recovery 闭环可回归：失败卡片必须显示明确错误；有 `execution_id` 时才暴露 resume；重试必须保留原始参数和 artifact seed。
-12. Prism Review 闭环可回归：主稿待确认写入必须进入 canonical `review_items` / Compute projection / Prism Changes，preview/apply/reject/revert 后状态回流，并产生 workspace activity。
-13. Auth Email 闭环可回归：SMTP 开启时注册必须验证 code；验证码只能一次性消费；前端注册页必须先请求验证码并提交 `verification_code`。
-14. Capability v2 cutover gate：
-  - seed/admin/loader/runtime 只接受 `capability.v2` / `capability_skill.v2`
-  - 旧 workflow-step id 不允许作为 seed id 或 runtime launch id
-  - Dashboard / workspace summary 由 DataService Catalog + execution history 生成 mission progress
-  - Catalog skill projection 必须读取 canonical `skill_json`，不得从旧字段读时合成 skill pack
-15. Execution UX convergence gate：
-  - Chat stream 必须显示 `launch_feature` 的 `tool_invocation` 与 `tool_result`
-  - `tool_result.status == "launched"` 必须驱动 chat run receipt、Current run 焦点、Runs toolbar 提示
-  - `tool_result.status == "advisory"` / `code == "missing_params"` 必须只渲染补充上下文提示，不得创建 execution、credit reservation、Current run 或外部搜索
-  - LiveWorkflowPanel 与 Runs drawer 必须消费同一 `RunView` 投影，不得各自推导状态
-  - `/api/workspaces/{workspace_id}/runs` 必须返回 Prism handoff、failure category、progress 等 RunView 所需字段
-  - Browser smoke 必须覆盖 launch -> running -> completed -> Runs drawer，无需手动刷新
-16. Prism writing review E2E gate：
-  - Writing capability 的 `prism_file_change` output declaration 必须进入 canonical `review_items`，不得进入普通 room `outputs`
-  - `research_question_to_paper` 与 `idea_to_thesis_manuscript` 的 writer 输出必须 stage 到 workspace primary Prism project
-  - DataService review batch 创建必须先持久化 batch/items，再写 action log，避免 Postgres FK 顺序失败
-  - Browser smoke 必须覆盖 pending diff 可见、apply 成功、`review_summary` 回流
-17. Runtime boundary convergence gate：
-  - Auth dependencies / token helpers / `UserService` 必须只走 Account DataService subject/client，不得重新引入 request-time DB session
-  - Artifact runtime surface 必须使用 WorkspaceArtifact / Asset DataService 命名和 client contract，不得恢复 `legacy_artifact` runtime naming
-  - Prism manuscript adapter API 必须位于 `/api/prism/latex-adapter/*`；`/api/latex/*` 不得提供兼容层或 redirect
-  - Prism adapter routers 和 LaTeX/WorkspacePrism services 不得接受或存储 runtime DB session
-  - Worker `execute_execution` 必须通过 Execution/Conversation/Catalog DataService client 完成运行记录、result_card 写回和 capability 解析，不得打开 DB session 或向 `LeadAgentRuntime` 注入 DB session
-  - Generic `execute_task` worker 与 gateway TaskService dependency 必须通过 Task/Conversation DataService client 完成任务状态、结果卡片和预处理附件状态写回，不得打开 DB session 或通过 `ThreadService` 变更线程
-  - Thread run worker、ProgressTracker stage transition flush、Task SSE initial snapshot 必须使用 DataService client，不得打开 DB session 或 reset DB engine
-  - Gateway thread/workspace dependencies and ThreadTurnHandler runtime construction must use DataService-backed services, not request DB sessions
-  - Long-term memory runtime、memory compaction、Celery memory capture、workspace-context upload memory note 和 `KnowledgeService` facade 必须使用 Knowledge DataService client，不得打开 DB session、reset DB engine 或保留 `db/self.db/_db`
-  - Dashboard runtime dependencies、`DashboardService` 和 `WorkspaceSummaryService` 必须通过 DataService-backed service construction，不得注入 request DB session 或保留 DB fallback execution listing
-  - Workspace route/action context 和 WorkspaceContextMiddleware 必须通过 Workspace/Catalog/Template DataService-backed services，不得注入 `get_db` 或自行打开 `get_db_session`
-  - Admin capability / skill catalog router、service、validator、loader 必须通过 Catalog DataService client，不得打开 `get_db_session`、注入 request DB session 或保存 `db/self.db`
-  - Reference Library router、BibTeX export/validation、Prism `refs.bib` sync 必须通过 Source/Asset/Prism DataService client，不得注入 `get_db`、`AsyncSession`、保存 `self.db` 或导入 DB reference model contract 作为运行时 enum/request schema
-  - Execution commit 的 Library materialization 必须通过当前 Source/Prism DataService client 同步 Prism `refs.bib`，不得从 execution service 读取或传递 DB session
-  - `AuditService` 必须只暴露 Audit DataService client 边界，不得接受 `session_factory`、ORM model 或 `AsyncSession` 形状的构造参数
-  - Gateway / Worker process lifecycle 不得拥有 DB engine lifecycle；Gateway readiness 必须检查 standalone DataService `/readyz`，Worker bootstrap/shutdown 不得调用 `init_db`、`close_db` 或 `reset_db_engine`
-  - Runtime helper type hints must use DataService payload contracts, not DB `Thread` / `Workspace` models
-  - ThreadService、TemplateService、WorkspaceActivityService、AdminAnalyticsService 和 workspace skill label helpers 不得保留可选 DB constructor、`self.db` 或 session-based workspace type lookup
-  - Gateway common deps 不得导出 `get_db`；ExecutionService、TaskStore、SkillResolver、CapabilityResolver、WorkspaceService、GenerationService 不得接受 DB/session constructor 或保存 DB session state
-  - Documents room / workspace activity 的 asset projection 不得读取 `legacy_*` metadata 字段；历史字段归一化必须发生在迁移或 DataService 内部
-  - Gateway routers 的 auth subject 类型必须使用 `AccountAuthSubject`，不得导入 DB `User` model 作为 `current_user` / admin 注解
-  - Prism adapter metadata 必须使用 canonical `source_metadata`；DataService helper 与 runtime surface 均不得暴露 `legacy_metadata`
-  - Worker execution 解析 workspace type 必须来自 DataService workspace projection；不得在缺失时默认使用 thesis
-  - Feature execution params 必须使用 canonical TaskBrief wrapper；不得保留 plain-param parser 或旧参数兼容入口
-  - Artifact follow-up / rerun action state 必须需要显式 mission params 或 source artifact；前后端不得用 workspace description/name、`fallbackTaskName` 或“未命名任务”合成 goal
-  - Workspace upload stored path 必须是 workspace-relative path 或 workspace-root 内绝对路径；不得接受 cwd-relative workspace-root-prefixed 历史路径
-  - React subagent 请求 tools 但解析不到 callable 时必须显式失败；不得静默降级为普通模型调用
-  - Model catalog / pricing / credit reservation runtime 必须通过 DataService client；Gateway/admin UI 不得直连 DB session 或暴露明文 API Key
-  - Gateway/worker runtime model cache 必须从 DataService runtime model catalog 刷新；生产路径不得从 `LLM_MODELS` env 自动 fallback
-  - Admin model update 必须支持显式清空 `pricing_policy_id` / timeout / retry / headers 等可空字段，同时空 API Key 必须保持原密钥
-  - Admin pricing simulator 必须读取当前 enabled `global_credit` / `model_usage` policy；缺失时只允许 UI 默认模板估算，不写回配置
-  - Admin dashboard token usage summary 必须遵守 DataService list 上限；全量统计需要 DataService aggregate endpoint，不得在 gateway facade 使用超大 limit 或绕过 DB 边界
-18. Native Harness quality gate：
-  - `native_harness_quality_gate` 必须进入 release gate core checks，不得只停留在文档或手动约定。
-  - 覆盖 harness filesystem / file tools / Docker provider / command audit / policy-registry / output-budget-loop-diff / research-task eval / Prism writing evidence eval / LangChain adapter / context assembly / ReactSubagent tool resolution / subagent registry / TeamKernel policy / sandbox runtime / workspace sandbox metadata / native harness architecture boundary / DataService sandbox domain / workspace layout / sandbox artifact discovery / citation-source audit / team quality gates / mock sandbox E2E。
-  - WorkspaceToolScheduler 必须保持同 workspace 写入/执行互斥，同时允许 read_file/read_output_ref/list_dir/glob/grep 等只读工具并发；已有写等待时后续读不得插队，避免写饥饿和文件状态倒序。
-  - SCI sandbox-heavy capability seeds 必须通过 `research_evidence.required_surfaces` 声明 deterministic research evidence contract；`sci_empirical_package` 至少要求 literature / experiment / writing / workflow_trace / experiment_interpretation / output_ref_reuse，`reproducibility_audit` 至少要求 experiment / workflow_trace / experiment_interpretation / output_ref_reuse。`LeadAgentRuntime._capability_policy()` 必须投影 `research_evidence`，避免真实运行只看见 YAML 而 runtime policy 不可读。
-  - TeamKernel 构造成员 brief 时必须把 capability policy 的 research evidence contract 投影为 `research_evidence_requirements(schema=wenjin.team.research_evidence_requirements.v1)`，包含 quality gate id、ordered required surfaces、runtime-enforced surfaces 和 bounded guidance；不得只在运行后 quality gate 中检查而不告诉成员交付要求。
-  - TeamKernel runtime 必须把 capability policy 中 runtime 可验证的 required surfaces 接入 `research_evidence_required` quality gate；`workflow_trace` / `output_ref_reuse` / `citation_strength` / `experiment_interpretation` / `paper_relevance` / `statistical_robustness` 失败时必须产生 high severity finding 和 revision request，不能只停留在 mock E2E 的手动 evaluator。
-  - `research_evidence_required` 失败时必须给下一轮成员投影 bounded `quality_repair_context(schema=wenjin.team.quality_repair_context.v1)`，只包含 missing surfaces、安全 `sandbox.read_output_ref` refs 和短 required actions；不得把 raw stdout/stderr/tool args/evaluator payload 放入成员上下文。
-  - sandbox artifact discovery 必须同时校验 candidate path 和可反解 resolved target；指向 workspace 外、protected target 或 internal target 的 symlink 不得进入 `generated_artifacts`、`workspace_asset` 或 `sandbox_artifact` review item。
-  - mock sandbox E2E 必须证明 TeamKernel 能在同一 `TaskReport.review_items` 中同时返回 `sandbox_artifact` 与 `prism_file_change`，并通过 `required_surfaces_from_capability_policy(LeadAgentRuntime._capability_policy(capability))` 从 capability policy 派生 `evaluate_research_task_evidence()` 的 required surfaces；`workflow_trace` 必须包含成员工具活动和安全 `/workspace/tmp/tasks/{execution_id}/{node_id}` scratch ref。
-  - `required_surfaces_from_capability_policy()` 必须把缺失 contract 收敛到默认 literature / experiment / writing，并对未知 surface fail fast，避免 typo 或未实现 surface 静默绕过 release gate。
-  - `workflow_trace` 必须把 `member_execution_transcript.output_refs_read` 投影为 bounded deterministic evidence：只保留可通过 `sandbox.read_output_ref` 回看的 `/workspace/tmp/tasks/.harness/outputs/**` refs，去重后计算 `output_ref_read_count`，过滤非 output internal refs、protected paths 和重复 refs。
-  - harness context assembly 必须把 `sandbox_execution_summary` 限定为 compact 字段 allowlist；raw stdout、stderr、traceback、command、raw payload 不得进入 prompt context，只能通过显式 output ref recovery 读取。
-  - harness context assembly 必须把 `member_execution_transcript` 限定为 compact 字段 allowlist；raw tool args、stdout、stderr、script、provider usage/billing payload 不得进入 prompt context，`output_ref_read_count` 必须从过滤后的安全 refs 派生。
-  - harness context budget 必须保护 capability-required runtime evidence surface 对应的 summaries：`workflow_trace` 保护 `member_execution_transcript` / `scratch_refs`，`output_ref_reuse` 保护 `sandbox_execution_summary` / `output_ref_recovery` / `member_execution_transcript`，`experiment_interpretation` 保护 `experiment_interpretation_summary` / `reproducibility_summary`，`statistical_robustness` 保护 `statistical_robustness_summary` / `reproducibility_summary`；只有在非保护 context 和结构性 sandbox/workspace 描述已经压缩后才可降级这些字段。
-  - `output_ref_reuse` 必须作为可选 deterministic research-task surface 覆盖：当 `sandbox_execution_summary.output_refs` 中存在可恢复 refs 时，至少一个同 ref 必须出现在 `member_execution_transcript.output_refs_read`；否则该 surface 失败。mock sandbox E2E 必须证明 `sandbox.run_python` 输出 ref 后，成员通过真实 companion tool `sandbox.read_output_ref` 读取该 ref，并让 transcript 与 eval evidence 同步记录。
-  - mock sandbox E2E 必须覆盖顺序核心团队 handoff：当 capability 声明 `max_parallel_invocations=1` 时，后续成员应能从最新 harness evidence 读取 `reproducibility_summary`、`experiment_interpretation_summary` 和 `member_execution_transcript.scratch_refs`；`sandbox.run_python` 成员还应同时获得安全 `sandbox.read_output_ref` companion。
-  - `research_task_eval` 的 focused gate 必须覆盖可选 `citation_strength`：weak-only citation/source refs 只能证明结构覆盖，不能满足强引文支撑；fabricated / missing / unsupported / high-risk refs 必须被拒绝。
-  - `research_task_eval` 的 focused gate 必须覆盖可选 `experiment_interpretation`：可复现实验结构不能替代结果解释；方法、指标、已验证结果、限制、artifact refs 和 dataset refs 必须齐备，且 artifact/dataset refs 必须与 `reproducibility_summary` 对齐。
-  - `research_task_eval` 的 focused gate 必须覆盖可选 `paper_relevance`：至少需要一个 topic-aligned source/citation ref；off-topic refs 不得通过。
-  - `research_task_eval` 的 focused gate 必须覆盖可选 `statistical_robustness`：可复现实验结构和实验解释不能替代统计稳健性；方法、样本量、指标、通过的稳健性检查、限制、artifact refs 和 dataset refs 必须齐备，artifact/dataset refs 必须与 `reproducibility_summary` 对齐，critical/high/blocking failed robustness check 不得通过。
-  - `research_task_eval` 的 focused gate 必须覆盖可选 `writing_semantic_preservation`：普通 writing review item 存在不能替代语义保持；Prism review item 必须同时携带 `preview.content_contract` 和 `preview.semantic_contract`，且不能有 high-risk、结构无效、claim/citation/equation/table preservation failure。
-  - `research_task_eval` 的 focused gate 必须覆盖可选 `writing_academic_style`：普通 writing review item 存在不能替代学术风格证据；Prism review item 必须携带 `preview.academic_style_contract`，分数不得低于门槛，且不能有 AI-meta、第一人称主观判断、口语化加强词或 vague noun 等反模式；若 `style_delta` 存在，必须有正确 schema、匹配外层 score 的 pending score、正向 `score_delta` 和 `improves_academic_style=true`。
-  - `research_task_eval_pack` 必须保持小型真实任务 acceptance fixtures 的分组评估能力：同一 pack 中的 case result、failed cases 和 surface failures 必须可定位到 case id，不能只输出一个总体 pass/fail。
-  - TeamKernel 动态招募必须写入 bounded `runtime_state_json.harness_episode(schema=wenjin.team.harness_episode.v1)`，记录每轮 core/dynamic recruitment 的 gate ids/statuses、next action、selected recruits 和 stop reason；不得把 raw tool args/stdout/stderr 放入 episode。
-  - Prism 写作 evidence 不只检查 review item 存在；`.tex` review item 必须携带 bounded `preview.content_contract`、`preview.semantic_contract` 和 `preview.academic_style_contract`，其中 `main.tex/project:main` 必须是完整 LaTeX document，semantic/style contracts 不得暴露 pending content/raw diff；style delta 只能以 baseline/pending score 和 delta 形式出现，不能携带改前/改后全文；旧 `prism.file_changes[]` surface 不得携带 semantic/style/content contracts，质量证据只能通过净化后的 `review_items[].preview` 暴露。
-  - 发布前至少运行 `cd backend && .venv/bin/python -m pytest tests/agents/harness/test_research_eval_surfaces.py tests/agents/harness/test_research_task_eval.py -q`。
-  - 发布前至少运行 `cd backend && .venv/bin/ruff check src/agents/harness/research_eval_surfaces.py src/agents/harness/research_task_eval.py tests/agents/harness/test_research_eval_surfaces.py tests/agents/harness/test_research_task_eval.py`。
-  - 发布前至少运行 `cd backend && .venv/bin/python -m pytest tests/agents/harness/test_scheduler_and_python_tool.py tests/agents/harness/test_sandbox_file_tools.py tests/agents/harness/test_command_audit.py tests/agents/harness/test_policy_and_registry.py tests/agents/harness/test_output_budget_loop_guard_and_diff_tracker.py tests/agents/harness/test_research_eval_surfaces.py tests/agents/harness/test_research_task_eval.py tests/agents/harness/test_research_task_eval_pack.py tests/agents/harness/test_langchain_adapter.py tests/agents/harness/test_context_assembly.py tests/unit/subagents/test_react.py tests/subagents/v2/test_registry.py tests/agents/lead_agent/v2/test_team_policy.py tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py tests/agents/lead_agent/v2/test_sandbox_runtime.py tests/agents/lead_agent/v2/test_workspace_sandbox_manager.py tests/agents/lead_agent/v2/test_runtime.py::test_stage_prism_review_items_from_writer_output tests/agents/lead_agent/v2/test_runtime.py::test_run_session_prism_review_items_satisfy_writing_evidence_eval tests/architecture/test_native_harness_boundaries.py tests/dataservice/test_sandbox_domain.py tests/sandbox/test_docker_provider.py tests/sandbox/test_workspace_layout.py tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py tests/agents/lead_agent/v2/test_citation_source_audit.py tests/agents/lead_agent/v2/test_team_quality_gates.py tests/services/test_workspace_prism_service.py::test_surface_projection_includes_review_provenance_and_protection tests/services/test_workspace_prism_service.py::test_pending_file_change_records_canonical_source_links_from_citations tests/services/test_prism_review_projection.py tests/integration/test_harness_mock_sandbox_e2e.py -q`。
-19. 统一门禁命令（发布前需要运行）：
-  - `cd backend && uv run python -m src.quality.release_gate_cli`
-20. 当前 Core Gate 覆盖:
-  - `tests/workspace_features/test_workspace_e2e_matrix.py`
-  - `tests/gateway/routers/test_features.py`
-  - `tests/application/services/test_feature_submission_service.py`
-  - `tests/workspace_features/test_five_workspace_smoke.py`
-  - `tests/task/test_executor.py tests/task/test_service_executor.py`
-  - `tests/observability/test_sentry.py`
-  - `tests/observability/test_prometheus.py`
-  - `tests/task/test_agent_status.py`
-  - `tests/application/services/test_feature_submission_workspace_lock.py`
-  - `tests/task/test_task_metrics.py`
-  - `tests/academic/literature/test_search_service.py`
-  - `tests/gateway/routers/test_uploads.py tests/task/test_document_preprocess_handler.py`
-  - `frontend/tests/unit/lib/thread-store-support.test.ts`
-  - `tests/task/test_workspace_feature_handler_matrix.py tests/task/test_store.py::TestTaskStorePostgres::test_mark_task_completed_publishes_canonical_task_activity tests/task/test_workspace_feature_frontend_sync.py`
-  - `tests/services/test_artifact_followup_workflow_gate.py tests/agents/lead_agent/test_thread_feature_flow.py tests/services/test_workspace_activity_service.py::test_task_activity_promotes_result_artifact_as_retry_seed`
-  - `tests/services/test_failure_recovery_workflow_gate.py tests/agents/lead_agent/test_thread_feature_flow.py tests/task/test_workspace_feature_frontend_sync.py`
-  - `tests/services/test_reference_writing_workflow_gate.py`
-  - `tests/services/test_prism_review_workflow_gate.py tests/compute/test_projection_service.py`
-  - `tests/workspace_features/services/test_sci_feature_service.py`
-  - `tests/services/test_auth_email_workflow_gate.py tests/gateway/routers/test_auth.py tests/services/test_email_service.py`
-21. 前端静态检查通过:
-  - `npm run typecheck`
-  - `npm run lint`
-  - `npm run build`
-22. Execution UX 建议回归:
-  - `cd frontend && npx vitest run tests/unit/lib/execution-run-view.test.ts tests/unit/stores/chat-store.test.ts tests/unit/hooks/useWorkspaceEventStream.test.tsx tests/unit/v2/rooms/RunsDrawer.test.tsx tests/unit/v2/ExecutionCard.test.tsx`
-  - `cd backend && .venv/bin/python -m pytest tests/application/intents/test_launch_text.py tests/application/services/test_feature_launch_context.py tests/application/handlers/test_thread_turn_handler.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy tests/integration/test_chat_to_feature_launch.py tests/tools/test_launch_feature_tool.py -v`
-23. Prism writing review 建议回归:
-  - `cd backend && .venv/bin/python -m pytest tests/dataservice/test_review_batch_service.py tests/dataservice/test_foundation.py::test_dataservice_client_prism_review_contract_methods tests/agents/lead_agent/v2/test_output_mapping.py tests/agents/lead_agent/v2/test_runtime.py tests/services/test_prism_review_workflow_gate.py tests/services/test_workspace_prism_service.py tests/gateway/routers/test_workspace_rooms_router.py::TestRunsRoom::test_list_runs_happy -v`
-  - `cd frontend && npm run test:e2e -- iteration.spec.ts prism-surface.spec.ts --project=chromium`
-
-## 2. Workspace Functional Gate (本轮新增)
-
-用于覆盖 Chat-first Workspace、Compute 工作现场、Prism、上传预处理、Semantic Scholar 文献闭环。
-
-后端建议命令：
+后端：
 
 ```bash
 cd backend
-uv run ruff check src tests
-uv run pytest tests/academic/literature/test_search_service.py tests/tools/test_reference_builtins.py tests/services/test_reference_import_service.py tests/workspace_features/services/test_sci_feature_service.py tests/agents/graphs/sci/test_literature_search.py tests/agents/graphs/thesis/test_deep_research.py tests/agents/graphs/thesis/test_literature_management.py tests/agents/middlewares/test_uploads_middleware.py tests/gateway/routers/test_uploads.py tests/task/test_document_preprocess_handler.py tests/task/test_thread_writeback.py tests/task/test_workspace_feature_runtime.py tests/agents/lead_agent/test_thread_feature_flow.py tests/task/test_workspace_feature_frontend_sync.py
+.venv/bin/python -m pytest tests/ -q
+.venv/bin/python -m ruff check src tests
 ```
 
-前端建议命令：
+前端：
 
 ```bash
 cd frontend
 npm run typecheck
-npm run lint
-npm test
+npx vitest run
 ```
 
-验收断言：
+浏览器 smoke：
 
-1. `WorkspaceThreadMessages.tsx` 只有一套 AgentBlock 渲染分支（`text`、`status_line`、`question_card`、`result_card`）。
-2. `SUPPORTED_BLOCK_ACTIONS` 覆盖 `trigger_feature`、`continue_thread`、`open_feature`、`rerun_from_artifact`、`open_prism`、`preview_prism_changes`、`open_artifact`、`rerun_feature`、`resume_execution`、`import_references`。
-3. 失败态 recovery action 不输出内部 `resume`，只输出官方 action。
-4. 文献检索完成态展示 Semantic Scholar verified trust，并明确显示已自动同步到参考库。
-5. Reference artifact 导入只读取 `verified_papers` 等已核验候选，不读取 LLM 合成的 `seminal_works/recent_works`。
-6. capability 产物持久化后，任务结果带 `refresh_targets=["artifacts"]`，TaskStore 发布 workspace refresh，前端事件流调用 `fetchArtifacts`。
-7. 完成态 artifact destination 对应 `open_artifact`，rerun action 和 activity retry 使用 canonical mission capability id，前端 route 保留 `source_artifact_id/context_artifact_ids` 等 seed。
-8. 失败态 recovery action 只有在存在 `execution_id` 时输出 `resume_execution`，rerun action 保留失败任务的参数种子。
-9. Prism pending change 优先展示 `preview_prism_changes`，并携带 `review_item_id` / `logical_key` 聚焦到 workspace Prism route。
-10. 上传附件 pending/running 时 UI 和 prompt 都明确不可引用全文。
-11. SMTP enabled 时注册必须验证 6 位邮箱验证码，验证码校验成功后立即失效。
-12. Prism source links 可以从 context rail deep-link 回 Library / Documents；protected section 会进入后续 agent manuscript context。
+```bash
+cd frontend
+npm run dev -- --port 3099 --webpack
+npx playwright test tests/e2e/golden-path.spec.ts --project=chromium -g "expert team preview"
+```
 
-## 3. Extended Gate
+仓库检查：
 
-1. 工具链/集成测试覆盖:
-   - `tests/integration/test_tool_chain.py`
-   - `tests/mcp`
-   - `tests/integration/test_http_client.py`
+```bash
+git diff --check
+```
 
-## 4. Admin Release Gate API
+同时确认 README、AGENTS 和 `docs/current` 没有引用已删除的过程文档路径。
 
-- Endpoint: `GET /api/dashboard/admin/release-gate?include_extended=true`
-- 权限: admin
-- 用途: 统一输出发布门禁报告
+## 3. Focused Suites
 
-## 5. Launch Checklist
+当改动范围较窄，可先跑 focused suite；合并前仍建议跑 Required Commands。
 
-- [x] 五个 workspace 页面路由可达，无 404
-- [x] capability 入口卡片、artifact follow-up、activity retry 均进入 `/workspaces/{workspace_id}?feature=...` 且首条消息保留 seed 上下文
-- [x] 空上下文 capability 卡片点击返回 missing_params advisory，不创建 execution、不扣积分、不触发外部检索
-- [x] capability 可提交并返回 canonical `execution_id`
-- [x] 任务状态可从 pending/running 进入 success 或 failed
-- [x] 失败态有明确错误提示且可重试
-- [x] artifact 列表可反映最新产出
-- [x] 文献检索和 thesis deep research 的 Semantic Scholar 结果会进入参考库，且只导入 `verified_papers`
-- [x] 大 PDF 上传后 pending -> preprocess -> ready/failed 状态可见
-- [x] 写作结果进入 Prism pending review，apply/reject/revert 后状态可观察
-- [x] SMTP 验证码链路（如启用）可稳定工作
-- [x] workspace execution UX smoke：启动回执、Current run、完成态、Runs drawer 历史记录可见
-- [x] Admin 模型目录 smoke：新增/编辑/禁用/启用/设默认/测试配置可用，列表不暴露明文 API Key
-- [x] Admin 定价策略 smoke：global/model usage policy 可编辑，模拟器按当前启用策略估算积分与毛利
-- [x] Admin dashboard smoke：首页 overview 可加载，token usage summary 不因 DataService limit 抛错
+Execution / TeamKernel / expert team：
+
+```bash
+cd backend
+.venv/bin/python -m pytest \
+  tests/architecture/test_dataservice_boundaries.py \
+  tests/contracts/test_team_expert.py \
+  tests/contracts/test_team_presentation.py \
+  tests/agents/lead_agent/v2/test_team_policy.py \
+  tests/agents/lead_agent/v2/test_team_kernel.py \
+  tests/agents/lead_agent/v2/test_team_kernel_harness_replan.py -q
+```
+
+Harness / sandbox：
+
+```bash
+cd backend
+.venv/bin/python -m pytest \
+  tests/agents/harness \
+  tests/agents/lead_agent/v2/test_sandbox_runtime.py \
+  tests/agents/lead_agent/v2/test_sandbox_artifact_discovery.py \
+  tests/sandbox/test_workspace_layout.py \
+  tests/integration/test_harness_mock_sandbox_e2e.py -q
+```
+
+Frontend execution projection：
+
+```bash
+cd frontend
+npx vitest run \
+  tests/unit/hooks/useWorkspaceEventStream.test.tsx \
+  tests/unit/v2/ResultCard.test.tsx \
+  tests/unit/v2/execution-run-view.test.ts \
+  tests/unit/v2/LiveWorkflowPanel.test.tsx \
+  tests/unit/v2/live-workflow-view-model.test.ts
+```
+
+## 4. Manual Smoke
+
+1. 创建或打开 workspace，发送能触发 capability 的任务。
+2. Chat 显示 launch receipt，右侧自动进入当前 run。
+3. 团队面板显示实名专家、阶段摘录和可预览产出；默认视图不出现 raw JSON / stdout / template id。
+4. 任务完成后 ResultCard 可接受结果；Prism 变更进入 review queue。
+5. Prism 编译、PDF 对照、AI 改稿浮层、review apply/reject/revert 可用。
+6. Admin models/pricing/credits 页面可读写配置，敏感 key 不回显。

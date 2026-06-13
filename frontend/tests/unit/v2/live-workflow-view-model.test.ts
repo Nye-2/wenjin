@@ -116,6 +116,9 @@ describe("live workflow view model", () => {
     expect(model.pendingReviewCount).toBe(0);
     expect(model.sandboxCount).toBe(1);
     expect(model.evidenceItems).toHaveLength(1);
+    expect(model.evidenceItems[0]?.summary).toContain("输出：已生成");
+    expect(model.evidenceItems[0]?.summary).not.toContain("stdout");
+    expect(model.evidenceItems[0]?.summary).not.toContain("ok");
   });
 
   it("projects harness reproducibility evidence without raw sandbox noise", () => {

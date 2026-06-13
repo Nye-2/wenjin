@@ -1,9 +1,10 @@
 # Workspace Mission Capability Catalog
 
-更新时间: 2026-05-30
+更新时间: 2026-06-13
 状态: Current
 Capability 数据源: `backend/seed/capabilities/` + DataService Catalog `capabilities`
 Capability Skill 数据源: `backend/seed/skills/` + DataService Catalog `capability_skills`
+Agent Template 数据源: `backend/seed/agent_templates/` + DataService Catalog `agent_templates`
 
 本文件记录当前工作台 capability 目录事实源。Wenjin 已切到 Super Agent Harness mission catalog：旧 workflow-step id 已移除，不提供 alias、fallback 或双读兼容层。
 
@@ -17,7 +18,7 @@ Capability Skill 数据源: `backend/seed/skills/` + DataService Catalog `capabi
 6. sandbox 开放边界由 `sandbox_policy` 明确表达；禁止 docker socket、privileged、host network、host paths、sibling container、server control。
 7. Sandbox 只允许 agent/runtime 使用，不作为用户 room、console 或公开任意执行 API 暴露；用户只审阅 sandbox traces、artifacts 和 provenance。
 8. 多步 capability 必须用分阶段 `depends_on` 串起上游输出；不能把 planner/searcher/writer/reviewer 放进同一个并行 phase。
-9. skill prompt 必须包含可执行 operating rules 和 output contract；详细内容设计记录见 `docs/current/capability-skill-content-optimization.md`。
+9. skill prompt 必须包含可执行 operating rules、output contract 和领域 quality gates；这些规则直接以 seed / DataService Catalog 为准，不再维护平行内容设计文档。
 10. `software_copyright` 与 `patent` 默认面向中国用户：软著按中国软著登记材料组织，专利按中国/CNIPA 申请实践组织；PCT/海外规则仅在用户明确指定时启用。
 
 ## 2. Workspace Types
@@ -104,7 +105,34 @@ skills 是 worker instruction packs，不再作为用户入口 capability。
 - `software-structure-planner`
 - `software-doc-drafter`
 
-## 5. Launch And Runtime Truth
+## 5. Expert Template Catalog
+
+agent templates 是可被 Lead Agent 动态招募进团队的专家席位，不是用户入口 capability。模板画像由 `expert_profile(schema=wenjin.team.expert_profile.v1)` 描述；capability 可通过 `extensions.team_presentation(schema=wenjin.team.presentation.v1)` 做显示层 override，但不能覆盖工具、技能或权限。
+
+当前基础专家模板：
+
+- `research_scout.v1`：文献/资料线索定位
+- `literature_synthesizer.v1`：综述、主题矩阵、gap 提炼
+- `source_quality_auditor.v1`：来源质量与引用风险检查
+- `manuscript_architect.v1`：论文/材料结构规划
+- `evidence_analyst.v1`：证据分析与结论支撑
+- `figure_engineer.v1`：图表与实验呈现
+- `manuscript_writer.v1`：正文写作与改稿
+- `citation_auditor.v1`：引用、BibTeX、来源一致性
+- `review_critic.v1`：审稿式批判与质量门检查
+- `grant_planner.v1` / `proposal_writer.v1`：申报书规划与写作
+- `patent_strategist.v1` / `patent_drafter.v1`：专利策略与撰写
+- `software_structure_planner.v1` / `software_doc_drafter.v1`：软著结构与材料撰写
+- `generalist_assistant.v1`：补位、整理、低风险衔接任务
+
+展示约束：
+
+1. `backend/src/contracts/team_presentation.py` 是专家展示合同事实源。
+2. `backend/src/contracts/team_expert.py` 只处理运行态 `expert_snapshot` / `expert_preview_item` sanitizer。
+3. 前端只能从 hydrated `ExecutionRecord.node_states[*].node_metadata.team === true` 的 `agent_invocation` 节点投影团队成员。
+4. 用户默认视图展示专家实名、阶段摘录和预览，不展示 template id、raw tools、raw skills、stdout/stderr 或 harness internal refs。
+
+## 6. Launch And Runtime Truth
 
 1. Chat Agent 根据 DataService preload 的 v2 mission catalog 识别用户意图。
 2. `launch_feature` 只接受 `schema_version == "capability.v2"` 的 capability。
@@ -115,11 +143,12 @@ skills 是 worker instruction packs，不再作为用户入口 capability。
 7. Dashboard 和 workspace summary 由 Catalog + Execution history 生成 mission progress，不再维护 per-workflow status builder。
 8. ResultCard、CompletedView、chat block、Prism Changes 共享 ReviewItem/ReviewBatch 事实源。
 
-## 6. Change Rules
+## 7. Change Rules
 
 1. 新 capability 先改 v2 seed/schema，再改 runtime/frontend/docs。
 2. 新 skill 先改 v2 skill seed/schema，再接入 mission `graph_template`。
-3. 不得新增旧 workflow id、alias map、fallback resolver 或双读兼容层。
-4. 任何 sandbox 权限扩大必须写入 `sandbox_policy` 并通过 schema validator。
-5. 不得新增用户侧 sandbox console、公开 `sandbox/exec` endpoint 或任意命令执行入口；sandbox job 必须从 agent/runtime 内部链路产生。
-6. 文档改动必须同步本文件、`workspace-current-state.md`、`architecture.md`。
+3. 新专家模板先改 agent template seed/schema，再通过 capability team policy 招募；不要在前端硬编码专家列表。
+4. 不得新增旧 workflow id、alias map、fallback resolver 或双读兼容层。
+5. 任何 sandbox 权限扩大必须写入 `sandbox_policy` 并通过 schema validator。
+6. 不得新增用户侧 sandbox console、公开 `sandbox/exec` endpoint 或任意命令执行入口；sandbox job 必须从 agent/runtime 内部链路产生。
+7. 文档改动必须同步本文件、`workspace-current-state.md`、`architecture.md`。

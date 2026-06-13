@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.contracts.team_presentation import ExpertProfileV1
 from src.dataservice.domains.catalog.contracts import (
     AdminLogRecord,
     AgentTemplateRecord,
@@ -21,7 +22,6 @@ from src.dataservice.domains.catalog.projection import (
     skill_to_record,
 )
 from src.dataservice.domains.catalog.repository import CatalogRepository
-from src.contracts.team_expert import ExpertProfileV1
 
 
 class DataServiceCatalogService:

@@ -1,6 +1,6 @@
 # Environment Variables
 
-更新时间: 2026-05-30
+更新时间: 2026-06-13
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 

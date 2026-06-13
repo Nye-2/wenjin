@@ -57,6 +57,8 @@ from .episode import (
 from .expert_runtime import (
     build_expert_node_metadata,
     build_expert_output_preview_item,
+    merge_expert_preview_items,
+    merge_expert_snapshot_items,
     sanitize_expert_preview_items,
     sanitize_expert_snapshot_items,
 )
@@ -107,6 +109,7 @@ class TeamKernelRuntime:
         self.needs_library_context = needs_library_context
         self.capability_policy_builder = capability_policy_builder
         self.collect_policy_memory_outputs = collect_policy_memory_outputs
+        self._node_harness_metadata: dict[tuple[str, str], dict[str, Any]] = {}
 
     async def run(
         self,
@@ -188,6 +191,8 @@ class TeamKernelRuntime:
         except Exception as exc:
             logger.exception("team kernel failed", extra={"execution_id": execution_id})
             return self._failed_report(execution_id, brief, started_at, str(exc))
+        finally:
+            self._clear_node_harness_metadata(execution_id)
 
     async def _load_templates(self) -> dict[str, AgentTemplate]:
         async with dataservice_client() as client:
@@ -824,6 +829,32 @@ class TeamKernelRuntime:
                 skill = skill_records.get(invocation.effective_skills[0]) if invocation.effective_skills else None
                 subagent_type = getattr(skill, "subagent_type", None) or "react"
                 subagent_cls = REGISTRY.get(subagent_type)
+
+                async def emit_expert_snapshot(snapshot: dict[str, Any]) -> None:
+                    snapshots = sanitize_expert_snapshot_items([snapshot])
+                    if not snapshots:
+                        return
+                    invocation.expert_snapshots = [
+                        *invocation.expert_snapshots,
+                        *snapshots,
+                    ][-20:]
+                    try:
+                        await self._record_invocation(invocation, status="running")
+                        await self.publish_event(
+                            invocation.execution_id or "",
+                            "execution.team.expert_snapshot",
+                            {
+                                "invocation_id": invocation.id,
+                                "snapshot": snapshots[-1],
+                            },
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Failed to publish expert snapshot for %s",
+                            invocation.id,
+                            exc_info=True,
+                        )
+
                 ctx = SubagentContext(
                     workspace_id=str(invocation.input_brief.get("workspace_id") or ""),
                     execution_id=invocation.execution_id or "",
@@ -836,6 +867,7 @@ class TeamKernelRuntime:
                     team_context=blackboard.model_dump(mode="json"),
                     invocation=invocation.model_dump(mode="json"),
                     publish_event=self.publish_event,
+                    expert_snapshot_emitter=emit_expert_snapshot,
                 )
                 result: SubagentResult = await subagent_cls().run(ctx)
                 invocation.status = "succeeded"
@@ -843,10 +875,12 @@ class TeamKernelRuntime:
                 invocation.tool_calls = result.tool_calls or []
                 invocation.token_usage = result.token_usage
                 result_metadata = result.metadata if isinstance(result.metadata, dict) else {}
-                invocation.expert_snapshots = sanitize_expert_snapshot_items(
+                invocation.expert_snapshots = merge_expert_snapshot_items(
+                    invocation.expert_snapshots,
                     list(result_metadata.get("expert_snapshots") or []),
                 )
-                invocation.expert_preview_items = sanitize_expert_preview_items(
+                invocation.expert_preview_items = merge_expert_preview_items(
+                    invocation.expert_preview_items,
                     list(result_metadata.get("expert_preview_items") or []),
                 )
                 if not invocation.expert_preview_items:
@@ -889,15 +923,21 @@ class TeamKernelRuntime:
         harness_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
         if harness_metadata:
             node_metadata.update(harness_metadata)
+        node_key = (invocation.execution_id or "", invocation.id)
+        cached_harness = dict(self._node_harness_metadata.get(node_key) or {})
+        tool_harness = (
+            node_metadata.get("harness")
+            if isinstance(node_metadata.get("harness"), dict)
+            else None
+        )
+        if tool_harness:
+            cached_harness.update(tool_harness)
         node_metadata["harness"] = build_expert_node_metadata(
             invocation,
             status=status,
-            existing_harness=(
-                node_metadata.get("harness")
-                if isinstance(node_metadata.get("harness"), dict)
-                else None
-            ),
+            existing_harness=cached_harness,
         )
+        self._node_harness_metadata[node_key] = dict(node_metadata["harness"])
 
         await self.record_node_event(
             execution_id=invocation.execution_id or "",
@@ -914,6 +954,11 @@ class TeamKernelRuntime:
             started_at=started_at,
             completed_at=completed_at,
         )
+
+    def _clear_node_harness_metadata(self, execution_id: str) -> None:
+        for key in list(self._node_harness_metadata):
+            if key[0] == execution_id:
+                del self._node_harness_metadata[key]
 
     def _can_invoke_template(
         self,

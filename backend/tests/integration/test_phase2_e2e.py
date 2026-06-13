@@ -6,8 +6,7 @@ Verifies: capability seed → CapabilityResolver → LeadAgentRuntime → Execut
 This is a smoke test for Phase 2 wiring, not detailed correctness — per-task tests
 already cover business logic.
 
-Spec: docs/superpowers/specs/2026-05-09-wenjin-workspace-rebuild-design.md
-Plan: docs/superpowers/plans/2026-05-09-wenjin-workspace-rebuild.md Task 2.14
+Current facts: docs/current/architecture.md and docs/current/workspace-current-state.md
 """
 
 from __future__ import annotations

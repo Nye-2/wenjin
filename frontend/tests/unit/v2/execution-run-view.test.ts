@@ -98,4 +98,37 @@ describe("execution run view expert projection", () => {
       status: "ready",
     });
   });
+
+  it("does not treat non-team agent_invocation nodes as team members", () => {
+    const record = baseRecord({
+      node_states: {
+        "technical-agent-node": {
+          status: "running",
+          node_type: "agent_invocation",
+          label: "内部执行节点",
+          node_metadata: {
+            template_id: "internal_executor.v1",
+            display_name: "内部执行节点",
+          },
+        },
+        "team.1.research_scout_v1.1": {
+          status: "running",
+          node_type: "agent_invocation",
+          label: "文献猎手 Nora",
+          node_metadata: {
+            team: true,
+            template_id: "research_scout.v1",
+            display_name: "文献猎手 Nora",
+            assigned_role: "文献检索专家",
+          },
+        },
+      },
+    });
+
+    const view = runViewFromExecution(record);
+
+    expect(view.team?.members.map((member) => member.id)).toEqual([
+      "team.1.research_scout_v1.1",
+    ]);
+  });
 });

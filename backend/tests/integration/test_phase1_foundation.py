@@ -4,8 +4,7 @@ Verifies that the platform infrastructure layer + capability registry work
 together without errors. Detailed business-logic correctness is covered by
 per-task unit tests; this file is a smoke test for end-to-end wiring.
 
-Spec: docs/superpowers/specs/2026-05-09-wenjin-workspace-rebuild-design.md
-Plan: docs/superpowers/plans/2026-05-09-wenjin-workspace-rebuild.md Task 1.19
+Current facts: docs/current/architecture.md and docs/current/workspace-feature-catalog.md
 """
 
 from __future__ import annotations

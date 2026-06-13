@@ -33,11 +33,17 @@ class SubagentContext:
     invocation: dict[str, Any] | None = None
     emit_delta: Callable[[str, str], Awaitable[None]] | None = None
     publish_event: Callable[[str, str, dict[str, Any]], Awaitable[None]] | None = None
+    expert_snapshot_emitter: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
     async def emit(self, event_type: str, content: str) -> None:
         """Emit an incremental delta event. No-op when emit_delta is not set."""
         if self.emit_delta is not None:
             await self.emit_delta(event_type, content)
+
+    async def emit_expert_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """Emit a user-visible expert progress snapshot. No-op outside team runtime."""
+        if self.expert_snapshot_emitter is not None:
+            await self.expert_snapshot_emitter(snapshot)
 
 
 @dataclass

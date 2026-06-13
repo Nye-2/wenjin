@@ -269,6 +269,15 @@ export function buildSandboxSummary(state: ExecutionNodeState | null | undefined
   if (!tool && !hasSandboxOutput) {
     return null;
   }
+  const outputRefCount =
+    unknownArrayValue(output?.output_refs).length +
+    unknownArrayValue(tool?.output_refs).length;
+  const hasBoundedOutput =
+    Boolean(readString(output?.stdout)) ||
+    Boolean(readString(tool?.stdout)) ||
+    Boolean(readString(output?.stderr)) ||
+    Boolean(readString(tool?.stderr)) ||
+    outputRefCount > 0;
   const lines = [
     `操作：${readString(output?.operation) ?? readString(tool?.name) ?? "sandbox"}`,
     `状态：${readString(output?.status) ?? readString(tool?.status) ?? state.status ?? "unknown"}`,
@@ -278,7 +287,9 @@ export function buildSandboxSummary(state: ExecutionNodeState | null | undefined
     readString(output?.docker_image) || readString(tool?.docker_image)
       ? `镜像：${readString(output?.docker_image) ?? readString(tool?.docker_image)}`
       : null,
-    readString(output?.stdout) ? `Stdout：${truncate(readString(output?.stdout)!, 120)}` : null,
+    hasBoundedOutput
+      ? `输出：${outputRefCount > 0 ? `${outputRefCount} 个可恢复引用` : "已生成，详情在诊断中查看"}`
+      : null,
   ].filter((line): line is string => Boolean(line));
   return lines.length > 0 ? lines : null;
 }

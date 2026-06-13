@@ -399,7 +399,7 @@ function TeamPreviewFullscreen({
           <ArrowLeft size={14} />
           返回
         </button>
-        <span style={expertChipStyle}>{preview.status === "ready" ? "可预览" : "草稿"}</span>
+        <span style={expertChipStyle}>{previewStatusLabel(preview.status)}</span>
       </div>
       <div style={previewFullscreenTitleStyle}>{preview.title}</div>
       {preview.subtitle ? <div style={styles.sectionSubtitle}>{preview.subtitle}</div> : null}
@@ -636,6 +636,12 @@ function memberCapabilitySummary(member: RunViewTeam["members"][number]): string
   if (member.status === "running" || member.status === "launching") return "正在处理";
   if (member.status === "completed") return "已完成";
   return "按任务需要待命";
+}
+
+function previewStatusLabel(status: RunViewTeamMemberPreviewItem["status"]): string {
+  if (status === "ready") return "可预览";
+  if (status === "saved") return "已保存";
+  return "草稿";
 }
 
 function snapshotStatusLabel(status: string): string {

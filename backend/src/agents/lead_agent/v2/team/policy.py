@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.agents.harness.tool_names import expand_tool_names
-from src.contracts.team_expert import resolve_expert_profile
+from src.contracts.team_presentation import resolve_expert_profile
 
 from .contracts import AgentInvocation, AgentTemplate, CapabilityTeamPolicy
 

@@ -1,21 +1,21 @@
 # 问津 Wenjin
 
-更新时间：2026-05-22
+更新时间：2026-06-13
 
 问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前收口到 execution-first 主链路：
 
-`workspace chat intent -> thread run stream -> launch_feature tool_result receipt -> ExecutionRecord + ComputeSession -> Celery execute_execution -> ExecutionEngineV2 -> LeadAgentRuntime -> TaskReport / artifact / WenjinPrism writeback -> RunView / Compute projection`
+`workspace chat intent -> launch_feature -> ExecutionRecord -> LeadAgentRuntime -> TeamKernel / ReactSubagent -> Wenjin Harness / DataService -> TaskReport / review item -> RunView / ResultCard / Prism / rooms`
 
 ## 当前产品形态
 
 - 五类 workspace：`thesis`、`sci`、`proposal`、`software_copyright`、`patent`
 - 单 workspace 主对话：chat 是统一入口，skills 作为 capability 的会话级入口语义
-- Compute 工作面：长任务过程、runtime blocks、sandbox 文件、日志、Review Gate 和 WenjinPrism 写入状态统一展示
+- Workbench 工作面：长任务过程、专家团队、证据预览、Review Gate 和 Prism 写入状态统一展示
 - 确定性 capability 执行：显式 launch/resume 由 workspace ChatPanel 的 thread orchestration 进入 `launch_feature`
 - 执行体验闭环：Chat 启动回执、右侧 Current run、Runs drawer 历史记录共享同一 `RunView` 投影
 - 任务与结果闭环：`task`、`artifact`、`activity`、runtime blocks、SSE 事件统一回写
 - LaTeX 主稿台：项目文件树、编译、PDF 预览、点评改写、SyncTeX 联动、file-change preview/apply/revert
-- Subagents：作为 Compute 内部 worker 能力存在，由 feature runtime / AgentHarness 调用
+- 专家团队：DataService agent templates 提供实名专家画像，Lead Agent 按 capability 动态招募成员；专家思考摘录和预览只作为 bounded UX projection，不暴露 raw tool JSON
 
 ## 架构概览
 
@@ -71,15 +71,18 @@
 
 - `backend/src/gateway/`：FastAPI 网关、SSE、middleware、routers
 - `backend/src/application/`：应用层 handler，例如 thread turn、result card presenter、workspace seed 解析
-- `backend/src/compute/`：ComputeSession 与 projection
-- `backend/src/agents/lead_agent/`：主 chat agent、workspace read tools、skill prompt
-- `backend/src/agents/harness/`：AgentHarness contract/provider
+- `backend/src/compute/`：ComputeSession shell 与 projection
+- `backend/src/agents/chat_agent/`：Chat Agent 入口、block 协议、动态工具
+- `backend/src/agents/lead_agent/v2/`：Lead Agent runtime、TeamKernel、输出映射、sandbox orchestration
+- `backend/src/agents/harness/`：Wenjin Harness 工具、policy、bounded context、research eval
+- `backend/src/contracts/team_presentation.py`：专家实名展示共享契约
+- `backend/src/contracts/team_expert.py`：专家运行态思考/预览 sanitizer
 - `backend/src/tools/builtins/launch_feature.py`：capability launch tool，创建/复用 ExecutionRecord 并分发任务
 - `backend/src/execution/engine.py`：ExecutionEngineV2，统一执行 LeadAgentRuntime
 - `backend/seed/capabilities/` + `backend/src/services/capability_resolver.py`：capability schema 与解析
 - `backend/seed/skills/` + `backend/src/database/models/capability_skill.py`：capability skills
 - `backend/src/task/`：任务提交、worker、progress、runtime blocks、artifact writeback
-- `backend/src/subagents/`：subagent manager、context snapshot、academic subagent registry
+- `backend/src/subagents/`：subagent runtime、context、registry
 - `frontend/app/(workbench)/workspaces/[id]/`：workbench 主界面与各面板
 - `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx`：右侧 execution / compute 工作面
 - `frontend/lib/execution-run-view.ts`：执行 UX 统一投影，供 Live panel / Runs drawer / chat result 使用
@@ -176,14 +179,13 @@ make debug-langgraph
 - 工作台当前状态：`docs/current/workspace-current-state.md`
 - 产品契约：`docs/current/frontend-feature-plugin-contract.md`
 - 文献中心：`docs/current/workspace-reference-library.md`
-- 长期方向种子：`docs/current/strategy-seed.md`
 - 基础设施：`docs/current/troubleshooting.md`
 - 后端专项：`backend/docs/README.md`
 - 前端专项：`frontend/README.md`
 
 ## 文档治理
 
-- 只保留“当前事实源”文档，历史方案与阶段性执行稿已清理
+- 只保留“当前事实源”文档，历史方案、阶段性执行稿、过程审计用 Git 历史追溯
 - 架构、接口、运行方式变化后，必须同步更新 README 和对应 docs
 - 实现与文档冲突时，以实现为准，并立即回补文档
 - 提交前建议按 `docs/current/documentation-map.md` 的维护清单做一次最小回归

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.contracts.team_presentation import ExpertProfileV1
 from src.database.models.agent_template import AgentTemplate
 from src.database.models.capability_skill import CapabilitySkill
 from src.dataservice.domains.catalog.contracts import (
@@ -13,7 +14,6 @@ from src.dataservice.domains.catalog.contracts import (
     CapabilitySkillRecord,
 )
 from src.dataservice.domains.catalog.models import CapabilityDefinition
-from src.contracts.team_expert import ExpertProfileV1
 
 
 def capability_to_record(capability: CapabilityDefinition) -> CapabilityDefinitionRecord:

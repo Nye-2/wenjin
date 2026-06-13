@@ -12,18 +12,20 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 - **Curated result_card flow**: Execution outputs staged → user reviews via checkboxes → commit writes to rooms. Default all-checked + one-click "全部接受".
 - **Block protocol**: 7 block types — `text`, `thinking`, `status_line`, `question_card`, `result_card`, `tool_invocation`, `tool_result`. Blocks stored in arrival order (thinking never prepended).
 - **Execution UX projection**: Chat launch receipt, LiveWorkflowPanel Current run, and Runs drawer share `frontend/lib/execution-run-view.ts`; `run-ui-store` only tracks UI focus/badges.
-- **Frontend workspace UI**: Glass/visionOS design language. Left minimal white chat (ChatGPT-style) + right glassmorphism panel with purple/blue light orbs. `--v2-*` CSS tokens.
+- **Frontend workspace UI**: System-grade research workbench. Trusted chrome, quiet content, compact right-side team/evidence/review panel. New UI uses `--wjn-*`; `--v2-*` remains compatibility only.
 
 ## Key Files
 
 | Area | Entry Point |
 |------|-------------|
 | Chat agent | `backend/src/agents/chat_agent/agent.py` |
-| Chat agent prompts | `backend/src/agents/chat_agent/prompts.py` |
-| Lead agent v2 | `backend/src/agents/lead_agent/v2/agent.py` |
+| Chat agent prompts | `backend/src/agents/chat_agent/prompts/` |
+| Lead agent v2 | `backend/src/agents/lead_agent/v2/runtime.py` |
+| TeamKernel runtime | `backend/src/agents/lead_agent/v2/team/kernel.py` |
 | Lead compiler | `backend/src/agents/lead_agent/v2/compiler.py` |
-| Lead runtime | `backend/src/agents/lead_agent/v2/runtime.py` |
 | Output mapping | `backend/src/agents/lead_agent/v2/output_mapping.py` |
+| Expert presentation contracts | `backend/src/contracts/team_presentation.py` |
+| Expert runtime contracts | `backend/src/contracts/team_expert.py` |
 | Subagent registry | `backend/src/subagents/v2/registry.py` |
 | Execution engine | `backend/src/execution/engine.py` |
 | Commit service | `backend/src/services/execution_commit_service.py` |
@@ -37,7 +39,7 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 | Chat panel | `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx` |
 | Workflow panel | `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx` |
 | CSS variables (v2) | `frontend/app/globals.css` (`--v2-*` tokens) |
-| Design language | `docs/superpowers/specs/2026-05-09-v2-design-language.md` |
+| Design language | `docs/current/wenjin-research-navigation-uiux.md` |
 
 ## Commands
 
@@ -62,14 +64,14 @@ docker compose up --build         # full stack
 - `docs/current/architecture.md` — current architecture source of truth
 - `docs/current/workspace-current-state.md` — workspace / thread / execution current behavior
 - `docs/current/frontend-feature-plugin-contract.md` — frontend/backend capability and execution contract
-- `docs/superpowers/specs/2026-05-09-v2-design-language.md` — Glass/visionOS design language
-- `docs/superpowers/plans/2026-05-22-workspace-execution-experience-convergence.md` — execution UX convergence implementation record
+- `docs/current/workspace-feature-catalog.md` — capability / skill / expert template catalog truth
+- `docs/current/wenjin-research-navigation-uiux.md` — current UIUX and visual system truth
 
 ## Conventions
 
 - Backend: Python 3.13, FastAPI, SQLAlchemy async, Pydantic v2, LangGraph
 - Frontend: Next.js 16, React 19, TypeScript, Tailwind, Zustand, @xyflow/react
-- v2 design: `--v2-*` CSS tokens only in new components. No 古风 tokens (--brand-ink, --brand-paper etc.)
+- UI design: new surfaces use `--wjn-*`; do not introduce 古风 tokens, decorative orbs, raw log panels, or fixed technical sidebars in default UX
 - No compatibility layers or fallback code — clean migrations only
 - All chat through chat_agent → lead_agent pipeline — no bypass routers
 - Tests must pass before commit

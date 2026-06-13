@@ -125,7 +125,7 @@ def test_foundation_template_tool_contracts_match_team_registry():
 
 
 def test_foundation_templates_declare_expert_profiles():
-    from src.contracts.team_expert import ExpertProfileV1
+    from src.contracts.team_presentation import ExpertProfileV1
 
     records = _collect_agent_template_records()
     for template_id in sorted(FOUNDATION_AGENT_TEMPLATES):

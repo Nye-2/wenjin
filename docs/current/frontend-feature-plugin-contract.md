@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-06-08
+更新时间: 2026-06-13
 
 本文档定义 workspace capability 入口兼容层的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
 
@@ -161,16 +161,17 @@ LiveWorkflowPanel 选择当前展示 run 时必须按以下优先级：
 
 Backend API 返回 execution list/detail 时，`ExecutionService` 可以从 `ExecutionNodeRecord` hydrate `ExecutionRecord.node_states`，供 `RunView` 计算 team member count、harness metadata 和 node progress；前端不得把这个 projection 写回成第二套节点事实源。
 
-TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish` 五个流程节点；实名成员模板、成员状态和 harness activity 只进入 team roster。`runtime_state.quality_gates` 在 `RunView` 中按 gate id 聚合，显示最新状态，避免默认视图重复展示历史 quality gate event。成员 activity 和 Evidence tab 可以消费 `run_journal_summary`、`reproducibility_summary`、`sandbox_execution_summary`、`file_change_summary` 和 `citation_source_audit`，但只能输出用户可理解的短标签，例如“已完成可复现实验：1 个脚本 · 1 个数据集 · 1 个产物”“脚本：analysis.py · 数据：panel.csv · 产物：result.json”或“对象：未确认 fake2026 · 问题：not found in library · 建议：替换或删除”，不得把 raw args、stdout、stderr、manifest JSON、schema id 或 `/workspace/tmp/tasks/.harness/outputs/**` 内部 refs 放进默认视图。
+TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish` 五个流程节点；实名成员模板、成员状态、专家思考摘录、专家预览和 harness activity 只进入 team roster。团队成员必须来自 `ExecutionRecord.node_states[*].node_metadata.team === true` 的 `agent_invocation` 节点，不能用 node type 猜测团队归属。`runtime_state.quality_gates` 在 `RunView` 中按 gate id 聚合，显示最新状态，避免默认视图重复展示历史 quality gate event。成员 activity 和 Evidence tab 可以消费 `expert_snapshots`、`expert_preview_items`、`run_journal_summary`、`reproducibility_summary`、`sandbox_execution_summary`、`file_change_summary` 和 `citation_source_audit`，但只能输出用户可理解的短标签，例如“已完成可复现实验：1 个脚本 · 1 个数据集 · 1 个产物”“脚本：analysis.py · 数据：panel.csv · 产物：result.json”或“对象：未确认 fake2026 · 问题：not found in library · 建议：替换或删除”，不得把 raw args、stdout、stderr、manifest JSON、schema id 或 `/workspace/tmp/tasks/.harness/outputs/**` 内部 refs 放进默认视图。
 
 `run-ui-store` 只允许保存：
 
 - `activeRunId`
 - `focusedRunId`
 - `highlightedRunId`
+- `focusedPreviewItemId`
 - `completedRunIds`
 
-不得把 execution lifecycle、node state 或 backend result 复制进 `run-ui-store`。
+`focusedPreviewItemId` 只作为右侧预览面板的临时焦点指针，不代表预览项状态或执行结果事实。不得把 execution lifecycle、node state 或 backend result 复制进 `run-ui-store`。
 
 ## 4. 交互约束
 
@@ -209,6 +210,7 @@ TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_r
 
 - 执行态 UI 以 Compute projection 为主展示面；`ExecutionRecord`、task、subagent、runtime blocks、sandbox files、logs、artifacts 和 canonical Prism review items 是 projection 的事实来源。
 - `frontend/lib/execution-run-view.ts` 是团队实名制与 harness 运行态的唯一前端投影层：team member activity、reproducibility activity、sandbox artifact count、primary surface=sandbox、progress detail 都从 `ExecutionRecord.node_states` / `review_items` / `runtime_state.quality_gates` 派生；`live-workflow/useLiveWorkflowViewModel.ts` 只能在 Evidence tab 中把同一类 harness evidence 压成路径 basename、引用风险和后续动作摘要；LiveWorkflowPanel、Runs drawer 和 chat result card 不得新增第二套 harness store 或直接展示 raw tool args/stdout/stderr。
+- `expert_snapshots` 和 `expert_preview_items` 是 RunView 的轻量预览材料，不是审阅事实源；保存/落库仍必须走 ResultCard、review item、room commit 或 Prism apply 链路。
 - TeamKernel 的 `runtime_state.quality_gates` 只用于恢复质量检查摘要；具体节点事实仍来自 hydrated `ExecutionRecord.node_states`。
 - Sandbox files/logs/artifacts 在前端只能作为 execution/run detail 的只读 trace 展示，不提供用户侧代码 console 或公开任意执行入口。
 - 公共 capability 目录接口（`/api/capabilities` 与 workspace-scoped capability list）必须过滤 `entry_tier: hidden` / hidden tier capability；这类 capability 只用于内部诊断或自动化验证，不作为用户卡片展示。

@@ -559,7 +559,7 @@ function teamMembersFromNodeStates(
     const node = rawNode as Record<string, unknown>;
     const metadata = objectValue(node.node_metadata);
     const nodeType = stringValue(node.node_type);
-    if (nodeType !== "agent_invocation" && metadata?.team !== true) {
+    if (nodeType !== "agent_invocation" || metadata?.team !== true) {
       continue;
     }
     const templateId = stringValue(metadata?.template_id);

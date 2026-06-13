@@ -202,6 +202,8 @@ describe("execution run view projection", () => {
           status: "completed",
           effectiveTools: ["web_search", "library_read"],
           effectiveSkills: ["literature_search.v1"],
+          snapshots: [],
+          previewItems: [],
         },
         {
           id: "critical_reviewer.v1__1",
@@ -210,6 +212,8 @@ describe("execution run view projection", () => {
           status: "running",
           effectiveTools: ["library_read"],
           effectiveSkills: ["critical_review.v1"],
+          snapshots: [],
+          previewItems: [],
         },
       ],
       qualityGates: [

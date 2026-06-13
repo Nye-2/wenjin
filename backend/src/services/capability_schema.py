@@ -13,7 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.contracts.research_evidence import validate_research_surfaces
-from src.contracts.team_expert import CapabilityTeamPresentationV1
+from src.contracts.team_presentation import CapabilityTeamPresentationV1
 
 # ---------------------------------------------------------------------------
 # Existing models (used by other modules)

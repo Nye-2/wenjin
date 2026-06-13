@@ -109,6 +109,18 @@ function makeTeamRunningRecord(): ExecutionRecord {
           display_name: "文献专家",
           effective_tools: ["web_search", "library_read"],
           effective_skills: ["literature_search.v1"],
+          harness: {
+            expert_preview_items: [
+              {
+                preview_item_id: "saved-preview-1",
+                title: "候选文献预览",
+                kind: "literature_list",
+                summary: "已经保存到资料库的候选文献摘要。",
+                status: "saved",
+                created_at: "2026-06-13T00:00:00Z",
+              },
+            ],
+          },
         },
       },
       "critical_reviewer.v1__1": {
@@ -376,6 +388,21 @@ describe("LiveWorkflowPanel", () => {
     expect(visibleOutsideClosedDetails("运行中")).toHaveLength(0);
     expect(within(teamRegion).getByText("处理中")).toBeInTheDocument();
     expect(within(teamRegion).getByText("待处理")).toBeInTheDocument();
+  });
+
+  it("labels saved expert previews as saved instead of draft", () => {
+    useExecutionStore.getState().upsertExecution(makeTeamRunningRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-team");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    const teamRegion = screen.getByRole("region", { name: "执行团队" });
+    fireEvent.click(within(teamRegion).getByRole("button", { name: "打开预览" }));
+
+    const previewRegion = screen.getByRole("region", { name: "结果预览" });
+    expect(within(previewRegion).getByText("已保存")).toBeInTheDocument();
+    expect(within(previewRegion).queryByText("草稿")).not.toBeInTheDocument();
   });
 
   it("keeps raw node ids and input payloads behind run details by default", () => {
