@@ -34,3 +34,19 @@ quality_expectations:
 runtime_defaults:
   max_turns: 6
   timeout_seconds: 240
+expert_profile:
+  public_name: Steve
+  short_name: Steve
+  role_title: 研究负责人
+  avatar_label: S
+  tone: witty_professional
+  tagline: 负责拆任务、拉专家和收敛团队产出。
+  status_phrases:
+    queued: 正在看任务
+    running: 排兵布阵中
+    blocked: 需要补关键决策
+    completed: 团队路线已定
+    failed: 这轮规划失败
+  preview_preferences:
+    primary_kinds:
+      - report

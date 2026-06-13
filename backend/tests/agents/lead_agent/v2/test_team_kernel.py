@@ -10,6 +10,7 @@ from src.agents.lead_agent.v2.team.contracts import (
     AgentInvocation,
     AgentTemplate,
     CapabilityTeamPolicy,
+    TeamBlackboard,
 )
 from src.agents.lead_agent.v2.team.kernel import TeamKernelRuntime
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
@@ -190,6 +191,35 @@ class TeamCaptureSubagent(SubagentBase):
         )
 
 
+@subagent("team_metadata_fake")
+class TeamMetadataFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        invocation = ctx.invocation or {}
+        return SubagentResult(
+            output={"text": "metadata emitted"},
+            metadata={
+                "expert_snapshots": [
+                    {
+                        "snapshot_id": "snap-from-result",
+                        "execution_id": ctx.execution_id,
+                        "workspace_id": ctx.workspace_id,
+                        "agent_invocation_id": invocation["id"],
+                        "agent_template_id": invocation["template_id"],
+                        "role_key": "research_scout",
+                        "role_name": invocation["assigned_role"],
+                        "status": "completed",
+                        "update_kind": "finding",
+                        "stage": {"label": "完成"},
+                        "headline": "已形成文献发现",
+                        "body": "已整理关键方向。",
+                        "created_at": "2026-06-13T00:00:00Z",
+                    }
+                ]
+            },
+            token_usage={"input": 1, "output": 1},
+        )
+
+
 def _team_capability() -> SimpleNamespace:
     return SimpleNamespace(
         id="team_research",
@@ -293,6 +323,251 @@ def test_team_kernel_quality_contract_includes_workspace_source_allowlist() -> N
         "smith2026"
     ]
     assert invocation.input_brief["quality_contract"]["allowed_source_ids"] == ["source-1"]
+
+
+@pytest.mark.asyncio
+async def test_record_invocation_persists_expert_snapshot_and_preview_items() -> None:
+    record_node_event = AsyncMock()
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=record_node_event,
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        input_brief={},
+        expert_profile={
+            "public_name": "文献猎手 Nora",
+            "role_title": "文献检索专家",
+            "avatar_label": "文",
+            "status_phrases": {"completed": "文献线索已整理"},
+        },
+        expert_snapshots=[
+            {
+                "snapshot_id": "snap-1",
+                "execution_id": "exec-1",
+                "workspace_id": "ws-1",
+                "agent_invocation_id": "team.1.research_scout_v1.1",
+                "agent_template_id": "research_scout.v1",
+                "role_key": "research_scout",
+                "role_name": "文献检索专家",
+                "status": "completed",
+                "update_kind": "finding",
+                "stage": {"label": "检索完成"},
+                "headline": "找到 12 篇候选文献",
+                "body": "token=secret-value 已筛出隐私保护方向。",
+                "created_at": "2026-06-13T00:00:00Z",
+            }
+        ],
+        expert_preview_items=[
+            {
+                "preview_item_id": "preview-1",
+                "execution_id": "exec-1",
+                "workspace_id": "ws-1",
+                "owner_agent_invocation_id": "team.1.research_scout_v1.1",
+                "owner_role_name": "文献检索专家",
+                "title": "候选文献列表",
+                "kind": "literature_list",
+                "summary": "12 篇候选文献。",
+                "status": "ready",
+                "created_at": "2026-06-13T00:00:00Z",
+            }
+        ],
+    )
+
+    await runtime._record_invocation(invocation, status="succeeded")
+
+    metadata = record_node_event.await_args.kwargs["node_metadata"]
+    harness = metadata["harness"]
+    assert harness["expert_snapshots"][0]["body"] == "[redacted] 已筛出隐私保护方向。"
+    assert harness["expert_preview_items"][0]["title"] == "候选文献列表"
+    assert metadata["expert_profile"]["public_name"] == "文献猎手 Nora"
+
+
+@pytest.mark.asyncio
+async def test_record_invocation_generates_synthetic_expert_snapshot_when_missing() -> None:
+    record_node_event = AsyncMock()
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=record_node_event,
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        input_brief={},
+        expert_profile={
+            "public_name": "文献猎手 Nora",
+            "role_title": "文献检索专家",
+            "avatar_label": "文",
+            "status_phrases": {"running": "扫文献雷达中"},
+        },
+    )
+
+    await runtime._record_invocation(invocation, status="running")
+
+    snapshot = record_node_event.await_args.kwargs["node_metadata"]["harness"]["expert_snapshots"][0]
+    assert snapshot["status"] == "running"
+    assert snapshot["headline"] == "扫文献雷达中"
+    assert snapshot["agent_invocation_id"] == invocation.id
+
+
+@pytest.mark.asyncio
+async def test_record_invocation_skips_invalid_expert_metadata() -> None:
+    record_node_event = AsyncMock()
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=record_node_event,
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        input_brief={"workspace_id": "ws-1"},
+        expert_snapshots=[
+            {
+                "snapshot_id": "broken",
+                "execution_id": "exec-1",
+                "workspace_id": "ws-1",
+                "agent_invocation_id": "team.1.research_scout_v1.1",
+                "agent_template_id": "research_scout.v1",
+                "role_key": "research_scout",
+                "role_name": "文献检索专家",
+                "status": "not-a-status",
+                "update_kind": "finding",
+                "stage": "bad-shape",
+                "headline": "bad",
+                "body": "bad",
+                "created_at": "2026-06-13T00:00:00Z",
+            }
+        ],
+        expert_preview_items=[
+            {
+                "preview_item_id": "broken-preview",
+                "execution_id": "exec-1",
+                "workspace_id": "ws-1",
+                "owner_agent_invocation_id": "team.1.research_scout_v1.1",
+                "owner_role_name": "文献检索专家",
+                "title": "bad",
+                "kind": "not-a-kind",
+                "summary": "bad",
+                "status": "ready",
+                "created_at": "2026-06-13T00:00:00Z",
+            }
+        ],
+    )
+
+    await runtime._record_invocation(invocation, status="succeeded")
+
+    harness = record_node_event.await_args.kwargs["node_metadata"]["harness"]
+    assert harness["expert_snapshots"][0]["snapshot_id"].startswith(invocation.id)
+    assert "expert_preview_items" not in harness
+
+
+def test_result_preview_item_id_ignores_invalid_preview_items() -> None:
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        status="succeeded",
+        expert_preview_items=[
+            {
+                "preview_item_id": "broken-preview",
+                "execution_id": "exec-1",
+                "workspace_id": "ws-1",
+                "owner_agent_invocation_id": "team.1.research_scout_v1.1",
+                "owner_role_name": "文献检索专家",
+                "title": "bad",
+                "kind": "not-a-kind",
+                "summary": "bad",
+                "status": "ready",
+                "created_at": "2026-06-13T00:00:00Z",
+            }
+        ],
+    )
+
+    assert TeamKernelRuntime._result_preview_item_id([invocation]) is None
+
+
+@pytest.mark.asyncio
+async def test_run_invocation_persists_subagent_result_expert_metadata() -> None:
+    node_events: list[dict] = []
+
+    async def record_node_event(**kwargs):
+        node_events.append(kwargs)
+
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=record_node_event,
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.research_scout_v1.1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="research_scout.v1",
+        display_name="文献猎手 Nora",
+        assigned_role="文献检索专家",
+        recruitment_reason="core",
+        input_brief={"workspace_id": "ws-1"},
+        effective_skills=["metadata-skill"],
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="research_scout.v1",
+            display_role="文献检索员",
+            category="research",
+            persona_prompt="research",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={"metadata-skill": SimpleNamespace(subagent_type="team_metadata_fake")},
+        skill_load_error=None,
+    )
+
+    completed = [event for event in node_events if event["status"] == "completed"][-1]
+    snapshots = completed["node_metadata"]["harness"]["expert_snapshots"]
+    assert snapshots[0]["snapshot_id"] == "snap-from-result"
+    assert snapshots[0]["headline"] == "已形成文献发现"
 
 
 class FakeTeamCatalogClient:
@@ -733,7 +1008,18 @@ async def test_team_kernel_runtime_publishes_team_events_and_report(monkeypatch)
     assert report.status == "completed"
     assert "团队调研" in report.narrative
     assert report.token_usage == {"input": 6, "output": 10}
+    assert report.preview_item_id is not None
+    assert published[-1][2]["preview_item_id"] == report.preview_item_id
     assert any(event["node_type"] == "agent_invocation" for event in node_events)
+    completed_agent_nodes = [
+        event
+        for event in node_events
+        if event["node_type"] == "agent_invocation" and event["status"] == "completed"
+    ]
+    assert any(
+        event["node_metadata"]["harness"].get("expert_preview_items")
+        for event in completed_agent_nodes
+    )
 
 
 @pytest.mark.asyncio

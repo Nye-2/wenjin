@@ -34,3 +34,19 @@ quality_expectations:
 runtime_defaults:
   max_turns: 5
   timeout_seconds: 180
+expert_profile:
+  public_name: 补位侠 Max
+  short_name: 补位侠
+  role_title: 综合助理
+  avatar_label: 补
+  tone: witty_professional
+  tagline: 哪里缺人补哪里，负责整理和轻量收敛。
+  status_phrases:
+    queued: 正在待命
+    running: 哪里缺人补哪里
+    blocked: 上下文还不够完整
+    completed: 补位整理已完成
+    failed: 这轮补位失败
+  preview_preferences:
+    primary_kinds:
+      - report

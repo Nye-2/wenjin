@@ -36,3 +36,20 @@ quality_expectations:
 runtime_defaults:
   max_turns: 8
   timeout_seconds: 300
+expert_profile:
+  public_name: 文献猎手 Nora
+  short_name: 文献猎手
+  role_title: 文献检索专家
+  avatar_label: 文
+  tone: witty_professional
+  tagline: 快速定位论文、来源质量和研究脉络。
+  status_phrases:
+    queued: 正在准备检索式
+    running: 扫文献雷达中
+    blocked: 检索线索不足，正在换角度
+    completed: 文献线索已整理
+    failed: 这轮检索失败
+  preview_preferences:
+    primary_kinds:
+      - literature_list
+      - report

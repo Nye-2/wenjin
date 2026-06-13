@@ -64,6 +64,7 @@ class AgentTemplatePayload(BaseModel):
     output_contracts: list[str] = Field(default_factory=list)
     quality_expectations: list[str] = Field(default_factory=list)
     runtime_defaults: dict[str, Any] = Field(default_factory=dict)
+    expert_profile: dict[str, Any] = Field(default_factory=dict)
     template_json: dict[str, Any] = Field(default_factory=dict)
     checksum: str | None = None
     source_path: str | None = None

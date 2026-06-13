@@ -124,6 +124,19 @@ def test_foundation_template_tool_contracts_match_team_registry():
         assert not errors, f"{template_id}: invalid tool contract {errors}"
 
 
+def test_foundation_templates_declare_expert_profiles():
+    from src.contracts.team_expert import ExpertProfileV1
+
+    records = _collect_agent_template_records()
+    for template_id in sorted(FOUNDATION_AGENT_TEMPLATES):
+        profile = records[template_id].get("expert_profile")
+        assert isinstance(profile, dict), f"{template_id}: missing expert_profile"
+        parsed = ExpertProfileV1.model_validate(profile)
+        assert parsed.public_name, f"{template_id}: public_name required"
+        assert parsed.role_title, f"{template_id}: role_title required"
+        assert parsed.avatar_label, f"{template_id}: avatar_label required"
+
+
 def test_workspace_overlay_skills_are_seeded():
     skill_ids = _collect_skill_ids()
     missing = FOUNDATION_OVERLAY_SKILLS - skill_ids

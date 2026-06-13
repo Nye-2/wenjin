@@ -65,7 +65,7 @@ def _result_card_data_from_task_report(execution_id: str, task_report: dict[str,
                 }
             )
 
-    return {
+    data = {
         "execution_id": str(task_report.get("execution_id") or execution_id),
         "capability_name": task_report.get("capability_id"),
         "status": task_report.get("status") or "completed",
@@ -75,6 +75,10 @@ def _result_card_data_from_task_report(execution_id: str, task_report: dict[str,
         "duration_seconds": task_report.get("duration_seconds"),
         "errors": errors,
     }
+    preview_item_id = str(task_report.get("preview_item_id") or "").strip()
+    if preview_item_id:
+        data["preview_item_id"] = preview_item_id
+    return data
 
 
 async def _persist_result_card_for_execution(

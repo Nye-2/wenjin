@@ -45,6 +45,7 @@ const makeExecutionRecord = () => ({
       capability_id: "lit_review",
       status: "completed",
       duration_seconds: 4,
+      preview_item_id: "team.1.research_scout_v1.1.output",
       narrative: "done",
       outputs: [],
       errors: [],
@@ -134,6 +135,14 @@ describe("useWorkspaceEventStream", () => {
     await waitFor(() => {
       const message = useChatStoreV2.getState().messages.at(-1);
       expect(message?.blocks.at(-1)?.kind).toBe("result_card");
+      const resultCard = message?.blocks.at(-1);
+      const resultCardData =
+        resultCard && resultCard.kind === "result_card" && "data" in resultCard
+          ? (resultCard.data as { preview_item_id?: string })
+          : null;
+      expect(resultCardData?.preview_item_id).toBe(
+        "team.1.research_scout_v1.1.output",
+      );
     });
 
     act(() => {

@@ -54,6 +54,12 @@ from .episode import (
     start_harness_episode,
     stop_reason_from_gates,
 )
+from .expert_runtime import (
+    build_expert_node_metadata,
+    build_expert_output_preview_item,
+    sanitize_expert_preview_items,
+    sanitize_expert_snapshot_items,
+)
 from .member_context import build_team_member_context
 from .policy import (
     TeamPolicyError,
@@ -174,6 +180,7 @@ class TeamKernelRuntime:
                 narrative=self._build_narrative(capability, invocations, gates),
                 outputs=outputs,
                 review_items=review_items,
+                preview_item_id=self._result_preview_item_id(invocations),
                 errors=errors,
             )
         except TeamPolicyError as exc:
@@ -835,6 +842,20 @@ class TeamKernelRuntime:
                 invocation.output_report = result.output
                 invocation.tool_calls = result.tool_calls or []
                 invocation.token_usage = result.token_usage
+                result_metadata = result.metadata if isinstance(result.metadata, dict) else {}
+                invocation.expert_snapshots = sanitize_expert_snapshot_items(
+                    list(result_metadata.get("expert_snapshots") or []),
+                )
+                invocation.expert_preview_items = sanitize_expert_preview_items(
+                    list(result_metadata.get("expert_preview_items") or []),
+                )
+                if not invocation.expert_preview_items:
+                    preview_item = build_expert_output_preview_item(
+                        invocation,
+                        summary=self._preview_output(result.output),
+                    )
+                    if preview_item:
+                        invocation.expert_preview_items = [preview_item]
                 blackboard.latest_leader_summary = self._preview_output(result.output)
         except Exception as exc:
             invocation.status = "failed"
@@ -863,10 +884,20 @@ class TeamKernelRuntime:
             "recruitment_reason": invocation.recruitment_reason,
             "effective_tools": invocation.effective_tools,
             "effective_skills": invocation.effective_skills,
+            "expert_profile": invocation.expert_profile,
         }
         harness_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
         if harness_metadata:
             node_metadata.update(harness_metadata)
+        node_metadata["harness"] = build_expert_node_metadata(
+            invocation,
+            status=status,
+            existing_harness=(
+                node_metadata.get("harness")
+                if isinstance(node_metadata.get("harness"), dict)
+                else None
+            ),
+        )
 
         await self.record_node_event(
             execution_id=invocation.execution_id or "",
@@ -1166,6 +1197,27 @@ class TeamKernelRuntime:
                 continue
             sections.append(f"## {invocation.display_name}\n\n{content}")
         return "\n\n".join(sections)
+
+    @staticmethod
+    def _result_preview_item_id(invocations: list[AgentInvocation]) -> str | None:
+        candidates: list[dict[str, Any]] = []
+        for invocation in invocations:
+            if invocation.status != "succeeded":
+                continue
+            candidates.extend(
+                item
+                for item in sanitize_expert_preview_items(invocation.expert_preview_items)
+                if item.get("preview_item_id")
+            )
+        if not candidates:
+            return None
+        ready = [
+            item
+            for item in candidates
+            if str(item.get("status") or "").strip().lower() in {"ready", "saved"}
+        ]
+        selected = (ready or candidates)[-1]
+        return str(selected.get("preview_item_id") or "") or None
 
     def _errors_from_invocations(self, invocations: list[AgentInvocation]) -> list[ResultError]:
         errors: list[ResultError] = []

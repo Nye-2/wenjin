@@ -35,6 +35,18 @@ def _agent_template_yaml() -> str:
     """)
 
 
+def _agent_template_yaml_with_expert_profile() -> str:
+    return _agent_template_yaml() + textwrap.dedent("""\
+        expert_profile:
+          public_name: 文献猎手 Nora
+          role_title: 文献检索专家
+          avatar_label: 文
+          tone: witty_professional
+          status_phrases:
+            running: 扫文献雷达中
+    """)
+
+
 @pytest.mark.asyncio
 async def test_loads_agent_template_seeds_through_dataservice(tmp_path) -> None:
     seed_dir = tmp_path / "agent_templates"
@@ -60,6 +72,64 @@ async def test_loads_agent_template_seeds_through_dataservice(tmp_path) -> None:
     assert command.items[0].source_path == str(seed_file)
     assert command.items[0].data["id"] == "research_scout.v1"
     assert command.items[0].data["display_role"] == "文献检索员"
+
+
+@pytest.mark.asyncio
+async def test_agent_template_loader_preserves_valid_expert_profile(tmp_path) -> None:
+    seed_dir = tmp_path / "agent_templates"
+    seed_dir.mkdir()
+    seed_file = seed_dir / "research_scout.yaml"
+    seed_file.write_text(_agent_template_yaml_with_expert_profile(), encoding="utf-8")
+
+    from src.services.agent_template_loader import AgentTemplateLoader
+
+    dataservice = AsyncMock()
+    dataservice.has_agent_templates.return_value = False
+    dataservice.load_agent_template_seed_items.return_value.loaded = 1
+    loader = AgentTemplateLoader(
+        seed_dir=seed_dir,
+        dataservice=dataservice,
+    )
+
+    await loader.load_seeds_if_empty()
+
+    command = dataservice.load_agent_template_seed_items.await_args.args[0]
+    profile = command.items[0].data["expert_profile"]
+    assert profile["schema_version"] == "wenjin.team.expert_profile.v1"
+    assert profile["public_name"] == "文献猎手 Nora"
+    assert profile["status_phrases"]["running"] == "扫文献雷达中"
+
+
+@pytest.mark.asyncio
+async def test_agent_template_loader_rejects_invalid_expert_profile(tmp_path) -> None:
+    seed_dir = tmp_path / "agent_templates"
+    seed_dir.mkdir()
+    seed_file = seed_dir / "research_scout.yaml"
+    seed_file.write_text(
+        _agent_template_yaml()
+        + textwrap.dedent("""\
+            expert_profile:
+              public_name: 文献猎手 Nora
+              role_title: 文献检索专家
+              status_phrases:
+                sleeping: zzz
+        """),
+        encoding="utf-8",
+    )
+
+    from src.services.agent_template_loader import AgentTemplateLoader
+
+    dataservice = AsyncMock()
+    dataservice.has_agent_templates.return_value = False
+    dataservice.load_agent_template_seed_items.return_value.loaded = 1
+    loader = AgentTemplateLoader(
+        seed_dir=seed_dir,
+        dataservice=dataservice,
+    )
+
+    with pytest.raises(ValueError, match="expert_profile"):
+        await loader.load_seeds_if_empty()
+    dataservice.load_agent_template_seed_items.assert_not_awaited()
 
 
 @pytest.mark.asyncio

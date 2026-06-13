@@ -21,6 +21,7 @@ class AgentTemplate(BaseModel):
     output_contracts: list[str] = Field(default_factory=list)
     quality_expectations: list[str] = Field(default_factory=list)
     runtime_defaults: dict[str, Any] = Field(default_factory=dict)
+    expert_profile: dict[str, Any] = Field(default_factory=dict)
 
 
 class TeamLimits(BaseModel):
@@ -94,12 +95,15 @@ class AgentInvocation(BaseModel):
     input_brief: dict[str, Any] = Field(default_factory=dict)
     effective_tools: list[str] = Field(default_factory=list)
     effective_skills: list[str] = Field(default_factory=list)
+    expert_profile: dict[str, Any] = Field(default_factory=dict)
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"] = "queued"
     output_report: dict[str, Any] | None = None
     artifacts: list[dict[str, Any]] = Field(default_factory=list)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     token_usage: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
+    expert_snapshots: list[dict[str, Any]] = Field(default_factory=list)
+    expert_preview_items: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class HarnessReplanDecision(BaseModel):

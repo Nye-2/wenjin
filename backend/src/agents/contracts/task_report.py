@@ -158,6 +158,7 @@ class TaskReport(BaseModel):
         cost_estimate: Optional human-readable cost estimate string.
         narrative: Human-readable summary of what was done.
         outputs: List of result outputs (discriminated by kind).
+        preview_item_id: Optional pointer to the right-panel expert preview item.
         errors: List of errors encountered during execution.
     """
 
@@ -170,4 +171,5 @@ class TaskReport(BaseModel):
     narrative: str
     outputs: list[ResultOutput] = Field(default_factory=list)
     review_items: list[dict] = Field(default_factory=list)
+    preview_item_id: str | None = None
     errors: list[ResultError] = Field(default_factory=list)

@@ -28,6 +28,7 @@ class FakeCatalogRepository:
     def __init__(self) -> None:
         self.capability_values: dict[str, Any] | None = None
         self.skill_values: dict[str, Any] | None = None
+        self.agent_template_values: dict[str, Any] | None = None
         self.latest = None
 
     async def upsert_capability(self, values: dict[str, Any]):
@@ -37,6 +38,10 @@ class FakeCatalogRepository:
     async def upsert_skill(self, values: dict[str, Any]):
         self.skill_values = values
         return SimpleNamespace(**values)
+
+    async def upsert_agent_template(self, values: dict[str, Any]):
+        self.agent_template_values = values
+        return SimpleNamespace(created_at=None, updated_at=None, **values)
 
     async def latest_seed_revision(self, *, catalog_kind: str, seed_root: str):
         return self.latest
@@ -159,6 +164,32 @@ def _skill_v2_data() -> dict[str, Any]:
     }
 
 
+def _agent_template_data() -> dict[str, Any]:
+    return {
+        "schema_version": "agent_template.v1",
+        "id": "research_scout.v1",
+        "enabled": True,
+        "display_role": "文献检索员",
+        "category": "research",
+        "description": "检索、筛选、记录来源。",
+        "persona_prompt": "You are a research scout.",
+        "default_skills": ["research-scout"],
+        "tool_affinity": {"preferred": ["web_search"], "can_request": ["library_read"]},
+        "risk_profile": {"room_write": "staged_only"},
+        "output_contracts": ["literature_source_log.v1"],
+        "quality_expectations": ["accepted sources must map to claims"],
+        "runtime_defaults": {"max_turns": 8},
+        "expert_profile": {
+            "public_name": "文献猎手 Nora",
+            "short_name": "文献猎手",
+            "role_title": "文献检索专家",
+            "avatar_label": "文",
+            "tone": "witty_professional",
+            "status_phrases": {"running": "扫文献雷达中"},
+        },
+    }
+
+
 def test_skill_projection_requires_canonical_skill_json() -> None:
     skill = SimpleNamespace(
         id="writer",
@@ -214,6 +245,35 @@ async def test_upsert_skill_materializes_worker_type_and_skill_json() -> None:
     assert record.skill_json["worker_type"] == "writing"
     assert repository.skill_values is not None
     assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_upsert_agent_template_materializes_expert_profile() -> None:
+    service, repository, session = _service()
+
+    record = await service.upsert_agent_template(
+        _agent_template_data(),
+        checksum="agent-checksum",
+        source_path="agent_templates/research_scout.yaml",
+    )
+
+    assert record.expert_profile["schema_version"] == "wenjin.team.expert_profile.v1"
+    assert record.expert_profile["public_name"] == "文献猎手 Nora"
+    assert record.template_json["expert_profile"]["status_phrases"]["running"] == "扫文献雷达中"
+    assert repository.agent_template_values is not None
+    assert session.commit_count == 1
+
+
+def test_agent_template_values_reject_invalid_expert_profile() -> None:
+    data = _agent_template_data()
+    data["expert_profile"] = {
+        "public_name": "文献猎手 Nora",
+        "role_title": "文献检索专家",
+        "status_phrases": {"sleeping": "zzz"},
+    }
+
+    with pytest.raises(ValueError, match="expert_profile"):
+        DataServiceCatalogService.agent_template_values(data)
 
 
 @pytest.mark.asyncio

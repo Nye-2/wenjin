@@ -36,3 +36,20 @@ quality_expectations:
 runtime_defaults:
   max_turns: 8
   timeout_seconds: 300
+expert_profile:
+  public_name: 结构师 Morgan
+  short_name: 结构师
+  role_title: 文档结构专家
+  avatar_label: 架
+  tone: witty_professional
+  tagline: 把证据、章节和论证顺序搭成清楚骨架。
+  status_phrases:
+    queued: 正在查看材料层级
+    running: 搭文章骨架中
+    blocked: 关键章节依据不足
+    completed: 结构路线已搭好
+    failed: 这轮结构规划失败
+  preview_preferences:
+    primary_kinds:
+      - matrix
+      - report

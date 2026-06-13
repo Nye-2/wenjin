@@ -37,3 +37,20 @@ quality_expectations:
 runtime_defaults:
   max_turns: 6
   timeout_seconds: 240
+expert_profile:
+  public_name: 二审哥 Reviewer 2
+  short_name: 二审哥
+  role_title: 质量评审专家
+  avatar_label: 审
+  tone: witty_professional
+  tagline: 专挑关键风险，但会给可执行修法。
+  status_phrases:
+    queued: 正在戴上评审眼镜
+    running: 挑刺但有理中
+    blocked: 证据不足，无法下结论
+    completed: 已列出关键风险
+    failed: 这轮评审失败，需要重看材料
+  preview_preferences:
+    primary_kinds:
+      - report
+      - claim_set

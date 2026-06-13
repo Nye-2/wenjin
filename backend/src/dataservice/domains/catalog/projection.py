@@ -13,6 +13,7 @@ from src.dataservice.domains.catalog.contracts import (
     CapabilitySkillRecord,
 )
 from src.dataservice.domains.catalog.models import CapabilityDefinition
+from src.contracts.team_expert import ExpertProfileV1
 
 
 def capability_to_record(capability: CapabilityDefinition) -> CapabilityDefinitionRecord:
@@ -72,6 +73,16 @@ def skill_to_record(skill: CapabilitySkill) -> CapabilitySkillRecord:
 
 def agent_template_to_record(template: AgentTemplate) -> AgentTemplateRecord:
     """Project a canonical agent template row."""
+    template_json = dict(template.template_json or {})
+    raw_expert_profile = template_json.get("expert_profile")
+    expert_profile = (
+        ExpertProfileV1.model_validate(raw_expert_profile).model_dump(
+            mode="json",
+            exclude_none=True,
+        )
+        if isinstance(raw_expert_profile, dict)
+        else {}
+    )
     return AgentTemplateRecord(
         id=template.id,
         schema_version=str(template.schema_version or "agent_template.v1"),
@@ -86,7 +97,8 @@ def agent_template_to_record(template: AgentTemplate) -> AgentTemplateRecord:
         output_contracts=list(template.output_contracts or []),
         quality_expectations=list(template.quality_expectations or []),
         runtime_defaults=dict(template.runtime_defaults or {}),
-        template_json=dict(template.template_json or {}),
+        expert_profile=expert_profile,
+        template_json=template_json,
         checksum=template.checksum,
         source_path=template.source_path,
         created_at=template.created_at,

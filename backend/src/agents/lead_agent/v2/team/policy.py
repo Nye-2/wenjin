@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.agents.harness.tool_names import expand_tool_names
+from src.contracts.team_expert import resolve_expert_profile
 
 from .contracts import AgentInvocation, AgentTemplate, CapabilityTeamPolicy
 
@@ -158,16 +159,21 @@ def build_invocation_assignment(
     suffix = ""
     if template_invocation_count > 1 or template.id.endswith("code_engineer.v1"):
         suffix = f" {chr(64 + min(template_invocation_count, 26))}"
-    display_name = f"{template.display_role}{suffix}"
+    expert_profile = resolve_expert_profile(
+        base_profile=template.expert_profile or None,
+        display_role=template.display_role,
+    )
+    display_name = f"{expert_profile.public_name}{suffix}"
     invocation_id = f"team.{iteration}.{template.id.replace('.', '_')}.{template_invocation_count}"
     return AgentInvocation(
         id=invocation_id,
         iteration=iteration,
         template_id=template.id,
         display_name=display_name,
-        assigned_role=template.display_role,
+        assigned_role=expert_profile.role_title,
         recruitment_reason=reason,
         input_brief=input_brief,
         effective_tools=effective_tools,
         effective_skills=effective_skills,
+        expert_profile=expert_profile.model_dump(mode="json", exclude_none=True),
     )

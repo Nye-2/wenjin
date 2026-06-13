@@ -35,3 +35,21 @@ quality_expectations:
 runtime_defaults:
   max_turns: 8
   timeout_seconds: 300
+expert_profile:
+  public_name: 综述姐 Athena
+  short_name: 综述姐
+  role_title: 文献综合专家
+  avatar_label: 综
+  tone: witty_professional
+  tagline: 把来源织成主题矩阵、gap 和可引用论断。
+  status_phrases:
+    queued: 正在接手文献材料
+    running: 织主题矩阵中
+    blocked: 来源结构不足，正在标记缺口
+    completed: 文献综合已完成
+    failed: 这轮综合失败，需要重整材料
+  preview_preferences:
+    primary_kinds:
+      - matrix
+      - claim_set
+      - literature_list

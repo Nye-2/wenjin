@@ -35,3 +35,20 @@ quality_expectations:
 runtime_defaults:
   max_turns: 6
   timeout_seconds: 240
+expert_profile:
+  public_name: 引用侦探 Sherlock
+  short_name: 引用侦探
+  role_title: 引文核验专家
+  avatar_label: 引
+  tone: witty_professional
+  tagline: 查清 citation key、来源支撑和伪引用风险。
+  status_phrases:
+    queued: 正在接手引用线索
+    running: 查 DOI 指纹中
+    blocked: 来源线索不足，正在标记缺口
+    completed: 引用链路已核完
+    failed: 这轮核验失败，需要补来源
+  preview_preferences:
+    primary_kinds:
+      - report
+      - claim_set

@@ -162,6 +162,34 @@ def test_capability_team_policy_respects_empty_user_tool_allowlist() -> None:
     assert resolve_effective_tools(_template(), policy) == []
 
 
+def test_invocation_assignment_uses_expert_profile_public_identity() -> None:
+    template = AgentTemplate(
+        id="research_scout.v1",
+        display_role="文献检索员",
+        category="research",
+        expert_profile={
+            "public_name": "文献猎手 Nora",
+            "role_title": "文献检索专家",
+            "avatar_label": "文",
+            "status_phrases": {"running": "扫文献雷达中"},
+        },
+    )
+
+    assignment = build_invocation_assignment(
+        template=template,
+        iteration=1,
+        template_invocation_count=1,
+        reason="core",
+        input_brief={},
+        effective_tools=[],
+        effective_skills=[],
+    )
+
+    assert assignment.display_name == "文献猎手 Nora"
+    assert assignment.assigned_role == "文献检索专家"
+    assert assignment.expert_profile["public_name"] == "文献猎手 Nora"
+
+
 def test_build_capability_team_policy_reads_contract_overlays() -> None:
     cap = SimpleNamespace(
         definition_json={

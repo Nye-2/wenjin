@@ -19,6 +19,7 @@ def test_result_card_data_from_task_report_preserves_outputs_and_reviews() -> No
         "status": "completed",
         "narrative": "完成文献定位。",
         "duration_seconds": 12,
+        "preview_item_id": "team.1.research_scout_v1.1.output",
         "outputs": [
             {
                 "id": "out-1",
@@ -44,6 +45,7 @@ def test_result_card_data_from_task_report_preserves_outputs_and_reviews() -> No
     assert data["status"] == "completed"
     assert data["narrative"] == "完成文献定位。"
     assert data["duration_seconds"] == 12
+    assert data["preview_item_id"] == "team.1.research_scout_v1.1.output"
     assert data["outputs"] == [
         {
             "id": "out-1",

@@ -15,6 +15,7 @@ import {
 } from "@/components/prism/PrismReviewList";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import type { ResultCardData } from "@/stores/chat-store";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
 
@@ -78,6 +79,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
   const setWorkbenchFullscreen = useWorkbenchLayoutStore(
     (state) => state.setWorkbenchFullscreen,
   );
+  const focusPreviewItem = useRunUiStore((state) => state.focusPreviewItem);
   const [idempotencyKey] = useState(() => generateUUID());
   const [committed, setCommitted] = useState(false);
   const [committing, setCommitting] = useState(false);
@@ -117,7 +119,14 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
 
   function openReviewSurface() {
     selectRun(execution_id);
-    setActiveWorkbenchTab("review");
+    const previewItemId = data.previewItemId ?? data.preview_item_id ?? null;
+    if (previewItemId) {
+      focusPreviewItem(previewItemId);
+      setActiveWorkbenchTab("run");
+    } else {
+      focusPreviewItem(null);
+      setActiveWorkbenchTab("review");
+    }
     setWorkbenchFullscreen(true);
   }
 

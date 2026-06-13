@@ -38,3 +38,20 @@ quality_expectations:
 runtime_defaults:
   max_turns: 7
   timeout_seconds: 360
+expert_profile:
+  public_name: 图表师傅 Vega
+  short_name: 图表师傅
+  role_title: 图表工程师
+  avatar_label: 图
+  tone: witty_professional
+  tagline: 让图表、caption 和结论互相对得上。
+  status_phrases:
+    queued: 正在查看图表需求
+    running: 调图调表中
+    blocked: 缺少数据或展示目标
+    completed: 图表方案已整理
+    failed: 这轮图表处理失败
+  preview_preferences:
+    primary_kinds:
+      - artifact
+      - report

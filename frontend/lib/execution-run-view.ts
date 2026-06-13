@@ -32,11 +32,53 @@ export type RunPrimaryAction =
   | "retry"
   | "continue_chat";
 
+export interface RunViewExpertProfile {
+  publicName: string;
+  shortName?: string;
+  roleTitle: string;
+  avatarLabel: string;
+  tone: "professional" | "witty_professional";
+  tagline?: string;
+  statusPhrase?: string;
+}
+
+export interface RunViewTeamMemberSnapshot {
+  id: string;
+  status: "queued" | "running" | "blocked" | "completed" | "failed";
+  updateKind: "progress" | "finding" | "risk" | "decision" | "output" | "question";
+  stageLabel: string;
+  headline: string;
+  body: string;
+  chips: Array<{ label: string; value?: string; tone?: string }>;
+  evidenceRefs: Array<{ label: string; type: string; refId?: string; path?: string; count?: number }>;
+  outputRefs: Array<{ label: string; kind: string; refId?: string; previewItemId?: string; path?: string; status?: string }>;
+  nextStep?: string;
+  confidence?: "low" | "medium" | "high";
+  createdAt: string;
+}
+
+export interface RunViewTeamMemberPreviewItem {
+  id: string;
+  ownerMemberId: string;
+  title: string;
+  subtitle?: string;
+  kind: string;
+  summary: string;
+  status: "draft" | "ready" | "saved";
+  payloadRef?: string;
+  sourceRefs: Array<{ label: string; type: string; refId?: string; path?: string }>;
+  createdAt: string;
+}
+
 export interface RunViewTeamMember {
   id: string;
   templateId?: string | null;
   displayName: string;
   status: string;
+  expertProfile?: RunViewExpertProfile;
+  latestSnapshot?: RunViewTeamMemberSnapshot;
+  snapshots: RunViewTeamMemberSnapshot[];
+  previewItems: RunViewTeamMemberPreviewItem[];
   effectiveTools: string[];
   effectiveSkills: string[];
   activityLabel?: string;
@@ -532,11 +574,20 @@ function teamMembersFromNodeStates(
     );
     const activity = harnessActivityFromNodeState(rawNode);
     const debugToolCount = rawNode.tool_calls?.length ?? 0;
+    const harness = objectValue(metadata?.harness);
+    const snapshots = expertSnapshotsFromHarness(harness);
+    const previewItems = expertPreviewItemsFromHarness(harness, id);
+    const latestSnapshot = snapshots.at(-1);
+    const expertProfile = expertProfileFromMetadata(metadata, latestSnapshot);
     members.push({
       id,
       templateId,
       displayName,
       status: stringValue(node.status) ?? "pending",
+      ...(expertProfile ? { expertProfile } : {}),
+      ...(latestSnapshot ? { latestSnapshot } : {}),
+      snapshots,
+      previewItems,
       effectiveTools: stringArrayValue(metadata?.effective_tools),
       effectiveSkills: stringArrayValue(metadata?.effective_skills),
       ...(activity.label ? { activityLabel: activity.label } : {}),
@@ -556,6 +607,184 @@ function teamMembersFromNodeStates(
     });
   }
   return members;
+}
+
+function expertProfileFromMetadata(
+  metadata: Record<string, unknown> | null,
+  latestSnapshot?: RunViewTeamMemberSnapshot,
+): RunViewExpertProfile | undefined {
+  const raw = objectValue(metadata?.expert_profile);
+  const publicName = stringValue(raw?.public_name) ?? stringValue(metadata?.display_name);
+  const roleTitle = stringValue(raw?.role_title) ?? stringValue(metadata?.assigned_role);
+  if (!publicName || !roleTitle) return undefined;
+  const tone = raw?.tone === "witty_professional" ? "witty_professional" : "professional";
+  const avatarLabel =
+    stringValue(raw?.avatar_label) ??
+    publicName.trim().slice(0, 1) ??
+    roleTitle.trim().slice(0, 1);
+  return {
+    publicName,
+    roleTitle,
+    avatarLabel,
+    tone,
+    ...(stringValue(raw?.short_name) ? { shortName: stringValue(raw?.short_name)! } : {}),
+    ...(stringValue(raw?.tagline) ? { tagline: stringValue(raw?.tagline)! } : {}),
+    ...(latestSnapshot?.headline ? { statusPhrase: latestSnapshot.headline } : {}),
+  };
+}
+
+function expertSnapshotsFromHarness(
+  harness: Record<string, unknown> | null,
+): RunViewTeamMemberSnapshot[] {
+  const snapshots = arrayValue(harness?.expert_snapshots)
+    .map((item) => expertSnapshotFromUnknown(item))
+    .filter((item): item is RunViewTeamMemberSnapshot => Boolean(item));
+  return snapshots
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(-5);
+}
+
+function expertSnapshotFromUnknown(value: unknown): RunViewTeamMemberSnapshot | null {
+  const raw = objectValue(value);
+  if (!raw) return null;
+  const id = stringValue(raw.snapshot_id) ?? stringValue(raw.id);
+  const headline = stringValue(raw.headline);
+  const body = stringValue(raw.body);
+  const stage = objectValue(raw.stage);
+  if (!id || !headline || !body) return null;
+  const status = normalizeExpertSnapshotStatus(raw.status);
+  const updateKind = normalizeExpertUpdateKind(raw.update_kind);
+  return {
+    id,
+    status,
+    updateKind,
+    stageLabel: stringValue(stage?.label) ?? "正在处理",
+    headline,
+    body,
+    chips: arrayValue(raw.chips)
+      .map((item) => {
+        const chip = objectValue(item);
+        const label = stringValue(chip?.label);
+        if (!label) return null;
+        return {
+          label,
+          ...(stringValue(chip?.value) ? { value: stringValue(chip?.value)! } : {}),
+          ...(stringValue(chip?.tone) ? { tone: stringValue(chip?.tone)! } : {}),
+        };
+      })
+      .filter((item): item is { label: string; value?: string; tone?: string } => Boolean(item)),
+    evidenceRefs: arrayValue(raw.evidence_refs)
+      .map((item) => {
+        const ref = objectValue(item);
+        const label = stringValue(ref?.label);
+        const type = stringValue(ref?.ref_type);
+        if (!label || !type) return null;
+        return {
+          label,
+          type,
+          ...(stringValue(ref?.ref_id) ? { refId: stringValue(ref?.ref_id)! } : {}),
+          ...(stringValue(ref?.path) ? { path: stringValue(ref?.path)! } : {}),
+          ...(typeof ref?.count === "number" ? { count: ref.count } : {}),
+        };
+      })
+      .filter((item): item is RunViewTeamMemberSnapshot["evidenceRefs"][number] => Boolean(item)),
+    outputRefs: arrayValue(raw.output_refs)
+      .map((item) => {
+        const ref = objectValue(item);
+        const label = stringValue(ref?.label);
+        const kind = stringValue(ref?.kind);
+        if (!label || !kind) return null;
+        return {
+          label,
+          kind,
+          ...(stringValue(ref?.ref_id) ? { refId: stringValue(ref?.ref_id)! } : {}),
+          ...(stringValue(ref?.preview_item_id) ? { previewItemId: stringValue(ref?.preview_item_id)! } : {}),
+          ...(stringValue(ref?.path) ? { path: stringValue(ref?.path)! } : {}),
+          ...(stringValue(ref?.status) ? { status: stringValue(ref?.status)! } : {}),
+        };
+      })
+      .filter((item): item is RunViewTeamMemberSnapshot["outputRefs"][number] => Boolean(item)),
+    ...(stringValue(raw.next_step) ? { nextStep: stringValue(raw.next_step)! } : {}),
+    ...(raw.confidence === "low" || raw.confidence === "medium" || raw.confidence === "high"
+      ? { confidence: raw.confidence }
+      : {}),
+    createdAt: stringValue(raw.created_at) ?? "",
+  };
+}
+
+function expertPreviewItemsFromHarness(
+  harness: Record<string, unknown> | null,
+  ownerMemberId: string,
+): RunViewTeamMemberPreviewItem[] {
+  return arrayValue(harness?.expert_preview_items)
+    .map((item) => {
+      const raw = objectValue(item);
+      const id = stringValue(raw?.preview_item_id) ?? stringValue(raw?.id);
+      const title = stringValue(raw?.title);
+      const kind = stringValue(raw?.kind);
+      const summary = stringValue(raw?.summary);
+      if (!id || !title || !kind || !summary) return null;
+      return {
+        id,
+        ownerMemberId,
+        title,
+        kind,
+        summary,
+        status: normalizePreviewStatus(raw?.status),
+        ...(stringValue(raw?.subtitle) ? { subtitle: stringValue(raw?.subtitle)! } : {}),
+        ...(stringValue(raw?.preview_payload_ref) ? { payloadRef: stringValue(raw?.preview_payload_ref)! } : {}),
+        sourceRefs: arrayValue(raw?.source_refs)
+          .map((item) => {
+            const ref = objectValue(item);
+            const label = stringValue(ref?.label);
+            const type = stringValue(ref?.ref_type);
+            if (!label || !type) return null;
+            return {
+              label,
+              type,
+              ...(stringValue(ref?.ref_id) ? { refId: stringValue(ref?.ref_id)! } : {}),
+              ...(stringValue(ref?.path) ? { path: stringValue(ref?.path)! } : {}),
+            };
+          })
+          .filter((item): item is RunViewTeamMemberPreviewItem["sourceRefs"][number] => Boolean(item)),
+        createdAt: stringValue(raw?.created_at) ?? "",
+      };
+    })
+    .filter((item): item is RunViewTeamMemberPreviewItem => Boolean(item))
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(-20);
+}
+
+function normalizeExpertSnapshotStatus(value: unknown): RunViewTeamMemberSnapshot["status"] {
+  if (
+    value === "queued" ||
+    value === "running" ||
+    value === "blocked" ||
+    value === "completed" ||
+    value === "failed"
+  ) {
+    return value;
+  }
+  return "running";
+}
+
+function normalizeExpertUpdateKind(value: unknown): RunViewTeamMemberSnapshot["updateKind"] {
+  if (
+    value === "progress" ||
+    value === "finding" ||
+    value === "risk" ||
+    value === "decision" ||
+    value === "output" ||
+    value === "question"
+  ) {
+    return value;
+  }
+  return "progress";
+}
+
+function normalizePreviewStatus(value: unknown): RunViewTeamMemberPreviewItem["status"] {
+  if (value === "draft" || value === "ready" || value === "saved") return value;
+  return "draft";
 }
 
 function teamQualityGatesFromRuntimeState(

@@ -10,9 +10,10 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.contracts.research_evidence import validate_research_surfaces
+from src.contracts.team_expert import CapabilityTeamPresentationV1
 
 # ---------------------------------------------------------------------------
 # Existing models (used by other modules)
@@ -281,6 +282,20 @@ class CapabilityV2YamlModel(BaseModel):
     team_policy: CapabilityV2TeamPolicyModel | None = None
     graph_template: GraphTemplateModel
     extensions: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("extensions")
+    @classmethod
+    def validate_extensions(cls, value: dict[str, Any]) -> dict[str, Any]:
+        extensions = dict(value or {})
+        if "team_presentation" in extensions:
+            presentation = CapabilityTeamPresentationV1.model_validate(
+                extensions["team_presentation"],
+            )
+            extensions["team_presentation"] = presentation.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+        return extensions
 
     @model_validator(mode="after")
     def validate_team_kernel_contract(self) -> CapabilityV2YamlModel:

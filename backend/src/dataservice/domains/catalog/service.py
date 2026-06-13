@@ -21,6 +21,7 @@ from src.dataservice.domains.catalog.projection import (
     skill_to_record,
 )
 from src.dataservice.domains.catalog.repository import CatalogRepository
+from src.contracts.team_expert import ExpertProfileV1
 
 
 class DataServiceCatalogService:
@@ -397,6 +398,19 @@ class DataServiceCatalogService:
             raise ValueError("Agent template records require tool_affinity object")
         if not isinstance(risk_profile, dict):
             raise ValueError("Agent template records require risk_profile object")
+        template_json = dict(data)
+        raw_expert_profile = template_json.get("expert_profile")
+        if raw_expert_profile is not None:
+            try:
+                expert_profile = ExpertProfileV1.model_validate(raw_expert_profile).model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+            except Exception as exc:
+                raise ValueError(
+                    f"Agent template {template_id} has invalid expert_profile: {exc}"
+                ) from exc
+            template_json["expert_profile"] = expert_profile
         return {
             "id": template_id,
             "schema_version": schema_version,
@@ -411,7 +425,7 @@ class DataServiceCatalogService:
             "output_contracts": list(data.get("output_contracts") or []),
             "quality_expectations": list(data.get("quality_expectations") or []),
             "runtime_defaults": dict(data.get("runtime_defaults") or {}),
-            "template_json": dict(data),
+            "template_json": template_json,
             "checksum": checksum,
             "source_path": source_path,
         }

@@ -9,7 +9,51 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
   page,
   context,
 }) => {
+  const paperAnalysisOutput = {
+    id: "doc-1",
+    kind: "document",
+    preview: "异构客户端缺口",
+    default_checked: true,
+    data: {
+      name: "paper-analysis.md",
+      mime_type: "text/markdown",
+      storage_path: "/tmp/paper-analysis.md",
+      size_bytes: 256,
+      doc_kind: "draft",
+    },
+  };
   await installWorkspaceRouteMocks(page, context, {
+    executions: [
+      {
+        id: "ex-1",
+        user_id: "user-1",
+        workspace_id: "ws-1",
+        execution_type: "capability",
+        feature_id: "paper_analysis",
+        status: "completed",
+        params: {},
+        result: {
+          task_report: {
+            execution_id: "ex-1",
+            capability_id: "paper_analysis",
+            status: "completed",
+            narrative: "3 个角度可切，最有价值是通信效率 ↔ 隐私强度",
+            duration_seconds: 12,
+            outputs: [paperAnalysisOutput],
+            review_items: [],
+            errors: [],
+          },
+        },
+        node_states: {},
+        graph_structure: { mode: "team_kernel", nodes: [], edges: [] },
+        artifact_ids: [],
+        next_actions: [],
+        child_execution_ids: [],
+        progress: 100,
+        created_at: "2026-06-13T00:00:00Z",
+        updated_at: "2026-06-13T00:00:12Z",
+      },
+    ],
     runStreamBody: buildEventStreamBody([
       {
         event: "block",
@@ -52,21 +96,7 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
               capability_name: "论文分析",
               status: "completed",
               narrative: "3 个角度可切，最有价值是通信效率 ↔ 隐私强度",
-              outputs: [
-                {
-                  id: "doc-1",
-                  kind: "document",
-                  preview: "异构客户端缺口",
-                  default_checked: true,
-                  data: {
-                    name: "paper-analysis.md",
-                    mime_type: "text/markdown",
-                    storage_path: "/tmp/paper-analysis.md",
-                    size_bytes: 256,
-                    doc_kind: "draft",
-                  },
-                },
-              ],
+              outputs: [paperAnalysisOutput],
             },
           },
         },
@@ -85,12 +115,12 @@ test("paper analysis auto-entry renders the current chat completion chain", asyn
   await expect(page.getByText(/phase 1 完成/)).toBeVisible();
   await expect(page.getByText(/phase 2 完成/)).toBeVisible();
   await expect(page.getByText(/3 个角度可切/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "查看结果" })).toBeVisible();
-  await page.getByRole("button", { name: "查看结果" }).click();
+  await expect(page.getByRole("button", { name: "查看详情" })).toBeVisible();
+  await page.getByRole("button", { name: "查看详情" }).click();
   await expect(
     page.getByRole("button", { name: /异构客户端缺口/ }).first(),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "保存到工作区" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "保存已勾选" })).toBeVisible();
 
   for (const banned of [
     "message_feature_proposal",
@@ -167,6 +197,166 @@ test("sandbox artifact review items render as artifact saves, not Prism edits", 
   await expect(
     page.getByRole("link", { name: "预览待确认修改" }),
   ).toHaveCount(0);
+});
+
+test("result card can deep-link into an expert team preview", async ({
+  page,
+  context,
+}) => {
+  const expertPreviewId = "preview-literature-1";
+  await installWorkspaceRouteMocks(page, context, {
+    executions: [
+      {
+        id: "ex-team-preview",
+        user_id: "user-1",
+        workspace_id: "ws-1",
+        execution_type: "capability",
+        feature_id: "paper_analysis",
+        status: "completed",
+        params: {},
+        result: {
+          task_report: {
+            execution_id: "ex-team-preview",
+            capability_id: "paper_analysis",
+            status: "completed",
+            narrative: "文献猎手 Nora 已整理候选文献。",
+            duration_seconds: 8,
+            outputs: [
+              {
+                id: "team-output-1",
+                kind: "document",
+                preview: "候选文献列表",
+                default_checked: true,
+                data: {
+                  name: "候选文献列表.md",
+                  mime_type: "text/markdown",
+                  doc_kind: "team_member_report",
+                  content: "12 篇候选文献和筛选理由。",
+                },
+              },
+            ],
+            review_items: [],
+            preview_item_id: expertPreviewId,
+            errors: [],
+          },
+        },
+        node_states: {
+          "team.1.research_scout_v1.1": {
+            status: "completed",
+            node_type: "agent_invocation",
+            label: "文献猎手 Nora",
+            node_metadata: {
+              team: true,
+              template_id: "research_scout.v1",
+              display_name: "文献猎手 Nora",
+              assigned_role: "文献检索专家",
+              expert_profile: {
+                public_name: "文献猎手 Nora",
+                role_title: "文献检索专家",
+                avatar_label: "文",
+              },
+              harness: {
+                expert_snapshots: [
+                  {
+                    snapshot_id: "snap-literature-1",
+                    execution_id: "ex-team-preview",
+                    workspace_id: "ws-1",
+                    agent_invocation_id: "team.1.research_scout_v1.1",
+                    agent_template_id: "research_scout.v1",
+                    role_key: "research_scout",
+                    role_name: "文献检索专家",
+                    display_name: "文献猎手 Nora",
+                    status: "completed",
+                    update_kind: "finding",
+                    stage: { label: "检索完成" },
+                    headline: "找到 12 篇候选文献",
+                    body: "主要集中在隐私保护、通信压缩和个性化微调三个方向。",
+                    chips: [{ label: "候选", value: "12 篇", tone: "success" }],
+                    created_at: "2026-06-13T00:00:01Z",
+                  },
+                ],
+                expert_preview_items: [
+                  {
+                    preview_item_id: expertPreviewId,
+                    execution_id: "ex-team-preview",
+                    workspace_id: "ws-1",
+                    owner_agent_invocation_id: "team.1.research_scout_v1.1",
+                    owner_role_name: "文献检索专家",
+                    title: "候选文献列表",
+                    kind: "literature_list",
+                    summary: "12 篇候选文献和筛选理由。",
+                    status: "ready",
+                    created_at: "2026-06-13T00:00:02Z",
+                  },
+                ],
+              },
+            },
+          },
+        },
+        graph_structure: {
+          mode: "team_kernel",
+          nodes: [
+            {
+              id: "team.1.research_scout_v1.1",
+              type: "agent_invocation",
+              label: "文献猎手 Nora",
+            },
+          ],
+          edges: [],
+        },
+        artifact_ids: [],
+        next_actions: [],
+        child_execution_ids: [],
+        progress: 100,
+        created_at: "2026-06-13T00:00:00Z",
+        updated_at: "2026-06-13T00:00:08Z",
+      },
+    ],
+    runStreamBody: buildEventStreamBody([
+      {
+        event: "block",
+        data: {
+          block: {
+            kind: "result_card",
+            data: {
+              execution_id: "ex-team-preview",
+              capability_name: "论文分析",
+              status: "completed",
+              narrative: "文献猎手 Nora 已整理候选文献。",
+              outputs: [
+                {
+                  id: "team-output-1",
+                  kind: "document",
+                  preview: "候选文献列表",
+                  default_checked: true,
+                  data: {
+                    name: "候选文献列表.md",
+                    mime_type: "text/markdown",
+                    doc_kind: "team_member_report",
+                    content: "12 篇候选文献和筛选理由。",
+                  },
+                },
+              ],
+              review_items: [],
+              preview_item_id: expertPreviewId,
+            },
+          },
+        },
+      },
+    ]),
+  });
+
+  await page.goto(
+    `/workspaces/ws-1?feature=paper_analysis&skill=paper-analyst&entry=open&paper_title=${encodeURIComponent(
+      "联邦学习+大模型",
+    )}`,
+  );
+
+  await expect(page.getByText("文献猎手 Nora 已整理候选文献。")).toBeVisible();
+  await page.getByRole("button", { name: "查看详情" }).click();
+  await expect(page.getByRole("region", { name: "结果预览" })).toBeVisible();
+  await expect(page.getByText("候选文献列表")).toBeVisible();
+  await expect(page.getByText("12 篇候选文献和筛选理由。")).toBeVisible();
 });
 
 test("canonical result card links open workspace rooms without resetting the current thread", async ({

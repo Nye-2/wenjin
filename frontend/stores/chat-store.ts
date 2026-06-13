@@ -29,6 +29,8 @@ export type ResultCardData = {
     data: Record<string, unknown>;
   }>;
   review_items?: WorkspacePrismReviewItem[];
+  preview_item_id?: string | null;
+  previewItemId?: string | null;
   narrative?: string;
   duration_seconds?: number;
   errors?: Array<{ message: string; phase?: string; task?: string }>;

@@ -229,6 +229,47 @@ class TestCapabilityV2Yaml:
         assert data["team_policy"]["contract_overlay_skills"] == ["sci-journal-rules"]
         assert data["team_policy"]["contract_overlay_categories"] == ["review", "writing"]
 
+    def test_team_presentation_extension_is_validated(self):
+        payload = self._valid_payload()
+        payload["extensions"] = {
+            "team_presentation": {
+                "leader_virtual_member": {
+                    "public_name": "Steve",
+                    "role_title": "研究负责人",
+                    "status_phrases": {"running": "排兵布阵中"},
+                },
+                "template_overrides": {
+                    "literature_synthesizer.v1": {
+                        "public_name": "综述姐 Athena",
+                        "status_phrases": {"running": "织主题矩阵中"},
+                    }
+                },
+            }
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+        data = model.to_catalog_data()
+
+        presentation = data["extensions"]["team_presentation"]
+        assert presentation["schema_version"] == "wenjin.team.presentation.v1"
+        assert presentation["template_overrides"]["literature_synthesizer.v1"]["public_name"] == "综述姐 Athena"
+
+    def test_team_presentation_extension_rejects_non_display_fields(self):
+        payload = self._valid_payload()
+        payload["extensions"] = {
+            "team_presentation": {
+                "template_overrides": {
+                    "research_scout.v1": {
+                        "public_name": "文献猎手 Nora",
+                        "default_skills": ["web_search"],
+                    }
+                }
+            }
+        }
+
+        with pytest.raises(ValidationError, match="default_skills"):
+            CapabilityV2YamlModel(**payload)
+
     def test_quality_gate_ids_must_not_be_blank(self):
         payload = self._valid_payload()
         payload["quality_gates"] = [" "]

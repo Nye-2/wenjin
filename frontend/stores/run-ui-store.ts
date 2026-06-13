@@ -4,11 +4,13 @@ interface RunUiState {
   activeRunId: string | null;
   focusedRunId: string | null;
   highlightedRunId: string | null;
+  focusedPreviewItemId: string | null;
   completedRunIds: Set<string>;
   markRunLaunching: (executionId: string) => void;
   markRunHydrated: (executionId: string, terminal?: boolean) => void;
   markRunCompleted: (executionId: string) => void;
   focusRun: (executionId: string | null) => void;
+  focusPreviewItem: (previewItemId: string | null) => void;
   highlightRunInDrawer: (executionId: string | null) => void;
   clearTerminalFocus: (executionId: string) => void;
   reset: () => void;
@@ -18,6 +20,7 @@ export const useRunUiStore = create<RunUiState>((set) => ({
   activeRunId: null,
   focusedRunId: null,
   highlightedRunId: null,
+  focusedPreviewItemId: null,
   completedRunIds: new Set<string>(),
 
   markRunLaunching(executionId) {
@@ -53,6 +56,10 @@ export const useRunUiStore = create<RunUiState>((set) => ({
     set({ focusedRunId: executionId });
   },
 
+  focusPreviewItem(previewItemId) {
+    set({ focusedPreviewItemId: previewItemId });
+  },
+
   highlightRunInDrawer(executionId) {
     set({ highlightedRunId: executionId });
   },
@@ -69,6 +76,7 @@ export const useRunUiStore = create<RunUiState>((set) => ({
       activeRunId: null,
       focusedRunId: null,
       highlightedRunId: null,
+      focusedPreviewItemId: null,
       completedRunIds: new Set<string>(),
     });
   },

@@ -38,3 +38,21 @@ quality_expectations:
 runtime_defaults:
   max_turns: 8
   timeout_seconds: 420
+expert_profile:
+  public_name: 证据管家 Iris
+  short_name: 证据管家
+  role_title: 证据分析专家
+  avatar_label: 证
+  tone: witty_professional
+  tagline: 对齐数据、实验、限制和结论边界。
+  status_phrases:
+    queued: 正在接管证据链
+    running: 对齐证据链中
+    blocked: 数据或实验条件不足
+    completed: 证据状态已梳理
+    failed: 这轮证据分析失败
+  preview_preferences:
+    primary_kinds:
+      - experiment_summary
+      - artifact
+      - report

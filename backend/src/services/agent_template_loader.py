@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from src.contracts.team_expert import ExpertProfileV1
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.catalog import CatalogSeedItemPayload, CatalogSeedLoadPayload
 from src.dataservice_client.provider import dataservice_client
@@ -102,6 +103,15 @@ class AgentTemplateLoader:
         for key in ("tool_affinity", "risk_profile"):
             if not isinstance(raw.get(key), dict):
                 raise ValueError(f"Invalid agent_template.v1 seed in {path}: {key} must be an object")
+        if raw.get("expert_profile") is not None:
+            try:
+                raw["expert_profile"] = ExpertProfileV1.model_validate(
+                    raw["expert_profile"],
+                ).model_dump(mode="json", exclude_none=True)
+            except Exception as exc:
+                raise ValueError(
+                    f"Invalid agent_template.v1 seed in {path}: expert_profile {exc}"
+                ) from exc
         contract_errors = validate_agent_template_contract(raw)
         if contract_errors:
             detail = "; ".join(contract_errors)

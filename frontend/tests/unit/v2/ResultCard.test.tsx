@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResultCard } from "@/app/(workbench)/workspaces/[id]/components/ResultCard";
+import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
 const mockFetch = vi.fn();
@@ -23,6 +24,7 @@ beforeEach(() => {
   });
   localStorage.clear();
   useWorkbenchLayoutStore.getState().reset();
+  useRunUiStore.getState().reset();
 });
 
 const SAMPLE_DATA = {
@@ -96,12 +98,25 @@ describe("ResultCard", () => {
   });
 
   it("opens the workbench review surface for detailed result review", () => {
+    useRunUiStore.getState().focusPreviewItem("stale-preview");
     render(<ResultCard data={SAMPLE_DATA} />);
 
     fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
 
     expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
     expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review");
+    expect(useRunUiStore.getState().focusedPreviewItemId).toBeNull();
+    expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
+  });
+
+  it("opens the run preview surface when result card carries a preview item pointer", () => {
+    render(<ResultCard data={{ ...SAMPLE_DATA, preview_item_id: "preview-1" }} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
+
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("run");
+    expect(useRunUiStore.getState().focusedPreviewItemId).toBe("preview-1");
     expect(useWorkbenchLayoutStore.getState().isWorkbenchFullscreen).toBe(true);
   });
 

@@ -37,3 +37,21 @@ quality_expectations:
 runtime_defaults:
   max_turns: 8
   timeout_seconds: 300
+expert_profile:
+  public_name: 写作编辑 Olivia
+  short_name: 写作编辑
+  role_title: 学术写作专家
+  avatar_label: 写
+  tone: witty_professional
+  tagline: 把证据和结构打磨成可审阅正文。
+  status_phrases:
+    queued: 正在读写作约束
+    running: 打磨段落中
+    blocked: 证据边界不清，正在保守处理
+    completed: 正文候选已完成
+    failed: 这轮写作失败
+  preview_preferences:
+    primary_kinds:
+      - document
+      - file_change
+      - report

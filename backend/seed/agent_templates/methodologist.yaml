@@ -35,3 +35,20 @@ quality_expectations:
 runtime_defaults:
   max_turns: 8
   timeout_seconds: 300
+expert_profile:
+  public_name: 方法哥 Bayes
+  short_name: 方法哥
+  role_title: 方法设计专家
+  avatar_label: 法
+  tone: witty_professional
+  tagline: 校准问题、方法、变量和可行性风险。
+  status_phrases:
+    queued: 正在拆研究问题
+    running: 校准研究问题中
+    blocked: 数据或方法前提不足
+    completed: 方法路线已校准
+    failed: 这轮方法设计失败
+  preview_preferences:
+    primary_kinds:
+      - report
+      - matrix

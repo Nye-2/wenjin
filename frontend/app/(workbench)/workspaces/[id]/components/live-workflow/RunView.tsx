@@ -1,8 +1,11 @@
 import {
+  ArrowLeft,
   CheckCircle2,
   Database,
+  Eye,
   Users,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import type { ExecutionRecord } from "@/lib/api/types";
 import {
@@ -10,7 +13,10 @@ import {
   runViewFromExecution,
   type RunProgressItem,
   type RunViewTeam,
+  type RunViewTeamMember,
+  type RunViewTeamMemberPreviewItem,
 } from "@/lib/execution-run-view";
+import { useRunUiStore } from "@/stores/run-ui-store";
 
 import { NodeInspector } from "./NodeInspector";
 import { EmptyState, NodeStatusDot } from "./shared";
@@ -83,7 +89,7 @@ export function RunView({
           </button>
           <button type="button" onClick={onOpenReview} style={styles.secondaryButton}>
             <CheckCircle2 size={14} />
-            进入审阅
+            查看待确认
           </button>
         </div>
 
@@ -175,8 +181,54 @@ function QualityHighlights({
 }
 
 function TeamRoster({ team }: { team: RunViewTeam }) {
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
+  const focusedPreviewItemId = useRunUiStore((state) => state.focusedPreviewItemId);
+  const focusPreviewItem = useRunUiStore((state) => state.focusPreviewItem);
+  useEffect(() => {
+    if (!focusedPreviewItemId) return;
+    const exists = team.members.some((member) =>
+      member.previewItems.some((item) => item.id === focusedPreviewItemId),
+    );
+    if (exists) {
+      setSelectedPreviewId(focusedPreviewItemId);
+      setSelectedMemberId(null);
+    }
+  }, [focusedPreviewItemId, team.members]);
+  const selectedMember = selectedMemberId
+    ? team.members.find((member) => member.id === selectedMemberId) ?? null
+    : null;
+  const selectedPreview =
+    selectedPreviewId
+      ? team.members
+        .flatMap((member) => member.previewItems)
+        .find((item) => item.id === selectedPreviewId) ?? null
+      : null;
+
   if (team.members.length === 0 && team.qualityGates.length === 0) {
     return null;
+  }
+  if (selectedPreview) {
+    return (
+      <TeamPreviewFullscreen
+        preview={selectedPreview}
+        onBack={() => {
+          setSelectedPreviewId(null);
+          if (focusedPreviewItemId === selectedPreview.id) {
+            focusPreviewItem(null);
+          }
+        }}
+      />
+    );
+  }
+  if (selectedMember) {
+    return (
+      <ExpertDetail
+        member={selectedMember}
+        onBack={() => setSelectedMemberId(null)}
+        onOpenPreview={setSelectedPreviewId}
+      />
+    );
   }
   return (
     <section role="region" aria-label="执行团队" style={styles.teamPanel}>
@@ -202,15 +254,48 @@ function TeamRoster({ team }: { team: RunViewTeam }) {
               }}
             >
               <div style={styles.teamMemberMain}>
-                <NodeStatusDot status={member.status} />
+                <span style={expertAvatarStyle(member)}>{member.expertProfile?.avatarLabel ?? member.displayName.slice(0, 1)}</span>
                 <div style={{ minWidth: 0 }}>
                   <div style={styles.teamMemberName}>{member.displayName}</div>
                   <div style={styles.teamMemberMeta}>
                     {memberCapabilitySummary(member)}
                   </div>
+                  {member.latestSnapshot?.body ? (
+                    <div style={expertSnapshotBodyStyle}>{member.latestSnapshot.body}</div>
+                  ) : null}
+                  {member.latestSnapshot?.chips.length ? (
+                    <div style={expertChipRowStyle}>
+                      {member.latestSnapshot.chips.slice(0, 3).map((chip) => (
+                        <span key={`${member.id}:${chip.label}:${chip.value ?? ""}`} style={expertChipStyle}>
+                          {chip.label}{chip.value ? ` ${chip.value}` : ""}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-              <TeamMemberStatusPill status={member.status} />
+              <div style={expertCardActionsStyle}>
+                {member.previewItems.length > 0 ? (
+                  <button
+                    type="button"
+                    style={expertIconButtonStyle}
+                    onClick={() => setSelectedPreviewId(member.previewItems[member.previewItems.length - 1]?.id ?? null)}
+                    aria-label="打开预览"
+                    title="打开预览"
+                  >
+                    <Eye size={13} />
+                    {member.previewItems.length}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  style={expertTextButtonStyle}
+                  onClick={() => setSelectedMemberId(member.id)}
+                >
+                  详情
+                </button>
+                <TeamMemberStatusPill status={member.status} />
+              </div>
             </div>
           ))}
         </div>
@@ -235,6 +320,281 @@ function TeamRoster({ team }: { team: RunViewTeam }) {
     </section>
   );
 }
+
+function ExpertDetail({
+  member,
+  onBack,
+  onOpenPreview,
+}: {
+  member: RunViewTeamMember;
+  onBack: () => void;
+  onOpenPreview: (previewId: string) => void;
+}) {
+  return (
+    <section role="region" aria-label={`${member.displayName}详情`} style={styles.teamPanel}>
+      <div style={expertDetailHeaderStyle}>
+        <button type="button" style={expertBackButtonStyle} onClick={onBack}>
+          <ArrowLeft size={14} />
+          返回团队
+        </button>
+        <TeamMemberStatusPill status={member.status} />
+      </div>
+      <div style={expertDetailTitleRowStyle}>
+        <span style={expertAvatarStyle(member)}>{member.expertProfile?.avatarLabel ?? member.displayName.slice(0, 1)}</span>
+        <div style={{ minWidth: 0 }}>
+          <div style={styles.teamMemberName}>{member.displayName}</div>
+          <div style={styles.sectionSubtitle}>
+            {member.expertProfile?.roleTitle ?? member.templateId ?? "团队成员"}
+          </div>
+        </div>
+      </div>
+      {member.snapshots.length > 0 ? (
+        <div style={expertDetailBlockStyle}>
+          <div style={expertDetailLabelStyle}>思考摘录</div>
+          {member.snapshots.slice(-5).reverse().map((snapshot) => (
+            <div key={snapshot.id} style={expertTimelineItemStyle}>
+              <div style={expertTimelineHeaderStyle}>
+                <span>{snapshot.stageLabel}</span>
+                <span>{snapshotStatusLabel(snapshot.status)}</span>
+              </div>
+              <div style={expertTimelineHeadlineStyle}>{snapshot.headline}</div>
+              <div style={expertSnapshotBodyStyle}>{snapshot.body}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyState title="正在接手任务" detail="这个专家还没有发布可见摘录。" compact />
+      )}
+      {member.previewItems.length > 0 ? (
+        <div style={expertDetailBlockStyle}>
+          <div style={expertDetailLabelStyle}>预览</div>
+          {member.previewItems.slice().reverse().map((preview) => (
+            <button
+              key={preview.id}
+              type="button"
+              style={previewCardButtonStyle}
+              onClick={() => onOpenPreview(preview.id)}
+            >
+              <span style={previewCardTitleStyle}>{preview.title}</span>
+              <span style={expertSnapshotBodyStyle}>{preview.summary}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function TeamPreviewFullscreen({
+  preview,
+  onBack,
+}: {
+  preview: RunViewTeamMemberPreviewItem;
+  onBack: () => void;
+}) {
+  return (
+    <section role="region" aria-label="结果预览" style={{ ...styles.teamPanel, minHeight: 360 }}>
+      <div style={expertDetailHeaderStyle}>
+        <button type="button" style={expertBackButtonStyle} onClick={onBack}>
+          <ArrowLeft size={14} />
+          返回
+        </button>
+        <span style={expertChipStyle}>{preview.status === "ready" ? "可预览" : "草稿"}</span>
+      </div>
+      <div style={previewFullscreenTitleStyle}>{preview.title}</div>
+      {preview.subtitle ? <div style={styles.sectionSubtitle}>{preview.subtitle}</div> : null}
+      <div style={previewFullscreenBodyStyle}>{preview.summary}</div>
+      {preview.sourceRefs.length > 0 ? (
+        <div style={expertChipRowStyle}>
+          {preview.sourceRefs.slice(0, 6).map((ref) => (
+            <span key={`${preview.id}:${ref.label}:${ref.refId ?? ref.path ?? ""}`} style={expertChipStyle}>
+              {ref.label}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function expertAvatarStyle(member: RunViewTeamMember) {
+  return {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flex: "0 0 auto",
+    fontSize: 13,
+    fontWeight: 700,
+    color: "var(--wjn-blue)",
+    background:
+      member.status === "completed"
+        ? "rgba(23, 122, 98, 0.1)"
+        : "rgba(37, 99, 235, 0.1)",
+    border: "1px solid rgba(37, 99, 235, 0.16)",
+  } as const;
+}
+
+const expertSnapshotBodyStyle = {
+  marginTop: 4,
+  color: "var(--wjn-text-muted)",
+  fontSize: 12,
+  lineHeight: 1.55,
+  overflow: "hidden",
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+} as const;
+
+const expertChipRowStyle = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 6,
+  marginTop: 8,
+} as const;
+
+const expertChipStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 22,
+  borderRadius: 999,
+  padding: "0 8px",
+  border: "1px solid var(--wjn-line)",
+  background: "rgba(255,255,255,0.72)",
+  color: "var(--wjn-text-muted)",
+  fontSize: 11,
+  fontWeight: 650,
+} as const;
+
+const expertCardActionsStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  flex: "0 0 auto",
+} as const;
+
+const expertIconButtonStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 4,
+  minHeight: 26,
+  border: "1px solid var(--wjn-line)",
+  borderRadius: 8,
+  padding: "0 8px",
+  background: "rgba(255,255,255,0.76)",
+  color: "var(--wjn-text)",
+  fontSize: 12,
+  cursor: "pointer",
+} as const;
+
+const expertTextButtonStyle = {
+  ...expertIconButtonStyle,
+  fontWeight: 650,
+} as const;
+
+const expertDetailHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+} as const;
+
+const expertBackButtonStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  border: "none",
+  background: "transparent",
+  color: "var(--wjn-text-muted)",
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+  padding: 0,
+} as const;
+
+const expertDetailTitleRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  marginTop: 14,
+} as const;
+
+const expertDetailBlockStyle = {
+  marginTop: 16,
+  display: "grid",
+  gap: 10,
+} as const;
+
+const expertDetailLabelStyle = {
+  fontSize: 11,
+  fontWeight: 800,
+  letterSpacing: 0,
+  color: "var(--wjn-text-muted)",
+} as const;
+
+const expertTimelineItemStyle = {
+  border: "1px solid var(--wjn-line)",
+  borderRadius: 10,
+  padding: 12,
+  background: "rgba(255,255,255,0.64)",
+} as const;
+
+const expertTimelineHeaderStyle = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  color: "var(--wjn-text-muted)",
+  fontSize: 11,
+  fontWeight: 700,
+} as const;
+
+const expertTimelineHeadlineStyle = {
+  marginTop: 6,
+  color: "var(--wjn-text)",
+  fontSize: 13,
+  fontWeight: 760,
+  lineHeight: 1.35,
+} as const;
+
+const previewCardButtonStyle = {
+  width: "100%",
+  display: "grid",
+  gap: 4,
+  textAlign: "left",
+  border: "1px solid var(--wjn-line)",
+  borderRadius: 10,
+  padding: 12,
+  background: "rgba(255,255,255,0.72)",
+  cursor: "pointer",
+} as const;
+
+const previewCardTitleStyle = {
+  color: "var(--wjn-text)",
+  fontSize: 13,
+  fontWeight: 760,
+} as const;
+
+const previewFullscreenTitleStyle = {
+  marginTop: 18,
+  color: "var(--wjn-text)",
+  fontSize: 18,
+  fontWeight: 820,
+  lineHeight: 1.25,
+} as const;
+
+const previewFullscreenBodyStyle = {
+  marginTop: 16,
+  border: "1px solid var(--wjn-line)",
+  borderRadius: 12,
+  padding: 14,
+  background: "rgba(255,255,255,0.7)",
+  color: "var(--wjn-text)",
+  fontSize: 13,
+  lineHeight: 1.65,
+  whiteSpace: "pre-wrap",
+} as const;
 
 function teamStatusStripe(status: string) {
   if (status === "completed" || status === "passed" || status === "pass") {
@@ -269,12 +629,21 @@ function groupProgressItems(items: RunProgressItem[]): Array<{
 }
 
 function memberCapabilitySummary(member: RunViewTeam["members"][number]): string {
+  if (member.latestSnapshot?.headline) return member.latestSnapshot.headline;
   if (member.activityLabel) return member.activityLabel;
   const count = member.effectiveTools.length + member.effectiveSkills.length;
   if (count > 0) return "能力已就绪";
   if (member.status === "running" || member.status === "launching") return "正在处理";
   if (member.status === "completed") return "已完成";
   return "按任务需要待命";
+}
+
+function snapshotStatusLabel(status: string): string {
+  if (status === "completed") return "完成";
+  if (status === "failed") return "异常";
+  if (status === "blocked") return "等待";
+  if (status === "queued") return "待命";
+  return "进行中";
 }
 
 function TeamMemberStatusPill({ status }: { status: string }) {

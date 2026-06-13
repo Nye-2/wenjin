@@ -55,6 +55,7 @@ class SubagentResult:
     thinking: str | None = None
     tool_calls: list[dict] | None = None
     token_usage: dict | None = None
+    metadata: dict | None = None
 
 
 class SubagentBase(ABC):
