@@ -190,6 +190,98 @@ def test_invocation_assignment_uses_expert_profile_public_identity() -> None:
     assert assignment.expert_profile["public_name"] == "文献猎手 Nora"
 
 
+def test_invocation_assignment_applies_capability_profile_override() -> None:
+    template = AgentTemplate(
+        id="literature_synthesizer.v1",
+        display_role="文献综合专家",
+        category="research",
+        expert_profile={
+            "public_name": "文献专家",
+            "role_title": "文献综合专家",
+            "status_phrases": {"running": "整理文献中"},
+        },
+    )
+
+    assignment = build_invocation_assignment(
+        template=template,
+        iteration=1,
+        template_invocation_count=1,
+        reason="core",
+        input_brief={},
+        effective_tools=[],
+        effective_skills=[],
+        profile_override={
+            "public_name": "综述姐 Athena",
+            "status_phrases": {"running": "织主题矩阵中"},
+        },
+    )
+
+    assert assignment.display_name == "综述姐 Athena"
+    assert assignment.assigned_role == "文献综合专家"
+    assert assignment.expert_profile["status_phrases"]["running"] == "织主题矩阵中"
+
+
+def test_build_capability_team_policy_materializes_template_profile_overrides() -> None:
+    cap = SimpleNamespace(
+        definition_json={
+            "team_policy": {
+                "core_templates": ["literature_synthesizer.v1"],
+                "optional_templates": [],
+            },
+            "extensions": {
+                "team_presentation": {
+                    "template_overrides": {
+                        "literature_synthesizer.v1": {
+                            "public_name": "综述姐 Athena",
+                            "status_phrases": {"running": "织主题矩阵中"},
+                        }
+                    }
+                }
+            },
+        },
+        runtime={"mode": "team_kernel"},
+    )
+
+    policy = build_capability_team_policy(
+        cap,
+        templates={"literature_synthesizer.v1": _template("literature_synthesizer.v1")},
+    )
+
+    override = policy.template_profile_overrides["literature_synthesizer.v1"]
+    assert override["public_name"] == "综述姐 Athena"
+    assert override["status_phrases"]["running"] == "织主题矩阵中"
+
+
+def test_build_capability_team_policy_rejects_override_outside_team_policy() -> None:
+    cap = SimpleNamespace(
+        definition_json={
+            "team_policy": {
+                "core_templates": ["research_scout.v1"],
+                "optional_templates": [],
+            },
+            "extensions": {
+                "team_presentation": {
+                    "template_overrides": {
+                        "literature_synthesizer.v1": {
+                            "public_name": "综述姐 Athena",
+                        }
+                    }
+                }
+            },
+        },
+        runtime={"mode": "team_kernel"},
+    )
+
+    with pytest.raises(TeamPolicyError, match="override outside team_policy"):
+        build_capability_team_policy(
+            cap,
+            templates={
+                "research_scout.v1": _template("research_scout.v1"),
+                "literature_synthesizer.v1": _template("literature_synthesizer.v1"),
+            },
+        )
+
+
 def test_build_capability_team_policy_reads_contract_overlays() -> None:
     cap = SimpleNamespace(
         definition_json={

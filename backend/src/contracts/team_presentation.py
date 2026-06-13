@@ -116,7 +116,6 @@ class CapabilityTeamPresentationV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["wenjin.team.presentation.v1"] = "wenjin.team.presentation.v1"
-    leader_virtual_member: ExpertProfileOverrideV1 | None = None
     template_overrides: dict[str, ExpertProfileOverrideV1] = Field(default_factory=dict)
 
 

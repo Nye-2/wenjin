@@ -778,6 +778,7 @@ class TeamKernelRuntime:
                 ),
                 effective_tools=effective_tools,
                 effective_skills=effective_skills,
+                profile_override=team_policy.template_profile_overrides.get(template_id),
             )
             invocation.execution_id = execution_id
             batch.append(invocation)

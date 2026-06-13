@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from src.agents.harness.tool_names import expand_tool_names
-from src.contracts.team_presentation import resolve_expert_profile
+from src.contracts.team_presentation import CapabilityTeamPresentationV1, resolve_expert_profile
 
 from .contracts import AgentInvocation, AgentTemplate, CapabilityTeamPolicy
 
@@ -50,6 +50,7 @@ def build_capability_team_policy(
     capability_skills = list(raw_policy.get("capability_skills") or [])
     contract_overlay_skills = list(raw_policy.get("contract_overlay_skills") or [])
     contract_overlay_categories = list(raw_policy.get("contract_overlay_categories") or [])
+    template_profile_overrides = _extract_template_profile_overrides(definition)
 
     policy = CapabilityTeamPolicy(
         core_templates=list(raw_policy.get("core_templates") or []),
@@ -69,12 +70,18 @@ def build_capability_team_policy(
         capability_skills=capability_skills,
         contract_overlay_skills=contract_overlay_skills,
         contract_overlay_categories=contract_overlay_categories,
+        template_profile_overrides=template_profile_overrides,
     )
     known_ids = set(templates)
     for template_id in [*policy.core_templates, *policy.optional_templates]:
         if template_id not in known_ids:
             raise TeamPolicyError(f"unknown agent template: {template_id}")
     recruitable_ids = {*policy.core_templates, *policy.optional_templates}
+    for template_id in policy.template_profile_overrides:
+        if template_id not in known_ids:
+            raise TeamPolicyError(f"unknown team_presentation template override: {template_id}")
+        if template_id not in recruitable_ids:
+            raise TeamPolicyError(f"team_presentation override outside team_policy: {template_id}")
     for trigger_key, raw_templates in policy.recruitment_triggers.items():
         trigger_templates = _normalize_trigger_templates(raw_templates)
         for template_id in trigger_templates:
@@ -89,6 +96,20 @@ def build_capability_team_policy(
     if not policy.core_templates and not policy.optional_templates:
         raise TeamPolicyError("team_policy must declare at least one template")
     return policy
+
+
+def _extract_template_profile_overrides(definition: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw_extensions = definition.get("extensions")
+    if not isinstance(raw_extensions, dict):
+        return {}
+    raw_presentation = raw_extensions.get("team_presentation")
+    if raw_presentation is None:
+        return {}
+    presentation = CapabilityTeamPresentationV1.model_validate(raw_presentation)
+    return {
+        template_id: override.model_dump(mode="json", exclude_none=True)
+        for template_id, override in presentation.template_overrides.items()
+    }
 
 
 def _normalize_trigger_templates(raw_templates: Any) -> list[str]:
@@ -155,6 +176,7 @@ def build_invocation_assignment(
     input_brief: dict[str, Any],
     effective_tools: list[str],
     effective_skills: list[str],
+    profile_override: dict[str, Any] | None = None,
 ) -> AgentInvocation:
     suffix = ""
     if template_invocation_count > 1 or template.id.endswith("code_engineer.v1"):
@@ -162,6 +184,7 @@ def build_invocation_assignment(
     expert_profile = resolve_expert_profile(
         base_profile=template.expert_profile or None,
         display_role=template.display_role,
+        override=profile_override,
     )
     display_name = f"{expert_profile.public_name}{suffix}"
     invocation_id = f"team.{iteration}.{template.id.replace('.', '_')}.{template_invocation_count}"

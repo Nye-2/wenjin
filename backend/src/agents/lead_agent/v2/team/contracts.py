@@ -51,6 +51,7 @@ class CapabilityTeamPolicy(BaseModel):
     capability_skills: list[str] = Field(default_factory=list)
     contract_overlay_skills: list[str] = Field(default_factory=list)
     contract_overlay_categories: list[str] = Field(default_factory=list)
+    template_profile_overrides: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("core_templates", "optional_templates")
     @classmethod

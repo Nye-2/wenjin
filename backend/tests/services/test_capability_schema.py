@@ -233,11 +233,6 @@ class TestCapabilityV2Yaml:
         payload = self._valid_payload()
         payload["extensions"] = {
             "team_presentation": {
-                "leader_virtual_member": {
-                    "public_name": "Steve",
-                    "role_title": "研究负责人",
-                    "status_phrases": {"running": "排兵布阵中"},
-                },
                 "template_overrides": {
                     "literature_synthesizer.v1": {
                         "public_name": "综述姐 Athena",
@@ -253,6 +248,20 @@ class TestCapabilityV2Yaml:
         presentation = data["extensions"]["team_presentation"]
         assert presentation["schema_version"] == "wenjin.team.presentation.v1"
         assert presentation["template_overrides"]["literature_synthesizer.v1"]["public_name"] == "综述姐 Athena"
+
+    def test_team_presentation_extension_rejects_leader_virtual_member(self):
+        payload = self._valid_payload()
+        payload["extensions"] = {
+            "team_presentation": {
+                "leader_virtual_member": {
+                    "public_name": "Steve",
+                    "role_title": "研究负责人",
+                }
+            }
+        }
+
+        with pytest.raises(ValidationError, match="leader_virtual_member"):
+            CapabilityV2YamlModel(**payload)
 
     def test_team_presentation_extension_rejects_non_display_fields(self):
         payload = self._valid_payload()

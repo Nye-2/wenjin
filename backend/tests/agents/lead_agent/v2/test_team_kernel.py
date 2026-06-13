@@ -1,3 +1,4 @@
+from collections import Counter
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -12,7 +13,7 @@ from src.agents.lead_agent.v2.team.contracts import (
     CapabilityTeamPolicy,
     TeamBlackboard,
 )
-from src.agents.lead_agent.v2.team.kernel import TeamKernelRuntime
+from src.agents.lead_agent.v2.team.kernel import RecruitmentCandidate, TeamKernelRuntime
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import subagent
 
@@ -396,6 +397,58 @@ def test_team_kernel_quality_contract_includes_workspace_source_allowlist() -> N
         "smith2026"
     ]
     assert invocation.input_brief["quality_contract"]["allowed_source_ids"] == ["source-1"]
+
+
+def test_team_kernel_applies_capability_profile_override_when_building_batch() -> None:
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=AsyncMock(),
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: True,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    capability = _team_capability()
+    template = AgentTemplate(
+        id="literature_synthesizer.v1",
+        display_role="文献综合专家",
+        category="research",
+        expert_profile={
+            "public_name": "文献专家",
+            "role_title": "文献综合专家",
+            "status_phrases": {"running": "整理文献中"},
+        },
+    )
+
+    batch = runtime._build_invocation_batch(
+        execution_id="exec-1",
+        brief=_brief(),
+        capability=capability,
+        templates={"literature_synthesizer.v1": template},
+        team_policy=CapabilityTeamPolicy(
+            core_templates=["literature_synthesizer.v1"],
+            template_profile_overrides={
+                "literature_synthesizer.v1": {
+                    "public_name": "综述姐 Athena",
+                    "status_phrases": {"running": "织主题矩阵中"},
+                }
+            },
+        ),
+        capability_policy={},
+        blackboard=TeamBlackboard(),
+        counts=Counter(),
+        iteration=1,
+        recruits=[
+            RecruitmentCandidate(
+                template_id="literature_synthesizer.v1",
+                reason="core",
+            )
+        ],
+    )
+
+    assert batch[0].display_name == "综述姐 Athena"
+    assert batch[0].expert_profile["status_phrases"]["running"] == "织主题矩阵中"
 
 
 @pytest.mark.asyncio
