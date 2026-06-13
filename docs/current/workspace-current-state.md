@@ -176,7 +176,7 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 
 1. 当前行为以本文件、`workspace-feature-catalog.md`、`docs/current/architecture.md` 为准。
 2. 历史方案和阶段性过渡文档已清理；追溯请查看 Git 历史。
-3. WenjinPrism 划词改写采用 `preview -> apply -> revert`：
+3. WenjinPrism 改稿采用 `preview -> apply -> revert`：局部批注是 `selection` / `section` scope，必须能解析到选区 anchor；一句话全文改稿是 `document` scope，不依赖选区文本或 anchor，目标范围固定为当前主稿全文。
    - `preview` 只生成候选和 diff，不写文件。
    - `apply` 在后端执行签名/哈希校验、结构门禁和编译门禁，通过后写文件。
    - `revert` 使用 `apply` 返回的撤销 payload 做一次性回滚。
