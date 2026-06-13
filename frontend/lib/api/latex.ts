@@ -412,7 +412,7 @@ export async function previewLatexFeedbackRewrite(
       heading_level: string;
       line_hint: number;
     } | null;
-    scope?: "selection" | "section";
+    scope?: "selection" | "section" | "document";
     model_id?: string | null;
     file_content?: string | null;
   },

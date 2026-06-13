@@ -432,7 +432,7 @@ class TeamKernelRuntime:
             await self._persist_runtime_state(execution_id, blackboard)
             iteration += 1
 
-        if blackboard.harness_episode.get("status") != "finished":
+        if blackboard.harness_episode is not None and blackboard.harness_episode.status != "finished":
             finish_harness_episode(
                 blackboard.harness_episode,
                 stop_reason=self._dynamic_stop_reason(

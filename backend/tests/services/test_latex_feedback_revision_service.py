@@ -143,3 +143,96 @@ async def test_rewrite_with_feedback_section_scope(monkeypatch: pytest.MonkeyPat
     assert result["section_title"] == "Intro"
     assert result["target_start"] == 0
     assert result["rewritten_text"].startswith("\\section{Intro}")
+
+
+@pytest.mark.asyncio
+async def test_rewrite_with_feedback_document_scope(monkeypatch: pytest.MonkeyPatch) -> None:
+    content = (
+        "\\documentclass{article}\n"
+        "\\begin{document}\n"
+        "\\section{Intro}\n"
+        "Original sentence.\n"
+        "\\section{Method}\n"
+        "Method sentence.\n"
+        "\\end{document}\n"
+    )
+
+    monkeypatch.setattr(service, "_pick_model_id", lambda _requested: "fake-model")
+
+    async def _fake_invoke(prompt: str, *, model_id: str) -> tuple[str, dict]:
+        assert "完整主稿" in prompt
+        assert "\\section{Intro}" in prompt
+        assert "\\section{Method}" in prompt
+        assert model_id == "fake-model"
+        return (
+            '{"rewritten_document":"\\\\documentclass{article}\\n\\\\begin{document}\\nRewritten full manuscript.\\n\\\\end{document}\\n","changes_summary":"rewrote document"}',
+            {
+                "rewritten_document": (
+                    "\\documentclass{article}\n"
+                    "\\begin{document}\n"
+                    "Rewritten full manuscript.\n"
+                    "\\end{document}\n"
+                ),
+                "changes_summary": "rewrote document",
+            },
+        )
+
+    monkeypatch.setattr(service, "_invoke_rewrite", _fake_invoke)
+
+    result = await service.rewrite_with_feedback(
+        content=content,
+        comment="Make the whole manuscript sound less AI-generated.",
+        selected_text=content,
+        selection_start=0,
+        selection_end=len(content),
+        scope="document",
+    )
+
+    assert result["scope"] == "document"
+    assert result["section_title"] == "全文"
+    assert result["section_level"] == "document"
+    assert result["target_start"] == 0
+    assert result["target_end"] == len(content)
+    assert result["rewritten_text"].startswith("\\documentclass{article}")
+
+
+@pytest.mark.asyncio
+async def test_rewrite_with_feedback_document_scope_does_not_require_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    content = "\\documentclass{article}\n\\begin{document}\nOriginal.\n\\end{document}\n"
+
+    monkeypatch.setattr(service, "_pick_model_id", lambda _requested: "fake-model")
+
+    async def _fake_invoke(prompt: str, *, model_id: str) -> tuple[str, dict]:
+        assert "完整主稿" in prompt
+        assert "Original." in prompt
+        assert model_id == "fake-model"
+        return (
+            '{"rewritten_document":"\\\\documentclass{article}\\n\\\\begin{document}\\nRewritten.\\n\\\\end{document}\\n","changes_summary":"rewrote document"}',
+            {
+                "rewritten_document": (
+                    "\\documentclass{article}\n"
+                    "\\begin{document}\n"
+                    "Rewritten.\n"
+                    "\\end{document}\n"
+                ),
+                "changes_summary": "rewrote document",
+            },
+        )
+
+    monkeypatch.setattr(service, "_invoke_rewrite", _fake_invoke)
+
+    result = await service.rewrite_with_feedback(
+        content=content,
+        comment="整体改得更像研究者写作。",
+        selected_text="",
+        scope="document",
+    )
+
+    assert result["scope"] == "document"
+    assert result["resolved_selection_start"] == 0
+    assert result["resolved_selection_end"] == len(content)
+    assert result["target_start"] == 0
+    assert result["target_end"] == len(content)
+    assert "Rewritten." in result["rewritten_text"]

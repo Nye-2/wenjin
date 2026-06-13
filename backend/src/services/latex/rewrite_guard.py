@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Literal
 
+RewriteGuardScope = Literal["selection", "section", "document"]
+
 _CITATION_RE = re.compile(r"\\cite[a-zA-Z]*\{[^{}]*\}")
 _LABEL_RE = re.compile(r"\\label\{[^{}]*\}")
 _REF_RE = re.compile(r"\\ref\{[^{}]*\}")
@@ -200,7 +202,7 @@ def validate_rewrite_segment(
     *,
     original_text: str,
     rewritten_text: str,
-    scope: Literal["selection", "section"] | None = None,
+    scope: RewriteGuardScope | None = None,
     target_start: int | None = None,
     target_end: int | None = None,
     resolved_selection_start: int | None = None,

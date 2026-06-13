@@ -7,11 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 # Ensure subagent types are registered
+import src.agents.lead_agent.v2.runtime_context as runtime_context_module
 import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.contracts.task_report import TaskReport
 from src.agents.harness.research_task_eval import evaluate_research_task_evidence
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.agents.lead_agent.v2.runtime_context import RuntimeContextAssembler
 from src.agents.lead_agent.v2.sandbox_artifact_discovery import DISCOVERY_SCHEMA
 from src.agents.lead_agent.v2.sandbox_artifact_review import collect_sandbox_artifact_candidates
 from src.services.token_usage_collector import record_token_usage
@@ -155,16 +157,11 @@ async def test_load_workspace_data_projects_dataset_assets_into_file_summary():
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    runtime = LeadAgentRuntime(
-        resolver=_make_resolver(_make_fake_capability()),
-        get_workspace_type=AsyncMock(return_value="sci"),
-    )
-
     with patch(
-        "src.agents.lead_agent.v2.runtime.dataservice_client",
+        "src.agents.lead_agent.v2.runtime_context.dataservice_client",
         return_value=_FakeClientContext(),
     ):
-        workspace_data = await runtime._load_workspace_data(
+        workspace_data = await RuntimeContextAssembler().load_workspace_data(
             "ws-001",
             context_requirements={"include_related_documents": True},
         )
@@ -239,16 +236,11 @@ async def test_load_workspace_data_uses_source_page_assets_without_n_plus_one_ca
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-    runtime = LeadAgentRuntime(
-        resolver=_make_resolver(_make_fake_capability()),
-        get_workspace_type=AsyncMock(return_value="sci"),
-    )
-
     with patch(
-        "src.agents.lead_agent.v2.runtime.dataservice_client",
+        "src.agents.lead_agent.v2.runtime_context.dataservice_client",
         return_value=_FakeClientContext(),
     ):
-        workspace_data = await runtime._load_workspace_data(
+        workspace_data = await RuntimeContextAssembler().load_workspace_data(
             "ws-001",
             context_requirements={"include_related_documents": True},
         )
@@ -435,8 +427,84 @@ def test_distribute_brief_includes_manuscript_context():
     )
 
 
+def test_distribute_brief_uses_workspace_manuscript_context_when_brief_is_empty():
+    cap = _make_fake_capability()
+    runtime = LeadAgentRuntime(
+        resolver=_make_resolver(cap),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+    brief = TaskBrief(
+        capability_id="test_cap",
+        raw_message="rewrite manuscript",
+        workspace_id="ws-001",
+        brief={"topic": "quantum computing"},
+    )
+
+    distributed = runtime._distribute_brief(
+        brief,
+        cap,
+        workspace_data={
+            "manuscript_context": {
+                "main_file": "main.tex",
+                "pending_review_items": [{"id": "review-1"}],
+            }
+        },
+    )
+
+    assert distributed["make_outline"]["manuscript_context"]["pending_review_items"] == [
+        {"id": "review-1"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_load_workspace_data_includes_prism_context_when_pending_review_requested(monkeypatch):
+    class _ClientContext:
+        def __init__(self, client: object) -> None:
+            self.client = client
+
+        async def __aenter__(self) -> object:
+            return self.client
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+    fake_client = SimpleNamespace()
+    prism_service = MagicMock()
+    prism_service.get_launch_context_projection = AsyncMock(
+        return_value={
+            "main_file": "main.tex",
+            "pending_review_items": [{"id": "review-1"}],
+            "review_summary": {"pending": 1},
+        }
+    )
+    monkeypatch.setattr(
+        runtime_context_module,
+        "dataservice_client",
+        lambda: _ClientContext(fake_client),
+    )
+    monkeypatch.setattr(
+        runtime_context_module,
+        "WorkspacePrismService",
+        MagicMock(return_value=prism_service),
+        raising=False,
+    )
+
+    data = await RuntimeContextAssembler().load_workspace_data(
+        "ws-001",
+        capability_policy={},
+        context_requirements={"include_pending_review_summary": True},
+        user_id="user-1",
+    )
+
+    assert data["manuscript_context"]["pending_review_items"] == [{"id": "review-1"}]
+    prism_service.get_launch_context_projection.assert_awaited_once_with(
+        "ws-001",
+        user_id="user-1",
+    )
+
+
 def test_needs_library_context_when_citation_policy_uses_workspace_library():
-    assert LeadAgentRuntime._needs_library_context(
+    assert RuntimeContextAssembler.needs_library_context(
         {
             "context_policy": {"room_reads": {}},
             "citation_policy": {"source_scope": "workspace_library"},
@@ -455,15 +523,15 @@ def test_prism_context_requirements_keep_local_rewrite_lightweight():
                 "include_workspace_history": False,
                 "include_related_documents": False,
                 "include_sandbox_artifacts": False,
-                "include_pending_review_summary": True,
+                "include_pending_review_summary": False,
             },
         },
     )
 
-    requirements = LeadAgentRuntime._context_requirements_from_brief(brief)
+    requirements = RuntimeContextAssembler.context_requirements_from_brief(brief)
 
     assert requirements["include_manuscript_context"]
-    assert not LeadAgentRuntime._needs_workspace_context(
+    assert not RuntimeContextAssembler.needs_workspace_context(
         {"context_policy": {"room_reads": {"library": "summary"}}},
         requirements,
     )
@@ -484,9 +552,9 @@ def test_explicit_context_requirements_do_not_disable_required_citation_library(
         },
     )
 
-    requirements = LeadAgentRuntime._context_requirements_from_brief(brief)
+    requirements = RuntimeContextAssembler.context_requirements_from_brief(brief)
 
-    assert LeadAgentRuntime._needs_workspace_context(
+    assert RuntimeContextAssembler.needs_workspace_context(
         {
             "context_policy": {"room_reads": {"library": "none"}},
             "citation_policy": {"source_scope": "workspace_library"},
@@ -496,7 +564,7 @@ def test_explicit_context_requirements_do_not_disable_required_citation_library(
 
 
 def test_workspace_context_metadata_is_bounded_for_prompt_safety():
-    metadata = LeadAgentRuntime._compact_metadata(
+    metadata = RuntimeContextAssembler.compact_metadata(
         {
             "long": "x" * 500,
             "nested": {"path": ["a", "b", "c"]},
@@ -526,10 +594,20 @@ def test_prism_context_requirements_enable_document_rewrite_context():
         },
     )
 
-    requirements = LeadAgentRuntime._context_requirements_from_brief(brief)
+    requirements = RuntimeContextAssembler.context_requirements_from_brief(brief)
 
     assert requirements["include_workspace_history"]
-    assert LeadAgentRuntime._needs_workspace_context({}, requirements)
+    assert RuntimeContextAssembler.needs_workspace_context({}, requirements)
+
+
+def test_pending_review_summary_requirement_enables_workspace_context():
+    assert RuntimeContextAssembler.needs_workspace_context(
+        {},
+        {
+            "include_manuscript_context": True,
+            "include_pending_review_summary": True,
+        },
+    )
 
 
 def test_runtime_mode_ignores_definition_json_runtime_mode():

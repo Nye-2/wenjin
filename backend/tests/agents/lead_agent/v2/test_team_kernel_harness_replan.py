@@ -9,8 +9,42 @@ import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.harness.diff_tracker import build_harness_node_metadata_from_tool_calls
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.agents.lead_agent.v2.team.contracts import QualityGateResult
+from src.agents.lead_agent.v2.team.episode import (
+    HarnessEpisode,
+    bounded_harness_episode,
+    record_replan_decision,
+    start_harness_episode,
+)
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import subagent
+
+
+def test_harness_episode_uses_typed_contract_before_bounded_projection() -> None:
+    episode = start_harness_episode(
+        execution_id="exec-1",
+        core_templates=["research_scout.v1"],
+    )
+
+    assert isinstance(episode, HarnessEpisode)
+    record_replan_decision(
+        episode,
+        iteration=1,
+        phase="runtime",
+        gates=[
+            QualityGateResult(
+                gate_id="research_evidence_required",
+                status="fail",
+                next_action="recruit_more",
+            )
+        ],
+        selected_recruits=["evidence_analyst.v1"],
+    )
+
+    bounded = bounded_harness_episode(episode)
+
+    assert bounded["schema"] == "wenjin.team.harness_episode.v1"
+    assert bounded["decisions"][0]["selected_recruits"] == ["evidence_analyst.v1"]
 
 
 @subagent("team_harness_python_replan_fake")

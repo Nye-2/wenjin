@@ -12,6 +12,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from src.contracts.research_evidence import validate_research_surfaces
+
 # ---------------------------------------------------------------------------
 # Existing models (used by other modules)
 # ---------------------------------------------------------------------------
@@ -286,6 +288,10 @@ class CapabilityV2YamlModel(BaseModel):
         _validate_non_blank_ids(
             self.research_evidence.required_surfaces,
             "research_evidence.required_surfaces",
+        )
+        validate_research_surfaces(
+            self.research_evidence.required_surfaces,
+            field_name="research_evidence.required_surfaces",
         )
         if self.runtime is None:
             if self.team_policy is not None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from .contracts import QualityGateResult
+from .contracts import HarnessEpisode, HarnessReplanDecision, QualityGateResult
 
 HARNESS_EPISODE_SCHEMA = "wenjin.team.harness_episode.v1"
 
@@ -14,46 +14,37 @@ def start_harness_episode(
     *,
     execution_id: str,
     core_templates: Sequence[str],
-) -> dict[str, Any]:
-    return {
-        "schema": HARNESS_EPISODE_SCHEMA,
-        "execution_id": str(execution_id or ""),
-        "status": "running",
-        "core_templates": [str(item) for item in core_templates if str(item or "").strip()],
-        "decisions": [],
-        "stop_reason": "",
-    }
+) -> HarnessEpisode:
+    return HarnessEpisode(
+        execution_id=str(execution_id or ""),
+        core_templates=[str(item) for item in core_templates if str(item or "").strip()],
+    )
 
 
 def record_replan_decision(
-    episode: dict[str, Any],
+    episode: HarnessEpisode,
     *,
     iteration: int,
     phase: str,
     gates: Sequence[QualityGateResult],
     selected_recruits: Sequence[str],
 ) -> None:
-    decisions = episode.get("decisions")
-    if not isinstance(decisions, list):
-        decisions = []
-        episode["decisions"] = decisions
     selected = [str(item) for item in selected_recruits if str(item or "").strip()]
-    decisions.append(
-        {
-            "schema": "wenjin.team.harness_replan_decision.v1",
-            "iteration": int(iteration),
-            "phase": str(phase or ""),
-            "gate_ids": _gate_ids(gates),
-            "gate_statuses": _gate_statuses(gates),
-            "next_action": _dominant_next_action(gates),
-            "selected_recruits": selected,
-        }
+    episode.decisions.append(
+        HarnessReplanDecision(
+            iteration=int(iteration),
+            phase=str(phase or ""),
+            gate_ids=_gate_ids(gates),
+            gate_statuses=_gate_statuses(gates),
+            next_action=_dominant_next_action(gates),
+            selected_recruits=selected,
+        )
     )
 
 
-def finish_harness_episode(episode: dict[str, Any], *, stop_reason: str) -> None:
-    episode["status"] = "finished"
-    episode["stop_reason"] = str(stop_reason or "unknown")
+def finish_harness_episode(episode: HarnessEpisode, *, stop_reason: str) -> None:
+    episode.status = "finished"
+    episode.stop_reason = str(stop_reason or "unknown")
 
 
 def stop_reason_from_gates(gates: Sequence[QualityGateResult], *, selected_recruits: Sequence[str]) -> str:
@@ -68,31 +59,27 @@ def stop_reason_from_gates(gates: Sequence[QualityGateResult], *, selected_recru
     return "quality_gates_satisfied"
 
 
-def bounded_harness_episode(episode: dict[str, Any]) -> dict[str, Any]:
+def bounded_harness_episode(episode: HarnessEpisode) -> dict[str, Any]:
     decisions: list[dict[str, Any]] = []
-    raw_decisions = episode.get("decisions")
-    raw_decisions = raw_decisions if isinstance(raw_decisions, list) else []
-    for item in raw_decisions:
-        if not isinstance(item, dict):
-            continue
+    for item in episode.decisions:
         decisions.append(
             {
-                "schema": str(item.get("schema") or "wenjin.team.harness_replan_decision.v1"),
-                "iteration": _int_value(item.get("iteration")),
-                "phase": str(item.get("phase") or ""),
-                "gate_ids": _string_list(item.get("gate_ids")),
-                "gate_statuses": _string_list(item.get("gate_statuses")),
-                "next_action": str(item.get("next_action") or ""),
-                "selected_recruits": _string_list(item.get("selected_recruits")),
+                "schema": item.schema_id,
+                "iteration": _int_value(item.iteration),
+                "phase": item.phase,
+                "gate_ids": _string_list(item.gate_ids),
+                "gate_statuses": _string_list(item.gate_statuses),
+                "next_action": item.next_action,
+                "selected_recruits": _string_list(item.selected_recruits),
             }
         )
     return {
-        "schema": HARNESS_EPISODE_SCHEMA,
-        "execution_id": str(episode.get("execution_id") or ""),
-        "status": str(episode.get("status") or "running"),
-        "core_templates": _string_list(episode.get("core_templates")),
+        "schema": episode.schema_id,
+        "execution_id": episode.execution_id,
+        "status": episode.status,
+        "core_templates": _string_list(episode.core_templates),
         "decisions": decisions[:12],
-        "stop_reason": str(episode.get("stop_reason") or ""),
+        "stop_reason": episode.stop_reason,
     }
 
 

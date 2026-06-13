@@ -1,0 +1,2 @@
+"""Shared cross-layer contracts."""
+

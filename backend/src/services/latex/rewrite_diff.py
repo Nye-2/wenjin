@@ -10,6 +10,7 @@ from typing import Literal
 
 TokenKind = Literal["text", "latex_cmd", "citation", "label", "math", "env"]
 DiffOpKind = Literal["equal", "insert", "delete", "replace"]
+RewriteDiffScope = Literal["selection", "section", "document"]
 
 _TOKEN_PATTERN = re.compile(
     r"\\cite[a-zA-Z]*\{[^{}]*\}"
@@ -119,7 +120,7 @@ def _risk_flags(
     *,
     original_text: str,
     rewritten_text: str,
-    scope: Literal["selection", "section"],
+    scope: RewriteDiffScope,
     target_start: int,
     target_end: int,
     resolved_selection_start: int,
@@ -156,7 +157,7 @@ def build_latex_rewrite_diff(
     original_text: str,
     rewritten_text: str,
     target_start: int,
-    scope: Literal["selection", "section"],
+    scope: RewriteDiffScope,
     target_end: int,
     resolved_selection_start: int,
     resolved_selection_end: int,

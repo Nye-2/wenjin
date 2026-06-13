@@ -6,9 +6,10 @@ import os
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 LatexEngine = Literal["xelatex", "pdflatex"]
+LatexRewriteScope = Literal["selection", "section", "document"]
 RewriteProfile = Literal["balanced", "conservative", "aggressive"]
 RewriteRiskLevel = Literal["low", "medium", "high"]
 
@@ -231,12 +232,12 @@ class LatexFeedbackRewriteRequest(BaseModel):
     """Rewrite request from one feedback item."""
 
     file_path: str = Field(min_length=1)
-    selected_text: str = Field(min_length=1)
+    selected_text: str = ""
     comment: str = Field(min_length=1)
     selection_start: int | None = Field(default=None, ge=0)
     selection_end: int | None = Field(default=None, ge=0)
     anchor: LatexFeedbackAnchorPayload | None = None
-    scope: Literal["selection", "section"] = "section"
+    scope: LatexRewriteScope = "section"
     model_id: str | None = None
     file_content: str | None = None
     candidate_count: int | None = Field(
@@ -244,13 +245,19 @@ class LatexFeedbackRewriteRequest(BaseModel):
     )
     apply: bool = False
 
+    @model_validator(mode="after")
+    def _validate_scope_selection(self) -> LatexFeedbackRewriteRequest:
+        if self.scope != "document" and not self.selected_text.strip():
+            raise ValueError("selected_text is required for selection or section rewrite")
+        return self
+
 
 class LatexFeedbackRewriteResponse(BaseModel):
     """Rewrite preview/apply response."""
 
     ok: bool = True
     model_id: str
-    scope: Literal["selection", "section"]
+    scope: LatexRewriteScope
     file_path: str
     section_title: str
     section_level: str
@@ -410,7 +417,7 @@ class LatexFeedbackRewriteCandidatePayload(BaseModel):
     profile: RewriteProfile = "balanced"
     risk_level: RewriteRiskLevel = "low"
     model_id: str
-    scope: Literal["selection", "section"]
+    scope: LatexRewriteScope
     section_title: str
     section_level: str
     target_start: int = Field(ge=0)

@@ -161,7 +161,9 @@ class PrismSelectionOptimizerSubagent(SubagentBase):
         scope = _read_text_input(inputs, "scope") or "section"
         rewrite_mode = _read_text_input(inputs, "rewrite_mode") or scope
         context_strategy = _read_text_input(inputs, "context_strategy")
-        if scope not in {"selection", "section"}:
+        if rewrite_mode == "document":
+            scope = "document"
+        if scope not in {"selection", "section", "document"}:
             scope = "section"
 
         if not file_path:

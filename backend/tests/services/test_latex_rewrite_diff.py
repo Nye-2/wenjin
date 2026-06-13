@@ -61,3 +61,18 @@ def test_diff_risk_flags_detect_boundary_leak_for_selection_scope() -> None:
     )
     risk_flags = set(diff.get("risk_flags") or [])
     assert "boundary_leak" in risk_flags
+
+
+def test_diff_document_scope_does_not_report_selection_boundary_leak() -> None:
+    diff = build_latex_rewrite_diff(
+        original_text="\\begin{document}\nOld.\n\\end{document}",
+        rewritten_text="\\begin{document}\nNew.\n\\end{document}",
+        target_start=0,
+        target_end=36,
+        scope="document",
+        resolved_selection_start=12,
+        resolved_selection_end=16,
+    )
+
+    risk_flags = set(diff.get("risk_flags") or [])
+    assert "boundary_leak" not in risk_flags

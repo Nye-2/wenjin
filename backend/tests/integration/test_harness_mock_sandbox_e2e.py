@@ -12,6 +12,7 @@ from src.agents.harness.contracts import HarnessToolResult
 from src.agents.harness.research_eval_surfaces import required_surfaces_from_capability_policy
 from src.agents.harness.research_task_eval import evaluate_research_task_evidence
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
+from src.agents.lead_agent.v2.runtime_context import RuntimeContextAssembler
 from src.dataservice_client.contracts.catalog import AgentTemplatePayload, CapabilitySkillPayload
 from src.subagents.v2.types.react import _resolve_tools
 
@@ -793,7 +794,7 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         "src.agents.lead_agent.v2.team.kernel.dataservice_client",
         lambda: _ClientContext(client),
     )
-    monkeypatch.setattr(LeadAgentRuntime, "_load_workspace_data", load_workspace_data)
+    monkeypatch.setattr(RuntimeContextAssembler, "load_workspace_data", load_workspace_data)
     monkeypatch.setattr("src.subagents.v2.types.react._run_react_loop", fake_react_loop)
     monkeypatch.setattr(
         "src.agents.harness.sandbox_execution_tools.SandboxExecutionTools.run_python",

@@ -351,7 +351,7 @@ export interface LatexFeedbackRewriteCandidate {
   profile: "balanced" | "conservative" | "aggressive";
   risk_level: "low" | "medium" | "high";
   model_id: string;
-  scope: "selection" | "section";
+  scope: "selection" | "section" | "document";
   section_title: string;
   section_level: string;
   target_start: number;

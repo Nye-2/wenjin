@@ -38,7 +38,23 @@ def _native_harness_python_files() -> list[Path]:
     for root in NATIVE_HARNESS_ROOTS:
         files.update(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
     files.update(NATIVE_HARNESS_FILES)
+    runtime_root = SRC_ROOT / "agents" / "lead_agent" / "v2"
+    files.update(runtime_root.glob("sandbox_*.py"))
     return sorted(path for path in files if path.exists())
+
+
+def test_native_harness_boundary_scan_includes_all_lead_sandbox_runtime_files() -> None:
+    """The forbidden-marker guard should cover every Lead-owned sandbox helper."""
+
+    runtime_root = SRC_ROOT / "agents" / "lead_agent" / "v2"
+    scanned = set(_native_harness_python_files())
+    missing = [
+        path.relative_to(BACKEND_ROOT).as_posix()
+        for path in sorted(runtime_root.glob("sandbox_*.py"))
+        if path not in scanned
+    ]
+
+    assert not missing, "Native harness boundary scan missed sandbox helpers: " + ", ".join(missing)
 
 
 def test_native_harness_keeps_single_workspace_root_and_no_external_runtime_markers() -> None:

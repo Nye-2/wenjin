@@ -105,13 +105,13 @@ describe("useLatexFeedbackWorkflow", () => {
       include_workspace_history: false,
       include_related_documents: false,
       include_sandbox_artifacts: false,
-      include_pending_review_summary: true,
+      include_pending_review_summary: false,
     });
     expect(params.selected_text).toBe(selectedText);
     expect(params.instruction).toBe("把这一段写得更自然");
   });
 
-  it("routes whole-document optimization as a full-file selection", async () => {
+  it("routes whole-document optimization as document scope", async () => {
     const { result, prismOptimization, sendChatMessage } = renderWorkflow();
 
     act(() => {
@@ -132,7 +132,7 @@ describe("useLatexFeedbackWorkflow", () => {
     const [, , , options] = sendChatMessage.mock.calls[0];
     const params = options.metadata.orchestration.params;
 
-    expect(params.scope).toBe("selection");
+    expect(params.scope).toBe("document");
     expect(params.rewrite_mode).toBe("document");
     expect(params.context_strategy).toBe("workspace_manuscript_review");
     expect(params.context_requirements).toEqual({

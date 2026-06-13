@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class AgentTemplate(BaseModel):
@@ -102,6 +102,29 @@ class AgentInvocation(BaseModel):
     error: dict[str, Any] | None = None
 
 
+class HarnessReplanDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    schema_id: str = Field(default="wenjin.team.harness_replan_decision.v1", alias="schema")
+    iteration: int
+    phase: str
+    gate_ids: list[str] = Field(default_factory=list)
+    gate_statuses: list[str] = Field(default_factory=list)
+    next_action: str = ""
+    selected_recruits: list[str] = Field(default_factory=list)
+
+
+class HarnessEpisode(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    schema_id: str = Field(default="wenjin.team.harness_episode.v1", alias="schema")
+    execution_id: str
+    status: Literal["running", "finished"] = "running"
+    core_templates: list[str] = Field(default_factory=list)
+    decisions: list[HarnessReplanDecision] = Field(default_factory=list)
+    stop_reason: str = ""
+
+
 class TeamBlackboard(BaseModel):
     mission_summary: str = ""
     confirmed_findings: list[dict[str, Any]] = Field(default_factory=list)
@@ -116,7 +139,7 @@ class TeamBlackboard(BaseModel):
     rejected_claims: list[dict[str, Any]] = Field(default_factory=list)
     quality_gate_history: list[dict[str, Any]] = Field(default_factory=list)
     harness_replan_signals: list[dict[str, Any]] = Field(default_factory=list)
-    harness_episode: dict[str, Any] = Field(default_factory=dict)
+    harness_episode: HarnessEpisode | None = None
     latest_leader_summary: str = ""
 
 

@@ -57,7 +57,7 @@ const LOCAL_REWRITE_CONTEXT_REQUIREMENTS = {
   include_workspace_history: false,
   include_related_documents: false,
   include_sandbox_artifacts: false,
-  include_pending_review_summary: true,
+  include_pending_review_summary: false,
 };
 
 const DOCUMENT_REWRITE_CONTEXT_REQUIREMENTS = {
@@ -585,7 +585,7 @@ export function useLatexFeedbackWorkflow({
               selection_end: launchContent.length,
               anchor,
               pdf_anchor: null,
-              scope: "selection",
+              scope: "document",
               feedback_id: feedbackId,
             },
           },

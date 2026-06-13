@@ -24,6 +24,18 @@ def test_validate_rewrite_segment_rejects_boundary_leak() -> None:
         )
 
 
+def test_validate_rewrite_segment_allows_document_scope_full_range() -> None:
+    validate_rewrite_segment(
+        original_text="\\begin{document}\nOld.\n\\end{document}",
+        rewritten_text="\\begin{document}\nNew.\n\\end{document}",
+        scope="document",
+        target_start=0,
+        target_end=36,
+        resolved_selection_start=12,
+        resolved_selection_end=16,
+    )
+
+
 def test_validate_rewrite_segment_rejects_citation_drop() -> None:
     with pytest.raises(LatexStructureValidationError, match="citation markers"):
         validate_rewrite_segment(

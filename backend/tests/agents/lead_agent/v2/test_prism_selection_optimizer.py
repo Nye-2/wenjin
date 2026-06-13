@@ -75,10 +75,11 @@ async def test_prism_document_rewrite_injects_bounded_workspace_context(monkeypa
     async def fake_rewrite_with_feedback(**kwargs):
         nonlocal captured_comment
         captured_comment = kwargs["comment"]
+        assert kwargs["scope"] == "document"
         content_length = len(str(kwargs["content"]))
         return {
             "model_id": "test-model",
-            "scope": "selection",
+            "scope": "document",
             "resolved_selection_start": 0,
             "resolved_selection_end": content_length,
             "target_start": 0,
@@ -108,7 +109,7 @@ async def test_prism_document_rewrite_injects_bounded_workspace_context(monkeypa
             "instruction": "这篇文章 AI 味太浓了",
             "selection_start": 0,
             "selection_end": 10,
-            "scope": "selection",
+            "scope": "document",
             "rewrite_mode": "document",
             "context_strategy": "workspace_manuscript_review",
             "context_requirements": {

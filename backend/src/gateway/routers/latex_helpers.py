@@ -13,7 +13,7 @@ from copy import deepcopy
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, cast
 from uuid import uuid4
 
 from fastapi import HTTPException, UploadFile, status
@@ -30,6 +30,7 @@ from src.gateway.contracts.latex import (
     LatexFeedbackRewriteCandidatePayload,
     LatexFeedbackRewriteRequest,
     LatexFileChangePreviewResponse,
+    LatexRewriteScope,
     RewriteProfile,
     RewriteRiskLevel,
 )
@@ -467,7 +468,7 @@ def _build_rewrite_candidate(
     *,
     source_content: str,
     file_path: str,
-    scope: Literal["selection", "section"],
+    scope: LatexRewriteScope,
     profile: RewriteProfile,
     rewrite_result: dict[str, Any],
 ) -> LatexFeedbackRewriteCandidatePayload:

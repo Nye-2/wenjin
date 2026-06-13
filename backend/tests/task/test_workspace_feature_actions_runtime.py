@@ -21,7 +21,7 @@ from src.services.feature_action_resolution_service import resolve_feature_actio
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = REPO_ROOT / "frontend"
-TSX_BIN = FRONTEND_DIR / "node_modules" / ".bin" / "tsx"
+TSX_PACKAGE = FRONTEND_DIR / "node_modules" / "tsx"
 
 
 def _workspace(*, workspace_type: str) -> Workspace:
@@ -77,14 +77,15 @@ def _resolve_action_state(
 
 
 def _sync_chat_skill_state(payload: dict[str, object]) -> dict[str, object]:
-    assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
+    assert TSX_PACKAGE.exists(), "tsx package is required for frontend runtime tests"
     code = (
-        'import { syncCurrentSkillWithThread } from "./lib/thread-skill-state.ts";'
+        'const __skillState = await import("./lib/thread-skill-state.ts");'
+        "const { syncCurrentSkillWithThread } = __skillState.default ?? __skillState;"
         f"const input = {json.dumps(payload, ensure_ascii=False)};"
         "console.log(JSON.stringify(syncCurrentSkillWithThread(input)));"
     )
     completed = subprocess.run(
-        [str(TSX_BIN), "-e", code],
+        ["node", "--import", "tsx", "-e", code],
         cwd=FRONTEND_DIR,
         check=True,
         capture_output=True,
@@ -94,14 +95,15 @@ def _sync_chat_skill_state(payload: dict[str, object]) -> dict[str, object]:
 
 
 def _format_conversation_markdown(payload: dict[str, object]) -> str:
-    assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
+    assert TSX_PACKAGE.exists(), "tsx package is required for frontend runtime tests"
     code = (
-        'import { formatConversationAsMarkdown } from "./lib/thread-export.ts";'
+        'const __threadExport = await import("./lib/thread-export.ts");'
+        "const { formatConversationAsMarkdown } = __threadExport.default ?? __threadExport;"
         f"const input = {json.dumps(payload, ensure_ascii=False)};"
         "console.log(formatConversationAsMarkdown(input.thread, input.messages));"
     )
     completed = subprocess.run(
-        [str(TSX_BIN), "-e", code],
+        ["node", "--import", "tsx", "-e", code],
         cwd=FRONTEND_DIR,
         check=True,
         capture_output=True,

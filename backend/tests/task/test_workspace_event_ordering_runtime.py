@@ -8,13 +8,13 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 FRONTEND_DIR = REPO_ROOT / "frontend"
-TSX_BIN = FRONTEND_DIR / "node_modules" / ".bin" / "tsx"
+TSX_PACKAGE = FRONTEND_DIR / "node_modules" / "tsx"
 
 
 def _run_helper(code: str) -> list[dict[str, object]]:
-    assert TSX_BIN.exists(), "tsx binary is required for frontend runtime tests"
+    assert TSX_PACKAGE.exists(), "tsx package is required for frontend runtime tests"
     completed = subprocess.run(
-        [str(TSX_BIN), "-e", code],
+        ["node", "--import", "tsx", "-e", code],
         cwd=FRONTEND_DIR,
         check=True,
         capture_output=True,
@@ -25,7 +25,8 @@ def _run_helper(code: str) -> list[dict[str, object]]:
 
 def test_workspace_activity_upsert_rejects_stale_snapshot() -> None:
     result = _run_helper(
-        'import { upsertWorkspaceActivityList } from "./lib/workspace-event-ordering.ts";'
+        'const __ordering = await import("./lib/workspace-event-ordering.ts");'
+        "const { upsertWorkspaceActivityList } = __ordering.default ?? __ordering;"
         'const existing = [{'
         '  id: "task:1", kind: "feature_task", workspace_id: "ws-1", occurred_at: "2026-03-25T10:00:00Z",'
         '  title: "Deep Research", summary: "Completed", status: "success", thread_id: "thread-1", task_id: "1",'
@@ -45,7 +46,8 @@ def test_workspace_activity_upsert_rejects_stale_snapshot() -> None:
 
 def test_thread_summary_upsert_rejects_stale_snapshot() -> None:
     result = _run_helper(
-        'import { upsertThreadSummaryList } from "./lib/workspace-event-ordering.ts";'
+        'const __ordering = await import("./lib/workspace-event-ordering.ts");'
+        "const { upsertThreadSummaryList } = __ordering.default ?? __ordering;"
         'const existing = [{'
         '  id: "thread-1", workspace_id: "ws-1", title: "Main", model: "default", skill: "deep-research",'
         '  message_count: 4, last_message_preview: "latest", last_message_role: "assistant",'

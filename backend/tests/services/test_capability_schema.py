@@ -236,6 +236,15 @@ class TestCapabilityV2Yaml:
         with pytest.raises(ValidationError, match="quality_gates"):
             CapabilityV2YamlModel(**payload)
 
+    def test_research_evidence_required_surfaces_must_be_known(self):
+        payload = self._valid_payload()
+        payload["research_evidence"] = {
+            "required_surfaces": ["workflow_trace", "unknown_surface"],
+        }
+
+        with pytest.raises(ValidationError, match="unknown research evidence surfaces"):
+            CapabilityV2YamlModel(**payload)
+
     def test_required_decision_type_validated(self):
         with pytest.raises(ValidationError):
             CapabilityYamlModel(

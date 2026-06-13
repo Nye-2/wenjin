@@ -10,7 +10,7 @@ vi.mock("@/components/latex/LatexPdfPreview", () => ({
 
 vi.mock("@/components/latex/latex-editor/PrismMonacoEditor", () => ({
   PrismMonacoEditor: forwardRef<HTMLDivElement, { value: string }>(
-    function MockPrismMonacoEditor({ value }, _ref) {
+    function MockPrismMonacoEditor({ value }) {
       return <div data-testid="prism-editor">{value}</div>;
     },
   ),
