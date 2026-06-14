@@ -23,10 +23,12 @@ class DataServiceModelCatalogSeedLoader:
         *,
         source: Mapping[str, str] | None = None,
         admin_id: str | None = None,
+        default_pricing_policy_id: str | None = None,
     ) -> None:
         self.service = service
         self.source = source if source is not None else os.environ
         self.admin_id = admin_id
+        self.default_pricing_policy_id = default_pricing_policy_id
 
     async def load_seeds_if_empty(self) -> int:
         existing = await self.service.list_models()
@@ -98,6 +100,10 @@ class DataServiceModelCatalogSeedLoader:
         supports_reasoning_effort = bool(
             row.get("supports_reasoning_effort", row.get("supports_thinking", False))
         )
+        enabled = bool(row.get("enabled", True))
+        pricing_policy_id = row.get("pricing_policy_id") or row.get("pricing_policy_key")
+        if enabled and not str(pricing_policy_id or "").strip():
+            pricing_policy_id = self.default_pricing_policy_id
         return {
             "model_id": model.id,
             "display_name": model.name or model.id,
@@ -107,7 +113,7 @@ class DataServiceModelCatalogSeedLoader:
             "model_name": model.model,
             "base_url": model.base_url,
             "api_key": model.api_key,
-            "enabled": bool(row.get("enabled", True)),
+            "enabled": enabled,
             "is_default": model.id == default_id,
             "supports_streaming": model.supports_streaming,
             "supports_tools": model.supports_tools,
@@ -120,6 +126,6 @@ class DataServiceModelCatalogSeedLoader:
             "timeout_seconds": row.get("timeout_seconds"),
             "max_retries": row.get("max_retries"),
             "trust_level": str(row.get("trust_level") or "custom"),
-            "pricing_policy_id": row.get("pricing_policy_id") or row.get("pricing_policy_key"),
+            "pricing_policy_id": pricing_policy_id,
             "default_headers": dict(model.default_headers or {}),
         }

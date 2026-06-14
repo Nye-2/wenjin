@@ -141,6 +141,7 @@ class ModelConfig(BaseModel):
         default_factory=dict,
         description="Custom HTTP headers for API requests (e.g. {'api-key': 'xxx'})",
     )
+    pricing_policy_id: str | None = Field(default=None, description="Bound model_usage pricing policy id/key")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -462,6 +463,7 @@ def _runtime_to_model_config(model: RuntimeModelConfig) -> ModelConfig:
         supports_vision=model.supports_vision,
         supports_reasoning_effort=model.supports_reasoning_effort,
         default_headers=model.default_headers,
+        pricing_policy_id=model.pricing_policy_id,
     )
 
 
@@ -484,6 +486,7 @@ def _model_config_to_runtime(model: ModelConfig, *, category: str, is_default: b
         supports_vision=model.supports_vision,
         supports_reasoning_effort=model.supports_reasoning_effort,
         default_headers=dict(model.default_headers or {}),
+        pricing_policy_id=model.pricing_policy_id,
         is_default=is_default,
         config_version=1,
     )

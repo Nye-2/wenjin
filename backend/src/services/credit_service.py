@@ -442,14 +442,7 @@ class CreditService:
             if policy is not None and self._is_enabled_model_usage_policy(policy):
                 return policy
 
-        try:
-            policies = await client.list_pricing_policies(
-                policy_kind="model_usage",
-                enabled_only=True,
-            )
-        except Exception:
-            return None
-        return policies[0] if policies else None
+        return None
 
     @staticmethod
     def _model_pricing_policy_id(model_name: str | None) -> str | None:

@@ -58,6 +58,7 @@ DATASERVICE_PID_FILE="$LOG_DIR/dataservice.pid"
 WORKER_PID_FILE="$LOG_DIR/worker.pid"
 LANGGRAPH_PID_FILE="$LOG_DIR/langgraph.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
+START_PID_FILE="$LOG_DIR/start.pid"
 
 # 打印带颜色的消息
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -907,6 +908,14 @@ stop_services() {
             rm -f "$pid_file"
         fi
     done
+    if [ -f "$START_PID_FILE" ] && [ "${START_SH_DAEMON_CHILD:-0}" != "1" ]; then
+        daemon_pid=$(cat "$START_PID_FILE")
+        if ps -p "$daemon_pid" > /dev/null 2>&1; then
+            kill "$daemon_pid" 2>/dev/null || true
+            log_info "已停止后台启动进程 $daemon_pid"
+        fi
+        rm -f "$START_PID_FILE"
+    fi
 
     # 额外清理可能残留的进程
     pkill -f "uvicorn src.gateway" 2>/dev/null || true
@@ -983,6 +992,7 @@ show_help() {
     echo "  ./start.sh --worker     # 仅启动 worker"
     echo "  ./start.sh --langgraph  # 仅启动 LangGraph"
     echo "  ./start.sh --frontend   # 仅启动前端"
+    echo "  ./start.sh --daemon [服务] # 后台启动并写入 logs/start.log"
     echo "  ./start.sh --stop       # 停止所有服务"
     echo "  ./start.sh --status     # 查看服务状态"
     echo "  ./start.sh --logs       # 查看日志"
@@ -1021,6 +1031,28 @@ show_logs() {
     esac
 }
 
+launch_daemon() {
+    if [ "${START_SH_DAEMON_CHILD:-0}" = "1" ]; then
+        log_error "--daemon 不能在后台子进程内再次使用"
+        exit 1
+    fi
+
+    if [ -f "$START_PID_FILE" ]; then
+        existing_pid=$(cat "$START_PID_FILE")
+        if ps -p "$existing_pid" > /dev/null 2>&1; then
+            log_warn "后台启动进程已在运行中 (PID: $existing_pid)"
+            return 0
+        fi
+        rm -f "$START_PID_FILE"
+    fi
+
+    local args=("$@")
+    log_info "后台启动 Wenjin，日志: $LOG_DIR/start.log"
+    START_SH_DAEMON_CHILD=1 nohup bash "$SCRIPT_PATH" "${args[@]}" > "$LOG_DIR/start.log" 2>&1 &
+    echo $! > "$START_PID_FILE"
+    log_success "后台启动进程已创建 (PID: $(cat "$START_PID_FILE"))"
+}
+
 # 主函数
 main() {
     case "${1:-}" in
@@ -1038,6 +1070,11 @@ main() {
             ;;
         --logs)
             show_logs "${2:-}"
+            exit 0
+            ;;
+        --daemon)
+            shift
+            launch_daemon "$@"
             exit 0
             ;;
         --init)

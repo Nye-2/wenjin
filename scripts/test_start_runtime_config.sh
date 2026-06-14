@@ -18,6 +18,11 @@ ENV
 
 load_runtime_config
 
+if ! show_help | grep -q -- "--daemon"; then
+    echo "show_help should document --daemon mode" >&2
+    exit 1
+fi
+
 if [ "$RUNTIME_MODEL_SECRET_KEY" != "base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" ]; then
     echo "RUNTIME_MODEL_SECRET_KEY was not loaded from backend env" >&2
     exit 1

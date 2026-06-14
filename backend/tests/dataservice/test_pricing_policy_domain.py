@@ -18,6 +18,7 @@ from src.dataservice.domains.pricing.contracts import (
     PricingSimulationRequest,
     SandboxPricingPolicyConfig,
 )
+from src.dataservice.domains.pricing.seed_loader import DataServicePricingPolicySeedLoader
 from src.dataservice.domains.pricing.service import DataServicePricingPolicyService
 
 
@@ -274,3 +275,25 @@ async def test_disable_pricing_policy_marks_disabled_and_increments_version() ->
     assert record is not None
     assert record.enabled is False
     assert record.version == 2
+
+
+@pytest.mark.asyncio
+async def test_pricing_policy_seed_loader_creates_default_billing_facts_once() -> None:
+    service, repository, session = _service()
+
+    loaded = await DataServicePricingPolicySeedLoader(service, admin_id="admin-1").load_defaults()
+    loaded_again = await DataServicePricingPolicySeedLoader(service, admin_id="admin-1").load_defaults()
+
+    assert loaded == 5
+    assert loaded_again == 0
+    assert set(repository.rows) == {
+        "default-global-credit",
+        "default-model-usage",
+        "default-capability",
+        "default-tool",
+        "default-sandbox",
+    }
+    assert repository.rows["default-model-usage"].policy_kind == PricingPolicyKind.MODEL_USAGE
+    assert repository.rows["default-model-usage"].config_json["credits_per_1k_weighted_tokens"] == 6
+    assert repository.rows["default-sandbox"].config_json["tiers"]["standard"]["credits_per_minute"] == 1
+    assert session.commit_count == 5

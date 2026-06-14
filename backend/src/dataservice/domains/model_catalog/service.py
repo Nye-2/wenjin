@@ -15,6 +15,7 @@ from src.database.models.model_catalog import (
     ModelProviderProtocol,
     ModelTrustLevel,
 )
+from src.database.models.pricing_policy import PricingPolicyKind
 from src.dataservice.common.errors import DataServiceConflictError, DataServiceNotFoundError, DataServiceValidationError
 from src.dataservice.domains.model_catalog.contracts import ModelCatalogRecord, ModelRuntimeConfig
 from src.dataservice.domains.model_catalog.repository import ModelCatalogRepository
@@ -27,6 +28,7 @@ from src.dataservice.domains.model_catalog.security import (
     redact_api_key,
     validate_model_base_url,
 )
+from src.dataservice.domains.pricing.repository import PricingPolicyRepository
 from src.security.redaction import redact_secret_text, redact_sensitive_headers
 
 _SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9._-]{6,}")
@@ -50,9 +52,14 @@ class DataServiceModelCatalogService:
         self.allow_private_network = allow_private_network
         self.require_https = require_https
         self.repository = ModelCatalogRepository(session)
+        self.pricing_repository = PricingPolicyRepository(session)
 
     async def create_model(self, data: dict[str, Any], *, admin_id: str | None = None) -> ModelCatalogRecord:
         values = self._create_values(data, admin_id=admin_id)
+        await self._validate_model_usage_pricing_policy(
+            enabled=bool(values["enabled"]),
+            pricing_policy_id=values.get("pricing_policy_id"),
+        )
         if values["is_default"]:
             await self.repository.unset_default_models(category=values["category"].value)
         record = await self.repository.create_model(values)
@@ -111,6 +118,10 @@ class DataServiceModelCatalogService:
             raise DataServiceConflictError("default model must be enabled")
 
         update_values = self._update_values(row, data, admin_id=admin_id)
+        await self._validate_model_usage_pricing_policy(
+            enabled=effective_enabled,
+            pricing_policy_id=update_values.get("pricing_policy_id", getattr(row, "pricing_policy_id", None)),
+        )
         if update_values.get("is_default") is True:
             await self.repository.unset_default_models(category=_enum_value(row.category), except_model_id=model_id)
         for key, value in update_values.items():
@@ -316,6 +327,26 @@ class DataServiceModelCatalogService:
         await self.session.flush()
         if record is not None and hasattr(self.session, "refresh"):
             await self.session.refresh(record)
+
+    async def _validate_model_usage_pricing_policy(
+        self,
+        *,
+        enabled: bool,
+        pricing_policy_id: Any,
+    ) -> None:
+        if not enabled:
+            return
+        policy_key = str(pricing_policy_id or "").strip()
+        if not policy_key:
+            raise DataServiceValidationError("enabled model requires enabled model_usage pricing policy")
+        policy = await self.pricing_repository.get_policy(policy_key)
+        if policy is None:
+            raise DataServiceValidationError("enabled model requires enabled model_usage pricing policy")
+        policy_kind = _enum_value(getattr(policy, "policy_kind", None))
+        if policy_kind != PricingPolicyKind.MODEL_USAGE.value:
+            raise DataServiceValidationError("enabled model requires enabled model_usage pricing policy")
+        if not bool(getattr(policy, "enabled", True)):
+            raise DataServiceValidationError("enabled model requires enabled model_usage pricing policy")
 
 
 def _required_string(data: dict[str, Any], field: str) -> str:

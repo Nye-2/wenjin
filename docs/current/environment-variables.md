@@ -34,6 +34,7 @@
 - 模型目录、模型 API Key、默认模型、默认 headers、模型用量定价策略由 DataService 持久化，并通过管理员后台维护。
 - `MODEL_SECRET_KEY` 用于加密 `model_catalog_entries.encrypted_api_key`，生产必须是强随机 32-byte key。推荐格式为 `base64:<urlsafe-base64-32-byte>`；也可以用 `MODEL_SECRET_KEY_FILE` 挂载密钥文件。
 - `LLM_MODELS` / `LLM_IMAGE_MODELS` 现在只作为首次 seed/bootstrap 输入和测试夹具，不是生产运行时模型发现事实源。
+- 首次 bootstrap 会先创建默认 pricing policies；env model seed 如果没有显式 `pricing_policy_id`，会写入 `default-model-usage`，使模型目录落库后仍满足 enabled model 必须绑定 enabled `model_usage` policy 的写入约束。
 - `LLM_DEFAULT_MODEL` 只影响 env seed/test helper 的默认项；生产运行时默认模型来自 DataService 中 `is_default=true` 的 enabled model。
 - Gateway 启动时会 best-effort 预热本进程模型缓存；worker 启动和每次 chat/execution 任务开始前会从 DataService 刷新 runtime model cache，管理员后台修改会影响后续任务。runtime cache 必须携带模型绑定的 `pricing_policy_id`，用于不同模型的积分换算。
 

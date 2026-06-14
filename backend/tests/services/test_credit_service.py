@@ -419,6 +419,35 @@ async def test_consume_for_thread_usage_uses_pricing_policy_weighted_tokens(
 
 
 @pytest.mark.asyncio
+async def test_consume_for_thread_usage_does_not_fallback_to_unrelated_model_usage_policy(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    pricing_credit_client.add_user(credits=20)
+    pricing_credit_client.seed_consumption(
+        user_id="user-1",
+        transaction_type="thread_token_consume",
+        amount=0,
+        total_tokens=100000,
+        balance_after=20,
+    )
+
+    result = await pricing_credit_service.consume_for_thread_usage(
+        user_id="user-1",
+        token_usage={"input_tokens": 1000, "output_tokens": 500, "total_tokens": 1500},
+        model_name="unpriced-model",
+        thread_id="thread-1",
+    )
+
+    assert result.credits_charged == 1
+    assert await pricing_credit_service.get_balance("user-1") == 19
+
+    tx = next(tx for tx in pricing_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.metadata["policy"].get("policy_key") != "gpt-4o"
+    assert "pricing_breakdown" not in tx.metadata
+
+
+@pytest.mark.asyncio
 async def test_consume_for_thread_usage_prefers_runtime_model_bound_pricing_policy(
     pricing_credit_client: PricingAwareFakeCreditClient,
     pricing_credit_service: CreditService,
@@ -500,6 +529,7 @@ async def test_consume_for_feature_usage_applies_pricing_policy_feature_minimum(
         feature_id="deep_research",
         token_usage={"input_tokens": 1, "output_tokens": 0, "total_tokens": 1},
         task_id="task-1",
+        metadata={"model_name": "gpt-4o"},
     )
 
     assert result.credits_charged == 10

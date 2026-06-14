@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from src.database.models.model_catalog import ModelCategory, ModelHealthStatus
+from src.database.models.pricing_policy import PricingPolicyKind
 from src.dataservice.common.errors import DataServiceConflictError, DataServiceValidationError
 from src.dataservice.domains.model_catalog.security import (
     ModelApiKeyCipher,
@@ -73,6 +74,33 @@ class _FakeModelCatalogRepository:
                 row.is_default = False
 
 
+class _FakePricingPolicyRepository:
+    def __init__(self) -> None:
+        self.rows: dict[str, SimpleNamespace] = {
+            "model-standard": SimpleNamespace(
+                id="policy-row-1",
+                policy_key="model-standard",
+                policy_kind=PricingPolicyKind.MODEL_USAGE,
+                enabled=True,
+            ),
+            "model-disabled": SimpleNamespace(
+                id="policy-row-2",
+                policy_key="model-disabled",
+                policy_kind=PricingPolicyKind.MODEL_USAGE,
+                enabled=False,
+            ),
+            "sandbox-standard": SimpleNamespace(
+                id="policy-row-3",
+                policy_key="sandbox-standard",
+                policy_kind=PricingPolicyKind.SANDBOX,
+                enabled=True,
+            ),
+        }
+
+    async def get_policy(self, policy_id_or_key: str) -> SimpleNamespace | None:
+        return self.rows.get(policy_id_or_key)
+
+
 def _enum_value(value: Any) -> Any:
     return value.value if hasattr(value, "value") else value
 
@@ -90,6 +118,7 @@ def _model_catalog_service() -> tuple[DataServiceModelCatalogService, _FakeModel
     )
     repository = _FakeModelCatalogRepository()
     service.repository = repository  # type: ignore[assignment]
+    service.pricing_repository = _FakePricingPolicyRepository()  # type: ignore[assignment]
     return service, repository, session
 
 
@@ -108,6 +137,7 @@ def _model_payload(**overrides: Any) -> dict[str, Any]:
         "supports_streaming": True,
         "supports_tools": True,
         "supports_vision": False,
+        "pricing_policy_id": "model-standard",
         "default_headers": {"X-Provider": "qnaigc"},
     }
     payload.update(overrides)
@@ -212,6 +242,45 @@ async def test_create_model_encrypts_key_and_returns_redacted_record() -> None:
     assert stored.api_key_last4 == "abcd"
     assert stored.created_by_admin_id == "admin-1"
     assert session.commit_count == 1
+
+
+@pytest.mark.asyncio
+async def test_enabled_model_requires_enabled_model_usage_pricing_policy() -> None:
+    service, _repository, _session = _model_catalog_service()
+
+    with pytest.raises(DataServiceValidationError, match="enabled model requires enabled model_usage pricing policy"):
+        await service.create_model(_model_payload(pricing_policy_id=None))
+
+    with pytest.raises(DataServiceValidationError, match="enabled model requires enabled model_usage pricing policy"):
+        await service.create_model(_model_payload(model_id="bad-kind", pricing_policy_id="sandbox-standard"))
+
+    with pytest.raises(DataServiceValidationError, match="enabled model requires enabled model_usage pricing policy"):
+        await service.create_model(_model_payload(model_id="disabled-policy", pricing_policy_id="model-disabled"))
+
+
+@pytest.mark.asyncio
+async def test_disabled_model_can_be_saved_without_pricing_policy_until_enabled() -> None:
+    service, _repository, _session = _model_catalog_service()
+
+    record = await service.create_model(_model_payload(enabled=False, is_default=False, pricing_policy_id=None))
+
+    assert record.enabled is False
+    assert record.pricing_policy_id is None
+
+
+@pytest.mark.asyncio
+async def test_enabling_model_requires_pricing_policy() -> None:
+    service, _repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload(enabled=False, is_default=False, pricing_policy_id=None))
+
+    with pytest.raises(DataServiceValidationError, match="enabled model requires enabled model_usage pricing policy"):
+        await service.update_model("deepseek-v3", {"enabled": True})
+
+    record = await service.update_model("deepseek-v3", {"enabled": True, "pricing_policy_id": "model-standard"})
+
+    assert record is not None
+    assert record.enabled is True
+    assert record.pricing_policy_id == "model-standard"
 
 
 @pytest.mark.asyncio
@@ -372,7 +441,6 @@ async def test_update_can_clear_optional_runtime_fields() -> None:
     record = await service.update_model(
         "deepseek-v3",
         {
-            "pricing_policy_id": None,
             "timeout_seconds": None,
             "max_retries": None,
             "default_headers": None,
@@ -381,11 +449,23 @@ async def test_update_can_clear_optional_runtime_fields() -> None:
 
     assert record is not None
     row = repository.rows["deepseek-v3"]
-    assert row.pricing_policy_id is None
+    assert row.pricing_policy_id == "model-standard"
     assert row.timeout_seconds is None
     assert row.max_retries is None
     assert row.default_headers == {}
     assert record.default_headers == {}
+
+
+@pytest.mark.asyncio
+async def test_disabled_model_can_clear_pricing_policy() -> None:
+    service, repository, _session = _model_catalog_service()
+    await service.create_model(_model_payload(is_default=False, pricing_policy_id="model-standard"))
+
+    record = await service.update_model("deepseek-v3", {"enabled": False, "pricing_policy_id": None})
+
+    assert record is not None
+    assert record.enabled is False
+    assert repository.rows["deepseek-v3"].pricing_policy_id is None
 
 
 @pytest.mark.asyncio

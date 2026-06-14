@@ -110,18 +110,15 @@ async def async_main() -> int:
                 name=admin_name,
             )
 
-            # Seed admin-managed model catalog once from environment config.
-            try:
-                from src.dataservice_app.bootstrap_model_catalog import seed_model_catalog_from_env
+            # Seed pricing policies before the admin-managed model catalog.
+            from src.dataservice_app.bootstrap_model_catalog import seed_model_catalog_from_env
 
-                loaded_models = await seed_model_catalog_from_env(
-                    session,
-                    admin_id=admin_email,
-                )
-                if loaded_models:
-                    print(f"[bootstrap-admin] Seeded {loaded_models} model catalog record(s)")
-            except Exception as model_exc:
-                print(f"[bootstrap-admin] WARN: model catalog seed failed: {model_exc}")
+            loaded_models = await seed_model_catalog_from_env(
+                session,
+                admin_id=admin_email,
+            )
+            if loaded_models:
+                print(f"[bootstrap-admin] Seeded {loaded_models} model catalog record(s)")
 
             # Seed skills before capabilities (capabilities reference skills)
             try:

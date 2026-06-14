@@ -77,6 +77,46 @@ async def test_model_catalog_seed_loader_imports_env_models_when_empty() -> None
 
 
 @pytest.mark.asyncio
+async def test_model_catalog_seed_loader_binds_enabled_env_models_to_default_pricing_policy() -> None:
+    service = _FakeModelCatalogService()
+    source = {
+        "LLM_MODELS": json.dumps(
+            [
+                {
+                    "id": "mimo-v2",
+                    "name": "MiMo V2",
+                    "model": "mimo-v2",
+                    "api_key": "sk-test-123456",
+                    "base_url": "https://api.example.com/v1",
+                }
+            ]
+        ),
+        "LLM_IMAGE_MODELS": json.dumps(
+            [
+                {
+                    "id": "image-gen",
+                    "model": "image-gen-v1",
+                    "api_key": "sk-image-123456",
+                    "base_url": "https://images.example.com/v1",
+                }
+            ]
+        ),
+    }
+
+    loaded = await DataServiceModelCatalogSeedLoader(
+        service,  # type: ignore[arg-type]
+        source=source,
+        default_pricing_policy_id="default-model-usage",
+    ).load_seeds_if_empty()
+
+    assert loaded == 2
+    assert [seed["pricing_policy_id"] for seed, _admin_id in service.created] == [
+        "default-model-usage",
+        "default-model-usage",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_model_catalog_seed_loader_does_not_overwrite_existing_catalog() -> None:
     service = _FakeModelCatalogService(existing=[SimpleNamespace(model_id="existing")])
     source = {

@@ -58,6 +58,14 @@ cp backend/.env.example backend/.env
 4. Gateway：`http://localhost:8001`
 5. Frontend：`http://localhost:3000`
 
+如果需要把同一套本地链路放到后台运行：
+
+```bash
+./start.sh --daemon
+```
+
+`--daemon` 会用 `nohup` 拉起一个前台管理子进程，子进程继续负责 service pid、trap 和 shutdown；启动日志写入 `logs/start.log`。也可以指定单服务，例如 `./start.sh --daemon --frontend`。停止仍使用 `./start.sh --stop`。
+
 可选调试：
 
 ```bash

@@ -39,6 +39,10 @@ import {
   STALE_REWRITE_ERROR_CODES,
   STRUCTURE_REWRITE_ERROR_CODES,
 } from "./rewriteDisplay";
+import {
+  DOCUMENT_REWRITE_CONTEXT_REQUIREMENTS,
+  LOCAL_REWRITE_CONTEXT_REQUIREMENTS,
+} from "./prismRewriteContext";
 import type {
   LastRewriteUndoState,
   PdfDraftSelection,
@@ -51,22 +55,6 @@ import {
 import { useLatexFeedbackCreation } from "./useLatexFeedbackCreation";
 
 type ActiveFileKind = "text" | "blob" | null;
-
-const LOCAL_REWRITE_CONTEXT_REQUIREMENTS = {
-  include_manuscript_context: true,
-  include_workspace_history: false,
-  include_related_documents: false,
-  include_sandbox_artifacts: false,
-  include_pending_review_summary: false,
-};
-
-const DOCUMENT_REWRITE_CONTEXT_REQUIREMENTS = {
-  include_manuscript_context: true,
-  include_workspace_history: true,
-  include_related_documents: true,
-  include_sandbox_artifacts: true,
-  include_pending_review_summary: true,
-};
 
 interface FeedbackPrismOptimizationBridge {
   addJob(job: PrismOptimizationJob): void;

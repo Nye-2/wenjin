@@ -35,6 +35,7 @@ tmp_docx_work/
 
 # Runtime logs
 logs/*.log
+logs/*.pid
 
 # Local docker image archives
 backend/docker/images/texlive/*.tar

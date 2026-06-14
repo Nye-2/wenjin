@@ -46,7 +46,6 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
   useEffect(() => {
     if (isAuthenticated && isOpen) {
       onClose();
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset local form when auth completes
       resetForm();
     }
   }, [isAuthenticated, isOpen, onClose, resetForm]);
@@ -63,7 +62,6 @@ export function AuthModal({ isOpen, onClose, initialMode = "login" }: AuthModalP
 
   useEffect(() => {
     if (isOpen) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mode with incoming trigger when modal opens
       setMode(initialMode);
       setShowPassword(false);
       setPasswordError("");

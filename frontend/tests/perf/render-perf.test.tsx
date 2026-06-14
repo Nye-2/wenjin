@@ -47,7 +47,8 @@ describe("Render performance", () => {
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
     const duration = performance.now() - start;
 
-    // Should render within 500ms even with 100 blocks (50 user + 50 assistant)
+    // Perf tests run in a dedicated serial Vitest config, so this remains a
+    // useful regression guard instead of a full-suite worker contention check.
     expect(duration).toBeLessThan(500);
     expect(useChatStoreV2.getState().messages.length).toBe(100);
   });
