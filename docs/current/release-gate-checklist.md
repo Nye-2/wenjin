@@ -20,7 +20,7 @@
 9. Sandbox file tools 必须隐藏 protected/internal paths，拒绝 host paths、symlink escape、guidance/manifest direct writes 和 generic shell widening。
 10. `sandbox.run_python`、依赖安装、artifact discovery、dataset/artifact manifest register 必须保留 bounded evidence、command audit、output refs、file diffs 和 reviewable artifact metadata。
 11. Research evidence gate 必须覆盖 workflow trace、citation/source audit、experiment interpretation、paper relevance、statistical robustness、Prism semantic/style contracts 等已声明 surfaces。
-12. Admin model catalog 不暴露明文 API key；生产 runtime model discovery 来自 DataService runtime cache，不从 `LLM_MODELS` fallback。
+12. Admin model catalog 不暴露明文 API key 或敏感 header；生产 runtime model discovery 来自 DataService runtime cache，不从 `LLM_MODELS` fallback，且每个 enabled billable model 必须绑定 enabled `model_usage` pricing policy。
 13. Credit admission 使用 `spendable_credits = credits - reserved_credits`；sandbox start 和 token/model usage 走 DataService pricing / reservation / transaction 链路。
 14. UI 默认视图不展示 raw stdout/stderr、raw args、template id、schema id、internal refs 或日志墙；复杂证据进入预览/诊断层。
 

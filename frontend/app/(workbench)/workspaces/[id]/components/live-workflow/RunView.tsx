@@ -5,7 +5,7 @@ import {
   Eye,
   Users,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { ExecutionRecord } from "@/lib/api/types";
 import {
@@ -185,24 +185,23 @@ function TeamRoster({ team }: { team: RunViewTeam }) {
   const [selectedPreviewId, setSelectedPreviewId] = useState<string | null>(null);
   const focusedPreviewItemId = useRunUiStore((state) => state.focusedPreviewItemId);
   const focusPreviewItem = useRunUiStore((state) => state.focusPreviewItem);
-  useEffect(() => {
-    if (!focusedPreviewItemId) return;
-    const exists = team.members.some((member) =>
-      member.previewItems.some((item) => item.id === focusedPreviewItemId),
-    );
-    if (exists) {
-      setSelectedPreviewId(focusedPreviewItemId);
-      setSelectedMemberId(null);
-    }
-  }, [focusedPreviewItemId, team.members]);
+  const focusedPreviewExists = focusedPreviewItemId
+    ? team.members.some((member) =>
+        member.previewItems.some((item) => item.id === focusedPreviewItemId),
+      )
+    : false;
+  const activePreviewId = focusedPreviewExists
+    ? focusedPreviewItemId
+    : selectedPreviewId;
   const selectedMember = selectedMemberId
+    && !activePreviewId
     ? team.members.find((member) => member.id === selectedMemberId) ?? null
     : null;
   const selectedPreview =
-    selectedPreviewId
+    activePreviewId
       ? team.members
         .flatMap((member) => member.previewItems)
-        .find((item) => item.id === selectedPreviewId) ?? null
+        .find((item) => item.id === activePreviewId) ?? null
       : null;
 
   if (team.members.length === 0 && team.qualityGates.length === 0) {

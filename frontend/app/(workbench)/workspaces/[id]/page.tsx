@@ -23,8 +23,7 @@ import {
   type WorkspaceHubRoomKey,
 } from "./components/shell/WorkspaceHubDrawer";
 import { useWorkspaceChromeCounts } from "./components/shell/useWorkspaceChromeCounts";
-import { getWorkspace } from "@/lib/api/workspace";
-import { authorizedFetch } from "@/lib/api/client";
+import { getWorkspace, getWorkspaceFeatures } from "@/lib/api/workspace";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import type { WorkspaceCapability } from "@/lib/api/types";
@@ -98,27 +97,9 @@ export default function V2Page({
       .then(async (w) => {
         if (cancelled) return;
         setWorkspace({ name: w.name, type: w.type });
-        const res = await authorizedFetch(
-          `/api/capabilities?workspace_type=${encodeURIComponent(w.type)}`
-        );
-        if (!res.ok) {
-          return;
-        }
-        const data = (await res.json()) as {
-          items?: Array<Record<string, unknown>>;
-        };
+        const data = await getWorkspaceFeatures(id);
         if (cancelled) return;
-        const mapped: WorkspaceCapability[] = (data.items ?? []).map((c) => ({
-          id: c.id as string,
-          name: (c.display_name as string) ?? (c.id as string) ?? "",
-          description:
-            (c.description as string) ||
-            (c.intent_description as string) ||
-            "",
-          icon: ((c.ui_meta as Record<string, unknown> | undefined)?.icon as string) ?? "",
-          stages: [],
-        }));
-        setFeatures(mapped);
+        setFeatures(data.features);
       })
       .catch(() => {});
     return () => {

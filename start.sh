@@ -854,6 +854,14 @@ start_worker() {
     fi
 }
 
+normalize_next_env_route_types() {
+    local next_env="$FRONTEND_DIR/next-env.d.ts"
+    if [[ -f "$next_env" ]] && grep -q '\.next/dev/types/routes\.d\.ts' "$next_env"; then
+        perl -0pi -e 's#import "\./\.next/dev/types/routes\.d\.ts";#import "./.next/types/routes.d.ts";#g' "$next_env"
+        log_info "已恢复 next-env.d.ts 的静态构建 route types 引用"
+    fi
+}
+
 # 启动前端
 start_frontend() {
     if is_running "$FRONTEND_PID_FILE"; then
@@ -869,10 +877,12 @@ start_frontend() {
 
     cd "$FRONTEND_DIR"
 
-    npm run dev > "$LOG_DIR/frontend.log" 2>&1 &
+    WENJIN_DEV_API_PROXY_TARGET="${WENJIN_DEV_API_PROXY_TARGET:-http://localhost:8001}" \
+        npm run dev > "$LOG_DIR/frontend.log" 2>&1 &
     echo $! > "$FRONTEND_PID_FILE"
 
     if is_running "$FRONTEND_PID_FILE" && wait_for_service "http://localhost:3000" "前端服务"; then
+        normalize_next_env_route_types
         log_success "前端服务已启动 (PID: $(cat $FRONTEND_PID_FILE))"
         log_info "前端地址: http://localhost:3000"
     else

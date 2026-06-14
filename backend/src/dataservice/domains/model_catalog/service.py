@@ -27,6 +27,7 @@ from src.dataservice.domains.model_catalog.security import (
     redact_api_key,
     validate_model_base_url,
 )
+from src.security.redaction import redact_secret_text, redact_sensitive_headers
 
 _SECRET_PATTERN = re.compile(r"sk-[A-Za-z0-9._-]{6,}")
 
@@ -182,7 +183,7 @@ class DataServiceModelCatalogService:
             health_status=_enum_value(row.health_status),
             last_tested_at=getattr(row, "last_tested_at", None),
             last_test_error=getattr(row, "last_test_error", None),
-            default_headers=dict(getattr(row, "default_headers", {}) or {}),
+            default_headers=redact_sensitive_headers(getattr(row, "default_headers", {}) or {}),
             created_by_admin_id=getattr(row, "created_by_admin_id", None),
             updated_by_admin_id=getattr(row, "updated_by_admin_id", None),
             created_at=getattr(row, "created_at", None),
@@ -348,4 +349,8 @@ def _enum_value(value: Any) -> Any:
 def _redact_error(message: str | None) -> str | None:
     if message is None:
         return None
-    return _SECRET_PATTERN.sub(lambda match: redact_api_key(api_key_last4(match.group(0))) or "sk-****", message)[:500]
+    redacted = _SECRET_PATTERN.sub(
+        lambda match: redact_api_key(api_key_last4(match.group(0))) or "sk-****",
+        message,
+    )
+    return redact_secret_text(redacted)[:500]

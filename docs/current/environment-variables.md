@@ -31,11 +31,11 @@
 
 ### 1.2 模型目录与计费配置
 
-- 模型目录、模型 API Key、默认模型、模型用量定价策略由 DataService 持久化，并通过管理员后台维护。
+- 模型目录、模型 API Key、默认模型、默认 headers、模型用量定价策略由 DataService 持久化，并通过管理员后台维护。
 - `MODEL_SECRET_KEY` 用于加密 `model_catalog_entries.encrypted_api_key`，生产必须是强随机 32-byte key。推荐格式为 `base64:<urlsafe-base64-32-byte>`；也可以用 `MODEL_SECRET_KEY_FILE` 挂载密钥文件。
 - `LLM_MODELS` / `LLM_IMAGE_MODELS` 现在只作为首次 seed/bootstrap 输入和测试夹具，不是生产运行时模型发现事实源。
 - `LLM_DEFAULT_MODEL` 只影响 env seed/test helper 的默认项；生产运行时默认模型来自 DataService 中 `is_default=true` 的 enabled model。
-- Gateway 启动时会 best-effort 预热本进程模型缓存；worker 启动和每次 chat/execution 任务开始前会从 DataService 刷新 runtime model cache，管理员后台修改会影响后续任务。
+- Gateway 启动时会 best-effort 预热本进程模型缓存；worker 启动和每次 chat/execution 任务开始前会从 DataService 刷新 runtime model cache，管理员后台修改会影响后续任务。runtime cache 必须携带模型绑定的 `pricing_policy_id`，用于不同模型的积分换算。
 
 ### 1.3 常用可选
 
@@ -89,7 +89,7 @@
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 默认 `/api`；生产走 nginx 同源入口，前端开发态由 Next rewrite 代理 |
-| `WENJIN_DEV_API_PROXY_TARGET` | 前端开发态 `/api/*` 代理目标 | 默认 `http://localhost:2026`；连接手动启动的 gateway 时可设为 `http://localhost:8001` |
+| `WENJIN_DEV_API_PROXY_TARGET` | 前端开发态 `/api/*` 代理目标 | 默认 `http://localhost:8001`；需要通过本机 Docker/Nginx 入口调试时可设为 `http://localhost:2026` |
 
 ## 3. Docker Compose image variables
 
@@ -116,4 +116,4 @@
 3. SMTP 联调时优先验证服务端连通性，再验证前端交互。
 4. 若部署在反向代理后，确认真实客户端 IP 会正确透传；否则限流会退化为按代理 IP 计数。
 5. `docker compose` 部署前必须在仓库根 `.env` 或 shell 环境中显式提供 `ADMIN_PASSWORD`、`GRAFANA_PASSWORD` 和 `DATASERVICE_INTERNAL_TOKEN`。
-6. 管理员后台不会返回明文 API Key；编辑模型时 API Key 留空表示保持原密钥不变，填写新值才会替换。
+6. 管理员后台不会返回明文 API Key 或敏感 header；编辑模型时 API Key 留空表示保持原密钥不变，填写新值才会替换。

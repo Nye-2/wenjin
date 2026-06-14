@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from threading import RLock
 from typing import Any
 
+from src.security.redaction import redact_sensitive_headers
+
 
 @dataclass(frozen=True)
 class RuntimeModelConfig:
@@ -27,6 +29,7 @@ class RuntimeModelConfig:
     supports_vision: bool
     supports_reasoning_effort: bool
     default_headers: dict[str, str]
+    pricing_policy_id: str | None
     is_default: bool
     config_version: int
 
@@ -47,7 +50,8 @@ class RuntimeModelConfig:
             "supports_json_schema": self.supports_json_schema,
             "supports_vision": self.supports_vision,
             "supports_reasoning_effort": self.supports_reasoning_effort,
-            "default_headers": dict(self.default_headers),
+            "default_headers": redact_sensitive_headers(self.default_headers),
+            "pricing_policy_id": self.pricing_policy_id,
             "is_default": self.is_default,
             "config_version": self.config_version,
         }
@@ -147,6 +151,7 @@ def _to_runtime_config(item: Any) -> RuntimeModelConfig:
         supports_vision=item.supports_vision,
         supports_reasoning_effort=item.supports_reasoning_effort,
         default_headers={str(key): str(value) for key, value in item.default_headers.items()},
+        pricing_policy_id=getattr(item, "pricing_policy_id", None),
         is_default=item.is_default,
         config_version=item.config_version,
     )

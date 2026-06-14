@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const DEFAULT_DEV_API_PROXY_TARGET = "http://localhost:2026";
+const DEFAULT_DEV_API_PROXY_TARGET = "http://localhost:8001";
 
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, "");

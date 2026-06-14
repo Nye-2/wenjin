@@ -215,6 +215,19 @@ async def test_create_model_encrypts_key_and_returns_redacted_record() -> None:
 
 
 @pytest.mark.asyncio
+async def test_admin_record_redacts_secret_default_headers() -> None:
+    service, repository, _session = _model_catalog_service()
+
+    record = await service.create_model(
+        _model_payload(default_headers={"api-key": "tp-cvt-secret-token", "X-Provider": "qnaigc"})
+    )
+
+    stored = repository.rows["deepseek-v3"]
+    assert stored.default_headers["api-key"] == "tp-cvt-secret-token"
+    assert record.default_headers == {"api-key": "[redacted]", "X-Provider": "qnaigc"}
+
+
+@pytest.mark.asyncio
 async def test_runtime_models_decrypt_keys_only_for_internal_payload() -> None:
     service, _repository, _session = _model_catalog_service()
     await service.create_model(_model_payload())
@@ -383,9 +396,9 @@ async def test_health_update_stores_redacted_error() -> None:
     record = await service.update_health(
         "deepseek-v3",
         status=ModelHealthStatus.FAILED,
-        error_message="provider rejected sk-live-1234abcd",
+        error_message="provider rejected sk-live-1234abcd and api-key=tp-cvt-secret-token",
     )
 
     assert record is not None
     assert repository.rows["deepseek-v3"].health_status == ModelHealthStatus.FAILED
-    assert repository.rows["deepseek-v3"].last_test_error == "provider rejected sk-****abcd"
+    assert repository.rows["deepseek-v3"].last_test_error == "provider rejected sk-****abcd and [redacted]"

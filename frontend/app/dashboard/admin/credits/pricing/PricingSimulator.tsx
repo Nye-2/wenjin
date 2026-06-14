@@ -7,24 +7,43 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { listPricingPolicies, simulatePricing } from "@/lib/api/admin-pricing";
-import type { AdminPricingPolicy, AdminPricingSimulationResult } from "@/lib/api/types";
+import type {
+  AdminPricingPolicy,
+  AdminPricingSimulationResult,
+} from "@/lib/api/types";
 
 const DEFAULT_GLOBAL_POLICY = { credits_per_cny: 10, usd_to_cny: 7.3 };
 const DEFAULT_MODEL_USAGE_POLICY = {
   input_weight: 0.3,
+  cached_input_weight: 0.05,
   output_weight: 1,
+  reasoning_weight: 1,
   credits_per_1k_weighted_tokens: 6,
   min_chat_credits: 3,
   min_feature_model_credits: 10,
   cost_guard_multiplier: 20,
+  raw_cost: {
+    input_usd_per_1m: 0,
+    cached_input_usd_per_1m: 0,
+    output_usd_per_1m: 0,
+    reasoning_usd_per_1m: 0,
+  },
+  free_tokens: 0,
+  max_overdraft_credits: 100,
 };
 
 export function PricingSimulator() {
   const [promptTokens, setPromptTokens] = useState("1000");
   const [completionTokens, setCompletionTokens] = useState("500");
-  const [result, setResult] = useState<AdminPricingSimulationResult | null>(null);
-  const [globalPolicy, setGlobalPolicy] = useState<Record<string, unknown>>(DEFAULT_GLOBAL_POLICY);
-  const [modelUsagePolicy, setModelUsagePolicy] = useState<Record<string, unknown>>(DEFAULT_MODEL_USAGE_POLICY);
+  const [result, setResult] = useState<AdminPricingSimulationResult | null>(
+    null,
+  );
+  const [globalPolicy, setGlobalPolicy] = useState<Record<string, unknown>>(
+    DEFAULT_GLOBAL_POLICY,
+  );
+  const [modelUsagePolicy, setModelUsagePolicy] = useState<
+    Record<string, unknown>
+  >(DEFAULT_MODEL_USAGE_POLICY);
   const [policySource, setPolicySource] = useState("默认模板");
   const [loading, setLoading] = useState(false);
   const [policiesLoading, setPoliciesLoading] = useState(true);
@@ -39,11 +58,19 @@ export function PricingSimulator() {
     ])
       .then(([globalResponse, modelResponse]) => {
         if (cancelled) return;
-        const activeGlobal = firstPolicyConfig(globalResponse.items, "global_credit");
-        const activeModel = firstPolicyConfig(modelResponse.items, "model_usage");
+        const activeGlobal = firstPolicyConfig(
+          globalResponse.items,
+          "global_credit",
+        );
+        const activeModel = firstPolicyConfig(
+          modelResponse.items,
+          "model_usage",
+        );
         setGlobalPolicy(activeGlobal ?? DEFAULT_GLOBAL_POLICY);
         setModelUsagePolicy(activeModel ?? DEFAULT_MODEL_USAGE_POLICY);
-        setPolicySource(activeGlobal && activeModel ? "当前启用策略" : "默认模板");
+        setPolicySource(
+          activeGlobal && activeModel ? "当前启用策略" : "默认模板",
+        );
       })
       .catch((err) => {
         if (!cancelled) {
@@ -85,10 +112,18 @@ export function PricingSimulator() {
     <section className="route-card rounded-2xl p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-[var(--wjn-text)]">定价模拟</h2>
-          <p className="text-sm text-[var(--wjn-text-muted)]">按{policySource}估算积分与毛利。</p>
+          <h2 className="text-base font-semibold text-[var(--wjn-text)]">
+            定价模拟
+          </h2>
+          <p className="text-sm text-[var(--wjn-text-muted)]">
+            按{policySource}估算积分与毛利。
+          </p>
         </div>
-        <Button size="sm" onClick={handleSimulate} disabled={loading || policiesLoading}>
+        <Button
+          size="sm"
+          onClick={handleSimulate}
+          disabled={loading || policiesLoading}
+        >
           {loading || policiesLoading ? (
             <Loader2 className="w-4 h-4 mr-1 animate-spin" />
           ) : (
@@ -147,5 +182,8 @@ function firstPolicyConfig(
   policies: AdminPricingPolicy[],
   kind: string,
 ): Record<string, unknown> | null {
-  return policies.find((policy) => policy.enabled && policy.policy_kind === kind)?.config ?? null;
+  return (
+    policies.find((policy) => policy.enabled && policy.policy_kind === kind)
+      ?.config ?? null
+  );
 }

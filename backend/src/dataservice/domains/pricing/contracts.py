@@ -72,12 +72,19 @@ class ToolPricingPolicyConfig(BaseModel):
 class SandboxPricingPolicyConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    operation: str | None = None
+    startup_fee_credits: int = Field(default=0, ge=0)
+    minimum_billable_seconds: int = Field(default=0, ge=0)
+    max_charge_credits: int = Field(default=0, ge=0)
+    default_tier: str | None = None
     tiers: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_tiers(self) -> SandboxPricingPolicyConfig:
         if not self.tiers:
             raise ValueError("sandbox pricing requires at least one tier")
+        if self.default_tier and self.default_tier not in self.tiers:
+            raise ValueError("default_tier must exist in tiers")
         return self
 
 

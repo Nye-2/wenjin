@@ -31,6 +31,7 @@ def _runtime_model(**overrides) -> ModelRuntimeConfigPayload:
         "supports_reasoning_effort": True,
         "max_tokens": 8192,
         "temperature": 0.3,
+        "pricing_policy_id": "deepseek-chat-policy",
         "config_version": 1,
         "default_headers": {"X-Provider": "qnaigc"},
     }
@@ -62,6 +63,7 @@ async def test_cache_loads_runtime_config_from_dataservice() -> None:
     assert config is not None
     assert config.api_key == "sk-live-1234abcd"
     assert config.model == "deepseek/deepseek-v3"
+    assert config.pricing_policy_id == "deepseek-chat-policy"
     assert config.default_headers == {"X-Provider": "qnaigc"}
 
 
@@ -97,4 +99,22 @@ def test_execution_safe_snapshot_excludes_api_key() -> None:
     safe_model = get_model_catalog_snapshot().safe_models()[0]
 
     assert safe_model["model_id"] == "deepseek-v3"
+    assert safe_model["pricing_policy_id"] == "deepseek-chat-policy"
     assert "api_key" not in safe_model
+
+
+def test_execution_safe_snapshot_redacts_secret_default_headers() -> None:
+    install_model_catalog_snapshot(
+        [
+            _runtime_model(
+                default_headers={
+                    "api-key": "tp-cvt-secret-token",
+                    "X-Provider": "qnaigc",
+                }
+            )
+        ]
+    )
+
+    safe_model = get_model_catalog_snapshot().safe_models()[0]
+
+    assert safe_model["default_headers"] == {"api-key": "[redacted]", "X-Provider": "qnaigc"}

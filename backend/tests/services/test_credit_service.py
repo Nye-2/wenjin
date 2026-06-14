@@ -15,6 +15,7 @@ from src.dataservice_client.contracts.credit import (
 )
 from src.services.billing_policy import OperationBillingPolicy, TokenBillingPolicy
 from src.services.credit_service import CreditService
+from src.services.model_catalog_cache import install_model_catalog_snapshot, reset_model_catalog_cache
 
 
 class FakeCreditClient:
@@ -295,6 +296,21 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
                 "max_overdraft_credits": 100,
             },
         )
+        self.bound_model_policy = SimpleNamespace(
+            id="bound-model-policy",
+            policy_key="deepseek-bound-policy",
+            policy_kind="model_usage",
+            enabled=True,
+            version=5,
+            config={
+                "input_weight": 0.2,
+                "output_weight": 2,
+                "credits_per_1k_weighted_tokens": 10,
+                "min_chat_credits": 7,
+                "min_feature_model_credits": 13,
+                "max_overdraft_credits": 100,
+            },
+        )
         self.capability_policies: list[SimpleNamespace] = []
 
     async def get_pricing_policy(self, policy_id_or_key: str):
@@ -302,6 +318,8 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
             return self.global_policy
         if policy_id_or_key in {"gpt-4o", self.model_policy.id}:
             return self.model_policy
+        if policy_id_or_key in {"deepseek-bound-policy", self.bound_model_policy.id}:
+            return self.bound_model_policy
         return None
 
     async def list_pricing_policies(
@@ -310,7 +328,12 @@ class PricingAwareFakeCreditClient(FakeCreditClient):
         policy_kind: str | None = None,
         enabled_only: bool = False,
     ):
-        rows = [self.global_policy, self.model_policy, *self.capability_policies]
+        rows = [
+            self.global_policy,
+            self.model_policy,
+            self.bound_model_policy,
+            *self.capability_policies,
+        ]
         if policy_kind is not None:
             rows = [row for row in rows if row.policy_kind == policy_kind]
         if enabled_only:
@@ -393,6 +416,58 @@ async def test_consume_for_thread_usage_uses_pricing_policy_weighted_tokens(
     assert tx.metadata["policy"]["version"] == 3
     assert tx.metadata["pricing_breakdown"]["weighted_tokens"] == 800
     assert tx.metadata["credits_charged"] == 5
+
+
+@pytest.mark.asyncio
+async def test_consume_for_thread_usage_prefers_runtime_model_bound_pricing_policy(
+    pricing_credit_client: PricingAwareFakeCreditClient,
+    pricing_credit_service: CreditService,
+) -> None:
+    reset_model_catalog_cache()
+    install_model_catalog_snapshot(
+        [
+            SimpleNamespace(
+                model_id="deepseek-v3",
+                display_name="DeepSeek V3",
+                provider_name="QnAIGC",
+                category="llm",
+                model_name="deepseek/deepseek-v3",
+                base_url="https://api.example.com/v1",
+                api_key="sk-live-1234abcd",
+                is_default=True,
+                supports_streaming=True,
+                supports_tools=False,
+                supports_json_mode=True,
+                supports_json_schema=False,
+                supports_vision=False,
+                supports_reasoning_effort=False,
+                max_tokens=8192,
+                temperature=0.3,
+                pricing_policy_id="deepseek-bound-policy",
+                config_version=1,
+                default_headers={},
+            )
+        ]
+    )
+    pricing_credit_client.add_user(credits=20)
+
+    try:
+        result = await pricing_credit_service.consume_for_thread_usage(
+            user_id="user-1",
+            token_usage={"input_tokens": 1000, "output_tokens": 500, "total_tokens": 1500},
+            model_name="deepseek-v3",
+            thread_id="thread-1",
+        )
+    finally:
+        reset_model_catalog_cache()
+
+    assert result.credits_charged == 12
+    assert await pricing_credit_service.get_balance("user-1") == 8
+
+    tx = next(tx for tx in pricing_credit_client.transactions if tx.id == result.transaction_id)
+    assert tx.metadata["policy"]["policy_key"] == "deepseek-bound-policy"
+    assert tx.metadata["policy"]["version"] == 5
+    assert tx.metadata["pricing_breakdown"]["weighted_tokens"] == 1200
 
 
 @pytest.mark.asyncio

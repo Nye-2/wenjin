@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WorkspaceEvent } from "@/lib/api/types";
 import { useChatStoreV2 } from "@/stores/chat-store";
@@ -61,6 +61,7 @@ const makeExecutionRecord = () => ({
 });
 
 beforeEach(() => {
+  vi.useRealTimers();
   useChatStoreV2.getState().reset();
   useExecutionStore.getState().clear();
   useRoomRefreshStore.getState().reset();
@@ -75,6 +76,10 @@ beforeEach(() => {
   mockUseExecutionStream.mockReset();
   mockGetExecution.mockReset();
   mockSubscribeWorkspaceEvents.mockReturnValue(vi.fn());
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("useWorkspaceEventStream", () => {
@@ -162,6 +167,69 @@ describe("useWorkspaceEventStream", () => {
         message.blocks.filter((block) => block.kind === "result_card"),
       );
     expect(resultCards).toHaveLength(1);
+  });
+
+  it("keeps a newer execution stream active when an older terminal cleanup fires", () => {
+    vi.useFakeTimers();
+    let onEvent: ((event: WorkspaceEvent) => void) | undefined;
+    mockSubscribeWorkspaceEvents.mockImplementation((_workspaceId, handler) => {
+      onEvent = handler as (event: WorkspaceEvent) => void;
+      return vi.fn();
+    });
+    mockGetExecution.mockImplementation((executionId: string) =>
+      Promise.resolve({
+        ...makeExecutionRecord(),
+        id: executionId,
+        result: {
+          task_report: {
+            ...makeExecutionRecord().result.task_report,
+            execution_id: executionId,
+          },
+        },
+      }),
+    );
+
+    const { rerender } = renderHook(() => useWorkspaceEventStream("ws-1"));
+
+    act(() => {
+      onEvent?.({
+        type: "execution.updated",
+        workspace_id: "ws-1",
+        execution_id: "exec-1",
+        event_type: "execution.status",
+        status: "running",
+      });
+    });
+    rerender();
+    expect(mockUseExecutionStream).toHaveBeenLastCalledWith("exec-1");
+
+    act(() => {
+      onEvent?.({
+        type: "execution.completed",
+        workspace_id: "ws-1",
+        execution_id: "exec-1",
+        event_type: "execution.completed",
+        status: "completed",
+      });
+    });
+    act(() => {
+      onEvent?.({
+        type: "execution.updated",
+        workspace_id: "ws-1",
+        execution_id: "exec-2",
+        event_type: "execution.status",
+        status: "running",
+      });
+    });
+    rerender();
+    expect(mockUseExecutionStream).toHaveBeenLastCalledWith("exec-2");
+
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    rerender();
+
+    expect(mockUseExecutionStream).toHaveBeenLastCalledWith("exec-2");
   });
 
   it("refreshes the active compute projection when its execution updates", async () => {

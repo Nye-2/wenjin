@@ -31,10 +31,14 @@ const POLICY = {
 
 describe("AdminPricingPage", () => {
   beforeEach(() => {
-    listPricingPolicies.mockReset().mockResolvedValue({ items: [POLICY], total: 1 });
+    listPricingPolicies
+      .mockReset()
+      .mockResolvedValue({ items: [POLICY], total: 1 });
     createPricingPolicy.mockReset().mockResolvedValue(POLICY);
     updatePricingPolicy.mockReset().mockResolvedValue(POLICY);
-    disablePricingPolicy.mockReset().mockResolvedValue({ ...POLICY, enabled: false });
+    disablePricingPolicy
+      .mockReset()
+      .mockResolvedValue({ ...POLICY, enabled: false });
     simulatePricing.mockReset().mockResolvedValue({
       charge_credits: 12,
       raw_cost_cny: 0.2,
@@ -53,7 +57,9 @@ describe("AdminPricingPage", () => {
   it("renders simulator credit estimate and margin", async () => {
     render(<AdminPricingPage />);
 
-    const simulateButton = await screen.findByRole("button", { name: "估算积分" });
+    const simulateButton = await screen.findByRole("button", {
+      name: "估算积分",
+    });
     await waitFor(() => expect(simulateButton).not.toBeDisabled());
     fireEvent.click(simulateButton);
 
@@ -65,5 +71,41 @@ describe("AdminPricingPage", () => {
     );
     expect(await screen.findByText("12 credits")).toBeInTheDocument();
     expect(screen.getByText("毛利 1 CNY")).toBeInTheDocument();
+  });
+
+  it("uses complete model-usage defaults in the create dialog", async () => {
+    render(<AdminPricingPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /新增策略/ }));
+
+    const config = screen.getByLabelText("Config JSON") as HTMLTextAreaElement;
+    expect(config.value).toContain("cached_input_weight");
+    expect(config.value).toContain("reasoning_weight");
+    expect(config.value).toContain("raw_cost");
+  });
+
+  it("simulates with complete model-usage defaults when no active policy exists", async () => {
+    listPricingPolicies.mockResolvedValue({ items: [], total: 0 });
+    render(<AdminPricingPage />);
+
+    const simulateButton = await screen.findByRole("button", {
+      name: "估算积分",
+    });
+    await waitFor(() => expect(simulateButton).not.toBeDisabled());
+    fireEvent.click(simulateButton);
+
+    await waitFor(() => expect(simulatePricing).toHaveBeenCalled());
+    expect(simulatePricing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model_usage_policy: expect.objectContaining({
+          cached_input_weight: 0.05,
+          reasoning_weight: 1,
+          raw_cost: expect.objectContaining({
+            input_usd_per_1m: 0,
+            output_usd_per_1m: 0,
+          }),
+        }),
+      }),
+    );
   });
 });

@@ -172,6 +172,24 @@ def test_sandbox_policy_requires_at_least_one_tier() -> None:
         SandboxPricingPolicyConfig(tiers={})
 
 
+def test_sandbox_policy_accepts_runtime_billing_fields() -> None:
+    policy = SandboxPricingPolicyConfig(
+        operation="run_python",
+        startup_fee_credits=1,
+        minimum_billable_seconds=60,
+        max_charge_credits=60,
+        default_tier="standard",
+        tiers={"standard": {"credits_per_minute": 1}},
+    )
+
+    assert policy.operation == "run_python"
+    assert policy.default_tier == "standard"
+    assert policy.startup_fee_credits == 1
+    assert policy.minimum_billable_seconds == 60
+    assert policy.max_charge_credits == 60
+    assert policy.tiers["standard"]["credits_per_minute"] == 1
+
+
 @pytest.mark.asyncio
 async def test_create_pricing_policy_validates_config_and_returns_record() -> None:
     service, repository, session = _service()

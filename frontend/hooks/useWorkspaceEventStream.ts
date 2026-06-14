@@ -258,7 +258,11 @@ export function useWorkspaceEventStream(workspaceId: string | null) {
                 setActiveExecutionId(event.execution_id);
               } else {
                 useRunUiStore.getState().markRunCompleted(event.execution_id);
-                window.setTimeout(() => setActiveExecutionId(null), 3000);
+                window.setTimeout(() => {
+                  setActiveExecutionId((current) =>
+                    current === event.execution_id ? null : current,
+                  );
+                }, 3000);
               }
             }
           }

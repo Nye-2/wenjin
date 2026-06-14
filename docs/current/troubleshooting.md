@@ -87,8 +87,8 @@ curl -i http://localhost:2026/api/auth/me
 补充：
 
 - 如果没有创建 `frontend/.env.local`，前端默认请求同源 `/api`
-- `npm run dev` 会把 `/api/*` 代理到 `WENJIN_DEV_API_PROXY_TARGET`，默认 `http://localhost:2026`
-- 连接手动启动的 gateway 时，可设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:8001`，继续让浏览器走同源 `/api`
+- `npm run dev` 会把 `/api/*` 代理到 `WENJIN_DEV_API_PROXY_TARGET`，默认 `http://localhost:8001`
+- Docker/Nginx 入口仍是 `http://localhost:2026`；只有需要让本地前端直连该入口时才设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:2026`
 
 ## 4. SSE 不流动或前端长时间无更新
 

@@ -4,11 +4,27 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { createPricingPolicy, updatePricingPolicy } from "@/lib/api/admin-pricing";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  createPricingPolicy,
+  updatePricingPolicy,
+} from "@/lib/api/admin-pricing";
 import type { AdminPricingPolicy } from "@/lib/api/types";
 
 type Props = {
@@ -20,11 +36,21 @@ type Props = {
 const DEFAULT_CONFIG = {
   model_usage: {
     input_weight: 0.3,
+    cached_input_weight: 0.05,
     output_weight: 1,
+    reasoning_weight: 1,
     credits_per_1k_weighted_tokens: 6,
     min_chat_credits: 3,
     min_feature_model_credits: 10,
     cost_guard_multiplier: 20,
+    raw_cost: {
+      input_usd_per_1m: 0,
+      cached_input_usd_per_1m: 0,
+      output_usd_per_1m: 0,
+      reasoning_usd_per_1m: 0,
+    },
+    free_tokens: 0,
+    max_overdraft_credits: 100,
   },
   global_credit: {
     credits_per_cny: 10,
@@ -37,8 +63,13 @@ const DEFAULT_CONFIG = {
     max_charge_credits: 100,
   },
   sandbox: {
+    operation: "run_python",
+    startup_fee_credits: 1,
+    minimum_billable_seconds: 60,
+    max_charge_credits: 60,
+    default_tier: "standard",
     tiers: {
-      run_python: { startup_credits: 1, credits_per_minute: 1 },
+      standard: { credits_per_minute: 1 },
     },
   },
 };
@@ -60,14 +91,27 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
     setPolicyKind(nextKind);
     setName(policy?.name ?? "");
     setEnabled(policy?.enabled ?? true);
-    setConfigText(JSON.stringify(policy?.config ?? DEFAULT_CONFIG[nextKind as keyof typeof DEFAULT_CONFIG], null, 2));
+    setConfigText(
+      JSON.stringify(
+        policy?.config ??
+          DEFAULT_CONFIG[nextKind as keyof typeof DEFAULT_CONFIG],
+        null,
+        2,
+      ),
+    );
     setError(null);
   }, [open, policy]);
 
   const handleKindChange = (value: string) => {
     setPolicyKind(value);
     if (!isEdit) {
-      setConfigText(JSON.stringify(DEFAULT_CONFIG[value as keyof typeof DEFAULT_CONFIG] ?? {}, null, 2));
+      setConfigText(
+        JSON.stringify(
+          DEFAULT_CONFIG[value as keyof typeof DEFAULT_CONFIG] ?? {},
+          null,
+          2,
+        ),
+      );
     }
   };
 
@@ -96,10 +140,19 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose(false); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose(false);
+      }}
+    >
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEdit ? "编辑定价策略" : "新增定价策略"}</DialogTitle>
+          <DialogDescription>
+            维护 DataService 使用的积分计费配置。保存前请确认 JSON
+            字段与策略类型匹配。
+          </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-1">
@@ -113,8 +166,14 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
           </div>
           <div className="space-y-1">
             <Label htmlFor="policy-kind">类型</Label>
-            <Select value={policyKind} onValueChange={handleKindChange} disabled={isEdit}>
-              <SelectTrigger id="policy-kind"><SelectValue /></SelectTrigger>
+            <Select
+              value={policyKind}
+              onValueChange={handleKindChange}
+              disabled={isEdit}
+            >
+              <SelectTrigger id="policy-kind">
+                <SelectValue />
+              </SelectTrigger>
               <SelectContent>
                 <SelectItem value="global_credit">global_credit</SelectItem>
                 <SelectItem value="model_usage">model_usage</SelectItem>
@@ -126,11 +185,19 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
           </div>
           <div className="col-span-2 space-y-1">
             <Label htmlFor="policy-name">名称</Label>
-            <Input id="policy-name" value={name} onChange={(event) => setName(event.target.value)} />
+            <Input
+              id="policy-name"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
           </div>
         </div>
         <label className="flex items-center gap-2 text-sm text-[var(--wjn-text-secondary)]">
-          <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(event) => setEnabled(event.target.checked)}
+          />
           启用
         </label>
         <div className="space-y-1">
@@ -144,7 +211,13 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
         </div>
         {error && <div className="text-sm text-rose-600">{error}</div>}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onClose(false)} disabled={saving}>取消</Button>
+          <Button
+            variant="outline"
+            onClick={() => onClose(false)}
+            disabled={saving}
+          >
+            取消
+          </Button>
           <Button onClick={handleSubmit} disabled={saving}>
             {saving && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
             保存
