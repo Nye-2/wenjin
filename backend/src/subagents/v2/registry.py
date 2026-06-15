@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -44,8 +45,8 @@ _PUBLIC_INTERNAL_TERMS = (
     "stdout",
     "stderr",
     "agent_template",
-    ".v1",
 )
+_PUBLIC_INTERNAL_ID_PATTERN = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\.v\d+\b")
 
 
 class _Registry:
@@ -234,6 +235,11 @@ def _reject_internal_terms(
                 f"{template_id}: {path} contains internal terminology '{term}'"
             )
             return
+    match = _PUBLIC_INTERNAL_ID_PATTERN.search(text)
+    if match:
+        errors.append(
+            f"{template_id}: {path} contains internal terminology '{match.group(0)}'"
+        )
 
 
 def _canonical_tool_list(value: Any) -> list[str]:

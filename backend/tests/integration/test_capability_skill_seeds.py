@@ -150,6 +150,23 @@ def test_foundation_template_tool_contracts_match_team_registry():
         assert not errors, f"{template_id}: invalid tool contract {errors}"
 
 
+def test_foundation_template_persona_prompts_pass_public_safety_contract():
+    from src.subagents.v2.registry import validate_agent_template_contract
+
+    records = _collect_agent_template_records()
+    for template_id in sorted(FOUNDATION_AGENT_TEMPLATES):
+        persona_prompt = records[template_id].get("persona_prompt") or ""
+        assert persona_prompt.count("Role Boundary:") == 1, (
+            f"{template_id}: persona_prompt must contain Role Boundary exactly once"
+        )
+        assert (
+            persona_prompt.count("Evidence Rules:") == 1
+            or persona_prompt.count("Safety Boundary:") == 1
+        ), f"{template_id}: persona_prompt must contain Evidence Rules or Safety Boundary"
+        errors = validate_agent_template_contract(records[template_id])
+        assert not errors, f"{template_id}: invalid persona public-safety contract {errors}"
+
+
 def test_foundation_templates_declare_expert_profiles():
     from src.contracts.team_presentation import ExpertProfileV1
 

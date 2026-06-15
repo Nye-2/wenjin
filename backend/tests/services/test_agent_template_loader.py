@@ -173,6 +173,79 @@ async def test_agent_template_rejects_public_internal_ids(tmp_path) -> None:
     dataservice.load_agent_template_seed_items.assert_not_awaited()
 
 
+@pytest.mark.parametrize(
+    ("profile_yaml", "match"),
+    [
+        (
+            """\
+              public_name: 文献猎手 Nora
+              short_name: bad_template.v1
+              role_title: 文献检索专家
+              avatar_label: 文
+              tone: witty_professional
+              status_phrases:
+                running: Reading sources
+            """,
+            "short_name|internal terminology",
+        ),
+        (
+            """\
+              public_name: 文献猎手 Nora
+              short_name: 文献猎手
+              role_title: 文献检索专家
+              avatar_label: 文
+              tone: witty_professional
+              tagline: Check stdout before writing.
+              status_phrases:
+                running: Reading sources
+            """,
+            "tagline|stdout|internal terminology",
+        ),
+        (
+            """\
+              public_name: 文献猎手 Nora
+              short_name: 文献猎手
+              role_title: 文献检索专家
+              avatar_label: 文
+              tone: witty_professional
+              status_phrases:
+                running: Checking stderr
+            """,
+            "status_phrases.running|stderr|internal terminology",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_agent_template_rejects_internal_terms_in_public_profile_fields(
+    tmp_path,
+    profile_yaml: str,
+    match: str,
+) -> None:
+    seed_dir = tmp_path / "agent_templates"
+    seed_dir.mkdir()
+    seed_file = seed_dir / "research_scout.yaml"
+    seed_file.write_text(
+        _agent_template_yaml()
+        + "expert_profile:\n"
+        + textwrap.indent(textwrap.dedent(profile_yaml), "  "),
+        encoding="utf-8",
+    )
+
+    from src.services.agent_template_loader import AgentTemplateLoader
+
+    dataservice = AsyncMock()
+    dataservice.has_agent_templates.return_value = False
+    dataservice.load_agent_template_seed_items.return_value.loaded = 1
+    loader = AgentTemplateLoader(
+        seed_dir=seed_dir,
+        dataservice=dataservice,
+    )
+
+    with pytest.raises(ValueError, match=match):
+        await loader.load_seeds_if_empty()
+    dataservice.load_agent_template_seed_items.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_agent_template_rejects_persona_without_role_boundary(tmp_path) -> None:
     seed_dir = tmp_path / "agent_templates"
