@@ -18,9 +18,10 @@ Agent Template 数据源: `backend/seed/agent_templates/` + DataService Catalog 
 6. sandbox 开放边界由 `sandbox_policy` 明确表达；禁止 docker socket、privileged、host network、host paths、sibling container、server control。
 7. Sandbox 只允许 agent/runtime 使用，不作为用户 room、console 或公开任意执行 API 暴露；用户只审阅 sandbox traces、artifacts 和 provenance。
 8. 多步 capability 必须用分阶段 `depends_on` 串起上游输出；不能把 planner/searcher/writer/reviewer 放进同一个并行 phase。
-9. skill prompt 必须包含可执行 operating rules、output contract 和领域 quality gates；这些规则直接以 seed / DataService Catalog 为准，不再维护平行内容设计文档。
+9. enabled `capability_skill.v2.worker.role_prompt` 必须满足 Prompt Contract v1，包含固定 headings：`Role Boundary:`、`Input Interpretation:`、`Operating Rules:`、`Evidence Rules:`、`Output Contract:`、`Quality Gate Behavior:`、`Failure Handling:`、`Anti-Patterns:`。prompt body 仍是 worker 唯一运行时 prompt 来源；schema/admin/seed lint 只做目录校验，不引入第二套 renderer、prompt manager 或运行时拼装层。
 10. `software_copyright` 与 `patent` 默认面向中国用户：软著按中国软著登记材料组织，专利按中国/CNIPA 申请实践组织；PCT/海外规则仅在用户明确指定时启用。
-11. 用户可见 capability 必须在 schema/admin 写入时声明 `routing` 合约：`when_to_use`、`not_for`、正反例、`minimum_context`、歧义边界和轻量用户引导。Chat Agent 使用这些 route-card 做 LLM-only 渐进承诺，不维护 embedding index、关键词硬路由或第二套 router service。
+11. 用户可见 capability 必须在 schema/admin 写入时声明 `routing` 合约：`when_to_use`、`not_for`、至少 3 个 positive examples、至少 3 个 negative examples、`minimum_context`、歧义边界和轻量用户引导。每个 required `minimum_context` key 都必须说明需要用户补齐的最小事实。Chat Agent 使用这些 route-card 做 LLM-only 渐进承诺，不维护 embedding index、关键词硬路由或第二套 router service。
+12. agent template 的公开 `expert_profile` / persona 文案必须通过 public-safety 校验：不得暴露 internal id、raw tools、raw logs、stdout/stderr、harness refs 或内部调度术语；`persona_prompt` 必须包含 Role Boundary 以及 Evidence/Safety boundary。
 
 ## 2. Workspace Types
 
