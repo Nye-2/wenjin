@@ -4,7 +4,6 @@ import pytest
 
 from src.services.capability_schema import CapabilityV2YamlModel, CrossRefValidator
 
-
 VALID_ROLE_PROMPT = """You are a test skill.
 
 Role Boundary:
