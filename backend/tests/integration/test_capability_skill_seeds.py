@@ -51,6 +51,16 @@ FOUNDATION_OVERLAY_SKILLS = {
     "patent-examiner-rules",
     "software-copyright-rules",
 }
+PROMPT_CONTRACT_REQUIRED_HEADINGS = (
+    "Role Boundary:",
+    "Input Interpretation:",
+    "Operating Rules:",
+    "Evidence Rules:",
+    "Output Contract:",
+    "Quality Gate Behavior:",
+    "Failure Handling:",
+    "Anti-Patterns:",
+)
 
 
 def _collect_skill_ids() -> set[str]:
@@ -79,6 +89,22 @@ def _collect_skill_records() -> dict[str, dict]:
         data = yaml.safe_load(f.read_text())
         records[data["id"]] = data
     return records
+
+
+def _section_text(prompt: str, heading: str) -> str:
+    start = prompt.find(heading)
+    if start < 0:
+        return ""
+    body_start = start + len(heading)
+    next_positions = [
+        pos
+        for other in PROMPT_CONTRACT_REQUIRED_HEADINGS
+        if other != heading
+        for pos in [prompt.find(other, body_start)]
+        if pos >= 0
+    ]
+    body_end = min(next_positions) if next_positions else len(prompt)
+    return prompt[body_start:body_end].strip()
 
 
 def _collect_agent_template_records() -> dict[str, dict]:
@@ -167,6 +193,23 @@ def test_foundation_skills_have_quality_contract_shape():
             f"{skill_id}: text and quality_gates_checked must be required"
         )
         assert data.get("quality_gates"), f"{skill_id}: quality_gates must not be empty"
+
+
+def test_foundation_skill_prompts_follow_prompt_contract_v1():
+    records = _collect_skill_records()
+    expected_ids = FOUNDATION_SKILLS | FOUNDATION_OVERLAY_SKILLS
+    for skill_id in sorted(expected_ids):
+        prompt = (records[skill_id].get("worker") or {}).get("role_prompt") or ""
+        for heading in PROMPT_CONTRACT_REQUIRED_HEADINGS:
+            assert prompt.count(heading) == 1, (
+                f"{skill_id}: role_prompt must contain {heading!r} exactly once"
+            )
+            assert _section_text(prompt, heading), (
+                f"{skill_id}: role_prompt heading {heading!r} must have content"
+            )
+        assert "quality_gates_checked" in _section_text(
+            prompt, "Quality Gate Behavior:"
+        ), f"{skill_id}: Quality Gate Behavior must mention quality_gates_checked"
 
 
 def test_foundation_skill_required_fields_cover_quality_gate_contracts():
@@ -586,12 +629,16 @@ def test_every_skill_required_fields_present():
         assert "config" not in data
         assert "subagent_type" not in data
         role_prompt = data["worker"]["role_prompt"]
-        assert "Operating rules:" in role_prompt, (
-            f"{skill_path}: skill prompt must define executable operating rules"
-        )
-        assert "Output contract:" in role_prompt, (
-            f"{skill_path}: skill prompt must define an output contract"
-        )
+        for heading in PROMPT_CONTRACT_REQUIRED_HEADINGS:
+            assert role_prompt.count(heading) == 1, (
+                f"{skill_path}: skill prompt must contain {heading!r} exactly once"
+            )
+            assert _section_text(role_prompt, heading), (
+                f"{skill_path}: skill prompt heading {heading!r} must have content"
+            )
+        assert "quality_gates_checked" in _section_text(
+            role_prompt, "Quality Gate Behavior:"
+        ), f"{skill_path}: Quality Gate Behavior must mention quality_gates_checked"
 
 
 def test_capability_count_matches_spec():
