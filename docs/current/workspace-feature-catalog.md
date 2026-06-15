@@ -129,21 +129,19 @@ skills 是 worker instruction packs，不再作为用户入口 capability。
 
 agent templates 是可被 Lead Agent 动态招募进团队的专家席位，不是用户入口 capability。模板画像由 `expert_profile(schema=wenjin.team.expert_profile.v1)` 描述；capability 可通过 `extensions.team_presentation(schema=wenjin.team.presentation.v1)` 做显示层 override，但不能覆盖工具、技能或权限。
 
-当前基础专家模板：
+当前基础专家模板共 11 个，事实源是 `backend/seed/agent_templates/*.yaml`：
 
-- `research_scout.v1`：文献/资料线索定位
-- `literature_synthesizer.v1`：综述、主题矩阵、gap 提炼
-- `source_quality_auditor.v1`：来源质量与引用风险检查
-- `manuscript_architect.v1`：论文/材料结构规划
-- `evidence_analyst.v1`：证据分析与结论支撑
-- `figure_engineer.v1`：图表与实验呈现
-- `manuscript_writer.v1`：正文写作与改稿
-- `citation_auditor.v1`：引用、BibTeX、来源一致性
-- `review_critic.v1`：审稿式批判与质量门检查
-- `grant_planner.v1` / `proposal_writer.v1`：申报书规划与写作
-- `patent_strategist.v1` / `patent_drafter.v1`：专利策略与撰写
-- `software_structure_planner.v1` / `software_doc_drafter.v1`：软著结构与材料撰写
-- `generalist_assistant.v1`：补位、整理、低风险衔接任务
+- `research_planner.v1`（Steve）：研究负责人，拆解目标、排布团队和质量门。
+- `research_scout.v1`（文献猎手 Nora）：文献/资料线索定位、来源筛选和 metadata 记录。
+- `literature_synthesizer.v1`（综述姐 Athena）：综述、主题矩阵、gap 和可引用论断提炼。
+- `methodologist.v1`（方法哥 Bayes）：方法设计、实验/评估方案和可行性检查。
+- `evidence_analyst.v1`（证据管家 Iris）：证据分析、结论支撑和复现实验摘要。
+- `figure_table_engineer.v1`（图表师傅 Vega）：图表、表格和实验呈现设计。
+- `document_architect.v1`（结构师 Morgan）：论文/申报/专利/软著材料结构规划。
+- `manuscript_writer.v1`（写作编辑 Olivia）：正文写作、改稿和风格统一。
+- `citation_auditor.v1`（引用侦探 Sherlock）：引用、BibTeX、来源一致性和引用风险检查。
+- `critical_reviewer.v1`（二审哥 Reviewer 2）：审稿式批判、质量门检查和关键风险定位。
+- `generalist_assistant.v1`（补位侠 Max）：补位、整理、摘要和低风险衔接任务。
 
 展示约束：
 

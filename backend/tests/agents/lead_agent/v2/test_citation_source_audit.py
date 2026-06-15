@@ -71,8 +71,8 @@ def test_collects_fabrication_and_missing_source_findings() -> None:
 
 def test_records_unknown_refs_without_trusting_them() -> None:
     findings = collect_citation_source_audit_findings(
-        invocation_id="source_quality_auditor.v1__1",
-        template_id="source_quality_auditor.v1",
+        invocation_id="citation_auditor.v1__1",
+        template_id="citation_auditor.v1",
         display_name=None,
         output={
             "citation_key_audit": [

@@ -4,6 +4,12 @@ from pathlib import Path
 
 import yaml
 
+from src.contracts.catalog_validation import (
+    PROMPT_CONTRACT_REQUIRED_HEADINGS,
+    section_text,
+    validate_skill_prompt_contract,
+)
+
 SEED_ROOT = Path(__file__).resolve().parent.parent.parent / "seed"
 SKILLLESS_SUBAGENTS = {"sandbox_python", "prism_selection_optimizer"}
 DIRECT_COMMIT_TOOLS = {"room_commit", "workspace_room_write", "prism_apply"}
@@ -51,18 +57,6 @@ FOUNDATION_OVERLAY_SKILLS = {
     "patent-examiner-rules",
     "software-copyright-rules",
 }
-PROMPT_CONTRACT_REQUIRED_HEADINGS = (
-    "Role Boundary:",
-    "Input Interpretation:",
-    "Operating Rules:",
-    "Evidence Rules:",
-    "Output Contract:",
-    "Quality Gate Behavior:",
-    "Failure Handling:",
-    "Anti-Patterns:",
-)
-
-
 def _collect_skill_ids() -> set[str]:
     out: set[str] = set()
     for f in (SEED_ROOT / "skills").glob("*.yaml"):
@@ -89,22 +83,6 @@ def _collect_skill_records() -> dict[str, dict]:
         data = yaml.safe_load(f.read_text())
         records[data["id"]] = data
     return records
-
-
-def _section_text(prompt: str, heading: str) -> str:
-    start = prompt.find(heading)
-    if start < 0:
-        return ""
-    body_start = start + len(heading)
-    next_positions = [
-        pos
-        for other in PROMPT_CONTRACT_REQUIRED_HEADINGS
-        if other != heading
-        for pos in [prompt.find(other, body_start)]
-        if pos >= 0
-    ]
-    body_end = min(next_positions) if next_positions else len(prompt)
-    return prompt[body_start:body_end].strip()
 
 
 def _collect_agent_template_records() -> dict[str, dict]:
@@ -232,6 +210,14 @@ def test_foundation_templates_declare_expert_profiles():
         assert parsed.avatar_label, f"{template_id}: avatar_label required"
 
 
+def test_foundation_templates_have_specific_member_context_focus():
+    from src.agents.lead_agent.v2.team.member_context import _TASK_FOCUS_BY_TEMPLATE
+
+    missing = FOUNDATION_AGENT_TEMPLATES - set(_TASK_FOCUS_BY_TEMPLATE)
+    assert not missing, f"missing task focus for foundation templates {sorted(missing)}"
+    assert "source_quality_auditor.v1" not in _TASK_FOCUS_BY_TEMPLATE
+
+
 def test_workspace_overlay_skills_are_seeded():
     skill_ids = _collect_skill_ids()
     missing = FOUNDATION_OVERLAY_SKILLS - skill_ids
@@ -271,17 +257,17 @@ def test_foundation_skill_prompts_follow_prompt_contract_v1():
     records = _collect_skill_records()
     expected_ids = FOUNDATION_SKILLS | FOUNDATION_OVERLAY_SKILLS
     for skill_id in sorted(expected_ids):
-        prompt = (records[skill_id].get("worker") or {}).get("role_prompt") or ""
-        for heading in PROMPT_CONTRACT_REQUIRED_HEADINGS:
-            assert prompt.count(heading) == 1, (
-                f"{skill_id}: role_prompt must contain {heading!r} exactly once"
-            )
-            assert _section_text(prompt, heading), (
-                f"{skill_id}: role_prompt heading {heading!r} must have content"
-            )
-        assert "quality_gates_checked" in _section_text(
-            prompt, "Quality Gate Behavior:"
-        ), f"{skill_id}: Quality Gate Behavior must mention quality_gates_checked"
+        data = records[skill_id]
+        worker = data.get("worker") or {}
+        io_contract = data.get("io_contract") or {}
+        validate_skill_prompt_contract(
+            skill_id=skill_id,
+            prompt=worker.get("role_prompt") or "",
+            output_schema=io_contract.get("output_schema") or {},
+            quality_gates=list(data.get("quality_gates") or []),
+            context_access=dict(data.get("context_access") or {}),
+            sandbox_access=dict(data.get("sandbox_access") or {}),
+        )
 
 
 def test_foundation_skill_required_fields_cover_quality_gate_contracts():
@@ -705,10 +691,10 @@ def test_every_skill_required_fields_present():
             assert role_prompt.count(heading) == 1, (
                 f"{skill_path}: skill prompt must contain {heading!r} exactly once"
             )
-            assert _section_text(role_prompt, heading), (
+            assert section_text(role_prompt, heading), (
                 f"{skill_path}: skill prompt heading {heading!r} must have content"
             )
-        assert "quality_gates_checked" in _section_text(
+        assert "quality_gates_checked" in section_text(
             role_prompt, "Quality Gate Behavior:"
         ), f"{skill_path}: Quality Gate Behavior must mention quality_gates_checked"
 

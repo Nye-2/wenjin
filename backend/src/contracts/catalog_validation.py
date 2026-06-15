@@ -42,21 +42,22 @@ def validate_visible_capability_routing_contract(
 ) -> None:
     if not enabled or entry_tier == "hidden":
         return
+    prefix = f"{capability_id}: "
     if not routing.get("when_to_use"):
-        raise ValueError("visible capability requires routing.when_to_use")
+        raise ValueError(f"{prefix}visible capability requires routing.when_to_use")
     if not routing.get("not_for"):
-        raise ValueError("visible capability requires routing.not_for")
+        raise ValueError(f"{prefix}visible capability requires routing.not_for")
     if len(routing.get("positive_examples") or []) < 3:
         raise ValueError(
-            "visible capability requires at least 3 routing.positive_examples"
+            f"{prefix}visible capability requires at least 3 routing.positive_examples"
         )
     if len(routing.get("negative_examples") or []) < 3:
         raise ValueError(
-            "visible capability requires at least 3 routing.negative_examples"
+            f"{prefix}visible capability requires at least 3 routing.negative_examples"
         )
     minimum_context = routing.get("minimum_context") or {}
     if not minimum_context:
-        raise ValueError("visible capability requires routing.minimum_context")
+        raise ValueError(f"{prefix}visible capability requires routing.minimum_context")
     ask_when_missing = (routing.get("clarification") or {}).get("ask_when_missing") or {}
     missing_clarifications = [
         key
@@ -65,7 +66,7 @@ def validate_visible_capability_routing_contract(
     ]
     if missing_clarifications:
         raise ValueError(
-            "visible capability requires routing.clarification.ask_when_missing "
+            f"{prefix}visible capability requires routing.clarification.ask_when_missing "
             "for required minimum_context keys: "
             + ", ".join(sorted(missing_clarifications))
         )

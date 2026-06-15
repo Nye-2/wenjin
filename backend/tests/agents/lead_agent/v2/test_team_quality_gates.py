@@ -453,7 +453,7 @@ def test_quality_gates_fail_claim_evidence_map_with_unknown_citation_key() -> No
 def test_quality_gates_fail_source_quality_audit_without_structured_fields() -> None:
     contract = {
         "schema_version": "resolved_quality_contract.v1",
-        "template_id": "source_quality_auditor.v1",
+        "template_id": "citation_auditor.v1",
         "output_schema": {"type": "object", "properties": {}, "required": []},
         "quality_gates": [
             "source_authority_checked",
@@ -468,7 +468,7 @@ def test_quality_gates_fail_source_quality_audit_without_structured_fields() -> 
         ["source_authority_checked", "metadata_completeness_checked", "weak_support_flagged"],
         [
             _invocation(
-                template_id="source_quality_auditor.v1",
+                template_id="citation_auditor.v1",
                 output_report={
                     "text": "Sources look mostly good.",
                     "quality_gates_checked": [
@@ -480,8 +480,8 @@ def test_quality_gates_fail_source_quality_audit_without_structured_fields() -> 
                 quality_contract=contract,
             )
         ],
-        team_policy=CapabilityTeamPolicy(core_templates=["source_quality_auditor.v1"]),
-        counts=Counter({"source_quality_auditor.v1": 1}),
+        team_policy=CapabilityTeamPolicy(core_templates=["citation_auditor.v1"]),
+        counts=Counter({"citation_auditor.v1": 1}),
         latest_invocations=[],
     )
 
@@ -501,7 +501,7 @@ def test_quality_gates_fail_source_quality_audit_without_structured_fields() -> 
         assert gate.next_action == "revise_existing"
         assert gate.suggested_recruits == [
             {
-                "template_id": "source_quality_auditor.v1",
+                "template_id": "citation_auditor.v1",
                 "reason": gate_id,
             }
         ]
