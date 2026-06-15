@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from src.database import ReferenceLibraryStatus
 from src.dataservice.source_api import SourceCitationUsageCreateCommand, SourceDataService
+from src.dataservice_client.contracts.source import ReferenceLibraryStatus
 from src.services.references.utils import extract_citation_keys_from_payload
 
 

@@ -150,7 +150,7 @@ export function ResultPreviewRenderer({
     );
   }
 
-  if (preview.previewMode === "plain_text" || preview.previewMode === "json_fallback") {
+  if (preview.previewMode === "plain_text" || preview.previewMode === "structured_json") {
     return (
       <pre
         data-testid="result-preview-plain-text"
@@ -162,7 +162,7 @@ export function ResultPreviewRenderer({
           lineHeight: 1.7,
           color: "var(--wjn-text-secondary)",
           fontFamily:
-            preview.previewMode === "json_fallback"
+            preview.previewMode === "structured_json"
               ? "var(--wjn-font-mono)"
               : "var(--wjn-font-sans)",
         }}

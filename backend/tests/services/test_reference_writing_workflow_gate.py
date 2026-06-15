@@ -7,11 +7,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.database import ReferenceEvidenceLevel, ReferenceLibraryStatus
 from src.dataservice.source_api import (
     SourceCitationUsageCreateCommand,
     SourceDataService,
     SourceEvidencePackCreateCommand,
+)
+from src.dataservice_client.contracts.source import (
+    ReferenceEvidenceLevel,
+    ReferenceLibraryStatus,
 )
 from src.services.references import SourceBibliographyService
 

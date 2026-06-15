@@ -3,7 +3,7 @@ type PreviewMode =
   | "plain_text"
   | "outline"
   | "citation"
-  | "json_fallback";
+  | "structured_json";
 
 type PreviewKind =
   | "document"
@@ -317,7 +317,7 @@ function resolveDocumentPreviewMode(
   content: string | null,
 ): PreviewMode {
   if (!content) {
-    return "json_fallback";
+    return "structured_json";
   }
   if (docKind === "outline") {
     return "outline";

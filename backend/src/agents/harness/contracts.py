@@ -78,32 +78,6 @@ class HarnessToolSpec:
 
 
 @dataclass(frozen=True, slots=True)
-class HarnessToolCallRecord:
-    """Compact execution record for one harness tool call."""
-
-    call_id: str
-    name: str
-    status: str
-    args_summary: dict[str, Any] = field(default_factory=dict)
-    result_preview: str | None = None
-    output_refs: tuple[str, ...] = ()
-    error: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-
-    def model_dump(self) -> dict[str, Any]:
-        return {
-            "id": self.call_id,
-            "name": self.name,
-            "status": self.status,
-            "args": self.args_summary,
-            "result_preview": self.result_preview,
-            "output_refs": list(self.output_refs),
-            "error": self.error,
-            "metadata": self.metadata,
-        }
-
-
-@dataclass(frozen=True, slots=True)
 class HarnessToolResult:
     """Bounded result returned from a harness tool implementation."""
 

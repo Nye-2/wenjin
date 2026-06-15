@@ -281,7 +281,7 @@ class CreditService:
         billing_policy = await self._resolve_model_billing_policy(
             surface="chat",
             model_name=None,
-            fallback_policy=policy,
+            base_token_policy=policy,
         )
         if not billing_policy.enabled:
             return True
@@ -304,7 +304,7 @@ class CreditService:
         billing_policy = await self._resolve_model_billing_policy(
             surface="feature",
             model_name=None,
-            fallback_policy=policy,
+            base_token_policy=policy,
         )
         if not billing_policy.enabled:
             return True
@@ -372,7 +372,7 @@ class CreditService:
         *,
         surface: str,
         model_name: str | None,
-        fallback_policy: TokenBillingPolicy,
+        base_token_policy: TokenBillingPolicy,
     ) -> _ResolvedModelBillingPolicy:
         async with self._client() as client:
             global_policy = await self._first_enabled_pricing_policy(
@@ -383,13 +383,13 @@ class CreditService:
 
         if model_policy is None:
             return _ResolvedModelBillingPolicy(
-                enabled=fallback_policy.enabled,
-                free_tokens=fallback_policy.free_tokens,
-                max_overdraft_credits=fallback_policy.max_overdraft_credits,
+                enabled=base_token_policy.enabled,
+                free_tokens=base_token_policy.free_tokens,
+                max_overdraft_credits=base_token_policy.max_overdraft_credits,
                 global_policy=global_policy,
                 model_policy=None,
                 model_policy_config={},
-                policy_metadata=fallback_policy.as_dict(),
+                policy_metadata=base_token_policy.as_dict(),
                 uses_pricing_policy=False,
             )
 
@@ -401,7 +401,7 @@ class CreditService:
             max_overdraft_credits=self._policy_int(
                 config,
                 "max_overdraft_credits",
-                fallback_policy.max_overdraft_credits,
+                base_token_policy.max_overdraft_credits,
             ),
             global_policy=global_policy,
             model_policy=model_policy,
@@ -506,7 +506,7 @@ class CreditService:
         billing_policy = await self._resolve_model_billing_policy(
             surface="chat",
             model_name=model_name,
-            fallback_policy=policy,
+            base_token_policy=policy,
         )
         normalized_usage = self._normalize_usage_dict(token_usage)
         total_tokens = normalized_usage["total_tokens"]
@@ -641,7 +641,7 @@ class CreditService:
         billing_policy = await self._resolve_model_billing_policy(
             surface="feature",
             model_name=model_name,
-            fallback_policy=policy,
+            base_token_policy=policy,
         )
         normalized_usage = self._normalize_usage_dict(token_usage)
         total_tokens = normalized_usage["total_tokens"]
@@ -772,7 +772,7 @@ class CreditService:
         billing_policy = await self._resolve_model_billing_policy(
             surface="feature",
             model_name=model_name,
-            fallback_policy=policy,
+            base_token_policy=policy,
         )
         normalized_usage = self._normalize_usage_dict(token_usage or {})
         total_tokens = normalized_usage["total_tokens"]
