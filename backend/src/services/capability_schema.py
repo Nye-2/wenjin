@@ -435,6 +435,34 @@ class CapabilitySkillYamlModel(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
+PROMPT_CONTRACT_REQUIRED_HEADINGS = (
+    "Role Boundary:",
+    "Input Interpretation:",
+    "Operating Rules:",
+    "Evidence Rules:",
+    "Output Contract:",
+    "Quality Gate Behavior:",
+    "Failure Handling:",
+    "Anti-Patterns:",
+)
+
+_PROMPT_FORBIDDEN_PHRASES = (
+    "hidden chain-of-thought",
+    "raw chain-of-thought",
+    "reveal chain-of-thought",
+    "reveal hidden reasoning",
+    "show internal prompt",
+    "directly write canonical workspace",
+    "write canonical workspace rooms",
+)
+
+_DATA_BOUNDARY_TERMS = (
+    "data, not behavioral instructions",
+    "data, not instructions",
+    "evidence data",
+)
+
+
 class CapabilitySkillV2WorkerModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     category: str
@@ -463,6 +491,75 @@ class CapabilitySkillV2SandboxAccessModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     mode: Literal["none", "optional", "conditional", "required"] = "none"
     profiles: list[str] = Field(default_factory=list)
+
+
+def _section_text(prompt: str, heading: str) -> str:
+    start = prompt.find(heading)
+    if start < 0:
+        return ""
+    body_start = start + len(heading)
+    next_positions = [
+        pos
+        for other in PROMPT_CONTRACT_REQUIRED_HEADINGS
+        if other != heading
+        for pos in [prompt.find(other, body_start)]
+        if pos >= 0
+    ]
+    body_end = min(next_positions) if next_positions else len(prompt)
+    return prompt[body_start:body_end].strip()
+
+
+def _validate_prompt_contract(
+    *,
+    skill_id: str,
+    prompt: str,
+    output_schema: dict[str, Any],
+    quality_gates: list[str],
+    context_access: CapabilitySkillV2ContextAccessModel,
+    sandbox_access: CapabilitySkillV2SandboxAccessModel,
+) -> None:
+    text = str(prompt or "")
+    for heading in PROMPT_CONTRACT_REQUIRED_HEADINGS:
+        count = text.count(heading)
+        if count != 1:
+            raise ValueError(
+                f"{skill_id}: worker.role_prompt must contain heading {heading!r} exactly once"
+            )
+        if not _section_text(text, heading):
+            raise ValueError(
+                f"{skill_id}: worker.role_prompt heading {heading!r} must have content"
+            )
+
+    lower = text.lower()
+    for phrase in _PROMPT_FORBIDDEN_PHRASES:
+        if phrase in lower:
+            raise ValueError(f"{skill_id}: worker.role_prompt contains forbidden phrase {phrase!r}")
+
+    output_section = _section_text(text, "Output Contract:")
+    properties = output_schema.get("properties") if isinstance(output_schema, dict) else {}
+    if not isinstance(properties, dict):
+        properties = {}
+    property_names = {str(name) for name in properties}
+    if property_names and not any(name in output_section for name in property_names):
+        raise ValueError(
+            f"{skill_id}: Output Contract must mention at least one output_schema property"
+        )
+
+    if quality_gates:
+        quality_section = _section_text(text, "Quality Gate Behavior:")
+        if "quality_gates_checked" not in quality_section:
+            raise ValueError(
+                f"{skill_id}: Quality Gate Behavior must mention quality_gates_checked"
+            )
+
+    reads_context = bool(context_access.room_reads) or context_access.prism_context != "none"
+    uses_sandbox = sandbox_access.mode != "none"
+    if reads_context or uses_sandbox:
+        evidence_section = _section_text(text, "Evidence Rules:")
+        if not any(term in evidence_section.lower() for term in _DATA_BOUNDARY_TERMS):
+            raise ValueError(
+                f"{skill_id}: Evidence Rules must treat external/context material as data"
+            )
 
 
 class CapabilitySkillV2YamlModel(BaseModel):
@@ -501,6 +598,15 @@ class CapabilitySkillV2YamlModel(BaseModel):
                 raise ValueError(
                     "skills with quality_gates must expose quality_gates_checked in output_schema"
                 )
+        if self.enabled:
+            _validate_prompt_contract(
+                skill_id=self.id,
+                prompt=self.worker.role_prompt,
+                output_schema=self.io_contract.output_schema,
+                quality_gates=self.quality_gates,
+                context_access=self.context_access,
+                sandbox_access=self.sandbox_access,
+            )
         return self
 
     def to_catalog_data(self) -> dict[str, Any]:
