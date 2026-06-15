@@ -7,6 +7,7 @@ require DataService / registry lookups; this module is pure data validation.
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -509,6 +510,13 @@ def _section_text(prompt: str, heading: str) -> str:
     return prompt[body_start:body_end].strip()
 
 
+def _contains_literal_property_name(text: str, property_name: str) -> bool:
+    if not property_name:
+        return False
+    pattern = rf"(?<![A-Za-z0-9_]){re.escape(property_name)}(?![A-Za-z0-9_])"
+    return re.search(pattern, text) is not None
+
+
 def _validate_prompt_contract(
     *,
     skill_id: str,
@@ -540,7 +548,10 @@ def _validate_prompt_contract(
     if not isinstance(properties, dict):
         properties = {}
     property_names = {str(name) for name in properties}
-    if property_names and not any(name in output_section for name in property_names):
+    if property_names and not any(
+        _contains_literal_property_name(output_section, name)
+        for name in property_names
+    ):
         raise ValueError(
             f"{skill_id}: Output Contract must mention at least one output_schema property"
         )

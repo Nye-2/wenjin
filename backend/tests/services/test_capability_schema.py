@@ -579,6 +579,36 @@ Anti-Patterns:
         with pytest.raises(ValidationError, match="Output Contract"):
             CapabilitySkillV2YamlModel(**payload)
 
+    def test_skill_prompt_contract_does_not_match_output_property_substrings(self):
+        payload = self._valid_payload()
+        payload["quality_gates"] = []
+        payload["io_contract"]["output_schema"] = {
+            "type": "object",
+            "required": ["text"],
+            "properties": {
+                "text": {"type": "string"},
+            },
+        }
+        payload["worker"]["role_prompt"] = self._valid_role_prompt().replace(
+            "Return artifacts and quality_gates_checked.",
+            "Return contextual and textual output.",
+        ).replace(
+            "Populate quality_gates_checked with every gate evaluated.",
+            "Check quality carefully.",
+        )
+
+        with pytest.raises(ValidationError, match="Output Contract"):
+            CapabilitySkillV2YamlModel(**payload)
+
+    def test_disabled_skill_skips_invalid_prompt_contract(self):
+        payload = self._valid_payload()
+        payload["enabled"] = False
+        payload["worker"]["role_prompt"] = "No contract headings here."
+
+        model = CapabilitySkillV2YamlModel(**payload)
+
+        assert model.enabled is False
+
     def test_skill_prompt_contract_requires_quality_gate_checked_instruction(self):
         payload = self._valid_payload()
         payload["worker"]["role_prompt"] = self._valid_role_prompt().replace(
