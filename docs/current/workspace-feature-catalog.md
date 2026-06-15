@@ -31,7 +31,7 @@ Agent Template 数据源: `backend/seed/agent_templates/` + DataService Catalog 
 - `software_copyright`
 - `patent`
 
-总计: 5 个 workspace 类型，27 个用户可见 mission capability，15 个 worker skill。`entry_tier: hidden` 的内部诊断 capability 不计入用户目录。
+总计: 5 个 workspace 类型，27 个用户可见 mission capability，33 个 worker skill。`entry_tier: hidden` 的内部诊断 capability 不计入用户目录。
 
 ## 3. Mission Capability Matrix
 
@@ -91,21 +91,39 @@ Agent Template 数据源: `backend/seed/agent_templates/` + DataService Catalog 
 
 skills 是 worker instruction packs，不再作为用户入口 capability。
 
-- `research-scout`
-- `literature-synthesizer`
-- `source-quality-auditor`
-- `manuscript-architect`
+- `citation-auditor`
+- `claim-verifier`
+- `document-outline-builder`
 - `evidence-analyst`
 - `figure-engineer`
-- `manuscript-writer`
-- `citation-auditor`
-- `review-critic`
+- `format-compliance-checker`
 - `grant-planner`
-- `proposal-writer`
-- `patent-strategist`
+- `literature-synthesizer`
+- `manuscript-architect`
+- `manuscript-writer`
+- `method-design`
+- `novelty-mapper`
 - `patent-drafter`
-- `software-structure-planner`
+- `patent-examiner-rules`
+- `patent-strategist`
+- `proposal-panel-rules`
+- `proposal-writer`
+- `query-planner`
+- `reporting-guideline-checker`
+- `reproducibility-auditor`
+- `research-scout`
+- `review-critic`
+- `sci-journal-rules`
+- `software-copyright-rules`
 - `software-doc-drafter`
+- `software-structure-planner`
+- `source-quality-auditor`
+- `source-screener`
+- `structured-summary`
+- `style-polisher`
+- `table-builder`
+- `task-scope-planner`
+- `thesis-school-rules`
 
 ## 5. Expert Template Catalog
 

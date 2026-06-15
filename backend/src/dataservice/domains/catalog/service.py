@@ -7,6 +7,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.contracts.catalog_validation import (
+    validate_skill_prompt_contract,
+    validate_visible_capability_routing_contract,
+)
 from src.contracts.team_presentation import ExpertProfileV1
 from src.dataservice.domains.catalog.contracts import (
     AdminLogRecord,
@@ -22,6 +26,7 @@ from src.dataservice.domains.catalog.projection import (
     skill_to_record,
 )
 from src.dataservice.domains.catalog.repository import CatalogRepository
+from src.subagents.v2.registry import validate_agent_template_contract
 
 
 class DataServiceCatalogService:
@@ -186,6 +191,12 @@ class DataServiceCatalogService:
         )
         if item is None:
             return None
+        if enabled:
+            self.capability_values(
+                {**dict(item.definition_json or {}), "enabled": True},
+                checksum=getattr(item, "checksum", None),
+                source_path=getattr(item, "source_path", None),
+            )
         item.enabled = enabled
         item.definition_json = {**dict(item.definition_json or {}), "enabled": enabled}
         await self._finish()
@@ -195,6 +206,12 @@ class DataServiceCatalogService:
         item = await self.repository.get_skill(skill_id)
         if item is None:
             return None
+        if enabled:
+            self.skill_values(
+                {**dict(getattr(item, "skill_json", {}) or {}), "enabled": True},
+                checksum=getattr(item, "checksum", None),
+                source_path=getattr(item, "source_path", None),
+            )
         item.enabled = enabled
         item.skill_json = {**dict(getattr(item, "skill_json", {}) or {}), "enabled": enabled}
         await self._finish()
@@ -296,6 +313,7 @@ class DataServiceCatalogService:
         schema_version = str(data.get("schema_version") or "")
         if schema_version != "capability.v2":
             raise ValueError("Capability catalog records must use schema_version capability.v2")
+        _validate_capability_v2_data(data)
         display = data.get("display")
         intent = data.get("intent")
         inputs = data.get("inputs")
@@ -345,6 +363,7 @@ class DataServiceCatalogService:
         schema_version = str(data.get("schema_version") or "")
         if schema_version != "capability_skill.v2":
             raise ValueError("Skill catalog records must use schema_version capability_skill.v2")
+        _validate_skill_v2_data(data)
         worker = data.get("worker")
         if not isinstance(worker, dict):
             raise ValueError("Capability skill v2 records require worker")
@@ -411,6 +430,12 @@ class DataServiceCatalogService:
                     f"Agent template {template_id} has invalid expert_profile: {exc}"
                 ) from exc
             template_json["expert_profile"] = expert_profile
+        contract_errors = validate_agent_template_contract(template_json)
+        if contract_errors:
+            raise ValueError(
+                f"Agent template {template_id} failed catalog validation: "
+                + "; ".join(contract_errors)
+            )
         return {
             "id": template_id,
             "schema_version": schema_version,
@@ -444,3 +469,45 @@ class DataServiceCatalogService:
         refresh = getattr(self.session, "refresh", None)
         if callable(refresh):
             await refresh(record)
+
+
+def _validate_capability_v2_data(data: dict[str, Any]) -> None:
+    display = data.get("display") if isinstance(data.get("display"), dict) else {}
+    ui_meta = data.get("ui_meta") if isinstance(data.get("ui_meta"), dict) else {}
+    entry_tier = str(data.get("tier") or ui_meta.get("entry_tier") or display.get("entry_tier") or "primary")
+    routing = data.get("routing") if isinstance(data.get("routing"), dict) else {}
+    validate_visible_capability_routing_contract(
+        capability_id=str(data.get("id") or "<unknown>"),
+        enabled=bool(data.get("enabled", True)),
+        entry_tier=entry_tier,
+        routing=routing,
+    )
+
+
+def _validate_skill_v2_data(data: dict[str, Any]) -> None:
+    output_schema = ((data.get("io_contract") or {}).get("output_schema") or {})
+    if output_schema and output_schema.get("type") != "object":
+        raise ValueError("io_contract.output_schema must declare type=object")
+    quality_gates = list(data.get("quality_gates") or [])
+    if quality_gates:
+        properties = output_schema.get("properties")
+        if not isinstance(properties, dict):
+            properties = {}
+        required = output_schema.get("required")
+        if not isinstance(required, list):
+            required = []
+        if "quality_gates_checked" not in properties or "quality_gates_checked" not in required:
+            raise ValueError(
+                "skills with quality_gates must expose quality_gates_checked in output_schema"
+            )
+    if not bool(data.get("enabled", True)):
+        return
+    worker = data.get("worker") if isinstance(data.get("worker"), dict) else {}
+    validate_skill_prompt_contract(
+        skill_id=str(data.get("id") or "<unknown>"),
+        prompt=str(worker.get("role_prompt") or data.get("prompt") or ""),
+        output_schema=output_schema,
+        quality_gates=quality_gates,
+        context_access=dict(data.get("context_access") or {}),
+        sandbox_access=dict(data.get("sandbox_access") or {}),
+    )
