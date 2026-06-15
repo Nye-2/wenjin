@@ -170,12 +170,15 @@ def test_workspace_overlay_skills_are_seeded():
 
 
 def test_foundation_skills_have_quality_contract_shape():
+    from src.services.capability_schema import CapabilitySkillV2YamlModel
+
     records = _collect_skill_records()
     expected_ids = FOUNDATION_SKILLS | FOUNDATION_OVERLAY_SKILLS
     missing_ids = expected_ids - set(records)
     assert not missing_ids, f"missing foundation skills {sorted(missing_ids)}"
     for skill_id in sorted(expected_ids):
         data = records[skill_id]
+        CapabilitySkillV2YamlModel(**data)
         worker = data.get("worker") or {}
         io_contract = data.get("io_contract") or {}
         output_schema = io_contract.get("output_schema") or {}
