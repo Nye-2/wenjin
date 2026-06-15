@@ -16,7 +16,14 @@ def _agent_template_yaml() -> str:
         display_role: 文献检索员
         category: research
         description: 检索、筛选、归纳文献。
-        persona_prompt: You are a research specialist.
+        persona_prompt: |-
+          You are a research specialist supporting academic work.
+
+          Role Boundary:
+          Stay within literature discovery, source triage, and evidence synthesis.
+
+          Evidence Rules:
+          Ground claims in cited sources and flag uncertainty clearly.
         default_skills:
         - research-scout
         tool_affinity:
@@ -133,6 +140,77 @@ async def test_agent_template_loader_rejects_invalid_expert_profile(tmp_path) ->
 
 
 @pytest.mark.asyncio
+async def test_agent_template_rejects_public_internal_ids(tmp_path) -> None:
+    seed_dir = tmp_path / "agent_templates"
+    seed_dir.mkdir()
+    seed_file = seed_dir / "research_scout.yaml"
+    seed_file.write_text(
+        _agent_template_yaml()
+        + textwrap.dedent("""\
+            expert_profile:
+              public_name: research_scout.v1
+              role_title: Tool log operator
+              avatar_label: 文
+              tone: witty_professional
+              status_phrases:
+                running: Reading sources
+        """),
+        encoding="utf-8",
+    )
+
+    from src.services.agent_template_loader import AgentTemplateLoader
+
+    dataservice = AsyncMock()
+    dataservice.has_agent_templates.return_value = False
+    dataservice.load_agent_template_seed_items.return_value.loaded = 1
+    loader = AgentTemplateLoader(
+        seed_dir=seed_dir,
+        dataservice=dataservice,
+    )
+
+    with pytest.raises(ValueError, match="public_name|internal terminology"):
+        await loader.load_seeds_if_empty()
+    dataservice.load_agent_template_seed_items.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_agent_template_rejects_persona_without_role_boundary(tmp_path) -> None:
+    seed_dir = tmp_path / "agent_templates"
+    seed_dir.mkdir()
+    seed_file = seed_dir / "research_scout.yaml"
+    seed_file.write_text(
+        _agent_template_yaml().replace(
+            textwrap.dedent("""\
+                persona_prompt: |-
+                  You are a research specialist supporting academic work.
+
+                  Role Boundary:
+                  Stay within literature discovery, source triage, and evidence synthesis.
+
+                  Evidence Rules:
+                  Ground claims in cited sources and flag uncertainty clearly.
+            """),
+            "persona_prompt: You are a helper.\n",
+        ),
+        encoding="utf-8",
+    )
+
+    from src.services.agent_template_loader import AgentTemplateLoader
+
+    dataservice = AsyncMock()
+    dataservice.has_agent_templates.return_value = False
+    dataservice.load_agent_template_seed_items.return_value.loaded = 1
+    loader = AgentTemplateLoader(
+        seed_dir=seed_dir,
+        dataservice=dataservice,
+    )
+
+    with pytest.raises(ValueError, match="Role Boundary"):
+        await loader.load_seeds_if_empty()
+    dataservice.load_agent_template_seed_items.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_skips_agent_template_seed_when_catalog_has_data(tmp_path) -> None:
     from src.services.agent_template_loader import AgentTemplateLoader
 
@@ -183,7 +261,14 @@ async def test_agent_template_loader_rejects_invalid_harness_tool_contract(tmp_p
             display_role: 坏实验员
             category: evidence
             description: Bad sandbox role.
-            persona_prompt: You are an experiment role.
+            persona_prompt: |-
+              You are an experiment role supporting reproducible evidence work.
+
+              Role Boundary:
+              Stay within reproducible analysis planning and evidence checks.
+
+              Evidence Rules:
+              Report commands, inputs, and limitations needed to reproduce results.
             default_skills:
             - evidence-analyst
             tool_affinity:

@@ -36,6 +36,16 @@ SANDBOX_WRITE_TOOLS = frozenset(
     }
 )
 SANDBOX_EXECUTE_TOOLS = frozenset({"sandbox.run_python"})
+_PUBLIC_INTERNAL_TERMS = (
+    "template id",
+    "skill id",
+    "tool id",
+    "tool log",
+    "stdout",
+    "stderr",
+    "agent_template",
+    ".v1",
+)
 
 
 class _Registry:
@@ -120,6 +130,22 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
 
     template_id = str(template.get("id") or "<unknown>").strip() or "<unknown>"
     errors: list[str] = []
+    persona_prompt = str(template.get("persona_prompt") or "")
+    if "Role Boundary:" not in persona_prompt:
+        errors.append(f"{template_id}: persona_prompt must include Role Boundary:")
+    if "Evidence Rules:" not in persona_prompt and "Safety Boundary:" not in persona_prompt:
+        errors.append(
+            f"{template_id}: persona_prompt must include Evidence Rules: or Safety Boundary:"
+        )
+
+    expert_profile = template.get("expert_profile")
+    if isinstance(expert_profile, Mapping):
+        _validate_public_profile_text(
+            template_id=template_id,
+            profile=expert_profile,
+            errors=errors,
+        )
+
     affinity = template.get("tool_affinity")
     if not isinstance(affinity, Mapping):
         return errors
@@ -166,6 +192,48 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
             "risk_profile.code_execution optional|required"
         )
     return errors
+
+
+def _validate_public_profile_text(
+    *,
+    template_id: str,
+    profile: Mapping[str, Any],
+    errors: list[str],
+) -> None:
+    for field in ("public_name", "short_name", "role_title", "tagline"):
+        _reject_internal_terms(
+            template_id=template_id,
+            path=f"expert_profile.{field}",
+            value=profile.get(field),
+            errors=errors,
+        )
+
+    status_phrases = profile.get("status_phrases")
+    if not isinstance(status_phrases, Mapping):
+        return
+    for key, value in status_phrases.items():
+        _reject_internal_terms(
+            template_id=template_id,
+            path=f"expert_profile.status_phrases.{key}",
+            value=value,
+            errors=errors,
+        )
+
+
+def _reject_internal_terms(
+    *,
+    template_id: str,
+    path: str,
+    value: Any,
+    errors: list[str],
+) -> None:
+    text = str(value or "").lower()
+    for term in _PUBLIC_INTERNAL_TERMS:
+        if term in text:
+            errors.append(
+                f"{template_id}: {path} contains internal terminology '{term}'"
+            )
+            return
 
 
 def _canonical_tool_list(value: Any) -> list[str]:
