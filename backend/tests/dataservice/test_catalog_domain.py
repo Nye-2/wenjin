@@ -141,11 +141,24 @@ def _capability_v2_data() -> dict[str, Any]:
 def _routing_contract() -> dict[str, Any]:
     return {
         "when_to_use": ["用户需要整理文献、gap 和创新点"],
-        "not_for": ["概念解释"],
+        "not_for": ["概念解释", "单句润色", "直接写论文全文"],
         "user_intents": ["找研究空白"],
-        "positive_examples": ["联邦学习结合大模型有什么创新点？"],
-        "negative_examples": ["联邦学习是什么？"],
+        "positive_examples": [
+            "联邦学习结合大模型有什么创新点？",
+            "帮我整理这个方向的研究空白",
+            "围绕隐私计算找可发表的创新点",
+        ],
+        "negative_examples": [
+            "联邦学习是什么？",
+            "帮我把这句话润色一下",
+            "直接根据这个题目写论文全文",
+        ],
         "minimum_context": {"goal_or_topic": "required"},
+        "clarification": {
+            "ask_when_missing": {
+                "goal_or_topic": "你想聚焦哪个具体主题？",
+            },
+        },
         "user_guidance": {
             "launch_intro": "我会让文献专家先整理相关工作、gap 和可用论断。",
         },

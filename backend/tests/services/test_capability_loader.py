@@ -37,11 +37,20 @@ def _capability_v2_yaml(*, cap_id: str = "idea_to_thesis_manuscript") -> str:
           allowed_deliverables: [full_document_update]
         routing:
           when_to_use: [用户已有明确 research idea，需要生成或更新论文主稿]
-          not_for: [概念解释]
-          positive_examples: [根据这个 idea 帮我写论文全文]
-          negative_examples: [这个概念是什么意思]
+          not_for: [概念解释, 单句润色, 期刊推荐]
+          positive_examples:
+            - 根据这个 idea 帮我写论文全文
+            - 帮我把已有材料整理成论文主稿
+            - 围绕这个研究问题生成 SCI 初稿
+          negative_examples:
+            - 这个概念是什么意思
+            - 帮我把这句话润色一下
+            - 这篇文章适合投什么期刊
           minimum_context:
             research_idea: required
+          clarification:
+            ask_when_missing:
+              research_idea: 你的核心研究 idea 是什么？
         inputs:
           required_decisions: []
           brief_schema:

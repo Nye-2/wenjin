@@ -168,11 +168,20 @@ _SEED_YAML = textwrap.dedent("""\
       allowed_deliverables: [evidence_pack]
     routing:
       when_to_use: [用户需要围绕主题做深度文献调研]
-      not_for: [概念解释]
-      positive_examples: [帮我调研这个主题的文献]
-      negative_examples: [这个概念是什么意思]
+      not_for: [概念解释, 单句润色, 直接写全文]
+      positive_examples:
+        - 帮我调研这个主题的文献
+        - 围绕这个方向整理核心论文和研究脉络
+        - 帮我查找这个课题的代表性文献和证据
+      negative_examples:
+        - 这个概念是什么意思
+        - 帮我把这句话润色一下
+        - 直接根据这个题目写论文全文
       minimum_context:
         topic: required
+      clarification:
+        ask_when_missing:
+          topic: 你想调研的具体主题是什么？
     inputs:
       required_decisions: []
       brief_schema:

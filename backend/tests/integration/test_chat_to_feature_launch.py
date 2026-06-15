@@ -156,10 +156,23 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
                 "tier": "primary",
                 "routing": {
                     "when_to_use": ["用户需要从 research question 生成 SCI 主稿"],
-                    "not_for": ["只需要文献定位"],
-                    "positive_examples": ["根据这个问题帮我写 SCI 初稿"],
-                    "negative_examples": ["这个方向有什么研究空白？"],
+                    "not_for": ["只需要文献定位", "概念解释", "单句润色"],
+                    "positive_examples": [
+                        "根据这个问题帮我写 SCI 初稿",
+                        "围绕这个 research question 生成论文主稿",
+                        "把这个研究问题扩展成可审阅的 SCI manuscript",
+                    ],
+                    "negative_examples": [
+                        "这个方向有什么研究空白？",
+                        "这个概念是什么意思？",
+                        "帮我把这句话润色一下",
+                    ],
                     "minimum_context": {"topic": "required"},
+                    "clarification": {
+                        "ask_when_missing": {
+                            "topic": "你要写作的 research question 或主题是什么？",
+                        },
+                    },
                 },
                 "definition_json": {
                     "display": {"entry_tier": "primary"},
@@ -179,10 +192,23 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
                 "tier": "primary",
                 "routing": {
                     "when_to_use": ["用户需要整理文献定位、gap 和创新点"],
-                    "not_for": ["直接写完整 SCI 初稿"],
-                    "positive_examples": ["帮我找这个方向的文献 gap"],
-                    "negative_examples": ["直接写论文全文"],
+                    "not_for": ["直接写完整 SCI 初稿", "概念解释", "单句润色"],
+                    "positive_examples": [
+                        "帮我找这个方向的文献 gap",
+                        "整理这个主题的研究空白和创新点",
+                        "围绕这个方向做文献定位分析",
+                    ],
+                    "negative_examples": [
+                        "直接写论文全文",
+                        "这个概念是什么意思？",
+                        "帮我把这句话润色一下",
+                    ],
                     "minimum_context": {"topic": "required"},
+                    "clarification": {
+                        "ask_when_missing": {
+                            "topic": "你想定位文献和创新点的主题是什么？",
+                        },
+                    },
                 },
                 "definition_json": {
                     "display": {"entry_tier": "primary"},

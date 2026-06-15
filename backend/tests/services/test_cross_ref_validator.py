@@ -58,10 +58,23 @@ def _make_capability_yaml(
         },
         routing={
             "when_to_use": ["用户需要生成或更新论文主稿"],
-            "not_for": ["概念解释"],
-            "positive_examples": ["帮我写论文全文"],
-            "negative_examples": ["这个概念是什么意思？"],
+            "not_for": ["概念解释", "单句润色", "期刊推荐"],
+            "positive_examples": [
+                "帮我写论文全文",
+                "根据这个 idea 生成论文主稿",
+                "围绕这个研究问题写 SCI 初稿",
+            ],
+            "negative_examples": [
+                "这个概念是什么意思？",
+                "帮我把这句话润色一下",
+                "这篇文章适合投什么期刊？",
+            ],
             "minimum_context": {"research_idea": "required"},
+            "clarification": {
+                "ask_when_missing": {
+                    "research_idea": "你的核心研究 idea 是什么？",
+                },
+            },
         },
         inputs={"required_decisions": [], "brief_schema": {"type": "object"}},
         context_policy={"room_reads": {}, "prism_context": {}, "full_text_access": "explicit_tool_only"},

@@ -340,6 +340,21 @@ class TestCapabilityV2Yaml:
         assert model.display.entry_tier == "hidden"
         assert model.routing.positive_examples == ["根据这个 idea 帮我写论文全文"]
 
+    def test_disabled_visible_capability_can_keep_shallow_routing_contract(self):
+        payload = self._valid_payload()
+        payload["enabled"] = False
+        payload["routing"] = {
+            "positive_examples": [],
+            "negative_examples": [],
+            "minimum_context": {},
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+
+        assert model.enabled is False
+        assert model.display.entry_tier == "primary"
+        assert model.routing.positive_examples == []
+
     def test_team_kernel_requires_quality_pipeline(self):
         payload = self._valid_payload()
         payload["runtime"] = {
