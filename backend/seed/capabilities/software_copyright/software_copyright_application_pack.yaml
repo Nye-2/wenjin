@@ -38,9 +38,11 @@ routing:
   positive_examples:
   - 帮我生成这个软件的软著申请材料包。
   - 根据软件功能整理申请表和材料清单。
+  - 按中国软著申请要求组织说明书、证据和填报信息。
   negative_examples:
   - 只帮我画模块架构图。
   - 整理代码截图和版本证据。
+  - 软件著作权申请需要哪些材料？
   minimum_context:
     software_name: required
     version: optional

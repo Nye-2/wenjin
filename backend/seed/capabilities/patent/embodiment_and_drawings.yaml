@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 根据这个方案生成实施例和附图说明。
   - 帮我画流程图、装置图并补充说明书支持。
+  - 把这些技术步骤扩展成可支撑权利要求的实施方式。
   negative_examples:
   - 先查一下有没有类似专利。
   - 只优化独立权利要求。
+  - 说明书附图标记一般怎么编号？
   minimum_context:
     invention_title: required
     technical_problem: optional

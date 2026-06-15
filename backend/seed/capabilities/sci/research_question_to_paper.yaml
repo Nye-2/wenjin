@@ -39,9 +39,11 @@ routing:
   positive_examples:
   - 根据这个 research question 和材料帮我写 SCI 初稿。
   - 帮我把已有实验结果整理成论文主稿。
+  - 用这些数据、方法和结论搭建一篇完整的 IMRaD 论文草稿。
   negative_examples:
   - 这个方向有什么研究空白？
   - 这篇文章适合投什么期刊？
+  - 只帮我改一下摘要里的这句话。
   minimum_context:
     topic: required
     existing_materials_summary: optional

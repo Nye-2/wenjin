@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 根据这份审查意见帮我写答复策略和修改建议。
   - 帮我分析对比文件并生成逐条答复。
+  - 针对这次驳回意见整理创造性抗辩和权利要求修改方案。
   negative_examples:
   - 直接帮我写新专利初稿。
   - 查一下这个发明有没有现有技术。
+  - 解释一下审查意见通知书里的新颖性是什么意思。
   minimum_context:
     existing_materials_summary: required
     invention_title: optional

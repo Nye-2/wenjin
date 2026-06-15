@@ -38,9 +38,11 @@ routing:
   positive_examples:
   - 根据这个项目 idea 帮我写基金申报书初稿。
   - 按这个指南把项目申请材料搭起来。
+  - 把这个研究设想扩展成项目申请书的核心材料包。
   negative_examples:
   - 先帮我找这个方向的政策和研究背景。
   - 只帮我设计技术路线图。
+  - 申请书摘要帮我改一句话。
   minimum_context:
     topic: required
     target_format: optional

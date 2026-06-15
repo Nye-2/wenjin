@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我整理软著要用的代码片段和截图说明。
   - 检查软件名称、版本和材料是否一致。
+  - 为这次软著申请准备源代码、界面截图和版本证据包。
   negative_examples:
   - 帮我写完整软著申请材料。
   - 只画一个软件流程图。
+  - 代码页眉应该怎么写？
   minimum_context:
     software_name: required
     existing_materials_summary: optional

@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我设计这个项目的技术路线和实验验证方案。
   - 把研究目标拆成任务、指标和里程碑。
+  - 根据研究目标生成技术路线、实施步骤和考核指标。
   negative_examples:
   - 先帮我写项目背景意义。
   - 直接生成完整申请书。
+  - 技术路线图一般包括哪些内容？
   minimum_context:
     topic: required
     study_design: optional

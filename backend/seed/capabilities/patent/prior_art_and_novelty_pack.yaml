@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我查这个发明方向的现有技术并分析新颖性风险。
   - 找对比文件，整理区别特征和规避建议。
+  - 围绕这项技术方案做一份专利检索和 novelty 风险包。
   negative_examples:
   - 直接帮我写专利申请书。
   - 只帮我画实施流程图。
+  - 帮我解释一下现有技术的定义。
   minimum_context:
     invention_title: required
     technical_problem: optional

@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我检查这篇论文的数据和代码是否能支撑结果。
   - 看看图表、方法和实验记录有没有可复现风险。
+  - 审核这份实验包是否足够复现主要结论。
   negative_examples:
   - 帮我跑一组新的消融实验。
   - 把引言写得更自然。
+  - 什么是 reproducibility checklist？
   minimum_context:
     existing_materials_summary: required
     data_assets: optional

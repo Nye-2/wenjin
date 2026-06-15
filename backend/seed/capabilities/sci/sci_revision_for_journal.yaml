@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 这篇文章 AI 味太浓了，按目标期刊整体改一下。
   - 帮我按 Nature 子刊风格检查并修订全文。
+  - 按目标期刊要求系统修订论文结构、表达和格式。
   negative_examples:
   - 这句话帮我润色一下。
   - 根据这些 reviewer comments 写回复信。
+  - 帮我解释一下 cover letter 要写什么。
   minimum_context:
     existing_materials_summary: required
     target_journal: optional

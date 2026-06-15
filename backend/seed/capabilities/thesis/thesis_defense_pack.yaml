@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 根据这篇论文帮我准备答辩 PPT 大纲和 Q&A。
   - 帮我提炼答辩讲稿和老师可能会问的问题。
+  - 基于终稿生成答辩汇报结构、讲稿和问题清单。
   negative_examples:
   - 帮我先写论文初稿。
   - 帮我找开题文献。
+  - 答辩一般会问哪些类型的问题？
   minimum_context:
     existing_materials_summary: required
     target_format: optional

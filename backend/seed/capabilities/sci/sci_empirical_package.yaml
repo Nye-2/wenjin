@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 用这些数据跑一下统计检验并生成论文图表。
   - 帮我做消融实验和结果包。
+  - 根据这批实验数据生成分析结果、图表和结果解读。
   negative_examples:
   - 这个实验应该怎么设计？
   - 看看我的代码能不能复现论文。
+  - 帮我解释一下 p 值是什么意思。
   minimum_context:
     data_assets: required
     topic: optional

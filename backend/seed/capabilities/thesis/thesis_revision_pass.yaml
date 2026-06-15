@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 按导师意见帮我整体修订论文。
   - 这篇论文逻辑不顺，帮我做全文修改。
+  - 根据批注系统调整论文结构、论证和表达。
   negative_examples:
   - 根据论文生成答辩 PPT 和问答。
   - 只帮我检查参考文献格式。
+  - 帮我把这一段改得更通顺。
   minimum_context:
     existing_materials_summary: required
     constraints: optional

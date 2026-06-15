@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我写软著技术说明书和用户操作手册。
   - 根据这些功能模块生成软件说明文档。
+  - 把软件功能、运行环境和操作流程整理成软著说明书。
   negative_examples:
   - 只整理申请表填报字段。
   - 只画软件模块关系图。
+  - 帮我改一下登录功能描述这一句。
   minimum_context:
     software_name: required
     existing_materials_summary: optional

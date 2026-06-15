@@ -39,9 +39,11 @@ routing:
   positive_examples:
   - 根据这个题目和材料帮我写完整毕业论文初稿。
   - 按学校模板把已有大纲扩展成论文主稿。
+  - 用现有提纲、文献和数据生成一版论文主文档草稿。
   negative_examples:
   - 帮我找这个题目的研究空白。
   - 只帮我修改这一段。
+  - 论文绪论一般怎么写？
   minimum_context:
     topic: required
     target_format: optional

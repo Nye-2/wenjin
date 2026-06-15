@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我把参考文献按 GB/T 7714 整理并去重。
   - 检查正文引用和 refs.bib 是否一致。
+  - 对照学校格式统一正文引用、文末参考文献和 BibTeX。
   negative_examples:
   - 帮我找十篇相关文献并写综述。
   - 按导师意见修改全文。
+  - GB/T 7714 是什么格式？
   minimum_context:
     existing_materials_summary: required
     target_format: optional

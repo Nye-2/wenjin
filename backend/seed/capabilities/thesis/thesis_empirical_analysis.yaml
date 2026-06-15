@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 用这个 Excel 帮我跑描述统计和回归并生成图表。
   - 帮我把问卷数据分析成论文结果材料。
+  - 根据这份数据完成实证检验、表格和结果解释。
   negative_examples:
   - 这个变量应该怎么定义？
   - 帮我写论文引言。
+  - 相关系数是什么意思？
   minimum_context:
     data_assets: required
     topic: optional

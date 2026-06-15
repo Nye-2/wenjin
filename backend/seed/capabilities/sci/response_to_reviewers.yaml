@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 根据这些 reviewer comments 帮我写逐条回复。
   - 帮我把审稿意见拆成修改计划和回复信。
+  - 结合修订稿生成 response letter 和逐条修改说明。
   negative_examples:
   - 这篇文章适合投哪里？
   - 帮我整体润色一下，不涉及审稿意见。
+  - reviewer comments 是什么意思？
   minimum_context:
     existing_materials_summary: required
     target_journal: optional

@@ -38,9 +38,11 @@ routing:
   positive_examples:
   - 根据这个发明点帮我写专利说明书和权利要求初稿。
   - 把这份交底材料整理成专利申请文本。
+  - 用这些技术方案要点生成一版可审阅的专利草案。
   negative_examples:
   - 先帮我查现有技术和新颖性。
   - 只优化权利要求保护范围。
+  - 专利说明书通常包括哪些部分？
   minimum_context:
     invention_title: required
     technical_problem: optional

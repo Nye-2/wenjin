@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 这篇文章适合投哪些期刊？帮我排个投稿顺序。
   - 根据摘要和方法帮我判断投稿风险。
+  - 基于 manuscript 和研究方向给我做一份投稿期刊 shortlist。
   negative_examples:
   - SCI 分区是什么？
   - 帮我写论文初稿。
+  - 帮我润色一下 cover letter 的一句话。
   minimum_context:
     topic: required
     existing_materials_summary: optional

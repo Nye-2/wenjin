@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 围绕这个论文题目帮我整理文献和理论基础。
   - 帮我先做一个开题前的研究材料包。
+  - 为这个选题准备文献脉络、理论框架和研究空白。
   negative_examples:
   - 直接帮我写完整毕业论文。
   - 把这些参考文献按 GB/T 7714 整理一下。
+  - 这个题目适合写吗，先简单聊聊。
   minimum_context:
     topic: required
     target_format: optional

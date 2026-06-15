@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 联邦学习结合大模型这个方向帮我找 gap 和创新点。
   - 帮我整理这个主题的相关工作和 contribution。
+  - 围绕这个选题梳理研究脉络并提出可写的创新点。
   negative_examples:
   - 联邦学习是什么？
   - 直接帮我写一篇完整 SCI 初稿。
+  - 帮我把这段 related work 润色一下。
   minimum_context:
     topic: required
     existing_materials_summary: optional

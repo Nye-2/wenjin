@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我设计这项发明的独权和从权层级。
   - 看看这个权利要求保护范围是否过宽或过窄。
+  - 基于这份交底书帮我重构权利要求布局和备选保护范围。
   negative_examples:
   - 从零帮我写完整专利申请。
   - 帮我画装置图和流程图。
+  - 解释一下从属权利要求是什么意思。
   minimum_context:
     invention_title: required
     technical_problem: optional

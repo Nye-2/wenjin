@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我审查这个申报书的可行性和评审风险。
   - 看看这个技术路线有什么资源和执行风险。
+  - 从评审角度检查这版方案的风险点和补强建议。
   negative_examples:
   - 从零帮我写申请书。
   - 只把语言改得更像基金文本。
+  - 简单解释一下可行性分析应该写什么。
   minimum_context:
     existing_materials_summary: required
     target_format: optional

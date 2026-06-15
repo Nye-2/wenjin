@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我整理这个项目的背景意义和立项依据。
   - 检索政策和文献，写一版国内外研究现状。
+  - 围绕这个申报方向准备背景、依据和问题定义材料。
   negative_examples:
   - 帮我写完整申报书。
   - 帮我设计实验验证方案。
+  - 立项依据和研究意义有什么区别？
   minimum_context:
     topic: required
     source_guidelines: optional

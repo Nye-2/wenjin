@@ -37,9 +37,11 @@ routing:
   positive_examples:
   - 帮我画软著用的软件模块图和流程图。
   - 根据这些功能生成部署图和附图说明。
+  - 把系统功能整理成软著材料里的架构图和流程说明。
   negative_examples:
   - 帮我写完整用户手册。
   - 帮我生成申请表材料包。
+  - 软著流程图需要多复杂？
   minimum_context:
     software_name: required
     existing_materials_summary: optional

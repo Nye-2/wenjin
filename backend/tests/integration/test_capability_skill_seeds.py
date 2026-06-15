@@ -119,6 +119,58 @@ def _is_hidden_capability(data: dict) -> bool:
     return (data.get("display") or {}).get("entry_tier") == "hidden"
 
 
+def test_visible_capability_routing_contracts_are_deep_enough():
+    records = [
+        yaml.safe_load(path.read_text())
+        for path in _collect_capability_files()
+    ]
+    enabled_ids_by_workspace: dict[str, set[str]] = {}
+    for data in records:
+        if data.get("enabled") is not True:
+            continue
+        enabled_ids_by_workspace.setdefault(data["workspace_type"], set()).add(
+            data["id"]
+        )
+
+    for data in records:
+        if data.get("enabled") is not True or _is_hidden_capability(data):
+            continue
+
+        routing = data.get("routing") or {}
+        capability_id = data["id"]
+        assert len(routing.get("positive_examples") or []) >= 3, (
+            f"{capability_id}: visible enabled capabilities need at least "
+            "3 positive routing examples"
+        )
+        assert len(routing.get("negative_examples") or []) >= 3, (
+            f"{capability_id}: visible enabled capabilities need at least "
+            "3 negative routing examples"
+        )
+
+        minimum_context = routing.get("minimum_context") or {}
+        ask_when_missing = (
+            (routing.get("clarification") or {}).get("ask_when_missing") or {}
+        )
+        required_context_keys = {
+            key for key, requirement in minimum_context.items() if requirement == "required"
+        }
+        missing_clarifications = required_context_keys - set(ask_when_missing)
+        assert not missing_clarifications, (
+            f"{capability_id}: required minimum_context keys need "
+            f"clarification.ask_when_missing entries: {sorted(missing_clarifications)}"
+        )
+
+        workspace_ids = enabled_ids_by_workspace[data["workspace_type"]]
+        overlaps_with = (
+            (routing.get("ambiguity") or {}).get("overlaps_with") or []
+        )
+        unknown_overlaps = set(overlaps_with) - workspace_ids
+        assert not unknown_overlaps, (
+            f"{capability_id}: ambiguity.overlaps_with references capabilities "
+            f"outside enabled {data['workspace_type']} ids: {sorted(unknown_overlaps)}"
+        )
+
+
 def test_foundation_agent_templates_are_seeded():
     template_ids = _collect_agent_template_ids()
     missing = FOUNDATION_AGENT_TEMPLATES - template_ids
