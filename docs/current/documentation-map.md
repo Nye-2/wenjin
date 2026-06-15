@@ -46,7 +46,7 @@
 2. 改 workspace / thread / ResultCard / refresh / 恢复行为：更新 `workspace-current-state.md`
 3. 改 capability entry / thread / execution 公共契约：更新 `frontend-feature-plugin-contract.md`
 4. 改 native harness、TeamKernel 工具执行、安全边界或外部 runtime 取舍：更新 `architecture.md` 与 `release-gate-checklist.md`
-5. 改 capability / skill / agent template 目录、Prompt Contract v1、routing-depth、expert template public-safety 或兼容入口映射：更新 `workspace-feature-catalog.md` 与 `architecture.md`
+5. 改 capability / skill / agent template 目录、Prompt Contract v1、routing-depth、expert template public-safety 或 canonical capability entry/routing contract：更新 `workspace-feature-catalog.md` 与 `architecture.md`
 6. 改 references / evidence / bibtex / usage trace：更新 `workspace-reference-library.md`
 7. 改 workspace-owned Prism route、review item、source link、protected section、agent manuscript context：更新 `workspace-current-state.md`、`architecture.md`、`frontend-feature-plugin-contract.md`
 8. 改部署、端口、环境变量、排障：更新 `deployment-runbook.md`、`environment-variables.md`、`troubleshooting.md`
