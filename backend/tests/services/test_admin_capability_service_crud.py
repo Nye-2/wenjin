@@ -30,11 +30,14 @@ mission:
   allowed_deliverables: [full_document_update]
 routing:
   when_to_use: [用户需要运行测试 capability]
-  not_for: [概念解释]
-  positive_examples: [帮我运行测试 capability]
-  negative_examples: [测试 capability 是什么]
+  not_for: [概念解释, 单句润色]
+  positive_examples: [帮我运行测试 capability, 用这个测试目标生成一份可审阅结果, 根据测试目标启动工作区任务]
+  negative_examples: [测试 capability 是什么, 帮我润色这句话, 这个概念是什么意思]
   minimum_context:
     goal: required
+  clarification:
+    ask_when_missing:
+      goal: 你想完成什么测试目标？
 inputs:
   required_decisions: []
   brief_schema:
@@ -142,6 +145,17 @@ async def test_create_with_invalid_yaml_raises(service):
     with pytest.raises(ValueError, match="yaml"):
         await service.create(yaml_text="!!!not yaml{{{", admin_id="admin-uuid")
     service.event_bus.publish.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_rejects_visible_capability_without_required_context_clarification(service):
+    bad_yaml = SAMPLE_YAML.replace(
+        "  clarification:\n    ask_when_missing:\n      goal: 你想完成什么测试目标？\n",
+        "",
+    )
+
+    with pytest.raises(ValueError, match="goal"):
+        await service.create(yaml_text=bad_yaml, admin_id="admin-uuid")
 
 
 @pytest.mark.asyncio

@@ -367,12 +367,28 @@ class CapabilityV2YamlModel(BaseModel):
                 raise ValueError("visible capability requires routing.when_to_use")
             if not self.routing.not_for:
                 raise ValueError("visible capability requires routing.not_for")
-            if not self.routing.positive_examples:
-                raise ValueError("visible capability requires routing.positive_examples")
-            if not self.routing.negative_examples:
-                raise ValueError("visible capability requires routing.negative_examples")
+            if len(self.routing.positive_examples) < 3:
+                raise ValueError(
+                    "visible capability requires at least 3 routing.positive_examples"
+                )
+            if len(self.routing.negative_examples) < 3:
+                raise ValueError(
+                    "visible capability requires at least 3 routing.negative_examples"
+                )
             if not self.routing.minimum_context:
                 raise ValueError("visible capability requires routing.minimum_context")
+            missing_clarifications = [
+                key
+                for key, value in self.routing.minimum_context.items()
+                if value == "required"
+                and key not in self.routing.clarification.ask_when_missing
+            ]
+            if missing_clarifications:
+                raise ValueError(
+                    "visible capability requires routing.clarification.ask_when_missing "
+                    "for required minimum_context keys: "
+                    + ", ".join(sorted(missing_clarifications))
+                )
         if self.runtime is None:
             if self.team_policy is not None:
                 raise ValueError("team_policy requires runtime.mode=team_kernel")

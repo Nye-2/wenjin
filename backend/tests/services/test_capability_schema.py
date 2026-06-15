@@ -85,9 +85,22 @@ class TestCapabilityV2Yaml:
             "routing": {
                 "when_to_use": ["用户已有明确 research idea，需要生成或更新论文主稿"],
                 "not_for": ["概念解释", "单句润色"],
-                "positive_examples": ["根据这个 idea 帮我写论文全文"],
-                "negative_examples": ["这个概念是什么意思？"],
+                "positive_examples": [
+                    "根据这个 idea 帮我写论文全文",
+                    "帮我把已有材料整理成论文主稿",
+                    "围绕这个研究问题生成 SCI 初稿",
+                ],
+                "negative_examples": [
+                    "这个概念是什么意思？",
+                    "帮我把这句话润色一下",
+                    "这篇文章适合投什么期刊？",
+                ],
                 "minimum_context": {"research_idea": "required"},
+                "clarification": {
+                    "ask_when_missing": {
+                        "research_idea": "你的核心研究 idea 是什么？",
+                    },
+                },
             },
             "inputs": {
                 "required_decisions": [
@@ -203,10 +216,18 @@ class TestCapabilityV2Yaml:
         payload = self._valid_payload()
         payload["routing"] = {
             "when_to_use": ["用户需要整理文献、gap 和创新点"],
-            "not_for": ["概念解释"],
+            "not_for": ["概念解释", "单句润色"],
             "user_intents": ["找研究空白"],
-            "positive_examples": ["联邦学习结合大模型有什么创新点？"],
-            "negative_examples": ["联邦学习是什么？"],
+            "positive_examples": [
+                "联邦学习结合大模型有什么创新点？",
+                "帮我整理这个方向的研究空白",
+                "围绕隐私计算找可发表的创新点",
+            ],
+            "negative_examples": [
+                "联邦学习是什么？",
+                "帮我把这句话润色一下",
+                "这篇文章适合投什么期刊？",
+            ],
             "minimum_context": {"goal_or_topic": "required"},
             "ambiguity": {
                 "overlaps_with": ["research_question_to_paper"],
@@ -269,6 +290,33 @@ class TestCapabilityV2Yaml:
         with pytest.raises(ValidationError, match="routing"):
             CapabilityV2YamlModel(**payload)
 
+    def test_visible_capability_rejects_fewer_than_three_positive_examples(self):
+        payload = self._valid_payload()
+        payload["routing"]["positive_examples"] = [
+            "根据这个 idea 帮我写论文全文",
+            "帮我把已有材料整理成论文主稿",
+        ]
+
+        with pytest.raises(ValidationError, match="positive_examples"):
+            CapabilityV2YamlModel(**payload)
+
+    def test_visible_capability_rejects_fewer_than_three_negative_examples(self):
+        payload = self._valid_payload()
+        payload["routing"]["negative_examples"] = [
+            "这个概念是什么意思？",
+            "帮我把这句话润色一下",
+        ]
+
+        with pytest.raises(ValidationError, match="negative_examples"):
+            CapabilityV2YamlModel(**payload)
+
+    def test_visible_capability_required_minimum_context_needs_clarification(self):
+        payload = self._valid_payload()
+        payload["routing"]["clarification"]["ask_when_missing"] = {}
+
+        with pytest.raises(ValidationError, match="research_idea"):
+            CapabilityV2YamlModel(**payload)
+
     def test_hidden_capability_can_omit_routing_contract(self):
         payload = self._valid_payload()
         payload.pop("routing")
@@ -278,6 +326,19 @@ class TestCapabilityV2Yaml:
 
         assert model.display.entry_tier == "hidden"
         assert model.routing.when_to_use == []
+
+    def test_hidden_capability_can_keep_shallow_routing_contract(self):
+        payload = self._valid_payload()
+        payload["display"]["entry_tier"] = "hidden"
+        payload["routing"] = {
+            "positive_examples": ["根据这个 idea 帮我写论文全文"],
+            "minimum_context": {"research_idea": "required"},
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+
+        assert model.display.entry_tier == "hidden"
+        assert model.routing.positive_examples == ["根据这个 idea 帮我写论文全文"]
 
     def test_team_kernel_requires_quality_pipeline(self):
         payload = self._valid_payload()
