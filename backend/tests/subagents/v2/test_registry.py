@@ -145,6 +145,46 @@ def test_validates_public_text_allows_non_internal_version_suffix() -> None:
 
 
 @pytest.mark.parametrize(
+    "public_name",
+    [
+        "Harness specialist",
+        "Raw tools reviewer",
+        "Raw logs reader",
+    ],
+)
+def test_validates_public_profile_rejects_internal_runtime_terms(public_name: str) -> None:
+    errors = validate_agent_template_contract(
+        _template_with_valid_persona(
+            id="public_profile_guard.v1",
+            expert_profile={
+                "public_name": public_name,
+                "role_title": "Research specialist",
+            },
+            tool_affinity={"preferred": ["library_read"], "can_request": []},
+            risk_profile={"filesystem": "no_direct_write", "code_execution": "not_needed"},
+        )
+    )
+
+    assert any("expert_profile.public_name" in error for error in errors)
+
+
+def test_validates_persona_prompt_rejects_internal_runtime_terms() -> None:
+    errors = validate_agent_template_contract(
+        _template_with_valid_persona(
+            id="persona_guard.v1",
+            persona_prompt=(
+                _valid_persona_prompt()
+                + "\nSafety Boundary:\nDo not expose harness refs or internal scheduling details.\n"
+            ),
+            tool_affinity={"preferred": ["library_read"], "can_request": []},
+            risk_profile={"filesystem": "no_direct_write", "code_execution": "not_needed"},
+        )
+    )
+
+    assert any("persona_prompt" in error for error in errors)
+
+
+@pytest.mark.parametrize(
     "tool_name",
     [
         "sandbox.list_dir",

@@ -41,7 +41,16 @@ _PUBLIC_INTERNAL_TERMS = (
     "template id",
     "skill id",
     "tool id",
+    "raw tool",
+    "raw tools",
+    "raw log",
+    "raw logs",
     "tool log",
+    "harness",
+    "harness ref",
+    "harness refs",
+    "internal scheduling",
+    "scheduler queue",
     "stdout",
     "stderr",
     "agent_template",
@@ -138,6 +147,12 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
         errors.append(
             f"{template_id}: persona_prompt must include Evidence Rules: or Safety Boundary:"
         )
+    _reject_internal_terms(
+        template_id=template_id,
+        path="persona_prompt",
+        value=persona_prompt,
+        errors=errors,
+    )
 
     expert_profile = template.get("expert_profile")
     if isinstance(expert_profile, Mapping):
