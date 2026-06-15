@@ -82,6 +82,13 @@ class TestCapabilityV2Yaml:
                 "user_promise": "生成可审阅、可回滚、带来源追踪的主文档变更",
                 "allowed_deliverables": ["full_document_update"],
             },
+            "routing": {
+                "when_to_use": ["用户已有明确 research idea，需要生成或更新论文主稿"],
+                "not_for": ["概念解释", "单句润色"],
+                "positive_examples": ["根据这个 idea 帮我写论文全文"],
+                "negative_examples": ["这个概念是什么意思？"],
+                "minimum_context": {"research_idea": "required"},
+            },
             "inputs": {
                 "required_decisions": [
                     {
@@ -254,6 +261,23 @@ class TestCapabilityV2Yaml:
 
         with pytest.raises(ValidationError, match="confidence_threshold"):
             CapabilityV2YamlModel(**payload)
+
+    def test_visible_capability_requires_routing_contract(self):
+        payload = self._valid_payload()
+        payload.pop("routing")
+
+        with pytest.raises(ValidationError, match="routing"):
+            CapabilityV2YamlModel(**payload)
+
+    def test_hidden_capability_can_omit_routing_contract(self):
+        payload = self._valid_payload()
+        payload.pop("routing")
+        payload["display"]["entry_tier"] = "hidden"
+
+        model = CapabilityV2YamlModel(**payload)
+
+        assert model.display.entry_tier == "hidden"
+        assert model.routing.when_to_use == []
 
     def test_team_kernel_requires_quality_pipeline(self):
         payload = self._valid_payload()

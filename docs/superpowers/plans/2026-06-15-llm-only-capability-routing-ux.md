@@ -407,7 +407,7 @@ Confirm:
 - route cards are bounded;
 - user-facing copy avoids internals.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Commit after verification:
 

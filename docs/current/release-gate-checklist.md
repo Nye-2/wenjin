@@ -14,7 +14,7 @@
 3. ResultCard / ReviewItem / Prism review flow 保持 review-first：生成内容先进入可审阅状态，用户接受后才写 rooms 或 Prism。
 4. DataService 是 workspace、catalog、model、pricing、credit、sandbox、source、review、execution persistence 的边界；Gateway/worker 不直接绕过到 DB session。
 5. Capability / skill / agent template 均来自 DataService Catalog；不得新增旧 workflow alias、fallback resolver 或双读兼容层。
-6. 用户可见 capability seed 必须带 `routing` 合约；Chat Agent 只用 LLM route-card 做渐进承诺，不引入 embedding/vector index、关键词硬路由、前端 matcher 或第二套 router service。
+6. 用户可见 capability 必须带 `routing` 合约并通过 schema/admin 写入校验；Chat Agent 只用 LLM route-card 做渐进承诺，不引入 embedding/vector index、关键词硬路由、前端 matcher 或第二套 router service。
 7. TeamKernel 默认流程只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish`；实名专家从 `agent_invocation` node metadata 投影。
 8. Agent harness 只能由 Lead Agent graph / TeamKernel subagent 调用；不得暴露用户侧 sandbox console、公开 arbitrary exec endpoint 或第二套 execution stream。
 9. Workspace 最多一个 active sandbox environment；任务容器可短生命周期，workspace `/workspace` 文件和环境保持连续。

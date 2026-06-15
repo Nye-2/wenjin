@@ -28,6 +28,13 @@ def _make_capability_yaml(
             "user_promise": "x",
             "allowed_deliverables": ["full_document_update"],
         },
+        routing={
+            "when_to_use": ["用户需要生成或更新论文主稿"],
+            "not_for": ["概念解释"],
+            "positive_examples": ["帮我写论文全文"],
+            "negative_examples": ["这个概念是什么意思？"],
+            "minimum_context": {"research_idea": "required"},
+        },
         inputs={"required_decisions": [], "brief_schema": {"type": "object"}},
         context_policy={"room_reads": {}, "prism_context": {}, "full_text_access": "explicit_tool_only"},
         sandbox_policy={"mode": "none", "profiles": [], "allowed_operations": []},

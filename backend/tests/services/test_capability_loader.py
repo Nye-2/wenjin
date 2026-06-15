@@ -35,6 +35,13 @@ def _capability_v2_yaml(*, cap_id: str = "idea_to_thesis_manuscript") -> str:
           document_role: primary_manuscript
           user_promise: 生成可审阅的主文档变更
           allowed_deliverables: [full_document_update]
+        routing:
+          when_to_use: [用户已有明确 research idea，需要生成或更新论文主稿]
+          not_for: [概念解释]
+          positive_examples: [根据这个 idea 帮我写论文全文]
+          negative_examples: [这个概念是什么意思]
+          minimum_context:
+            research_idea: required
         inputs:
           required_decisions: []
           brief_schema:

@@ -361,6 +361,17 @@ class CapabilityV2YamlModel(BaseModel):
             self.research_evidence.required_surfaces,
             field_name="research_evidence.required_surfaces",
         )
+        if self.enabled and self.display.entry_tier != "hidden":
+            if not self.routing.when_to_use:
+                raise ValueError("visible capability requires routing.when_to_use")
+            if not self.routing.not_for:
+                raise ValueError("visible capability requires routing.not_for")
+            if not self.routing.positive_examples:
+                raise ValueError("visible capability requires routing.positive_examples")
+            if not self.routing.negative_examples:
+                raise ValueError("visible capability requires routing.negative_examples")
+            if not self.routing.minimum_context:
+                raise ValueError("visible capability requires routing.minimum_context")
         if self.runtime is None:
             if self.team_policy is not None:
                 raise ValueError("team_policy requires runtime.mode=team_kernel")

@@ -28,6 +28,13 @@ mission:
   document_role: primary_manuscript
   user_promise: for testing
   allowed_deliverables: [full_document_update]
+routing:
+  when_to_use: [用户需要运行测试 capability]
+  not_for: [概念解释]
+  positive_examples: [帮我运行测试 capability]
+  negative_examples: [测试 capability 是什么]
+  minimum_context:
+    goal: required
 inputs:
   required_decisions: []
   brief_schema:

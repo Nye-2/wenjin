@@ -166,6 +166,13 @@ _SEED_YAML = textwrap.dedent("""\
       document_role: evidence_pack
       user_promise: 生成可审阅的文献调研结果
       allowed_deliverables: [evidence_pack]
+    routing:
+      when_to_use: [用户需要围绕主题做深度文献调研]
+      not_for: [概念解释]
+      positive_examples: [帮我调研这个主题的文献]
+      negative_examples: [这个概念是什么意思]
+      minimum_context:
+        topic: required
     inputs:
       required_decisions: []
       brief_schema:
