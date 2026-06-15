@@ -1,6 +1,6 @@
 """Deterministic route/UX checks for Chat Agent capability routing guidance."""
 
-from src.agents.chat_agent.agent import _render_workspace_available_skills
+from src.agents.chat_agent.agent import _render_workspace_capability_route_cards
 
 
 def _sci_literature_capability() -> dict:
@@ -58,9 +58,8 @@ def _sci_paper_capability() -> dict:
 
 
 def _routing_prompt() -> str:
-    return _render_workspace_available_skills(
+    return _render_workspace_capability_route_cards(
         [_sci_literature_capability(), _sci_paper_capability()],
-        [],
     )
 
 

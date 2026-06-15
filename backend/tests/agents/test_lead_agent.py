@@ -272,11 +272,11 @@ class TestApplyPromptTemplate:
         prompt = apply_prompt_template(state, config)
 
         assert "<available_capabilities>" in prompt
-        assert "<available_skills>" in prompt
+        assert "<available_skills>" not in prompt
         assert '<capability_route_card id="literature_search"' in prompt
         assert 'when="用户需要系统检索和整理相关文献"' in prompt
         assert 'id="peer_review"' not in prompt
-        assert 'id="scholar-searcher"' in prompt
+        assert 'id="scholar-searcher"' not in prompt
 
     def test_prompt_omits_capability_block_when_state_is_empty(self):
         """No capabilities in state (e.g. DB unreachable) → block is skipped."""
@@ -297,7 +297,8 @@ class TestApplyPromptTemplate:
 
         # Legacy guidance/bound-feature blob is gone — only the selection itself
         # is surfaced now; the chat agent routes via DB capability catalog.
-        assert "The user selected `framework-designer`" in prompt
+        assert "route hint `framework-designer`" in prompt
+        assert "Do not expose this identifier" in prompt
         assert "Bound feature" not in prompt
         assert "run_workspace_feature" not in prompt
         # After chat-bypass removal: skills are launched directly, not via proposals.

@@ -7,7 +7,6 @@ require DataService / registry lookups; this module is pure data validation.
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -18,61 +17,6 @@ from src.contracts.catalog_validation import (
 )
 from src.contracts.research_evidence import validate_research_surfaces
 from src.contracts.team_presentation import CapabilityTeamPresentationV1
-
-# ---------------------------------------------------------------------------
-# Existing models (used by other modules)
-# ---------------------------------------------------------------------------
-
-
-class FeatureRuntimeMode(StrEnum):
-    """Execution mode for a capability."""
-
-    CHAT_ONLY = "chat_only"
-    DETERMINISTIC = "deterministic"
-    COMPUTE_WORKFLOW = "compute_workflow"
-    COMPUTE_AGENTIC = "compute_agentic"
-
-
-class RuntimeProfileModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    mode: FeatureRuntimeMode = FeatureRuntimeMode.CHAT_ONLY
-    requires_sandbox: bool = False
-    review_gate: dict[str, Any] = Field(default_factory=dict)
-    allowed_paths: list[str] = Field(default_factory=list)
-
-
-class DashboardMetaModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    status_kind: str = "default"
-    hidden: bool = False
-    panel: str | None = None
-
-
-# ---------------------------------------------------------------------------
-# Capability YAML schema models
-# ---------------------------------------------------------------------------
-
-
-class UIMetaStage(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id: str
-    label: str
-
-
-class UIMetaModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    icon: str
-    color: str
-    order: int = 0
-    stages: list[UIMetaStage] = Field(default_factory=list)
-    follow_up_prompt: str | None = None
-
-
-class RequiredDecisionModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    key: str
-    ask: str
-    type: Literal["string", "number", "boolean"]
 
 
 class GraphTaskOutputModel(BaseModel):
@@ -100,24 +44,6 @@ class GraphPhaseModel(BaseModel):
 class GraphTemplateModel(BaseModel):
     model_config = ConfigDict(extra="allow")
     phases: list[GraphPhaseModel]
-
-
-class CapabilityYamlModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id: str
-    workspace_type: str
-    enabled: bool = True
-    display_name: str
-    description: str = ""
-    intent_description: str
-    trigger_phrases: list[str] = Field(default_factory=list)
-    required_decisions: list[RequiredDecisionModel] = Field(default_factory=list)
-    brief_schema: dict[str, Any]
-    graph_template: GraphTemplateModel
-    ui_meta: UIMetaModel
-    runtime: RuntimeProfileModel = Field(default_factory=RuntimeProfileModel)
-    dashboard_meta: DashboardMetaModel = Field(default_factory=DashboardMetaModel)
-    notes: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -416,24 +342,6 @@ class CapabilityV2YamlModel(BaseModel):
         }
 
 
-# ---------------------------------------------------------------------------
-# CapabilitySkill YAML schema models
-# ---------------------------------------------------------------------------
-
-
-class CapabilitySkillYamlModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    id: str
-    enabled: bool = True
-    display_name: str
-    description: str = ""
-    subagent_type: str
-    prompt: str = ""
-    allowed_tools: list[str] = Field(default_factory=list)
-    resources: list[str] = Field(default_factory=list)
-    config: dict[str, Any] = Field(default_factory=dict)
-
-
 class CapabilitySkillV2WorkerModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     category: str
@@ -545,7 +453,7 @@ class CrossRefValidator:
 
     async def validate_capability(
         self,
-        cap: CapabilityYamlModel | CapabilityV2YamlModel,
+        cap: CapabilityV2YamlModel,
     ) -> list[str]:
         errors: list[str] = []
 
@@ -573,7 +481,7 @@ class CrossRefValidator:
 
     async def validate_skill(
         self,
-        skill: CapabilitySkillYamlModel | CapabilitySkillV2YamlModel,
+        skill: CapabilitySkillV2YamlModel,
     ) -> list[str]:
         errors: list[str] = []
         registry_types = self._registry_subagent_types()

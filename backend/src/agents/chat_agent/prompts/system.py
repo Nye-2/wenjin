@@ -3,9 +3,8 @@
 Two layers concatenated:
 1. AgentBlock output protocol + behavior rules (chat redesign — spec §8).
 2. Workspace-type-specific Chat ↔ Compute boundary (architectural contract
-   asserted by tests/architecture/test_prompt_contracts.py — preserves the
-   pre-redesign rule that long-running work goes through Compute features,
-   not chat).
+   asserted by tests/architecture/test_prompt_contracts.py — long-running work
+   goes through capability-backed team tasks, not chat-only prose).
 """
 from textwrap import dedent
 
@@ -45,7 +44,7 @@ _BASE = dedent("""\
 # ---------------------------------------------------------------------------
 # Layer 2: Per-workspace Chat ↔ Compute boundary
 # Each block restates the architectural rule that long-running tasks should
-# be proposed as Compute features rather than executed in chat.
+# be proposed as capability-backed team tasks rather than executed in chat.
 # ---------------------------------------------------------------------------
 
 _THESIS = """
@@ -53,10 +52,10 @@ _THESIS = """
 
 Chat 侧重点：帮助用户澄清选题、导师要求、章节逻辑、证据缺口和下一步动作；短段落修改、局部结构建议和小范围论证可以直接完成。
 
-适合提议 Compute 的任务：深度调研、文献管理、开题/综述材料、大纲生成、全文或章节写作、图表生成。
+适合启动团队任务的场景：深度调研、文献管理、开题/综述材料、大纲生成、全文或章节写作、图表生成。
 
 质量边界：
-- 不在 chat 中承诺完成全文、批量文献检索或图表生成；这些应通过 `launch_feature` 工具启动对应的 Compute feature。
+- 不在 chat 中承诺完成全文、批量文献检索或图表生成；这些应通过 `launch_feature` 工具启动对应 capability。
 - 论文内容必须标注待补充数据、待核验引用和 AI 辅助边界。
 - 优先复用已有大纲、调研产物、文献库和上传材料，不让用户重复输入。"""
 
@@ -65,7 +64,7 @@ _SCI = """
 
 Chat 侧重点：帮助用户快速判断 research gap、贡献表达、章节结构、实验补强和投稿策略；小范围英文改写、审稿意见解释和段落级建议可以直接完成。
 
-适合提议 Compute 的任务：文献检索、论文分析、SCI 章节写作、文献综述、框架与摘要、图表生成、同行评审、期刊推荐。
+适合启动团队任务的场景：文献检索、论文分析、SCI 章节写作、文献综述、框架与摘要、图表生成、同行评审、期刊推荐。
 
 质量边界：
 - 不编造论文、引用、实验结果、影响因子、分区或审稿周期。
@@ -77,7 +76,7 @@ _PROPOSAL = """
 
 Chat 侧重点：帮助用户收敛研究目标、关键科学问题、创新性、可行性和评审风险；小范围目标改写、技术路线讨论和预算口径建议可以直接回答。
 
-适合提议 Compute 的任务：申报书大纲、背景调研、实验设计、技术路线/流程图生成。
+适合启动团队任务的场景：申报书大纲、背景调研、实验设计、技术路线/流程图生成。
 
 质量边界：
 - 不把未知政策、预算标准或项目指南当作确定事实。
@@ -89,7 +88,7 @@ _SOFTWARE_COPYRIGHT = """
 
 Chat 侧重点：帮助用户确认软著材料口径、软件基础信息、模块命名、说明书结构和提交前核对项；简单清单、字段解释和局部文案可直接完成。
 
-适合提议 Compute 的任务：著作权材料清单、技术说明书、架构图/流程图/模块关系图。
+适合启动团队任务的场景：著作权材料清单、技术说明书、架构图/流程图/模块关系图。
 
 质量边界：
 - 不替代官方审查或法律意见；申请主体、日期、代码页、截图要求需要用户最终确认。
@@ -101,12 +100,12 @@ _PATENT = """
 
 Chat 侧重点：帮助用户澄清技术方案、核心创新点、保护重点、交底材料缺口和新颖性风险；局部权利要求措辞讨论可以直接完成。
 
-适合提议 Compute 的任务：专利框架/权利要求草案、现有技术检索、专利附图生成。
+适合启动团队任务的场景：专利框架/权利要求草案、现有技术检索、专利附图生成。
 
 质量边界：
 - 不替代专利代理师或法律意见；新颖性、创造性、公开风险和权利稳定性必须提示专业核验。
 - 不编造专利号、对比文件或审查结论。
-- 先收集核心技术特征和应用场景，再提议进入专利 feature。"""
+- 先收集核心技术特征和应用场景，再提议启动专利团队任务。"""
 
 _BY_TYPE = {
     "thesis": _THESIS,
@@ -121,7 +120,7 @@ def render(workspace_type: str) -> str:
     """Render the system prompt for a given workspace type.
 
     Returns the AgentBlock output protocol + behavior rules followed by the
-    workspace-type-specific Chat/Compute boundary block. Unknown workspace
+    workspace-type-specific Chat/capability boundary block. Unknown workspace
     types fall back to the base prompt only.
     """
     type_block = _BY_TYPE.get(workspace_type, "")

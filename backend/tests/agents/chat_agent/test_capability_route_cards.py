@@ -1,6 +1,6 @@
 """Chat Agent capability route-card rendering tests."""
 
-from src.agents.chat_agent.agent import _render_workspace_available_skills
+from src.agents.chat_agent.agent import _render_workspace_capability_route_cards
 
 
 def _capability(
@@ -46,7 +46,7 @@ def _capability(
 
 
 def test_renders_compact_route_cards_without_graph_template() -> None:
-    rendered = _render_workspace_available_skills([_capability()], [])
+    rendered = _render_workspace_capability_route_cards([_capability()])
 
     assert "<capability_route_card" in rendered
     assert 'id="sci_literature_positioning"' in rendered
@@ -61,12 +61,11 @@ def test_renders_compact_route_cards_without_graph_template() -> None:
 
 
 def test_skips_hidden_capability_route_cards() -> None:
-    rendered = _render_workspace_available_skills(
+    rendered = _render_workspace_capability_route_cards(
         [
             _capability(capability_id="visible", tier="primary"),
             _capability(capability_id="internal_sandbox_smoke", tier="hidden"),
         ],
-        [],
     )
 
     assert 'id="visible"' in rendered
@@ -74,9 +73,8 @@ def test_skips_hidden_capability_route_cards() -> None:
 
 
 def test_empty_visible_capabilities_render_no_feature_prompt() -> None:
-    rendered = _render_workspace_available_skills(
+    rendered = _render_workspace_capability_route_cards(
         [_capability(capability_id="internal_sandbox_smoke", tier="hidden")],
-        [],
     )
 
     assert rendered == ""
@@ -86,7 +84,7 @@ def test_visible_capability_without_routing_is_not_keyword_fallback() -> None:
     capability = _capability(capability_id="admin_capability_without_routing")
     capability["routing"] = {}
 
-    rendered = _render_workspace_available_skills([capability], [])
+    rendered = _render_workspace_capability_route_cards([capability])
 
     assert rendered == ""
     assert "trigger_phrases" not in rendered

@@ -16,7 +16,6 @@ from langgraph.prebuilt import create_react_agent
 
 from src.agents.chat_agent.blocks import AgentMessage, TextBlock
 from src.agents.chat_agent.dynamic_tools import DynamicToolNode
-from src.agents.chat_agent.prompts import skills as _skill_prompts
 from src.agents.chat_agent.prompts import system as _system_prompts
 from src.agents.middlewares import (
     CapabilityAutoLaunchMiddleware,
@@ -59,19 +58,13 @@ _PROMPT_CONTEXT_CHAR_LIMITS = {
     "memory_context": 1800,
     "knowledge_context": 2200,
     "template_context": 3200,
-    "skill_guidance": 1400,
 }
 
 
-def _build_system_prompt(workspace_type: str, skill_id: str | None) -> str:
-    """Build the base system prompt from the spec-driven prompt modules.
+def _build_system_prompt(workspace_type: str) -> str:
+    """Build the workspace-type-aware Chat Agent system prompt."""
 
-    Uses prompts.system.render for the workspace-type-aware base and
-    prompts.skills.render for per-skill additional guidance (Plan 1 Tasks 4+5).
-    """
-    base = _system_prompts.render(workspace_type)
-    skill = _skill_prompts.render(skill_id) if skill_id else ""
-    return f"{base}\n\n{skill}".strip() if skill else base
+    return _system_prompts.render(workspace_type)
 
 
 def _concat_text_blocks(msg: AgentMessage) -> str:
@@ -148,18 +141,16 @@ def _merge_runtime_config(
     return cast(RunnableConfig, merged)
 
 
-def _render_workspace_available_skills(
+def _render_workspace_capability_route_cards(
     caps: list[dict[str, Any]] | None,
-    skills: list[dict[str, Any]] | None,
 ) -> str:
-    """Render the capabilities + skills XML block for the chat prompt.
+    """Render bounded capability route cards for the chat prompt.
 
     Data is sourced from ``state["available_capabilities"]`` and
-    ``state["available_skills"]``, populated by
-    :class:`CapabilitySkillPreloadMiddleware` from the database.
+    populated by :class:`CapabilitySkillPreloadMiddleware` from the database.
 
     If *caps* is empty the rendering is skipped entirely — the chat agent
-    will not advertise any feature in that turn.
+    will not advertise any durable team capability in that turn.
     """
     if not caps:
         return ""
@@ -177,20 +168,7 @@ def _render_workspace_available_skills(
         + "\n</available_capabilities>"
     )
 
-    skill_items = [
-        f'  <skill id="{s["id"]}" subagent_type="{s["subagent_type"]}" '
-        f'desc="{s.get("description") or ""}"/>'
-        for s in (skills or [])
-    ]
-    skill_block = (
-        "<available_skills>\n"
-        + "\n".join(skill_items)
-        + "\n</available_skills>"
-        if skill_items
-        else ""
-    )
-
-    return _build_capability_skill_prompt(cap_block, skill_block)
+    return _build_capability_routing_prompt(cap_block)
 
 
 def _xml_attr(value: Any) -> str:
@@ -270,12 +248,10 @@ def _render_capability_route_card(capability: dict[str, Any]) -> str:
     return f"  <capability_route_card {serialized}/>"
 
 
-def _build_capability_skill_prompt(cap_block: str, skill_block: str) -> str:
+def _build_capability_routing_prompt(cap_block: str) -> str:
     return f"""
 
 {cap_block}
-
-{skill_block}
 
 <feature_launch_system>
 **MISSION PRIORITY: understand the user's goal → choose the right interaction → only launch when the task is ready**
@@ -303,7 +279,7 @@ an actual tool call, NOTHING runs.**
 
 **MANDATORY Launch Scenarios:**
 1. Clear durable deliverable matching a route card + minimum context → call launch_feature
-2. User clicks a suggestion pill or names a skill explicitly + route is clear → call launch_feature
+2. User clicks a suggestion pill or enters through a capability deep-link + route is clear → call launch_feature
 3. Sufficient context already in conversation/workspace → launch immediately
 
 **STRICT ENFORCEMENT:**
@@ -367,69 +343,6 @@ def _filter_reference_library_bypass_tools(tools: list[BaseTool]) -> list[BaseTo
         for tool in tools
         if not is_reference_library_bypass_tool(getattr(tool, "name", ""))
     ]
-
-
-_WORKSPACE_TYPE_PROMPTS: dict[str, str] = {
-    "thesis": """
-## 当前项目类型：学位论文
-
-Chat 侧重点：帮助用户澄清选题、导师要求、章节逻辑、证据缺口和下一步动作；短段落修改、局部结构建议和小范围论证可以直接完成。
-
-适合提议 Compute 的任务：深度调研、文献管理、开题/综述材料、大纲生成、全文或章节写作、图表生成。
-
-质量边界：
-- 不在 chat 中承诺完成全文、批量文献检索或图表生成；这些应通过 `launch_feature` 工具启动对应的 Compute feature。
-- 论文内容必须标注待补充数据、待核验引用和 AI 辅助边界。
-- 优先复用已有大纲、调研产物、文献库和上传材料，不让用户重复输入。""",
-
-    "sci": """
-## 当前项目类型：学术论文（SCI/EI）
-
-Chat 侧重点：帮助用户快速判断 research gap、贡献表达、章节结构、实验补强和投稿策略；小范围英文改写、审稿意见解释和段落级建议可以直接完成。
-
-适合提议 Compute 的任务：文献检索、论文分析、SCI 章节写作、文献综述、框架与摘要、图表生成、同行评审、期刊推荐。
-
-质量边界：
-- 不编造论文、引用、实验结果、影响因子、分区或审稿周期。
-- 期刊推荐和文献线索必须提示"待核验"，除非已有可验证来源。
-- 写作建议应优先围绕 research gap、contribution、method validity 和 experiment reproducibility。""",
-
-    "proposal": """
-## 当前项目类型：研究计划 / 基金申请
-
-Chat 侧重点：帮助用户收敛研究目标、关键科学问题、创新性、可行性和评审风险；小范围目标改写、技术路线讨论和预算口径建议可以直接回答。
-
-适合提议 Compute 的任务：申报书大纲、背景调研、实验设计、技术路线/流程图生成。
-
-质量边界：
-- 不把未知政策、预算标准或项目指南当作确定事实。
-- 计划书内容必须区分"已具备依据"和"需要补证据/补数据"。
-- 优先把用户已有方向转成 SMART 目标、可执行任务和评审可读的结构。""",
-
-    "software_copyright": """
-## 当前项目类型：软件著作权申请
-
-Chat 侧重点：帮助用户确认软著材料口径、软件基础信息、模块命名、说明书结构和提交前核对项；简单清单、字段解释和局部文案可直接完成。
-
-适合提议 Compute 的任务：著作权材料清单、技术说明书、架构图/流程图/模块关系图。
-
-质量边界：
-- 不替代官方审查或法律意见；申请主体、日期、代码页、截图要求需要用户最终确认。
-- 技术说明必须与真实软件功能和源代码一致，不补造不存在的模块。
-- 缺少软件名称、版本或核心模块时，只收集最小缺失信息。""",
-
-    "patent": """
-## 当前项目类型：专利申请
-
-Chat 侧重点：帮助用户澄清技术方案、核心创新点、保护重点、交底材料缺口和新颖性风险；局部权利要求措辞讨论可以直接完成。
-
-适合提议 Compute 的任务：专利框架/权利要求草案、现有技术检索、专利附图生成。
-
-质量边界：
-- 不替代专利代理师或法律意见；新颖性、创造性、公开风险和权利稳定性必须提示专业核验。
-- 不编造专利号、对比文件或审查结论。
-- 先收集核心技术特征和应用场景，再提议进入专利 feature。""",
-}
 
 
 def _truncate_prompt_block(text: str, *, max_chars: int) -> str:
@@ -518,15 +431,10 @@ def apply_prompt_template(
     Returns:
         System prompt string
     """
-    # Base system prompt — sourced from spec-driven prompt modules (Plan 1 Tasks 4+5).
+    # Base system prompt — sourced from the workspace-type prompt module.
     workspace_type = state.get("workspace_type")
     discipline = state.get("discipline")
-    configurable_for_skill = config.get("configurable", {})
-    _skill_id_for_base = (
-        configurable_for_skill.get("selected_skill")
-        or state.get("current_skill")
-    )
-    base_prompt = _build_system_prompt(workspace_type or "", _skill_id_for_base)
+    base_prompt = _build_system_prompt(workspace_type or "")
 
     if discipline:
         discipline_label = discipline.replace("_", " ").title()
@@ -582,16 +490,14 @@ def apply_prompt_template(
         or state.get("current_skill")
     )
     if selected_skill:
-        # Frontend may still send a ``selected_skill`` from a deep-link, but the
-        # capability catalog now handles routing and instruction selection.
-        # Surface the selection so the model knows the user
-        # already picked a direction, and let it pick a matching capability
-        # from ``<available_capabilities>``.
+        # Thread/deep-link skill names are only route hints now. The capability
+        # catalog remains the source of truth for launchable team work.
         base_prompt += (
-            "\n\n## Preferred Skill"
-            f"\nThe user selected `{selected_skill}` for this turn. "
-            "Pick the matching capability from <available_capabilities> "
-            "and call launch_feature with its id."
+            "\n\n## Capability Route Hint"
+            f"\nThe incoming thread carried route hint `{selected_skill}`. "
+            "Treat it only as a hint: choose a matching "
+            "<capability_route_card> when one fits the user request, otherwise "
+            "answer, clarify, or offer choices. Do not expose this identifier."
         )
 
     thread_id = configurable.get("thread_id")
@@ -607,12 +513,11 @@ def apply_prompt_template(
             base_prompt += f"\n- User ID: {user_id}"
         base_prompt += (
             "\nWorkspace tools automatically receive these ids from runtime context."
-            "\nUse the launch_feature tool to start workspace features when the user's request matches a skill."
+            "\nUse the launch_feature tool only when the user's request matches a capability route card."
         )
 
-    base_prompt += _render_workspace_available_skills(
+    base_prompt += _render_workspace_capability_route_cards(
         state.get("available_capabilities"),
-        state.get("available_skills"),
     )
 
     return base_prompt
