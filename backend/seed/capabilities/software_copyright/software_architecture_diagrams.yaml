@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要生成模块图、流程图、部署图、功能关系图或软著说明中的架构图。
+  - 用户已有软件模块或流程描述，希望转成图示和附图说明。
+  not_for:
+  - 需要完整申请材料包，应转向 software_copyright_application_pack。
+  - 需要长篇技术说明或用户手册，应转向 software_technical_manual。
+  user_intents:
+  - 软著架构图
+  - 流程图
+  - 模块关系图
+  positive_examples:
+  - 帮我画软著用的软件模块图和流程图。
+  - 根据这些功能生成部署图和附图说明。
+  negative_examples:
+  - 帮我写完整用户手册。
+  - 帮我生成申请表材料包。
+  minimum_context:
+    software_name: required
+    existing_materials_summary: optional
+    version: optional
+  ambiguity:
+    overlaps_with:
+    - software_technical_manual
+    - software_copyright_application_pack
+    ask_user_when:
+    - 用户没有说明要图示还是完整文字材料。
+  clarification:
+    ask_when_missing:
+      software_name: 软件名称是什么？也请简单说明核心模块或流程。
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让架构图专家生成模块、流程和部署类图示说明。
+    clarification_prefix: 可以，我先确认软件模块。
+    lightweight_answer_hint: 简单模块命名建议可以直接在 chat 中回答。
 inputs:
   required_decisions: []
   brief_schema:

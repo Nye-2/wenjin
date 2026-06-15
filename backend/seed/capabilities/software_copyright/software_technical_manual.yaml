@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要生成软件设计说明、操作说明、功能流程、模块说明或用户手册。
+  - 用户已有软件功能描述，需要形成软著可用的说明书正文。
+  not_for:
+  - 只需要申请表和材料清单，应转向 software_copyright_application_pack。
+  - 只需要架构图、流程图或部署图，应转向 software_architecture_diagrams。
+  user_intents:
+  - 技术说明书
+  - 用户手册
+  - 操作说明
+  positive_examples:
+  - 帮我写软著技术说明书和用户操作手册。
+  - 根据这些功能模块生成软件说明文档。
+  negative_examples:
+  - 只整理申请表填报字段。
+  - 只画软件模块关系图。
+  minimum_context:
+    software_name: required
+    existing_materials_summary: optional
+    version: optional
+  ambiguity:
+    overlaps_with:
+    - software_copyright_application_pack
+    - software_architecture_diagrams
+    ask_user_when:
+    - 用户既要手册又要完整申请包，但没有说明主目标。
+  clarification:
+    ask_when_missing:
+      software_name: 软件名称是什么？请简单说下核心功能或模块。
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让软著文档专家生成设计说明、操作说明和功能流程。
+    clarification_prefix: 可以，我先确认软件和功能。
+    lightweight_answer_hint: 单个模块说明可以直接在 chat 中先写。
 inputs:
   required_decisions: []
   brief_schema:

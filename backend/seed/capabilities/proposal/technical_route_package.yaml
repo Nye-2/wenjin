@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要设计技术路线、实验验证、评价指标、里程碑或流程图。
+  - 用户已有研究目标，需要把执行路径、方法和验收指标具体化。
+  not_for:
+  - 只需要背景意义和立项依据，应转向 proposal_background_pack。
+  - 需要完整申报书主稿，应转向 idea_to_proposal_package。
+  user_intents:
+  - 技术路线
+  - 实验方案
+  - 里程碑指标
+  positive_examples:
+  - 帮我设计这个项目的技术路线和实验验证方案。
+  - 把研究目标拆成任务、指标和里程碑。
+  negative_examples:
+  - 先帮我写项目背景意义。
+  - 直接生成完整申请书。
+  minimum_context:
+    topic: required
+    study_design: optional
+    constraints: optional
+  ambiguity:
+    overlaps_with:
+    - idea_to_proposal_package
+    - feasibility_and_risk_review
+    ask_user_when:
+    - 用户同时要路线设计和可行性审查，但没有说明先设计还是先审风险。
+  clarification:
+    ask_when_missing:
+      topic: 你的项目目标或核心科学问题是什么？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让方案专家把技术路线、实验验证和里程碑组织成可审阅材料。
+    clarification_prefix: 可以，我先确认项目目标。
+    lightweight_answer_hint: 单个方法路线问题可以直接先讨论。
 inputs:
   required_decisions: []
   brief_schema:

@@ -25,6 +25,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已经确认论文 idea、题目或材料，希望生成或更新完整 thesis manuscript。
+  - 用户需要把已有大纲、研究材料、数据结果或学校模板整合成主稿。
+  not_for:
+  - 只是想先做文献和理论准备，应转向 thesis_research_pack。
+  - 只处理导师意见或查重风险，应转向 thesis_revision_pass。
+  user_intents:
+  - 写毕业论文
+  - 生成论文全文
+  - 更新 thesis 主稿
+  positive_examples:
+  - 根据这个题目和材料帮我写完整毕业论文初稿。
+  - 按学校模板把已有大纲扩展成论文主稿。
+  negative_examples:
+  - 帮我找这个题目的研究空白。
+  - 只帮我修改这一段。
+  minimum_context:
+    topic: required
+    target_format: optional
+    existing_materials_summary: optional
+  ambiguity:
+    overlaps_with:
+    - thesis_research_pack
+    - thesis_revision_pass
+    ask_user_when:
+    - 用户只给宽泛选题，不清楚是先研究定位还是直接写全文。
+  clarification:
+    ask_when_missing:
+      topic: 你希望围绕哪个论文题目或具体 idea 来生成主稿？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让论文写作团队按 thesis 主稿目标推进结构、证据和可审阅修改。
+    clarification_prefix: 可以，我先确认论文题目。
+    lightweight_answer_hint: 局部段落改写可以直接在 chat 里完成。
 inputs:
   required_decisions: []
   brief_schema:

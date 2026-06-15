@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有审查意见通知书、驳回意见或对比文件，需要答复策略、修改建议和对比说明。
+  - 用户想把 OA 转为逐条答复、权利要求修改方向和风险提示。
+  not_for:
+  - 没有审查意见，只想起草新申请，应转向 invention_to_patent_draft。
+  - 只想做申请前现有技术检索，应转向 prior_art_and_novelty_pack。
+  user_intents:
+  - 审查意见答复
+  - OA 回复
+  - 驳回复审策略
+  positive_examples:
+  - 根据这份审查意见帮我写答复策略和修改建议。
+  - 帮我分析对比文件并生成逐条答复。
+  negative_examples:
+  - 直接帮我写新专利初稿。
+  - 查一下这个发明有没有现有技术。
+  minimum_context:
+    existing_materials_summary: required
+    invention_title: optional
+    prior_art: optional
+  ambiguity:
+    overlaps_with:
+    - claims_strategy
+    - prior_art_and_novelty_pack
+    ask_user_when:
+    - 用户只说被驳回但没有提供审查意见或对比文件内容。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 请把审查意见、对比文件要点或通知书内容贴上来。
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让审查意见专家拆解 OA、形成答复策略和修改建议。
+    clarification_prefix: 可以，我先需要审查意见材料。
+    lightweight_answer_hint: 单个审查意见术语可以直接解释。
 inputs:
   required_decisions: []
   brief_schema:

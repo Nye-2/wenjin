@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要设计独权、从权层级、保护范围、备选方案和规避路径。
+  - 用户已有技术方案或专利初稿，希望优化权利要求策略。
+  not_for:
+  - 还没有技术方案，需要从发明点起草全文，应转向 invention_to_patent_draft。
+  - 只需要实施例、流程图或附图说明，应转向 embodiment_and_drawings。
+  user_intents:
+  - 权利要求策略
+  - 独权从权
+  - 保护范围
+  positive_examples:
+  - 帮我设计这项发明的独权和从权层级。
+  - 看看这个权利要求保护范围是否过宽或过窄。
+  negative_examples:
+  - 从零帮我写完整专利申请。
+  - 帮我画装置图和流程图。
+  minimum_context:
+    invention_title: required
+    technical_problem: optional
+    prior_art: optional
+  ambiguity:
+    overlaps_with:
+    - invention_to_patent_draft
+    - prior_art_and_novelty_pack
+    ask_user_when:
+    - 用户同时要求查新和设计权利要求，但没有说明是否已有对比文件。
+  clarification:
+    ask_when_missing:
+      invention_title: 这个发明的核心方案或拟保护点是什么？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让权利要求专家设计独权、从权层级和保护范围备选方案。
+    clarification_prefix: 可以，我先确认拟保护的技术方案。
+    lightweight_answer_hint: 单条权利要求措辞可以先在 chat 里讨论。
 inputs:
   required_decisions: []
   brief_schema:

@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要检索政策、文献、行业材料并生成背景意义、立项依据或国内外现状。
+  - 用户想先补足申报书的必要性、价值和问题背景。
+  not_for:
+  - 已经要生成完整申报书主稿，应转向 idea_to_proposal_package。
+  - 主要要设计实验路线和指标，应转向 technical_route_package。
+  user_intents:
+  - 背景意义
+  - 立项依据
+  - 政策文献梳理
+  positive_examples:
+  - 帮我整理这个项目的背景意义和立项依据。
+  - 检索政策和文献，写一版国内外研究现状。
+  negative_examples:
+  - 帮我写完整申报书。
+  - 帮我设计实验验证方案。
+  minimum_context:
+    topic: required
+    source_guidelines: optional
+    target_format: optional
+  ambiguity:
+    overlaps_with:
+    - idea_to_proposal_package
+    - technical_route_package
+    ask_user_when:
+    - 用户同时要求背景和完整主稿，但没有说明先补证据还是直接成稿。
+  clarification:
+    ask_when_missing:
+      topic: 你想围绕哪个项目方向来整理背景意义？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让背景专家整理政策、文献和立项依据，形成可纳入申报书的材料。
+    clarification_prefix: 可以，我先确认项目主题。
+    lightweight_answer_hint: 简短背景段落或标题说明可以直接在 chat 里处理。
 inputs:
   required_decisions: []
   brief_schema:

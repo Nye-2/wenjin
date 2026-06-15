@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有申报书内容，需要按申报类型和评审标准压实表达、突出亮点。
+  - 用户希望提交前做全文润色、逻辑增强、亮点强化和评审口径统一。
+  not_for:
+  - 主要是补背景证据，应转向 proposal_background_pack。
+  - 主要是审创新性和可行性风险，应转向 feasibility_and_risk_review。
+  user_intents:
+  - 申报书润色
+  - 评审导向修改
+  - 突出亮点
+  positive_examples:
+  - 按评审视角帮我把申报书改得更有竞争力。
+  - 这版申请书表达太平，帮我突出创新点和可行性。
+  negative_examples:
+  - 帮我找政策和研究背景。
+  - 帮我判断技术路线是否可行。
+  minimum_context:
+    existing_materials_summary: required
+    target_format: optional
+    source_guidelines: optional
+  ambiguity:
+    overlaps_with:
+    - feasibility_and_risk_review
+    - idea_to_proposal_package
+    ask_user_when:
+    - 用户既说润色又说从零写主稿，但没有说明是否已有完整内容。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 你希望我基于当前申报书主稿润色，还是有额外材料要补充？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让评审润色专家按评审口径压实表达和亮点。
+    clarification_prefix: 可以，我先确认现有文本。
+    lightweight_answer_hint: 单段目标或创新点可以先在 chat 里快速打磨。
 inputs:
   required_decisions: []
   brief_schema:

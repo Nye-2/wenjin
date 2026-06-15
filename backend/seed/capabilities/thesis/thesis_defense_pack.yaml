@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有接近定稿的论文，需要生成答辩材料、讲稿、问题清单和应答准备。
+  - 用户要把论文内容转成答辩展示、评委可能问题和口头表达。
+  not_for:
+  - 论文还没有成稿，需要先写作或修订。
+  - 只需要研究材料或参考文献治理。
+  user_intents:
+  - 答辩材料
+  - 答辩问答
+  - 讲稿准备
+  positive_examples:
+  - 根据这篇论文帮我准备答辩 PPT 大纲和 Q&A。
+  - 帮我提炼答辩讲稿和老师可能会问的问题。
+  negative_examples:
+  - 帮我先写论文初稿。
+  - 帮我找开题文献。
+  minimum_context:
+    existing_materials_summary: required
+    target_format: optional
+    audience: optional
+  ambiguity:
+    overlaps_with:
+    - thesis_revision_pass
+    - idea_to_thesis_manuscript
+    ask_user_when:
+    - 用户提到答辩但论文还未定稿，不清楚先修订还是准备答辩。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 你希望我基于当前论文主稿生成答辩材料吗？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让答辩专家从论文中提炼展示结构、讲稿和高频问答。
+    clarification_prefix: 可以，我先确认论文是否已接近定稿。
+    lightweight_answer_hint: 单个答辩问题可以直接在 chat 里先演练。
 inputs:
   required_decisions: []
   brief_schema:

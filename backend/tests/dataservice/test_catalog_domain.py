@@ -138,6 +138,20 @@ def _capability_v2_data() -> dict[str, Any]:
     }
 
 
+def _routing_contract() -> dict[str, Any]:
+    return {
+        "when_to_use": ["用户需要整理文献、gap 和创新点"],
+        "not_for": ["概念解释"],
+        "user_intents": ["找研究空白"],
+        "positive_examples": ["联邦学习结合大模型有什么创新点？"],
+        "negative_examples": ["联邦学习是什么？"],
+        "minimum_context": {"goal_or_topic": "required"},
+        "user_guidance": {
+            "launch_intro": "我会让文献专家先整理相关工作、gap 和可用论断。",
+        },
+    }
+
+
 def _skill_v2_data() -> dict[str, Any]:
     return {
         "schema_version": "capability_skill.v2",
@@ -215,9 +229,11 @@ def test_skill_projection_requires_canonical_skill_json() -> None:
 @pytest.mark.asyncio
 async def test_upsert_capability_materializes_v2_definition_json() -> None:
     service, repository, session = _service()
+    data = _capability_v2_data()
+    data["routing"] = _routing_contract()
 
     record = await service.upsert_capability(
-        _capability_v2_data(),
+        data,
         checksum="abc",
         source_path="seed.yaml",
     )
@@ -226,6 +242,9 @@ async def test_upsert_capability_materializes_v2_definition_json() -> None:
     assert record.tier == "primary"
     assert record.entry_surface == "workbench"
     assert record.definition_json["schema_version"] == "capability.v2"
+    assert record.definition_json["routing"]["user_intents"] == ["找研究空白"]
+    assert record.routing["when_to_use"] == ["用户需要整理文献、gap 和创新点"]
+    assert record.routing["minimum_context"]["goal_or_topic"] == "required"
     assert record.display_name == "从想法到全文"
     assert record.checksum == "abc"
     assert repository.capability_values is not None

@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要整理代码片段、界面截图说明、版本信息和材料一致性。
+  - 用户已有源码、截图或版本记录，需要形成可用于软著提交的证据说明。
+  not_for:
+  - 需要完整申请材料包，应转向 software_copyright_application_pack。
+  - 需要用户手册或技术说明书，应转向 software_technical_manual。
+  user_intents:
+  - 代码证据
+  - 截图说明
+  - 版本一致性
+  positive_examples:
+  - 帮我整理软著要用的代码片段和截图说明。
+  - 检查软件名称、版本和材料是否一致。
+  negative_examples:
+  - 帮我写完整软著申请材料。
+  - 只画一个软件流程图。
+  minimum_context:
+    software_name: required
+    existing_materials_summary: optional
+    version: optional
+  ambiguity:
+    overlaps_with:
+    - software_copyright_application_pack
+    - software_technical_manual
+    ask_user_when:
+    - 用户同时要求材料包和证据整理，但没有说明是否已有源码截图。
+  clarification:
+    ask_when_missing:
+      software_name: 这个软件的名称是什么？如果已有源码或截图，也请说明。
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让证据整理专家梳理代码、截图、版本和材料一致性。
+    clarification_prefix: 可以，我先确认软件信息。
+    lightweight_answer_hint: 单个材料清单问题可以直接在 chat 中回答。
 inputs:
   required_decisions: []
   brief_schema:

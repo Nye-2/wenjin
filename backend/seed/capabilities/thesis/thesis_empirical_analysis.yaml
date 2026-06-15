@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要基于数据文件跑统计、模型、可视化或生成论文结果材料。
+  - 用户有问卷、实验、表格、代码或数据，希望形成实证分析章节素材。
+  not_for:
+  - 只讨论研究设计或变量定义，不需要运行分析。
+  - 已有结果只需要写进全文，应转向 idea_to_thesis_manuscript 或 thesis_revision_pass。
+  user_intents:
+  - 实证分析
+  - 数据统计
+  - 论文图表
+  positive_examples:
+  - 用这个 Excel 帮我跑描述统计和回归并生成图表。
+  - 帮我把问卷数据分析成论文结果材料。
+  negative_examples:
+  - 这个变量应该怎么定义？
+  - 帮我写论文引言。
+  minimum_context:
+    data_assets: required
+    topic: optional
+    study_design: optional
+  ambiguity:
+    overlaps_with:
+    - idea_to_thesis_manuscript
+    - thesis_revision_pass
+    ask_user_when:
+    - 用户既想跑分析又想写全文，但没有说明数据是否已经可用。
+  clarification:
+    ask_when_missing:
+      data_assets: 你现在有哪些数据文件、表格或代码可以用于实证分析？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让实证专家在 sandbox 中处理数据、图表和结果说明。
+    clarification_prefix: 可以，我先确认可用数据。
+    lightweight_answer_hint: 统计方法选择可以先在 chat 中快速讨论。
 inputs:
   required_decisions: []
   brief_schema:

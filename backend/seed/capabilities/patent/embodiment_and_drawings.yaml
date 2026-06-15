@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要生成实施例结构、流程图、装置图、附图说明和可实施细节。
+  - 用户已有权利要求或技术方案，需要补强说明书支持和图示材料。
+  not_for:
+  - 主要任务是写专利全文初稿，应转向 invention_to_patent_draft。
+  - 主要任务是现有技术检索和新颖性，应转向 prior_art_and_novelty_pack。
+  user_intents:
+  - 实施例
+  - 专利附图
+  - 附图说明
+  positive_examples:
+  - 根据这个方案生成实施例和附图说明。
+  - 帮我画流程图、装置图并补充说明书支持。
+  negative_examples:
+  - 先查一下有没有类似专利。
+  - 只优化独立权利要求。
+  minimum_context:
+    invention_title: required
+    technical_problem: optional
+    existing_materials_summary: optional
+  ambiguity:
+    overlaps_with:
+    - invention_to_patent_draft
+    - claims_strategy
+    ask_user_when:
+    - 用户既要权利要求又要实施例附图，但没有说明当前缺口。
+  clarification:
+    ask_when_missing:
+      invention_title: 这个发明的名称或核心流程是什么？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让实施例专家补强流程、装置图和附图说明。
+    clarification_prefix: 可以，我先确认发明流程。
+    lightweight_answer_hint: 单个附图编号或术语可以直接在 chat 里处理。
 inputs:
   required_decisions: []
   brief_schema:

@@ -242,6 +242,13 @@ class TestApplyPromptTemplate:
                     "description": "搜索相关文献",
                     "intent_description": "",
                     "trigger_phrases": ["检索文献", "找文献"],
+                    "routing": {
+                        "when_to_use": ["用户需要系统检索和整理相关文献"],
+                        "not_for": ["概念解释"],
+                        "positive_examples": ["帮我找联邦学习相关文献"],
+                        "negative_examples": ["联邦学习是什么？"],
+                        "minimum_context": {"topic": "required"},
+                    },
                 },
                 {
                     "id": "peer_review",
@@ -266,8 +273,9 @@ class TestApplyPromptTemplate:
 
         assert "<available_capabilities>" in prompt
         assert "<available_skills>" in prompt
-        assert 'id="literature_search"' in prompt
-        assert 'id="peer_review"' in prompt
+        assert '<capability_route_card id="literature_search"' in prompt
+        assert 'when="用户需要系统检索和整理相关文献"' in prompt
+        assert 'id="peer_review"' not in prompt
         assert 'id="scholar-searcher"' in prompt
 
     def test_prompt_omits_capability_block_when_state_is_empty(self):

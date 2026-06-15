@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要检查数据、代码、图表、方法描述和实验记录是否支撑论文可复现。
+  - 用户担心结果无法复现、材料缺失、图表来源不清或审稿人会质疑方法。
+  not_for:
+  - 主要目标是重新跑分析和生成结果包，应转向 sci_empirical_package。
+  - 只做语言风格修订，应转向 sci_revision_for_journal。
+  user_intents:
+  - 可复现性检查
+  - 数据代码审计
+  - 方法一致性
+  positive_examples:
+  - 帮我检查这篇论文的数据和代码是否能支撑结果。
+  - 看看图表、方法和实验记录有没有可复现风险。
+  negative_examples:
+  - 帮我跑一组新的消融实验。
+  - 把引言写得更自然。
+  minimum_context:
+    existing_materials_summary: required
+    data_assets: optional
+    study_design: optional
+  ambiguity:
+    overlaps_with:
+    - sci_empirical_package
+    - sci_revision_for_journal
+    ask_user_when:
+    - 用户同时要求跑实验和审计复现性，但没有说明是否要产生新结果。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 你希望我检查当前 Prism 稿件，还是有数据/代码材料需要一起纳入？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让复现性专家检查方法、数据、代码和图表之间的证据链。
+    clarification_prefix: 可以，我先确认要审计的材料范围。
+    lightweight_answer_hint: 一般性可复现写法建议可以直接先聊。
 inputs:
   required_decisions: []
   brief_schema:

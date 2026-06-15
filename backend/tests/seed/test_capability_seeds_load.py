@@ -119,6 +119,32 @@ async def test_seeds_have_trigger_phrases():
 
 
 @pytest.mark.asyncio
+async def test_visible_seeds_have_routing_contracts():
+    """User-visible capabilities must declare Chat Agent routing guidance."""
+    records = await _load_seed_records()
+
+    for cap in records:
+        display = cap.definition_json.get("display") or {}
+        if not cap.enabled or display.get("entry_tier") == "hidden":
+            continue
+
+        routing = cap.definition_json.get("routing")
+        assert isinstance(routing, dict), f"'{cap.id}' is missing routing"
+        assert routing.get("when_to_use"), f"'{cap.id}' routing.when_to_use is empty"
+        assert routing.get("not_for"), f"'{cap.id}' routing.not_for is empty"
+        assert routing.get("positive_examples"), (
+            f"'{cap.id}' routing.positive_examples is empty"
+        )
+        assert routing.get("negative_examples"), (
+            f"'{cap.id}' routing.negative_examples is empty"
+        )
+        minimum_context = routing.get("minimum_context")
+        assert isinstance(minimum_context, dict) and minimum_context, (
+            f"'{cap.id}' routing.minimum_context is empty"
+        )
+
+
+@pytest.mark.asyncio
 async def test_old_workflow_ids_not_loaded():
     records = await _load_seed_records()
     old_ids = {

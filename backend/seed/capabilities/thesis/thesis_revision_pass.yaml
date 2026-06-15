@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有 thesis 主稿，需要按导师意见、查重风险、逻辑一致性或格式要求修订全文。
+  - 用户希望对论文做整体降重、降 AI 味、结构调整或质量提升。
+  not_for:
+  - 只需要生成答辩材料，应转向 thesis_defense_pack。
+  - 只需要文献格式治理，应转向 thesis_reference_curation。
+  user_intents:
+  - 论文整体修订
+  - 导师意见修改
+  - 降重降 AI
+  positive_examples:
+  - 按导师意见帮我整体修订论文。
+  - 这篇论文逻辑不顺，帮我做全文修改。
+  negative_examples:
+  - 根据论文生成答辩 PPT 和问答。
+  - 只帮我检查参考文献格式。
+  minimum_context:
+    existing_materials_summary: required
+    constraints: optional
+    target_format: optional
+  ambiguity:
+    overlaps_with:
+    - idea_to_thesis_manuscript
+    - thesis_defense_pack
+    ask_user_when:
+    - 用户同时提到写全文和修订全文，但没有说明是否已有主稿。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 你希望我基于当前 Prism 主稿修订，还是有导师意见/查重报告需要补充？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让论文修订团队按导师意见、逻辑和格式做一轮可审阅修订。
+    clarification_prefix: 可以，我先确认修订依据。
+    lightweight_answer_hint: 单段或一句话修改可以直接在 chat 里处理。
 inputs:
   required_decisions: []
   brief_schema:

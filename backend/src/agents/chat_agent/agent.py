@@ -1,6 +1,7 @@
 """Lead Agent factory for Wenjin."""
 
 import asyncio
+import html
 import logging
 import time
 import warnings
@@ -165,17 +166,11 @@ def _render_workspace_available_skills(
 
     cap_items = []
     for c in caps:
-        definition = c.get("definition_json") if isinstance(c.get("definition_json"), dict) else {}
-        mission = definition.get("mission") if isinstance(definition.get("mission"), dict) else {}
-        display = definition.get("display") if isinstance(definition.get("display"), dict) else {}
-        promise = mission.get("user_promise") or c.get("description") or c.get("intent_description") or ""
-        tier = display.get("entry_tier") or c.get("tier") or "primary"
-        cap_items.append(
-            f'  <capability id="{c["id"]}" name="{c["display_name"]}" '
-            f'tier="{tier}" surface="{mission.get("primary_surface") or ""}" '
-            f'triggers="{", ".join(c.get("trigger_phrases") or [])}" '
-            f'promise="{promise}"/>'
-        )
+        card = _render_capability_route_card(c)
+        if card:
+            cap_items.append(card)
+    if not cap_items:
+        return ""
     cap_block = (
         "<available_capabilities>\n"
         + "\n".join(cap_items)
@@ -198,6 +193,83 @@ def _render_workspace_available_skills(
     return _build_capability_skill_prompt(cap_block, skill_block)
 
 
+def _xml_attr(value: Any) -> str:
+    return html.escape(str(value or ""), quote=True)
+
+
+def _route_text_list(value: Any, *, limit: int = 3, max_chars: int = 160) -> str:
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, list):
+        items = [str(item) for item in value if str(item or "").strip()]
+    else:
+        return ""
+    text = "；".join(item.strip() for item in items[:limit] if item.strip())
+    if len(text) > max_chars:
+        return text[: max_chars - 1].rstrip() + "…"
+    return text
+
+
+def _route_minimum_context(routing: dict[str, Any]) -> str:
+    minimum_context = routing.get("minimum_context")
+    if not isinstance(minimum_context, dict):
+        return ""
+    required = [
+        str(key)
+        for key, value in minimum_context.items()
+        if str(value).strip().lower() == "required"
+    ]
+    return ",".join(required[:4])
+
+
+def _render_capability_route_card(capability: dict[str, Any]) -> str:
+    definition = capability.get("definition_json")
+    definition = definition if isinstance(definition, dict) else {}
+    mission = definition.get("mission") if isinstance(definition.get("mission"), dict) else {}
+    display = definition.get("display") if isinstance(definition.get("display"), dict) else {}
+    tier = str(display.get("entry_tier") or capability.get("tier") or "primary")
+    if tier == "hidden":
+        return ""
+    raw_routing = capability.get("routing")
+    if not isinstance(raw_routing, dict):
+        raw_routing = definition.get("routing") if isinstance(definition.get("routing"), dict) else {}
+    routing = raw_routing if isinstance(raw_routing, dict) else {}
+    ambiguity = routing.get("ambiguity") if isinstance(routing.get("ambiguity"), dict) else {}
+    guidance = routing.get("user_guidance") if isinstance(routing.get("user_guidance"), dict) else {}
+
+    when = _route_text_list(routing.get("when_to_use"))
+    if not when:
+        return ""
+    not_for = _route_text_list(routing.get("not_for"))
+    examples = _route_text_list(routing.get("positive_examples"))
+    negative_examples = _route_text_list(routing.get("negative_examples"))
+    minimum_context = _route_minimum_context(routing)
+    overlaps = _route_text_list(ambiguity.get("overlaps_with"), limit=4, max_chars=120)
+    launch_intro = str(guidance.get("launch_intro") or mission.get("user_promise") or "").strip()
+    lightweight_answer_hint = str(guidance.get("lightweight_answer_hint") or "").strip()
+
+    attrs = {
+        "id": capability.get("id"),
+        "name": capability.get("display_name"),
+        "tier": tier,
+        "surface": mission.get("primary_surface") or "",
+        "when": when,
+        "not_for": not_for,
+        "examples": examples,
+        "negative_examples": negative_examples,
+        "minimum_context": minimum_context,
+        "overlaps": overlaps,
+        "launch_intro": launch_intro,
+        "lightweight_answer_hint": lightweight_answer_hint,
+    }
+    serialized = " ".join(
+        f'{key}="{_xml_attr(value)}"'
+        for key, value in attrs.items()
+        if str(value or "").strip()
+    )
+    return f"  <capability_route_card {serialized}/>"
+
+
 def _build_capability_skill_prompt(cap_block: str, skill_block: str) -> str:
     return f"""
 
@@ -206,33 +278,60 @@ def _build_capability_skill_prompt(cap_block: str, skill_block: str) -> str:
 {skill_block}
 
 <feature_launch_system>
-**MISSION PRIORITY: 识别用户目标 → 检查必要参数 → 立刻调用 launch_feature**
+**MISSION PRIORITY: understand the user's goal → choose the right interaction → only launch when the task is ready**
 
-You have access to workspace **mission capabilities** above. Each capability is a
-user-facing deliverable mission. Internal stages are handled by the Lead Agent;
-do not expose old workflow-step choices such as outline/section buttons.
+You have access to workspace **mission capability route cards** above. Each
+route card describes when a durable team task is useful, when a lightweight chat
+answer is better, and what minimum context is needed. Internal stages are handled
+by the Lead Agent; do not expose workflow-step choices or route-card internals.
 
-**STRICT RULE: When the user's request matches a capability, you MUST call
-`launch_feature(feature_id=<capability_id>, params={{...}})` — do NOT just describe
-what would happen. Without an actual tool call, NOTHING runs.**
+**Interaction decisions:**
+- `answer_in_chat`: use for concepts, short local rewrites, quick discussion, or
+  any request that can be handled without a durable artifact, team execution,
+  sandbox, Prism review, or external evidence gathering.
+- `ask_clarification`: use when one minimum launch context field is missing.
+  Ask one useful question; 不要列清单，不要让用户填表.
+- `offer_choices`: use when two capabilities are both plausible and the choice
+  changes user expectation, cost, or deliverable. Offer two natural choices,
+  for example "先找研究空白，还是直接进入初稿？"
+- `launch_feature`: use when the user clearly asks for a durable multi-step
+  deliverable and minimum context is present or safely inferable.
+
+**STRICT RULE: Only call `launch_feature(feature_id=<capability_id>, params={{...}})`
+after choosing `launch_feature`. If you call it, do it in the same turn. Without
+an actual tool call, NOTHING runs.**
 
 **MANDATORY Launch Scenarios:**
-1. Direct action request matching a capability's triggers → REQUIRED ACTION: call launch_feature
-2. User clicks a suggestion pill or names a skill explicitly → REQUIRED ACTION: launch the matching capability
-3. Sufficient context already in conversation → REQUIRED ACTION: launch immediately
+1. Clear durable deliverable matching a route card + minimum context → call launch_feature
+2. User clicks a suggestion pill or names a skill explicitly + route is clear → call launch_feature
+3. Sufficient context already in conversation/workspace → launch immediately
 
 **STRICT ENFORCEMENT:**
 - ❌ DO NOT say "已启动" / "我来帮你启动" without actually calling the tool
-- ❌ DO NOT describe what would happen — call the tool
+- ❌ DO NOT turn concept explanations, short sentence edits, or lightweight chat into team tasks
+- ❌ DO NOT expose capability id, schema, trigger phrases, route cards, or internal decision labels to users
 - ❌ DO NOT make up status messages — the right panel shows real status
-- ✅ When a capability matches: call `launch_feature` IN THE SAME TURN
+- ✅ Clear multi-step task: call `launch_feature` IN THE SAME TURN
 - ✅ Missing minimum params: ask ONE focused question, launch next turn
-- ✅ Truly unclear which capability: ask one clarifying question
+- ✅ Ambiguous but actionable: offer two natural choices, not a long menu
+- ✅ Small question: answer directly and optionally mention a deeper team task
 
 **Example (correct):**
 User: "帮我调研 X 主题的文献"
 You: call launch_feature(feature_id="thesis_research_pack", params={{"goal": "X"}})
 You: "好的，我已经启动论文研究包，进度会在右侧面板更新。"
+
+**Example (lightweight):**
+User: "联邦学习是什么？"
+You: "联邦学习是一种让多方在不直接共享原始数据的情况下共同训练模型的方法。这个问题我可以先直接解释，不需要启动团队任务。"
+
+**Example (clarify):**
+User: "帮我写 SCI"
+You: "可以。你想围绕哪个具体研究问题或已有材料来写？有了主题后我就能让论文团队开始搭结构和证据链。"
+
+**Example (choice):**
+User: "联邦学习结合大模型这个方向帮我看看"
+You: "这可以有两个做法：先让文献专家找研究空白和创新点，或者直接让论文团队按 SCI 初稿方向推进。你想先做哪一个？"
 
 **Example (WRONG):**
 User: "帮我调研 X"

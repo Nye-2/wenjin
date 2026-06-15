@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要清洗、补全、去重或按学校/期刊规范整理参考文献。
+  - 用户已有 bib、参考文献列表或正文引用，需要统一引用和 bibliography。
+  not_for:
+  - 需要找新文献和理论依据，应转向 thesis_research_pack。
+  - 需要全文写作或修订，应转向 idea_to_thesis_manuscript 或 thesis_revision_pass。
+  user_intents:
+  - 参考文献整理
+  - 引用格式治理
+  - bib 去重补全
+  positive_examples:
+  - 帮我把参考文献按 GB/T 7714 整理并去重。
+  - 检查正文引用和 refs.bib 是否一致。
+  negative_examples:
+  - 帮我找十篇相关文献并写综述。
+  - 按导师意见修改全文。
+  minimum_context:
+    existing_materials_summary: required
+    target_format: optional
+    source_guidelines: optional
+  ambiguity:
+    overlaps_with:
+    - thesis_research_pack
+    - thesis_revision_pass
+    ask_user_when:
+    - 用户既要找新文献又要整理已有文献，但没有说明优先目标。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 你现在有 refs.bib、参考文献列表或正文引用可以整理吗？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让参考文献专家清理引用、去重补全并形成可审阅结果。
+    clarification_prefix: 可以，我先确认现有参考文献来源。
+    lightweight_answer_hint: 单条引用格式可以直接在 chat 里回答。
 inputs:
   required_decisions: []
   brief_schema:

@@ -260,6 +260,58 @@ class CapabilityV2ResearchEvidenceModel(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class CapabilityV2RoutingOptionModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str
+    capability_id: str
+
+
+class CapabilityV2RoutingChoiceModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str
+    options: list[CapabilityV2RoutingOptionModel] = Field(default_factory=list)
+
+
+class CapabilityV2RoutingAmbiguityModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    overlaps_with: list[str] = Field(default_factory=list)
+    ask_user_when: list[str] = Field(default_factory=list)
+
+
+class CapabilityV2RoutingClarificationModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ask_when_missing: dict[str, str] = Field(default_factory=dict)
+    choice_when_ambiguous: dict[str, CapabilityV2RoutingChoiceModel] = Field(default_factory=dict)
+
+
+class CapabilityV2RoutingGuidanceModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    launch_intro: str | None = None
+    clarification_prefix: str | None = None
+    lightweight_answer_hint: str | None = None
+
+
+class CapabilityV2RoutingModel(BaseModel):
+    """User-intent and UX guidance for Chat Agent capability routing."""
+
+    model_config = ConfigDict(extra="forbid")
+    when_to_use: list[str] = Field(default_factory=list)
+    not_for: list[str] = Field(default_factory=list)
+    user_intents: list[str] = Field(default_factory=list)
+    positive_examples: list[str] = Field(default_factory=list)
+    negative_examples: list[str] = Field(default_factory=list)
+    minimum_context: dict[str, Literal["required", "optional"]] = Field(default_factory=dict)
+    ambiguity: CapabilityV2RoutingAmbiguityModel = Field(
+        default_factory=CapabilityV2RoutingAmbiguityModel,
+    )
+    clarification: CapabilityV2RoutingClarificationModel = Field(
+        default_factory=CapabilityV2RoutingClarificationModel,
+    )
+    user_guidance: CapabilityV2RoutingGuidanceModel = Field(
+        default_factory=CapabilityV2RoutingGuidanceModel,
+    )
+
+
 class CapabilityV2YamlModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["capability.v2"]
@@ -278,6 +330,7 @@ class CapabilityV2YamlModel(BaseModel):
     research_evidence: CapabilityV2ResearchEvidenceModel = Field(
         default_factory=CapabilityV2ResearchEvidenceModel,
     )
+    routing: CapabilityV2RoutingModel = Field(default_factory=CapabilityV2RoutingModel)
     runtime: CapabilityV2RuntimeModel | None = None
     team_policy: CapabilityV2TeamPolicyModel | None = None
     graph_template: GraphTemplateModel
@@ -349,6 +402,7 @@ class CapabilityV2YamlModel(BaseModel):
             },
             "runtime": runtime,
             "dashboard_meta": {},
+            "routing": dict(data.get("routing") or {}),
         }
 
 

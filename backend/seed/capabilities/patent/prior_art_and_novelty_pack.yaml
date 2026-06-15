@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要检索现有技术、形成区别特征、新颖性风险和规避建议。
+  - 用户想在起草前判断技术方案是否容易被现有技术覆盖。
+  not_for:
+  - 已经要直接起草专利初稿，应转向 invention_to_patent_draft。
+  - 只需要实施例和附图说明，应转向 embodiment_and_drawings。
+  user_intents:
+  - 现有技术检索
+  - 新颖性分析
+  - 区别特征
+  positive_examples:
+  - 帮我查这个发明方向的现有技术并分析新颖性风险。
+  - 找对比文件，整理区别特征和规避建议。
+  negative_examples:
+  - 直接帮我写专利申请书。
+  - 只帮我画实施流程图。
+  minimum_context:
+    invention_title: required
+    technical_problem: optional
+    technical_field: optional
+  ambiguity:
+    overlaps_with:
+    - invention_to_patent_draft
+    - claims_strategy
+    ask_user_when:
+    - 用户既想查现有技术又想写初稿，但没有说明优先顺序。
+  clarification:
+    ask_when_missing:
+      invention_title: 这个发明或技术方案的名称是什么？请简单说下解决的问题。
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让现有技术专家检索对比文件、提炼区别特征和新颖性风险。
+    clarification_prefix: 可以，我先确认技术方案。
+    lightweight_answer_hint: 一般性新颖性概念可以直接解释。
 inputs:
   required_decisions: []
   brief_schema:

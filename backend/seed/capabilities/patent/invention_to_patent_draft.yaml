@@ -24,6 +24,42 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有发明点、实施方式或现有技术信息，希望生成专利说明书与权利要求初稿。
+  - 用户需要把技术方案整理成交底书、专利初稿或可审阅申请文本。
+  not_for:
+  - 只需要检索现有技术和新颖性风险，应转向 prior_art_and_novelty_pack。
+  - 只需要设计权利要求层级，应转向 claims_strategy。
+  user_intents:
+  - 专利初稿
+  - 交底书转专利
+  - 说明书权利要求
+  positive_examples:
+  - 根据这个发明点帮我写专利说明书和权利要求初稿。
+  - 把这份交底材料整理成专利申请文本。
+  negative_examples:
+  - 先帮我查现有技术和新颖性。
+  - 只优化权利要求保护范围。
+  minimum_context:
+    invention_title: required
+    technical_problem: optional
+    prior_art: optional
+  ambiguity:
+    overlaps_with:
+    - prior_art_and_novelty_pack
+    - claims_strategy
+    - embodiment_and_drawings
+    ask_user_when:
+    - 用户只给发明方向，不清楚是先检索现有技术还是直接起草初稿。
+  clarification:
+    ask_when_missing:
+      invention_title: 这个发明的名称或核心技术方案是什么？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让专利起草团队把发明点整理成说明书、权利要求和审阅项。
+    clarification_prefix: 可以，我先确认发明方案。
+    lightweight_answer_hint: 单个专利术语或写法问题可以直接在 chat 里回答。
 inputs:
   required_decisions: []
   brief_schema:

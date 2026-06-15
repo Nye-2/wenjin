@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要审查申报方案的创新性、可行性、资源匹配、评审风险和缓释策略。
+  - 用户已有主稿、技术路线或项目方案，想在提交前做风险体检。
+  not_for:
+  - 还没有方案，只想从 idea 生成主稿，应转向 idea_to_proposal_package。
+  - 只需要润色表达、突出亮点，应转向 proposal_polish_for_review。
+  user_intents:
+  - 可行性审查
+  - 风险评估
+  - 评审风险
+  positive_examples:
+  - 帮我审查这个申报书的可行性和评审风险。
+  - 看看这个技术路线有什么资源和执行风险。
+  negative_examples:
+  - 从零帮我写申请书。
+  - 只把语言改得更像基金文本。
+  minimum_context:
+    existing_materials_summary: required
+    target_format: optional
+    source_guidelines: optional
+  ambiguity:
+    overlaps_with:
+    - technical_route_package
+    - proposal_polish_for_review
+    ask_user_when:
+    - 用户同时要改写和审风险，但没有说明优先质量审查还是语言润色。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 你希望我审查当前 Prism 主稿，还是有项目方案材料需要补充？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让评审风险专家检查创新性、可行性和风险缓释路径。
+    clarification_prefix: 可以，我先确认审查材料。
+    lightweight_answer_hint: 单个风险点可以直接在 chat 里先判断。
 inputs:
   required_decisions: []
   brief_schema:

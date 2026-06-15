@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要围绕论文题目建立文献、理论基础、研究空白和可用材料包。
+  - 用户处在选题、开题或写作前期，希望先把研究依据梳理清楚。
+  not_for:
+  - 已经明确要直接生成完整论文主稿，应转向 idea_to_thesis_manuscript。
+  - 只需要清洗参考文献格式，应转向 thesis_reference_curation。
+  user_intents:
+  - 论文研究包
+  - 文献综述准备
+  - 研究空白梳理
+  positive_examples:
+  - 围绕这个论文题目帮我整理文献和理论基础。
+  - 帮我先做一个开题前的研究材料包。
+  negative_examples:
+  - 直接帮我写完整毕业论文。
+  - 把这些参考文献按 GB/T 7714 整理一下。
+  minimum_context:
+    topic: required
+    target_format: optional
+    existing_materials_summary: optional
+  ambiguity:
+    overlaps_with:
+    - idea_to_thesis_manuscript
+    - thesis_reference_curation
+    ask_user_when:
+    - 用户同时表达找资料和写全文，但没有说明先研究包还是直接成稿。
+  clarification:
+    ask_when_missing:
+      topic: 你的论文题目或大致研究方向是什么？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让论文研究团队先整理文献、理论、gap 和后续写作素材。
+    clarification_prefix: 可以，我先确认论文方向。
+    lightweight_answer_hint: 简单选题讨论可以先在 chat 里快速分析。
 inputs:
   required_decisions: []
   brief_schema:

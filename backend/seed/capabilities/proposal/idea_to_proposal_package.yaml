@@ -24,6 +24,42 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有项目 idea、指南方向或团队条件，希望生成或更新申报书主稿。
+  - 用户需要把研究目标、背景意义、技术路线和预期成果整合成完整申报材料。
+  not_for:
+  - 只需要背景意义论证，应转向 proposal_background_pack。
+  - 只需要技术路线和实验方案，应转向 technical_route_package。
+  user_intents:
+  - 写申报书
+  - 基金申请初稿
+  - 项目申请材料
+  positive_examples:
+  - 根据这个项目 idea 帮我写基金申报书初稿。
+  - 按这个指南把项目申请材料搭起来。
+  negative_examples:
+  - 先帮我找这个方向的政策和研究背景。
+  - 只帮我设计技术路线图。
+  minimum_context:
+    topic: required
+    target_format: optional
+    source_guidelines: optional
+  ambiguity:
+    overlaps_with:
+    - proposal_background_pack
+    - technical_route_package
+    - feasibility_and_risk_review
+    ask_user_when:
+    - 用户只说做项目申请，但没有说明先写主稿还是先补背景/路线。
+  clarification:
+    ask_when_missing:
+      topic: 你的项目 idea 或申请方向是什么？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让申报书团队把项目 idea 转成主稿结构和可审阅内容。
+    clarification_prefix: 可以，我先确认项目方向。
+    lightweight_answer_hint: 单个研究目标或标题可先在 chat 里打磨。
 inputs:
   required_decisions: []
   brief_schema:

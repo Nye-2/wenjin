@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要围绕主题建立文献脉络、研究空白、创新点和 contribution positioning。
+  - 用户想先判断一个 SCI 选题是否值得做、怎么切入或怎么对齐相关工作。
+  not_for:
+  - 只是在问概念定义、单篇论文解释或一句话润色。
+  - 已经明确要直接写完整 SCI 初稿，应转向 research_question_to_paper。
+  user_intents:
+  - 找研究空白
+  - 梳理相关工作
+  - 判断创新点
+  positive_examples:
+  - 联邦学习结合大模型这个方向帮我找 gap 和创新点。
+  - 帮我整理这个主题的相关工作和 contribution。
+  negative_examples:
+  - 联邦学习是什么？
+  - 直接帮我写一篇完整 SCI 初稿。
+  minimum_context:
+    topic: required
+    existing_materials_summary: optional
+    target_journal: optional
+  ambiguity:
+    overlaps_with:
+    - research_question_to_paper
+    - journal_submission_strategy
+    ask_user_when:
+    - 用户同时表达找 gap 和写初稿，但没有说明先做定位还是直接成稿。
+  clarification:
+    ask_when_missing:
+      topic: 你想围绕哪个具体主题、题目或技术方向来找文献定位？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让文献专家先整理相关工作、gap 和可用创新点，结果会在右侧更新。
+    clarification_prefix: 可以，我先确认一个核心主题。
+    lightweight_answer_hint: 如果只是想了解概念或单篇论文，可以直接在 chat 里回答，不必启动团队任务。
 inputs:
   required_decisions: []
   brief_schema:

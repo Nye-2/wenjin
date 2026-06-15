@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有 SCI 稿件，需要按目标期刊、审稿风险、语言风格或结构逻辑修订。
+  - 用户希望做全文级改稿、降 AI 味、强化 contribution 或方法结果一致性。
+  not_for:
+  - 单句、单段或局部英文润色可以直接 chat 或 Prism 改稿。
+  - 主要任务是回复 reviewer comments，应转向 response_to_reviewers。
+  user_intents:
+  - 全文修订
+  - 期刊导向改稿
+  - 降 AI 味
+  positive_examples:
+  - 这篇文章 AI 味太浓了，按目标期刊整体改一下。
+  - 帮我按 Nature 子刊风格检查并修订全文。
+  negative_examples:
+  - 这句话帮我润色一下。
+  - 根据这些 reviewer comments 写回复信。
+  minimum_context:
+    existing_materials_summary: required
+    target_journal: optional
+    constraints: optional
+  ambiguity:
+    overlaps_with:
+    - response_to_reviewers
+    - research_question_to_paper
+    ask_user_when:
+    - 用户既提到审稿意见又提到全文改稿，但没有说明优先回复还是重写。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 你希望我基于当前 Prism 主稿修订，还是有额外稿件材料需要补充？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让论文修订团队按目标期刊和全文质量做一轮可审阅修改。
+    clarification_prefix: 可以，我先确认要修订的稿件来源。
+    lightweight_answer_hint: 单段局部润色可以直接在 chat 中完成，不必启动团队。
 inputs:
   required_decisions: []
   brief_schema:

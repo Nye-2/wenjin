@@ -25,6 +25,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已经有 research question、实验材料或写作方向，希望生成或更新 SCI 主稿。
+  - 用户明确要求搭建论文结构、摘要、引言、方法、结果或讨论等成稿产物。
+  not_for:
+  - 只需要找文献 gap 或判断选题，应优先 sci_literature_positioning。
+  - 只需要投稿期刊建议，应转向 journal_submission_strategy。
+  user_intents:
+  - 写 SCI 初稿
+  - 生成论文结构
+  - 更新 manuscript
+  positive_examples:
+  - 根据这个 research question 和材料帮我写 SCI 初稿。
+  - 帮我把已有实验结果整理成论文主稿。
+  negative_examples:
+  - 这个方向有什么研究空白？
+  - 这篇文章适合投什么期刊？
+  minimum_context:
+    topic: required
+    existing_materials_summary: optional
+    target_journal: optional
+  ambiguity:
+    overlaps_with:
+    - sci_literature_positioning
+    - sci_revision_for_journal
+    ask_user_when:
+    - 用户只给了宽泛方向，同时可能需要先定位 gap 或直接写稿。
+  clarification:
+    ask_when_missing:
+      topic: 你想围绕哪个具体 research question 或论文题目来推进初稿？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让论文团队按 SCI 主稿目标推进结构、证据链和可审阅修改。
+    clarification_prefix: 可以，我先确认论文的核心问题。
+    lightweight_answer_hint: 如果只是问一段怎么改，可以直接在 chat 里先改。
 inputs:
   required_decisions: []
   brief_schema:

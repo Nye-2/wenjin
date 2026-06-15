@@ -192,6 +192,69 @@ class TestCapabilityV2Yaml:
         with pytest.raises(ValidationError):
             CapabilityV2YamlModel(**payload)
 
+    def test_routing_contract_round_trips_to_catalog_data(self):
+        payload = self._valid_payload()
+        payload["routing"] = {
+            "when_to_use": ["用户需要整理文献、gap 和创新点"],
+            "not_for": ["概念解释"],
+            "user_intents": ["找研究空白"],
+            "positive_examples": ["联邦学习结合大模型有什么创新点？"],
+            "negative_examples": ["联邦学习是什么？"],
+            "minimum_context": {"goal_or_topic": "required"},
+            "ambiguity": {
+                "overlaps_with": ["research_question_to_paper"],
+                "ask_user_when": ["同时像文献定位和完整写作"],
+            },
+            "clarification": {
+                "ask_when_missing": {
+                    "goal_or_topic": "你想聚焦哪个具体主题？",
+                },
+                "choice_when_ambiguous": {
+                    "research_vs_writing": {
+                        "question": "你想先找研究空白，还是直接写初稿？",
+                        "options": [
+                            {
+                                "label": "先找研究空白",
+                                "capability_id": "sci_literature_positioning",
+                            },
+                            {
+                                "label": "直接写初稿",
+                                "capability_id": "research_question_to_paper",
+                            },
+                        ],
+                    }
+                },
+            },
+            "user_guidance": {
+                "launch_intro": "我会让文献专家先整理相关工作、gap 和可用论断。",
+                "lightweight_answer_hint": "这个问题我可以先直接解释，不需要启动团队任务。",
+            },
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+        data = model.to_catalog_data()
+
+        routing = data["routing"]
+        assert routing["minimum_context"]["goal_or_topic"] == "required"
+        assert routing["clarification"]["choice_when_ambiguous"]["research_vs_writing"]["options"][0] == {
+            "label": "先找研究空白",
+            "capability_id": "sci_literature_positioning",
+        }
+        assert routing["user_guidance"]["launch_intro"] == (
+            "我会让文献专家先整理相关工作、gap 和可用论断。"
+        )
+
+    def test_routing_rejects_unknown_fields(self):
+        payload = self._valid_payload()
+        payload["routing"] = {
+            "when_to_use": ["用户需要整理文献、gap 和创新点"],
+            "minimum_context": {"goal_or_topic": "required"},
+            "confidence_threshold": 0.9,
+        }
+
+        with pytest.raises(ValidationError, match="confidence_threshold"):
+            CapabilityV2YamlModel(**payload)
+
     def test_team_kernel_requires_quality_pipeline(self):
         payload = self._valid_payload()
         payload["runtime"] = {

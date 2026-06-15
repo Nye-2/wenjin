@@ -18,6 +18,8 @@ from src.dataservice.domains.catalog.models import CapabilityDefinition
 
 def capability_to_record(capability: CapabilityDefinition) -> CapabilityDefinitionRecord:
     """Project a canonical capability row."""
+    definition_json = dict(getattr(capability, "definition_json", None) or {})
+    routing = definition_json.get("routing")
     return CapabilityDefinitionRecord(
         id=capability.id,
         workspace_type=str(getattr(capability, "workspace_type", None) or ""),
@@ -35,7 +37,8 @@ def capability_to_record(capability: CapabilityDefinition) -> CapabilityDefiniti
         ui_meta=dict(getattr(capability, "ui_meta", None) or {}),
         runtime=dict(getattr(capability, "runtime", None) or {}),
         dashboard_meta=dict(getattr(capability, "dashboard_meta", None) or {}),
-        definition_json=dict(getattr(capability, "definition_json", None) or {}),
+        routing=dict(routing) if isinstance(routing, dict) else {},
+        definition_json=definition_json,
         notes=getattr(capability, "notes", None),
         checksum=getattr(capability, "checksum", None),
         source_path=getattr(capability, "source_path", None),

@@ -24,6 +24,42 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要生成软著申请表填报素材、软件说明、功能模块和材料清单。
+  - 用户希望把软件名称、版本、功能和现有材料整理成完整软著申请包。
+  not_for:
+  - 只需要代码片段、截图和版本证据整理，应转向 software_evidence_pack。
+  - 只需要架构图或流程图，应转向 software_architecture_diagrams。
+  user_intents:
+  - 软著申请材料
+  - 申请表素材
+  - 软著材料包
+  positive_examples:
+  - 帮我生成这个软件的软著申请材料包。
+  - 根据软件功能整理申请表和材料清单。
+  negative_examples:
+  - 只帮我画模块架构图。
+  - 整理代码截图和版本证据。
+  minimum_context:
+    software_name: required
+    version: optional
+    existing_materials_summary: optional
+  ambiguity:
+    overlaps_with:
+    - software_technical_manual
+    - software_evidence_pack
+    - software_architecture_diagrams
+    ask_user_when:
+    - 用户只说办软著，但没有说明需要完整材料包还是某类附件。
+  clarification:
+    ask_when_missing:
+      software_name: 软件全称是什么？有版本号也可以一起给我。
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让软著材料专家整理申请表素材、软件说明和材料清单。
+    clarification_prefix: 可以，我先确认软件名称。
+    lightweight_answer_hint: 单个软著字段解释可以直接在 chat 里回答。
 inputs:
   required_decisions: []
   brief_schema:

@@ -14,15 +14,16 @@
 3. ResultCard / ReviewItem / Prism review flow 保持 review-first：生成内容先进入可审阅状态，用户接受后才写 rooms 或 Prism。
 4. DataService 是 workspace、catalog、model、pricing、credit、sandbox、source、review、execution persistence 的边界；Gateway/worker 不直接绕过到 DB session。
 5. Capability / skill / agent template 均来自 DataService Catalog；不得新增旧 workflow alias、fallback resolver 或双读兼容层。
-6. TeamKernel 默认流程只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish`；实名专家从 `agent_invocation` node metadata 投影。
-7. Agent harness 只能由 Lead Agent graph / TeamKernel subagent 调用；不得暴露用户侧 sandbox console、公开 arbitrary exec endpoint 或第二套 execution stream。
-8. Workspace 最多一个 active sandbox environment；任务容器可短生命周期，workspace `/workspace` 文件和环境保持连续。
-9. Sandbox file tools 必须隐藏 protected/internal paths，拒绝 host paths、symlink escape、guidance/manifest direct writes 和 generic shell widening。
-10. `sandbox.run_python`、依赖安装、artifact discovery、dataset/artifact manifest register 必须保留 bounded evidence、command audit、output refs、file diffs 和 reviewable artifact metadata。
-11. Research evidence gate 必须覆盖 workflow trace、citation/source audit、experiment interpretation、paper relevance、statistical robustness、Prism semantic/style contracts 等已声明 surfaces。
-12. Admin model catalog 不暴露明文 API key 或敏感 header；生产 runtime model discovery 来自 DataService runtime cache，不从 `LLM_MODELS` fallback，且每个 enabled billable model 必须绑定 enabled `model_usage` pricing policy。
-13. Credit admission 使用 `spendable_credits = credits - reserved_credits`；sandbox start 和 token/model usage 走 DataService pricing / reservation / transaction 链路。
-14. UI 默认视图不展示 raw stdout/stderr、raw args、template id、schema id、internal refs 或日志墙；复杂证据进入预览/诊断层。
+6. 用户可见 capability seed 必须带 `routing` 合约；Chat Agent 只用 LLM route-card 做渐进承诺，不引入 embedding/vector index、关键词硬路由、前端 matcher 或第二套 router service。
+7. TeamKernel 默认流程只展示 `team_prepare`、`team_recruit`、`team_dispatch`、`team_quality_gate`、`team_finish`；实名专家从 `agent_invocation` node metadata 投影。
+8. Agent harness 只能由 Lead Agent graph / TeamKernel subagent 调用；不得暴露用户侧 sandbox console、公开 arbitrary exec endpoint 或第二套 execution stream。
+9. Workspace 最多一个 active sandbox environment；任务容器可短生命周期，workspace `/workspace` 文件和环境保持连续。
+10. Sandbox file tools 必须隐藏 protected/internal paths，拒绝 host paths、symlink escape、guidance/manifest direct writes 和 generic shell widening。
+11. `sandbox.run_python`、依赖安装、artifact discovery、dataset/artifact manifest register 必须保留 bounded evidence、command audit、output refs、file diffs 和 reviewable artifact metadata。
+12. Research evidence gate 必须覆盖 workflow trace、citation/source audit、experiment interpretation、paper relevance、statistical robustness、Prism semantic/style contracts 等已声明 surfaces。
+13. Admin model catalog 不暴露明文 API key 或敏感 header；生产 runtime model discovery 来自 DataService runtime cache，不从 `LLM_MODELS` fallback，且每个 enabled billable model 必须绑定 enabled `model_usage` pricing policy。
+14. Credit admission 使用 `spendable_credits = credits - reserved_credits`；sandbox start 和 token/model usage 走 DataService pricing / reservation / transaction 链路。
+15. UI 默认视图不展示 raw stdout/stderr、raw args、template id、schema id、internal refs 或日志墙；复杂证据进入预览/诊断层。
 
 ## 2. Required Commands
 
@@ -98,6 +99,19 @@ npx vitest run \
   tests/unit/v2/execution-run-view.test.ts \
   tests/unit/v2/LiveWorkflowPanel.test.tsx \
   tests/unit/v2/live-workflow-view-model.test.ts
+```
+
+Capability routing：
+
+```bash
+cd backend
+.venv/bin/python -m pytest \
+  tests/services/test_capability_schema.py \
+  tests/dataservice/test_catalog_domain.py \
+  tests/seed/test_capability_seeds_load.py \
+  tests/agents/chat_agent/test_capability_route_cards.py \
+  tests/agents/chat_agent/test_capability_routing_eval.py \
+  tests/agents/chat_agent/test_prompts_snapshot.py -q
 ```
 
 ## 4. Manual Smoke

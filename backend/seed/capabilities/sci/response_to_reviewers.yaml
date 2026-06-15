@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户已有 reviewer comments、编辑意见或返修要求，需要逐条回复和修订建议。
+  - 用户想把审稿意见转为 response letter、修改计划和稿件改动清单。
+  not_for:
+  - 只是做投稿前模拟评审，应转向 sci_revision_for_journal。
+  - 没有审稿意见，只想选刊，应转向 journal_submission_strategy。
+  user_intents:
+  - 审稿意见回复
+  - response letter
+  - 返修策略
+  positive_examples:
+  - 根据这些 reviewer comments 帮我写逐条回复。
+  - 帮我把审稿意见拆成修改计划和回复信。
+  negative_examples:
+  - 这篇文章适合投哪里？
+  - 帮我整体润色一下，不涉及审稿意见。
+  minimum_context:
+    existing_materials_summary: required
+    target_journal: optional
+    constraints: optional
+  ambiguity:
+    overlaps_with:
+    - sci_revision_for_journal
+    - journal_submission_strategy
+    ask_user_when:
+    - 用户只说返修但没有提供或确认 reviewer comments 来源。
+  clarification:
+    ask_when_missing:
+      existing_materials_summary: 请把 reviewer comments 或编辑意见贴上来，我会按逐条回复来处理。
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让返修专家拆解审稿意见、生成回复策略和可审阅修改建议。
+    clarification_prefix: 可以，我先需要审稿意见文本。
+    lightweight_answer_hint: 单条意见的理解可以直接解释，不必启动完整返修流程。
 inputs:
   required_decisions: []
   brief_schema:

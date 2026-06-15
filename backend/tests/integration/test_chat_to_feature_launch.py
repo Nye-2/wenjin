@@ -154,6 +154,13 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
                 "trigger_phrases": ["写 SCI", "生成 SCI 初稿"],
                 "schema_version": "capability.v2",
                 "tier": "primary",
+                "routing": {
+                    "when_to_use": ["用户需要从 research question 生成 SCI 主稿"],
+                    "not_for": ["只需要文献定位"],
+                    "positive_examples": ["根据这个问题帮我写 SCI 初稿"],
+                    "negative_examples": ["这个方向有什么研究空白？"],
+                    "minimum_context": {"topic": "required"},
+                },
                 "definition_json": {
                     "display": {"entry_tier": "primary"},
                     "mission": {
@@ -170,6 +177,13 @@ async def test_preload_middleware_feeds_prompt_with_capability_ids():
                 "trigger_phrases": ["检索文献", "找文献"],
                 "schema_version": "capability.v2",
                 "tier": "primary",
+                "routing": {
+                    "when_to_use": ["用户需要整理文献定位、gap 和创新点"],
+                    "not_for": ["直接写完整 SCI 初稿"],
+                    "positive_examples": ["帮我找这个方向的文献 gap"],
+                    "negative_examples": ["直接写论文全文"],
+                    "minimum_context": {"topic": "required"},
+                },
                 "definition_json": {
                     "display": {"entry_tier": "primary"},
                     "mission": {

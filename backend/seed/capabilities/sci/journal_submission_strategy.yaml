@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要根据论文画像推荐期刊、投稿顺序、改稿策略和风险提示。
+  - 用户已有题目、摘要、稿件或研究方向，想判断投哪里更合适。
+  not_for:
+  - 只问某个期刊基础信息且不需要系统比较。
+  - 还没有论文定位或贡献表达，应先 sci_literature_positioning。
+  user_intents:
+  - 期刊推荐
+  - 投稿策略
+  - 选刊
+  positive_examples:
+  - 这篇文章适合投哪些期刊？帮我排个投稿顺序。
+  - 根据摘要和方法帮我判断投稿风险。
+  negative_examples:
+  - SCI 分区是什么？
+  - 帮我写论文初稿。
+  minimum_context:
+    topic: required
+    existing_materials_summary: optional
+    article_type: optional
+  ambiguity:
+    overlaps_with:
+    - sci_literature_positioning
+    - sci_revision_for_journal
+    ask_user_when:
+    - 用户同时想选刊和改稿，但没有说明先策略还是直接修订。
+  clarification:
+    ask_when_missing:
+      topic: 你这篇论文的题目、摘要或核心研究方向是什么？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让投稿策略专家整理候选期刊、适配理由和投稿顺序。
+    clarification_prefix: 可以，我先确认论文画像。
+    lightweight_answer_hint: 单个期刊术语或规则问题可以直接解释。
 inputs:
   required_decisions: []
   brief_schema:

@@ -23,6 +23,41 @@ mission:
   - full_document_update
   - evidence_pack
   - review_report
+routing:
+  when_to_use:
+  - 用户需要在 sandbox 中跑数据分析、实验对比、消融、统计检验或生成图表。
+  - 用户已经有数据、代码、实验记录或想验证结果可靠性。
+  not_for:
+  - 只讨论实验设计思路但不需要运行分析。
+  - 只需要检查可复现性和材料缺口，应转向 reproducibility_audit。
+  user_intents:
+  - 跑实验
+  - 数据分析
+  - 生成图表
+  positive_examples:
+  - 用这些数据跑一下统计检验并生成论文图表。
+  - 帮我做消融实验和结果包。
+  negative_examples:
+  - 这个实验应该怎么设计？
+  - 看看我的代码能不能复现论文。
+  minimum_context:
+    data_assets: required
+    topic: optional
+    study_design: optional
+  ambiguity:
+    overlaps_with:
+    - reproducibility_audit
+    - research_question_to_paper
+    ask_user_when:
+    - 用户既想跑实验又想直接写论文，但没有说明当前是否有数据或代码。
+  clarification:
+    ask_when_missing:
+      data_assets: 你现在有哪些数据、代码或实验记录可以用于分析？
+    choice_when_ambiguous: {}
+  user_guidance:
+    launch_intro: 我会让实验专家在 workspace sandbox 中处理数据、图表和结果说明。
+    clarification_prefix: 可以，我先确认可用的数据或代码。
+    lightweight_answer_hint: 纯实验设计讨论可以先在 chat 里快速梳理。
 inputs:
   required_decisions: []
   brief_schema:

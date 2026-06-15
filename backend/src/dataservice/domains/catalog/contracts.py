@@ -27,6 +27,7 @@ class CapabilityDefinitionRecord(BaseModel):
     ui_meta: dict[str, Any] = Field(default_factory=dict)
     runtime: dict[str, Any] = Field(default_factory=dict)
     dashboard_meta: dict[str, Any] = Field(default_factory=dict)
+    routing: dict[str, Any] = Field(default_factory=dict)
     definition_json: dict[str, Any] = Field(default_factory=dict)
     notes: str | None = None
     checksum: str | None = None
