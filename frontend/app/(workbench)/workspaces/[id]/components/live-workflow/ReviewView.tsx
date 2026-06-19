@@ -16,7 +16,7 @@ import { CommitActionBar } from "../result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
 import { WorkspaceActionLink } from "../WorkspaceActionLink";
 import { ResultEditor } from "./ResultEditor";
-import { EmptyState, ResultKindBadge } from "./shared";
+import { EmptyState, GuidanceNote, ResultKindBadge } from "./shared";
 import { styles } from "./styles";
 
 export function ReviewView({
@@ -167,6 +167,11 @@ export function ReviewView({
             </button>
           ))}
         </div>
+        <div style={{ marginBottom: 12 }}>
+          <GuidanceNote>
+            候选结果不会自动写入工作区。先点开预览，勾选想保留的内容，再保存。
+          </GuidanceNote>
+        </div>
         {previews.length > 0 ? (
           <div style={styles.previewList}>
             {visibleGroups.map((group) => (
@@ -256,9 +261,9 @@ export function ReviewView({
 
         <div style={styles.commitBox}>
           {!allowAcceptAll && committablePreviews.length > 0 ? (
-            <div style={styles.reviewNotice}>
+            <GuidanceNote tone="warning">
               本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。
-            </div>
+            </GuidanceNote>
           ) : null}
           {committablePreviews.length > 0 ? (
             <CommitActionBar

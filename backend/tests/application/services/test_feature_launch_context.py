@@ -42,6 +42,40 @@ def test_missing_context_rejects_generic_workbench_launch_prompt():
     ) == ["goal"]
 
 
+def test_missing_context_rejects_generic_workbench_picker_prompt_from_dynamic_contract():
+    prompt = "\n".join(
+        [
+            "我想使用「问题到 SCI 初稿」能力。",
+            "请先确认启动所需的具体研究主题、材料或目标；信息足够时再组织研究团队。",
+        ]
+    )
+
+    assert resolve_missing_context_fields(
+        feature_id="research_question_to_paper",
+        params={"topic": prompt, "raw_message": prompt},
+        launch_source="tool",
+        minimum_context={"topic": "required"},
+    ) == ["topic"]
+
+
+def test_missing_context_accepts_dynamic_capability_minimum_context():
+    assert resolve_missing_context_fields(
+        feature_id="research_question_to_paper",
+        params={"topic": "federated LoRA fine-tuning for large language models"},
+        launch_source="tool",
+        minimum_context={"topic": "required"},
+    ) == []
+
+
+def test_dynamic_minimum_context_does_not_fall_back_to_static_requirements():
+    assert resolve_missing_context_fields(
+        feature_id="sci_literature_positioning",
+        params={},
+        launch_source="tool",
+        minimum_context={"target_journal": "optional"},
+    ) == []
+
+
 def test_missing_context_accepts_specific_topic_goal():
     assert resolve_missing_context_fields(
         feature_id="sci_literature_positioning",

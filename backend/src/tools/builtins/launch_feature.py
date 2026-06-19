@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from src.application.services.feature_launch_context import (
     build_execution_launch_params,
     build_missing_context_advisory,
+    extract_capability_minimum_context,
     resolve_missing_context_fields,
 )
 from src.billing.reservation_metadata import (
@@ -205,11 +206,13 @@ async def launch_feature_tool(
             feature_id=feature_id,
             params=merged_params,
             launch_source="tool",
+            minimum_context=extract_capability_minimum_context(cap),
         )
         if missing_fields:
             advisory = build_missing_context_advisory(
                 feature_id=feature_id,
                 missing_fields=missing_fields,
+                feature_name=getattr(cap, "display_name", None),
             )
             return {
                 "status": "advisory",

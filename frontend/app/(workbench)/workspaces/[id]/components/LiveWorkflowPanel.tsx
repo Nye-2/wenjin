@@ -311,17 +311,17 @@ export function LiveWorkflowPanel({
     if (isSending) {
       return;
     }
-    const description = feature.description?.trim();
     const prompt = [
-      `请启动「${feature.name}」能力。`,
-      description ? `能力目标：${description}` : null,
-      "如果当前对话缺少具体研究主题、材料或目标，请先向用户确认，不要用空泛主题启动检索、写作或实验。",
-      "请先判断是否需要实验或检索；若需要，请由右侧研究团队自主推进，并在右侧工作台展示关键证据、运行状态和待确认结果。",
+      `我想使用「${feature.name}」能力。`,
+      "请先确认启动所需的具体研究主题、材料或目标；信息足够时再组织研究团队。",
     ]
       .filter(Boolean)
       .join("\n");
     await sendMessage(workspaceId, prompt, [], {
       metadata: {
+        orchestration: {
+          feature_id: feature.id,
+        },
         workbench_launch: {
           capability_id: feature.id,
           capability_name: feature.name,

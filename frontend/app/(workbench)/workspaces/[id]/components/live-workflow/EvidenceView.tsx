@@ -5,7 +5,7 @@ import type { WorkbenchDraftEdit } from "@/stores/workbench-layout-store";
 
 import { NodeInspector } from "./NodeInspector";
 import { ResultEditor } from "./ResultEditor";
-import { EmptyState, ResultKindBadge } from "./shared";
+import { EmptyState, GuidanceNote, ResultKindBadge } from "./shared";
 import { styles } from "./styles";
 import type { EvidenceFilter, EvidenceItem } from "./types";
 import { truncate } from "./utils";
@@ -94,6 +94,11 @@ export function EvidenceView({
               </button>
             ))}
           </div>
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <GuidanceNote>
+            证据区只做预览和筛选：带复选框的是候选结果，可保存；过程摘录和运行细节默认只读。
+          </GuidanceNote>
         </div>
         {filtered.length > 0 ? (
           <div style={styles.evidenceList}>

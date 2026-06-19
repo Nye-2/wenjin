@@ -10,7 +10,7 @@ import type { ExecutionRecord, WorkspaceCapability } from "@/lib/api/types";
 import { runViewFromExecution } from "@/lib/execution-run-view";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 
-import { EmptyState, MetricCard, StatusPill } from "./shared";
+import { EmptyState, GuidanceNote, MetricCard, StatusPill } from "./shared";
 import { styles } from "./styles";
 import { isTerminalStatus } from "./utils";
 
@@ -44,41 +44,52 @@ export function OverviewView({
           <div>
             <div style={styles.sectionTitle}>{typeConfig?.title ?? "能力启动台"}</div>
             <div style={styles.sectionSubtitle}>
-              可直接启动常用研究流程，也可以在左侧对话描述更具体的需求。
+              选择一个方向后，问津会先确认主题、材料和目标；信息足够时再启动研究团队。
             </div>
           </div>
         </div>
         {features.length > 0 ? (
-          <div style={styles.featureGrid}>
-            {features.slice(0, 10).map((feature) => {
-              const description =
-                feature.description || "启动该能力并展示关键进展和结果";
-              const descriptionId = `capability-${feature.id.replace(/[^a-zA-Z0-9_-]/g, "-")}-description`;
+          <>
+            <div style={styles.featureGrid}>
+              {features.slice(0, 10).map((feature) => {
+                const description =
+                  feature.description || "启动该能力并展示关键进展和结果";
+                const descriptionId = `capability-${feature.id.replace(/[^a-zA-Z0-9_-]/g, "-")}-description`;
 
-              return (
-                <button
-                  key={feature.id}
-                  type="button"
-                  disabled={isSending}
-                  aria-label={feature.name}
-                  aria-describedby={descriptionId}
-                  onClick={() => onLaunchFeature(feature)}
-                  style={styles.featureButton}
-                >
-                  <PlayCircle size={16} />
-                  <span style={{ minWidth: 0 }}>
-                    <span style={styles.featureTitle}>{feature.name}</span>
-                    <span
-                      id={descriptionId}
-                      style={styles.featureDescription}
-                    >
-                      {description}
+                return (
+                  <button
+                    key={feature.id}
+                    type="button"
+                    disabled={isSending}
+                    aria-label={feature.name}
+                    aria-describedby={descriptionId}
+                    onClick={() => onLaunchFeature(feature)}
+                    style={styles.featureButton}
+                  >
+                    <PlayCircle size={16} />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={styles.featureTitle}>{feature.name}</span>
+                      <span
+                        id={descriptionId}
+                        style={styles.featureDescription}
+                      >
+                        {description}
+                      </span>
+                      <span style={styles.featureMetaHint}>
+                        先确认信息，再进入团队任务
+                      </span>
                     </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={styles.featureGuidance}>
+              如果你只是想问概念、改一句话或讨论选题，直接在左侧输入即可，不需要先点能力。
+            </div>
+            <GuidanceNote>
+              能力入口适合长任务：文献、写作、实验和成稿。轻量问题直接聊天，会更快。
+            </GuidanceNote>
+          </>
         ) : (
           <EmptyState title="暂无可启动能力" detail="能力目录加载后会显示在这里。" />
         )}

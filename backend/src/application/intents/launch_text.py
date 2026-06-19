@@ -25,6 +25,8 @@ _GENERIC_FEATURE_ENTRY_PATTERN = re.compile(r"^请帮我开始「.+」。?$")
 _WORKBENCH_LAUNCH_PREFIX = "请启动「"
 _WORKBENCH_CONTEXT_GUARD = "如果当前对话缺少具体研究主题、材料或目标"
 _WORKBENCH_EXECUTION_GUARD = "请先判断是否需要实验或检索"
+_WORKBENCH_SELECT_PREFIX = "我想使用「"
+_WORKBENCH_SELECT_GUARD = "请先确认启动所需的具体研究主题、材料或目标"
 
 
 def normalize_inline_text(value: Any) -> str:
@@ -41,6 +43,11 @@ def is_generic_feature_launch_text(value: Any) -> bool:
         normalized.startswith(_WORKBENCH_LAUNCH_PREFIX)
         and _WORKBENCH_CONTEXT_GUARD in normalized
         and _WORKBENCH_EXECUTION_GUARD in normalized
+    ):
+        return True
+    if (
+        normalized.startswith(_WORKBENCH_SELECT_PREFIX)
+        and _WORKBENCH_SELECT_GUARD in normalized
     ):
         return True
     if _GENERIC_FEATURE_ENTRY_PATTERN.match(normalized):

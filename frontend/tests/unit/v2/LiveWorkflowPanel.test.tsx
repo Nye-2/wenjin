@@ -459,7 +459,7 @@ describe("LiveWorkflowPanel", () => {
     }
   });
 
-  it("asks for a concrete topic before direct capability launch can run broad research", async () => {
+  it("routes direct capability picks through canonical orchestration metadata", async () => {
     const sendMessage = vi.fn().mockResolvedValue(undefined);
     useChatStoreV2.setState({ sendMessage });
 
@@ -481,9 +481,10 @@ describe("LiveWorkflowPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "文献定位与创新点" }));
 
     await waitFor(() => expect(sendMessage).toHaveBeenCalled());
-    const [, prompt] = sendMessage.mock.calls[0];
-    expect(prompt).toContain("缺少具体研究主题");
-    expect(prompt).toContain("先向用户确认");
+    const [, prompt, , options] = sendMessage.mock.calls[0];
+    expect(prompt).toContain("我想使用「文献定位与创新点」能力。");
+    expect(prompt).toContain("请先确认启动所需的具体研究主题、材料或目标");
+    expect(options.metadata.orchestration.feature_id).toBe("sci_literature_positioning");
   });
 
   it("keeps the idle overview focused on task launch instead of empty dashboard controls", () => {

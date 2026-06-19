@@ -18,12 +18,14 @@ class _StubExecution:
 
 
 def _capability(capability_id: str = "idea_to_thesis_manuscript") -> SimpleNamespace:
+    is_sci_manuscript = capability_id == "research_question_to_paper"
+    routing = {"minimum_context": {"topic": "required"}} if is_sci_manuscript else {}
     return SimpleNamespace(
         id=capability_id,
         workspace_type="thesis",
         schema_version="capability.v2",
         enabled=True,
-        display_name="Idea To Thesis Manuscript",
+        display_name="问题到 SCI 初稿" if is_sci_manuscript else "Idea To Thesis Manuscript",
         description="",
         intent_description="",
         trigger_phrases=[],
@@ -33,7 +35,8 @@ def _capability(capability_id: str = "idea_to_thesis_manuscript") -> SimpleNames
         ui_meta={},
         runtime={},
         dashboard_meta={},
-        definition_json={},
+        routing=routing,
+        definition_json={"routing": routing} if routing else {},
         notes=None,
         checksum=None,
         source_path=None,
@@ -278,6 +281,50 @@ async def test_launch_feature_uses_selected_skill_from_runtime_config_when_tool_
     fake_service.create_execution.assert_awaited_once()
     create_kwargs = fake_service.create_execution.await_args.kwargs
     assert create_kwargs["entry_skill_id"] == "manuscript-writer"
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_rejects_workbench_picker_without_required_topic():
+    """A direct workbench capability click must not create an empty execution."""
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock()
+    fake_service.update_execution = AsyncMock()
+    fake_celery = MagicMock()
+    fake_celery.enabled = True
+    fake_celery_app = MagicMock()
+    prompt = "\n".join(
+        [
+            "我想使用「问题到 SCI 初稿」能力。",
+            "请先确认启动所需的具体研究主题、材料或目标；信息足够时再组织研究团队。",
+        ]
+    )
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "research_question_to_paper",
+                "params": {"topic": prompt, "raw_message": prompt},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "advisory"
+    assert result["code"] == "missing_params"
+    assert "问题到 SCI 初稿" in result["detail"]
+    assert "研究主题" in result["detail"]
+    fake_service.create_execution.assert_not_called()
+    fake_service.update_execution.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
 
 
 @pytest.mark.asyncio

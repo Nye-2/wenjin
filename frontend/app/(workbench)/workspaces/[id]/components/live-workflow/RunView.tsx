@@ -19,7 +19,7 @@ import {
 import { useRunUiStore } from "@/stores/run-ui-store";
 
 import { NodeInspector } from "./NodeInspector";
-import { EmptyState, NodeStatusDot } from "./shared";
+import { EmptyState, GuidanceNote, NodeStatusDot } from "./shared";
 import { styles } from "./styles";
 import { qualityGateLabel, qualityGateTone, statusTone } from "./utils";
 
@@ -92,6 +92,9 @@ export function RunView({
             查看待确认
           </button>
         </div>
+        <GuidanceNote>
+          这里展示的是用户需要理解的关键进展；更细的输入、工具调用和技术日志收在“运行详情”里。
+        </GuidanceNote>
 
         {view.qualityHighlights.length > 0 ? (
           <QualityHighlights highlights={view.qualityHighlights} />
@@ -104,7 +107,7 @@ export function RunView({
             <div>
               <div style={styles.sectionTitle}>任务进展</div>
               <div style={styles.sectionSubtitle}>
-                默认只展示用户需要理解的工作状态，技术输入输出已收进运行详情。
+                专家会按阶段更新关键摘录，完成后的候选结果会进入“待确认”。
               </div>
             </div>
           </div>

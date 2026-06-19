@@ -29,7 +29,79 @@ FEATURE_CONTEXT_FIELD_LABELS: dict[str, str] = {
     "keywords": "关键词",
     "dataset_id": "数据集",
     "source_artifact_id": "来源材料",
+    "existing_materials_summary": "已有材料",
+    "data_assets": "数据或实验材料",
+    "target_format": "目标格式",
+    "target_journal": "目标期刊",
+    "invention_title": "发明名称",
+    "technical_problem": "技术问题",
+    "software_name": "软件名称",
 }
+
+CONTEXT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "goal_or_topic": ("goal", "topic", "query"),
+    "topic": ("topic", "goal", "query"),
+    "query": ("query", "topic", "goal"),
+    "keywords": ("keywords", "query", "topic", "goal"),
+    "data_assets": ("data_assets", "dataset_id", "source_artifact_id"),
+    "existing_materials_summary": (
+        "existing_materials_summary",
+        "source_artifact_id",
+        "context_artifact_ids",
+        "data_assets",
+    ),
+}
+
+
+def _as_mapping(value: Any) -> Mapping[str, Any] | None:
+    return value if isinstance(value, Mapping) else None
+
+
+def extract_capability_minimum_context(capability: Any) -> Mapping[str, Any] | None:
+    """Read capability.routing.minimum_context from DB/domain objects.
+
+    Runtime gating must follow the DataService capability contract instead of a
+    parallel hard-coded list. The static requirements below remain as a fallback
+    for legacy callers/tests that do not provide a full capability definition.
+    """
+    routing = _as_mapping(getattr(capability, "routing", None))
+    if routing and isinstance(routing.get("minimum_context"), Mapping):
+        return routing["minimum_context"]
+
+    definition = _as_mapping(getattr(capability, "definition_json", None))
+    if definition:
+        nested_routing = _as_mapping(definition.get("routing"))
+        if nested_routing and isinstance(nested_routing.get("minimum_context"), Mapping):
+            return nested_routing["minimum_context"]
+
+    if isinstance(capability, Mapping):
+        mapping_routing = _as_mapping(capability.get("routing"))
+        if mapping_routing and isinstance(mapping_routing.get("minimum_context"), Mapping):
+            return mapping_routing["minimum_context"]
+        mapping_definition = _as_mapping(capability.get("definition_json"))
+        if mapping_definition:
+            nested_routing = _as_mapping(mapping_definition.get("routing"))
+            if nested_routing and isinstance(nested_routing.get("minimum_context"), Mapping):
+                return nested_routing["minimum_context"]
+
+    return None
+
+
+def _context_requirements_from_minimum_context(
+    minimum_context: Mapping[str, Any] | None,
+) -> tuple[tuple[str, ...], ...]:
+    if not minimum_context:
+        return ()
+
+    groups: list[tuple[str, ...]] = []
+    for field, requirement in minimum_context.items():
+        if str(requirement).strip().lower() != "required":
+            continue
+        field_name = str(field).strip()
+        if not field_name:
+            continue
+        groups.append(CONTEXT_FIELD_ALIASES.get(field_name, (field_name,)))
+    return tuple(groups)
 
 
 def is_value_present(value: Any) -> bool:
@@ -47,10 +119,15 @@ def resolve_missing_context_fields(
     feature_id: str,
     params: Mapping[str, Any],
     launch_source: str,
+    minimum_context: Mapping[str, Any] | None = None,
 ) -> list[str]:
     if launch_source not in THREAD_ENTRY_SOURCES:
         return []
-    requirements = FEATURE_CONTEXT_REQUIREMENTS.get(feature_id)
+    requirements = (
+        _context_requirements_from_minimum_context(minimum_context)
+        if minimum_context is not None
+        else FEATURE_CONTEXT_REQUIREMENTS.get(feature_id)
+    )
     if not requirements:
         return []
 
@@ -66,13 +143,15 @@ def build_missing_context_advisory(
     *,
     feature_id: str,
     missing_fields: list[str],
+    feature_name: str | None = None,
 ) -> FeatureExecutionAdvisory:
     missing_fields_str = "、".join(
         FEATURE_CONTEXT_FIELD_LABELS.get(field, field)
         for field in missing_fields
     )
+    display_name = str(feature_name or feature_id).strip()
     prompt = (
-        f"继续执行「{feature_id}」前，还需要你补充：{missing_fields_str}。"
+        f"继续执行「{display_name}」前，还需要你补充：{missing_fields_str}。"
         " 请直接回复补充信息，我会在当前执行会话继续。"
     )
     return FeatureExecutionAdvisory(

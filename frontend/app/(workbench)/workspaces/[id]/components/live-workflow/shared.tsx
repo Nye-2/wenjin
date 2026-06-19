@@ -3,6 +3,7 @@ import {
   Activity,
   BookOpen,
   CheckCircle2,
+  Info,
   XCircle,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -82,6 +83,26 @@ export function MetricCard({
         <div style={styles.metricLabel}>{label}</div>
         <div style={styles.metricDetail}>{detail}</div>
       </div>
+    </div>
+  );
+}
+
+export function GuidanceNote({
+  children,
+  tone = "default",
+}: {
+  children: ReactNode;
+  tone?: "default" | "warning";
+}) {
+  return (
+    <div
+      style={{
+        ...styles.guidanceNote,
+        ...(tone === "warning" ? styles.guidanceNoteWarning : null),
+      }}
+    >
+      <Info size={13} />
+      <span>{children}</span>
     </div>
   );
 }
