@@ -23,6 +23,7 @@ from .builtins import default_harness_tool_registry
 from .business_tools import BUSINESS_TOOL_NAMES, build_business_langchain_tools
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .events import publish_harness_event
+from .figure_generation_tools import FigureGenerationTools
 from .loop_guard import HarnessLoopGuard
 from .policy import resolve_harness_policy
 from .sandbox_execution_tools import SandboxExecutionTools
@@ -114,6 +115,13 @@ class RegisterArtifactInput(BaseModel):
 class RunPythonInput(BaseModel):
     script: str
     script_name: str = "analysis.py"
+    dependency_hints: list[str] | str | None = None
+
+
+class GenerateFigureInput(BaseModel):
+    spec: dict[str, Any]
+    source_code: str | None = None
+    source_prompt: str | None = None
     dependency_hints: list[str] | str | None = None
 
 
@@ -422,6 +430,11 @@ async def _run_python(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -
     return _format_tool_result(result)
 
 
+async def _generate_figure(ctx: HarnessRunContext, policy: HarnessPolicy, **kwargs) -> str:
+    result = await FigureGenerationTools(context=ctx, policy=policy).generate_figure(**kwargs)
+    return _format_tool_result(result)
+
+
 TOOL_DEFINITIONS: dict[str, tuple[type[BaseModel], ToolHandler]] = {
     "sandbox.read_file": (ReadFileInput, _read_file),
     "sandbox.read_output_ref": (ReadOutputRefInput, _read_output_ref),
@@ -434,6 +447,7 @@ TOOL_DEFINITIONS: dict[str, tuple[type[BaseModel], ToolHandler]] = {
     "sandbox.register_dataset": (RegisterDatasetInput, _register_dataset),
     "sandbox.register_artifact": (RegisterArtifactInput, _register_artifact),
     "sandbox.run_python": (RunPythonInput, _run_python),
+    "sandbox.generate_figure": (GenerateFigureInput, _generate_figure),
 }
 
 

@@ -151,7 +151,7 @@ describe("workspace prism surface", () => {
     });
 
     expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
-      "Opening Prism manuscript surface",
+      "正在打开论文写作台",
     );
   });
 
@@ -187,7 +187,7 @@ describe("workspace prism surface", () => {
     });
 
     expect(
-      await screen.findByText("No Prism manuscript is bound yet"),
+      await screen.findByText("还没有绑定写作项目"),
     ).toBeInTheDocument();
   });
 
@@ -305,7 +305,7 @@ describe("workspace prism surface", () => {
       "/workspaces/ws-1?room=library&item_id=lib-1",
     );
     expect(screen.getByTestId("latex-editor-shell")).toHaveTextContent("latex-1:1");
-    expect(screen.getByText("待确认")).toBeInTheDocument();
+    expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
     expect(screen.getByText("来源")).toBeInTheDocument();
     expect(screen.getByText("活动")).toBeInTheDocument();
     expect(screen.getByText("保护段落")).toBeInTheDocument();

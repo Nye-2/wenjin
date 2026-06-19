@@ -121,6 +121,9 @@ TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
 DOCKER_GID=0
 ADMIN_PASSWORD=change-this-admin-password
 GRAFANA_PASSWORD=change-this-grafana-password
+DATASERVICE_INTERNAL_TOKEN=change-this-dataservice-internal-token
+ENVIRONMENT=production
+E2E_TEST_HOOKS_ENABLED=false
 EOF
 
 docker compose up -d

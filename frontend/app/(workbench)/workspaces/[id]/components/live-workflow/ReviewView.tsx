@@ -78,7 +78,15 @@ export function ReviewView({
       ? previewGroups
       : previewGroups.filter((group) => group.kind === effectiveKind);
   }, [effectiveKind, previewGroups]);
-  const allowAcceptAll = record?.status === "completed";
+  const committablePreviews = previews.filter((preview) => preview.canCommit);
+  const committableIds = new Set(committablePreviews.map((preview) => preview.id));
+  const selectedCommitCount = Array.from(checkedIds).filter((id) =>
+    committableIds.has(id),
+  ).length;
+  const allowAcceptAll = record?.status === "completed" && committablePreviews.length > 0;
+  const prismReviewItems = reviewItems.filter(
+    (item) => item.kind !== "sandbox_artifact" && item.target?.kind !== "sandbox_artifact",
+  );
 
   function activateFilter(kind: string) {
     setActiveKind(kind);
@@ -203,10 +211,15 @@ export function ReviewView({
                       >
                         <input
                           type="checkbox"
-                          checked={checkedIds.has(preview.id)}
-                          disabled={committed}
+                          checked={preview.canCommit && checkedIds.has(preview.id)}
+                          disabled={committed || !preview.canCommit}
+                          title={preview.canCommit ? "保存到工作区" : "该项由独立产物确认入口处理"}
                           onClick={(event) => event.stopPropagation()}
-                          onChange={() => onToggleChecked(preview.id)}
+                          onChange={() => {
+                            if (preview.canCommit) {
+                              onToggleChecked(preview.id);
+                            }
+                          }}
                           style={styles.checkbox}
                         />
                         <button
@@ -242,24 +255,30 @@ export function ReviewView({
         )}
 
         <div style={styles.commitBox}>
-          {!allowAcceptAll && previews.length > 0 ? (
+          {!allowAcceptAll && committablePreviews.length > 0 ? (
             <div style={styles.reviewNotice}>
               本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。
             </div>
           ) : null}
-          <CommitActionBar
-            committed={committed}
-            committing={committing}
-            allowAcceptAll={allowAcceptAll}
-            selectedCount={checkedIds.size}
-            onAcceptAll={onAcceptAll}
-            onAcceptSelected={onAcceptSelected}
-            onDiscard={onDiscard}
-            acceptAllLabel="全部保存"
-            acceptSelectedLabel="保存已勾选"
-            discardLabel="暂不保存"
-            committedLabel="已写入工作区"
-          />
+          {committablePreviews.length > 0 ? (
+            <CommitActionBar
+              committed={committed}
+              committing={committing}
+              allowAcceptAll={allowAcceptAll}
+              selectedCount={selectedCommitCount}
+              onAcceptAll={onAcceptAll}
+              onAcceptSelected={onAcceptSelected}
+              onDiscard={onDiscard}
+              acceptAllLabel="全部保存"
+              acceptSelectedLabel="保存已勾选"
+              discardLabel="暂不保存"
+              committedLabel="已写入工作区"
+            />
+          ) : previews.length > 0 ? (
+            <div style={styles.reviewNotice}>
+              这些候选来自沙盒产物，可先预览；保存或忽略会由产物确认入口处理。
+            </div>
+          ) : null}
           {commitError ? <div style={styles.commitError}>{commitError}</div> : null}
           {commitLinks.length > 0 ? (
             <div style={styles.linkWrap}>
@@ -273,7 +292,7 @@ export function ReviewView({
           ) : null}
         </div>
 
-        {reviewItems.length > 0 ? (
+        {prismReviewItems.length > 0 ? (
           <div style={styles.prismBox}>
             <div style={styles.sectionTitleSmall}>Prism 文件级修改</div>
             <div style={styles.sectionSubtitle}>精细 diff、patch 和保护区仍在 Prism 页面完成。</div>
@@ -296,13 +315,15 @@ export function ReviewView({
           {selectedPreview ? (
             <>
               <ResultPreviewDetail preview={selectedPreview} />
-              <ResultEditor
-                preview={selectedPreview}
-                draft={selectedDraft}
-                disabled={committed}
-                onPatchDraft={onPatchDraft}
-                onSetDraft={onSetDraft}
-              />
+              {selectedPreview.canCommit ? (
+                <ResultEditor
+                  preview={selectedPreview}
+                  draft={selectedDraft}
+                  disabled={committed}
+                  onPatchDraft={onPatchDraft}
+                  onSetDraft={onSetDraft}
+                />
+              ) : null}
             </>
           ) : (
             <EmptyState title="选择一个候选结果" detail="右侧会显示预览和可编辑字段。" compact />

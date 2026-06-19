@@ -7,23 +7,8 @@ import { test, expect } from "@playwright/test";
  * using Playwright page mocks to simulate API responses (no real backend needed).
  */
 
-// Cookie value matching proxy.ts readAuthCookie() expectations
-const AUTH_COOKIE = JSON.stringify({
-  state: { isAuthenticated: true },
-});
-
 test.describe("Workspace Deep Research Flow", () => {
-  test.beforeEach(async ({ page, context }) => {
-    // Set auth cookie so the proxy middleware lets us through
-    await context.addCookies([
-      {
-        name: "auth-storage",
-        value: encodeURIComponent(AUTH_COOKIE),
-        domain: "localhost",
-        path: "/",
-      },
-    ]);
-
+  test.beforeEach(async ({ page }) => {
     // Mock the workspace shell APIs in one handler so specific room responses
     // are not shadowed by the generic catch-all route.
     await page.route("**/api/**", async (route) => {

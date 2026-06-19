@@ -1,4 +1,5 @@
 """Spec §5.5 — LLM-JSON failure degrades to TextBlock, not raise."""
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -42,3 +43,28 @@ async def test_invalid_json_degrades_to_text_block():
     assert isinstance(msg.blocks[0], TextBlock)
     assert msg.blocks[0].content == "prompt-text"
     metric.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_dev_scripted_message_queue_is_disabled_unless_explicitly_enabled(monkeypatch):
+    queued = AgentMessage(blocks=[TextBlock(content="queued-test-message")])
+    real = AgentMessage(blocks=[TextBlock(content="real-model-message")])
+
+    fake_llm = AsyncMock()
+    structured_llm = AsyncMock()
+    structured_llm.ainvoke = AsyncMock(return_value=real)
+    fake_llm.with_structured_output = MagicMock(return_value=structured_llm)
+
+    monkeypatch.setattr(
+        "src.agents.chat_agent.structured_output.get_settings",
+        lambda: SimpleNamespace(environment="development", e2e_test_hooks_enabled=False),
+    )
+    monkeypatch.setattr(
+        "src.gateway.routers.dev_test_hooks.pop_next",
+        lambda: queued,
+    )
+
+    msg = await parse_with_fallback(fake_llm, "prompt-text", run_id="r1")
+
+    assert msg.blocks[0].content == "real-model-message"
+    structured_llm.ainvoke.assert_awaited_once()

@@ -17,7 +17,7 @@ describe("room list response helpers", () => {
 
   it("rejects malformed list payloads", () => {
     expect(() => readItemsArray({}, "tasks")).toThrow(
-      "Invalid tasks response",
+      "tasks 数据格式异常",
     );
   });
 });

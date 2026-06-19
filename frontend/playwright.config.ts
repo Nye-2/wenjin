@@ -7,6 +7,8 @@ import { defineConfig, devices } from "@playwright/test";
  * workspace tests on the same dev server.
  */
 
+const browserChannel = process.env.WENJIN_E2E_BROWSER_CHANNEL || undefined;
+
 export default defineConfig({
   testDir: "./tests/e2e",
   timeout: 30_000,
@@ -17,6 +19,7 @@ export default defineConfig({
     baseURL: "http://localhost:3099",
     trace: "on-first-retry",
     actionTimeout: 5_000,
+    channel: browserChannel,
   },
   webServer: {
     command: "npm run dev -- --port 3099",
@@ -32,6 +35,7 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         baseURL: "http://localhost:3099",
+        channel: browserChannel,
       },
     },
     // Main E2E tests
@@ -39,7 +43,7 @@ export default defineConfig({
       name: "chromium",
       testDir: "./tests/e2e",
       testIgnore: ["v2/**"],
-      use: { ...devices["Desktop Chrome"] },
+      use: { ...devices["Desktop Chrome"], channel: browserChannel },
     },
   ],
 });

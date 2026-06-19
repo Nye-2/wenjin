@@ -23,6 +23,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Secret hygiene guard
+        run: python scripts/ci_secret_guard.py
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -46,3 +49,16 @@ jobs:
       - name: Incremental Mypy Guard
         working-directory: backend
         run: make typecheck-incremental
+
+      - name: Alembic single-head guard
+        working-directory: backend
+        run: |
+          uv run alembic heads | tee /tmp/wenjin-alembic-heads.txt
+          test "$(grep -c '(head)' /tmp/wenjin-alembic-heads.txt)" -eq 1
+
+      - name: Docker Compose config smoke
+        run: |
+          cp .env.prebuilt.example .env
+          sed -i "s|^WENJIN_PROJECT_DIR=.*|WENJIN_PROJECT_DIR=$PWD|" .env
+          cp backend/.env.example backend/.env
+          docker compose config >/tmp/wenjin-compose.yml

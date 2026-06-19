@@ -13,7 +13,6 @@ import {
 } from "@/lib/api/workspace";
 import type { WorkspacePrismSurfaceResponse } from "@/lib/api/types";
 import { WORKSPACE_TYPE_CONFIG } from "@/lib/workspace-suggestions";
-import { syncCurrentAuthCookie } from "@/stores/auth";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { PrismContextRail } from "./PrismContextRail";
 import { WorkspaceChrome } from "../components/shell/WorkspaceChrome";
@@ -127,7 +126,6 @@ export default function WorkspacePrismPage({
 
   const openWorkbenchRoom = useCallback(
     (room: WorkspaceHubRoomKey) => {
-      syncCurrentAuthCookie();
       router.push(`/workspaces/${id}?room=${room}`);
     },
     [id, router],

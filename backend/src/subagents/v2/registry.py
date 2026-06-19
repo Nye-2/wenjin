@@ -36,7 +36,7 @@ SANDBOX_WRITE_TOOLS = frozenset(
         "sandbox.register_artifact",
     }
 )
-SANDBOX_EXECUTE_TOOLS = frozenset({"sandbox.run_python"})
+SANDBOX_EXECUTE_TOOLS = frozenset({"sandbox.run_python", "sandbox.generate_figure"})
 _PUBLIC_INTERNAL_TERMS = (
     "template id",
     "skill id",
@@ -204,7 +204,7 @@ def validate_agent_template_contract(template: Mapping[str, Any]) -> list[str]:
         "required",
     }:
         errors.append(
-            f"{template_id}: sandbox.run_python requires "
+            f"{template_id}: sandbox execute tools require "
             "risk_profile.code_execution optional|required"
         )
     return errors

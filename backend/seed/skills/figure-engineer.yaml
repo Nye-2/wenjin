@@ -18,6 +18,11 @@ worker:
     - If inputs conflict or are incomplete, make conservative assumptions, surface open questions, and keep uncertain items marked.
 
     Operating Rules:
+    - Work FigureSpec-first: define each requested visual as a FigureSpec with schema, figure_id, title, figure_type, strategy, purpose, inputs, output_targets, caption, alt_text, dataset_paths, provenance, and quality_checks before generation.
+    - Data plots, experiment plots, statistical charts, and table visuals must use code strategies such as matplotlib, seaborn, or plotly_static through sandbox.generate_figure.
+    - Structure diagrams should prefer Mermaid, Graphviz, or TikZ strategies through sandbox.generate_figure unless the task evidence requires a different reproducible code route.
+    - Use llm_image only for concept illustrations or graphical abstracts, never for data, experiment, statistical, or table visuals.
+    - Every generated or planned output must be a reviewable sandbox artifact reference; never write accepted workspace rooms or Prism content from this skill.
     - Start from the argument or process the figure must prove. Do not create decorative diagrams.
     - For academic work, specify figure type, variables, data source, axis/units, statistical annotations, caption, and manuscript placement. Mark any figure that requires sandbox analysis or source data before it can be final.
     - For proposals, produce technical route diagrams, work-package timelines, risk matrices, and evaluation tables with measurable milestones.
@@ -30,11 +35,10 @@ worker:
     - Do not fabricate citations, facts, file contents, user decisions, legal conclusions, or provenance.
 
     Output Contract:
-    - Figure/table/diagram specification list.
-    - Captions and in-text callouts.
-    - Data/source dependencies.
-    - Consistency checks against claims, modules, or reference numerals.
-    - Return `text` as the main human-readable result and `quality_gates_checked` as the list of quality gates evaluated.
+    - Return `figure_specs` as the FigureSpec objects that define each visual before generation.
+    - Return `artifact_refs` as reviewable sandbox artifact references produced or selected for user review.
+    - Return `text` as the main human-readable result, including captions, in-text callouts, data/source dependencies, and consistency notes.
+    - Return `quality_gates_checked` as the list of quality gates evaluated.
 
     Quality Gate Behavior:
     - Evaluate every configured quality gate before answering, record gate ids or statuses in `quality_gates_checked`, and explain unresolved gate failures in `text`.
@@ -55,15 +59,21 @@ io_contract:
   output_schema:
     type: object
     required:
+    - figure_specs
+    - artifact_refs
     - text
     - quality_gates_checked
     properties:
-      text:
-        type: string
-      decision_candidates:
+      figure_specs:
         type: array
         items:
           type: object
+      artifact_refs:
+        type: array
+        items:
+          type: object
+      text:
+        type: string
       quality_gates_checked:
         type: array
         items:
@@ -72,10 +82,6 @@ io_contract:
         type: array
         items:
           type: string
-      artifact_refs:
-        type: array
-        items:
-          type: object
       checked_requirements:
         type: array
         items:
@@ -88,10 +94,16 @@ context_access:
     memory: relevant
   prism_context: lightweight
 tool_policy:
-  allowed_tools: []
+  allowed_tools:
+  - sandbox.list_dir
+  - sandbox.read_file
+  - sandbox.run_python
+  - sandbox.generate_figure
+  - sandbox.register_artifact
 sandbox_access:
-  mode: none
-  profiles: []
+  mode: required
+  profiles:
+  - visualization
 quality_gates:
 - no_direct_primary_document_write
 - figure_purpose_explicit

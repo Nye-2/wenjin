@@ -94,6 +94,14 @@ BUILTIN_TOOL_SPECS = (
         risk_level="execute",
         required_permissions=["sandbox.run_python"],
     ),
+    HarnessToolSpec(
+        name="sandbox.generate_figure",
+        namespace="sandbox",
+        description="Generate reviewable figures in the workspace sandbox.",
+        input_schema={"type": "object"},
+        risk_level="execute",
+        required_permissions=["sandbox.generate_figure"],
+    ),
 )
 
 

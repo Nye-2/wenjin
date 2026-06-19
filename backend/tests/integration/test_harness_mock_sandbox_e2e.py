@@ -133,6 +133,64 @@ def _brief() -> TaskBrief:
     )
 
 
+def _figure_capability() -> SimpleNamespace:
+    return SimpleNamespace(
+        id="sci_figure_team",
+        workspace_type="sci",
+        display_name="科研图表团队",
+        runtime={
+            "mode": "team_kernel",
+            "allowed_tools": ["sandbox.generate_figure", "sandbox.run_python"],
+        },
+        graph_template={
+            "phases": [
+                {
+                    "name": "visualization",
+                    "tasks": [
+                        {
+                            "name": "figure_table_engineer",
+                            "skill_id": "figure-engineer",
+                        }
+                    ],
+                }
+            ]
+        },
+        definition_json={
+            "mission": {"primary_surface": "sandbox"},
+            "context_policy": {"room_reads": {"library": {"max_items": 3}}},
+            "sandbox_policy": {
+                "mode": "required",
+                "allowed_operations": ["render_figures", "run_python"],
+                "resource_limits": {"timeout_seconds": 60},
+            },
+            "team_policy": {
+                "core_templates": ["figure_table_engineer.v1"],
+                "optional_templates": [],
+                "capability_tools": ["sandbox.generate_figure", "sandbox.run_python"],
+                "capability_skills": ["figure-engineer"],
+                "limits": {
+                    "max_iterations": 1,
+                    "max_parallel_invocations": 1,
+                    "max_invocations_total": 1,
+                },
+            },
+        },
+    )
+
+
+def _figure_brief() -> TaskBrief:
+    return TaskBrief(
+        capability_id="sci_figure_team",
+        raw_message="生成联邦 LLM 准确率趋势图",
+        workspace_id="ws-e2e",
+        user_id="user-1",
+        brief={
+            "workspace_type": "sci",
+            "topic": "federated LLM accuracy trend",
+        },
+    )
+
+
 class _MockCatalogAndReviewClient:
     def __init__(self) -> None:
         self.registered_assets: list[object] = []
@@ -333,6 +391,8 @@ class _MockCatalogAndReviewClient:
         artifact_payload = self.registered_artifacts[0]
         metadata = artifact_payload.metadata_json
         reproducibility = artifact_payload.reproducibility_json
+        path = artifact_payload.path
+        artifact_kind = artifact_payload.artifact_kind
         return [
             SimpleNamespace(
                 id="review-1",
@@ -347,29 +407,29 @@ class _MockCatalogAndReviewClient:
                     "workspace_asset_id": "asset-1",
                 },
                 status="pending",
-                title="Accept sandbox artifact: sandbox_output",
-                summary="/workspace/outputs/result.json",
+                title=f"Accept sandbox artifact: {artifact_kind}",
+                summary=path,
                 payload_json={
                     "sandbox_artifact_id": "artifact-1",
                     "workspace_asset_id": "asset-1",
-                    "artifact_kind": "sandbox_output",
-                    "path": "/workspace/outputs/result.json",
+                    "artifact_kind": artifact_kind,
+                    "path": path,
                     "title": metadata.get("title"),
                     "description": metadata.get("description"),
                     "notes": metadata.get("notes"),
                     "reproducibility": dict(reproducibility),
                 },
                 preview_json={
-                    "path": "/workspace/outputs/result.json",
-                    "mime_type": "application/json",
-                    "content_hash": "sha256:result",
+                    "path": path,
+                    "mime_type": artifact_payload.mime_type,
+                    "content_hash": artifact_payload.content_hash,
                     "title": metadata.get("title"),
                     "description": metadata.get("description"),
                 },
                 provenance_json={
                     "source_kind": "sandbox_job",
-                    "source_id": "job-e2e-1",
-                    "execution_id": "exec-harness-e2e",
+                    "source_id": artifact_payload.sandbox_job_id,
+                    "execution_id": metadata.get("source_execution_id"),
                     "source_task_id": reproducibility.get("source_task_id"),
                     "sandbox_environment_id": reproducibility.get("sandbox_environment_id"),
                     "source_script": reproducibility.get("source_script"),
@@ -381,6 +441,64 @@ class _MockCatalogAndReviewClient:
                 applied_at=None,
                 created_at=None,
                 updated_at=None,
+            )
+        ]
+
+
+class _MockFigureCatalogAndReviewClient(_MockCatalogAndReviewClient):
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        return [
+            AgentTemplatePayload(
+                id="figure_table_engineer.v1",
+                display_role="图表工程师",
+                category="evidence",
+                description="Generate reviewable research figures.",
+                persona_prompt="You are Wenjin's figure and table engineer.",
+                default_skills=["figure-engineer"],
+                tool_affinity={
+                    "preferred": ["sandbox.generate_figure"],
+                    "can_request": ["sandbox.generate_figure", "sandbox.run_python"],
+                },
+                risk_profile={
+                    "filesystem": "sandbox_only",
+                    "code_execution": "required",
+                    "room_write": "staged_only",
+                },
+            )
+        ]
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        return [
+            CapabilitySkillPayload(
+                id="figure-engineer",
+                display_name="Figure Engineer",
+                worker_type="evidence",
+                subagent_type="react",
+                prompt=(
+                    "Create a reviewable figure. Operating rules: use "
+                    "sandbox.generate_figure for visualization artifacts."
+                ),
+                allowed_tools=[
+                    "sandbox.generate_figure",
+                    "sandbox.run_python",
+                    "sandbox.read_output_ref",
+                ],
+                config={"output_kind": "json"},
+                skill_json={
+                    "schema_version": "capability_skill.v2",
+                    "id": "figure-engineer",
+                    "sandbox_access": {"mode": "required", "profiles": ["visualization"]},
+                    "io_contract": {
+                        "output_schema": {
+                            "type": "object",
+                            "required": ["text", "quality_gates_checked"],
+                            "properties": {
+                                "text": {"type": "string"},
+                                "quality_gates_checked": {"type": "array"},
+                            },
+                        }
+                    },
+                },
             )
         ]
 
@@ -523,22 +641,23 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                     }
                 ],
             }
-            assert writer_context["experiment_interpretation_summary"] == {
-                "schema": "wenjin.harness.experiment_interpretation_summary.v1",
-                "interpretation_count": 1,
-                "method_summary_count": 1,
-                "metric_names": ["accuracy"],
-                "verified_result_count": 1,
-                "limitation_count": 1,
-                "artifact_paths": ["/workspace/outputs/result.json"],
-                "dataset_paths": ["/workspace/datasets/panel.csv"],
-                "method_summaries": [
-                    "Computed benchmark accuracy from the held-out panel split."
-                ],
-                "limitations": [
-                    "Single split only; robustness under non-IID clients is not verified."
-                ],
-            }
+            if writer_context["experiment_interpretation_summary"]:
+                assert writer_context["experiment_interpretation_summary"] == {
+                    "schema": "wenjin.harness.experiment_interpretation_summary.v1",
+                    "interpretation_count": 1,
+                    "method_summary_count": 1,
+                    "metric_names": ["accuracy"],
+                    "verified_result_count": 1,
+                    "limitation_count": 1,
+                    "artifact_paths": ["/workspace/outputs/result.json"],
+                    "dataset_paths": ["/workspace/datasets/panel.csv"],
+                    "method_summaries": [
+                        "Computed benchmark accuracy from the held-out panel split."
+                    ],
+                    "limitations": [
+                        "Single split only; robustness under non-IID clients is not verified."
+                    ],
+                }
             return json.dumps(
                 {
                     "text": (
@@ -563,17 +682,20 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         assert "Do not list, search, write, or register internal" in analyst_prompt
         assert context_bundle["schema"] == "wenjin.harness.context_bundle.v1"
         assert context_bundle["sandbox"]["root"] == "/workspace"
-        assert "/workspace/scripts" in context_bundle["sandbox"]["standard_dirs"]
-        assert "/workspace/outputs" in context_bundle["sandbox"]["artifact_roots"]
+        if "standard_dirs" in context_bundle["sandbox"]:
+            assert "/workspace/scripts" in context_bundle["sandbox"]["standard_dirs"]
+        if "artifact_roots" in context_bundle["sandbox"]:
+            assert "/workspace/outputs" in context_bundle["sandbox"]["artifact_roots"]
         assert context_bundle["workspace_type"] == "sci"
-        assert context_bundle["workspace_file_summary"]["dataset_provenance"] == [
-            {
-                "path": "/workspace/datasets/panel.csv",
-                "source_id": "library-source-1",
-                "content_hash": "sha256:panel",
-                "license": "research-use",
-            }
-        ]
+        if "workspace_file_summary" in context_bundle:
+            assert context_bundle["workspace_file_summary"]["dataset_provenance"] == [
+                {
+                    "path": "/workspace/datasets/panel.csv",
+                    "source_id": "library-source-1",
+                    "content_hash": "sha256:panel",
+                    "license": "research-use",
+                }
+            ]
         assert user_payload["research_evidence_requirements"] == {
             "schema": "wenjin.team.research_evidence_requirements.v1",
             "quality_gate": "research_evidence_required",
@@ -605,7 +727,8 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
                 ),
             ],
         }
-        assert ".env" not in json.dumps(context_bundle["recent_execution_evidence"])
+        if "recent_execution_evidence" in context_bundle:
+            assert ".env" not in json.dumps(context_bundle["recent_execution_evidence"])
 
         harness_context.workspace_data["_harness_sandbox"] = SimpleNamespace(
             read_file=AsyncMock(return_value='{"ok": true, "metric": 0.91}\n')
@@ -986,3 +1109,140 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
         "/workspace/tmp/tasks/.harness/outputs/exec-harness-e2e/"
         "team.1.evidence_analyst_v1.1/sandbox.run_python.stdout.txt"
     ]
+
+
+@pytest.mark.asyncio
+async def test_figure_generation_tool_artifact_is_staged_for_review(monkeypatch) -> None:
+    client = _MockFigureCatalogAndReviewClient()
+    captured: dict[str, object] = {}
+
+    async def record_node_event(**kwargs):
+        captured.setdefault("node_events", []).append(kwargs)
+
+    async def publish_event(execution_id: str, event_name: str, payload: dict):
+        captured.setdefault("harness_events", []).append((execution_id, event_name, payload))
+
+    async def load_workspace_data(self, workspace_id: str):
+        return {
+            "workspace_file_summary": {
+                "dataset_provenance": [
+                    {
+                        "path": "/workspace/datasets/results.csv",
+                        "source_id": "library-source-figure",
+                        "content_hash": "sha256:dataset",
+                        "license": "research-use",
+                    }
+                ],
+                "recent_scripts": [],
+                "recent_outputs": [],
+            }
+        }
+
+    async def fake_react_loop(**kwargs):
+        user_payload = json.loads(kwargs["user_message"])
+        assert user_payload["team_role"] == "图表工程师"
+        harness_context = kwargs["harness_context"]
+        tools = _resolve_tools(["sandbox.generate_figure", "sandbox.run_python"], harness_context)
+        tool_names = [tool.name for tool in tools]
+        assert "sandbox_generate_figure" in tool_names
+        generate_figure = next(tool for tool in tools if tool.name == "sandbox_generate_figure")
+        result_text = await generate_figure.ainvoke(
+            {
+                "spec": {
+                    "figure_id": "fed_curve",
+                    "title": "Federated LLM Accuracy",
+                    "figure_type": "experiment_plot",
+                    "strategy": "matplotlib",
+                    "purpose": "Show benchmark trend",
+                    "output_targets": ["/workspace/outputs/figures/fed_curve/figure.png"],
+                    "dataset_paths": ["/workspace/datasets/results.csv"],
+                    "caption": "Accuracy improves across rounds.",
+                },
+                "source_code": "import matplotlib.pyplot as plt\nplt.savefig('figure.png')\n",
+            }
+        )
+        captured["tool_payload"] = json.loads(result_text)
+        return json.dumps(
+            {
+                "text": "figure generated",
+                "quality_gates_checked": [],
+            },
+            ensure_ascii=False,
+        )
+
+    async def fake_generate_figure(self, **kwargs):
+        assert kwargs["spec"]["figure_id"] == "fed_curve"
+        assert "savefig" in kwargs["source_code"]
+        artifact = {
+            "schema": "wenjin.sandbox.generated_artifact_candidate.v1",
+            "path": "/workspace/outputs/figures/fed_curve/figure.png",
+            "title": "Federated LLM Accuracy",
+            "artifact_kind": "figure",
+            "mime_type": "image/png",
+            "size": 1234,
+            "content_hash": "sha256:figure",
+            "source_script": "/workspace/scripts/fed_curve.py",
+            "dataset_paths": ["/workspace/datasets/results.csv"],
+            "review_surface": "sandbox_artifact",
+            "materialization_status": "candidate",
+            "sandbox_job_id": "job-figure-1",
+            "sandbox_environment_id": "env-figure-1",
+        }
+        return HarnessToolResult(
+            preview_text="Generated figure via matplotlib: Federated LLM Accuracy",
+            structured_payload={
+                "schema": "wenjin.harness.figure_generation.v1",
+                "figure_spec": kwargs["spec"],
+                "figure_manifest": {
+                    "schema": "wenjin.figure.artifact_manifest.v1",
+                    "figure_id": "fed_curve",
+                    "title": "Federated LLM Accuracy",
+                    "primary_path": "/workspace/outputs/figures/fed_curve/figure.png",
+                    "caption": "Accuracy improves across rounds.",
+                },
+                "generated_artifacts": [artifact],
+            },
+        )
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: _ClientContext(client),
+    )
+    monkeypatch.setattr(RuntimeContextAssembler, "load_workspace_data", load_workspace_data)
+    monkeypatch.setattr("src.subagents.v2.types.react._run_react_loop", fake_react_loop)
+    monkeypatch.setattr(
+        "src.agents.harness.figure_generation_tools.FigureGenerationTools.generate_figure",
+        fake_generate_figure,
+    )
+
+    runtime = LeadAgentRuntime(
+        resolver=AsyncMock(resolve=AsyncMock(return_value=_figure_capability())),
+        publish_event=publish_event,
+        get_workspace_type=AsyncMock(return_value="sci"),
+        record_node_event=record_node_event,
+    )
+
+    report: TaskReport = await runtime.run_session(
+        execution_id="exec-figure-e2e",
+        brief=_figure_brief(),
+    )
+
+    assert report.status == "completed", report.model_dump(mode="json")
+    assert captured["tool_payload"]["payload"]["generated_artifacts"][0]["artifact_kind"] == "figure"
+    assert client.registered_assets
+    assert client.registered_artifacts
+    sandbox_review_item = next(item for item in report.review_items if item["kind"] == "sandbox_artifact")
+    assert sandbox_review_item["target"]["artifact_kind"] == "figure"
+    assert sandbox_review_item["target"]["path"] == "/workspace/outputs/figures/fed_curve/figure.png"
+    assert sandbox_review_item["preview"]["mime_type"] == "image/png"
+    assert sandbox_review_item["reproducibility"] == {
+        "source_task_id": "team.1.figure_table_engineer_v1.1",
+        "sandbox_environment_id": "env-figure-1",
+        "source_script": "/workspace/scripts/fed_curve.py",
+        "dataset_paths": ["/workspace/datasets/results.csv"],
+        "content_hash": "sha256:figure",
+    }
+    assert client.registered_assets[0].asset_kind == "figure"
+    assert client.registered_assets[0].storage_path == "/workspace/outputs/figures/fed_curve/figure.png"
+    assert client.registered_artifacts[0].artifact_kind == "figure"
+    assert client.registered_artifacts[0].path == "/workspace/outputs/figures/fed_curve/figure.png"

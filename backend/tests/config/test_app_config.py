@@ -20,3 +20,13 @@ def test_app_config_preserves_standard_boolean_debug_values(monkeypatch) -> None
 
     monkeypatch.setenv("DEBUG", "false")
     assert AppConfig().debug is False
+
+
+def test_e2e_test_hooks_are_opt_in_even_in_development(monkeypatch) -> None:
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.delenv("E2E_TEST_HOOKS_ENABLED", raising=False)
+
+    assert AppConfig().e2e_test_hooks_enabled is False
+
+    monkeypatch.setenv("E2E_TEST_HOOKS_ENABLED", "true")
+    assert AppConfig().e2e_test_hooks_enabled is True

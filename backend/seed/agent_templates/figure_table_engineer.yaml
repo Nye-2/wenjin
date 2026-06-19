@@ -12,7 +12,8 @@ persona_prompt: |
 
   Operating rules:
   - Tie every figure or table to a claim, input source, and intended reader action.
-  - When sandbox execution is granted, use sandbox.run_python for reproducible figure/table generation; keep scripts under /workspace/scripts and generated figures/tables under /workspace/outputs.
+  - Form a FigureSpec first, then choose the generation route: code for data, experiment, statistical, and table visuals; Mermaid, Graphviz, or TikZ for structure diagrams; image generation only for concept visuals or graphical abstracts.
+  - When sandbox execution is granted, use sandbox.generate_figure for reviewable figure artifacts and sandbox.run_python for supporting reproducible analysis; keep scripts under /workspace/scripts and generated figures/tables under /workspace/outputs.
   - When refining sandbox scripts, captions, or report snippets, prefer sandbox.apply_patch for small structured edits so changes stay diff-backed.
   - Keep captions precise and avoid unsupported visual claims.
   - Return staged artifact plans or artifact references only.
@@ -28,6 +29,7 @@ tool_affinity:
     - document_read
   can_request:
     - sandbox.run_python
+    - sandbox.generate_figure
     - sandbox.apply_patch
     - library_read
 risk_profile:

@@ -199,6 +199,88 @@ test("sandbox artifact review items render as artifact saves, not Prism edits", 
   ).toHaveCount(0);
 });
 
+test("workbench previews sandbox figure review items without Prism handoff", async ({
+  page,
+  context,
+}) => {
+  const figureReviewItem = {
+    id: "review-figure-1",
+    kind: "sandbox_artifact",
+    status: "pending",
+    title: "Federated accuracy figure",
+    summary: "/workspace/outputs/figures/fed_curve/figure.png",
+    source: {
+      type: "sandbox_job",
+      execution_id: "ex-figure",
+      task_id: "figure_table_engineer.v1__1",
+      job_id: "job-figure-1",
+    },
+    target: {
+      kind: "sandbox_artifact",
+      path: "/workspace/outputs/figures/fed_curve/figure.png",
+      artifact_kind: "figure",
+      sandbox_artifact_id: "artifact-figure-1",
+    },
+    preview: {
+      mode: "artifact",
+      path: "/workspace/outputs/figures/fed_curve/figure.png",
+      mime_type: "image/png",
+      content_hash: "sha256:figure",
+    },
+    reproducibility: {
+      source_script: "/workspace/scripts/fed_curve.py",
+      dataset_paths: ["/workspace/datasets/results.csv"],
+      content_hash: "sha256:figure",
+    },
+  };
+  await installWorkspaceRouteMocks(page, context, {
+    executions: [
+      {
+        id: "ex-figure",
+        user_id: "user-1",
+        workspace_id: "ws-1",
+        execution_type: "capability",
+        feature_id: "figure_generation",
+        status: "completed",
+        params: {},
+        result: {
+          task_report: {
+            execution_id: "ex-figure",
+            capability_id: "figure_generation",
+            status: "completed",
+            narrative: "图表工程师已生成可预览的实验图。",
+            duration_seconds: 6,
+            outputs: [],
+            review_items: [figureReviewItem],
+            errors: [],
+          },
+        },
+        review_items: [figureReviewItem],
+        node_states: {},
+        graph_structure: { mode: "team_kernel", nodes: [], edges: [] },
+        artifact_ids: [],
+        next_actions: [],
+        child_execution_ids: [],
+        progress: 100,
+        created_at: "2026-06-19T00:00:00Z",
+        updated_at: "2026-06-19T00:00:06Z",
+      },
+    ],
+  });
+
+  await page.goto("/workspaces/ws-1");
+  await expect(page.getByText("图表产物").first()).toBeVisible();
+  await expect(page.getByRole("button", { name: /Federated accuracy figure/ })).toBeVisible();
+  await page.getByRole("button", { name: /Federated accuracy figure/ }).click();
+
+  await expect(page.getByTestId("result-preview-image")).toBeVisible();
+  await expect(page.getByText("/workspace/outputs/figures/fed_curve/figure.png")).toBeVisible();
+  await expect(page.getByText("fed_curve.py")).toBeVisible();
+  await expect(page.getByText("Prism 文件级修改")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "全部保存" })).toHaveCount(0);
+  await expect(page.getByText(/保存或忽略会由产物确认入口处理/)).toBeVisible();
+});
+
 test("result card can deep-link into an expert team preview", async ({
   page,
   context,

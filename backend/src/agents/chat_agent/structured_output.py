@@ -31,7 +31,8 @@ async def parse_with_fallback(llm: Any, prompt: str, *, run_id: str) -> AgentMes
     # Plan 3 T2 — dev-only short-circuit: if a Playwright test has queued a
     # scripted AgentMessage via /__test__/llm/queue, return it instead of
     # calling the real LLM. Disabled in production.
-    if get_settings().environment.lower() != "production":
+    settings = get_settings()
+    if settings.e2e_test_hooks_enabled and settings.environment.lower() != "production":
         try:
             from src.gateway.routers.dev_test_hooks import pop_next
             queued = pop_next()

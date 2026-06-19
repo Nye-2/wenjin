@@ -1,8 +1,5 @@
 import type { BrowserContext, Page, Route } from "@playwright/test";
 
-const AUTH_COOKIE = JSON.stringify({
-  state: { isAuthenticated: true },
-});
 const AUTH_STORAGE_VALUE = JSON.stringify({
   state: {
     user: null,
@@ -72,7 +69,7 @@ export function buildEventStreamBody(
 
 export async function installWorkspaceRouteMocks(
   page: Page,
-  context: BrowserContext,
+  _context: BrowserContext,
   options: MockOptions = {},
 ): Promise<void> {
   const workspaceId = options.workspaceId ?? "ws-1";
@@ -158,14 +155,6 @@ export async function installWorkspaceRouteMocks(
     };
   }
 
-  await context.addCookies([
-    {
-      name: "auth-storage",
-      value: encodeURIComponent(AUTH_COOKIE),
-      domain: "localhost",
-      path: "/",
-    },
-  ]);
   await page.addInitScript(
     ({ storageKey, storageValue }) => {
       window.localStorage.setItem(storageKey, storageValue);

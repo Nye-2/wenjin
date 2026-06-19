@@ -122,6 +122,101 @@ const markdownComponents = {
 export function ResultPreviewRenderer({
   preview,
 }: ResultPreviewRendererProps) {
+  if (preview.previewMode === "image") {
+    const path = preview.previewPath?.trim();
+    return (
+      <div
+        data-testid="result-preview-image"
+        style={{
+          display: "grid",
+          gap: 10,
+          padding: 14,
+          borderRadius: "var(--wjn-radius-lg)",
+          border: "1px solid var(--wjn-line)",
+          background: "var(--wjn-surface-subtle)",
+          color: "var(--wjn-text-secondary)",
+        }}
+      >
+        <div
+          style={{
+            height: 136,
+            borderRadius: "var(--wjn-radius-md)",
+            border: "1px dashed rgba(20, 20, 30, 0.18)",
+            background:
+              "linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0.42))",
+            display: "grid",
+            placeItems: "center",
+            overflow: "hidden",
+          }}
+        >
+          <div
+            aria-hidden="true"
+            style={{
+              width: 92,
+              height: 58,
+              display: "flex",
+              alignItems: "end",
+              justifyContent: "center",
+              gap: 8,
+              borderBottom: "1px solid rgba(20,20,30,0.2)",
+              borderLeft: "1px solid rgba(20,20,30,0.2)",
+              padding: "0 10px 6px",
+            }}
+          >
+            {[28, 44, 36, 52].map((height) => (
+              <span
+                key={height}
+                style={{
+                  width: 9,
+                  height,
+                  borderRadius: "3px 3px 0 0",
+                  background: "rgba(124, 58, 237, 0.52)",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gap: 4,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 650,
+              color: "var(--wjn-text)",
+            }}
+          >
+            图表预览
+          </div>
+          {path ? (
+            <code
+              style={{
+                fontFamily: "var(--wjn-font-mono)",
+                fontSize: 12,
+                color: "var(--wjn-text-muted)",
+                wordBreak: "break-all",
+              }}
+            >
+              {path}
+            </code>
+          ) : (
+            <span
+              style={{
+                fontSize: 12.5,
+                color: "var(--wjn-text-muted)",
+              }}
+            >
+              产物路径将在保存后由工作区解析。
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   const content = preview.previewText?.trim();
   if (!content) {
     return (

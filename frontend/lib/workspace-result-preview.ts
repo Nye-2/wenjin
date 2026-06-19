@@ -3,10 +3,12 @@ type PreviewMode =
   | "plain_text"
   | "outline"
   | "citation"
-  | "structured_json";
+  | "structured_json"
+  | "image";
 
 type PreviewKind =
   | "document"
+  | "figure"
   | "library_item"
   | "memory_fact"
   | "decision"
@@ -20,7 +22,7 @@ export interface WorkspaceRoomTarget {
 
 export interface WorkspaceResultPreview {
   id: string;
-  source: "staged_output" | "document_room" | "library_room";
+  source: "staged_output" | "review_item" | "document_room" | "library_room";
   kind: PreviewKind;
   data?: Record<string, unknown> | null;
   title: string;
@@ -28,6 +30,8 @@ export interface WorkspaceResultPreview {
   badge: string | null;
   previewMode: PreviewMode;
   previewText: string | null;
+  previewPath?: string | null;
+  metadata?: Record<string, unknown> | null;
   metadataLines: string[];
   defaultChecked: boolean;
   canCommit: boolean;
@@ -97,8 +101,27 @@ export function buildWorkspaceResultPreviewsFromOutputs(
 
     switch (kind) {
       case "document":
+        if (isFigureDocument(data)) {
+          return [
+            buildFigurePreview({
+              id,
+              preview,
+              defaultChecked,
+              data,
+            }),
+          ];
+        }
         return [
           buildDocumentPreview({
+            id,
+            preview,
+            defaultChecked,
+            data,
+          }),
+        ];
+      case "figure":
+        return [
+          buildFigurePreview({
             id,
             preview,
             defaultChecked,
@@ -178,6 +201,91 @@ export function buildWorkspaceResultPreviewsFromOutputs(
       default:
         return [];
     }
+  });
+}
+
+export function buildWorkspaceResultPreviewsFromReviewItems(
+  reviewItems: unknown,
+): WorkspaceResultPreview[] {
+  if (!Array.isArray(reviewItems)) {
+    return [];
+  }
+
+  return reviewItems.flatMap((value) => {
+    const item = readObject(value);
+    if (!item || !isSandboxFigureReviewItem(item)) {
+      return [];
+    }
+    const id = readString(item.id);
+    if (!id) {
+      return [];
+    }
+    const target = readObject(item.target);
+    const preview = readObject(item.preview);
+    const source = readObject(item.source);
+    const reproducibility = readObject(item.reproducibility);
+    const previewPath = firstWorkspaceImagePath(
+      readString(preview?.path),
+      readString(target?.path),
+      readString(item.summary),
+    );
+    if (!previewPath) {
+      return [];
+    }
+    const title = firstNonNull(readString(item.title), pathBasename(previewPath), previewPath) ?? "图表候选";
+    const summary = readString(item.summary);
+    const mimeType = readString(preview?.mime_type);
+    const contentHash = firstNonNull(
+      readString(preview?.content_hash),
+      readString(reproducibility?.content_hash),
+    );
+    const sourceScript = readString(reproducibility?.source_script);
+    const datasetPaths = readStringArray(reproducibility?.dataset_paths);
+    const metadata: Record<string, unknown> = {
+      review_item_id: id,
+      sandbox_artifact_id: readString(target?.sandbox_artifact_id),
+      source_task_id: readString(source?.task_id),
+      mime_type: mimeType,
+      content_hash: contentHash,
+      source_script: sourceScript,
+      dataset_paths: datasetPaths,
+    };
+    const metadataLines = [
+      mimeType,
+      sourceScript ? pathBasename(sourceScript) : null,
+      datasetPaths.length > 0
+        ? `数据 ${datasetPaths.map((path) => pathBasename(path) ?? path).join(", ")}`
+        : null,
+      contentHash,
+    ].filter((line): line is string => Boolean(line));
+
+    return [
+      {
+        id: `review:${id}`,
+        source: "review_item",
+        kind: "figure",
+        title,
+        subtitle: summary && summary !== title && summary !== previewPath ? summarizeText(summary) : null,
+        badge: "图表",
+        data: {
+          ...target,
+          path: previewPath,
+          preview_path: previewPath,
+          mime_type: mimeType,
+          content_hash: contentHash,
+          artifact_kind: "figure",
+          review_item: item,
+        },
+        previewMode: "image",
+        previewPath,
+        previewText: summary ?? previewPath,
+        metadata,
+        metadataLines,
+        defaultChecked: false,
+        canCommit: false,
+        canOpenRoom: false,
+      },
+    ];
   });
 }
 
@@ -311,6 +419,54 @@ function buildLibraryPreview(options: {
   };
 }
 
+function buildFigurePreview(options: {
+  id: string;
+  preview: string | null;
+  defaultChecked: boolean;
+  data: Record<string, unknown> | null;
+}): WorkspaceResultPreview {
+  const { id, preview, defaultChecked, data } = options;
+  const manifest = readObject(data?.manifest);
+  const title =
+    firstNonNull(
+      readString(data?.title),
+      readString(data?.figure_title),
+      preview,
+      readString(data?.name),
+    ) ?? "图表候选";
+  const caption = summarizeText(
+    firstNonNull(
+      readString(data?.caption),
+      readString(data?.caption_text),
+      readString(manifest?.caption),
+    ),
+  );
+  const previewPath = resolveFigurePreviewPath(data, preview);
+  const metadata = buildFigureMetadata(data);
+
+  return {
+    id,
+    source: "staged_output",
+    kind: "figure",
+    title,
+    subtitle: caption,
+    badge: "图表",
+    data,
+    previewMode: "image",
+    previewPath,
+    previewText: caption ?? previewPath ?? title,
+    metadata,
+    metadataLines: buildFigureMetadataLines(metadata),
+    defaultChecked,
+    canCommit: true,
+    canOpenRoom: true,
+    roomTarget: {
+      room: "documents",
+      query: title,
+    },
+  };
+}
+
 function resolveDocumentPreviewMode(
   mimeType: string | null,
   docKind: string | null,
@@ -326,6 +482,114 @@ function resolveDocumentPreviewMode(
     return "markdown";
   }
   return "plain_text";
+}
+
+function isFigureDocument(data: Record<string, unknown> | null): boolean {
+  const docKind = readString(data?.doc_kind);
+  const artifactKind = readString(data?.artifact_kind);
+  const mimeType = readString(data?.mime_type);
+  return docKind === "figure" || artifactKind === "figure" || isImageMimeType(mimeType);
+}
+
+function isImageMimeType(value: string | null): boolean {
+  return value?.toLowerCase().startsWith("image/") ?? false;
+}
+
+function isSandboxFigureReviewItem(item: Record<string, unknown>): boolean {
+  const target = readObject(item.target);
+  const preview = readObject(item.preview);
+  const kind = readString(item.kind);
+  const targetKind = readString(target?.kind);
+  if (kind !== "sandbox_artifact" && targetKind !== "sandbox_artifact") {
+    return false;
+  }
+  const path = firstNonNull(
+    readString(preview?.path),
+    readString(target?.path),
+    readString(item.summary),
+  );
+  return (
+    readString(target?.artifact_kind) === "figure" ||
+    isImageMimeType(readString(preview?.mime_type)) ||
+    Boolean(path && isWorkspaceImagePath(path))
+  );
+}
+
+function resolveFigurePreviewPath(
+  data: Record<string, unknown> | null,
+  preview: string | null,
+): string | null {
+  return firstWorkspaceImagePath(
+    readString(data?.primary_path),
+    readString(data?.path),
+    readString(data?.preview_path),
+    readString(data?.artifact_path),
+    preview && isWorkspaceImagePath(preview) ? preview : null,
+  );
+}
+
+function firstWorkspaceImagePath(...values: Array<string | null>): string | null {
+  for (const value of values) {
+    if (value && isWorkspaceImagePath(value)) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function isWorkspaceImagePath(value: string): boolean {
+  return (
+    value.startsWith("/workspace/") &&
+    /\.(png|jpe?g|webp|gif|svg)$/i.test(value.split("?")[0] ?? value)
+  );
+}
+
+function pathBasename(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const clean = value.split("?")[0] ?? value;
+  return clean.split("/").filter(Boolean).at(-1) ?? null;
+}
+
+function summarizeText(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  return value.length > 140 ? `${value.slice(0, 137).trimEnd()}...` : value;
+}
+
+function buildFigureMetadata(
+  data: Record<string, unknown> | null,
+): Record<string, unknown> | null {
+  const metadata: Record<string, unknown> = {};
+  for (const key of ["strategy", "figure_type", "provenance", "provider", "source"]) {
+    const value = readString(data?.[key]);
+    if (value) {
+      metadata[key] = value;
+    }
+  }
+  return Object.keys(metadata).length > 0 ? metadata : null;
+}
+
+function buildFigureMetadataLines(
+  metadata: Record<string, unknown> | null,
+): string[] {
+  if (!metadata) {
+    return [];
+  }
+  return [
+    readString(metadata.strategy) ? `strategy: ${readString(metadata.strategy)}` : null,
+    readString(metadata.figure_type)
+      ? `figure_type: ${readString(metadata.figure_type)}`
+      : null,
+    readString(metadata.provenance)
+      ? `source: ${readString(metadata.provenance)}`
+      : readString(metadata.source)
+        ? `source: ${readString(metadata.source)}`
+        : null,
+    readString(metadata.provider) ? `provider: ${readString(metadata.provider)}` : null,
+  ].filter((value): value is string => Boolean(value));
 }
 
 function documentKindLabel(value: string): string {

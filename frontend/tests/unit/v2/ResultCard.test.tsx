@@ -97,6 +97,41 @@ describe("ResultCard", () => {
     expect(screen.getByText("保存到工作区")).toBeInTheDocument();
   });
 
+  it("renders figure outputs with a visual placeholder and figure summary", () => {
+    render(
+      <ResultCard
+        data={{
+          ...SAMPLE_DATA,
+          capability_name: "图表生成",
+          outputs: [
+            {
+              id: "fig-1",
+              kind: "figure",
+              preview: "Accuracy trend",
+              default_checked: true,
+              data: {
+                title: "Accuracy trend",
+                primary_path: "/workspace/outputs/figures/run-1/figure.png",
+                caption: "Validation accuracy improved across the final three epochs.",
+                strategy: "matplotlib_line_chart",
+                figure_type: "line",
+                provenance: "sandbox",
+              },
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("图表产物")).toBeInTheDocument();
+    expect(screen.getByText("图表")).toBeInTheDocument();
+    expect(screen.getByText("Accuracy trend")).toBeInTheDocument();
+    expect(
+      screen.getByText("Validation accuracy improved across the final three epochs."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/matplotlib_line_chart/)).toBeInTheDocument();
+  });
+
   it("opens the workbench review surface for detailed result review", () => {
     useRunUiStore.getState().focusPreviewItem("stale-preview");
     render(<ResultCard data={SAMPLE_DATA} />);

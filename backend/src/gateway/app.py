@@ -258,7 +258,7 @@ app.include_router(admin_credit_rules.router, prefix="/api", tags=["admin", "cre
 app.include_router(admin_redeem_codes.router, prefix="/api", tags=["admin", "credits"])
 app.include_router(credits_redeem.router, prefix="/api", tags=["credits"])
 
-# Dev-only test hooks for Playwright e2e (Plan 3 T2). Disabled in production.
-if settings.environment.lower() != "production":
+# Dev-only test hooks for Playwright e2e. Explicit opt-in only and never mounted in production.
+if settings.e2e_test_hooks_enabled and settings.environment.lower() != "production":
     from .routers import dev_test_hooks  # noqa: E402
     app.include_router(dev_test_hooks.router)

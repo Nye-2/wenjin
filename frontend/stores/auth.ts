@@ -3,7 +3,6 @@ import { persist } from 'zustand/middleware';
 import { API_BASE_URL } from '@/lib/api-base';
 
 export const AUTH_STORAGE_KEY = 'auth-storage';
-const AUTH_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 interface User {
   id: string;
@@ -32,35 +31,6 @@ interface AuthState {
   setUser: (user: User) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   clearError: () => void;
-}
-
-export function syncAuthCookie(
-  state:
-    | Pick<AuthState, 'isAuthenticated'>
-    | null
-    | undefined
-) {
-  if (typeof document === 'undefined') {
-    return;
-  }
-
-  if (!state?.isAuthenticated) {
-    document.cookie = `${AUTH_STORAGE_KEY}=; Path=/; Max-Age=0; SameSite=Lax`;
-    return;
-  }
-
-  const payload = encodeURIComponent(
-    JSON.stringify({
-      state: {
-        isAuthenticated: true,
-      },
-    })
-  );
-  document.cookie = `${AUTH_STORAGE_KEY}=${payload}; Path=/; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
-}
-
-export function syncCurrentAuthCookie() {
-  syncAuthCookie(useAuthStore.getState());
 }
 
 async function parseErrorMessage(response: Response, fallback: string): Promise<string> {
@@ -150,7 +120,6 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
             isLoading: false,
           });
-          syncAuthCookie({ isAuthenticated: true });
 
           return true;
         } catch (error) {
@@ -158,7 +127,6 @@ export const useAuthStore = create<AuthState>()(
             error: normalizeRequestError(error, 'Login failed'),
             isLoading: false,
           });
-          syncAuthCookie({ isAuthenticated: false });
           return false;
         }
       },
@@ -217,7 +185,6 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true,
             isLoading: false,
           });
-          syncAuthCookie({ isAuthenticated: true });
 
           return true;
         } catch (error) {
@@ -225,7 +192,6 @@ export const useAuthStore = create<AuthState>()(
             error: normalizeRequestError(error, 'Registration failed'),
             isLoading: false,
           });
-          syncAuthCookie({ isAuthenticated: false });
           return false;
         }
       },
@@ -268,7 +234,6 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: false,
           error: null,
         });
-        syncAuthCookie({ isAuthenticated: false });
       },
 
       refreshTokens: async () => {
@@ -284,7 +249,6 @@ export const useAuthStore = create<AuthState>()(
 
           if (!response.ok) {
             set({ isAuthenticated: false });
-            syncAuthCookie({ isAuthenticated: false });
             return false;
           }
 
@@ -321,12 +285,9 @@ export const useAuthStore = create<AuthState>()(
               isAuthenticated: true,
             });
           }
-          syncAuthCookie({ isAuthenticated: true });
-
           return true;
         } catch {
           set({ isAuthenticated: false });
-          syncAuthCookie({ isAuthenticated: false });
           return false;
         }
       },
@@ -344,9 +305,6 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
-      onRehydrateStorage: () => (state) => {
-        syncAuthCookie(state);
-      },
     }
   )
 );

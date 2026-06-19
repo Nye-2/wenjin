@@ -550,6 +550,58 @@ def test_summarize_args_redacts_large_tool_text_payloads() -> None:
     assert "sk-secret-content" not in dumped
 
 
+def test_summarize_args_redacts_generate_figure_source_payloads() -> None:
+    source_code = "print('sk-secret-source-code')\n"
+    source_prompt = "Render with Authorization Bearer prompt-secret-token"
+
+    summary = summarize_tool_args(
+        {
+            "source_code": source_code,
+            "source_prompt": source_prompt,
+        }
+    )
+
+    assert summary["source_code"] == {
+        "redacted": True,
+        "chars": len(source_code),
+        "sha256": hashlib.sha256(source_code.encode("utf-8")).hexdigest(),
+    }
+    assert summary["source_prompt"] == {
+        "redacted": True,
+        "chars": len(source_prompt),
+        "sha256": hashlib.sha256(source_prompt.encode("utf-8")).hexdigest(),
+    }
+    dumped = json.dumps(summary, ensure_ascii=False)
+    assert "sk-secret-source-code" not in dumped
+    assert "prompt-secret-token" not in dumped
+
+
+def test_summarize_args_redacts_generate_figure_spec_payload() -> None:
+    spec = {
+        "figure_id": "secret_figure",
+        "title": "Secret Figure",
+        "figure_type": "graphical_abstract",
+        "strategy": "llm_image",
+        "purpose": "render sk-secret-purpose",
+        "inputs": {"prompt": "Authorization Bearer spec-token"},
+        "provenance": {"api_key": "sk-secret-provenance"},
+        "output_targets": ["/workspace/reports/figures/secret_figure/figure.png"],
+    }
+
+    summary = summarize_tool_args({"spec": spec})
+
+    encoded = json.dumps(spec, ensure_ascii=False, sort_keys=True, default=str)
+    assert summary["spec"] == {
+        "redacted": True,
+        "kind": "dict",
+        "sha256": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+    }
+    dumped = json.dumps(summary, ensure_ascii=False)
+    assert "sk-secret-purpose" not in dumped
+    assert "spec-token" not in dumped
+    assert "sk-secret-provenance" not in dumped
+
+
 def test_summarize_args_redacts_dependency_hints_before_validation() -> None:
     dependency_hints = [
         "pandas",

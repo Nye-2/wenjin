@@ -113,6 +113,9 @@ TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
 DOCKER_GID=0
 ADMIN_PASSWORD=change-this-admin-password
 GRAFANA_PASSWORD=change-this-grafana-password
+DATASERVICE_INTERNAL_TOKEN=change-this-dataservice-internal-token
+ENVIRONMENT=production
+E2E_TEST_HOOKS_ENABLED=false
 EOF
 docker compose up -d
 ```
@@ -133,7 +136,7 @@ getent group docker | cut -d: -f3
 cd "$REPO_ROOT"
 cp backend/.env.example backend/.env
 cp .env.docker-cn.example .env
-# 编辑 .env 中的 ADMIN_PASSWORD、GRAFANA_PASSWORD、WENJIN_PROJECT_DIR
+# 编辑 .env 中的 ADMIN_PASSWORD、GRAFANA_PASSWORD、DATASERVICE_INTERNAL_TOKEN、WENJIN_PROJECT_DIR
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 

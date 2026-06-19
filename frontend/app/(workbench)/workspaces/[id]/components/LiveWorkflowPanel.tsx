@@ -334,14 +334,19 @@ export function LiveWorkflowPanel({
     if (!selectedRecord || commitState.committing || commitState.committed) {
       return;
     }
-    const outputIds = previews.map((preview) => preview.id);
-    const canAcceptAll = selectedRecord.status === "completed";
+    const committablePreviews = previews.filter((preview) => preview.canCommit);
+    const outputIds = committablePreviews.map((preview) => preview.id);
+    const outputIdSet = new Set(outputIds);
+    const canAcceptAll = selectedRecord.status === "completed" && outputIds.length > 0;
+    if (mode !== "discard" && outputIds.length === 0) {
+      return;
+    }
     const useAcceptAll = mode === "all" && canAcceptAll;
     const acceptedIds =
       useAcceptAll
         ? outputIds
         : mode === "selected"
-          ? Array.from(checkedIds)
+          ? Array.from(checkedIds).filter((id) => outputIdSet.has(id))
           : [];
     const body: ExecutionCommitRequest =
       useAcceptAll
@@ -364,7 +369,7 @@ export function LiveWorkflowPanel({
         idempotencyKey: commitState.idempotencyKey,
         body,
       });
-      const commitLinkPreviews = applyDraftLabelsToCommitLinks(previews, draftEdits);
+      const commitLinkPreviews = applyDraftLabelsToCommitLinks(committablePreviews, draftEdits);
       const links = buildCommittedRoomLinks({
         workspaceId,
         previews: commitLinkPreviews,

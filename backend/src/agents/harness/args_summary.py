@@ -6,8 +6,10 @@ import hashlib
 import json
 from typing import Any
 
-TEXT_PAYLOAD_ARG_KEYS = frozenset({"content", "markdown", "script", "text"})
-STRUCTURED_PAYLOAD_ARG_KEYS = frozenset({"dependency_hints", "edits"})
+TEXT_PAYLOAD_ARG_KEYS = frozenset(
+    {"content", "markdown", "script", "source_code", "source_prompt", "text"}
+)
+STRUCTURED_PAYLOAD_ARG_KEYS = frozenset({"dependency_hints", "edits", "spec"})
 
 
 def summarize_tool_args(args: dict[str, Any]) -> dict[str, Any]:

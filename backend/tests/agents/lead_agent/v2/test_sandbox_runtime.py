@@ -14,6 +14,10 @@ from src.agents.lead_agent.v2.sandbox_runtime import (
     run_python_script,
     run_python_smoke_check,
 )
+from src.agents.lead_agent.v2.sandbox_runtime_session import (
+    provider_from_policy,
+    sandbox_timeout,
+)
 from src.agents.lead_agent.v2.workspace_sandbox import ENSURE_WORKSPACE_VENV_COMMAND
 from src.sandbox.base import CommandResult, FileInfo
 from src.sandbox.providers.local import LocalSandbox
@@ -143,6 +147,34 @@ class _LocalProvider:
 
     async def release(self, sandbox: LocalSandbox) -> None:
         self.released.append(sandbox)
+
+
+def test_sandbox_timeout_honors_capability_policy_up_to_default_global_cap(monkeypatch) -> None:
+    monkeypatch.delenv("WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS", raising=False)
+
+    assert sandbox_timeout({"timeout_seconds": 900}) == 900
+
+
+def test_sandbox_timeout_clamps_to_configured_global_cap(monkeypatch) -> None:
+    monkeypatch.setenv("WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS", "300")
+
+    assert sandbox_timeout({"timeout_seconds": 900}) == 300
+
+
+def test_provider_from_policy_uses_same_timeout_normalization(monkeypatch) -> None:
+    monkeypatch.setenv("WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS", "600")
+
+    provider = provider_from_policy(
+        {
+            "resource_limits": {
+                "cpu": 1,
+                "memory_mb": 512,
+                "timeout_seconds": 900,
+            }
+        }
+    )
+
+    assert provider.timeout == 600
 
 
 class _FakeWorkspaceSandboxManager:

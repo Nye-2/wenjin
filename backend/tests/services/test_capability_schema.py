@@ -1,6 +1,9 @@
 """Tests for capability/skill YAML schema validation."""
 
+from pathlib import Path
+
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from src.services.capability_schema import (
@@ -527,6 +530,31 @@ Anti-Patterns:
         assert data["prompt"] == self._valid_role_prompt()
         assert data["allowed_tools"] == ["sandbox.run_python", "sandbox.write_file"]
         assert data["config"]["extensions"]["search"]["sources"] == ["semantic_scholar"]
+
+    def test_figure_engineer_seed_uses_generate_figure_policy_and_catalog_data(self):
+        seed_path = Path(__file__).parents[2] / "seed" / "skills" / "figure-engineer.yaml"
+        payload = yaml.safe_load(seed_path.read_text())
+
+        model = CapabilitySkillV2YamlModel(**payload)
+        data = model.to_catalog_data()
+
+        allowed_tools = data["allowed_tools"]
+        assert "sandbox.run_python" in allowed_tools
+        assert "sandbox.generate_figure" in allowed_tools
+        assert data["config"]["sandbox_access"]["mode"] == "required"
+        assert "visualization" in data["config"]["sandbox_access"]["profiles"]
+        assert "sandbox.generate_figure" in data["tool_policy"]["allowed_tools"]
+
+        output_schema = data["io_contract"]["output_schema"]
+        assert output_schema["required"] == [
+            "figure_specs",
+            "artifact_refs",
+            "text",
+            "quality_gates_checked",
+        ]
+        for property_name in output_schema["required"]:
+            assert property_name in output_schema["properties"]
+            assert property_name in data["prompt"]
 
     def test_skill_with_quality_gates_requires_checked_output_field(self):
         payload = self._valid_payload()

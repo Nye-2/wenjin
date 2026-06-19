@@ -1,7 +1,7 @@
-"""Dev-only endpoints for queueing scripted LLM responses during e2e tests.
+"""Explicitly enabled endpoints for queueing scripted LLM responses during e2e tests.
 
-Mounted only when settings.environment != "production". The router itself is
-disabled at registration time in src.gateway.app.
+Mounted only when E2E_TEST_HOOKS_ENABLED=true and settings.environment != "production".
+The router itself is disabled at registration time in src.gateway.app.
 
 Endpoints:
 - POST /__test__/llm/queue   — enqueue AgentMessage payloads for the next
@@ -61,7 +61,7 @@ def pop_next() -> AgentMessage | None:
     """Pop the next scripted AgentMessage, or return None if empty.
 
     Called from src.agents.chat_agent.structured_output.parse_with_fallback
-    when settings.environment != "production".
+    when E2E_TEST_HOOKS_ENABLED=true and settings.environment != "production".
     """
     return _queue.popleft() if _queue else None
 

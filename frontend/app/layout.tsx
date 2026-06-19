@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AuthCookieSync } from "@/components/auth/auth-cookie-sync";
 import { I18nProvider } from "@/components/i18n-provider";
 
 export const metadata: Metadata = {
@@ -32,7 +31,6 @@ export default function RootLayout({
         }
       >
         <I18nProvider>
-          <AuthCookieSync />
           {children}
         </I18nProvider>
       </body>

@@ -27,7 +27,7 @@ describe("WorkspaceChrome auth routing", () => {
     });
   });
 
-  it("repairs the auth route cookie before switching protected surfaces", () => {
+  it("does not write route cookies when switching protected surfaces", () => {
     render(
       <WorkspaceChrome
         workspaceId="ws-1"
@@ -47,9 +47,6 @@ describe("WorkspaceChrome auth routing", () => {
 
     fireEvent.click(prismTab);
 
-    expect(document.cookie).toContain("auth-storage=");
-    expect(decodeURIComponent(document.cookie)).toContain(
-      '"isAuthenticated":true',
-    );
+    expect(document.cookie).not.toContain("auth-storage=");
   });
 });

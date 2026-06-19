@@ -23,6 +23,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Secret hygiene guard
+        run: python scripts/ci_secret_guard.py
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

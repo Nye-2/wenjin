@@ -46,6 +46,15 @@ function reviewNotice(items: WorkspacePrismReviewItem[]): string {
   return `有 ${items.length} 项待确认`;
 }
 
+function figureDetailLine(metadataLines: string[]): string | null {
+  return (
+    metadataLines.find((line) => line.startsWith("strategy:")) ??
+    metadataLines.find((line) => line.startsWith("figure_type:")) ??
+    metadataLines[0] ??
+    null
+  );
+}
+
 interface ResultCardProps {
   data: ResultCardData;
   workspaceId?: string;
@@ -220,8 +229,27 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                 const groupMeta = previewGroups.find(
                   (group) => group.kind === preview.kind,
                 )?.meta;
+                const figureMetaLine =
+                  preview.kind === "figure"
+                    ? figureDetailLine(preview.metadataLines)
+                    : null;
                 return (
                   <div key={preview.id} style={styles.representativeItem}>
+                    {preview.kind === "figure" ? (
+                      <span style={styles.figureThumb} aria-hidden="true">
+                        {[18, 28, 22].map((height) => (
+                          <span
+                            key={height}
+                            style={{
+                              ...styles.figureThumbBar,
+                              height,
+                              background:
+                                groupMeta?.accent ?? "var(--wjn-blue)",
+                            }}
+                          />
+                        ))}
+                      </span>
+                    ) : null}
                     <span
                       style={{
                         ...styles.previewKindBadge,
@@ -236,6 +264,9 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                       <div style={styles.previewTitle}>{preview.title}</div>
                       {preview.subtitle ? (
                         <div style={styles.previewSubtitle}>{preview.subtitle}</div>
+                      ) : null}
+                      {figureMetaLine ? (
+                        <div style={styles.previewMetaLine}>{figureMetaLine}</div>
                       ) : null}
                     </div>
                   </div>
@@ -480,6 +511,30 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12,
     color: "var(--wjn-text-muted)",
     marginBottom: 4,
+  },
+  previewMetaLine: {
+    fontSize: 11.5,
+    color: "var(--wjn-text-muted)",
+    fontFamily: "var(--wjn-font-mono)",
+    wordBreak: "break-word",
+  },
+  figureThumb: {
+    width: 42,
+    height: 34,
+    flexShrink: 0,
+    display: "inline-flex",
+    alignItems: "end",
+    justifyContent: "center",
+    gap: 4,
+    padding: "0 6px 6px",
+    borderRadius: "var(--wjn-radius-sm)",
+    border: "1px solid rgba(20,20,30,0.08)",
+    background: "rgba(255,255,255,0.72)",
+  },
+  figureThumbBar: {
+    width: 6,
+    opacity: 0.62,
+    borderRadius: "3px 3px 0 0",
   },
   commitError: {
     padding: "8px 10px",

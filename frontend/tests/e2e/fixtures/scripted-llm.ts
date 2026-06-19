@@ -10,16 +10,13 @@
  * fresh workspace bound to the synthetic e2e user.
  */
 
-import type { BrowserContext, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 const BACKEND =
   process.env.WENJIN_BACKEND_URL ?? "http://localhost:8001";
 const AUTH_STORAGE_KEY = "auth-storage";
 const E2E_USER_EMAIL = "e2e-test@example.com";
 const E2E_USER_PASSWORD = "wenjin-e2e-password";
-const AUTH_COOKIE = JSON.stringify({
-  state: { isAuthenticated: true },
-});
 
 interface AgentMessageJSON {
   blocks: Array<Record<string, unknown>>;
@@ -111,17 +108,8 @@ export async function setupCleanWorkspace(): Promise<{
 
 export async function seedAuthenticatedSession(
   page: Page,
-  context: BrowserContext,
 ): Promise<void> {
   const session = await loginE2EUser();
-  await context.addCookies([
-    {
-      name: AUTH_STORAGE_KEY,
-      value: encodeURIComponent(AUTH_COOKIE),
-      domain: "localhost",
-      path: "/",
-    },
-  ]);
   await page.addInitScript(
     ({ storageKey, storageValue }) => {
       window.localStorage.setItem(storageKey, storageValue);

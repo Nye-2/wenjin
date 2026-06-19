@@ -1,7 +1,10 @@
 import { useMemo } from "react";
 
 import type { ExecutionRecord, WorkspacePrismReviewItem } from "@/lib/api/types";
-import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
+import {
+  buildWorkspaceResultPreviewsFromOutputs,
+  buildWorkspaceResultPreviewsFromReviewItems,
+} from "@/lib/workspace-result-preview";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import {
   applyDraftEditsToOutputs,
@@ -145,8 +148,10 @@ export function buildLiveWorkflowViewModel(
   });
   const baseOutputs = extractTaskOutputs(selectedRecord?.result);
   const editedOutputs = applyDraftEditsToOutputs(baseOutputs, input.draftEdits);
-  const previews = buildWorkspaceResultPreviewsFromOutputs(editedOutputs);
   const reviewItems = readReviewItems(selectedRecord);
+  const outputPreviews = buildWorkspaceResultPreviewsFromOutputs(editedOutputs);
+  const reviewPreviews = buildWorkspaceResultPreviewsFromReviewItems(reviewItems);
+  const previews = [...outputPreviews, ...reviewPreviews];
   const evidenceItems = buildEvidenceItems(selectedRecord, previews);
   const outputSignature = baseOutputs
     .map((output) => `${output.id}:${output.default_checked !== false}`)
@@ -158,7 +163,7 @@ export function buildLiveWorkflowViewModel(
   const runningRecord = selectedRecord && !isTerminalStatus(selectedRecord.status)
     ? selectedRecord
     : records.find((record) => !isTerminalStatus(record.status)) ?? null;
-  const pendingReviewCount = previews.length + reviewItems.length;
+  const pendingReviewCount = outputPreviews.length + reviewItems.length;
   const sandboxCount = evidenceItems.filter(
     (item) => item.kind === "sandbox" || item.summary.includes("sandbox"),
   ).length;

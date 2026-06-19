@@ -5,7 +5,6 @@ import { Archive } from "lucide-react";
 
 import { CountBadge } from "@/components/ui/count-badge";
 import { StatusChip } from "@/components/ui/status-chip";
-import { syncCurrentAuthCookie } from "@/stores/auth";
 
 export type WorkspaceSurface = "workbench" | "prism";
 
@@ -31,7 +30,6 @@ export function WorkspaceChrome({
       <Link
         href="/workspaces"
         aria-label="Wenjin"
-        onClick={syncCurrentAuthCookie}
         className="flex min-w-0 shrink-0 items-center gap-3 rounded-[var(--wjn-radius)] text-[var(--wjn-text)] no-underline outline-none transition-colors hover:text-[var(--wjn-blue)] focus-visible:ring-2 focus-visible:ring-[var(--wjn-accent-line)]"
       >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border border-[rgba(255,255,255,0.56)] bg-[linear-gradient(145deg,var(--wjn-navy),var(--wjn-blue)_72%,#4d78b9)] text-[13px] font-semibold text-white shadow-[0_10px_24px_rgba(44,93,160,0.20)]">
@@ -119,7 +117,6 @@ function SurfaceTab({
       aria-selected={active}
       aria-label={count > 0 ? `${label}，${count} 项待确认` : label}
       href={href}
-      onClick={syncCurrentAuthCookie}
       className={[
         "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-[var(--wjn-radius)] px-3 text-[12.5px] font-semibold transition-colors",
         active

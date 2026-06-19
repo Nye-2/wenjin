@@ -31,6 +31,15 @@ const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
     border: "rgba(37, 99, 235, 0.24)",
     order: 20,
   },
+  figure: {
+    label: "图表产物",
+    shortLabel: "图表",
+    groupLabel: "图表产物",
+    accent: "#7c3aed",
+    tint: "rgba(124, 58, 237, 0.08)",
+    border: "rgba(124, 58, 237, 0.22)",
+    order: 22,
+  },
   memory_fact: {
     label: "记忆片段",
     shortLabel: "记忆",

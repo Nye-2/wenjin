@@ -96,17 +96,20 @@ def test_validates_agent_template_rejects_write_tool_without_sandbox_filesystem(
     ]
 
 
-def test_validates_agent_template_rejects_python_tool_without_code_execution_profile() -> None:
+@pytest.mark.parametrize("tool_name", ["sandbox.run_python", "sandbox.generate_figure"])
+def test_validates_agent_template_rejects_execute_tool_without_code_execution_profile(
+    tool_name: str,
+) -> None:
     errors = validate_agent_template_contract(
         _template_with_valid_persona(
             id="methodologist.v1",
-            tool_affinity={"preferred": ["sandbox.run_python"], "can_request": []},
+            tool_affinity={"preferred": [tool_name], "can_request": []},
             risk_profile={"filesystem": "sandbox_only", "code_execution": "not_needed"},
         )
     )
 
     assert errors == [
-        "methodologist.v1: sandbox.run_python requires "
+        "methodologist.v1: sandbox execute tools require "
         "risk_profile.code_execution optional|required"
     ]
 
@@ -197,6 +200,7 @@ def test_validates_persona_prompt_rejects_internal_runtime_terms() -> None:
         "sandbox.register_dataset",
         "sandbox.register_artifact",
         "sandbox.run_python",
+        "sandbox.generate_figure",
     ],
 )
 def test_builtin_sandbox_tool_names_are_known_team_tools(tool_name: str) -> None:

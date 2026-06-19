@@ -31,6 +31,7 @@ TOOL_REQUIRED_PERMISSIONS: dict[str, frozenset[str]] = {
     "sandbox.register_dataset": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.register_artifact": frozenset({"filesystem.write", "filesystem.diff"}),
     "sandbox.run_python": frozenset({"sandbox.run_python"}),
+    "sandbox.generate_figure": frozenset({"sandbox.generate_figure"}),
 }
 
 PROTECTED_PATHS = WORKSPACE_PROTECTED_PATHS
@@ -60,6 +61,8 @@ def resolve_harness_policy(ctx: HarnessRunContext) -> HarnessPolicy:
     )
     if not capability_permissions:
         capability_permissions = _permissions_for_tools(capability_tools or allowed_tools)
+    if "render_figures" not in _sandbox_allowed_operations(ctx.capability_policy):
+        capability_permissions.discard("sandbox.generate_figure")
 
     filtered_tools: list[str] = []
     effective_permissions: set[str] = set()
@@ -98,7 +101,10 @@ def _capability_tools(policy: dict[str, Any]) -> tuple[str, ...]:
         or policy.get("tools")
         or _runtime_policy(policy).get("allowed_tools")
     )
-    return _string_tuple(raw)
+    explicit = _string_tuple(raw)
+    if explicit:
+        return explicit
+    return _tools_for_sandbox_operations(_sandbox_allowed_operations(policy))
 
 
 def _requested_tools(ctx: HarnessRunContext) -> tuple[str, ...]:
@@ -154,6 +160,8 @@ def _sandbox_access_tools(skill: dict[str, Any]) -> tuple[str, ...]:
     ]
     if profiles.intersection({"analysis", "visualization", "python", "experiment"}) or mode in {"optional", "required"}:
         tools.append("sandbox.run_python")
+    if "visualization" in profiles or mode in {"optional", "required"}:
+        tools.append("sandbox.generate_figure")
     return tuple(tools)
 
 
@@ -165,6 +173,19 @@ def _runtime_policy(policy: dict[str, Any]) -> dict[str, Any]:
 def _sandbox_policy(policy: dict[str, Any]) -> dict[str, Any]:
     sandbox = policy.get("sandbox_policy")
     return sandbox if isinstance(sandbox, dict) else {}
+
+
+def _sandbox_allowed_operations(policy: dict[str, Any]) -> frozenset[str]:
+    return frozenset(_string_set(_sandbox_policy(policy).get("allowed_operations")))
+
+
+def _tools_for_sandbox_operations(operations: frozenset[str]) -> tuple[str, ...]:
+    tools: list[str] = []
+    if "run_python" in operations:
+        tools.append("sandbox.run_python")
+    if "render_figures" in operations:
+        tools.append("sandbox.generate_figure")
+    return _string_tuple(tools)
 
 
 def _permissions_for_tools(tools: tuple[str, ...]) -> set[str]:

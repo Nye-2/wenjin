@@ -96,6 +96,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@wenjin.ai}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}
       - ADMIN_NAME=${ADMIN_NAME:-Admin}
@@ -151,9 +153,12 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - GATEWAY_HOST=0.0.0.0
       - GATEWAY_PORT=8001
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+      - WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=${WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS:-900}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads
@@ -196,11 +201,14 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
       - PROMETHEUS_WORKER_PORT=${PROMETHEUS_WORKER_PORT:-9153}
       - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-worker
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+      - WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=${WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS:-900}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     command: ["python", "-m", "src.task.worker", "1", "--queues", "long_running,default,priority"]
     volumes:
@@ -246,6 +254,8 @@ services:
       - CELERY_ENABLED=true
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
       - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-true}
       - PROMETHEUS_WORKER_PORT=${PROMETHEUS_MEMORY_WORKER_PORT:-9153}
       - PROMETHEUS_MULTIPROC_DIR=/tmp/wenjin-prometheus-memory-worker
@@ -289,8 +299,11 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
       - LANGGRAPH_HOST=0.0.0.0
       - LANGGRAPH_PORT=2024
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - E2E_TEST_HOOKS_ENABLED=${E2E_TEST_HOOKS_ENABLED:-false}
       - DATASERVICE_URL=http://dataservice:8080
       - DATASERVICE_INTERNAL_TOKEN=${DATASERVICE_INTERNAL_TOKEN:?DATASERVICE_INTERNAL_TOKEN must be set}
+      - WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=${WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS:-900}
       - WENJIN_LATEX_DATA_DIR=${WENJIN_PROJECT_DIR:-/home/cjz/wenjin}/backend/.wenjin/latex_projects
     volumes:
       - uploads:/app/uploads

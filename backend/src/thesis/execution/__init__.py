@@ -12,23 +12,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:
     from src.execution.types import ExecutionRequest, ExecutionResult
 
-# Forward declarations (will be implemented in separate modules)
-# These imports will work once latex_tool.py and figure_tool.py are created
-try:
-    from .figure_tool import GenerateFigureResult, generate_figure
-    from .latex_tool import CompileLatexResult, compile_latex
-except ImportError:
-    # Allow module to load before submodules are created
-    compile_latex = None  # type: ignore
-    CompileLatexResult = None  # type: ignore
-    generate_figure = None  # type: ignore
-    GenerateFigureResult = None  # type: ignore
-
 __all__ = [
     "compile_latex",
     "CompileLatexResult",
-    "generate_figure",
-    "GenerateFigureResult",
     "get_execution_service",
     "set_execution_service",
     "ExecutionServiceProtocol",
@@ -106,3 +92,6 @@ def set_execution_service(service: ExecutionServiceProtocol | None) -> None:
     """
     global _execution_service
     _execution_service = service
+
+
+from .latex_tool import CompileLatexResult, compile_latex

@@ -114,11 +114,13 @@ export function EvidenceView({
                       <input
                         type="checkbox"
                         aria-label={`选择${item.title}`}
-                        checked={checkedIds.has(item.preview.id)}
-                        disabled={disabled}
+                        checked={item.preview.canCommit && checkedIds.has(item.preview.id)}
+                        disabled={disabled || !item.preview.canCommit}
                         onChange={(event) => {
                           event.stopPropagation();
-                          onToggleChecked(item.preview.id);
+                          if (item.preview.canCommit) {
+                            onToggleChecked(item.preview.id);
+                          }
                         }}
                         onClick={(event) => event.stopPropagation()}
                         style={styles.checkbox}
@@ -144,7 +146,7 @@ export function EvidenceView({
       </section>
 
       <aside style={styles.editorAside}>
-        {selected?.source === "output" ? (
+        {selected?.source === "output" && selected.preview.canCommit ? (
           <ResultEditor
             preview={selected.preview}
             draft={draftEdits[selected.preview.id]}
@@ -152,6 +154,8 @@ export function EvidenceView({
             onPatchDraft={onPatchDraft}
             onSetDraft={onSetDraft}
           />
+        ) : selected?.source === "output" ? (
+          <EmptyState title="只读预览" detail="该项来自沙盒候选产物，可在预览中查看，保存由产物确认入口处理。" compact />
         ) : selected?.source === "node" ? (
           <NodeInspector
             node={{ id: selected.nodeId, type: selected.kind, label: selected.title }}

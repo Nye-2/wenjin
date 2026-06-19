@@ -294,6 +294,11 @@ class AppConfig(BaseSettings):
     # Application
     environment: str = Field(default="development", description="Running environment")
     debug: bool = Field(default=False, description="Debug mode")
+    e2e_test_hooks_enabled: bool = Field(
+        default=False,
+        alias="E2E_TEST_HOOKS_ENABLED",
+        description="Enable unauthenticated Playwright-only test hook routes and scripted LLM queue.",
+    )
     host: str = Field(default="0.0.0.0", description="Server host")
     port: int = Field(default=8000, ge=1, le=65535, description="Server port")
     log_level: str = Field(default="INFO", description="Logging level")

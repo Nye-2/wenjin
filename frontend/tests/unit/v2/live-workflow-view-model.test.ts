@@ -304,4 +304,57 @@ describe("live workflow view model", () => {
       }),
     ).toBe("review");
   });
+
+  it("projects sandbox figure review items into the review preview list", () => {
+    const record = baseRecord({
+      id: "figure-review-1",
+      status: "completed",
+      review_items: [
+        {
+          id: "review-figure-1",
+          kind: "sandbox_artifact",
+          status: "pending",
+          title: "Accept sandbox artifact: figure",
+          summary: "/workspace/outputs/figures/fed_curve/figure.png",
+          target: {
+            kind: "sandbox_artifact",
+            path: "/workspace/outputs/figures/fed_curve/figure.png",
+            artifact_kind: "figure",
+            sandbox_artifact_id: "artifact-1",
+          },
+          preview: {
+            mode: "artifact",
+            path: "/workspace/outputs/figures/fed_curve/figure.png",
+            mime_type: "image/png",
+            content_hash: "sha256:figure",
+          },
+          actions: [
+            { action: "accept_sandbox_artifact", label: "保存到产物库" },
+            { action: "reject_sandbox_artifact", label: "忽略" },
+          ],
+        },
+      ],
+    });
+
+    const model = buildLiveWorkflowViewModel({
+      records: [record],
+      workspaceId: "ws-1",
+      selectedRunId: "figure-review-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+      draftEdits: {},
+    });
+
+    expect(model.previews).toHaveLength(1);
+    expect(model.previews[0]).toMatchObject({
+      id: "review:review-figure-1",
+      kind: "figure",
+      previewMode: "image",
+      previewPath: "/workspace/outputs/figures/fed_curve/figure.png",
+      canCommit: false,
+    });
+    expect(model.pendingReviewCount).toBe(1);
+    expect(model.selectedPreview?.kind).toBe("figure");
+  });
 });

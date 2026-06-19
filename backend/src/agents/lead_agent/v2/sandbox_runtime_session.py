@@ -134,18 +134,25 @@ def resource_limits(policy: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def sandbox_timeout(limits: Mapping[str, Any]) -> int:
     timeout_seconds = int(limits.get("timeout_seconds") or 120)
-    return max(1, min(timeout_seconds, 120))
+    return max(1, min(timeout_seconds, sandbox_max_timeout_seconds()))
+
+
+def sandbox_max_timeout_seconds() -> int:
+    raw_value = os.getenv("WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS", "900")
+    try:
+        return max(int(raw_value), 1)
+    except (TypeError, ValueError):
+        return 900
 
 
 def provider_from_policy(policy: Mapping[str, Any]) -> DockerSandboxProvider:
     limits = resource_limits(policy)
     memory_mb = int(limits.get("memory_mb") or os.getenv("WENJIN_AGENT_SANDBOX_MEMORY_MB") or 512)
     cpu_limit = int(limits.get("cpu") or os.getenv("WENJIN_AGENT_SANDBOX_CPU") or 1)
-    timeout_seconds = int(limits.get("timeout_seconds") or 120)
     return DockerSandboxProvider(
         base_dir=default_base_dir(),
         image=default_image(),
-        timeout=timeout_seconds,
+        timeout=sandbox_timeout(limits),
         memory=f"{memory_mb}m",
         cpu_limit=cpu_limit,
     )
