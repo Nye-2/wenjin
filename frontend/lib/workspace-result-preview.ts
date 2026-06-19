@@ -347,6 +347,10 @@ export function buildWorkspaceResultPreviewsFromReviewPacket(
     }
     const preview = readObject(item.preview);
     const risk = readObject(item.risk);
+    const reviewState = reviewPacketSupportState({
+      kind,
+      riskLevel: readString(risk?.level),
+    });
     const source = readObject(item.source);
     const provenance = readObject(item.provenance);
     const title = readString(item.title) ?? reviewPacketKindLabel(kind);
@@ -371,11 +375,13 @@ export function buildWorkspaceResultPreviewsFromReviewPacket(
       prism_change_refs: readStringArray(item.prism_change_refs),
       quality_surfaces: readStringArray(item.quality_surfaces),
       risk,
+      review_state: reviewState,
       review_packet_item: item,
     };
     const metadataLines = buildReviewPacketMetadataLines({
       source,
       risk,
+      reviewState,
       claimRefs: metadata.claim_refs as string[],
       evidenceRefs: metadata.evidence_refs as string[],
       artifactRefs: metadata.artifact_refs as string[],
@@ -389,7 +395,7 @@ export function buildWorkspaceResultPreviewsFromReviewPacket(
         kind,
         title,
         subtitle: summary && summary !== title ? summarizeText(summary) : null,
-        badge: reviewPacketKindLabel(kind),
+        badge: reviewPacketBadgeLabel(kind, reviewState),
         data: metadata,
         previewMode,
         previewPath,
@@ -714,6 +720,39 @@ function reviewPacketKindLabel(kind: PreviewKind): string {
   }
 }
 
+function reviewPacketBadgeLabel(
+  kind: PreviewKind,
+  reviewState: "supported" | "needs_confirmation" | "blocker",
+): string {
+  if (reviewState === "blocker") {
+    return "阻断";
+  }
+  if (reviewState === "needs_confirmation") {
+    return "需确认";
+  }
+  if (kind === "warning") {
+    return "风险";
+  }
+  return reviewPacketKindLabel(kind);
+}
+
+function reviewPacketSupportState({
+  kind,
+  riskLevel,
+}: {
+  kind: PreviewKind;
+  riskLevel: string | null;
+}): "supported" | "needs_confirmation" | "blocker" {
+  const normalizedRisk = String(riskLevel || "").toLowerCase();
+  if (normalizedRisk === "high" || normalizedRisk === "critical") {
+    return "blocker";
+  }
+  if (kind === "warning" || normalizedRisk === "medium") {
+    return "needs_confirmation";
+  }
+  return "supported";
+}
+
 function resolveReviewPacketPreviewMode(options: {
   kind: PreviewKind;
   format: string | null;
@@ -737,6 +776,7 @@ function resolveReviewPacketPreviewMode(options: {
 function buildReviewPacketMetadataLines(options: {
   source: Record<string, unknown> | null;
   risk: Record<string, unknown> | null;
+  reviewState: "supported" | "needs_confirmation" | "blocker";
   claimRefs: string[];
   evidenceRefs: string[];
   artifactRefs: string[];
@@ -748,6 +788,7 @@ function buildReviewPacketMetadataLines(options: {
   );
   const riskLevel = readString(options.risk?.level);
   return [
+    `状态 ${reviewStateLabel(options.reviewState)}`,
     expert ? `专家 ${humanizeMetadataToken(expert)}` : null,
     riskLevel ? `风险 ${riskLevel}` : null,
     options.claimRefs.length ? `论断 ${options.claimRefs.length}` : null,
@@ -755,6 +796,12 @@ function buildReviewPacketMetadataLines(options: {
     options.artifactRefs.length ? `产物 ${options.artifactRefs.length}` : null,
     options.qualitySurfaces.length ? `质量面 ${options.qualitySurfaces.length}` : null,
   ].filter((value): value is string => Boolean(value));
+}
+
+function reviewStateLabel(value: "supported" | "needs_confirmation" | "blocker"): string {
+  if (value === "blocker") return "阻断";
+  if (value === "needs_confirmation") return "需确认";
+  return "已支持";
 }
 
 function humanizeMetadataToken(value: string): string {

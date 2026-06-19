@@ -96,6 +96,8 @@ def build_team_member_context(
     blackboard: TeamBlackboard,
     capability_policy: dict[str, Any] | None = None,
     research_state: dict[str, Any] | None = None,
+    research_brief: dict[str, Any] | None = None,
+    workspace_map_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build bounded input for a recruited team member.
 
@@ -128,6 +130,12 @@ def build_team_member_context(
     research_state_projection = project_research_state_for_member_context(research_state)
     if research_state_projection:
         payload["research_state"] = research_state_projection
+    research_brief_projection = project_research_brief_for_member_context(research_brief)
+    if research_brief_projection:
+        payload["research_brief"] = research_brief_projection
+    workspace_map_projection = project_workspace_map_for_member_context(workspace_map_summary)
+    if workspace_map_projection:
+        payload["workspace_map_summary"] = workspace_map_projection
     research_requirements = _research_evidence_requirements(capability_policy)
     if research_requirements:
         payload["research_evidence_requirements"] = research_requirements
@@ -145,12 +153,51 @@ def project_research_state_for_member_context(
         "schema_version": research_state.get("schema_version"),
         "execution_id": research_state.get("execution_id"),
         "goal": research_state.get("goal"),
+        "research_brief": _sanitize_payload(research_state.get("research_brief") or {}),
+        "workspace_map_summary": _sanitize_payload(research_state.get("workspace_map_summary") or {}),
         "claims": _sanitize_payload(list(research_state.get("claims") or [])[:30]),
+        "claim_inventory": _sanitize_payload(list(research_state.get("claim_inventory") or [])[:40]),
         "evidence_index": _sanitize_payload(list(research_state.get("evidence_index") or [])[:60]),
+        "evidence_packet": _sanitize_payload(list(research_state.get("evidence_packet") or [])[:80]),
         "artifact_index": _sanitize_payload(list(research_state.get("artifact_index") or [])[:30]),
         "open_questions": _string_list(research_state.get("open_questions"))[:20],
+        "unresolved_blockers": _string_list(research_state.get("unresolved_blockers"))[:20],
         "quality_state": _sanitize_payload(list(research_state.get("quality_state") or [])[:20]),
         "next_actions": _string_list(research_state.get("next_actions"))[:20],
+    }
+
+
+def project_research_brief_for_member_context(
+    research_brief: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(research_brief, dict):
+        return None
+    return {
+        "schema_version": research_brief.get("schema_version"),
+        "brief_id": research_brief.get("brief_id"),
+        "research_topic": _compact_text(research_brief.get("research_topic") or ""),
+        "target_output": _compact_text(research_brief.get("target_output") or ""),
+        "user_objective": _compact_text(research_brief.get("user_objective") or ""),
+        "known_inputs": _sanitize_payload(list(research_brief.get("known_inputs") or [])[:10]),
+        "missing_inputs": _sanitize_payload(list(research_brief.get("missing_inputs") or [])[:10]),
+        "perspectives": _sanitize_payload(list(research_brief.get("perspectives") or [])[:8]),
+        "search_plan": _sanitize_payload(research_brief.get("search_plan") or {}),
+        "quality_contract": _sanitize_payload(research_brief.get("quality_contract") or {}),
+    }
+
+
+def project_workspace_map_for_member_context(
+    workspace_map_summary: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if not isinstance(workspace_map_summary, dict):
+        return None
+    return {
+        "schema_version": workspace_map_summary.get("schema_version"),
+        "topic_hints": _string_list(workspace_map_summary.get("topic_hints"))[:10],
+        "library": _sanitize_payload(workspace_map_summary.get("library") or {}),
+        "manuscript": _sanitize_payload(workspace_map_summary.get("manuscript") or {}),
+        "experiments": _sanitize_payload(workspace_map_summary.get("experiments") or {}),
+        "open_questions": _string_list(workspace_map_summary.get("open_questions"))[:8],
     }
 
 

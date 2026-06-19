@@ -102,6 +102,8 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 
 `review_packet` 是候选结果语义预览层：它帮助用户理解专家产出、证据风险和待确认项，但不直接作为 commit 输入。保存到 Library/Documents/Memory/Decisions/Tasks 仍由 `TaskReport.outputs` 与 `ExecutionCommitService` 完成；稿件文件仍由 Prism review item 的 apply/reject/revert 完成。
 
+Academic Harness v2 任务还会在 TeamKernel run start 构建 `academic_workspace_map.v1` summary 和 `research_brief.v1`。初始专家收到 brief/map；后续专家收到 enriched `ResearchStateV1`，其中包含 compact `claim_inventory`、`evidence_packet`、artifact index 和 unresolved blockers。右侧工作台只展示“已支持 / 需确认 / 阻断”一类用户语义，不展示 raw schema、raw expert report 或内部 harness refs。
+
 ## 5.1 Execution UX 当前收敛
 
 1. `frontend/lib/execution-run-view.ts` 是前端执行展示投影事实源，负责从 `ExecutionRecord`、Runs `RunRecord`、chat `result_card` 派生统一 `RunView`
@@ -110,7 +112,7 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 4. Runs toolbar 按钮显示运行中/已完成提示；Runs drawer 合并 live execution store 与 `/api/workspaces/{workspace_id}/runs` 历史记录
 5. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`
 6. Prism tab / result card / Runs drawer 在存在 review items 时显示 pending handoff；Prism review state 仍以 canonical `review_items` 为准
-7. LiveWorkflowPanel 和 workspace chrome 的待确认计数同时读取 `outputs[]`、canonical `review_items` 和 `TaskReport.review_packet.items`；其中 packet item 默认只读预览，不显示可保存勾选。
+7. LiveWorkflowPanel 和 workspace chrome 的待确认计数同时读取 `outputs[]`、canonical `review_items` 和 `TaskReport.review_packet.items`；其中 packet item 默认只读预览，不显示可保存勾选。review packet 预览按 `supported / needs_confirmation / blocker` 投影为“已支持 / 需确认 / 阻断”。
 8. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
 9. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
 10. 浏览器 smoke 已验证：TeamKernel execution read path hydrate 后，LiveWorkflowPanel 能从 `execution_nodes` 恢复全部团队实名成员，并从 `runtime_state.quality_gates` 恢复质量检查数量；默认展示不暴露 raw tool JSON。

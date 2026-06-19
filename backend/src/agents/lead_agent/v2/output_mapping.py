@@ -22,6 +22,7 @@ from src.agents.contracts.task_report import (
     TaskOutput,
 )
 from src.contracts.team_expert import ExpertReportV1
+from src.agents.harness.claim_evidence import validate_claim_evidence_alignment
 
 logger = logging.getLogger(__name__)
 
@@ -269,6 +270,43 @@ def review_packet_from_expert_reports(
                     provenance={"execution_id": execution_id, "expert_id": report.expert_id},
                 )
             )
+        if report.claim_inventory or report.evidence_packet:
+            decision = validate_claim_evidence_alignment(report.claim_inventory, report.evidence_packet)
+            nested_claim_refs = [
+                claim.claim_id
+                for claim in (report.claim_inventory.claims if report.claim_inventory else [])
+                if claim.claim_id
+            ]
+            nested_evidence_refs = [
+                item.evidence_id
+                for item in (report.evidence_packet.items if report.evidence_packet else [])
+                if item.evidence_id
+            ]
+            for warning_index, reason in enumerate([*decision.blocking_reasons, *decision.warnings][:8]):
+                is_blocker = warning_index < len(decision.blocking_reasons)
+                items.append(
+                    ReviewPacketItem(
+                        item_id=(
+                            f"{_safe_id(report.expert_id)}-"
+                            f"claim-evidence-{warning_index}-{'blocker' if is_blocker else 'warning'}"
+                        ),
+                        kind="warning",
+                        title="证据链阻断" if is_blocker else "证据链需确认",
+                        summary=reason,
+                        preview={"format": "text", "excerpt": reason},
+                        source={"expert_id": report.expert_id, "skill_id": report.skill_id},
+                        claim_refs=nested_claim_refs[:20],
+                        evidence_refs=nested_evidence_refs[:30],
+                        quality_surfaces=["claim_evidence_alignment"],
+                        risk={
+                            "level": "high" if is_blocker else "medium",
+                            "reasons": [reason],
+                        },
+                        default_checked=False,
+                        can_commit=False,
+                        provenance={"execution_id": execution_id, "expert_id": report.expert_id},
+                    )
+                )
     return ReviewPacket(
         packet_id=f"{execution_id}-review-packet",
         execution_id=execution_id,

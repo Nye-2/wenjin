@@ -116,3 +116,64 @@ def test_sanitize_expert_report_bounds_claims_and_evidence() -> None:
     assert len(report.summary) <= 700
     assert report.claims[0].support_level == "supported"
     assert report.evidence[0].source_id == "source-1"
+
+
+def test_sanitize_expert_report_accepts_nested_academic_harness_payloads() -> None:
+    report = sanitize_expert_report(
+        {
+            "schema_version": "wenjin.expert_report.v1",
+            "expert_id": "literature_synthesizer.v1",
+            "skill_id": "literature-synthesizer",
+            "task_focus": "Synthesize FedLLM literature.",
+            "summary": "Built claim and evidence packets.",
+            "research_brief_delta": {
+                "perspectives": [
+                    {
+                        "perspective_id": "p-communication",
+                        "label": "通信效率",
+                        "questions": ["FedLoRA 如何降低通信？"],
+                    }
+                ],
+                "handoff_notes": ["需要补充 AAAI 近两年论文。"],
+            },
+            "claim_inventory": {
+                "claims": [
+                    {
+                        "claim_id": "claim-1",
+                        "claim_type": "literature_position",
+                        "text": "Communication efficiency is a key FedLLM bottleneck.",
+                        "support_status": "supported",
+                        "evidence_refs": ["ev-1"],
+                    }
+                ]
+            },
+            "evidence_packet": {
+                "packet_id": "evidence-1",
+                "items": [
+                    {
+                        "evidence_id": "ev-1",
+                        "evidence_type": "library_source",
+                        "title": "FedLoRA",
+                        "source_key": "library:paper-1",
+                        "support_strength": "high",
+                        "relevance": "direct",
+                    }
+                ],
+                "links": [
+                    {
+                        "claim_id": "claim-1",
+                        "evidence_id": "ev-1",
+                        "support_relation": "supports",
+                        "confidence": "high",
+                    }
+                ],
+            },
+        }
+    )
+
+    assert report.research_brief_delta is not None
+    assert report.research_brief_delta.perspectives[0].label == "通信效率"
+    assert report.claim_inventory is not None
+    assert report.claim_inventory.claims[0].support_status == "supported"
+    assert report.evidence_packet is not None
+    assert report.evidence_packet.items[0].source_key == "library:paper-1"

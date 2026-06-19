@@ -107,7 +107,9 @@ export interface RunViewReviewPacketItem {
   defaultChecked: boolean;
   canCommit: boolean;
   riskLevel?: string | null;
+  supportState: "supported" | "needs_confirmation" | "blocker";
   evidenceCount: number;
+  claimCount: number;
   artifactCount: number;
 }
 
@@ -117,6 +119,9 @@ export interface RunViewReviewPacket {
   summary: string;
   completionStatus: "complete" | "partial" | "failed" | "cancelled";
   items: RunViewReviewPacketItem[];
+  supportedCount: number;
+  needsConfirmationCount: number;
+  blockerCount: number;
 }
 
 export interface RunViewTeam {
@@ -542,18 +547,48 @@ function reviewPacketFromTaskReport(
         defaultChecked: item.default_checked !== false,
         canCommit: item.can_commit !== false,
         riskLevel: stringValue(objectValue(item.risk)?.level),
+        supportState: reviewPacketItemSupportState({
+          kind,
+          riskLevel: stringValue(objectValue(item.risk)?.level),
+        }),
+        claimCount: stringArrayValue(item.claim_refs).length,
         evidenceCount: stringArrayValue(item.evidence_refs).length,
         artifactCount: stringArrayValue(item.artifact_refs).length,
       } satisfies RunViewReviewPacketItem,
     ];
   });
+  const supportedCount = items.filter((item) => item.supportState === "supported").length;
+  const needsConfirmationCount = items.filter(
+    (item) => item.supportState === "needs_confirmation",
+  ).length;
+  const blockerCount = items.filter((item) => item.supportState === "blocker").length;
   return {
     id: stringValue(packet.packet_id) ?? "review-packet",
     title: stringValue(packet.title) ?? "候选结果",
     summary: stringValue(packet.summary) ?? `${items.length} 项候选结果`,
     completionStatus,
     items,
+    supportedCount,
+    needsConfirmationCount,
+    blockerCount,
   };
+}
+
+function reviewPacketItemSupportState({
+  kind,
+  riskLevel,
+}: {
+  kind: string;
+  riskLevel?: string | null;
+}): RunViewReviewPacketItem["supportState"] {
+  const normalizedRisk = String(riskLevel || "").toLowerCase();
+  if (normalizedRisk === "high" || normalizedRisk === "critical") {
+    return "blocker";
+  }
+  if (kind === "warning" || normalizedRisk === "medium") {
+    return "needs_confirmation";
+  }
+  return "supported";
 }
 
 function countPrismReviewItems(items: unknown[]): number {

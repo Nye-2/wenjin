@@ -2,7 +2,9 @@ from src.agents.contracts.task_brief import TaskBrief
 from src.agents.lead_agent.v2.team.contracts import TeamBlackboard
 from src.agents.lead_agent.v2.team.member_context import (
     build_team_member_context,
+    project_research_brief_for_member_context,
     project_research_state_for_member_context,
+    project_workspace_map_for_member_context,
 )
 
 
@@ -166,14 +168,92 @@ def test_member_context_includes_compact_research_state_for_later_batches() -> N
             "schema_version": "wenjin.research_state.v1",
             "execution_id": "exec-1",
             "goal": "AAAI paper on federated LLM fine-tuning",
+            "research_brief": {"brief_id": "brief-1", "user_objective": "找 FedLLM 创新点"},
+            "workspace_map_summary": {"topic_hints": ["FedLLM"]},
             "claims": [{"claim_id": "claim-1", "text": "FedLoRA reduces communication"}],
+            "claim_inventory": [
+                {
+                    "claim_id": "claim-2",
+                    "claim_type": "literature_position",
+                    "text": "FedLLM communication remains open.",
+                }
+            ],
             "evidence_index": [{"evidence_id": "ev-1", "source_id": "source-1"}],
+            "evidence_packet": [{"evidence_id": "ev-2", "source_key": "library:paper-1"}],
             "artifact_index": [],
             "open_questions": ["privacy evidence remains weak"],
+            "unresolved_blockers": ["one novelty claim remains weak"],
             "quality_state": [{"surface": "citation_strength", "status": "warning"}],
         }
     )
 
     assert context is not None
+    assert context["research_brief"]["brief_id"] == "brief-1"
+    assert context["workspace_map_summary"]["topic_hints"] == ["FedLLM"]
     assert context["claims"][0]["claim_id"] == "claim-1"
+    assert context["claim_inventory"][0]["claim_id"] == "claim-2"
+    assert context["evidence_packet"][0]["evidence_id"] == "ev-2"
+    assert context["unresolved_blockers"] == ["one novelty claim remains weak"]
     assert context["quality_state"][0]["surface"] == "citation_strength"
+
+
+def test_member_context_includes_initial_research_brief_and_workspace_map() -> None:
+    payload = build_team_member_context(
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            workspace_id="ws-1",
+            raw_message="找联邦大模型创新点",
+            brief={},
+        ),
+        capability_name="文献定位与创新点",
+        template_id="research_planner.v1",
+        display_role="研究规划师",
+        blackboard=TeamBlackboard(mission_summary="文献定位与创新点"),
+        research_brief={
+            "schema_version": "wenjin.research_brief.v1",
+            "brief_id": "brief-1",
+            "research_topic": "FedLLM",
+            "target_output": "文献图谱",
+            "user_objective": "找联邦大模型创新点",
+            "known_inputs": [{"kind": "user_objective", "summary": "FedLLM"}],
+            "missing_inputs": [{"key": "dataset", "reason": "数据集未知"}],
+            "perspectives": [{"perspective_id": "p1", "label": "通信效率"}],
+            "search_plan": {"seed_queries": ["FedLLM LoRA"]},
+            "quality_contract": {"unsupported_claim_policy": "mark_insufficient_evidence"},
+        },
+        workspace_map_summary={
+            "schema_version": "wenjin.academic_workspace_map.summary.v1",
+            "topic_hints": ["FedLLM"],
+            "library": {"source_count": 2},
+            "manuscript": {"sections": []},
+            "experiments": {"datasets": []},
+            "open_questions": ["是否已有 baseline？"],
+        },
+    )
+
+    assert payload["research_brief"]["brief_id"] == "brief-1"
+    assert payload["research_brief"]["missing_inputs"][0]["key"] == "dataset"
+    assert payload["workspace_map_summary"]["topic_hints"] == ["FedLLM"]
+    assert payload["workspace_map_summary"]["library"]["source_count"] == 2
+
+
+def test_research_brief_and_workspace_map_projectors_bound_payloads() -> None:
+    brief = project_research_brief_for_member_context(
+        {
+            "brief_id": "brief-1",
+            "user_objective": "目标" * 3000,
+            "perspectives": [{"perspective_id": str(idx), "label": "方向"} for idx in range(20)],
+        }
+    )
+    workspace_map = project_workspace_map_for_member_context(
+        {
+            "topic_hints": [f"topic-{idx}" for idx in range(20)],
+            "library": {"strong_sources": [{"title": "x" * 1000}]},
+        }
+    )
+
+    assert brief is not None
+    assert len(brief["user_objective"]) <= 4000
+    assert len(brief["perspectives"]) == 8
+    assert workspace_map is not None
+    assert len(workspace_map["topic_hints"]) == 10

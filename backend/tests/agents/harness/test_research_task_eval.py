@@ -1560,3 +1560,43 @@ def test_research_task_eval_passes_claim_evidence_alignment_for_supported_claim(
         "claim_evidence_alignment": "pass",
         "review_packet_completeness": "pass",
     }
+
+
+def test_research_task_eval_fails_claim_evidence_alignment_for_high_risk_warning() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="sci_literature_positioning",
+            status="failed_partial",
+            duration_seconds=1,
+            narrative="partial",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="sci_literature_positioning",
+                title="文献定位与创新点",
+                summary="1 warning",
+                completion_status="partial",
+                items=[
+                    ReviewPacketItem(
+                        item_id="claim-warning-1",
+                        kind="warning",
+                        title="证据链阻断",
+                        summary="claim claim-1 references missing evidence: missing-ev",
+                        claim_refs=["claim-1"],
+                        evidence_refs=[],
+                        risk={"level": "high", "reasons": ["missing evidence"]},
+                        default_checked=False,
+                        can_commit=False,
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("claim_evidence_alignment",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"claim_evidence_alignment": "fail"}
+    assert evaluation.evidence["claim_evidence_alignment"]["high_risk_warning_item_ids"] == [
+        "claim-warning-1"
+    ]

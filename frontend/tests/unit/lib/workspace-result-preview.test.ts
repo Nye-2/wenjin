@@ -150,16 +150,19 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
       id: "packet:writer-summary",
       source: "review_packet",
       kind: "document",
+      badge: "需确认",
       previewMode: "markdown",
       title: "写作专家摘要",
       canCommit: false,
     });
+    expect(previews[0]?.metadataLines.join(" ")).toContain("状态 需确认");
     expect(previews[0]?.metadataLines.join(" ")).toContain("证据 1");
     expect(previews[1]).toMatchObject({
       kind: "warning",
-      badge: "风险",
+      badge: "阻断",
       previewMode: "plain_text",
       canCommit: false,
     });
+    expect(previews[1]?.metadataLines.join(" ")).toContain("状态 阻断");
   });
 });

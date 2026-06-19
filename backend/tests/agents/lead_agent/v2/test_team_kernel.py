@@ -2620,7 +2620,11 @@ def test_build_academic_harness_outputs_attaches_review_packet_and_research_stat
         expert_reports=[report],
         completion_status="complete",
         quality_state=[{"surface": "citation_strength", "status": "pass"}],
+        research_brief={"brief_id": "brief-1", "user_objective": "找 FedLLM 创新点"},
+        workspace_map_summary={"topic_hints": ["FedLLM"], "library": {"source_count": 1}},
     )
 
     assert packet.items[0].claim_refs == ["claim-1"]
+    assert research_state.research_brief == {"brief_id": "brief-1", "user_objective": "找 FedLLM 创新点"}
+    assert research_state.workspace_map_summary["topic_hints"] == ["FedLLM"]
     assert research_state.claims[0]["claim_id"] == "claim-1"

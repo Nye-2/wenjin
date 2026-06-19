@@ -496,15 +496,24 @@ def _evaluate_claim_evidence_alignment(
         for item in claim_items
         if not item.evidence_refs and item.kind != "warning"
     ]
+    high_risk_warnings = [
+        item.item_id
+        for item in claim_items
+        if item.kind == "warning"
+        and str((item.risk or {}).get("level") or "").lower() in {"high", "critical"}
+    ]
     evidence = {
         "claim_item_count": len(claim_items),
-        "aligned_claim_item_count": len(claim_items) - len(unsupported),
+        "aligned_claim_item_count": len(claim_items) - len(unsupported) - len(high_risk_warnings),
         "unsupported_item_ids": unsupported[:50],
+        "high_risk_warning_item_ids": high_risk_warnings[:50],
     }
-    if claim_items and not unsupported:
+    if claim_items and not unsupported and not high_risk_warnings:
         return True, evidence, ""
     if not claim_items:
         return False, evidence, "No claim-bearing Review Packet item was produced."
+    if high_risk_warnings:
+        return False, evidence, "High-risk claim evidence warnings remain unresolved."
     return False, evidence, "Some claim-bearing Review Packet items have no evidence refs."
 
 

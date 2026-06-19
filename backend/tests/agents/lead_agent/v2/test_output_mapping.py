@@ -458,9 +458,49 @@ def test_review_packet_from_expert_reports_maps_claims_artifacts_and_warnings():
     )
 
     assert packet.schema_version == "wenjin.review_packet.v1"
-    assert packet.completion_status == "partial"
     assert [item.kind for item in packet.items] == ["document", "warning"]
     assert packet.items[0].artifact_refs == ["artifact:/workspace/reports/lit.md"]
     assert packet.items[0].evidence_refs == ["library_reference:source-1"]
     assert packet.items[0].default_checked is False
     assert packet.items[1].can_commit is False
+
+
+def test_review_packet_from_expert_reports_maps_nested_claim_evidence_blockers():
+    report = sanitize_expert_report(
+        {
+            "schema_version": "wenjin.expert_report.v1",
+            "expert_id": "literature_synthesizer.v1",
+            "skill_id": "literature-synthesizer",
+            "task_focus": "Synthesize literature.",
+            "summary": "Found a novelty claim with weak evidence.",
+            "claim_inventory": {
+                "claims": [
+                    {
+                        "claim_id": "claim-novelty",
+                        "claim_type": "novelty",
+                        "text": "This is AAAI-ready novelty.",
+                        "support_status": "supported",
+                        "evidence_refs": ["missing-ev"],
+                    }
+                ]
+            },
+            "evidence_packet": {"packet_id": "evidence-1", "items": []},
+        }
+    )
+
+    packet = review_packet_from_expert_reports(
+        execution_id="exec-1",
+        capability_id="sci_literature_positioning",
+        title="文献定位与创新点",
+        reports=[report],
+        completion_status="failed_partial",
+    )
+
+    blocker = next(item for item in packet.items if item.title == "证据链阻断")
+    assert blocker.kind == "warning"
+    assert blocker.can_commit is False
+    assert blocker.default_checked is False
+    assert blocker.risk["level"] == "high"
+    assert "missing-ev" in blocker.summary
+    assert packet.completion_status == "partial"
+    assert [item.kind for item in packet.items] == ["memory", "warning"]

@@ -20,6 +20,7 @@ from src.agents.contracts.task_report import (
     ReviewPacket,
     TaskReport,
 )
+from src.agents.harness.research_brief import build_research_brief
 from src.agents.harness.research_state import ResearchStateV1, compact_research_state
 from src.agents.harness.diff_tracker import (
     build_harness_node_metadata_from_tool_calls,
@@ -42,6 +43,8 @@ from src.config.llm_config import LLMSettings
 from src.dataservice_client.contracts.execution import ExecutionUpdatePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.prism_review_projection import prism_review_item_projection
+from src.contracts.workspace_academic_map import compact_workspace_map_summary
+from src.services.workspace_academic_map_service import build_academic_workspace_map_from_workspace_data
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY
@@ -105,6 +108,8 @@ def build_academic_harness_outputs(
     expert_reports: list[Any],
     completion_status: str,
     quality_state: list[dict[str, Any]],
+    research_brief: dict[str, Any] | None = None,
+    workspace_map_summary: dict[str, Any] | None = None,
 ) -> tuple[ReviewPacket, ResearchStateV1]:
     """Build Review Packet and compact research state from expert outputs."""
 
@@ -120,6 +125,8 @@ def build_academic_harness_outputs(
         goal=capability_name,
         expert_reports=[report.model_dump(mode="json") for report in expert_reports],
         quality_state=quality_state,
+        research_brief=research_brief,
+        workspace_map_summary=workspace_map_summary,
     )
     return packet, research_state
 
@@ -167,6 +174,24 @@ class TeamKernelRuntime:
                 if self.needs_library_context(capability_policy)
                 else {}
             )
+            workspace_type = _workspace_type_from_brief_or_capability(brief, capability)
+            workspace_map = build_academic_workspace_map_from_workspace_data(
+                workspace_id=brief.workspace_id,
+                workspace_type=workspace_type,
+                workspace_data=workspace_data,
+            )
+            workspace_map_summary = compact_workspace_map_summary(workspace_map)
+            research_brief = build_research_brief(
+                execution_id=execution_id,
+                workspace_id=brief.workspace_id,
+                workspace_type=workspace_type,
+                capability_id=brief.capability_id,
+                user_objective=brief.raw_message,
+                workspace_map=workspace_map_summary,
+                capability_metadata={"name": getattr(capability, "display_name", brief.capability_id)},
+            )
+            workspace_data["academic_workspace_map"] = workspace_map_summary
+            workspace_data["research_brief"] = research_brief.model_dump(mode="json")
             blackboard = TeamBlackboard(mission_summary=brief.raw_message or capability.display_name)
             invocations, gates = await self._run_iteration(
                 execution_id=execution_id,
@@ -199,6 +224,8 @@ class TeamKernelRuntime:
                 expert_reports=expert_reports,
                 completion_status=status,
                 quality_state=[gate.model_dump(mode="json") for gate in gates],
+                research_brief=workspace_data.get("research_brief"),
+                workspace_map_summary=workspace_data.get("academic_workspace_map"),
             )
             workspace_data["research_state"] = research_state.model_dump(mode="json")
             outputs: list[ResultOutput] = self._mapped_outputs_from_graph_template(
@@ -760,6 +787,8 @@ class TeamKernelRuntime:
             goal=getattr(capability, "display_name", brief.capability_id),
             expert_reports=[report.model_dump(mode="json") for report in expert_reports],
             quality_state=[gate.model_dump(mode="json") for gate in gates],
+            research_brief=workspace_data.get("research_brief"),
+            workspace_map_summary=workspace_data.get("academic_workspace_map"),
         )
         workspace_data["research_state"] = research_state.model_dump(mode="json")
 
@@ -1022,6 +1051,8 @@ class TeamKernelRuntime:
             blackboard=blackboard,
             capability_policy=capability_policy,
             research_state=workspace_data.get("research_state"),
+            research_brief=workspace_data.get("research_brief"),
+            workspace_map_summary=workspace_data.get("academic_workspace_map"),
         )
 
     async def _run_invocation(
@@ -1690,6 +1721,19 @@ def _prepend_current_harness_evidence(
             continue
         retained.append(item)
     return [*entries, *retained][:8]
+
+
+def _workspace_type_from_brief_or_capability(brief: TaskBrief, capability: Any) -> str:
+    raw_brief = brief.brief if isinstance(brief.brief, dict) else {}
+    for value in (
+        raw_brief.get("workspace_type"),
+        raw_brief.get("workspace_kind"),
+        getattr(capability, "workspace_type", None),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return "unknown"
 
 
 def _matching_core_template_ids(

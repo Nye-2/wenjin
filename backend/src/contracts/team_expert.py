@@ -7,6 +7,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.agents.harness.claim_evidence import (
+    ClaimInventoryV1,
+    EvidencePacketV1,
+    sanitize_claim_inventory,
+    sanitize_evidence_packet,
+)
+from src.agents.harness.research_brief import ResearchBriefDeltaV1, sanitize_research_brief_delta
+
 ExpertStatus = Literal["queued", "running", "blocked", "completed", "failed"]
 ExpertUpdateKind = Literal["progress", "finding", "risk", "decision", "output", "question"]
 SnapshotTone = Literal["neutral", "info", "success", "warning", "danger"]
@@ -130,8 +138,11 @@ class ExpertReportV1(BaseModel):
     skill_id: str
     task_focus: str
     summary: str
+    research_brief_delta: ResearchBriefDeltaV1 | None = None
     claims: list[ExpertClaimV1] = Field(default_factory=list)
     evidence: list[ExpertEvidenceV1] = Field(default_factory=list)
+    claim_inventory: ClaimInventoryV1 | None = None
+    evidence_packet: EvidencePacketV1 | None = None
     artifacts: list[ExpertArtifactV1] = Field(default_factory=list)
     review_items: list[dict[str, Any]] = Field(default_factory=list)
     quality_gates_checked: list[str] = Field(default_factory=list)
@@ -263,8 +274,11 @@ def sanitize_expert_report(payload: dict[str, Any]) -> ExpertReportV1:
         "skill_id": _clean_text(payload.get("skill_id")),
         "task_focus": _truncate(_scrub_text(payload.get("task_focus")), 300),
         "summary": _truncate(_scrub_text(payload.get("summary")), _MAX_REPORT_SUMMARY_CHARS),
+        "research_brief_delta": sanitize_research_brief_delta(payload.get("research_brief_delta")),
         "claims": _sanitize_expert_claims(payload.get("claims"), limit=30),
         "evidence": _sanitize_expert_evidence(payload.get("evidence"), limit=60),
+        "claim_inventory": sanitize_claim_inventory(payload.get("claim_inventory")),
+        "evidence_packet": sanitize_evidence_packet(payload.get("evidence_packet")),
         "artifacts": _sanitize_expert_artifacts(payload.get("artifacts"), limit=20),
         "review_items": _sanitize_small_dicts(payload.get("review_items"), limit=20),
         "quality_gates_checked": _sanitize_string_list(payload.get("quality_gates_checked"), limit=20),

@@ -161,6 +161,10 @@ describe("execution run view projection", () => {
     );
 
     expect(view.reviewPacket?.items).toHaveLength(2);
+    expect(view.reviewPacket?.supportedCount).toBe(1);
+    expect(view.reviewPacket?.needsConfirmationCount).toBe(0);
+    expect(view.reviewPacket?.blockerCount).toBe(1);
+    expect(view.reviewPacket?.items[1]?.supportState).toBe("blocker");
     expect(view.sandboxReviewCount).toBe(1);
     expect(view.actions).toContain("preview_results");
     expect(view.qualityHighlights).toEqual(
