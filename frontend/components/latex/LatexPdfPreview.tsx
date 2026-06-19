@@ -29,6 +29,9 @@ interface LatexPdfPreviewProps {
   transientSelectionAnchor?: LatexPdfAnchor | null;
   transientSelectionText?: string;
   onSelection?: (payload: PdfSelectionPayload) => void;
+  fitMode?: "width" | "page";
+  zoomPercent?: number;
+  currentPage?: number;
   className?: string;
 }
 
@@ -223,6 +226,9 @@ export function LatexPdfPreview({
   transientSelectionAnchor,
   transientSelectionText,
   onSelection,
+  fitMode = "width",
+  zoomPercent = 100,
+  currentPage = 1,
   className,
 }: LatexPdfPreviewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -255,7 +261,14 @@ export function LatexPdfPreview({
         const firstPage = await pdf.getPage(1);
         const baseViewport = firstPage.getViewport({ scale: 1 });
         const containerWidth = Math.max(280, container.clientWidth - 24);
-        const fitScale = containerWidth / baseViewport.width;
+        const containerHeight = Math.max(360, container.clientHeight - 24);
+        const widthScale = containerWidth / baseViewport.width;
+        const pageScale = Math.min(widthScale, containerHeight / baseViewport.height);
+        const zoomScale = Math.min(2, Math.max(0.5, zoomPercent / 100));
+        const fitScale = Math.max(
+          0.25,
+          (fitMode === "page" ? pageScale : widthScale) * zoomScale,
+        );
 
         const renderOnePage = async (pageNum: number) => {
           const page = await pdf.getPage(pageNum);
@@ -330,7 +343,16 @@ export function LatexPdfPreview({
       void loadingTask?.destroy();
       container.innerHTML = "";
     };
-  }, [pdfUrl]);
+  }, [fitMode, pdfUrl, zoomPercent]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || currentPage < 1) return;
+    const target = container.querySelector<HTMLElement>(
+      `.latex-pdf-page[data-page-number="${currentPage}"]`,
+    );
+    target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [currentPage, fitMode, pdfUrl, zoomPercent]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -461,6 +483,9 @@ export function LatexPdfPreview({
   return (
     <div
       className={className || ""}
+      data-current-page={currentPage}
+      data-fit-mode={fitMode}
+      data-zoom-percent={zoomPercent}
       onMouseUp={() => {
         if (!onSelection) return;
         const container = containerRef.current;

@@ -285,8 +285,8 @@ export function LatexEditorPanes({
           </label>
           <button
             type="button"
-            aria-label="展开 PDF 预览"
-            title="展开 PDF 预览"
+            aria-label={pdfFocused ? "收起 PDF 预览" : "展开 PDF 预览"}
+            title={pdfFocused ? "收起 PDF 预览" : "展开 PDF 预览"}
             aria-pressed={pdfFocused}
             onClick={() => setPdfFocused((value) => !value)}
             className="wjn-icon-button"
@@ -312,6 +312,9 @@ export function LatexEditorPanes({
             transientSelectionAnchor={transientPdfAnchor}
             transientSelectionText={selectionText}
             onSelection={onPdfSelection}
+            fitMode={pdfFitMode}
+            zoomPercent={pdfZoom}
+            currentPage={pdfPage}
             className="h-full min-h-[520px] w-full"
           />
         ) : isCompiling ? (
@@ -410,7 +413,11 @@ export function LatexEditorPanes({
         {surfaceMode === "compare" && isNarrowStage ? (
           renderNarrowStage()
         ) : surfaceMode === "compare" ? (
-          <ResizablePanelGroup orientation="horizontal" className="h-full min-h-0 gap-3">
+          <ResizablePanelGroup
+            key={pdfFocused ? "pdf-focused" : "pdf-split"}
+            orientation="horizontal"
+            className="h-full min-h-0 gap-3"
+          >
             <ResizablePanel id="prism-editor-panel" defaultSize={pdfFocused ? 34 : 54} minSize={28}>
               {renderEditorPanel()}
             </ResizablePanel>

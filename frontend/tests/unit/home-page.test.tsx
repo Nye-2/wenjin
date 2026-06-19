@@ -73,21 +73,23 @@ describe("HomePage", () => {
     });
   });
 
-  it("renders the final research harness hero and product sections", () => {
+  it("renders the brand-first hero with a real product visual and product sections", () => {
     render(<HomePage />);
 
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "科研工作流的 Super Agent Harness",
+        name: "问津 Wenjin",
       }),
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "一站式科研工作台，让 Agent 从想法开始组织文献、证据、实验与稿件，把研究真正跑起来。",
+        "从一个研究想法开始，Agent 组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("点击播放产品演示")).toBeInTheDocument();
+    const heroVisualSrc = screen.getByTestId("landing-hero-visual").getAttribute("src") ?? "";
+    expect(decodeURIComponent(heroVisualSrc)).toContain("/hero-prism-workbench.jpg");
+    expect(screen.queryByText("点击播放产品演示")).not.toBeInTheDocument();
     expect(screen.getByText("不是聊天框，也不是模板库。它是研究任务的执行环境。")).toBeInTheDocument();
     expect(screen.getByText("用户掌方向，Agent 跑链路。")).toBeInTheDocument();
   });
@@ -175,8 +177,13 @@ describe("HomePage", () => {
     expect(
       screen.getByRole("heading", {
         level: 1,
-        name: "Super Agent Harness for research workflows",
+        name: "Wenjin",
       }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "From a research idea, agents organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
+      ),
     ).toBeInTheDocument();
     expect(screen.getByText("Product")).toBeInTheDocument();
     expect(screen.getByText("Pricing")).toBeInTheDocument();

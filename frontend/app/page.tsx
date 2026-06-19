@@ -1,7 +1,17 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ArrowRight,
+  ChevronDown,
+  Database,
+  FileCheck2,
+  FileText,
+  Library,
+  type LucideIcon,
+} from "lucide-react";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { UserDropdown } from "@/components/auth/user-dropdown";
 import { useAuthStore } from "@/stores/auth";
@@ -28,12 +38,10 @@ interface LandingCopy {
   hero: {
     eyebrow: string;
     title: string;
-    accent: string;
     subtitle: string;
-    demoLabel: string;
-    demoTitle: string;
-    demoHint: string;
     caption: string;
+    previewAlt: string;
+    signals: string[];
   };
   positioning: {
     eyebrow: string;
@@ -76,15 +84,13 @@ const COPY: Record<Locale, LandingCopy> = {
       pricing: "定价",
     },
     hero: {
-      eyebrow: "Research OS",
-      title: "科研工作流的",
-      accent: "Super Agent Harness",
+      eyebrow: "Research OS / Prism-native",
+      title: "问津 Wenjin",
       subtitle:
-        "一站式科研工作台，让 Agent 从想法开始组织文献、证据、实验与稿件，把研究真正跑起来。",
-      demoLabel: "Live product demo",
-      demoTitle: "看 Wenjin 如何从选题推进到 Prism 成稿",
-      demoHint: "点击播放产品演示",
-      caption: "点击右侧演示视频，查看完整科研链路。",
+        "从一个研究想法开始，Agent 组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
+      caption: "Library、Memory、Run History 与 Prism 在同一个 workspace 里协作。",
+      previewAlt: "Wenjin Prism 研究工作台产品预览",
+      signals: ["资料库", "证据", "运行", "Prism"],
     },
     positioning: {
       eyebrow: "Positioning",
@@ -152,15 +158,13 @@ const COPY: Record<Locale, LandingCopy> = {
       pricing: "Pricing",
     },
     hero: {
-      eyebrow: "Research OS",
-      title: "Super Agent Harness",
-      accent: "for research workflows",
+      eyebrow: "Research OS / Prism-native",
+      title: "Wenjin",
       subtitle:
-        "A one-stop research workbench where agents organize literature, evidence, experiments, and manuscripts from the first idea.",
-      demoLabel: "Live product demo",
-      demoTitle: "See Wenjin move from research question to Prism manuscript",
-      demoHint: "Click to play the product demo",
-      caption: "Watch the demo to see the full research loop.",
+        "From a research idea, agents organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
+      caption: "Library, Memory, Run History, and Prism move inside one workspace.",
+      previewAlt: "Wenjin Prism research workbench preview",
+      signals: ["Library", "Evidence", "Runs", "Prism"],
     },
     positioning: {
       eyebrow: "Positioning",
@@ -226,6 +230,8 @@ const QUICK_START_ORDER: WorkspaceType[] = [
   "patent",
   "software_copyright",
 ];
+
+const HERO_SIGNAL_ICONS: LucideIcon[] = [Library, Database, FileText, FileCheck2];
 
 function quickStartHref(type: WorkspaceType): string {
   return `/workspaces?create=${type}`;
@@ -293,12 +299,10 @@ function QuickStartMenu({ copy }: { copy: LandingCopy }) {
         aria-expanded={isOpen}
         aria-haspopup="menu"
         onClick={() => setIsOpen((current) => !current)}
-        className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#f2f4f7] px-4 text-sm font-bold text-[#101828] transition hover:bg-[#e8ebf0]"
+        className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-[#f2f4f7] px-4 text-sm font-bold text-[#101828] transition hover:bg-[#e8ebf0]"
       >
         {copy.nav.quickStart}
-        <span aria-hidden="true" className="ml-1 text-[#667085]">
-          ▾
-        </span>
+        <ChevronDown aria-hidden="true" className="ml-1 h-4 w-4 text-[#667085]" />
       </button>
 
       {isOpen ? (
@@ -311,7 +315,7 @@ function QuickStartMenu({ copy }: { copy: LandingCopy }) {
               key={type}
               role="menuitem"
               href={quickStartHref(type)}
-              className="flex min-h-11 items-center rounded-[var(--wjn-radius-md)] px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f2f4f7]"
+              className="flex min-h-11 items-center rounded-[var(--wjn-radius)] px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f2f4f7]"
             >
               {copy.quickStartItems[type]}
             </Link>
@@ -390,7 +394,7 @@ function LandingNav({
 
           <Link
             href="/workspaces"
-            className="inline-flex min-h-11 items-center justify-center rounded-full bg-[#101828] px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
+            className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-[#101828] px-4 text-sm font-bold text-white shadow-[0_14px_34px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
           >
             {copy.nav.enter}
           </Link>
@@ -399,43 +403,6 @@ function LandingNav({
         </div>
       </nav>
     </header>
-  );
-}
-
-function VideoPreview({ copy }: { copy: LandingCopy }) {
-  return (
-    <button
-      type="button"
-      aria-label={copy.hero.demoTitle}
-      className="group relative min-h-[34rem] w-full overflow-hidden rounded-[1.875rem] bg-[#111827] text-white shadow-[0_32px_100px_rgba(16,24,40,0.24)]"
-    >
-      <span
-        aria-hidden="true"
-        className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[length:34px_34px] [mask-image:linear-gradient(180deg,rgba(0,0,0,0.62),transparent_78%)]"
-      />
-      <span className="absolute left-6 right-6 top-6 z-10 flex items-center justify-between text-xs font-semibold text-white/65">
-        <span className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#ef4444]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#f59e0b]" />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#22c55e]" />
-        </span>
-        <span>{copy.hero.demoLabel}</span>
-      </span>
-
-      <span className="absolute inset-0 z-10 grid place-items-center px-8 text-center">
-        <span>
-          <span className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-white text-4xl font-black text-[var(--wjn-blue)] shadow-[0_24px_60px_rgba(0,0,0,0.28)] transition group-hover:scale-105">
-            ▶
-          </span>
-          <strong className="mt-6 block text-lg font-bold leading-snug">
-            {copy.hero.demoTitle}
-          </strong>
-          <span className="mt-2 block text-sm text-white/60">
-            {copy.hero.demoHint}
-          </span>
-        </span>
-      </span>
-    </button>
   );
 }
 
@@ -450,14 +417,14 @@ function SectionHeader({
 }) {
   return (
     <div>
-      <p className="text-xs font-bold uppercase tracking-[0.08em] text-[#344054]">
+      <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--wjn-text-secondary)]">
         {eyebrow}
       </p>
-      <h2 className="mt-4 max-w-4xl text-4xl font-bold leading-[1.04] text-[#101828] sm:text-5xl lg:text-6xl">
+      <h2 className="mt-4 max-w-4xl text-3xl font-bold leading-tight text-[var(--wjn-text)] sm:text-4xl lg:text-5xl">
         {title}
       </h2>
       {body ? (
-        <p className="mt-5 max-w-3xl text-base leading-8 text-[#667085] sm:text-lg">
+        <p className="mt-5 max-w-3xl text-base leading-8 text-[var(--wjn-text-secondary)] sm:text-lg">
           {body}
         </p>
       ) : null}
@@ -477,44 +444,70 @@ export default function HomePage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[#fbfcfe] text-[#101828]">
+    <main className="min-h-screen bg-[var(--wjn-bg-base)] text-[var(--wjn-text)]">
       <LandingNav copy={copy} onAuth={openAuth} />
 
-      <section className="grid min-h-[112vh] items-center px-4 pb-20 pt-36 sm:px-6 lg:pt-40">
-        <div className="mx-auto grid w-full max-w-7xl items-center gap-14 lg:grid-cols-[0.9fr_1.1fr]">
-          <div>
-            <p className="inline-flex items-center gap-3 text-xs font-bold uppercase tracking-[0.08em] text-[#344054] before:h-px before:w-7 before:bg-[#101828]">
+      <section className="relative isolate min-h-[86dvh] overflow-hidden border-b border-[var(--wjn-line)] px-4 pb-12 pt-28 sm:px-6 lg:pt-32">
+        <Image
+          priority
+          alt={copy.hero.previewAlt}
+          className="absolute inset-0 -z-30 h-full w-full object-cover object-[62%_50%]"
+          data-testid="landing-hero-visual"
+          fill
+          sizes="100vw"
+          src="/hero-prism-workbench.jpg"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 -z-20 bg-[linear-gradient(90deg,rgba(251,252,254,0.98)_0%,rgba(251,252,254,0.92)_34%,rgba(251,252,254,0.56)_58%,rgba(251,252,254,0.12)_100%)]"
+        />
+        <div
+          aria-hidden="true"
+          className="absolute inset-x-0 bottom-0 -z-10 h-40 bg-[linear-gradient(180deg,transparent,rgba(245,247,250,0.98))]"
+        />
+
+        <div className="mx-auto flex min-h-[calc(86dvh-10rem)] w-full max-w-7xl items-center">
+          <div className="max-w-2xl py-10">
+            <p className="inline-flex items-center gap-3 text-xs font-bold uppercase tracking-[0.08em] text-[var(--wjn-text-secondary)] before:h-px before:w-7 before:bg-[var(--wjn-text)]">
               {copy.hero.eyebrow}
             </p>
-            <h1 className="mt-6 max-w-3xl text-6xl font-black leading-none text-[#101828] sm:text-7xl lg:text-8xl">
-              {copy.hero.title}{" "}
-              <span className="relative inline-block after:absolute after:bottom-1 after:left-1 after:right-0 after:-z-10 after:h-3 after:rounded-full after:bg-[var(--wjn-accent-soft)]">
-                {copy.hero.accent}
-              </span>
+            <h1 className="mt-6 text-6xl font-black leading-[0.95] text-[var(--wjn-text)] sm:text-7xl lg:text-8xl">
+              {copy.hero.title}
             </h1>
-            <p className="mt-7 max-w-2xl text-lg leading-8 text-[#667085]">
+            <p className="mt-7 max-w-xl text-lg leading-8 text-[var(--wjn-text-secondary)]">
               {copy.hero.subtitle}
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link
                 href="/workspaces"
-                className="inline-flex min-h-12 items-center justify-center rounded-full bg-[#101828] px-6 text-sm font-bold text-white shadow-[0_16px_44px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
+                className="inline-flex min-h-12 items-center justify-center whitespace-nowrap rounded-full bg-[var(--wjn-text)] px-6 text-sm font-bold text-white shadow-[0_16px_44px_rgba(16,24,40,0.18)] transition hover:bg-[#1f2937]"
               >
                 {copy.nav.enter}
+                <ArrowRight aria-hidden="true" className="ml-2 h-4 w-4" />
               </Link>
-              <span className="text-sm font-semibold leading-6 text-[#667085]">
+              <span className="max-w-md text-sm font-semibold leading-6 text-[var(--wjn-text-secondary)]">
                 {copy.hero.caption}
               </span>
             </div>
-          </div>
-
-          <div className="rounded-[2.375rem] border border-[rgba(16,24,40,0.08)] bg-white/70 p-3 shadow-[0_32px_100px_rgba(16,24,40,0.12)]">
-            <VideoPreview copy={copy} />
+            <div className="mt-10 grid max-w-2xl grid-cols-2 gap-2 sm:grid-cols-4">
+              {copy.hero.signals.map((signal, index) => {
+                const Icon = HERO_SIGNAL_ICONS[index] ?? FileText;
+                return (
+                  <div
+                    key={signal}
+                    className="flex min-h-11 items-center gap-2 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white/78 px-3 text-sm font-bold text-[var(--wjn-text)] shadow-[var(--wjn-shadow-sm)] backdrop-blur"
+                  >
+                    <Icon aria-hidden="true" className="h-4 w-4 text-[var(--wjn-blue)]" />
+                    {signal}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </section>
 
-      <section id="product" className="px-4 py-24 sm:px-6">
+      <section id="product" className="px-4 py-20 sm:px-6">
         <div className="mx-auto max-w-6xl">
           <SectionHeader
             eyebrow={copy.positioning.eyebrow}
@@ -523,19 +516,19 @@ export default function HomePage() {
           />
 
           <div className="mt-11 grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-            <article className="min-h-80 rounded-[1.875rem] border border-[rgba(16,24,40,0.08)] bg-white p-8 shadow-[0_22px_80px_rgba(16,24,40,0.07)]">
-              <span className="inline-flex rounded-full bg-[#f2f4f7] px-3 py-2 text-xs font-bold text-[#475467]">
+            <article className="min-h-72 rounded-[var(--wjn-radius)] border border-[var(--wjn-line)] bg-white p-8 shadow-[var(--wjn-shadow-sm)]">
+              <span className="inline-flex rounded-full bg-[var(--wjn-surface-subtle)] px-3 py-2 text-xs font-bold text-[var(--wjn-text-secondary)]">
                 {copy.positioning.ordinaryLabel}
               </span>
-              <h3 className="mt-7 max-w-lg text-3xl font-bold leading-tight text-[#101828]">
+              <h3 className="mt-7 max-w-lg text-3xl font-bold leading-tight text-[var(--wjn-text)]">
                 {copy.positioning.ordinaryTitle}
               </h3>
-              <p className="mt-4 max-w-xl text-base leading-8 text-[#667085]">
+              <p className="mt-4 max-w-xl text-base leading-8 text-[var(--wjn-text-secondary)]">
                 {copy.positioning.ordinaryBody}
               </p>
             </article>
 
-            <article className="min-h-80 rounded-[1.875rem] bg-[#101828] p-8 text-white shadow-[0_22px_80px_rgba(16,24,40,0.14)]">
+            <article className="min-h-72 rounded-[var(--wjn-radius)] bg-[var(--wjn-text)] p-8 text-white shadow-[var(--wjn-shadow-md)]">
               <span className="inline-flex rounded-full bg-white/10 px-3 py-2 text-xs font-bold text-white/70">
                 {copy.positioning.wenjinLabel}
               </span>
@@ -550,7 +543,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="px-4 py-24 sm:px-6">
+      <section className="px-4 py-20 sm:px-6">
         <div className="mx-auto max-w-6xl">
           <SectionHeader
             eyebrow={copy.loop.eyebrow}
@@ -562,24 +555,26 @@ export default function HomePage() {
             {copy.loop.steps.map((step, index) => (
               <article
                 key={step.index}
-                className={`min-h-60 rounded-[1.75rem] border bg-white p-7 shadow-[0_18px_60px_rgba(16,24,40,0.06)] ${
+                className={`min-h-56 rounded-[var(--wjn-radius)] border bg-white p-7 shadow-[var(--wjn-shadow-sm)] ${
                   index === 1
-                    ? "border-[var(--wjn-accent-line)] shadow-[0_22px_80px_rgba(44,93,160,0.12)]"
-                    : "border-[rgba(16,24,40,0.08)]"
+                    ? "border-[var(--wjn-accent-line)] shadow-[var(--wjn-shadow-md)]"
+                    : "border-[var(--wjn-line)]"
                 }`}
               >
                 <span className="text-xs font-bold text-[#98a2b3]">{step.index}</span>
-                <h3 className="mt-16 text-2xl font-bold leading-tight text-[#101828]">
+                <h3 className="mt-14 text-2xl font-bold leading-tight text-[var(--wjn-text)]">
                   {step.title}
                 </h3>
-                <p className="mt-4 text-sm leading-7 text-[#667085]">{step.body}</p>
+                <p className="mt-4 text-sm leading-7 text-[var(--wjn-text-secondary)]">
+                  {step.body}
+                </p>
               </article>
             ))}
           </div>
         </div>
       </section>
 
-      <section className="px-4 py-24 sm:px-6">
+      <section className="px-4 py-20 sm:px-6">
         <div className="mx-auto max-w-6xl">
           <SectionHeader eyebrow={copy.scenes.eyebrow} title={copy.scenes.title} />
           <div className="mt-9 flex flex-wrap gap-3">
@@ -587,7 +582,7 @@ export default function HomePage() {
               <Link
                 key={type}
                 href={quickStartHref(type)}
-                className="inline-flex min-h-11 items-center rounded-full border border-[rgba(16,24,40,0.1)] bg-white px-5 text-sm font-bold text-[#344054] shadow-[0_12px_34px_rgba(16,24,40,0.05)] transition hover:bg-[#f9fafb]"
+                className="inline-flex min-h-11 items-center rounded-full border border-[var(--wjn-line)] bg-white px-5 text-sm font-bold text-[var(--wjn-text-secondary)] shadow-[var(--wjn-shadow-sm)] transition hover:bg-[#f9fafb]"
               >
                 {copy.quickStartItems[type]}
               </Link>
@@ -596,13 +591,13 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="px-4 pb-28 pt-24 sm:px-6">
-        <div className="mx-auto grid min-h-96 max-w-6xl items-end gap-8 rounded-[2.125rem] bg-[#101828] p-8 text-white shadow-[0_32px_100px_rgba(16,24,40,0.16)] lg:grid-cols-[1fr_auto] lg:p-11">
+      <section className="px-4 pb-28 pt-20 sm:px-6">
+        <div className="mx-auto grid min-h-80 max-w-6xl items-end gap-8 rounded-[var(--wjn-radius-xl)] bg-[var(--wjn-text)] p-8 text-white shadow-[var(--wjn-shadow-lg)] lg:grid-cols-[1fr_auto] lg:p-11">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.08em] text-white/55">
               {copy.final.eyebrow}
             </p>
-            <h2 className="mt-4 max-w-4xl text-4xl font-bold leading-[1.04] sm:text-5xl lg:text-6xl">
+            <h2 className="mt-4 max-w-4xl text-3xl font-bold leading-tight sm:text-4xl lg:text-5xl">
               {copy.final.title}
             </h2>
             <p className="mt-5 max-w-3xl text-base leading-8 text-white/65">
