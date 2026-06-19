@@ -1,5 +1,5 @@
 import { createRef, forwardRef } from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { LatexEditorPanes } from "@/components/latex/latex-editor/LatexEditorPanes";
@@ -102,5 +102,38 @@ describe("LatexEditorPanes", () => {
 
     expect(screen.queryByRole("button", { name: "打开 PDF 对照" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "收起 PDF" })).toBeInTheDocument();
+  });
+
+  it("renders an Overleaf-like PDF preview stage with compile, view, page, zoom, sync, and collapse controls", () => {
+    renderPanes("compare");
+
+    expect(screen.getByRole("toolbar", { name: "PDF 预览台" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新编译 PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "同步滚动" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "适合宽度" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "整页" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByLabelText("PDF 页码")).toHaveValue(1);
+    expect(screen.getByText("/ 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("PDF 缩放")).toHaveValue(100);
+    expect(screen.getByRole("button", { name: "展开 PDF 预览" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "收起 PDF" })).toBeInTheDocument();
+  });
+
+  it("recompiles from the PDF preview stage toolbar", () => {
+    handlers.onCompile.mockClear();
+    renderPanes("compare");
+
+    fireEvent.click(screen.getByRole("button", { name: "重新编译 PDF" }));
+
+    expect(handlers.onCompile).toHaveBeenCalledTimes(1);
   });
 });

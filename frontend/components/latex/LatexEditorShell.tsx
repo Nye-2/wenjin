@@ -285,6 +285,7 @@ export function LatexEditorShell({
     || (compileResult?.ok ? `最近一次编译：成功 · ${compileResult.engine} · ${compileResult.main_file}` : "");
   const canUseDocumentAssist = Boolean(activeFilePath && activeFileKind === "text");
   const canDeepAssist = canUseDocumentAssist && Boolean(feedbackView.feedbackDraftComment.trim());
+  const stageLabel = surfaceMode === "compare" ? "PDF 预览台" : "编辑台";
 
   return (
     <main className="wjn-shell-bg flex h-full min-h-0 flex-col overflow-hidden text-[var(--wjn-text)]">
@@ -338,6 +339,7 @@ export function LatexEditorShell({
         />
         <LatexEditorPanes
           surfaceMode={surfaceMode}
+          stageLabel={stageLabel}
           activeFilePath={activeFilePath}
           activeFileKind={activeFileKind}
           activeFileContent={activeFileContent}

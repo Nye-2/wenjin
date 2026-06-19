@@ -283,6 +283,134 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.wjn-icon-button {
+  display: inline-flex;
+  min-height: 32px;
+  min-width: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--wjn-radius);
+  border: 1px solid var(--wjn-line);
+  background: var(--wjn-surface);
+  color: var(--wjn-text-secondary);
+  transition:
+    background var(--wjn-duration-fast) var(--wjn-ease-standard),
+    border-color var(--wjn-duration-fast) var(--wjn-ease-standard),
+    color var(--wjn-duration-fast) var(--wjn-ease-standard);
+}
+
+.wjn-icon-button:hover {
+  border-color: var(--wjn-accent-line);
+  color: var(--wjn-text);
+}
+
+.wjn-icon-button[aria-pressed="true"] {
+  border-color: var(--wjn-accent-line);
+  background: var(--wjn-accent-soft);
+  color: var(--wjn-accent-strong);
+}
+
+.wjn-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.wjn-stage-button {
+  min-height: 32px;
+  border-radius: var(--wjn-radius);
+  border: 1px solid var(--wjn-line);
+  background: var(--wjn-surface);
+  padding: 0 10px;
+  color: var(--wjn-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background var(--wjn-duration-fast) var(--wjn-ease-standard),
+    border-color var(--wjn-duration-fast) var(--wjn-ease-standard),
+    color var(--wjn-duration-fast) var(--wjn-ease-standard);
+}
+
+.wjn-stage-button:hover {
+  border-color: var(--wjn-accent-line);
+  color: var(--wjn-text);
+}
+
+.wjn-stage-button[aria-pressed="true"] {
+  border-color: var(--wjn-accent-line);
+  background: var(--wjn-accent-soft);
+  color: var(--wjn-accent-strong);
+}
+
+.wjn-stage-field {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--wjn-radius);
+  border: 1px solid var(--wjn-line);
+  background: var(--wjn-surface);
+  padding: 0 8px;
+  color: var(--wjn-text-muted);
+  font-size: 12px;
+}
+
+.wjn-stage-field input {
+  width: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--wjn-text);
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+
+.wjn-prism-pdf-toolbar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.94));
+}
+
+.wjn-prism-studio {
+  background: var(--wjn-bg-material);
+}
+
+.wjn-prism-context-rail {
+  border-bottom: 1px solid var(--wjn-line);
+  background: rgba(255, 255, 255, 0.74);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.wjn-prism-stage-switch {
+  display: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  border-radius: var(--wjn-radius-lg);
+  border: 1px solid var(--wjn-line);
+  background: rgba(255, 255, 255, 0.82);
+  padding: 4px;
+  box-shadow: var(--wjn-shadow-sm);
+}
+
+.wjn-prism-stage-switch button {
+  min-height: 34px;
+  border-radius: var(--wjn-radius);
+  color: var(--wjn-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  transition:
+    background var(--wjn-duration-fast) var(--wjn-ease-standard),
+    color var(--wjn-duration-fast) var(--wjn-ease-standard);
+}
+
+.wjn-prism-stage-switch button[aria-selected="true"] {
+  background: var(--wjn-accent-soft);
+  color: var(--wjn-accent-strong);
+}
+
+@media (max-width: 899px) {
+  .wjn-prism-stage-switch {
+    display: grid;
+  }
+}
+
 /* ── Gradient Text ── */
 .gradient-text {
   color: var(--wjn-text);

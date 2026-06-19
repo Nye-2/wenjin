@@ -154,7 +154,10 @@ export default function WorkspacePrismPage({
       />
       <div className="min-h-0 flex-1 overflow-hidden">
         {surface?.latex_project_id ? (
-          <div className="flex h-full min-h-0 flex-col">
+          <div
+            data-testid="prism-studio-shell"
+            className="wjn-prism-studio flex h-full min-h-0 flex-col"
+          >
             <PrismContextRail surface={surface} />
             <LatexEditorShell
               projectId={surface.latex_project_id}

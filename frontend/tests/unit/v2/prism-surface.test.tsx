@@ -100,6 +100,7 @@ describe("workspace prism surface", () => {
     expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
       "latex-1:0",
     );
+    expect(await screen.findByTestId("prism-studio-shell")).toBeInTheDocument();
   });
 
   it("routes workspace hub entries back to the workbench rooms", async () => {
@@ -151,7 +152,10 @@ describe("workspace prism surface", () => {
     });
 
     expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
-      "Opening Prism manuscript surface",
+      "正在打开论文写作台",
+    );
+    expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
+      "正在加载工作区主稿和待确认修改。",
     );
   });
 
@@ -186,8 +190,9 @@ describe("workspace prism surface", () => {
       );
     });
 
+    expect(await screen.findByText("还没有绑定写作项目")).toBeInTheDocument();
     expect(
-      await screen.findByText("No Prism manuscript is bound yet"),
+      screen.getByText("从 Workbench 启动论文写作任务后，这里会自动打开主稿。"),
     ).toBeInTheDocument();
   });
 
@@ -305,7 +310,7 @@ describe("workspace prism surface", () => {
       "/workspaces/ws-1?room=library&item_id=lib-1",
     );
     expect(screen.getByTestId("latex-editor-shell")).toHaveTextContent("latex-1:1");
-    expect(screen.getByText("待确认")).toBeInTheDocument();
+    expect(screen.getAllByText("待确认").length).toBeGreaterThan(0);
     expect(screen.getByText("来源")).toBeInTheDocument();
     expect(screen.getByText("活动")).toBeInTheDocument();
     expect(screen.getByText("保护段落")).toBeInTheDocument();
