@@ -10,6 +10,8 @@ from src.sandbox.workspace_layout import WORKSPACE_PROTECTED_PATHS
 
 HarnessRiskLevel = Literal["read", "write", "execute", "network", "review"]
 HarnessVisibility = Literal["user_visible", "team_visible", "debug_only"]
+HarnessToolStatus = Literal["ok", "warning", "error"]
+HarnessPermissionDecision = Literal["allow", "ask", "deny"]
 HarnessStopReason = Literal[
     "completed",
     "schema_invalid",
@@ -89,3 +91,51 @@ class HarnessToolResult:
     error: str | None = None
     file_change: dict[str, Any] | None = None
     file_changes: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class AcademicACIObservation:
+    """Bounded structured observation returned from an Academic ACI tool."""
+
+    tool: str
+    status: HarnessToolStatus
+    summary: str
+    evidence_refs: tuple[str, ...] = ()
+    artifact_refs: tuple[str, ...] = ()
+    output_refs: tuple[str, ...] = ()
+    warnings: tuple[str, ...] = ()
+    provenance: dict[str, Any] = field(default_factory=dict)
+    structured_payload: dict[str, Any] = field(default_factory=dict)
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "schema": "wenjin.academic_aci.observation.v1",
+            "tool": self.tool,
+            "status": self.status,
+            "summary": self.summary,
+            "evidence_refs": list(self.evidence_refs),
+            "artifact_refs": list(self.artifact_refs),
+            "output_refs": list(self.output_refs),
+            "warnings": list(self.warnings),
+            "provenance": dict(self.provenance),
+            "structured_payload": dict(self.structured_payload),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AcademicACIPermissionCheck:
+    """Permission decision for an Academic ACI tool call."""
+
+    tool: str
+    decision: HarnessPermissionDecision
+    reason: str
+    required_permissions: tuple[str, ...] = ()
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            "schema": "wenjin.academic_aci.permission_check.v1",
+            "tool": self.tool,
+            "decision": self.decision,
+            "reason": self.reason,
+            "required_permissions": list(self.required_permissions),
+        }
