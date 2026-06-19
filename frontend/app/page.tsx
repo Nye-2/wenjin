@@ -87,10 +87,10 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Research OS / Prism-native",
       title: "问津 Wenjin",
       subtitle:
-        "从一个研究想法开始，Agent 组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
-      caption: "Library、Memory、Run History 与 Prism 在同一个 workspace 里协作。",
+        "从一个研究想法开始，学术 Harness 召集定制化专家 Agent，组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
+      caption: "学术 Harness、专家团队、Library、Memory、Run History 与 Prism 在同一个 workspace 里协作。",
       previewAlt: "Wenjin Prism 研究工作台产品预览",
-      signals: ["资料库", "证据", "运行", "Prism"],
+      signals: ["学术 Harness", "专家 Agent", "证据链", "Prism"],
     },
     positioning: {
       eyebrow: "Positioning",
@@ -161,10 +161,10 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Research OS / Prism-native",
       title: "Wenjin",
       subtitle:
-        "From a research idea, agents organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
-      caption: "Library, Memory, Run History, and Prism move inside one workspace.",
+        "From a research idea, an academic harness recruits custom expert agents to organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
+      caption: "Academic harness, expert agents, Library, Memory, Run History, and Prism move inside one workspace.",
       previewAlt: "Wenjin Prism research workbench preview",
-      signals: ["Library", "Evidence", "Runs", "Prism"],
+      signals: ["Academic Harness", "Expert Agents", "Evidence Graph", "Prism"],
     },
     positioning: {
       eyebrow: "Positioning",
