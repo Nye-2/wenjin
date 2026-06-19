@@ -276,7 +276,7 @@ class TeamKernelRuntime:
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
         capability_policy: dict[str, Any],
-        workspace_data: dict[str, Any],
+        workspace_data: dict[str, Any] | None = None,
         blackboard: TeamBlackboard,
     ) -> tuple[list[AgentInvocation], list[QualityGateResult]]:
         counts: Counter[str] = Counter()
@@ -374,7 +374,7 @@ class TeamKernelRuntime:
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
         capability_policy: dict[str, Any],
-        workspace_data: dict[str, Any],
+        workspace_data: dict[str, Any] | None = None,
         blackboard: TeamBlackboard,
         counts: Counter[str],
         invocations: list[AgentInvocation],
@@ -664,7 +664,7 @@ class TeamKernelRuntime:
                     invocation=invocation,
                     template=templates[invocation.template_id],
                     capability_policy=capability_policy,
-                    workspace_data=workspace_data,
+                    workspace_data=workspace_data or {},
                     blackboard=blackboard,
                     skill_records=skill_cache.records,
                     skill_load_error=skill_load_error,
@@ -960,12 +960,13 @@ class TeamKernelRuntime:
         team_policy: CapabilityTeamPolicy,
         capability_policy: dict[str, Any],
         blackboard: TeamBlackboard,
-        workspace_data: dict[str, Any],
+        workspace_data: dict[str, Any] | None = None,
         counts: Counter[str],
         iteration: int,
         recruits: list[RecruitmentCandidate],
     ) -> list[AgentInvocation]:
         batch: list[AgentInvocation] = []
+        workspace_data = workspace_data or {}
         for recruit in recruits:
             template_id = recruit.template_id
             if not self._can_invoke_template(
