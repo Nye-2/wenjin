@@ -1,7 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { Archive } from "lucide-react";
+import { Archive, BookOpenText, PanelsTopLeft } from "lucide-react";
 
 import { CountBadge } from "@/components/ui/count-badge";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -68,12 +69,14 @@ export function WorkspaceChrome({
             href={`/workspaces/${workspaceId}`}
             active={activeSurface === "workbench"}
             label="Workbench"
+            icon={<PanelsTopLeft className="h-3.5 w-3.5" aria-hidden="true" />}
           />
           <SurfaceTab
             href={`/workspaces/${workspaceId}/prism`}
             active={activeSurface === "prism"}
             label="Prism"
             count={pendingReviewCount}
+            icon={<BookOpenText className="h-3.5 w-3.5" aria-hidden="true" />}
           />
         </nav>
         <button
@@ -104,11 +107,13 @@ function SurfaceTab({
   href,
   active,
   label,
+  icon,
   count = 0,
 }: {
   href: string;
   active: boolean;
   label: string;
+  icon: ReactNode;
   count?: number;
 }) {
   return (
@@ -124,6 +129,7 @@ function SurfaceTab({
           : "text-[var(--wjn-text-secondary)] hover:bg-[rgba(15,23,42,0.05)] hover:text-[var(--wjn-text)]",
       ].join(" ")}
     >
+      {icon}
       {label}
       <CountBadge count={count} tone="review" />
     </Link>

@@ -9,7 +9,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "npm run test:unit && npm run test:perf",
     "test:unit": "vitest run",
     "test:perf": "vitest run --config vitest.perf.config.ts --maxWorkers=1 --no-file-parallelism",

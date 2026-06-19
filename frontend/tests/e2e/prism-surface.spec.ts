@@ -31,9 +31,10 @@ test("workspace Prism surface stays usable on mobile without extra room reloads"
     "aria-selected",
     "true",
   );
-  await expect(
-    page.getByRole("button", { name: "AI 改稿", exact: true }),
-  ).toBeVisible();
+  const assistButton = page.getByRole("button", { name: /AI 改稿/ });
+  await expect(assistButton).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "AI 改稿" })).toHaveCount(0);
+  await assistButton.click();
   await expect(page.getByRole("dialog", { name: "AI 改稿" })).toBeVisible();
   await expect(page.getByText("待确认写入")).toBeVisible();
   await expect(page.getByRole("button", { name: "编辑", exact: true })).toHaveCount(0);

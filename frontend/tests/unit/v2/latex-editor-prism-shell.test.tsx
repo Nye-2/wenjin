@@ -79,15 +79,18 @@ vi.mock("@/components/latex/latex-editor/LatexEditorProjectBar", () => ({
 vi.mock("@/components/latex/latex-editor/LatexEditorPanes", () => ({
   LatexEditorPanes: ({
     surfaceMode,
+    stageLabel,
     onCompile,
     onOpenAssist,
   }: {
     surfaceMode: string;
+    stageLabel?: string;
     onCompile: () => void;
     onOpenAssist: (intent: "selection" | "compile") => void;
   }) => (
     <section>
       <div data-testid="surface-mode">{surfaceMode}</div>
+      <div data-testid="stage-label">{stageLabel}</div>
       <button type="button" onClick={onCompile}>
         面板编译
       </button>
@@ -262,6 +265,7 @@ describe("Prism editor shell", () => {
 
     expect(mockCompileProject).toHaveBeenCalledWith("xelatex");
     expect(screen.getByTestId("surface-mode")).toHaveTextContent("compare");
+    expect(screen.getByTestId("stage-label")).toHaveTextContent("PDF 预览台");
     expect(screen.queryByRole("dialog", { name: "AI 改稿" })).not.toBeInTheDocument();
   });
 

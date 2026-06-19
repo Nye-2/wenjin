@@ -54,7 +54,7 @@ function ContextChip({
 }) {
   if (value <= 0) return null;
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border border-white/55 bg-white/70 px-2.5 py-1 text-xs text-[var(--wjn-text-secondary)]">
+    <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--wjn-line)] bg-[rgba(255,255,255,0.72)] px-2.5 py-1 text-xs text-[var(--wjn-text-secondary)]">
       {icon}
       <span className="text-[var(--wjn-text)]">{value}</span>
       {label}
@@ -94,15 +94,15 @@ export function PrismContextRail({
   }
 
   return (
-    <aside className="border-b border-white/45 bg-white/55 px-4 py-2 backdrop-blur-xl">
+    <aside className="wjn-prism-context-rail px-4 py-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/25 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-900">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(180,83,9,0.24)] bg-[var(--wjn-review-soft)] px-2.5 py-1 text-xs text-[var(--wjn-review)]">
             <FileCheck2 className="h-3.5 w-3.5" />
             <span className="font-medium">{pendingCount}</span>
             待确认
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-900">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(15,118,110,0.22)] bg-[var(--wjn-evidence-soft)] px-2.5 py-1 text-xs text-[var(--wjn-evidence)]">
             <CircleCheckBig className="h-3.5 w-3.5" />
             <span className="font-medium">{appliedCount}</span>
             已写入

@@ -100,6 +100,7 @@ describe("workspace prism surface", () => {
     expect(await screen.findByTestId("latex-editor-shell")).toHaveTextContent(
       "latex-1:0",
     );
+    expect(await screen.findByTestId("prism-studio-shell")).toBeInTheDocument();
   });
 
   it("routes workspace hub entries back to the workbench rooms", async () => {
@@ -153,6 +154,9 @@ describe("workspace prism surface", () => {
     expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
       "正在打开论文写作台",
     );
+    expect(screen.getByTestId("workspace-surface-state")).toHaveTextContent(
+      "正在加载工作区主稿和待确认修改。",
+    );
   });
 
   it("uses the shared surface state for Prism load errors", async () => {
@@ -186,8 +190,9 @@ describe("workspace prism surface", () => {
       );
     });
 
+    expect(await screen.findByText("还没有绑定写作项目")).toBeInTheDocument();
     expect(
-      await screen.findByText("还没有绑定写作项目"),
+      screen.getByText("从 Workbench 启动论文写作任务后，这里会自动打开主稿。"),
     ).toBeInTheDocument();
   });
 
