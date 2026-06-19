@@ -12,7 +12,12 @@ type PreviewKind =
   | "library_item"
   | "memory_fact"
   | "decision"
-  | "task";
+  | "task"
+  | "reference"
+  | "dataset"
+  | "artifact"
+  | "prism_change"
+  | "warning";
 
 export interface WorkspaceRoomTarget {
   room: "documents" | "library";
@@ -22,7 +27,12 @@ export interface WorkspaceRoomTarget {
 
 export interface WorkspaceResultPreview {
   id: string;
-  source: "staged_output" | "review_item" | "document_room" | "library_room";
+  source:
+    | "staged_output"
+    | "review_item"
+    | "review_packet"
+    | "document_room"
+    | "library_room";
   kind: PreviewKind;
   data?: Record<string, unknown> | null;
   title: string;
@@ -45,6 +55,32 @@ type StagedOutput = {
   preview?: unknown;
   default_checked?: unknown;
   data?: unknown;
+};
+
+type ReviewPacket = {
+  packet_id?: unknown;
+  title?: unknown;
+  summary?: unknown;
+  completion_status?: unknown;
+  items?: unknown;
+};
+
+type ReviewPacketItem = {
+  item_id?: unknown;
+  kind?: unknown;
+  title?: unknown;
+  summary?: unknown;
+  preview?: unknown;
+  source?: unknown;
+  claim_refs?: unknown;
+  evidence_refs?: unknown;
+  artifact_refs?: unknown;
+  prism_change_refs?: unknown;
+  quality_surfaces?: unknown;
+  risk?: unknown;
+  default_checked?: unknown;
+  can_commit?: unknown;
+  provenance?: unknown;
 };
 
 function readString(value: unknown): string | null {
@@ -285,6 +321,88 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
         canCommit: false,
         canOpenRoom: false,
       },
+    ];
+  });
+}
+
+export function buildWorkspaceResultPreviewsFromReviewPacket(
+  packet: unknown,
+): WorkspaceResultPreview[] {
+  const reviewPacket = readObject(packet) as ReviewPacket | null;
+  if (!reviewPacket || !Array.isArray(reviewPacket.items)) {
+    return [];
+  }
+  const packetId = readString(reviewPacket.packet_id) ?? "review-packet";
+  const packetStatus = readString(reviewPacket.completion_status);
+
+  return reviewPacket.items.flatMap((value) => {
+    const item = readObject(value) as ReviewPacketItem | null;
+    if (!item) {
+      return [];
+    }
+    const itemId = readString(item.item_id);
+    const kind = normalizeReviewPacketKind(readString(item.kind));
+    if (!itemId || !kind) {
+      return [];
+    }
+    const preview = readObject(item.preview);
+    const risk = readObject(item.risk);
+    const source = readObject(item.source);
+    const provenance = readObject(item.provenance);
+    const title = readString(item.title) ?? reviewPacketKindLabel(kind);
+    const summary = readString(item.summary);
+    const previewPath = firstWorkspaceImagePath(
+      readString(preview?.path),
+      ...readStringArray(item.artifact_refs).map((ref) => ref.replace(/^artifact:/, "")),
+    );
+    const previewMode = resolveReviewPacketPreviewMode({
+      kind,
+      format: readString(preview?.format),
+      previewPath,
+    });
+    const metadata: Record<string, unknown> = {
+      packet_id: packetId,
+      packet_status: packetStatus,
+      source,
+      provenance,
+      claim_refs: readStringArray(item.claim_refs),
+      evidence_refs: readStringArray(item.evidence_refs),
+      artifact_refs: readStringArray(item.artifact_refs),
+      prism_change_refs: readStringArray(item.prism_change_refs),
+      quality_surfaces: readStringArray(item.quality_surfaces),
+      risk,
+      review_packet_item: item,
+    };
+    const metadataLines = buildReviewPacketMetadataLines({
+      source,
+      risk,
+      claimRefs: metadata.claim_refs as string[],
+      evidenceRefs: metadata.evidence_refs as string[],
+      artifactRefs: metadata.artifact_refs as string[],
+      qualitySurfaces: metadata.quality_surfaces as string[],
+    });
+
+    return [
+      {
+        id: `packet:${itemId}`,
+        source: "review_packet",
+        kind,
+        title,
+        subtitle: summary && summary !== title ? summarizeText(summary) : null,
+        badge: reviewPacketKindLabel(kind),
+        data: metadata,
+        previewMode,
+        previewPath,
+        previewText:
+          readString(preview?.excerpt) ??
+          summary ??
+          JSON.stringify(item, null, 2),
+        metadata,
+        metadataLines,
+        defaultChecked: item.default_checked !== false,
+        canCommit: false,
+        canOpenRoom: false,
+      } satisfies WorkspaceResultPreview,
     ];
   });
 }
@@ -557,6 +675,90 @@ function summarizeText(value: string | null): string | null {
     return null;
   }
   return value.length > 140 ? `${value.slice(0, 137).trimEnd()}...` : value;
+}
+
+function normalizeReviewPacketKind(value: string | null): PreviewKind | null {
+  switch (value) {
+    case "document":
+    case "memory":
+      return value === "memory" ? "memory_fact" : "document";
+    case "decision":
+    case "reference":
+    case "dataset":
+    case "artifact":
+    case "prism_change":
+    case "task":
+    case "warning":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function reviewPacketKindLabel(kind: PreviewKind): string {
+  switch (kind) {
+    case "reference":
+      return "来源";
+    case "dataset":
+      return "数据";
+    case "artifact":
+      return "产物";
+    case "prism_change":
+      return "改稿";
+    case "warning":
+      return "风险";
+    case "memory_fact":
+      return "记忆";
+    default:
+      return documentKindLabel(kind);
+  }
+}
+
+function resolveReviewPacketPreviewMode(options: {
+  kind: PreviewKind;
+  format: string | null;
+  previewPath: string | null;
+}): PreviewMode {
+  if (options.previewPath) {
+    return "image";
+  }
+  if (options.format === "markdown") {
+    return "markdown";
+  }
+  if (options.format === "json" || options.format === "structured_json") {
+    return "structured_json";
+  }
+  if (options.kind === "reference" || options.kind === "library_item") {
+    return "citation";
+  }
+  return "plain_text";
+}
+
+function buildReviewPacketMetadataLines(options: {
+  source: Record<string, unknown> | null;
+  risk: Record<string, unknown> | null;
+  claimRefs: string[];
+  evidenceRefs: string[];
+  artifactRefs: string[];
+  qualitySurfaces: string[];
+}): string[] {
+  const expert = firstNonNull(
+    readString(options.source?.expert_id),
+    readString(options.source?.skill_id),
+  );
+  const riskLevel = readString(options.risk?.level);
+  return [
+    expert ? `专家 ${humanizeMetadataToken(expert)}` : null,
+    riskLevel ? `风险 ${riskLevel}` : null,
+    options.claimRefs.length ? `论断 ${options.claimRefs.length}` : null,
+    options.evidenceRefs.length ? `证据 ${options.evidenceRefs.length}` : null,
+    options.artifactRefs.length ? `产物 ${options.artifactRefs.length}` : null,
+    options.qualitySurfaces.length ? `质量面 ${options.qualitySurfaces.length}` : null,
+  ].filter((value): value is string => Boolean(value));
+}
+
+function humanizeMetadataToken(value: string): string {
+  return value.replace(/\.v\d+$/i, "").replace(/[_-]+/g, " ");
 }
 
 function buildFigureMetadata(

@@ -2,6 +2,7 @@
 
 import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
+import { extractTaskReport } from "@/lib/workbench-result-editing";
 
 const ACTIVE_EXECUTION_STATUSES = new Set(["pending", "running", "paused"]);
 
@@ -17,6 +18,16 @@ export function useWorkspaceChromeCounts(
         continue;
       }
       pendingReviewCount += record.review_items?.length ?? 0;
+      const taskReport = extractTaskReport(record.result);
+      const reviewPacket = taskReport?.review_packet;
+      if (
+        reviewPacket &&
+        typeof reviewPacket === "object" &&
+        !Array.isArray(reviewPacket)
+      ) {
+        const items = (reviewPacket as Record<string, unknown>).items;
+        pendingReviewCount += Array.isArray(items) ? items.length : 0;
+      }
     }
 
     return pendingReviewCount;

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildWorkspaceResultPreviewsFromOutputs,
+  buildWorkspaceResultPreviewsFromReviewPacket,
   buildWorkspaceResultPreviewsFromReviewItems,
 } from "@/lib/workspace-result-preview";
 
@@ -111,5 +112,54 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
     });
     expect(previews[0]?.metadataLines.join(" ")).toContain("image/png");
     expect(previews[0]?.metadataLines.join(" ")).toContain("fed_curve.py");
+  });
+
+  it("projects academic review packet items as read-only previews", () => {
+    const previews = buildWorkspaceResultPreviewsFromReviewPacket({
+      packet_id: "packet-1",
+      completion_status: "partial",
+      items: [
+        {
+          item_id: "writer-summary",
+          kind: "document",
+          title: "写作专家摘要",
+          summary: "完成初稿结构，但仍有两个论断缺证据。",
+          preview: { format: "markdown", excerpt: "## 摘要\n完成初稿结构。" },
+          source: { expert_id: "manuscript_writer.v1" },
+          claim_refs: ["claim-1"],
+          evidence_refs: ["library_reference:source-1"],
+          quality_surfaces: ["claim_evidence_alignment"],
+          risk: { level: "medium", reasons: ["missing evidence"] },
+          default_checked: false,
+          can_commit: true,
+        },
+        {
+          item_id: "claim-warning",
+          kind: "warning",
+          title: "弱证据或未支持论断",
+          summary: "这一段结论缺少来源支撑。",
+          preview: { format: "text", excerpt: "这一段结论缺少来源支撑。" },
+          risk: { level: "high", reasons: ["unsupported"] },
+          can_commit: false,
+        },
+      ],
+    });
+
+    expect(previews).toHaveLength(2);
+    expect(previews[0]).toMatchObject({
+      id: "packet:writer-summary",
+      source: "review_packet",
+      kind: "document",
+      previewMode: "markdown",
+      title: "写作专家摘要",
+      canCommit: false,
+    });
+    expect(previews[0]?.metadataLines.join(" ")).toContain("证据 1");
+    expect(previews[1]).toMatchObject({
+      kind: "warning",
+      badge: "风险",
+      previewMode: "plain_text",
+      canCommit: false,
+    });
   });
 });

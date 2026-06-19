@@ -99,6 +99,26 @@ export interface RunViewQualityHighlight {
   detail: string;
 }
 
+export interface RunViewReviewPacketItem {
+  id: string;
+  kind: string;
+  title: string;
+  summary: string;
+  defaultChecked: boolean;
+  canCommit: boolean;
+  riskLevel?: string | null;
+  evidenceCount: number;
+  artifactCount: number;
+}
+
+export interface RunViewReviewPacket {
+  id: string;
+  title: string;
+  summary: string;
+  completionStatus: "complete" | "partial" | "failed" | "cancelled";
+  items: RunViewReviewPacketItem[];
+}
+
 export interface RunViewTeam {
   mode: "team_kernel";
   members: RunViewTeamMember[];
@@ -142,6 +162,7 @@ export interface RunView {
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
   team?: RunViewTeam | null;
+  reviewPacket?: RunViewReviewPacket | null;
   qualityHighlights: RunViewQualityHighlight[];
   actions: RunPrimaryAction[];
 }
@@ -149,6 +170,7 @@ export interface RunView {
 type TaskReportProjection = Record<string, unknown> & {
   errors?: Array<Record<string, unknown>>;
   review_items?: unknown[];
+  review_packet?: unknown;
 };
 
 const TEAM_KERNEL_PROGRESS_ORDER = [
@@ -165,15 +187,18 @@ export function isTerminalRunStatus(status: RunViewStatus | string): boolean {
 
 export function runViewFromExecution(record: ExecutionRecord): RunView {
   const taskReport = taskReportFromResult(record.result);
+  const reviewPacket = reviewPacketFromTaskReport(taskReport);
+  const reviewPacketItems = reviewPacket?.items ?? [];
   const tokenUsage =
     tokenUsageFromUnknown(taskReport?.token_usage) ??
     tokenUsageFromNodes(record.node_states);
+  const legacyReviewItems = record.review_items ?? reviewItemsFromTaskReport(taskReport);
   const prismReviewCount = countPrismReviewItems(
-    record.review_items ?? reviewItemsFromTaskReport(taskReport),
-  );
+    legacyReviewItems,
+  ) + countReviewPacketPrismItems(reviewPacketItems);
   const sandboxReviewCount = countSandboxReviewItems(
-    record.review_items ?? reviewItemsFromTaskReport(taskReport),
-  );
+    legacyReviewItems,
+  ) + countReviewPacketSandboxItems(reviewPacketItems);
   const status = normalizeExecutionStatus(record.status);
   const failedNodeCount = countNodesByStatus(record, "failed");
   const progressItems = buildRunProgressItems(record);
@@ -192,7 +217,10 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   const failureCategory =
     failureCategoryFromRecord(record, failedNodeCount, failureMessage);
   const team = teamViewFromExecution(record);
-  const qualityHighlights = qualityHighlightsFromRuntimeState(record.runtime_state);
+  const qualityHighlights = [
+    ...qualityHighlightsFromRuntimeState(record.runtime_state),
+    ...qualityHighlightsFromReviewPacket(reviewPacket),
+  ].slice(0, 6);
 
   return {
     id: record.id,
@@ -224,11 +252,17 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     failureCategory,
     failureMessage,
     team,
+    reviewPacket,
     qualityHighlights,
     actions: actionsForRun({
       status,
       hasPrismChanges: prismReviewCount > 0,
-      hasResults: Boolean(record.result || taskReport || sandboxReviewCount > 0),
+      hasResults: Boolean(
+        record.result ||
+        taskReport ||
+        reviewPacketItems.length > 0 ||
+        sandboxReviewCount > 0,
+      ),
       failureCategory,
     }),
   };
@@ -436,6 +470,7 @@ export function mergeRunViews(
     failureCategory: live.failureCategory ?? historical.failureCategory,
     failureMessage: live.failureMessage ?? historical.failureMessage,
     team: live.team ?? historical.team,
+    reviewPacket: live.reviewPacket ?? historical.reviewPacket,
     qualityHighlights: live.qualityHighlights.length
       ? live.qualityHighlights
       : historical.qualityHighlights,
@@ -476,6 +511,51 @@ function reviewItemsFromTaskReport(
   return Array.isArray(taskReport?.review_items) ? taskReport.review_items : [];
 }
 
+function reviewPacketFromTaskReport(
+  taskReport: TaskReportProjection | null,
+): RunViewReviewPacket | null {
+  const packet = objectValue(taskReport?.review_packet);
+  if (!packet) {
+    return null;
+  }
+  const rawStatus = stringValue(packet.completion_status);
+  const completionStatus =
+    rawStatus === "complete" ||
+    rawStatus === "partial" ||
+    rawStatus === "failed" ||
+    rawStatus === "cancelled"
+      ? rawStatus
+      : "partial";
+  const items = arrayValue(packet.items).flatMap((value) => {
+    const item = objectValue(value);
+    if (!item) return [];
+    const id = stringValue(item.item_id);
+    const kind = stringValue(item.kind);
+    const title = stringValue(item.title);
+    if (!id || !kind || !title) return [];
+    return [
+      {
+        id,
+        kind,
+        title,
+        summary: stringValue(item.summary) ?? "",
+        defaultChecked: item.default_checked !== false,
+        canCommit: item.can_commit !== false,
+        riskLevel: stringValue(objectValue(item.risk)?.level),
+        evidenceCount: stringArrayValue(item.evidence_refs).length,
+        artifactCount: stringArrayValue(item.artifact_refs).length,
+      } satisfies RunViewReviewPacketItem,
+    ];
+  });
+  return {
+    id: stringValue(packet.packet_id) ?? "review-packet",
+    title: stringValue(packet.title) ?? "候选结果",
+    summary: stringValue(packet.summary) ?? `${items.length} 项候选结果`,
+    completionStatus,
+    items,
+  };
+}
+
 function countPrismReviewItems(items: unknown[]): number {
   return items.filter((item) => {
     if (!item || typeof item !== "object") return false;
@@ -502,6 +582,18 @@ function countSandboxReviewItems(items: unknown[]): number {
         (entry.target as Record<string, unknown>).kind === "sandbox_artifact")
     );
   }).length;
+}
+
+function countReviewPacketPrismItems(items: RunViewReviewPacketItem[]): number {
+  return items.filter((item) => item.kind === "prism_change").length;
+}
+
+function countReviewPacketSandboxItems(items: RunViewReviewPacketItem[]): number {
+  return items.filter((item) =>
+    item.kind === "artifact" ||
+    item.kind === "dataset" ||
+    item.artifactCount > 0,
+  ).length;
 }
 
 function tokenUsageFromUnknown(
@@ -851,6 +943,33 @@ function qualityHighlightsFromRuntimeState(
     if (highlight) highlights.push(highlight);
   }
   return highlights.slice(0, 6);
+}
+
+function qualityHighlightsFromReviewPacket(
+  packet: RunViewReviewPacket | null,
+): RunViewQualityHighlight[] {
+  if (!packet) {
+    return [];
+  }
+  const highlights: RunViewQualityHighlight[] = [];
+  if (packet.completionStatus !== "complete") {
+    highlights.push({
+      label: "结果完整性",
+      status: packet.completionStatus === "failed" ? "fail" : "warning",
+      detail: packet.summary || "部分候选需要先预览确认",
+    });
+  }
+  for (const item of packet.items) {
+    if (item.riskLevel !== "high" && item.riskLevel !== "medium") {
+      continue;
+    }
+    highlights.push({
+      label: item.kind === "warning" ? "证据风险" : "候选风险",
+      status: item.riskLevel === "high" ? "fail" : "warning",
+      detail: item.summary || item.title,
+    });
+  }
+  return highlights.slice(0, 4);
 }
 
 function qualityHighlightFromGate(

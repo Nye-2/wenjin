@@ -357,4 +357,61 @@ describe("live workflow view model", () => {
     expect(model.pendingReviewCount).toBe(1);
     expect(model.selectedPreview?.kind).toBe("figure");
   });
+
+  it("projects review packet items alongside staged outputs", () => {
+    const record = baseRecord({
+      id: "packet-run-1",
+      status: "failed_partial",
+      result: {
+        task_report: {
+          status: "failed_partial",
+          outputs: [
+            {
+              id: "doc-1",
+              kind: "document",
+              preview: "文献定位与创新点.md",
+              default_checked: false,
+              data: { name: "文献定位与创新点.md", content: "# Gap map" },
+            },
+          ],
+          review_packet: {
+            packet_id: "packet-1",
+            completion_status: "partial",
+            items: [
+              {
+                item_id: "risk-1",
+                kind: "warning",
+                title: "弱证据或未支持论断",
+                summary: "研究问题还缺少直接证据。",
+                preview: { format: "text", excerpt: "研究问题还缺少直接证据。" },
+                risk: { level: "high", reasons: ["unsupported"] },
+                can_commit: false,
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const model = buildLiveWorkflowViewModel({
+      records: [record],
+      workspaceId: "ws-1",
+      selectedRunId: "packet-run-1",
+      focusedRunId: null,
+      activeRunId: null,
+      selectedPreviewId: null,
+      draftEdits: {},
+    });
+
+    expect(model.previews.map((item) => item.id)).toEqual([
+      "doc-1",
+      "packet:risk-1",
+    ]);
+    expect(model.pendingReviewCount).toBe(2);
+    expect(model.previews[1]).toMatchObject({
+      source: "review_packet",
+      kind: "warning",
+      canCommit: false,
+    });
+  });
 });
