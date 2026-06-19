@@ -178,13 +178,27 @@ quality_gates:
 - methods_results_discussion_consistent
 - data_code_availability_considered
 research_evidence:
+  review_packet: required
   required_surfaces:
   - experiment
   - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - experiment_reproducibility
   - experiment_interpretation
+  - statistical_robustness
   - output_ref_reuse
+  surface_enforcement:
+    experiment: required_runtime
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    experiment_reproducibility: required_final
+    experiment_interpretation: required_runtime
+    statistical_robustness: required_runtime
+    output_ref_reuse: diagnostic
   notes:
-  - The audit focuses on reproducible sandbox evidence, member execution trace, interpreted results, and output-ref reuse before rerunning expensive work.
+  - The audit focuses on reproducible sandbox evidence, method/result interpretation, robustness checks, output-ref reuse before rerunning expensive work, and previewable review packet warnings.
 graph_template:
   phases:
   - name: step_01_evidence_analyst

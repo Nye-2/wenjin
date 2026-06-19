@@ -42,6 +42,8 @@ worker:
     - Draft text or complete `.tex` replacement as requested by the capability.
     - Embedded TODO markers only where support is missing.
     - Brief quality-gate notes when output is not pure `.tex`.
+    - For Prism/document edits, return staged `draft_or_patch` or `revision_notes` only; do not claim edits were applied before user acceptance.
+    - Return `expert_report` using schema `wenjin.expert_report.v1` with bounded claims, evidence refs, artifact refs, and warnings for the workspace review packet.
     - Return `text` as the main human-readable result and `quality_gates_checked` as the list of quality gates evaluated.
 
     Quality Gate Behavior:
@@ -65,6 +67,7 @@ io_contract:
     required:
     - text
     - quality_gates_checked
+    - expert_report
     - upstream_outputs_used
     - unsupported_claims
     properties:
@@ -78,6 +81,8 @@ io_contract:
         type: array
         items:
           type: string
+      expert_report:
+        type: object
       open_questions:
         type: array
         items:

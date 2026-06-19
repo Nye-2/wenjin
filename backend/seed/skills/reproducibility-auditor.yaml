@@ -30,6 +30,8 @@ worker:
     Output Contract:
     - Reproducibility status, input inventory, verified results, limitations, and artifact refs.
     - Quality gates checked.
+    - For sandbox-backed work, include artifact refs with scripts, input hashes, commands, and figure/data provenance sufficient for reproducibility checks.
+    - Return `expert_report` using schema `wenjin.expert_report.v1` with bounded claims, evidence refs, artifact refs, and warnings for the workspace review packet.
     - Return `text` as the main human-readable result and `quality_gates_checked` as the list of quality gates evaluated.
 
     Quality Gate Behavior:
@@ -53,6 +55,7 @@ io_contract:
     required:
     - text
     - quality_gates_checked
+    - expert_report
     - verified_results
     - artifact_refs
     properties:
@@ -62,6 +65,8 @@ io_contract:
         type: array
         items:
           type: string
+      expert_report:
+        type: object
       open_questions:
         type: array
         items:

@@ -30,6 +30,7 @@ worker:
     Output Contract:
     - Query log, query variants, rationale, and source gaps.
     - Quality gates checked.
+    - Return `expert_report` using schema `wenjin.expert_report.v1` with bounded claims, evidence refs, artifact refs, and warnings for the workspace review packet.
     - Return `text` as the main human-readable result and `quality_gates_checked` as the list of quality gates evaluated.
 
     Quality Gate Behavior:
@@ -53,6 +54,7 @@ io_contract:
     required:
     - text
     - quality_gates_checked
+    - expert_report
     - query_log
     properties:
       text:
@@ -61,6 +63,8 @@ io_contract:
         type: array
         items:
           type: string
+      expert_report:
+        type: object
       open_questions:
         type: array
         items:

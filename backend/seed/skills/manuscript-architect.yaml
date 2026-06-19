@@ -35,6 +35,7 @@ worker:
     - Claim-evidence-citation plan using existing Library citation keys or explicit NEEDS_SOURCE markers.
     - Decisions needed before full drafting.
     - Risk list for structure, novelty, methods, and format compliance.
+    - Return `expert_report` using schema `wenjin.expert_report.v1` with bounded claims, evidence refs, artifact refs, and warnings for the workspace review packet.
     - Return `text` as the main human-readable result and `quality_gates_checked` as the list of quality gates evaluated.
 
     Quality Gate Behavior:
@@ -58,6 +59,7 @@ io_contract:
     required:
     - text
     - quality_gates_checked
+    - expert_report
     properties:
       text:
         type: string
@@ -69,6 +71,8 @@ io_contract:
         type: array
         items:
           type: string
+      expert_report:
+        type: object
       open_questions:
         type: array
         items:
