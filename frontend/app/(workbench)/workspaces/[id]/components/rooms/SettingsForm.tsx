@@ -32,7 +32,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
     let cancelled = false;
     authorizedFetch(`/api/workspaces/${workspaceId}/settings`)
       .then((res) => {
-        if (!res.ok) throw new Error("Failed to load settings");
+        if (!res.ok) throw new Error("设置加载失败");
         return res.json();
       })
       .then((data: WorkspaceSettings) => {
@@ -67,11 +67,11 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),
       });
-      if (!res.ok) throw new Error("Failed to save settings");
+      if (!res.ok) throw new Error("设置保存失败");
       setSaved(true);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to save settings",
+        err instanceof Error ? err.message : "设置保存失败",
       );
     } finally {
       setSaving(false);
@@ -101,7 +101,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
           fontSize: 13,
         }}
       >
-        Loading settings...
+        正在加载设置...
       </div>
     );
   }
@@ -120,13 +120,13 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               marginBottom: 6,
             }}
           >
-            Workspace Name
+            工作区名称
           </label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="My Workspace"
+            placeholder="我的工作区"
             data-testid="settings-name"
             style={inputStyle}
           />
@@ -143,7 +143,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               marginBottom: 6,
             }}
           >
-            Auto-Compact Threshold
+            上下文整理阈值
           </label>
           <input
             type="number"
@@ -168,7 +168,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
               marginBottom: 6,
             }}
           >
-            Default Model
+            默认模型
           </label>
           <select
             value={defaultModel}
@@ -189,6 +189,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
 
         {/* Save button */}
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
           data-testid="settings-save"
@@ -206,7 +207,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
             alignSelf: "flex-start",
           }}
         >
-          {saving ? "Saving..." : "Save Settings"}
+          {saving ? "正在保存..." : "保存设置"}
         </button>
 
         {saved && (
@@ -214,7 +215,7 @@ export function SettingsForm({ workspaceId }: SettingsFormProps) {
             style={{ color: "var(--wjn-success)", fontSize: 13 }}
             data-testid="settings-saved"
           >
-            Settings saved successfully
+            设置已保存
           </div>
         )}
 

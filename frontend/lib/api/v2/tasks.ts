@@ -21,9 +21,9 @@ export async function listTasks(
   const res = await authorizedFetch(
     `${BASE}/${workspaceId}/tasks${params.toString() ? `?${params}` : ""}`,
   );
-  if (!res.ok) throw new Error("Failed to list tasks");
+  if (!res.ok) throw new Error("任务加载失败");
   const json = await res.json();
-  return readItemsArray<WorkspaceTask>(json, "tasks");
+  return readItemsArray<WorkspaceTask>(json, "任务");
 }
 
 export async function createTask(
@@ -36,7 +36,7 @@ export async function createTask(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, description }),
   });
-  if (!res.ok) throw new Error("Failed to create task");
+  if (!res.ok) throw new Error("任务创建失败");
   return res.json();
 }
 
@@ -47,7 +47,7 @@ export async function deleteTask(
   const res = await authorizedFetch(`${BASE}/${workspaceId}/tasks/${taskId}`, {
     method: "DELETE",
   });
-  if (!res.ok) throw new Error("Failed to delete task");
+  if (!res.ok) throw new Error("任务删除失败");
 }
 
 export async function updateTaskStatus(
@@ -60,5 +60,5 @@ export async function updateTaskStatus(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
-  if (!res.ok) throw new Error("Failed to update task status");
+  if (!res.ok) throw new Error("任务状态更新失败");
 }

@@ -42,7 +42,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
       eyebrow: "Pricing",
       title: "清晰的 credits 定价，按科研任务实际使用结算。",
       subtitle:
-        "Wenjin 用 credits 承载模型调用、文献检索、capability 执行和 sandbox 运行消耗。余额、规则和流水统一回到账户后台查看。",
+        "Wenjin 用 credits 承载模型调用、文献检索、capability 执行和实验环境运行消耗。余额、规则和流水统一回到账户后台查看。",
       badge: "当前阶段采用 credits 积分结算",
       account: "查看积分后台",
       start: "进入工作台",
@@ -59,7 +59,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
         price: "按运行节点和模型消耗结算",
       },
       {
-        title: "Sandbox 与数据分析",
+        title: "实验环境与数据分析",
         body: "用于后续实验、统计检验、图表生成和数据服务调用。",
         price: "按工具与计算资源结算",
       },
@@ -81,7 +81,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
       eyebrow: "Pricing",
       title: "Transparent credits pricing for research work.",
       subtitle:
-        "Wenjin uses credits for model calls, literature search, capability execution, and sandbox runs. Balance, rules, and history live in the account dashboard.",
+        "Wenjin uses credits for model calls, literature search, capability execution, and experiment-environment runs. Balance, rules, and history live in the account dashboard.",
       badge: "Credits-based billing",
       account: "Open credits dashboard",
       start: "Enter Workbench",
@@ -98,7 +98,7 @@ const PRICING_COPY: Record<Locale, PricingCopy> = {
         price: "Charged by run nodes and model usage",
       },
       {
-        title: "Sandbox and analysis",
+        title: "Experiment environment and analysis",
         body: "Future-facing experiments, statistical tests, chart generation, and data-service calls.",
         price: "Charged by tools and compute resources",
       },

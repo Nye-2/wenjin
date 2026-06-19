@@ -52,7 +52,7 @@ const STATUS_LABELS: Record<RunViewStatus, string> = {
 };
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  return new Date(iso).toLocaleString("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -68,8 +68,8 @@ function formatDuration(
   const ms =
     new Date(completed).getTime() - new Date(started).getTime();
   if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60000).toFixed(1)}m`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)} 秒`;
+  return `${(ms / 60000).toFixed(1)} 分钟`;
 }
 
 export function RunsDrawer({
@@ -102,7 +102,7 @@ export function RunsDrawer({
       const data = await listRuns(workspaceId);
       setItems(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load runs");
+      setError(err instanceof Error ? err.message : "运行记录加载失败");
     } finally {
       setLoading(false);
     }
@@ -154,7 +154,7 @@ export function RunsDrawer({
         right: 0,
         top: 0,
         bottom: 0,
-        width: 400,
+        width: "min(420px, 100%)",
         background: "rgba(255, 255, 255, 0.92)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
@@ -169,6 +169,9 @@ export function RunsDrawer({
         fontSize: 13,
       }}
       data-testid="runs-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="运行记录"
     >
       {/* Header */}
       <div
@@ -188,11 +191,13 @@ export function RunsDrawer({
             color: "var(--wjn-text)",
           }}
         >
-          Runs
+          运行记录
         </span>
         <button
+          type="button"
           onClick={handleClose}
           data-testid="drawer-close"
+          aria-label="关闭运行记录"
           style={{
             border: "none",
             background: "transparent",
@@ -211,7 +216,7 @@ export function RunsDrawer({
       <div style={{ padding: "12px 16px" }}>
         <input
           type="text"
-          placeholder="Search by capability..."
+          placeholder="按任务搜索"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="drawer-search"
@@ -247,7 +252,7 @@ export function RunsDrawer({
             }}
             data-testid="drawer-loading"
           >
-            Loading runs...
+            正在加载运行记录...
           </div>
         )}
 
@@ -273,7 +278,7 @@ export function RunsDrawer({
             }}
             data-testid="drawer-empty"
           >
-            No runs found
+            {search ? "没有匹配的运行记录" : "暂无运行记录"}
           </div>
         )}
 
@@ -378,14 +383,14 @@ export function RunsDrawer({
                   href={`/workspaces/${workspaceId}`}
                   style={actionLinkStyle}
                 >
-                  查看执行
+                  查看进展
                 </WorkspaceActionLink>
                 {item.hasPrismChanges ? (
                   <WorkspaceActionLink
                     href={`/workspaces/${workspaceId}/prism`}
                     style={actionLinkStyle}
                   >
-                    打开 Prism
+                    打开写作台
                   </WorkspaceActionLink>
                 ) : null}
                 <WorkspaceActionLink

@@ -31,4 +31,55 @@ describe("CommitActionBar", () => {
 
     expect(onDiscard).toHaveBeenCalledTimes(1);
   });
+
+  it("can make selected outputs the primary action when accept-all is unsafe", () => {
+    const onAcceptAll = vi.fn();
+    const onAcceptSelected = vi.fn();
+    const onDiscard = vi.fn();
+
+    render(
+      <CommitActionBar
+        committed={false}
+        committing={false}
+        allowAcceptAll={false}
+        selectedCount={1}
+        onAcceptAll={onAcceptAll}
+        onAcceptSelected={onAcceptSelected}
+        onDiscard={onDiscard}
+        acceptAllLabel="全部接受"
+        acceptSelectedLabel="保存已勾选"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "全部接受" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存已勾选" }));
+
+    expect(onAcceptAll).not.toHaveBeenCalled();
+    expect(onAcceptSelected).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables selected-output save when nothing is checked", () => {
+    const onAcceptAll = vi.fn();
+    const onAcceptSelected = vi.fn();
+    const onDiscard = vi.fn();
+
+    render(
+      <CommitActionBar
+        committed={false}
+        committing={false}
+        allowAcceptAll={false}
+        selectedCount={0}
+        onAcceptAll={onAcceptAll}
+        onAcceptSelected={onAcceptSelected}
+        onDiscard={onDiscard}
+        acceptSelectedLabel="保存已勾选"
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: "保存已勾选" });
+    expect(button).toBeDisabled();
+
+    fireEvent.click(button);
+    expect(onAcceptSelected).not.toHaveBeenCalled();
+  });
 });

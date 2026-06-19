@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -498,17 +500,9 @@ class TestNoSkill:
 class TestMockLLM:
     @pytest.mark.asyncio
     async def test_skill_with_mock_model(self):
-        """Verify ReactSubagent calls the model via astream and parses document output."""
-        # Build fake stream chunks (LangChain AIMessageChunk-like)
-        fake_chunk = MagicMock()
-        fake_chunk.content = "# 综述报告\n\n这是一篇关于量子计算的综述。"
-        fake_chunk.additional_kwargs = {}
-
-        async def _fake_astream(messages):
-            yield fake_chunk
-
+        """Verify ReactSubagent calls the model and parses document output."""
         fake_model = MagicMock()
-        fake_model.astream = MagicMock(return_value=_fake_astream([]))
+        fake_model.invoke = MagicMock(return_value=AIMessage(content="# 综述报告\n\n这是一篇关于量子计算的综述。"))
 
         with patch(
             "src.subagents.v2.types.react.create_chat_model",
@@ -525,9 +519,9 @@ class TestMockLLM:
             ctx = _make_ctx(inputs={"topic": "量子计算"}, skill=skill)
             result = await sub.run(ctx)
 
-        # Verify model.astream was called with system + user messages
-        fake_model.astream.assert_called_once()
-        call_args = fake_model.astream.call_args[0][0]  # positional arg: messages list
+        # Verify model.invoke was called with system + user messages
+        fake_model.invoke.assert_called_once()
+        call_args = fake_model.invoke.call_args[0][0]  # positional arg: messages list
         assert len(call_args) == 2
         assert call_args[0].content == "你是综述写手"
         assert call_args[1].content == "主题: 量子计算"
@@ -540,6 +534,7 @@ class TestMockLLM:
     @pytest.mark.asyncio
     async def test_requested_tools_without_registered_callables_fail_explicitly(self):
         fake_model = MagicMock()
+        fake_model.invoke = MagicMock()
 
         with patch(
             "src.subagents.v2.types.react.create_chat_model",
@@ -552,7 +547,196 @@ class TestMockLLM:
                     tools=["unknown.tool"],
                 )
 
-        fake_model.astream.assert_not_called()
+        fake_model.invoke.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_react_loop_passes_system_prompt_with_current_langgraph_api(self):
+        class FakeAgent:
+            async def ainvoke(self, payload, *, config=None):
+                assert payload == {"messages": [HumanMessage(content="user")]}
+                assert config == {"recursion_limit": 10}
+                return {"messages": [AIMessage(content="ok")]}
+
+        fake_model = MagicMock()
+        fake_create_agent = MagicMock(return_value=FakeAgent())
+
+        with (
+            patch("src.subagents.v2.types.react.create_chat_model", return_value=fake_model),
+            patch("src.subagents.v2.types.react._resolve_tools", return_value=[MagicMock()]),
+            patch("langgraph.prebuilt.create_react_agent", fake_create_agent),
+        ):
+            result = await _run_react_loop(
+                system_prompt="system",
+                user_message="user",
+                tools=["sandbox.read_file"],
+                harness_context=_make_ctx(),
+            )
+
+        assert result == "ok"
+        _, kwargs = fake_create_agent.call_args
+        assert kwargs["prompt"] == "system"
+        assert "state_modifier" not in kwargs
+
+    @pytest.mark.asyncio
+    async def test_react_subagent_runs_direct_when_upstream_evidence_strategy_enabled(self):
+        fake_model = MagicMock()
+        fake_model.invoke = MagicMock(
+            return_value=AIMessage(
+                content=json.dumps(
+                    {
+                        "text": "主题矩阵已基于上游检索结果生成。",
+                        "quality_gates_checked": ["claim_evidence_pairs_required"],
+                        "synthesis_matrix": [{"theme": "Federated LoRA"}],
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        )
+        fake_create_agent = MagicMock()
+        skill = _make_skill(
+            prompt="你是文献综合专家",
+            config={
+                "io_contract": {
+                    "output_schema": {
+                        "type": "object",
+                        "required": ["text", "quality_gates_checked"],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "quality_gates_checked": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "synthesis_matrix": {"type": "array"},
+                        },
+                    },
+                },
+                "quality_gates": ["claim_evidence_pairs_required"],
+                "extensions": {
+                    "execution_strategy": {
+                        "mode": "direct_when_upstream_evidence",
+                        "min_evidence_items": 1,
+                    },
+                },
+            },
+        )
+        ctx = _make_ctx(
+            inputs={
+                "topic": "Federated LoRA",
+                "upstream_context": {
+                    "evidence_items": [
+                        {
+                            "kind": "source_search_results",
+                            "papers": [{"title": "Paper A"}],
+                        }
+                    ],
+                },
+            },
+            skill=skill,
+            tools=["library_read", "document_read"],
+        )
+
+        with (
+            patch("src.subagents.v2.types.react.create_chat_model", return_value=fake_model),
+            patch("langgraph.prebuilt.create_react_agent", fake_create_agent),
+        ):
+            result = await ReactSubagent().run(ctx)
+
+        fake_model.invoke.assert_called_once()
+        fake_create_agent.assert_not_called()
+        assert result.output["text"] == "主题矩阵已基于上游检索结果生成。"
+        assert result.output["quality_gates_checked"] == ["claim_evidence_pairs_required"]
+        assert result.tool_calls == []
+
+    @pytest.mark.asyncio
+    async def test_react_subagent_runs_direct_when_strategy_mode_is_direct(self):
+        fake_model = MagicMock()
+        fake_model.invoke = MagicMock(
+            return_value=AIMessage(
+                content=json.dumps(
+                    {"text": "计划已生成。", "quality_gates_checked": ["task_scope_bounded"]},
+                    ensure_ascii=False,
+                )
+            )
+        )
+        fake_create_agent = MagicMock()
+        skill = _make_skill(
+            prompt="你是研究规划师",
+            config={
+                "io_contract": {
+                    "output_schema": {
+                        "type": "object",
+                        "required": ["text", "quality_gates_checked"],
+                        "properties": {
+                            "text": {"type": "string"},
+                            "quality_gates_checked": {"type": "array"},
+                        },
+                    },
+                },
+                "extensions": {"execution_strategy": {"mode": "direct"}},
+            },
+        )
+        ctx = _make_ctx(
+            inputs={"topic": "Federated LoRA"},
+            skill=skill,
+            tools=["document_read", "memory_read"],
+        )
+
+        with (
+            patch("src.subagents.v2.types.react.create_chat_model", return_value=fake_model),
+            patch("langgraph.prebuilt.create_react_agent", fake_create_agent),
+        ):
+            result = await ReactSubagent().run(ctx)
+
+        fake_model.invoke.assert_called_once()
+        fake_create_agent.assert_not_called()
+        assert result.output == {
+            "text": "计划已生成。",
+            "quality_gates_checked": ["task_scope_bounded"],
+        }
+
+    @pytest.mark.asyncio
+    async def test_react_loop_times_out_tool_backed_agent(self):
+        class SlowAgent:
+            async def ainvoke(self, payload, *, config=None):
+                await asyncio.sleep(1)
+                return {"messages": [AIMessage(content="too late")]}
+
+        fake_model = MagicMock()
+
+        with (
+            patch("src.subagents.v2.types.react.create_chat_model", return_value=fake_model),
+            patch("src.subagents.v2.types.react._resolve_tools", return_value=[MagicMock()]),
+            patch("langgraph.prebuilt.create_react_agent", return_value=SlowAgent()),
+            patch("src.subagents.v2.types.react._react_agent_timeout_seconds", return_value=0.01),
+        ):
+            with pytest.raises(RuntimeError, match="React agent timed out"):
+                await _run_react_loop(
+                    system_prompt="system",
+                    user_message="user",
+                    tools=["sandbox.read_file"],
+                    harness_context=_make_ctx(),
+                )
+
+    @pytest.mark.asyncio
+    async def test_react_loop_times_out_direct_call(self):
+        def _slow_invoke(messages):
+            time.sleep(1)
+            return AIMessage(content="too late")
+
+        fake_model = MagicMock()
+        fake_model.invoke = MagicMock(side_effect=_slow_invoke)
+
+        with (
+            patch("src.subagents.v2.types.react.create_chat_model", return_value=fake_model),
+            patch("src.subagents.v2.types.react._react_agent_timeout_seconds", return_value=0.01),
+        ):
+            with pytest.raises(RuntimeError, match="React direct model timed out"):
+                await _run_react_loop(
+                    system_prompt="system",
+                    user_message="user",
+                    tools=[],
+                    harness_context=_make_ctx(),
+                )
 
     @pytest.mark.asyncio
     async def test_resolve_tools_returns_harness_backed_read_file_tool(self):

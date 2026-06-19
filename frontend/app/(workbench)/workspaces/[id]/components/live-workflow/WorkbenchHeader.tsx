@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   Database,
   History,
+  MoreHorizontal,
   Maximize2,
   Minimize2,
   PauseCircle,
@@ -17,17 +18,20 @@ const TABS: Array<{
   key: WorkbenchTab;
   label: string;
   icon: LucideIcon;
+  primary?: boolean;
 }> = [
-  { key: "overview", label: "总览", icon: Activity },
+  { key: "overview", label: "总览", icon: Activity, primary: true },
+  { key: "evidence", label: "证据", icon: Database, primary: true },
+  { key: "review", label: "待确认", icon: CheckCircle2, primary: true },
   { key: "run", label: "进展", icon: History },
-  { key: "evidence", label: "证据", icon: Database },
-  { key: "review", label: "审阅", icon: CheckCircle2 },
 ];
 
 export function WorkbenchHeader({
   activeTab,
   pendingReviewCount,
   evidenceCount,
+  showProgressTab,
+  hasRunHistory,
   isFullscreen,
   canInterrupt,
   interventionOpen,
@@ -39,6 +43,8 @@ export function WorkbenchHeader({
   activeTab: WorkbenchTab;
   pendingReviewCount: number;
   evidenceCount: number;
+  showProgressTab: boolean;
+  hasRunHistory: boolean;
   isFullscreen: boolean;
   canInterrupt: boolean;
   interventionOpen: boolean;
@@ -47,6 +53,7 @@ export function WorkbenchHeader({
   onToggleFullscreen: () => void;
   onToggleIntervention: () => void;
 }) {
+  const visibleTabs = TABS.filter((tab) => tab.primary || showProgressTab || activeTab === tab.key);
   return (
     <div style={styles.header}>
       <div style={{ minWidth: 0 }}>
@@ -54,7 +61,7 @@ export function WorkbenchHeader({
         <div style={styles.headerTitle}>研究工作台</div>
       </div>
       <div style={styles.headerMiddle}>
-        {TABS.map((tab) => {
+        {visibleTabs.map((tab) => {
           const Icon = tab.icon;
           const count =
             tab.key === "evidence"
@@ -81,6 +88,20 @@ export function WorkbenchHeader({
             </button>
           );
         })}
+        {hasRunHistory && !showProgressTab && activeTab !== "run" ? (
+          <button
+            type="button"
+            aria-label="更多运行诊断"
+            title="更多运行诊断"
+            onClick={() => onTabChange("run")}
+            style={{
+              ...styles.tabButton,
+              ...styles.tabButtonIconOnly,
+            }}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+        ) : null}
       </div>
       <div style={styles.headerActions}>
         {canInterrupt || interventionOpen ? (

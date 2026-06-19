@@ -49,6 +49,9 @@ export function extractTaskOutputs(
   if (!Array.isArray(outputs)) {
     return [];
   }
+  const reportStatus =
+    typeof report?.status === "string" ? report.status : "completed";
+  const canDefaultCheck = reportStatus === "completed";
   return outputs
     .map((item) =>
       item && typeof item === "object" && !Array.isArray(item)
@@ -71,7 +74,7 @@ export function extractTaskOutputs(
           id,
           kind,
           preview: typeof item.preview === "string" ? item.preview : undefined,
-          default_checked: item.default_checked !== false,
+          default_checked: canDefaultCheck && item.default_checked !== false,
           data,
         },
       ];

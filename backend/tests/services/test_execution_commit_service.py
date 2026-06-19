@@ -33,11 +33,15 @@ EXECUTION_ID = "exec-commit-1"
 WORKSPACE_ID = "ws-commit-1"
 
 
-def _make_report(outputs: list | None = None) -> TaskReport:
+def _make_report(
+    outputs: list | None = None,
+    *,
+    status: str = "completed",
+) -> TaskReport:
     return TaskReport(
         execution_id=EXECUTION_ID,
         capability_id="cap-1",
-        status="completed",
+        status=status,
         duration_seconds=10,
         narrative="Test narrative for commit",
         outputs=outputs or [],
@@ -170,6 +174,47 @@ async def test_commit_all_writes_all_kinds():
     mocks["dataservice"].create_source.assert_not_called()
     mocks["dataservice"].register_asset.assert_called_once()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_called_once()
+    mocks["dataservice"].append_execution_event.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_commit_all_rejects_partial_runs():
+    """Partial runs require explicit user-selected output IDs."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs, status="failed_partial")
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    with pytest.raises(ValueError, match="only allowed for completed executions"):
+        await svc.commit_outputs(
+            EXECUTION_ID,
+            accept_all=True,
+            actor_user_id="user-1",
+        )
+
+    mocks["dataservice"].import_source.assert_not_called()
+    mocks["dataservice"].register_asset.assert_not_called()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
+    mocks["dataservice"].append_execution_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_commit_partial_runs_with_explicit_selection():
+    """Partial candidates can still be committed after explicit selection."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs, status="failed_partial")
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accepted_ids=["out-doc"],
+        actor_user_id="user-1",
+    )
+
+    assert result["committed"]["documents"] == 1
+    assert result["committed"]["library"] == 0
+    mocks["dataservice"].register_asset.assert_called_once()
     mocks["dataservice"].append_execution_event.assert_called_once()
 
 

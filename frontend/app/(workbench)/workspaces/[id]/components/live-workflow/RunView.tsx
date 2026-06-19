@@ -37,7 +37,7 @@ export function RunView({
   onOpenEvidence: () => void;
 }) {
   if (!record) {
-    return <EmptyState title="还没有进行中的任务" detail="在左侧描述任务后，问津会自动组织团队，并在这里展示关键进展和可审阅结果。" />;
+    return <EmptyState title="还没有进行中的任务" detail="在左侧描述任务后，问津会自动组织团队，并在这里展示关键进展和待确认结果。" />;
   }
 
   const view = runViewFromExecution(record);
@@ -682,7 +682,7 @@ function qualityGateDisplayName(id: string): string {
     return "引文规范";
   }
   if (normalized.includes("quality") || normalized.includes("review")) {
-    return "质量审阅";
+    return "质量风险";
   }
   return "质量检查";
 }

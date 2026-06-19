@@ -43,7 +43,7 @@ export function ResultEditor({
       <div style={styles.sectionHeaderCompact}>
         <div>
           <div style={styles.sectionTitleSmall}>暂存编辑</div>
-          <div style={styles.sectionSubtitle}>编辑只暂存在右侧，点击接受后才写入 DataService rooms。</div>
+          <div style={styles.sectionSubtitle}>编辑会先暂存在这里，保存后才写入对应的工作区资料。</div>
         </div>
         {draft ? (
           <button

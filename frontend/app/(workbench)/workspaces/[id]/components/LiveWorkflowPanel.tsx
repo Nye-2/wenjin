@@ -316,7 +316,7 @@ export function LiveWorkflowPanel({
       `请启动「${feature.name}」能力。`,
       description ? `能力目标：${description}` : null,
       "如果当前对话缺少具体研究主题、材料或目标，请先向用户确认，不要用空泛主题启动检索、写作或实验。",
-      "请先判断是否需要实验或检索；若需要，请由右侧研究团队自主推进，并在右侧工作台展示关键证据、运行状态和可审阅结果。",
+      "请先判断是否需要实验或检索；若需要，请由右侧研究团队自主推进，并在右侧工作台展示关键证据、运行状态和待确认结果。",
     ]
       .filter(Boolean)
       .join("\n");
@@ -335,14 +335,16 @@ export function LiveWorkflowPanel({
       return;
     }
     const outputIds = previews.map((preview) => preview.id);
+    const canAcceptAll = selectedRecord.status === "completed";
+    const useAcceptAll = mode === "all" && canAcceptAll;
     const acceptedIds =
-      mode === "all"
+      useAcceptAll
         ? outputIds
         : mode === "selected"
           ? Array.from(checkedIds)
           : [];
     const body: ExecutionCommitRequest =
-      mode === "all"
+      useAcceptAll
         ? { accept_all: true }
         : { accepted_ids: acceptedIds };
     const overrides = buildOutputOverrides(acceptedIds, draftEdits);
@@ -433,6 +435,8 @@ export function LiveWorkflowPanel({
         activeTab={activeWorkbenchTab}
         pendingReviewCount={pendingReviewCount}
         evidenceCount={evidenceItems.length}
+        showProgressTab={Boolean(runningRecord) || activeWorkbenchTab === "run"}
+        hasRunHistory={records.length > 0}
         isFullscreen={isFullscreen}
         canInterrupt={Boolean(runningRecord)}
         interventionOpen={interventionOpen}

@@ -127,9 +127,15 @@ class ExecutionCommitService:
 
         report = TaskReport.model_validate(execution.result["task_report"])
 
-        # 4. Select outputs
+        # 4. Select outputs. Partial/cancelled runs may expose useful candidates,
+        # but they must be intentionally selected by the user.
         output_by_id = {output.id: output for output in report.outputs}
         if accept_all:
+            if report.status != "completed":
+                raise ValueError(
+                    "accept_all is only allowed for completed executions; "
+                    "use accepted_ids for partial results"
+                )
             selected = list(report.outputs)
         elif accepted_ids is not None:
             id_set = set(accepted_ids)

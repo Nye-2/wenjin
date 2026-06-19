@@ -61,17 +61,19 @@ function resultCardFromTaskReport(
   executionId: string,
   taskReport: Record<string, unknown>,
 ): ResultCardData {
+  const status =
+    (taskReport.status as ResultCardData["status"] | undefined) || "completed";
   return {
     execution_id: (taskReport.execution_id as string) || executionId,
     capability_name: taskReport.capability_id as string | undefined,
-    status:
-      (taskReport.status as ResultCardData["status"] | undefined) || "completed",
+    status,
     outputs: ((taskReport.outputs as Record<string, unknown>[] | undefined) ?? []).map(
       (output) => ({
         id: output.id as string,
         kind: output.kind as string,
         preview: output.preview as string,
-        default_checked: output.default_checked as boolean,
+        default_checked:
+          status === "completed" && output.default_checked !== false,
         data: output.data as Record<string, unknown>,
       }),
     ),

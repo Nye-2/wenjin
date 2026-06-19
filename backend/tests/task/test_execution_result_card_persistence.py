@@ -65,6 +65,29 @@ def test_result_card_data_from_task_report_preserves_outputs_and_reviews() -> No
     assert data["errors"] == []
 
 
+def test_result_card_data_from_failed_partial_outputs_are_not_prechecked() -> None:
+    task_report = {
+        "execution_id": "exec-partial",
+        "capability_id": "sci_literature_positioning",
+        "status": "failed_partial",
+        "narrative": "未能完成文献定位。",
+        "outputs": [
+            {
+                "id": "paper-1",
+                "kind": "library_item",
+                "preview": "Paper A",
+                "default_checked": True,
+                "data": {"title": "Paper A", "authors": ["Smith"]},
+            }
+        ],
+    }
+
+    data = _result_card_data_from_task_report("fallback-exec", task_report)
+
+    assert data["status"] == "failed_partial"
+    assert data["outputs"][0]["default_checked"] is False
+
+
 @pytest.mark.asyncio
 async def test_resolve_execution_workspace_type_uses_dataservice_projection() -> None:
     dataservice = SimpleNamespace(

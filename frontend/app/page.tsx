@@ -90,7 +90,7 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Positioning",
       title: "不是聊天框，也不是模板库。它是研究任务的执行环境。",
       body:
-        "Wenjin 的价值不是生成一段文字，而是让研究上下文持续沉淀：文献、证据、记忆、实验材料和稿件审阅都在同一个 workspace 里推进。",
+        "Wenjin 的价值不是生成一段文字，而是让研究上下文持续沉淀：文献、证据、记忆、实验材料和稿件确认都在同一个 workspace 里推进。",
       ordinaryLabel: "普通 AI 写作",
       ordinaryTitle: "回答结束后，工作流也断了。",
       ordinaryBody:
@@ -98,13 +98,13 @@ const COPY: Record<Locale, LandingCopy> = {
       wenjinLabel: "Wenjin",
       wenjinTitle: "Agent 带着 workspace 上下文持续工作。",
       wenjinBody:
-        "每次执行都沉淀到 Library、Memory、Documents 和 Prism，形成能被审阅、复用和继续推进的研究链路。",
+        "每次执行都沉淀到 Library、Memory、Documents 和 Prism，形成能被确认、复用和继续推进的研究链路。",
     },
     loop: {
       eyebrow: "Operating Loop",
       title: "用户掌方向，Agent 跑链路。",
       body:
-        "系统自动推进文献、证据、实验、写作和审阅；关键节点回到用户确认。它不是把人排除在外，而是把人的判断放在最重要的位置。",
+        "系统自动推进文献、证据、实验和写作；关键结果回到用户确认。它不是把人排除在外，而是把人的判断放在最重要的位置。",
       steps: [
         {
           index: "01",
@@ -118,7 +118,7 @@ const COPY: Record<Locale, LandingCopy> = {
         },
         {
           index: "03",
-          title: "审阅成为稿件",
+          title: "确认成为稿件",
           body: "最终产出进入 Prism，由用户确认修改和引用。",
         },
       ],
@@ -131,7 +131,7 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Deliver",
       title: "把科研从临时问答推进到可持续交付。",
       body:
-        "从一个想法开始，进入 workspace，让 Agent 组织上下文、推进任务，并在 Prism 中完成最终审阅。",
+        "从一个想法开始，进入 workspace，让 Agent 组织上下文、推进任务，并在 Prism 中完成最终确认。",
     },
     quickStartItems: {
       sci: "SCI",
@@ -166,7 +166,7 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Positioning",
       title: "Not a chat box or a template library. A runtime for research work.",
       body:
-        "Wenjin is not built to generate one isolated answer. It keeps literature, evidence, memory, experiments, and manuscript review moving inside one workspace.",
+        "Wenjin is not built to generate one isolated answer. It keeps literature, evidence, memory, experiments, and manuscript confirmation moving inside one workspace.",
       ordinaryLabel: "Ordinary AI writing",
       ordinaryTitle: "Once the answer ends, the workflow breaks.",
       ordinaryBody:
@@ -174,13 +174,13 @@ const COPY: Record<Locale, LandingCopy> = {
       wenjinLabel: "Wenjin",
       wenjinTitle: "Agents keep working with workspace context.",
       wenjinBody:
-        "Runs write back into Library, Memory, Documents, and Prism, creating a research loop that can be reviewed, reused, and continued.",
+        "Runs write back into Library, Memory, Documents, and Prism, creating a research loop that can be confirmed, reused, and continued.",
     },
     loop: {
       eyebrow: "Operating Loop",
       title: "You steer. Agents run the research loop.",
       body:
-        "Wenjin advances literature, evidence, experiments, writing, and review automatically while returning critical decisions to the user.",
+        "Wenjin advances literature, evidence, experiments, and writing automatically while returning critical decisions to the user.",
       steps: [
         {
           index: "01",
@@ -194,7 +194,7 @@ const COPY: Record<Locale, LandingCopy> = {
         },
         {
           index: "03",
-          title: "Review into manuscript",
+          title: "Confirm into manuscript",
           body: "Final outputs enter Prism for user-confirmed edits and citations.",
         },
       ],
@@ -207,7 +207,7 @@ const COPY: Record<Locale, LandingCopy> = {
       eyebrow: "Deliver",
       title: "Move research from one-off answers to sustained delivery.",
       body:
-        "Start from an idea, enter a workspace, let agents organize context and progress the work, then review the manuscript in Prism.",
+        "Start from an idea, enter a workspace, let agents organize context and progress the work, then confirm the manuscript in Prism.",
     },
     quickStartItems: {
       sci: "SCI",

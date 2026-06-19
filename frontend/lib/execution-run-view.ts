@@ -200,12 +200,13 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     capabilityId: record.feature_id ?? stringValue(taskReport?.capability_id),
     title: runTitleFromExecution(record, taskReport),
     status,
-    summary:
+    summary: userFacingRunSummary(
       record.result_summary ??
-      stringValue(taskReport?.narrative) ??
-      record.message ??
-      failureMessage ??
-      statusSummary(status),
+        stringValue(taskReport?.narrative) ??
+        record.message ??
+        failureMessage ??
+        statusSummary(status),
+    ),
     startedAt: record.started_at ?? record.created_at,
     completedAt: record.completed_at ?? null,
     durationLabel: formatDuration(record.started_at ?? record.created_at, record.completed_at),
@@ -329,7 +330,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     capabilityId: record.capability_id ?? null,
     title: humanizeCapabilityName(record.capability_name || record.capability_id) ?? "Execution",
     status,
-    summary: record.summary || statusSummary(status),
+    summary: userFacingRunSummary(record.summary || statusSummary(status)),
     startedAt: record.started_at,
     completedAt: record.completed_at ?? null,
     durationLabel: formatDuration(record.started_at, record.completed_at ?? null),
@@ -379,7 +380,7 @@ export function runViewFromResultCard(
     capabilityId: data.capability_name ?? null,
     title: humanizeCapabilityName(data.capability_name) ?? "Execution",
     status,
-    summary: data.narrative ?? failureMessage ?? statusSummary(status),
+    summary: userFacingRunSummary(data.narrative ?? failureMessage ?? statusSummary(status)),
     completedAt: null,
     durationLabel:
       typeof data.duration_seconds === "number"
@@ -416,7 +417,7 @@ export function mergeRunViews(
   return {
     ...historical,
     ...live,
-    summary: live.summary || historical.summary,
+    summary: userFacingRunSummary(live.summary || historical.summary),
     startedAt: live.startedAt ?? historical.startedAt,
     completedAt: live.completedAt ?? historical.completedAt,
     durationLabel: live.durationLabel ?? historical.durationLabel,
@@ -1089,7 +1090,7 @@ function teamKernelProgressDetail(
     }
   }
   if (nodeId === "team_finish" && status === "completed") {
-    return "结果已进入审阅";
+    return "结果已进入待确认区";
   }
   return null;
 }
@@ -1245,7 +1246,7 @@ function humanizeTechnicalName(
     [/literature.*(synth|matrix|gap)|synth.*literature/, "文献综合专家"],
     [/research.*scholar|scholar|literature.*expert/, "文献专家"],
     [/(research|paper|semantic|scholar|literature).*(scout|search|retriev|collect|finder)|scout/, "文献检索专家"],
-    [/critical|reviewer|critic|quality.*review|peer.*review/, "质量审阅专家"],
+    [/critical|reviewer|critic|quality.*review|peer.*review/, "质量风险专家"],
     [/quality|gate|verify|validation|checker/, "质量检查"],
     [/experiment|runner|analysis|compute|simulation/, "实验工程师"],
     [/sandbox.*(setup|prepare|env)|env.*setup|environment/, "实验环境准备"],
@@ -1304,6 +1305,18 @@ function statusSummary(status: RunViewStatus): string {
   if (status === "failed_partial") return "执行部分完成，需要查看失败步骤。";
   if (status === "failed") return "执行失败。";
   return "执行已取消。";
+}
+
+function userFacingRunSummary(value: string): string {
+  return value
+    .replace(/launch_feature/g, "研究任务")
+    .replace(/DataService rooms?/g, "工作区资料")
+    .replace(/DataService/g, "工作区资料")
+    .replace(/Sandbox Python/g, "实验环境")
+    .replace(/Sandbox/g, "实验环境")
+    .replace(/quality gate/gi, "风险项")
+    .replace(/质量门/g, "风险项")
+    .replace(/审阅/g, "确认");
 }
 
 function formatDuration(

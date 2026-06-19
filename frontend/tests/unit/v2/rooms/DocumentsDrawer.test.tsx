@@ -58,8 +58,8 @@ describe("DocumentsDrawer", () => {
     expect(screen.getByText("Literature Review Outline")).toBeInTheDocument();
     expect(screen.getAllByTestId("document-item")).toHaveLength(2);
     // Check kind badges
-    expect(screen.getByText("Draft")).toBeInTheDocument();
-    expect(screen.getByText("Outline")).toBeInTheDocument();
+    expect(screen.getByText("初稿")).toBeInTheDocument();
+    expect(screen.getByText("大纲")).toBeInTheDocument();
   });
 
   it("shows empty state when no items", async () => {
@@ -77,7 +77,7 @@ describe("DocumentsDrawer", () => {
 
     await screen.findByTestId("drawer-empty");
     expect(screen.getByTestId("drawer-empty")).toHaveTextContent(
-      "No documents found",
+      "暂无文档",
     );
   });
 
@@ -96,7 +96,7 @@ describe("DocumentsDrawer", () => {
 
     await screen.findByTestId("drawer-error");
     expect(screen.getByTestId("drawer-error")).toHaveTextContent(
-      "Failed to list documents",
+      "文档加载失败",
     );
   });
 

@@ -538,7 +538,7 @@ def _foundation_field_gates(
             suffix = (
                 " from the current workspace Library context"
                 if has_allowlist
-                else " for every supported claim"
+                else " or candidate source title/url for every supported claim"
             )
             required_fixes = [
                 {
@@ -1035,7 +1035,9 @@ def _invalid_claim_evidence_entries(
         if not claim:
             missing_fields.append("claim")
         refs = _claim_ref_values(item)
-        if not [*refs["source_ids"], *refs["citation_keys"]]:
+        candidate_refs = _candidate_source_refs(item)
+        has_workspace_ref = bool([*refs["source_ids"], *refs["citation_keys"]])
+        if not has_workspace_ref and not candidate_refs:
             missing_fields.append("source_id_or_citation_key")
         if allowed_sources:
             unknown_refs.extend(
@@ -1050,6 +1052,30 @@ def _invalid_claim_evidence_entries(
         elif unknown_refs:
             invalid.append({"index": index, "unknown_refs": _dedupe(unknown_refs)})
     return invalid
+
+
+def _candidate_source_refs(item: Any) -> list[str]:
+    """Candidate search-result refs used before sources receive Library keys."""
+
+    if not isinstance(item, dict):
+        return []
+    refs: list[str] = []
+    for key in (
+        "evidence_sources",
+        "evidence_source",
+        "supporting_sources",
+        "source_titles",
+        "source_title",
+        "source_urls",
+        "source_url",
+        "urls",
+        "url",
+        "doi",
+        "paper_id",
+        "external_id",
+    ):
+        refs.extend(_string_list(item.get(key)))
+    return _dedupe(refs)
 
 
 def _invalid_source_citation_audit_entries(

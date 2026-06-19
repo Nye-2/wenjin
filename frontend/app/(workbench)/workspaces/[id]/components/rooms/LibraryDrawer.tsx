@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   listLibraryItems,
   deleteLibraryItem,
@@ -8,7 +9,12 @@ import {
   type LibraryItem,
   type LibraryItemDetail,
 } from "@/lib/api/v2/library";
-import { buildLibraryRoomPreview } from "@/lib/workspace-result-preview";
+import {
+  buildLibraryRoomPreview,
+  buildWorkspaceResultPreviewsFromOutputs,
+} from "@/lib/workspace-result-preview";
+import { extractTaskOutputs } from "@/lib/workbench-result-editing";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useRoomRefreshStore } from "@/stores/room-refresh-store";
 import { ResultPreviewDetail } from "../result-preview/ResultPreviewDetail";
 
@@ -37,9 +43,24 @@ export function LibraryDrawer({
   const [detail, setDetail] = useState<LibraryItemDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const executionRecords = useExecutionStore(
+    useShallow((state) => Array.from(state.executions.values())),
+  );
   const refreshCounter = useRoomRefreshStore(
     (state) => state.countersByWorkspace[workspaceId]?.library ?? 0,
   );
+  const pendingLibraryCandidates = useMemo(() => {
+    const candidates = executionRecords
+      .filter((record) => record.workspace_id === workspaceId)
+      .flatMap((record) =>
+        buildWorkspaceResultPreviewsFromOutputs(extractTaskOutputs(record.result)),
+      )
+      .filter(
+        (preview) =>
+          preview.kind === "library_item" && preview.source === "staged_output",
+      );
+    return Array.from(new Map(candidates.map((item) => [item.id, item])).values());
+  }, [executionRecords, workspaceId]);
 
   useEffect(() => {
     if (open) setVisible(true);
@@ -61,7 +82,7 @@ export function LibraryDrawer({
       const data = await listLibraryItems(workspaceId);
       setItems(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load library");
+      setError(err instanceof Error ? err.message : "资料库加载失败");
     } finally {
       setLoading(false);
       setHasLoadedList(true);
@@ -82,7 +103,7 @@ export function LibraryDrawer({
       await deleteLibraryItem(workspaceId, itemId);
       setItems((prev) => prev.filter((item) => item.id !== itemId));
     } catch {
-      setError("Failed to delete item");
+      setError("文献资料删除失败");
     }
   }
 
@@ -133,7 +154,7 @@ export function LibraryDrawer({
       .catch((err) => {
         if (!cancelled) {
           setDetailError(
-            err instanceof Error ? err.message : "Failed to load library item",
+            err instanceof Error ? err.message : "文献详情加载失败",
           );
           setDetail(null);
         }
@@ -157,7 +178,7 @@ export function LibraryDrawer({
         right: 0,
         top: 0,
         bottom: 0,
-        width: 760,
+        width: "min(760px, 100%)",
         background: "rgba(255, 255, 255, 0.92)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
@@ -171,6 +192,9 @@ export function LibraryDrawer({
         fontFamily: "var(--wjn-font-sans)",
         fontSize: 13,
       }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="文献资料"
       data-testid="library-drawer"
     >
       {/* Header */}
@@ -191,9 +215,11 @@ export function LibraryDrawer({
             color: "var(--wjn-text)",
           }}
         >
-          Library
+          文献资料
         </span>
         <button
+          type="button"
+          aria-label="关闭文献资料"
           onClick={handleClose}
           data-testid="drawer-close"
           style={{
@@ -214,7 +240,7 @@ export function LibraryDrawer({
       <div style={{ padding: "12px 16px" }}>
         <input
           type="text"
-          placeholder="Search by title or author..."
+          placeholder="按标题或作者搜索"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="drawer-search"
@@ -254,7 +280,7 @@ export function LibraryDrawer({
               }}
               data-testid="drawer-loading"
             >
-              Loading library...
+              正在加载文献资料...
             </div>
           )}
 
@@ -280,7 +306,18 @@ export function LibraryDrawer({
               }}
               data-testid="drawer-empty"
             >
-              No library items found
+              {search ? (
+                "没有匹配的文献资料"
+              ) : pendingLibraryCandidates.length > 0 ? (
+                <div style={{ display: "grid", gap: 10, justifyItems: "center" }}>
+                  <div>资料库暂时为空</div>
+                  <div style={{ maxWidth: 220, lineHeight: 1.55 }}>
+                    右侧工作台还有 {pendingLibraryCandidates.length} 篇待确认文献，保存后会进入这里。
+                  </div>
+                </div>
+              ) : (
+                "资料库暂无文献"
+              )}
             </div>
           )}
 
@@ -353,7 +390,12 @@ export function LibraryDrawer({
                   </div>
                 </div>
                 <button
-                  onClick={() => handleDelete(item.id)}
+                  type="button"
+                  aria-label={`删除 ${item.title}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleDelete(item.id);
+                  }}
                   data-testid="item-delete"
                   style={{
                     border: "none",
@@ -365,7 +407,7 @@ export function LibraryDrawer({
                     flexShrink: 0,
                   }}
                 >
-                  Delete
+                  删除
                 </button>
               </div>
             </div>
@@ -380,7 +422,7 @@ export function LibraryDrawer({
                 color: "var(--wjn-text-muted)",
               }}
             >
-              Loading preview...
+              正在加载预览...
             </div>
           ) : detailError ? (
             <div
@@ -402,7 +444,7 @@ export function LibraryDrawer({
                 color: "var(--wjn-text-muted)",
               }}
             >
-              Select a reference to preview it here.
+              选择一篇文献后，这里会显示来源、摘要和可引用信息。
             </div>
           )}
         </div>

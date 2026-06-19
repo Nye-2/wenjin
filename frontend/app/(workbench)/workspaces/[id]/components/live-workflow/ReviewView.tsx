@@ -78,6 +78,7 @@ export function ReviewView({
       ? previewGroups
       : previewGroups.filter((group) => group.kind === effectiveKind);
   }, [effectiveKind, previewGroups]);
+  const allowAcceptAll = record?.status === "completed";
 
   function activateFilter(kind: string) {
     setActiveKind(kind);
@@ -98,7 +99,7 @@ export function ReviewView({
   }
 
   if (!record) {
-    return <EmptyState title="暂无可审阅结果" detail="完成运行后，候选文档、文献、记忆、决策和任务会进入这里。" />;
+    return <EmptyState title="暂无待确认结果" detail="完成运行后，候选文档、文献、记忆、决策和任务会进入这里。" />;
   }
 
   return (
@@ -237,17 +238,24 @@ export function ReviewView({
             ))}
           </div>
         ) : (
-          <EmptyState title="没有 staged outputs" detail="如果是 Prism 文件级修改，请从下方入口进入 Prism 精修。" compact />
+          <EmptyState title="没有候选结果" detail="如果是 Prism 文件级修改，请从下方入口进入 Prism 精修。" compact />
         )}
 
         <div style={styles.commitBox}>
+          {!allowAcceptAll && previews.length > 0 ? (
+            <div style={styles.reviewNotice}>
+              本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。
+            </div>
+          ) : null}
           <CommitActionBar
             committed={committed}
             committing={committing}
+            allowAcceptAll={allowAcceptAll}
+            selectedCount={checkedIds.size}
             onAcceptAll={onAcceptAll}
             onAcceptSelected={onAcceptSelected}
             onDiscard={onDiscard}
-            acceptAllLabel="全部接受"
+            acceptAllLabel="全部保存"
             acceptSelectedLabel="保存已勾选"
             discardLabel="暂不保存"
             committedLabel="已写入工作区"
@@ -272,7 +280,7 @@ export function ReviewView({
             <div style={styles.linkWrap}>
               <WorkspaceActionLink href={`/workspaces/${workspaceId}/prism`} style={styles.roomLink}>
                 <FileText size={12} />
-                打开 Prism 审阅
+                打开 Prism 确认
               </WorkspaceActionLink>
             </div>
           </div>

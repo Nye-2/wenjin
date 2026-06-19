@@ -60,10 +60,21 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     narrative,
     outputs,
   } = data;
+  const canSaveAll = status === "completed";
+  const safeOutputs = useMemo(
+    () =>
+      canSaveAll
+        ? outputs
+        : outputs.map((output) => ({
+            ...output,
+            default_checked: false,
+          })),
+    [canSaveAll, outputs],
+  );
 
   const previews = useMemo(
-    () => buildWorkspaceResultPreviewsFromOutputs(outputs),
-    [outputs],
+    () => buildWorkspaceResultPreviewsFromOutputs(safeOutputs),
+    [safeOutputs],
   );
   const previewGroups = useMemo(
     () => groupWorkspaceResultPreviews(previews),
@@ -110,7 +121,9 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       setCommitLinks([]);
       setCommitted(false);
       setCommitError(
-        error instanceof Error ? error.message : "Failed to save outputs",
+        error instanceof Error && !error.message.startsWith("Failed")
+          ? error.message
+          : "保存失败，请稍后重试",
       );
     } finally {
       setCommitting(false);
@@ -132,11 +145,17 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
 
   const statusLabel =
     status === "completed" ? "完成" : status === "failed_partial" ? "部分完成" : "已取消";
+  const statusIconColor =
+    status === "completed"
+      ? "var(--wjn-success)"
+      : status === "failed_partial"
+        ? "var(--wjn-warning)"
+        : "var(--wjn-error)";
 
   return (
     <div style={styles.card}>
       <div style={styles.header}>
-        <span style={styles.statusIcon}>
+        <span style={{ ...styles.statusIcon, color: statusIconColor }}>
           {status === "completed" ? "✓" : status === "failed_partial" ? "!" : "×"}
         </span>
         <span style={styles.headerTitle}>
@@ -148,6 +167,11 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       </div>
 
       {narrative ? <div style={styles.narrative}>{narrative}</div> : null}
+      {!canSaveAll && previews.length > 0 ? (
+        <div style={styles.partialNotice}>
+          本次运行未完整完成，候选结果需要先查看详情后再决定是否保存。
+        </div>
+      ) : null}
 
       {reviewItems.length ? (
         <div style={styles.reviewItems}>
@@ -221,24 +245,36 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
           ) : null}
 
           <div style={styles.actionRow}>
-            <button
-              type="button"
-              onClick={() => commit({ accept_all: true })}
-              disabled={committed || committing}
-              style={{
-                ...styles.primaryButton,
-                ...(committed || committing ? styles.buttonDisabled : null),
-              }}
-            >
-              {committed ? "已保存到工作区" : committing ? "保存中..." : "保存到工作区"}
-            </button>
-            <button
-              type="button"
-              onClick={openReviewSurface}
-              style={styles.secondaryButton}
-            >
-              查看详情
-            </button>
+            {canSaveAll ? (
+              <button
+                type="button"
+                onClick={() => commit({ accept_all: true })}
+                disabled={committed || committing}
+                style={{
+                  ...styles.primaryButton,
+                  ...(committed || committing ? styles.buttonDisabled : null),
+                }}
+              >
+                {committed ? "已保存到工作区" : committing ? "保存中..." : "保存到工作区"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={openReviewSurface}
+                style={styles.primaryButton}
+              >
+                查看候选项
+              </button>
+            )}
+            {canSaveAll ? (
+              <button
+                type="button"
+                onClick={openReviewSurface}
+                style={styles.secondaryButton}
+              >
+                查看详情
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => commit({ accepted_ids: [] })}
@@ -295,7 +331,6 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
   },
   statusIcon: {
-    color: "var(--wjn-success)",
     fontSize: 14,
   },
   headerTitle: {
@@ -312,6 +347,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 12.5,
     marginBottom: "12px",
     lineHeight: 1.5,
+  },
+  partialNotice: {
+    padding: "8px 10px",
+    borderRadius: "var(--wjn-radius-md)",
+    background: "rgba(198, 138, 26, 0.08)",
+    border: "1px solid rgba(198, 138, 26, 0.16)",
+    color: "var(--wjn-warning)",
+    fontSize: 12,
+    lineHeight: 1.45,
+    marginBottom: "12px",
   },
   reviewItems: {
     display: "grid",

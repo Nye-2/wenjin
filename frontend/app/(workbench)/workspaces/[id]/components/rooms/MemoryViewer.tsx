@@ -13,7 +13,7 @@ interface MemoryViewerProps {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString("zh-CN", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -34,6 +34,13 @@ const CATEGORY_BACKGROUNDS: Record<string, string> = {
   instruction: "var(--wjn-accent-soft)",
 };
 
+const CATEGORY_LABELS: Record<string, string> = {
+  fact: "事实",
+  preference: "偏好",
+  context: "背景",
+  instruction: "规则",
+};
+
 export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
   const [items, setItems] = useState<MemoryFact[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,7 +58,7 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
       setItems(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load memory facts",
+        err instanceof Error ? err.message : "记忆加载失败",
       );
     } finally {
       setLoading(false);
@@ -67,7 +74,7 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
       await deleteMemoryFact(workspaceId, factId);
       setItems((prev) => prev.filter((item) => item.id !== factId));
     } catch {
-      setError("Failed to delete memory fact");
+      setError("记忆删除失败");
     }
   }
 
@@ -83,7 +90,7 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
       <div style={{ padding: "12px 16px" }}>
         <input
           type="text"
-          placeholder="Search memory..."
+          placeholder="搜索记忆"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="memory-search"
@@ -109,7 +116,7 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
             style={{ textAlign: "center", padding: "40px 0", color: "var(--wjn-text-muted)" }}
             data-testid="memory-loading"
           >
-            Loading memory facts...
+            正在加载记忆...
           </div>
         )}
 
@@ -127,7 +134,7 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
             style={{ textAlign: "center", padding: "40px 0", color: "var(--wjn-text-muted)" }}
             data-testid="memory-empty"
           >
-            No memory facts found
+            {search ? "没有匹配的记忆" : "暂无记忆"}
           </div>
         )}
 
@@ -183,15 +190,17 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
                         background: CATEGORY_BACKGROUNDS[item.category] ?? "var(--wjn-surface-subtle)",
                       }}
                     >
-                      {item.category}
+                      {CATEGORY_LABELS[item.category] ?? item.category}
                     </span>
-                    <span>{Math.round(item.confidence * 100)}%</span>
+                    <span>可信度 {Math.round(item.confidence * 100)}%</span>
                     <span>{formatDate(item.created_at)}</span>
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => handleDelete(item.id)}
                   data-testid="memory-delete"
+                  aria-label="删除记忆"
                   style={{
                     border: "none",
                     background: "transparent",
@@ -202,7 +211,7 @@ export function MemoryViewer({ workspaceId }: MemoryViewerProps) {
                     flexShrink: 0,
                   }}
                 >
-                  Delete
+                  删除
                 </button>
               </div>
             </div>

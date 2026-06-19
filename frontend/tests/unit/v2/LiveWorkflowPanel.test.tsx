@@ -87,6 +87,21 @@ function makeRunningRecord(): ExecutionRecord {
   };
 }
 
+function makePartialRecord(): ExecutionRecord {
+  const record = makeCompletedRecord();
+  return {
+    ...record,
+    status: "failed_partial",
+    result: {
+      task_report: {
+        ...(record.result?.task_report as Record<string, unknown>),
+        status: "failed_partial",
+        narrative: "Some team members failed.",
+      },
+    },
+  };
+}
+
 function makeTeamRunningRecord(): ExecutionRecord {
   return {
     ...makeRunningRecord(),
@@ -223,7 +238,7 @@ describe("LiveWorkflowPanel", () => {
     fireEvent.change(screen.getByLabelText("文件名"), {
       target: { value: "edited-outline.md" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "全部接受" }));
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
 
     await waitFor(() => expect(mockFetch).toHaveBeenCalled());
     const [, init] = mockFetch.mock.calls[0];
@@ -234,6 +249,30 @@ describe("LiveWorkflowPanel", () => {
           data: { name: "edited-outline.md" },
         },
       },
+    });
+  });
+
+  it("does not accept all outputs from partial executions", async () => {
+    useExecutionStore.getState().upsertExecution(makePartialRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.queryByRole("button", { name: "全部保存" })).not.toBeInTheDocument();
+    expect(screen.getByText("本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。")).toBeInTheDocument();
+
+    const outlineRow = screen
+      .getByRole("button", { name: /Thesis outline/ })
+      .closest("div");
+    expect(outlineRow).not.toBeNull();
+    fireEvent.click(within(outlineRow as HTMLElement).getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "保存已勾选" }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const [, init] = mockFetch.mock.calls[0];
+    expect(JSON.parse(init.body as string)).toEqual({
+      accepted_ids: ["doc-1"],
     });
   });
 

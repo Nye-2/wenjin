@@ -62,6 +62,8 @@ def create_chat_model(
     temperature: float | None = None,
     thinking_enabled: bool = False,
     reasoning_effort: str | None = None,
+    request_timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> BaseChatModel:
     """Create a chat model instance based on dynamic configuration.
 
@@ -75,6 +77,8 @@ def create_chat_model(
         thinking_enabled: Whether to enable extended thinking for Claude models.
                          When enabled, adds thinking and betas parameters.
         reasoning_effort: Optional reasoning effort for GPT-5/Doubao-style models.
+        request_timeout: Optional per-request timeout override in seconds.
+        max_retries: Optional retry override for this model instance.
 
     Returns:
         Configured chat model instance (ChatOpenAI or ChatAnthropic)
@@ -105,6 +109,8 @@ def create_chat_model(
 
     # Use provided temperature or fall back to config default
     actual_temperature = temperature if temperature is not None else config_temperature
+    actual_timeout = _request_timeout_value(request_timeout)
+    actual_max_retries = _max_retries_value(max_retries)
 
     # Determine if this is an Anthropic model
     is_anthropic = _is_anthropic_provider(base_url, model_string)
@@ -125,6 +131,8 @@ def create_chat_model(
             temperature=actual_temperature,
             max_tokens=max_tokens,
             thinking_enabled=thinking_enabled,
+            request_timeout=actual_timeout,
+            max_retries=actual_max_retries,
         )
     else:
         return _create_openai_compatible_model(
@@ -137,7 +145,25 @@ def create_chat_model(
                 resolved_reasoning_effort if supports_reasoning_effort else None
             ),
             default_headers=config.get("default_headers"),
+            request_timeout=actual_timeout,
+            max_retries=actual_max_retries,
         )
+
+
+def _request_timeout_value(value: float | None) -> float:
+    try:
+        timeout = float(value) if value is not None else float(LLMSettings.TIMEOUT)
+    except (TypeError, ValueError):
+        timeout = float(LLMSettings.TIMEOUT)
+    return max(1.0, timeout)
+
+
+def _max_retries_value(value: int | None) -> int:
+    try:
+        retries = int(value) if value is not None else int(LLMSettings.MAX_RETRIES)
+    except (TypeError, ValueError):
+        retries = int(LLMSettings.MAX_RETRIES)
+    return max(0, retries)
 
 
 class ReasoningChatOpenAI(ChatOpenAI):
@@ -226,6 +252,8 @@ def _create_openai_compatible_model(
     max_tokens: int,
     reasoning_effort: str | None = None,
     default_headers: dict[str, str] | None = None,
+    request_timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> ChatOpenAI:
     """Create an OpenAI-compatible model instance.
 
@@ -254,8 +282,8 @@ def _create_openai_compatible_model(
         "base_url": base_url,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "timeout": LLMSettings.TIMEOUT,
-        "max_retries": LLMSettings.MAX_RETRIES,
+        "timeout": _request_timeout_value(request_timeout),
+        "max_retries": _max_retries_value(max_retries),
     }
     if reasoning_effort:
         kwargs["reasoning_effort"] = reasoning_effort
@@ -274,6 +302,8 @@ def _create_anthropic_model(
     temperature: float,
     max_tokens: int,
     thinking_enabled: bool,
+    request_timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> BaseChatModel:
     """Create an Anthropic/Claude model instance.
 
@@ -303,8 +333,8 @@ def _create_anthropic_model(
         "api_key": api_key,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "default_request_timeout": LLMSettings.TIMEOUT,
-        "max_retries": LLMSettings.MAX_RETRIES,
+        "default_request_timeout": _request_timeout_value(request_timeout),
+        "max_retries": _max_retries_value(max_retries),
     }
 
     # LangChain Anthropic expects extended thinking under the `thinking` field.

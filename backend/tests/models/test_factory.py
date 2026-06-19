@@ -370,6 +370,24 @@ class TestTimeoutAndRetrySettings:
             assert model.request_timeout == LLMSettings.TIMEOUT
             assert model.max_retries == LLMSettings.MAX_RETRIES
 
+    def test_openai_compatible_model_accepts_timeout_and_retry_overrides(
+        self, openai_config: str
+    ) -> None:
+        """Agent runtimes can bound a model instance without changing global chat defaults."""
+        with patch.dict(os.environ, {"LLM_MODELS": openai_config}, clear=False):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+            reload_models()
+
+            model = create_chat_model(
+                model_id="test-openai",
+                request_timeout=15.5,
+                max_retries=0,
+            )
+
+            assert model.request_timeout == 15.5
+            assert model.max_retries == 0
+
     def test_anthropic_model_receives_timeout_and_max_retries(
         self, anthropic_config: str
     ) -> None:

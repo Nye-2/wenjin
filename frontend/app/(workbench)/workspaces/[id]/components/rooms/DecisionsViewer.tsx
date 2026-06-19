@@ -9,7 +9,7 @@ interface DecisionsViewerProps {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString("zh-CN", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -33,7 +33,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
       setItems(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to load decisions",
+        err instanceof Error ? err.message : "决策记录加载失败",
       );
     } finally {
       setLoading(false);
@@ -56,7 +56,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
       <div style={{ padding: "12px 16px" }}>
         <input
           type="text"
-          placeholder="Search decisions..."
+          placeholder="搜索决策记录"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="decisions-search"
@@ -82,7 +82,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
             style={{ textAlign: "center", padding: "40px 0", color: "var(--wjn-text-muted)" }}
             data-testid="decisions-loading"
           >
-            Loading decisions...
+            正在加载决策记录...
           </div>
         )}
 
@@ -100,7 +100,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
             style={{ textAlign: "center", padding: "40px 0", color: "var(--wjn-text-muted)" }}
             data-testid="decisions-empty"
           >
-            No decisions found
+            {search ? "没有匹配的决策记录" : "暂无决策记录"}
           </div>
         )}
 
@@ -171,7 +171,7 @@ export function DecisionsViewer({ workspaceId }: DecisionsViewerProps) {
                     background: "var(--wjn-accent-soft)",
                   }}
                 >
-                  {Math.round(item.confidence * 100)}% confidence
+                  可信度 {Math.round(item.confidence * 100)}%
                 </span>
                 <span>{formatDate(item.created_at)}</span>
               </div>

@@ -693,7 +693,7 @@ describe("execution run view projection", () => {
     expect(view.team?.members.map((member) => member.displayName)).toEqual([
       "文献专家",
       "文献综合专家",
-      "质量审阅专家",
+      "质量风险专家",
     ]);
   });
 

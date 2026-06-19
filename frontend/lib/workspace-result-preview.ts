@@ -120,9 +120,9 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? "Memory fact",
+            title: preview ?? "记忆片段",
             subtitle: readString(data?.category),
-            badge: "Memory",
+            badge: "记忆",
             data,
             previewMode: "plain_text",
             previewText:
@@ -139,9 +139,9 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? readString(data?.key) ?? "Decision",
+            title: preview ?? readString(data?.key) ?? "决策记录",
             subtitle: readString(data?.key),
-            badge: "Decision",
+            badge: "决策",
             data,
             previewMode: "plain_text",
             previewText:
@@ -158,11 +158,11 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? readString(data?.title) ?? "Task",
+            title: preview ?? readString(data?.title) ?? "任务项",
             subtitle: readString(data?.priority)
               ? `Priority ${readString(data?.priority)}`
               : null,
-            badge: "Task",
+            badge: "任务",
             data,
             previewMode: "plain_text",
             previewText:
@@ -192,13 +192,13 @@ export function buildDocumentRoomPreview(
     id: readString(document.id) ?? "document",
     source: "document_room",
     kind: "document",
-    title: readString(document.name) ?? "Untitled document",
-    subtitle: docKind ? capitalize(docKind) : mimeType,
-    badge: "Document",
+    title: readString(document.name) ?? "未命名文档",
+    subtitle: docKind ? documentKindLabel(docKind) : mimeType,
+    badge: "文档",
     data: document,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
     previewText: content,
-    metadataLines: [mimeType, docKind ? capitalize(docKind) : null].filter(
+    metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
     ),
     defaultChecked: false,
@@ -221,9 +221,9 @@ export function buildLibraryRoomPreview(
     id: readString(item.id) ?? "library-item",
     source: "library_room",
     kind: "library_item",
-    title: readString(item.title) ?? "Untitled reference",
+    title: readString(item.title) ?? "未命名文献",
     subtitle: authors.length > 0 ? authors.join(", ") : null,
-    badge: "Reference",
+    badge: "文献",
     data: item,
     previewMode: "citation",
     previewText: readString(item.abstract),
@@ -257,13 +257,13 @@ function buildDocumentPreview(options: {
     id,
     source: "staged_output",
     kind: "document",
-    title: firstNonNull(preview, name, id) ?? "Document",
-    subtitle: name && preview !== name ? name : docKind ? capitalize(docKind) : null,
-    badge: "Document",
+    title: firstNonNull(preview, name, id) ?? "文档",
+    subtitle: name && preview !== name ? name : docKind ? documentKindLabel(docKind) : null,
+    badge: "文档",
     data,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
     previewText: firstNonNull(content, preview),
-    metadataLines: [mimeType, docKind ? capitalize(docKind) : null].filter(
+    metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
     ),
     defaultChecked,
@@ -283,7 +283,7 @@ function buildLibraryPreview(options: {
   data: Record<string, unknown> | null;
 }): WorkspaceResultPreview {
   const { id, preview, defaultChecked, data } = options;
-  const title = firstNonNull(readString(data?.title), preview, id) ?? "Reference";
+  const title = firstNonNull(readString(data?.title), preview, id) ?? "文献";
   const authors = readStringArray(data?.authors);
   const year = typeof data?.year === "number" ? String(data.year) : null;
   const abstract = readString(data?.abstract);
@@ -294,7 +294,7 @@ function buildLibraryPreview(options: {
     kind: "library_item",
     title,
     subtitle: authors.length > 0 ? authors.join(", ") : null,
-    badge: "Reference",
+    badge: "文献",
     data,
     previewMode: "citation",
     previewText: firstNonNull(abstract, preview, title),
@@ -328,9 +328,19 @@ function resolveDocumentPreviewMode(
   return "plain_text";
 }
 
-function capitalize(value: string): string {
-  if (!value) {
-    return value;
+function documentKindLabel(value: string): string {
+  switch (value) {
+    case "draft":
+      return "初稿";
+    case "outline":
+      return "大纲";
+    case "figure":
+      return "图表";
+    case "export":
+      return "导出";
+    case "upload":
+      return "上传";
+    default:
+      return value;
   }
-  return value.slice(0, 1).toUpperCase() + value.slice(1);
 }

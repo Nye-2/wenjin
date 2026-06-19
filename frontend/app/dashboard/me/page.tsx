@@ -245,7 +245,7 @@ export default function MyDashboardPage() {
               {threadCredit?.can_start_thread ? "可启动" : "需充值"}
             </div>
             <div className="mt-1 text-xs text-[var(--wjn-text-muted)]">
-              任务与 sandbox 按规则消耗积分
+              任务与实验环境按规则消耗积分
             </div>
           </div>
         </div>

@@ -31,6 +31,25 @@ describe("workbench-result-editing", () => {
     expect(edited[0].data?.content).toBe("# Old");
   });
 
+  it("does not default-select outputs from partial executions", () => {
+    const outputs = extractTaskOutputs({
+      task_report: {
+        status: "failed_partial",
+        outputs: [
+          {
+            id: "doc-1",
+            kind: "document",
+            preview: "Draft",
+            default_checked: true,
+            data: { name: "draft.md", content: "# Draft" },
+          },
+        ],
+      },
+    });
+
+    expect(outputs[0].default_checked).toBe(false);
+  });
+
   it("builds commit overrides only for accepted edited outputs", () => {
     const overrides = buildOutputOverrides(["doc-1"], {
       "doc-1": { data: { content: "# Updated" } },

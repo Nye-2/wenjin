@@ -19,6 +19,7 @@ import { ResultPreviewList } from "./result-preview/ResultPreviewList";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
 
 type TaskReportLike = {
+  status?: unknown;
   narrative?: unknown;
   result_summary?: unknown;
   outputs?: unknown;
@@ -57,7 +58,12 @@ export function CompletedView({
     readString(taskReport?.result_summary) ||
     readString(taskReport?.narrative) ||
     "Execution completed.";
-  const taskOutputs = taskReport?.outputs;
+  const taskStatus = readString(taskReport?.status) || "completed";
+  const allowAcceptAll = taskStatus === "completed";
+  const taskOutputs = useMemo(
+    () => outputsWithSafeDefaults(taskReport?.outputs, allowAcceptAll),
+    [allowAcceptAll, taskReport?.outputs],
+  );
   const previews = useMemo(
     () => buildWorkspaceResultPreviewsFromOutputs(taskOutputs),
     [taskOutputs],
@@ -140,7 +146,9 @@ export function CompletedView({
       setCommitLinks([]);
       setCommitted(false);
       setCommitError(
-        error instanceof Error ? error.message : "Failed to save outputs",
+        error instanceof Error && !error.message.startsWith("Failed")
+          ? error.message
+          : "保存失败，请稍后重试",
       );
     } finally {
       setCommitting(false);
@@ -215,10 +223,23 @@ export function CompletedView({
                       >
                         保存到工作区
                       </div>
+                      {!allowAcceptAll ? (
+                        <div style={styles.partialNotice}>
+                          本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。
+                        </div>
+                      ) : null}
                       <CommitActionBar
                         committed={committed}
                         committing={committing}
-                        onAcceptAll={() => commit({ accept_all: true })}
+                        allowAcceptAll={allowAcceptAll}
+                        selectedCount={checkedIds.size}
+                        onAcceptAll={() =>
+                          commit(
+                            allowAcceptAll
+                              ? { accept_all: true }
+                              : { accepted_ids: Array.from(checkedIds) },
+                          )
+                        }
                         onAcceptSelected={() =>
                           commit({ accepted_ids: Array.from(checkedIds) })
                         }
@@ -512,6 +533,25 @@ function readReviewItems(value: unknown): WorkspacePrismReviewItem[] {
     .map((item) => item as unknown as WorkspacePrismReviewItem);
 }
 
+function outputsWithSafeDefaults(
+  outputs: unknown,
+  allowDefaultChecked: boolean,
+): unknown {
+  if (allowDefaultChecked || !Array.isArray(outputs)) {
+    return outputs;
+  }
+  return outputs.map((item) => {
+    const output = readObject(item);
+    if (!output) {
+      return item;
+    }
+    return {
+      ...output,
+      default_checked: false,
+    };
+  });
+}
+
 type PrismReviewAction = {
   key: string;
   label: string;
@@ -590,6 +630,16 @@ const styles: Record<string, React.CSSProperties> = {
     color: "var(--wjn-error)",
     fontSize: 11.5,
     lineHeight: 1.45,
+  },
+  partialNotice: {
+    padding: "8px 10px",
+    borderRadius: "var(--wjn-radius-md)",
+    background: "rgba(198, 138, 26, 0.08)",
+    border: "1px solid rgba(198, 138, 26, 0.16)",
+    color: "var(--wjn-warning)",
+    fontSize: 11.5,
+    lineHeight: 1.45,
+    marginBottom: 10,
   },
   reviewActionLink: {
     display: "inline-flex",

@@ -47,7 +47,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       eyebrow: "Docs",
       title: "从 workspace 到交付的使用手册。",
       subtitle:
-        "Wenjin 的核心不是一次聊天，而是把来源、判断、执行、审阅和成稿放进同一个可追踪工作空间。这里按真实使用链路整理关键概念。",
+        "Wenjin 的核心不是一次聊天，而是把来源、判断、执行、确认和成稿放进同一个可追踪工作空间。这里按真实使用链路整理关键概念。",
       primary: "进入工作台",
       secondary: "查看定价",
     },
@@ -56,17 +56,17 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Workspace",
         title: "一个项目一个研究空间",
         body:
-          "每个 workspace 都沉淀文献、文档、决策、记忆、运行历史、sandbox、任务和设置，保证长程研究上下文连续。",
+          "每个 workspace 都沉淀文献、文档、决策、记忆、运行历史、实验环境、任务和设置，保证长程研究上下文连续。",
       },
       {
         label: "Agent Team",
         title: "左侧对话理解意图，右侧研究团队推进执行",
         body:
-          "用户在左侧描述任务；问津在右侧按 capability 召集团队成员、分配技能，并把过程投射成可审阅工作面。",
+          "用户在左侧描述任务；问津在右侧按 capability 召集团队成员、分配技能，并把过程投射成可确认工作面。",
       },
       {
-        label: "Review",
-        title: "结果先进入审阅，再写回房间",
+        label: "Confirm",
+        title: "结果先进入确认，再写回房间",
         body:
           "执行产出以 result_card 暂存，用户默认全选、一键接受，也可以取消部分条目后再提交。",
       },
@@ -77,10 +77,10 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       body:
         "无论扩充团队角色、调整提示词、改进工作流，最终都应回到这些稳定对象，避免功能越做越散。",
       items: [
-        "8 个 workspace 房间：Library、Documents、Decisions、Memory、Run History、Sandbox、Tasks、Settings。",
+        "8 个 workspace 房间：Library、Documents、Decisions、Memory、Run History、实验环境、Tasks、Settings。",
         "7 种消息 block：text、thinking、status_line、question_card、result_card、tool_invocation、tool_result。",
         "Capability 数据驱动：YAML seed + DB 配置，管理员可在后台调整。",
-        "Sandbox 单 workspace 单实例，实验环境随任务复用，启动按积分计费。",
+        "实验环境单 workspace 单实例，随任务复用，启动按积分计费。",
       ],
     },
     loop: {
@@ -94,11 +94,11 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         {
           index: "02",
           title: "让研究团队组织执行",
-          body: "问津从 capability 和团队模板中选择合适成员，推进检索、写作、实验或审阅。",
+          body: "问津从 capability 和团队模板中选择合适成员，推进检索、写作、实验或质量检查。",
         },
         {
           index: "03",
-          title: "审阅结果并进入 Prism",
+          title: "确认结果并进入 Prism",
           body: "确认 result_card 后写回对应房间，稿件类成果进入 Prism 继续编辑、编译和优化。",
         },
       ],
@@ -115,7 +115,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       eyebrow: "Docs",
       title: "A practical guide from workspace to delivery.",
       subtitle:
-        "Wenjin is not a one-off chat surface. It keeps sources, decisions, execution, review, and manuscripts inside one traceable research workspace.",
+        "Wenjin is not a one-off chat surface. It keeps sources, decisions, execution, confirmation, and manuscripts inside one traceable research workspace.",
       primary: "Enter Workbench",
       secondary: "View pricing",
     },
@@ -124,7 +124,7 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         label: "Workspace",
         title: "One research space per project",
         body:
-          "Each workspace stores library items, documents, decisions, memory, run history, sandbox state, tasks, and settings for long-running continuity.",
+          "Each workspace stores library items, documents, decisions, memory, run history, experiment-environment state, tasks, and settings for long-running continuity.",
       },
       {
         label: "Agent Team",
@@ -133,8 +133,8 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
           "Users describe work on the left. Wenjin recruits team members through capabilities and projects execution into the right workbench.",
       },
       {
-        label: "Review",
-        title: "Outputs are reviewed before commit",
+        label: "Confirm",
+        title: "Outputs are confirmed before commit",
         body:
           "Execution results are staged as result cards. Users can accept all by default or select the exact items to commit.",
       },
@@ -145,10 +145,10 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
       body:
         "New team roles, prompts, and workflows should converge on the same product objects instead of creating scattered feature paths.",
       items: [
-        "8 workspace rooms: Library, Documents, Decisions, Memory, Run History, Sandbox, Tasks, Settings.",
+        "8 workspace rooms: Library, Documents, Decisions, Memory, Run History, Experiment Environment, Tasks, Settings.",
         "7 message blocks: text, thinking, status_line, question_card, result_card, tool_invocation, tool_result.",
         "Data-driven capabilities: YAML seeds plus DB-backed runtime configuration.",
-        "One sandbox per workspace, reused across experiments, with startup billed in credits.",
+        "One experiment environment per workspace, reused across experiments, with startup billed in credits.",
       ],
     },
     loop: {
@@ -162,11 +162,11 @@ const DOCS_COPY: Record<Locale, DocsCopy> = {
         {
           index: "02",
           title: "Let the research team organize execution",
-          body: "Wenjin selects the right capability and team members for retrieval, writing, experiment, or review work.",
+          body: "Wenjin selects the right capability and team members for retrieval, writing, experiment, or quality-check work.",
         },
         {
           index: "03",
-          title: "Review results and continue in Prism",
+          title: "Confirm results and continue in Prism",
           body: "Accepted result cards write back to rooms. Manuscript outputs continue through Prism editing and compile flows.",
         },
       ],

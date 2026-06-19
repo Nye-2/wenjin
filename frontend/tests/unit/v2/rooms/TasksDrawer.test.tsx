@@ -72,7 +72,7 @@ describe("TasksDrawer", () => {
 
     await screen.findByTestId("drawer-empty");
     expect(screen.getByTestId("drawer-empty")).toHaveTextContent(
-      "No tasks found",
+      "暂无任务",
     );
   });
 
@@ -91,7 +91,7 @@ describe("TasksDrawer", () => {
 
     await screen.findByTestId("drawer-error");
     expect(screen.getByTestId("drawer-error")).toHaveTextContent(
-      "Failed to list tasks",
+      "任务加载失败",
     );
   });
 
@@ -196,7 +196,7 @@ describe("TasksDrawer", () => {
 
   it("toggles task status", async () => {
     global.fetch = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
-      if (opts?.method === "PATCH") {
+      if (opts?.method === "PUT") {
         return Promise.resolve({ ok: true });
       }
       return Promise.resolve({
@@ -220,7 +220,7 @@ describe("TasksDrawer", () => {
     fireEvent.click(toggles[0]);
 
     await waitFor(() => {
-      expect(toggles[0]).toHaveTextContent("completed");
+      expect(toggles[0]).toHaveTextContent("已完成");
     });
   });
 

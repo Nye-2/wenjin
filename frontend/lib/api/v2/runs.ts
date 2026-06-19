@@ -38,7 +38,7 @@ export async function listRuns(
   const res = await authorizedFetch(
     `${BASE}/${workspaceId}/runs${params.toString() ? `?${params}` : ""}`,
   );
-  if (!res.ok) throw new Error("Failed to list runs");
+  if (!res.ok) throw new Error("运行记录加载失败");
   const json = await res.json();
-  return readItemsArray<RunRecord>(json, "runs");
+  return readItemsArray<RunRecord>(json, "运行记录");
 }

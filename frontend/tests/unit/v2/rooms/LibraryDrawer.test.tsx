@@ -63,7 +63,7 @@ describe("LibraryDrawer", () => {
     expect(screen.getAllByTestId("library-item")).toHaveLength(2);
   });
 
-  it("renders DataService SourcePayload items returned by the library API", async () => {
+  it("renders normalized source payload items returned by the library API", async () => {
     const sourcePayload = {
       id: "src-1",
       workspace_id: "ws-1",
@@ -98,7 +98,7 @@ describe("LibraryDrawer", () => {
 
     await screen.findByText(/OpenFedLLM/);
     expect(screen.getByText("Tianshi Che, Ji Liu")).toBeInTheDocument();
-    expect(screen.getByText("execution:run-1")).toBeInTheDocument();
+    expect(screen.getByText("研究团队")).toBeInTheDocument();
     expect(
       await screen.findByText("A Semantic Scholar search result."),
     ).toBeInTheDocument();
@@ -119,7 +119,7 @@ describe("LibraryDrawer", () => {
 
     await screen.findByTestId("drawer-empty");
     expect(screen.getByTestId("drawer-empty")).toHaveTextContent(
-      "No library items found",
+      "资料库暂无文献",
     );
   });
 
@@ -138,7 +138,7 @@ describe("LibraryDrawer", () => {
 
     await screen.findByTestId("drawer-error");
     expect(screen.getByTestId("drawer-error")).toHaveTextContent(
-      "Failed to list library items",
+      "文献资料加载失败",
     );
   });
 

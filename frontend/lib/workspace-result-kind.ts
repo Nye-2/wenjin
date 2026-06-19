@@ -59,9 +59,9 @@ const KIND_META: Record<KnownResultKind, WorkspaceResultKindMeta> = {
     order: 50,
   },
   sandbox: {
-    label: "Sandbox",
-    shortLabel: "Sandbox",
-    groupLabel: "Sandbox",
+    label: "实验记录",
+    shortLabel: "实验",
+    groupLabel: "实验记录",
     accent: "var(--wjn-text-secondary)",
     tint: "var(--wjn-surface-subtle)",
     border: "var(--wjn-line)",

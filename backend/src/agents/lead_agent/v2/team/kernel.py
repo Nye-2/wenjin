@@ -33,6 +33,7 @@ from src.agents.lead_agent.v2.sandbox_artifact_review import (
     sandbox_review_item_projection,
     workspace_asset_payload_for_candidate,
 )
+from src.config.llm_config import LLMSettings
 from src.dataservice_client.contracts.execution import ExecutionUpdatePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.prism_review_projection import prism_review_item_projection
@@ -74,6 +75,8 @@ from .quality_contract import QualityContractResolver
 from .quality_gates import evaluate_quality_gates
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_INVOCATION_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,18 +148,21 @@ class TeamKernelRuntime:
             if invocations and all(invocation.status == "cancelled" for invocation in invocations):
                 return self._cancelled_report(execution_id, brief, started_at)
             duration = int((datetime.now(UTC) - started_at).total_seconds())
+            errors = [
+                *self._errors_from_invocations(invocations),
+                *self._errors_from_quality_gates(gates),
+            ]
+            status = "failed_partial" if errors else "completed"
             outputs: list[ResultOutput] = self._mapped_outputs_from_graph_template(
                 capability,
                 invocations,
             )
             if not outputs:
                 outputs = list(self._outputs_from_invocations(invocations))
-            outputs.extend(self.collect_policy_memory_outputs(capability, brief, outputs))
-            errors = [
-                *self._errors_from_invocations(invocations),
-                *self._errors_from_quality_gates(gates),
-            ]
-            status = "failed_partial" if errors else "completed"
+            if status == "completed":
+                outputs.extend(self.collect_policy_memory_outputs(capability, brief, outputs))
+            else:
+                outputs = self._mark_outputs_unchecked(outputs)
             review_items: list[dict[str, Any]] = []
             if status == "completed":
                 review_items.extend(
@@ -180,7 +186,12 @@ class TeamKernelRuntime:
                 status=status,
                 duration_seconds=duration,
                 token_usage=self._aggregate_token_usage(invocations),
-                narrative=self._build_narrative(capability, invocations, gates),
+                narrative=self._build_narrative(
+                    capability,
+                    invocations,
+                    gates,
+                    has_errors=bool(errors),
+                ),
                 outputs=outputs,
                 review_items=review_items,
                 preview_item_id=self._result_preview_item_id(invocations),
@@ -320,17 +331,15 @@ class TeamKernelRuntime:
         invocations: list[AgentInvocation],
         skill_cache: SkillCatalogCache,
     ) -> list[AgentInvocation]:
-        core_queue = [
-            RecruitmentCandidate(
-                template_id=template_id,
-                reason="core team member for capability",
-            )
-            for template_id in team_policy.core_templates
-        ]
+        core_waves = self._core_recruitment_waves(
+            capability=capability,
+            templates=templates,
+            team_policy=team_policy,
+        )
         core_invocations: list[AgentInvocation] = []
-        while core_queue and len(invocations) < team_policy.limits.max_invocations_total:
-            current_core = core_queue[: team_policy.limits.max_parallel_invocations]
-            core_queue = core_queue[team_policy.limits.max_parallel_invocations :]
+        for current_core in core_waves:
+            if len(invocations) >= team_policy.limits.max_invocations_total:
+                break
             latest_batch = await self._run_invocation_batch(
                 execution_id=execution_id,
                 brief=brief,
@@ -347,12 +356,85 @@ class TeamKernelRuntime:
                 recruits=current_core,
             )
             if not latest_batch:
-                break
+                continue
             core_invocations.extend(latest_batch)
             self._sync_current_harness_evidence(workspace_data, latest_batch)
             if self._all_cancelled(invocations):
                 break
         return core_invocations
+
+    def _core_recruitment_waves(
+        self,
+        *,
+        capability: Any,
+        templates: dict[str, AgentTemplate],
+        team_policy: CapabilityTeamPolicy,
+    ) -> list[list[RecruitmentCandidate]]:
+        phase_by_template = self._graph_phase_by_core_template(capability, templates, team_policy)
+        if not phase_by_template:
+            return self._chunk_core_recruits(
+                [
+                    RecruitmentCandidate(
+                        template_id=template_id,
+                        reason="core team member for capability",
+                    )
+                    for template_id in team_policy.core_templates
+                ],
+                team_policy,
+            )
+
+        grouped: dict[int, list[RecruitmentCandidate]] = {}
+        for template_id in team_policy.core_templates:
+            phase_index = phase_by_template.get(template_id, 0)
+            grouped.setdefault(phase_index, []).append(
+                RecruitmentCandidate(
+                    template_id=template_id,
+                    reason="core team member for capability",
+                )
+            )
+        waves: list[list[RecruitmentCandidate]] = []
+        for phase_index in sorted(grouped):
+            waves.extend(self._chunk_core_recruits(grouped[phase_index], team_policy))
+        return waves
+
+    @staticmethod
+    def _chunk_core_recruits(
+        recruits: list[RecruitmentCandidate],
+        team_policy: CapabilityTeamPolicy,
+    ) -> list[list[RecruitmentCandidate]]:
+        if not recruits:
+            return []
+        size = max(1, team_policy.limits.max_parallel_invocations)
+        return [recruits[index : index + size] for index in range(0, len(recruits), size)]
+
+    @staticmethod
+    def _graph_phase_by_core_template(
+        capability: Any,
+        templates: dict[str, AgentTemplate],
+        team_policy: CapabilityTeamPolicy,
+    ) -> dict[str, int]:
+        graph_template = getattr(capability, "graph_template", None)
+        if not isinstance(graph_template, dict):
+            return {}
+        phases = graph_template.get("phases")
+        if not isinstance(phases, list) or not phases:
+            return {}
+
+        phase_by_template: dict[str, int] = {}
+        core_template_ids = set(team_policy.core_templates)
+        for phase_index, phase in enumerate(phases):
+            if not isinstance(phase, dict):
+                continue
+            tasks = phase.get("tasks")
+            if not isinstance(tasks, list):
+                continue
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                matched = _matching_core_template_ids(task, templates, core_template_ids)
+                for template_id in matched:
+                    phase_by_template.setdefault(template_id, phase_index)
+        return phase_by_template
 
     async def _run_dynamic_recruitment_phase(
         self,
@@ -524,6 +606,7 @@ class TeamKernelRuntime:
                 for invocation in batch
             ]
         )
+        self._sync_invocation_outputs_to_blackboard(blackboard, batch)
         return batch
 
     @staticmethod
@@ -587,6 +670,48 @@ class TeamKernelRuntime:
         current = workspace_data.get("recent_executions")
         current = current if isinstance(current, list) else []
         workspace_data["recent_executions"] = _prepend_current_harness_evidence(entries, current)
+
+    def _sync_invocation_outputs_to_blackboard(
+        self,
+        blackboard: TeamBlackboard,
+        latest_invocations: list[AgentInvocation],
+    ) -> None:
+        existing = {
+            str(item.get("source_invocation_id") or "")
+            for item in blackboard.evidence_items
+            if isinstance(item, dict)
+        }
+        for invocation in latest_invocations:
+            if invocation.status != "succeeded" or not invocation.output_report:
+                continue
+            if invocation.id in existing:
+                continue
+            evidence = self._blackboard_evidence_from_invocation(invocation)
+            if not evidence:
+                continue
+            blackboard.evidence_items.append(evidence)
+            existing.add(invocation.id)
+
+    def _blackboard_evidence_from_invocation(
+        self,
+        invocation: AgentInvocation,
+    ) -> dict[str, Any]:
+        output = invocation.output_report if isinstance(invocation.output_report, dict) else {}
+        evidence: dict[str, Any] = {
+            "source_invocation_id": invocation.id,
+            "source_template_id": invocation.template_id,
+            "source_display_name": invocation.display_name,
+            "kind": "team_member_output",
+        }
+        papers = output.get("papers")
+        if isinstance(papers, list) and papers:
+            evidence["kind"] = "source_search_results"
+            evidence["paper_count"] = len(papers)
+            evidence["papers"] = [_bounded_paper_item(item) for item in papers[:12] if isinstance(item, dict)]
+        preview = self._preview_output(output)
+        if preview:
+            evidence["preview"] = preview[:1200]
+        return evidence if len(evidence) > 4 else {}
 
     def _inject_quality_contracts(
         self,
@@ -870,7 +995,14 @@ class TeamKernelRuntime:
                     publish_event=self.publish_event,
                     expert_snapshot_emitter=emit_expert_snapshot,
                 )
-                result: SubagentResult = await subagent_cls().run(ctx)
+                result: SubagentResult = await _run_subagent_with_timeout(
+                    subagent_cls().run(ctx),
+                    timeout_seconds=_invocation_timeout_seconds(
+                        capability_policy=capability_policy,
+                        skill=skill,
+                    ),
+                    invocation_id=invocation.id,
+                )
                 invocation.status = "succeeded"
                 invocation.output_report = result.output
                 invocation.tool_calls = result.tool_calls or []
@@ -1043,6 +1175,8 @@ class TeamKernelRuntime:
             if invocation.status != "succeeded":
                 continue
             content = self._preview_output(invocation.output_report)
+            if not content:
+                continue
             outputs.append(
                 DocumentOutput(
                     id=f"team-output-{invocation.id}",
@@ -1305,9 +1439,16 @@ class TeamKernelRuntime:
         capability: Any,
         invocations: list[AgentInvocation],
         gates: list[QualityGateResult],
+        *,
+        has_errors: bool = False,
     ) -> str:
         names = "、".join(item.display_name for item in invocations)
         warnings = sum(1 for gate in gates if gate.status != "pass")
+        if has_errors:
+            failed = sum(1 for item in invocations if item.status in {"failed", "cancelled"})
+            gate_text = f"，{warnings} 个质量门未通过" if warnings else ""
+            member_text = f"，团队成员：{names}" if names else ""
+            return f"未能完成 {capability.display_name}{member_text}，{failed} 个成员未完成{gate_text}。"
         suffix = f"，{warnings} 个质量门需要注意" if warnings else "，质量门已通过"
         return f"完成 {capability.display_name}，团队成员：{names}{suffix}。"
 
@@ -1359,8 +1500,68 @@ class TeamKernelRuntime:
                 value = output.get(key)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
+            if not _has_meaningful_output(output):
+                return ""
             return json.dumps(output, ensure_ascii=False, sort_keys=True)
         return str(output or "")
+
+    @staticmethod
+    def _mark_outputs_unchecked(outputs: list[ResultOutput]) -> list[ResultOutput]:
+        return [
+            output.model_copy(update={"default_checked": False})
+            for output in outputs
+        ]
+
+
+async def _run_subagent_with_timeout(
+    awaitable: Awaitable[SubagentResult],
+    *,
+    timeout_seconds: float,
+    invocation_id: str,
+) -> SubagentResult:
+    task = asyncio.create_task(awaitable)
+    done, _ = await asyncio.wait({task}, timeout=timeout_seconds)
+    if task in done:
+        return task.result()
+
+    task.cancel()
+    task.add_done_callback(_consume_timed_out_subagent_task)
+    raise TimeoutError(
+        f"Subagent invocation {invocation_id} timed out after {timeout_seconds:.0f}s"
+    )
+
+
+def _consume_timed_out_subagent_task(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except asyncio.CancelledError:
+        return
+    except Exception:
+        logger.debug("Timed-out subagent task finished with error", exc_info=True)
+
+
+def _invocation_timeout_seconds(
+    *,
+    capability_policy: dict[str, Any],
+    skill: Any | None,
+) -> float:
+    configured = None
+    limits = capability_policy.get("limits") if isinstance(capability_policy, dict) else None
+    if isinstance(limits, dict):
+        configured = limits.get("react_timeout_seconds") or limits.get("timeout_seconds")
+    if configured is None and isinstance(capability_policy, dict):
+        sandbox_policy = capability_policy.get("sandbox_policy")
+        if isinstance(sandbox_policy, dict):
+            configured = sandbox_policy.get("react_timeout_seconds") or sandbox_policy.get("timeout_seconds")
+    if configured is None and skill is not None:
+        skill_config = getattr(skill, "config", None)
+        if isinstance(skill_config, dict):
+            configured = skill_config.get("react_timeout_seconds") or skill_config.get("timeout_seconds")
+    try:
+        value = float(configured) if configured is not None else DEFAULT_INVOCATION_TIMEOUT_SECONDS
+    except (TypeError, ValueError):
+        value = DEFAULT_INVOCATION_TIMEOUT_SECONDS
+    return max(10.0, min(value, float(LLMSettings.AGENT_TIMEOUT)))
 
 
 def _replan_signal_key(signal: dict[str, Any]) -> str:
@@ -1392,3 +1593,59 @@ def _prepend_current_harness_evidence(
             continue
         retained.append(item)
     return [*entries, *retained][:8]
+
+
+def _matching_core_template_ids(
+    task: dict[str, Any],
+    templates: dict[str, AgentTemplate],
+    core_template_ids: set[str],
+) -> list[str]:
+    task_name = _normalized_task_key(task.get("name"))
+    skill_id = str(task.get("skill_id") or "").strip()
+    matches: list[str] = []
+    for template_id in core_template_ids:
+        template = templates.get(template_id)
+        if template is None:
+            continue
+        template_name = _normalized_task_key(template_id.split(".")[0])
+        if task_name and task_name == template_name:
+            matches.append(template_id)
+            continue
+        if skill_id and skill_id in template.default_skills:
+            matches.append(template_id)
+    return matches
+
+
+def _normalized_task_key(value: Any) -> str:
+    text = str(value or "").strip().replace("-", "_")
+    return text.lower()
+
+
+def _bounded_paper_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: _bounded_paper_value(item.get(key))
+        for key in ("title", "authors", "year", "venue", "doi", "url", "source", "abstract")
+        if item.get(key) not in (None, "", [])
+    }
+
+
+def _bounded_paper_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value[:800]
+    if isinstance(value, list):
+        return [str(item)[:120] for item in value[:8]]
+    return value
+
+
+def _has_meaningful_output(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (int, float, bool)):
+        return True
+    if isinstance(value, dict):
+        return any(_has_meaningful_output(item) for item in value.values())
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_has_meaningful_output(item) for item in value)
+    return bool(value)

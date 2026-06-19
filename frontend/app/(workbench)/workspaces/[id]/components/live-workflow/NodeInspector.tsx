@@ -100,7 +100,7 @@ export function NodeInspector({
             </InspectorBlock>
           ) : null}
           {sandboxSummary ? (
-            <InspectorBlock title="Sandbox 摘要" icon={FlaskConical}>
+            <InspectorBlock title="实验环境摘要" icon={FlaskConical}>
               <div style={styles.sandboxSummary}>
                 {sandboxSummary.map((line) => (
                   <div key={line}>{line}</div>

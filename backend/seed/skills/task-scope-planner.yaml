@@ -87,3 +87,6 @@ sandbox_access:
 quality_gates:
 - task_scope_bounded
 - missing_decisions_marked
+extensions:
+  execution_strategy:
+    mode: direct

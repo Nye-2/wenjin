@@ -20,9 +20,9 @@ export async function listMemoryFacts(
   const res = await authorizedFetch(
     `${BASE}/${workspaceId}/memory${params.toString() ? `?${params}` : ""}`,
   );
-  if (!res.ok) throw new Error("Failed to list memory facts");
+  if (!res.ok) throw new Error("记忆加载失败");
   const json = await res.json();
-  return readItemsArray<MemoryFact>(json, "memory facts");
+  return readItemsArray<MemoryFact>(json, "记忆");
 }
 
 export async function deleteMemoryFact(
@@ -32,5 +32,5 @@ export async function deleteMemoryFact(
   const res = await authorizedFetch(`${BASE}/${workspaceId}/memory/${factId}`, {
     method: "DELETE",
   });
-  if (!res.ok) throw new Error("Failed to delete memory fact");
+  if (!res.ok) throw new Error("记忆删除失败");
 }

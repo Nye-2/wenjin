@@ -275,7 +275,7 @@ export async function fetchLatexCompiledPdfBlob(
     `/api/prism/latex-adapter/projects/${projectId}/compile/${historyId}/pdf`,
   );
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Failed to load compiled PDF"));
+    throw new Error(await readErrorMessage(response, "PDF 加载失败"));
   }
   return response.blob();
 }
@@ -288,7 +288,7 @@ export async function fetchLatexCompiledSynctexBlob(
     `/api/prism/latex-adapter/projects/${projectId}/compile/${historyId}/synctex`,
   );
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Failed to load synctex file"));
+    throw new Error(await readErrorMessage(response, "同步定位文件加载失败"));
   }
   return response.blob();
 }
@@ -301,7 +301,7 @@ export async function fetchLatexProjectBlob(
     `/api/prism/latex-adapter/projects/${projectId}/blob?path=${encodeURIComponent(path)}`,
   );
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Failed to load project blob"));
+    throw new Error(await readErrorMessage(response, "项目文件加载失败"));
   }
   return response.blob();
 }

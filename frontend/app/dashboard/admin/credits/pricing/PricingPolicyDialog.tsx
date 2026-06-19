@@ -175,11 +175,11 @@ export function PricingPolicyDialog({ open, policy, onClose }: Props) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="global_credit">global_credit</SelectItem>
-                <SelectItem value="model_usage">model_usage</SelectItem>
-                <SelectItem value="capability">capability</SelectItem>
-                <SelectItem value="tool">tool</SelectItem>
-                <SelectItem value="sandbox">sandbox</SelectItem>
+                <SelectItem value="global_credit">全局积分</SelectItem>
+                <SelectItem value="model_usage">模型消耗</SelectItem>
+                <SelectItem value="capability">能力执行</SelectItem>
+                <SelectItem value="tool">工具调用</SelectItem>
+                <SelectItem value="sandbox">实验环境</SelectItem>
               </SelectContent>
             </Select>
           </div>

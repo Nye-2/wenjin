@@ -27,9 +27,9 @@ export async function listDocuments(
   const res = await authorizedFetch(
     `${BASE}/${workspaceId}/documents${params.toString() ? `?${params}` : ""}`,
   );
-  if (!res.ok) throw new Error("Failed to list documents");
+  if (!res.ok) throw new Error("文档加载失败");
   const json = await res.json();
-  return readItemsArray<Document>(json, "documents");
+  return readItemsArray<Document>(json, "文档");
 }
 
 export async function deleteDocument(
@@ -42,7 +42,7 @@ export async function deleteDocument(
       method: "DELETE",
     },
   );
-  if (!res.ok) throw new Error("Failed to delete document");
+  if (!res.ok) throw new Error("文档删除失败");
 }
 
 export async function getDocument(
@@ -51,7 +51,7 @@ export async function getDocument(
 ): Promise<DocumentDetail> {
   const res = await authorizedFetch(`${BASE}/${workspaceId}/documents/${docId}`);
   if (!res.ok) {
-    throw new Error("Failed to load document");
+    throw new Error("文档预览加载失败");
   }
   return (await res.json()) as DocumentDetail;
 }

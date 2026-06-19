@@ -49,7 +49,7 @@ export function StatusLineBlock({
     >
       <span style={{ color: toneStyle.accent }}>{toneStyle.icon}</span>
       <span>
-        {phaseIndex != null ? `Phase ${phaseIndex} · ` : ""}
+        {phaseIndex != null ? `阶段 ${phaseIndex} · ` : ""}
         {label}
       </span>
     </div>

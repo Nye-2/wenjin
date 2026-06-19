@@ -98,7 +98,7 @@ export function OverviewView({
           <div style={styles.sectionHeader}>
             <div>
               <div style={styles.sectionTitle}>最近运行</div>
-              <div style={styles.sectionSubtitle}>最近任务会保留进展、证据和可审阅结果。</div>
+              <div style={styles.sectionSubtitle}>最近任务会保留进展、证据和待确认结果。</div>
             </div>
           </div>
           <div style={styles.runList}>

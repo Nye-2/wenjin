@@ -136,6 +136,31 @@ describe("ResultCard", () => {
     expect(headers.get("Idempotency-Key")).toBeTruthy();
   });
 
+  it("requires manual review before saving partial execution outputs", () => {
+    render(
+      <ResultCard
+        data={{
+          ...SAMPLE_DATA,
+          status: "failed_partial",
+          narrative: "未能完成全部步骤。",
+          outputs: SAMPLE_DATA.outputs.map((output) => ({
+            ...output,
+            default_checked: true,
+          })),
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
+    expect(screen.getByText("本次运行未完整完成，候选结果需要先查看详情后再决定是否保存。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "查看候选项" }));
+
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-1");
+    expect(useWorkbenchLayoutStore.getState().activeWorkbenchTab).toBe("review");
+  });
+
   it("shows room links for saved outputs after commit", async () => {
     render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
 

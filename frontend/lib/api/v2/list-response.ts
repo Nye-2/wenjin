@@ -14,5 +14,5 @@ export function readItemsArray<T>(
     return payload.items as T[];
   }
 
-  throw new Error(`Invalid ${resourceName} response`);
+  throw new Error(`${resourceName} 数据格式异常`);
 }

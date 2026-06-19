@@ -21,11 +21,11 @@ interface DocumentsDrawerProps {
 }
 
 const KIND_LABELS: Record<Document["doc_kind"], string> = {
-  draft: "Draft",
-  outline: "Outline",
-  figure: "Figure",
-  export: "Export",
-  upload: "Upload",
+  draft: "初稿",
+  outline: "大纲",
+  figure: "图表",
+  export: "导出",
+  upload: "上传",
 };
 
 const KIND_COLORS: Record<Document["doc_kind"], string> = {
@@ -51,7 +51,7 @@ function formatBytes(bytes: number): string {
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
+  return new Date(iso).toLocaleDateString("zh-CN", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -99,7 +99,7 @@ export function DocumentsDrawer({
       const data = await listDocuments(workspaceId);
       setItems(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load documents");
+      setError(err instanceof Error ? err.message : "文档加载失败");
     } finally {
       setLoading(false);
       setHasLoadedList(true);
@@ -120,7 +120,7 @@ export function DocumentsDrawer({
       await deleteDocument(workspaceId, docId);
       setItems((prev) => prev.filter((item) => item.id !== docId));
     } catch {
-      setError("Failed to delete document");
+      setError("文档删除失败");
     }
   }
 
@@ -167,7 +167,7 @@ export function DocumentsDrawer({
       .catch((err) => {
         if (!cancelled) {
           setDetailError(
-            err instanceof Error ? err.message : "Failed to load document",
+            err instanceof Error ? err.message : "文档预览加载失败",
           );
           setDetail(null);
         }
@@ -191,7 +191,7 @@ export function DocumentsDrawer({
         right: 0,
         top: 0,
         bottom: 0,
-        width: 760,
+        width: "min(760px, 100%)",
         background: "rgba(255, 255, 255, 0.92)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
@@ -206,6 +206,9 @@ export function DocumentsDrawer({
         fontSize: 13,
       }}
       data-testid="documents-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="文档资料"
     >
       {/* Header */}
       <div
@@ -225,11 +228,13 @@ export function DocumentsDrawer({
             color: "var(--wjn-text)",
           }}
         >
-          Documents
+          文档资料
         </span>
         <button
+          type="button"
           onClick={handleClose}
           data-testid="drawer-close"
+          aria-label="关闭文档资料"
           style={{
             border: "none",
             background: "transparent",
@@ -248,7 +253,7 @@ export function DocumentsDrawer({
       <div style={{ padding: "12px 16px" }}>
         <input
           type="text"
-          placeholder="Search by name..."
+          placeholder="按名称搜索"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="drawer-search"
@@ -288,7 +293,7 @@ export function DocumentsDrawer({
               }}
               data-testid="drawer-loading"
             >
-              Loading documents...
+              正在加载文档...
             </div>
           )}
 
@@ -314,7 +319,7 @@ export function DocumentsDrawer({
               }}
               data-testid="drawer-empty"
             >
-              No documents found
+              {search ? "没有匹配的文档" : "暂无文档"}
             </div>
           )}
 
@@ -390,8 +395,13 @@ export function DocumentsDrawer({
                   </div>
                 </div>
                 <button
-                  onClick={() => handleDelete(item.id)}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void handleDelete(item.id);
+                  }}
                   data-testid="item-delete"
+                  aria-label={`删除 ${item.name}`}
                   style={{
                     border: "none",
                     background: "transparent",
@@ -402,7 +412,7 @@ export function DocumentsDrawer({
                     flexShrink: 0,
                   }}
                 >
-                  Delete
+                  删除
                 </button>
               </div>
             </div>
@@ -417,7 +427,7 @@ export function DocumentsDrawer({
                 color: "var(--wjn-text-muted)",
               }}
             >
-              Loading preview...
+              正在加载预览...
             </div>
           ) : detailError ? (
             <div
@@ -439,7 +449,7 @@ export function DocumentsDrawer({
                 color: "var(--wjn-text-muted)",
               }}
             >
-              Select a document to preview it here.
+              选择一个文档后，这里会显示内容预览和保存位置。
             </div>
           )}
         </div>

@@ -49,7 +49,7 @@ export async function commitExecutionOutputs(options: {
     },
   );
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "Failed to save outputs"));
+    throw new Error(await readErrorMessage(response, "保存结果失败"));
   }
   return (await response.json()) as ExecutionCommitResponse;
 }
@@ -101,7 +101,7 @@ export function buildCommittedRoomLinks(options: {
     const preview = previewById.get(target.output_id);
     links.push({
       key: `memory:${target.item_id}`,
-      label: `打开已保存的 ${preview?.title ?? "Memory"}`,
+      label: `打开已保存的 ${preview?.title ?? "记忆"}`,
       href: buildWorkspaceRoomHref({
         workspaceId,
         room: "memory",
@@ -115,7 +115,7 @@ export function buildCommittedRoomLinks(options: {
     const preview = previewById.get(target.output_id);
     links.push({
       key: `decisions:${target.item_id}`,
-      label: `打开已保存的 ${preview?.title ?? "Decision"}`,
+      label: `打开已保存的 ${preview?.title ?? "决策"}`,
       href: buildWorkspaceRoomHref({
         workspaceId,
         room: "decisions",
@@ -129,7 +129,7 @@ export function buildCommittedRoomLinks(options: {
     const preview = previewById.get(target.output_id);
     links.push({
       key: `tasks:${target.item_id}`,
-      label: `打开已保存的 ${preview?.title ?? "Task"}`,
+      label: `打开已保存的 ${preview?.title ?? "任务"}`,
       href: buildWorkspaceRoomHref({
         workspaceId,
         room: "tasks",

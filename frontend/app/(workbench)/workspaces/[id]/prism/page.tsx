@@ -178,11 +178,11 @@ export default function WorkspacePrismPage({
             tone="empty"
             title={
               t?.("workspaceSurfaces.prismEmptyTitle") ??
-              "No Prism manuscript is bound yet"
+              "还没有绑定写作项目"
             }
             description={
               t?.("workspaceSurfaces.prismEmptyDescription") ??
-              "Start a manuscript-writing task from Workbench to create the primary project."
+              "从 Workbench 启动论文写作任务后，这里会自动打开主稿。"
             }
           />
         ) : (
@@ -190,11 +190,11 @@ export default function WorkspacePrismPage({
             tone="loading"
             title={
               t?.("workspaceSurfaces.prismLoadingTitle") ??
-              "Opening Prism manuscript surface"
+              "正在打开论文写作台"
             }
             description={
               t?.("workspaceSurfaces.prismLoadingDescription") ??
-              "Loading the workspace manuscript project and pending writes."
+              "正在加载工作区主稿和待确认修改。"
             }
           />
         )}

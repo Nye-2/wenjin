@@ -360,10 +360,84 @@ def test_quality_gates_fail_claim_evidence_map_without_source_refs() -> None:
         {
             "message": (
                 "Return claim_evidence_map entries with claim plus source_id "
-                "or citation_key for every supported claim."
+                "or citation_key or candidate source title/url for every supported claim."
             )
         }
     ]
+
+
+def test_quality_gates_accept_claim_evidence_map_with_candidate_source_titles() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "literature_synthesizer.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_evidence_map_required"],
+        "acknowledgement_required_gates": [],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["claim_evidence_map_required"],
+        [
+            _invocation(
+                template_id="literature_synthesizer.v1",
+                output_report={
+                    "text": "claims mapped",
+                    "claim_evidence_map": [
+                        {
+                            "claim": "Federated LoRA can reduce communication cost.",
+                            "supporting_sources": [
+                                "Federated LoRA Fine-Tuning for LLMs via Collaborative Alignment"
+                            ],
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["literature_synthesizer.v1"]),
+        counts=Counter({"literature_synthesizer.v1": 1}),
+        latest_invocations=[],
+    )
+
+    assert not [gate for gate in gates if gate.gate_id == "claim_evidence_map_required"]
+
+
+def test_quality_gates_accept_claim_evidence_map_with_evidence_sources() -> None:
+    contract = {
+        "schema_version": "resolved_quality_contract.v1",
+        "template_id": "literature_synthesizer.v1",
+        "output_schema": {"type": "object", "properties": {}, "required": []},
+        "quality_gates": ["claim_evidence_map_required"],
+        "acknowledgement_required_gates": [],
+        "recruitment_hints": {},
+    }
+
+    gates = evaluate_quality_gates(
+        ["claim_evidence_map_required"],
+        [
+            _invocation(
+                template_id="literature_synthesizer.v1",
+                output_report={
+                    "text": "claims mapped",
+                    "claim_evidence_map": [
+                        {
+                            "claim": "Federated LoRA can reduce communication cost.",
+                            "evidence_sources": [
+                                "Fed-SB: A Silver Bullet for Federated LoRA Fine-Tuning"
+                            ],
+                        }
+                    ],
+                },
+                quality_contract=contract,
+            )
+        ],
+        team_policy=CapabilityTeamPolicy(core_templates=["literature_synthesizer.v1"]),
+        counts=Counter({"literature_synthesizer.v1": 1}),
+        latest_invocations=[],
+    )
+
+    assert not [gate for gate in gates if gate.gate_id == "claim_evidence_map_required"]
 
 
 def test_quality_gates_accept_claim_evidence_map_with_citation_keys() -> None:

@@ -403,8 +403,9 @@ async def create_reservation(
         expires_at=payload.expires_at,
         metadata=payload.metadata,
     )
+    response = _reservation_payload(reservation)
     await uow.commit()
-    return envelope_ok(_reservation_payload(reservation))
+    return envelope_ok(response)
 
 
 @router.post("/reservations/{reservation_id}/settle")
@@ -425,13 +426,12 @@ async def settle_reservation(
         task_id=payload.task_id,
         metadata=payload.metadata,
     )
+    response = {
+        "reservation": _reservation_payload(reservation),
+        "transaction": _transaction_payload(tx),
+    }
     await uow.commit()
-    return envelope_ok(
-        {
-            "reservation": _reservation_payload(reservation),
-            "transaction": _transaction_payload(tx),
-        }
-    )
+    return envelope_ok(response)
 
 
 @router.post("/reservations/{reservation_id}/release")
@@ -444,8 +444,9 @@ async def release_reservation(
         uow.required_session,
         autocommit=False,
     ).release_reservation(reservation_id, reason=payload.reason)
+    response = _reservation_payload(reservation)
     await uow.commit()
-    return envelope_ok(_reservation_payload(reservation))
+    return envelope_ok(response)
 
 
 @router.post("/refund")

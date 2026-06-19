@@ -30,6 +30,13 @@ const STATUS_BG: Record<WorkspaceTask["status"], string> = {
   cancelled: "rgba(100, 100, 120, 0.06)",
 };
 
+const STATUS_LABELS: Record<WorkspaceTask["status"], string> = {
+  pending: "待处理",
+  in_progress: "进行中",
+  completed: "已完成",
+  cancelled: "已取消",
+};
+
 const STATUS_CYCLE: WorkspaceTask["status"][] = [
   "pending",
   "in_progress",
@@ -71,7 +78,7 @@ export function TasksDrawer({
       const data = await listTasks(workspaceId);
       setItems(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load tasks");
+      setError(err instanceof Error ? err.message : "任务加载失败");
     } finally {
       setLoading(false);
     }
@@ -94,7 +101,7 @@ export function TasksDrawer({
       setNewTitle("");
       setShowAddForm(false);
     } catch {
-      setError("Failed to create task");
+      setError("任务创建失败");
     }
   }
 
@@ -103,7 +110,7 @@ export function TasksDrawer({
       await deleteTask(workspaceId, taskId);
       setItems((prev) => prev.filter((item) => item.id !== taskId));
     } catch {
-      setError("Failed to delete task");
+      setError("任务删除失败");
     }
   }
 
@@ -117,7 +124,7 @@ export function TasksDrawer({
         ),
       );
     } catch {
-      setError("Failed to update task status");
+      setError("任务状态更新失败");
     }
   }
 
@@ -136,7 +143,7 @@ export function TasksDrawer({
         right: 0,
         top: 0,
         bottom: 0,
-        width: 400,
+        width: "min(420px, 100%)",
         background: "rgba(255, 255, 255, 0.92)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
@@ -151,6 +158,9 @@ export function TasksDrawer({
         fontSize: 13,
       }}
       data-testid="tasks-drawer"
+      role="dialog"
+      aria-modal="true"
+      aria-label="任务"
     >
       {/* Header */}
       <div
@@ -171,13 +181,15 @@ export function TasksDrawer({
               color: "var(--wjn-text)",
             }}
           >
-            Tasks
+            任务
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button
+            type="button"
             onClick={() => setShowAddForm(!showAddForm)}
             data-testid="add-task-btn"
+            aria-label={showAddForm ? "收起新增任务" : "新增任务"}
             style={{
               border: "none",
               background: "transparent",
@@ -191,8 +203,10 @@ export function TasksDrawer({
             +
           </button>
           <button
+            type="button"
             onClick={handleClose}
             data-testid="drawer-close"
+            aria-label="关闭任务"
             style={{
               border: "none",
               background: "transparent",
@@ -221,7 +235,7 @@ export function TasksDrawer({
         >
           <input
             type="text"
-            placeholder="Task title..."
+            placeholder="任务标题..."
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => {
@@ -241,6 +255,7 @@ export function TasksDrawer({
             }}
           />
           <button
+            type="button"
             onClick={handleAdd}
             data-testid="add-task-submit"
             style={{
@@ -255,7 +270,7 @@ export function TasksDrawer({
               fontWeight: 500,
             }}
           >
-            Add
+            添加
           </button>
         </div>
       )}
@@ -264,7 +279,7 @@ export function TasksDrawer({
       <div style={{ padding: "12px 16px" }}>
         <input
           type="text"
-          placeholder="Search tasks..."
+          placeholder="搜索任务"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="drawer-search"
@@ -300,7 +315,7 @@ export function TasksDrawer({
             }}
             data-testid="drawer-loading"
           >
-            Loading tasks...
+            正在加载任务...
           </div>
         )}
 
@@ -326,7 +341,7 @@ export function TasksDrawer({
             }}
             data-testid="drawer-empty"
           >
-            No tasks found
+            {search ? "没有匹配的任务" : "暂无任务"}
           </div>
         )}
 
@@ -371,8 +386,10 @@ export function TasksDrawer({
                     }}
                   >
                     <button
+                      type="button"
                       onClick={() => handleToggleStatus(item)}
                       data-testid="task-status-toggle"
+                      aria-label={`切换任务状态：${item.title}`}
                       style={{
                         display: "inline-block",
                         padding: "2px 10px",
@@ -386,7 +403,7 @@ export function TasksDrawer({
                         fontFamily: "var(--wjn-font-sans)",
                       }}
                     >
-                      {item.status.replace("_", " ")}
+                      {STATUS_LABELS[item.status]}
                     </button>
                     {item.priority != null && (
                       <span
@@ -401,8 +418,10 @@ export function TasksDrawer({
                   </div>
                 </div>
                 <button
+                  type="button"
                   onClick={() => handleDelete(item.id)}
                   data-testid="item-delete"
+                  aria-label={`删除 ${item.title}`}
                   style={{
                     border: "none",
                     background: "transparent",
@@ -413,7 +432,7 @@ export function TasksDrawer({
                     flexShrink: 0,
                   }}
                 >
-                  Delete
+                  删除
                 </button>
               </div>
             </div>

@@ -106,3 +106,7 @@ quality_gates:
 - synthesis_not_annotation
 - claim_evidence_pairs_required
 - conflicts_and_gaps_marked
+extensions:
+  execution_strategy:
+    mode: direct_when_upstream_evidence
+    min_evidence_items: 1

@@ -279,7 +279,7 @@ export function buildSandboxSummary(state: ExecutionNodeState | null | undefined
     Boolean(readString(tool?.stderr)) ||
     outputRefCount > 0;
   const lines = [
-    `操作：${readString(output?.operation) ?? readString(tool?.name) ?? "sandbox"}`,
+    `操作：${readString(output?.operation) ?? readString(tool?.name) ?? "实验环境"}`,
     `状态：${readString(output?.status) ?? readString(tool?.status) ?? state.status ?? "unknown"}`,
     output?.exit_code !== undefined || tool?.exit_code !== undefined
       ? `Exit code：${String(output?.exit_code ?? tool?.exit_code)}`

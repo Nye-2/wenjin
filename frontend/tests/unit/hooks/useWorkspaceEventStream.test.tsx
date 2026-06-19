@@ -169,6 +169,60 @@ describe("useWorkspaceEventStream", () => {
     expect(resultCards).toHaveLength(1);
   });
 
+  it("normalizes failed_partial result-card outputs as unchecked", async () => {
+    let onEvent: ((event: WorkspaceEvent) => void) | undefined;
+    mockSubscribeWorkspaceEvents.mockImplementation((_workspaceId, handler) => {
+      onEvent = handler as (event: WorkspaceEvent) => void;
+      return vi.fn();
+    });
+    mockGetExecution.mockResolvedValue({
+      ...makeExecutionRecord(),
+      status: "failed_partial",
+      result: {
+        task_report: {
+          ...makeExecutionRecord().result.task_report,
+          status: "failed_partial",
+          outputs: [
+            {
+              id: "doc-1",
+              kind: "document",
+              preview: "Draft",
+              default_checked: true,
+              data: { name: "draft.md", content: "# Draft" },
+            },
+          ],
+        },
+      },
+    });
+
+    renderHook(() => useWorkspaceEventStream("ws-1"));
+    useChatStoreV2.getState().handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "assistant-1" },
+    });
+    useChatStoreV2.getState().handleEvent({ type: "chat.assistant.completion" });
+
+    act(() => {
+      onEvent?.({
+        type: "execution.completed",
+        workspace_id: "ws-1",
+        execution_id: "exec-1",
+        event_type: "execution.completed",
+        status: "failed_partial",
+      });
+    });
+
+    await waitFor(() => {
+      const message = useChatStoreV2.getState().messages.at(-1);
+      const resultCard = message?.blocks.at(-1);
+      const outputs =
+        resultCard && resultCard.kind === "result_card" && "data" in resultCard
+          ? resultCard.data.outputs
+          : [];
+      expect(outputs[0]?.default_checked).toBe(false);
+    });
+  });
+
   it("keeps a newer execution stream active when an older terminal cleanup fires", () => {
     vi.useFakeTimers();
     let onEvent: ((event: WorkspaceEvent) => void) | undefined;

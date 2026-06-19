@@ -286,6 +286,53 @@ describe("CompletedView", () => {
     expect(url.searchParams.get("query")).toBe("Thesis outline");
   });
 
+  it("requires selected-output save for partial execution previews", async () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: {
+            execution_id: "exec-1",
+            capability_id: "outline",
+            status: "failed_partial",
+            narrative: "Outline partially completed.",
+            outputs: [
+              {
+                id: "doc-1",
+                kind: "document",
+                preview: "Thesis outline",
+                default_checked: true,
+                data: {
+                  name: "outline.md",
+                  mime_type: "text/markdown",
+                  doc_kind: "outline",
+                  content: "# Chapter 1\n- Background",
+                },
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
+    expect(screen.getByText("本次运行未完整完成，默认不会全选候选项。请逐项预览后保存已勾选内容。")).toBeInTheDocument();
+    const checkbox = screen.getByRole("checkbox") as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(checkbox);
+    fireEvent.click(screen.getByRole("button", { name: "仅保存勾选项" }));
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/executions/exec-1/commit",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ accepted_ids: ["doc-1"] }),
+      }),
+    );
+  });
+
   it("shows a save error inline when execution commit fails", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

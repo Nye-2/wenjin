@@ -32,6 +32,7 @@ def is_terminal_execution_status(status: Any) -> bool:
 
 def _result_card_data_from_task_report(execution_id: str, task_report: dict[str, Any]) -> dict[str, Any]:
     """Build the async ResultCard payload consumed by the workspace frontend."""
+    status = str(task_report.get("status") or "completed")
     raw_outputs = task_report.get("outputs")
     outputs: list[dict[str, Any]] = []
     if isinstance(raw_outputs, list):
@@ -43,7 +44,7 @@ def _result_card_data_from_task_report(execution_id: str, task_report: dict[str,
                     "id": str(output.get("id") or ""),
                     "kind": str(output.get("kind") or ""),
                     "preview": str(output.get("preview") or ""),
-                    "default_checked": output.get("default_checked") is not False,
+                    "default_checked": status == "completed" and output.get("default_checked") is not False,
                     "data": output.get("data") if isinstance(output.get("data"), dict) else {},
                 }
             )
@@ -68,7 +69,7 @@ def _result_card_data_from_task_report(execution_id: str, task_report: dict[str,
     data = {
         "execution_id": str(task_report.get("execution_id") or execution_id),
         "capability_name": task_report.get("capability_id"),
-        "status": task_report.get("status") or "completed",
+        "status": status,
         "outputs": outputs,
         "review_items": review_items,
         "narrative": task_report.get("narrative"),

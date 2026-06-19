@@ -22,9 +22,9 @@ export function formatCreditCostLabel(key: string): string {
     case "feature_token_billing":
       return "功能任务";
     case "sandbox_run_python":
-      return "Sandbox Python";
+      return "实验环境 Python";
     case "sandbox_operation_billing":
-      return "Sandbox";
+      return "实验环境";
     default:
       return key;
   }

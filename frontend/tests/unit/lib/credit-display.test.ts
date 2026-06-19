@@ -11,7 +11,7 @@ describe("credit-display", () => {
   it("renders public billing costs without token policy details", () => {
     expect(formatCreditCostLabel("thread")).toBe("主线对话");
     expect(formatCreditCostLabel("feature")).toBe("功能任务");
-    expect(formatCreditCostLabel("sandbox_run_python")).toBe("Sandbox Python");
+    expect(formatCreditCostLabel("sandbox_run_python")).toBe("实验环境 Python");
     expect(
       renderCostValue({
         enabled: true,

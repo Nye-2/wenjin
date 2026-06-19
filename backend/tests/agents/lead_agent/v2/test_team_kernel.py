@@ -1,6 +1,7 @@
+import asyncio
 from collections import Counter
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -131,6 +132,19 @@ class TeamFailingSubagent(SubagentBase):
         raise RuntimeError(f"{ctx.invocation['display_name']} failed")
 
 
+@subagent("team_empty")
+class TeamEmptySubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        return SubagentResult(output={"text": ""})
+
+
+@subagent("team_hanging")
+class TeamHangingSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        await asyncio.sleep(10)
+        return SubagentResult(output={"text": "too late"})
+
+
 @subagent("team_schema_repair")
 class TeamSchemaRepairSubagent(SubagentBase):
     calls: dict[str, int] = {}
@@ -187,6 +201,40 @@ class TeamCaptureSubagent(SubagentBase):
                 "text": f"{ctx.invocation['display_name']} captured",
                 "quality_gates_checked": [],
             },
+            tool_calls=[],
+            token_usage={"input": 1, "output": 1},
+        )
+
+
+@subagent("team_sequential_capture")
+class TeamSequentialCaptureSubagent(SubagentBase):
+    contexts: list[SubagentContext] = []
+
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        type(self).contexts.append(ctx)
+        if ctx.invocation["template_id"] == "research_scout.v1":
+            output = {
+                "text": "search completed",
+                "papers": [
+                    {
+                        "title": "Paper A",
+                        "authors": ["Smith"],
+                        "year": 2026,
+                        "url": "https://example.test/paper-a",
+                        "source": "semantic_scholar",
+                        "abstract": "Evidence about federated LoRA.",
+                    }
+                ],
+            }
+        else:
+            upstream = ctx.inputs.get("upstream_context") or {}
+            evidence_items = upstream.get("evidence_items") if isinstance(upstream, dict) else []
+            output = {
+                "text": f"synthesized {len(evidence_items or [])} upstream evidence item(s)",
+                "quality_gates_checked": [],
+            }
+        return SubagentResult(
+            output=output,
             tool_calls=[],
             token_usage={"input": 1, "output": 1},
         )
@@ -886,6 +934,56 @@ async def test_streamed_expert_snapshot_recording_failure_does_not_fail_invocati
     assert any(event["status"] == "completed" for event in node_events)
 
 
+@pytest.mark.asyncio
+async def test_run_invocation_marks_hanging_subagent_failed_on_timeout() -> None:
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=AsyncMock(),
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_library_context=lambda _policy: False,
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+    invocation = AgentInvocation(
+        id="team.1.hanging_v1.1",
+        iteration=1,
+        template_id="hanging.v1",
+        display_name="卡住专家",
+        assigned_role="测试专家",
+        recruitment_reason="test",
+        input_brief={"workspace_id": "ws-1"},
+        effective_skills=["hanging-skill"],
+    )
+
+    with patch(
+        "src.agents.lead_agent.v2.team.kernel._invocation_timeout_seconds",
+        return_value=0.01,
+    ):
+        await runtime._run_invocation(
+            invocation=invocation,
+            template=AgentTemplate(
+                id="hanging.v1",
+                display_role="测试专家",
+                category="test",
+                persona_prompt="hang",
+            ),
+            capability_policy={},
+            workspace_data={},
+            blackboard=TeamBlackboard(),
+            skill_records={
+                "hanging-skill": SimpleNamespace(
+                    subagent_type="team_hanging",
+                    config={},
+                ),
+            },
+            skill_load_error=None,
+        )
+
+    assert invocation.status == "failed"
+    assert "timed out" in invocation.error["message"]
+
+
 class FakeTeamCatalogClient:
     async def __aenter__(self):
         return self
@@ -985,6 +1083,39 @@ class FakeCriticalReviewerFailingTeamCatalogClient(FakeTeamCatalogClient):
                 worker_type="review",
                 subagent_type="team_failing",
                 prompt="Fail this reviewer.",
+                config={"output_kind": "json"},
+            ),
+        ]
+
+
+class FailingAndEmptyTeamCatalogClient(FakeTeamCatalogClient):
+    async def list_agent_templates(self, *, enabled_only: bool = True):
+        records = await super().list_agent_templates(enabled_only=enabled_only)
+        for record in records:
+            if record.id == "research_scout.v1":
+                record.default_skills = ["failing-research-scout"]
+            if record.id == "critical_reviewer.v1":
+                record.default_skills = ["empty-review-critic"]
+        return records
+
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        return [
+            CapabilitySkillPayload(
+                id="failing-research-scout",
+                display_name="Failing Research Scout",
+                worker_type="research",
+                subagent_type="team_failing",
+                prompt="Fail this scout.",
+                config={"output_kind": "json"},
+            ),
+            CapabilitySkillPayload(
+                id="empty-review-critic",
+                display_name="Empty Review Critic",
+                worker_type="review",
+                subagent_type="team_empty",
+                prompt="Return empty output.",
                 config={"output_kind": "json"},
             ),
         ]
@@ -1201,6 +1332,30 @@ class SciLiteratureTeamCatalogClient(FakeTeamCatalogClient):
                 display_name="Literature Synthesizer",
                 worker_type="research",
                 subagent_type="team_capture",
+                prompt="Capture synthesizer context.",
+                config={"output_kind": "json"},
+            ),
+        ]
+
+
+class SequentialSciLiteratureTeamCatalogClient(SciLiteratureTeamCatalogClient):
+    async def list_catalog_skills(self, *, enabled_only: bool = True):
+        from src.dataservice_client.contracts.catalog import CapabilitySkillPayload
+
+        return [
+            CapabilitySkillPayload(
+                id="research-scout",
+                display_name="Research Scout",
+                worker_type="research",
+                subagent_type="team_sequential_capture",
+                prompt="Capture research scout context.",
+                config={"output_kind": "json"},
+            ),
+            CapabilitySkillPayload(
+                id="literature-synthesizer",
+                display_name="Literature Synthesizer",
+                worker_type="research",
+                subagent_type="team_sequential_capture",
                 prompt="Capture synthesizer context.",
                 config={"output_kind": "json"},
             ),
@@ -1841,6 +1996,86 @@ async def test_team_kernel_runtime_supplies_query_and_business_tools_to_sci_lite
 
 
 @pytest.mark.asyncio
+async def test_team_kernel_core_phase_respects_graph_dependencies_for_upstream_context(monkeypatch) -> None:
+    TeamSequentialCaptureSubagent.contexts = []
+
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: SequentialSciLiteratureTeamCatalogClient(),
+    )
+
+    cap = SimpleNamespace(
+        id="sci_literature_positioning",
+        workspace_type="sci",
+        display_name="文献定位与创新点",
+        runtime={"mode": "team_kernel", "allowed_tools": ["web_search", "library_read"]},
+        graph_template={
+            "phases": [
+                {
+                    "name": "step_01_research_scout",
+                    "tasks": [{"name": "research_scout", "skill_id": "research-scout"}],
+                },
+                {
+                    "name": "step_02_literature_synthesizer",
+                    "depends_on": ["step_01_research_scout"],
+                    "tasks": [
+                        {
+                            "name": "literature_synthesizer",
+                            "skill_id": "literature-synthesizer",
+                        }
+                    ],
+                },
+            ]
+        },
+        definition_json={
+            "mission": {"primary_surface": "prism"},
+            "team_policy": {
+                "core_templates": ["research_scout.v1", "literature_synthesizer.v1"],
+                "optional_templates": [],
+                "recruitment_triggers": {},
+                "capability_tools": ["web_search", "library_read"],
+                "capability_skills": ["research-scout", "literature-synthesizer"],
+                "quality_pipeline": [],
+                "limits": {
+                    "max_iterations": 1,
+                    "max_parallel_invocations": 2,
+                    "max_invocations_total": 2,
+                },
+            },
+        },
+    )
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="sci"),
+    )
+
+    report = await runtime.run_session(
+        execution_id="exec-sci-literature-sequential",
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            raw_message="Federated LoRA fine-tuning LLMs",
+            workspace_id="ws-sci",
+            user_id="user-1",
+            brief={"topic": "Federated LoRA fine-tuning LLMs"},
+        ),
+    )
+
+    assert report.status == "completed"
+    assert [
+        ctx.invocation["template_id"]
+        for ctx in TeamSequentialCaptureSubagent.contexts
+    ] == ["research_scout.v1", "literature_synthesizer.v1"]
+    synthesizer = TeamSequentialCaptureSubagent.contexts[-1]
+    upstream_context = synthesizer.inputs["upstream_context"]
+    evidence = upstream_context["evidence_items"][0]
+    assert evidence["kind"] == "source_search_results"
+    assert evidence["papers"][0]["title"] == "Paper A"
+
+
+@pytest.mark.asyncio
 async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(monkeypatch) -> None:
     published: list[tuple[str, str, dict]] = []
     node_events: list[dict] = []
@@ -1900,6 +2135,40 @@ async def test_team_kernel_runtime_recruits_optional_member_after_failed_core(mo
         event["node_metadata"]["template_id"] == "generalist_assistant.v1"
         for event in node_events
     )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_failed_partial_does_not_surface_empty_or_policy_memory_outputs(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.dataservice_client",
+        lambda: FailingAndEmptyTeamCatalogClient(),
+    )
+
+    cap = _team_capability()
+    cap.definition_json["review_policy"] = {
+        "default_targets": ["room_memory_candidate"],
+    }
+    cap.definition_json["team_policy"]["optional_templates"] = []
+    cap.definition_json["team_policy"]["recruitment_triggers"] = {}
+    cap.definition_json["team_policy"]["quality_pipeline"] = []
+    cap.definition_json["team_policy"]["capability_skills"] = [
+        "failing-research-scout",
+        "empty-review-critic",
+    ]
+    resolver = AsyncMock()
+    resolver.resolve = AsyncMock(return_value=cap)
+    runtime = LeadAgentRuntime(
+        resolver=resolver,
+        publish_event=AsyncMock(),
+        get_workspace_type=AsyncMock(return_value="thesis"),
+    )
+
+    report = await runtime.run_session(execution_id="exec-team-empty-partial", brief=_brief())
+
+    assert report.status == "failed_partial"
+    assert report.outputs == []
+    assert "未能完成" in report.narrative
+    assert not report.narrative.startswith("完成 ")
 
 
 @pytest.mark.asyncio

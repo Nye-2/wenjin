@@ -49,10 +49,22 @@ export function EvidenceView({
       return `${item.title} ${item.kind} ${item.summary}`.toLowerCase().includes(q);
     });
   }, [filter, items, query]);
+  const experimentCount = items.filter(
+    (item) =>
+      item.kind === "sandbox" ||
+      item.summary.toLowerCase().includes("sandbox") ||
+      item.summary.includes("实验"),
+  ).length;
   const selected =
     filtered.find((item) => item.id === selectedId) ??
     filtered[0] ??
     null;
+  const filterOptions: Array<[EvidenceFilter, string]> = [
+    ["all", "全部"],
+    ["outputs", "候选结果"],
+    ["nodes", "过程"],
+    ...(experimentCount > 0 ? ([["sandbox", "实验记录"]] as Array<[EvidenceFilter, string]>) : []),
+  ];
 
   return (
     <div style={styles.evidenceGrid}>
@@ -68,12 +80,7 @@ export function EvidenceView({
             />
           </div>
           <div style={styles.segmented}>
-            {[
-              ["all", "全部"],
-              ["outputs", "候选结果"],
-              ["nodes", "过程记录"],
-              ["sandbox", "Sandbox"],
-            ].map(([key, label]) => (
+            {filterOptions.map(([key, label]) => (
               <button
                 key={key}
                 type="button"
@@ -89,58 +96,50 @@ export function EvidenceView({
           </div>
         </div>
         {filtered.length > 0 ? (
-          <div style={styles.evidenceTableWrap}>
-            <table style={styles.evidenceTable}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>包含</th>
-                  <th style={styles.th}>类型</th>
-                  <th style={styles.th}>标题 / 来源</th>
-                  <th style={styles.th}>摘要</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((item) => {
-                  const isSelected = selected?.id === item.id;
-                  return (
-                    <tr
-                      key={item.id}
-                      onClick={() => onSelect(item.id)}
-                      style={{
-                        ...styles.tr,
-                        ...(isSelected ? styles.trSelected : null),
-                      }}
-                    >
-                      <td style={styles.td}>
-                        {item.source === "output" ? (
-                          <input
-                            type="checkbox"
-                            checked={checkedIds.has(item.preview.id)}
-                            disabled={disabled}
-                            onChange={(event) => {
-                              event.stopPropagation();
-                              onToggleChecked(item.preview.id);
-                            }}
-                            onClick={(event) => event.stopPropagation()}
-                            style={styles.checkbox}
-                          />
-                        ) : (
-                          <span style={styles.readOnlyMark}>只读</span>
-                        )}
-                      </td>
-                      <td style={styles.td}>
-                        <ResultKindBadge kind={item.kind} />
-                      </td>
-                      <td style={styles.tdStrong}>{item.title}</td>
-                      <td style={styles.tdMuted}>{truncate(item.summary, 140)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div style={styles.evidenceList}>
+            {filtered.map((item) => {
+              const isSelected = selected?.id === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelect(item.id)}
+                  style={{
+                    ...styles.evidenceListItem,
+                    ...(isSelected ? styles.evidenceListItemActive : null),
+                  }}
+                >
+                  <span style={styles.evidenceListCheck}>
+                    {item.source === "output" ? (
+                      <input
+                        type="checkbox"
+                        aria-label={`选择${item.title}`}
+                        checked={checkedIds.has(item.preview.id)}
+                        disabled={disabled}
+                        onChange={(event) => {
+                          event.stopPropagation();
+                          onToggleChecked(item.preview.id);
+                        }}
+                        onClick={(event) => event.stopPropagation()}
+                        style={styles.checkbox}
+                      />
+                    ) : (
+                      <span style={styles.readOnlyMark}>只读</span>
+                    )}
+                  </span>
+                  <span style={styles.evidenceListMain}>
+                    <span style={styles.evidenceListTitle}>{item.title}</span>
+                    <span style={styles.evidenceListSummary}>{truncate(item.summary, 160)}</span>
+                  </span>
+                  <span style={styles.evidenceListKind}>
+                    <ResultKindBadge kind={item.kind} />
+                  </span>
+                </button>
+              );
+            })}
           </div>
         ) : (
-          <EmptyState title="没有匹配证据" detail="调整搜索或过滤条件后再查看。" compact />
+          <EmptyState title="没有匹配内容" detail="调整搜索或筛选条件后再查看。" compact />
         )}
       </section>
 
@@ -159,7 +158,7 @@ export function EvidenceView({
             state={selected.nodeState}
           />
         ) : (
-          <EmptyState title="选择证据项" detail="可在这里编辑候选结果字段，或查看过程摘要。" compact />
+          <EmptyState title="选择一项内容" detail="这里会显示候选结果、来源详情或过程摘要。" compact />
         )}
       </aside>
     </div>

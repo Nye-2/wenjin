@@ -21,7 +21,7 @@ export async function listDecisions(
   const res = await authorizedFetch(
     `${BASE}/${workspaceId}/decisions${params.toString() ? `?${params}` : ""}`,
   );
-  if (!res.ok) throw new Error("Failed to list decisions");
+  if (!res.ok) throw new Error("决策记录加载失败");
   const json = await res.json();
-  return readItemsArray<Decision>(json, "decisions");
+  return readItemsArray<Decision>(json, "决策记录");
 }

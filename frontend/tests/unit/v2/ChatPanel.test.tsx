@@ -78,7 +78,7 @@ describe("ChatPanel v2", () => {
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
-    expect(screen.getByText(/launch_feature/)).toBeInTheDocument();
+    expect(screen.getByText(/正在启动研究团队/)).toBeInTheDocument();
   });
 
   it("renders status line blocks", () => {
@@ -113,7 +113,7 @@ describe("ChatPanel v2", () => {
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
-    expect(screen.getByText(/success/)).toBeInTheDocument();
+    expect(screen.getByText(/已处理/)).toBeInTheDocument();
   });
 
   it("renders launch_feature lead-busy advisory as the busy state", () => {
@@ -470,7 +470,7 @@ describe("ChatPanel v2", () => {
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
     expect(screen.getByText("思考过程")).toBeInTheDocument();
     expect(screen.getByText("Here is my answer")).toBeInTheDocument();
-    expect(screen.getByText(/search/)).toBeInTheDocument();
+    expect(screen.getByText(/正在处理请求/)).toBeInTheDocument();
   });
 
   it("auto-launches a seeded workspace entry once history is confirmed empty", async () => {

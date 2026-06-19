@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
-import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -16,6 +16,7 @@ from src.agents.harness.context_assembly import (
     build_harness_context_bundle,
     render_harness_context_for_prompt,
 )
+from src.config.llm_config import LLMSettings
 from src.models import create_chat_model
 from src.services.thread_billing import extract_message_usage
 from src.services.token_usage_collector import record_token_usage
@@ -24,6 +25,9 @@ from ..base import SubagentBase, SubagentContext, SubagentResult
 from ..registry import subagent
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_REACT_AGENT_TIMEOUT_SECONDS = 120.0
+DEFAULT_REACT_RECURSION_LIMIT = 10
 
 
 # ---------------------------------------------------------------------------
@@ -457,8 +461,9 @@ class ReactSubagent(SubagentBase):
         user_template = config.get("user_template")
         user_inputs = ctx.inputs if user_template else _build_default_user_payload(ctx, config)
         user_message = _render_user_message(user_template, user_inputs)
+        run_tools = [] if _should_run_direct_with_upstream_evidence(ctx, config) else ctx.tools
         tool_records: list[dict[str, Any]] = []
-        if ctx.tools:
+        if run_tools:
             ctx.workspace_data = dict(ctx.workspace_data or {})
             ctx.workspace_data["_harness_tool_records"] = tool_records
 
@@ -467,7 +472,7 @@ class ReactSubagent(SubagentBase):
             final_text = await _run_react_loop(
                 system_prompt=system_prompt,
                 user_message=user_message,
-                tools=ctx.tools,
+                tools=run_tools,
                 harness_context=ctx,
                 emit_delta=ctx.emit_delta,
             )
@@ -500,12 +505,16 @@ async def _run_react_loop(
 ) -> str:
     """Run the MiMo ReAct loop (or plain model invoke if no tools).
 
-    When no tools are available, streams the response using ``model.astream()``
-    and emits thinking deltas through *emit_delta* (throttled to 500 ms).
+    When no tools are available, uses a bounded direct ``model.ainvoke()`` call.
 
     Returns the final text content of the assistant's last message.
     """
-    model = create_chat_model("mimo-v2.5-pro", thinking_enabled=True)
+    model = create_chat_model(
+        "mimo-v2.5-pro",
+        thinking_enabled=True,
+        request_timeout=_react_agent_timeout_seconds(harness_context),
+        max_retries=0,
+    )
 
     messages = [
         SystemMessage(content=system_prompt),
@@ -526,10 +535,25 @@ async def _run_react_loop(
         agent = create_react_agent(
             model=model,
             tools=resolved_tools,
-            state_modifier=system_prompt,
+            prompt=system_prompt,
             pre_model_hook=_react_pre_model_hook,
         )
-        result = await agent.ainvoke({"messages": [HumanMessage(content=user_message)]})
+        agent_config = {
+            "recursion_limit": _react_recursion_limit(harness_context),
+        }
+        try:
+            result = await asyncio.wait_for(
+                agent.ainvoke(
+                    {"messages": [HumanMessage(content=user_message)]},
+                    config=agent_config,
+                ),
+                timeout=_react_agent_timeout_seconds(harness_context),
+            )
+        except TimeoutError as exc:
+            timeout_seconds = _react_agent_timeout_seconds(harness_context)
+            raise RuntimeError(
+                f"React agent timed out after {timeout_seconds:.0f}s"
+            ) from exc
         # Extract last AI message content
         msgs = result.get("messages", [])
         for msg in reversed(msgs):
@@ -540,61 +564,150 @@ async def _run_react_loop(
         return ""
 
     # No tools -- stream the response and emit thinking deltas
-    collected_content: list[str] = []
-    thinking_buf = ""
-    last_flush = 0.0
-    latest_stream_usage = None
+    try:
+        return await asyncio.wait_for(
+            _run_direct_model_call(
+                model=model,
+                messages=messages,
+                emit_delta=emit_delta,
+            ),
+            timeout=_react_agent_timeout_seconds(harness_context),
+        )
+    except TimeoutError as exc:
+        timeout_seconds = _react_agent_timeout_seconds(harness_context)
+        raise RuntimeError(
+            f"React direct model timed out after {timeout_seconds:.0f}s"
+        ) from exc
 
-    async for chunk in model.astream(messages):
-        latest_stream_usage = extract_message_usage(chunk) or latest_stream_usage
 
-        # --- Thinking chunk detection ---
-        is_thinking = False
-        thinking_text = ""
+async def _run_direct_model_call(
+    *,
+    model: Any,
+    messages: list[BaseMessage],
+    emit_delta: Callable[[str, str], Awaitable[None]] | None = None,
+) -> str:
+    """Run a bounded plain model call for no-tool subagents."""
 
-        # Anthropic thinking content blocks
-        if hasattr(chunk, "additional_kwargs"):
-            if chunk.additional_kwargs.get("type") == "thinking":
-                is_thinking = True
-                thinking_text = chunk.additional_kwargs.get("thinking", "")
-                if not thinking_text and isinstance(chunk.content, str):
-                    thinking_text = chunk.content
+    if emit_delta is not None:
+        await emit_delta("thinking", "正在整理上下文并生成结构化结果。")
 
-        # Handle list-style content blocks (Anthropic extended thinking)
-        if not is_thinking and isinstance(chunk.content, list):
-            for block in chunk.content:
-                if isinstance(block, dict) and block.get("type") == "thinking":
-                    is_thinking = True
-                    thinking_text += block.get("thinking", "")
-            # Collect regular text blocks too
-            if not is_thinking:
-                for block in chunk.content:
-                    if isinstance(block, str):
-                        collected_content.append(block)
-                    elif isinstance(block, dict) and block.get("type") == "text":
-                        collected_content.append(block.get("text", ""))
+    message = await asyncio.to_thread(model.invoke, messages)
+    usage = extract_message_usage(message)
+    if usage is not None:
+        record_token_usage(usage)
+    else:
+        record_token_usage(message)
+    return _message_content_text(getattr(message, "content", ""))
 
-        if is_thinking:
-            thinking_buf += thinking_text
-            if emit_delta is not None:
-                now = time.monotonic()
-                if now - last_flush >= 0.5:
-                    await emit_delta("thinking", thinking_buf)
-                    last_flush = now
-                    thinking_buf = ""
-        else:
-            # Regular content chunk
-            if isinstance(chunk.content, str) and chunk.content:
-                collected_content.append(chunk.content)
 
-    # Final flush of remaining thinking buffer
-    if thinking_buf and emit_delta is not None:
-        await emit_delta("thinking", thinking_buf)
+def _message_content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text") or ""))
+        return "".join(parts)
+    return str(content or "")
 
-    if latest_stream_usage is not None:
-        record_token_usage(latest_stream_usage)
 
-    return "".join(collected_content)
+def _should_run_direct_with_upstream_evidence(
+    ctx: SubagentContext,
+    config: dict[str, Any],
+) -> bool:
+    """Use direct model synthesis when a skill declares evidence-first execution."""
+
+    strategy = _execution_strategy_config(config)
+    if not ctx.tools:
+        return False
+    mode = strategy.get("mode")
+    if mode == "direct":
+        return True
+    if mode != "direct_when_upstream_evidence":
+        return False
+    min_items = _positive_int(strategy.get("min_evidence_items"), default=1)
+    return _upstream_evidence_count(ctx) >= min_items
+
+
+def _execution_strategy_config(config: dict[str, Any]) -> dict[str, Any]:
+    extensions = config.get("extensions")
+    if not isinstance(extensions, dict):
+        return {}
+    strategy = extensions.get("execution_strategy")
+    return dict(strategy) if isinstance(strategy, dict) else {}
+
+
+def _upstream_evidence_count(ctx: SubagentContext) -> int:
+    inputs = ctx.inputs if isinstance(ctx.inputs, dict) else {}
+    total = 0
+    for section_name in ("upstream_context", "team_blackboard"):
+        section = inputs.get(section_name)
+        if isinstance(section, dict):
+            total += _evidence_items_count(section.get("evidence_items"))
+    if isinstance(ctx.team_context, dict):
+        total += _evidence_items_count(ctx.team_context.get("evidence_items"))
+    return total
+
+
+def _evidence_items_count(value: Any) -> int:
+    if isinstance(value, list):
+        return len([item for item in value if isinstance(item, dict) and item])
+    return 0
+
+
+def _positive_int(value: Any, *, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(1, parsed)
+
+
+def _react_agent_timeout_seconds(ctx: SubagentContext | None) -> float:
+    """Resolve a bounded wall-clock timeout for tool-backed ReAct subagents."""
+
+    configured = None
+    if ctx is not None:
+        capability_policy = ctx.capability_policy if isinstance(ctx.capability_policy, dict) else {}
+        limits = capability_policy.get("limits")
+        if isinstance(limits, dict):
+            configured = limits.get("react_timeout_seconds") or limits.get("timeout_seconds")
+        if configured is None:
+            sandbox_policy = capability_policy.get("sandbox_policy")
+            if isinstance(sandbox_policy, dict):
+                configured = sandbox_policy.get("react_timeout_seconds")
+        if configured is None and ctx.skill is not None:
+            skill_config = getattr(ctx.skill, "config", None)
+            if isinstance(skill_config, dict):
+                configured = skill_config.get("react_timeout_seconds")
+    try:
+        value = float(configured) if configured is not None else DEFAULT_REACT_AGENT_TIMEOUT_SECONDS
+    except (TypeError, ValueError):
+        value = DEFAULT_REACT_AGENT_TIMEOUT_SECONDS
+    return max(10.0, min(value, float(LLMSettings.AGENT_TIMEOUT)))
+
+
+def _react_recursion_limit(ctx: SubagentContext | None) -> int:
+    """Keep tool-backed ReAct graphs from spinning through long empty loops."""
+
+    configured = None
+    if ctx is not None:
+        capability_policy = ctx.capability_policy if isinstance(ctx.capability_policy, dict) else {}
+        sandbox_policy = capability_policy.get("sandbox_policy")
+        if isinstance(sandbox_policy, dict):
+            configured = sandbox_policy.get("max_iterations")
+        if configured is None and ctx.skill is not None:
+            skill_config = getattr(ctx.skill, "config", None)
+            if isinstance(skill_config, dict):
+                configured = skill_config.get("max_iterations")
+    try:
+        max_iterations = int(configured) if configured is not None else 4
+    except (TypeError, ValueError):
+        max_iterations = 4
+    return max(4, min(DEFAULT_REACT_RECURSION_LIMIT, max_iterations * 2 + 2))
 
 
 def _resolve_tools(tool_names: list[str], harness_context: SubagentContext | None = None) -> list:
@@ -611,6 +724,8 @@ def _resolve_tools(tool_names: list[str], harness_context: SubagentContext | Non
 
 
 def _is_transient_model_error(exc: Exception) -> bool:
+    if isinstance(exc, TimeoutError):
+        return True
     text = str(exc).lower()
     return any(
         marker in text

@@ -140,7 +140,7 @@ describe("SettingsPage", () => {
     await screen.findByText("User prefers concise explanations");
     expect(screen.getByText("User prefers concise explanations")).toBeInTheDocument();
     expect(screen.getByText("Project uses TypeScript and React")).toBeInTheDocument();
-    expect(screen.getByText("92%")).toBeInTheDocument();
+    expect(screen.getByText("可信度 92%")).toBeInTheDocument();
     expect(screen.getAllByTestId("memory-item")).toHaveLength(2);
   });
 
@@ -187,7 +187,7 @@ describe("SettingsPage", () => {
 
     await screen.findByTestId("settings-saved");
     expect(screen.getByTestId("settings-saved")).toHaveTextContent(
-      "Settings saved successfully",
+      "设置已保存",
     );
   });
 

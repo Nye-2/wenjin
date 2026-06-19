@@ -92,3 +92,6 @@ sandbox_access:
 quality_gates:
 - query_strategy_recorded
 - source_gaps_marked
+extensions:
+  execution_strategy:
+    mode: direct

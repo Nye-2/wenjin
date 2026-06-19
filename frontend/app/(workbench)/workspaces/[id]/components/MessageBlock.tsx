@@ -352,12 +352,10 @@ function ToolResultBlock({
   const code = typeof data.code === "string" ? data.code.trim() : "";
   const executionId =
     typeof data.execution_id === "string" ? data.execution_id.trim() : "";
-  const featureId =
-    typeof data.feature_id === "string" ? data.feature_id.trim() : "";
   const capabilityName =
     typeof data.capability_name === "string" && data.capability_name.trim()
       ? data.capability_name.trim()
-      : featureId || "Execution";
+      : "研究任务";
 
   if (status === "launched" && executionId) {
     return (
@@ -433,7 +431,7 @@ function ToolResultBlock({
                 textDecoration: "none",
               }}
             >
-              打开 Runs
+              打开运行记录
             </WorkspaceActionLink>
           </div>
         ) : null}
@@ -470,9 +468,7 @@ function ToolResultBlock({
           margin: "6px 0",
         }}
       >
-        {typeof data.detail === "string" && data.detail.trim()
-          ? data.detail
-          : "执行启动失败。"}
+        {sanitizeUserFacingError(data.detail)}
       </div>
     );
   }
@@ -488,9 +484,34 @@ function ToolResultBlock({
         margin: "4px 0",
       }}
     >
-      ✓ {status}
+      ✓ {status === "advisory" ? "需要补充信息" : "已处理"}
     </div>
   );
+}
+
+function sanitizeUserFacingError(detail: unknown): string {
+  if (typeof detail !== "string" || !detail.trim()) {
+    return "任务启动失败，请补充需求后再试一次。";
+  }
+  const text = detail.trim();
+  if (
+    text.includes("Feature") ||
+    text.includes("launch_feature") ||
+    text.includes("capability") ||
+    text.includes("DataService") ||
+    text.includes("Traceback")
+  ) {
+    return "这次任务没有成功启动。请换一种说法补充研究主题、目标产物或材料，我会重新判断要不要召集团队。";
+  }
+  return text;
+}
+
+function toolInvocationLabel(tool: unknown): string {
+  const value = typeof tool === "string" ? tool : "";
+  if (value.includes("launch_feature")) {
+    return "正在启动研究团队";
+  }
+  return "正在处理请求";
 }
 
 export const MessageBlock = memo(function MessageBlock({
@@ -531,9 +552,9 @@ export const MessageBlock = memo(function MessageBlock({
             fontSize: 12,
             color: "var(--wjn-blue)",
             margin: "4px 0",
-          }}
-        >
-          ⚡ {block.data.tool}
+        }}
+      >
+          ⚡ {toolInvocationLabel(block.data.tool)}
         </div>
       );
     case "tool_result":

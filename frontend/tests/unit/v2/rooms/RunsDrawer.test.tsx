@@ -108,7 +108,7 @@ describe("RunsDrawer", () => {
 
     await screen.findByTestId("drawer-empty");
     expect(screen.getByTestId("drawer-empty")).toHaveTextContent(
-      "No runs found",
+      "暂无运行记录",
     );
   });
 
@@ -127,7 +127,7 @@ describe("RunsDrawer", () => {
 
     await screen.findByTestId("drawer-error");
     expect(screen.getByTestId("drawer-error")).toHaveTextContent(
-      "Failed to list runs",
+      "运行记录加载失败",
     );
   });
 

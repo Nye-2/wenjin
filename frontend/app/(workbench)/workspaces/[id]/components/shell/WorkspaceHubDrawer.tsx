@@ -48,7 +48,7 @@ export const WORKSPACE_HUB_ROOMS: readonly WorkspaceHubRoom[] = [
   },
   {
     key: "decisions",
-    label: "审阅与决策",
+    label: "确认与决策",
     description: "待确认结果、关键判断与采纳记录",
     icon: CheckCircle2,
     countKind: "review",
@@ -155,7 +155,7 @@ export function WorkspaceHubDrawer({
                 : 0;
             const tone = room.countKind === "review" ? "review" : "success";
             const ariaLabel = count > 0
-              ? `${room.label}，${count} ${room.countKind === "review" ? "项待审阅" : "项新完成"}`
+              ? `${room.label}，${count} ${room.countKind === "review" ? "项待确认" : "项新完成"}`
               : room.label;
             const active = activeRoom === room.key;
 
