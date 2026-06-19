@@ -1,6 +1,6 @@
 # Workspace Mission Capability Catalog
 
-更新时间: 2026-06-15
+更新时间: 2026-06-19
 状态: Current
 Capability 数据源: `backend/seed/capabilities/` + DataService Catalog `capabilities`
 Capability Skill 数据源: `backend/seed/skills/` + DataService Catalog `capability_skills`
@@ -22,6 +22,8 @@ Agent Template 数据源: `backend/seed/agent_templates/` + DataService Catalog 
 10. `software_copyright` 与 `patent` 默认面向中国用户：软著按中国软著登记材料组织，专利按中国/CNIPA 申请实践组织；PCT/海外规则仅在用户明确指定时启用。
 11. 用户可见 capability 必须在 schema/admin 写入时声明 `routing` 合约：`when_to_use`、`not_for`、至少 3 个 positive examples、至少 3 个 negative examples、`minimum_context`、歧义边界和轻量用户引导。每个 required `minimum_context` key 都必须说明需要用户补齐的最小事实。Chat Agent 使用这些 route-card 做 LLM-only 渐进承诺，不维护 embedding index、关键词硬路由或第二套 router service。
 12. agent template 的公开 `expert_profile` / persona 文案必须通过 public-safety 校验：不得暴露 internal id、raw tools、raw logs、stdout/stderr、harness refs 或内部调度术语；`persona_prompt` 必须包含 Role Boundary 以及 Evidence/Safety boundary。
+13. SCI first-wave capability 必须声明 `research_evidence.review_packet=required`、`required_surfaces` 和 `surface_enforcement`；`review_packet_completeness` 与 `claim_evidence_alignment` 是 Academic Harness v1 的必备最终质量面。
+14. 一线 SCI worker skill 必须在 output schema 中声明 `expert_report`，并在 Output Contract 中要求 `wenjin.expert_report.v1`。`expert_report` 负责把 bounded claims、evidence refs、artifact refs 和 warnings 交给 TeamKernel 汇总，不替代 `outputs[]`、Prism review item 或 room commit。
 
 ## 2. Workspace Types
 
