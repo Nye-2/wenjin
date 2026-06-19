@@ -391,3 +391,76 @@ class TestCollectOutputsIntegration:
         assert result[1].data.title == "Paper 2"
         assert result[2].kind == "document"
         assert result[2].data.name == "文献综述"
+
+from src.agents.lead_agent.v2.output_mapping import review_packet_from_expert_reports  # noqa: E402
+from src.contracts.team_expert import sanitize_expert_report  # noqa: E402
+
+
+def test_review_packet_from_expert_reports_maps_claims_artifacts_and_warnings():
+    report = sanitize_expert_report(
+        {
+            "schema_version": "wenjin.expert_report.v1",
+            "expert_id": "literature_synthesizer.v1",
+            "skill_id": "literature-synthesizer",
+            "task_focus": "Summarize literature.",
+            "summary": "Three directions found.",
+            "claims": [
+                {
+                    "claim_id": "claim-1",
+                    "text": "Communication-efficient FL fine-tuning remains unresolved.",
+                    "support_level": "supported",
+                    "evidence_ids": ["ev-1"],
+                    "citation_keys": ["smith2025"],
+                    "limitations": [],
+                },
+                {
+                    "claim_id": "claim-2",
+                    "text": "All FedLLM methods solve privacy leakage.",
+                    "support_level": "unsupported",
+                    "evidence_ids": [],
+                    "citation_keys": [],
+                    "limitations": ["unsupported overclaim"],
+                },
+            ],
+            "evidence": [
+                {
+                    "evidence_id": "ev-1",
+                    "source_type": "library_reference",
+                    "source_id": "source-1",
+                    "citation_key": "smith2025",
+                    "relevance": "high",
+                    "risk": "low",
+                    "bounded_excerpt": "communication cost reduced",
+                    "used_for": ["claim-1"],
+                }
+            ],
+            "artifacts": [
+                {
+                    "artifact_id": "artifact-1",
+                    "kind": "report",
+                    "path": "/workspace/reports/lit.md",
+                    "content_hash": "sha256:abc",
+                    "reviewable": True,
+                }
+            ],
+            "quality_gates_checked": ["citation_strength"],
+            "uncertainties": ["claim-2 is unsupported"],
+            "next_actions": [],
+        }
+    )
+
+    packet = review_packet_from_expert_reports(
+        execution_id="exec-1",
+        capability_id="sci_literature_positioning",
+        title="文献定位与创新点",
+        reports=[report],
+        completion_status="partial",
+    )
+
+    assert packet.schema_version == "wenjin.review_packet.v1"
+    assert packet.completion_status == "partial"
+    assert [item.kind for item in packet.items] == ["document", "warning"]
+    assert packet.items[0].artifact_refs == ["artifact:/workspace/reports/lit.md"]
+    assert packet.items[0].evidence_refs == ["library_reference:source-1"]
+    assert packet.items[0].default_checked is False
+    assert packet.items[1].can_commit is False

@@ -21,6 +21,10 @@ _RUNTIME_RESEARCH_EVIDENCE_SURFACES = {
     "workflow_trace",
     "citation_strength",
     "experiment_interpretation",
+    "experiment_reproducibility",
+    "figure_data_consistency",
+    "claim_evidence_alignment",
+    "review_packet_completeness",
     "paper_relevance",
     "statistical_robustness",
     "output_ref_reuse",
@@ -50,6 +54,22 @@ _RESEARCH_SURFACE_GUIDANCE = {
         "For statistical work, include method, sample size, metric, passed "
         "robustness checks, limitations, artifact and dataset evidence."
     ),
+    "claim_evidence_alignment": (
+        "For every claim you want the team to reuse, return claim ids linked "
+        "to concrete evidence ids or mark the claim as weak."
+    ),
+    "experiment_reproducibility": (
+        "For experiment artifacts, include source script, dataset paths, "
+        "artifact path, sandbox environment, and content hash when available."
+    ),
+    "figure_data_consistency": (
+        "For figures, keep the figure purpose, source data, generation script "
+        "or prompt, caption, and unsupported-claim risk together."
+    ),
+    "review_packet_completeness": (
+        "Return outputs as reviewable candidates with title, summary, "
+        "provenance, risk, and commitability."
+    ),
 }
 
 _TASK_FOCUS_BY_TEMPLATE = {
@@ -75,6 +95,7 @@ def build_team_member_context(
     display_role: str,
     blackboard: TeamBlackboard,
     capability_policy: dict[str, Any] | None = None,
+    research_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build bounded input for a recruited team member.
 
@@ -104,10 +125,33 @@ def build_team_member_context(
     upstream_context = _upstream_context(blackboard)
     if upstream_context:
         payload["upstream_context"] = upstream_context
+    research_state_projection = project_research_state_for_member_context(research_state)
+    if research_state_projection:
+        payload["research_state"] = research_state_projection
     research_requirements = _research_evidence_requirements(capability_policy)
     if research_requirements:
         payload["research_evidence_requirements"] = research_requirements
     return payload
+
+
+def project_research_state_for_member_context(
+    research_state: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Bound compact research state for a member prompt."""
+
+    if not isinstance(research_state, dict):
+        return None
+    return {
+        "schema_version": research_state.get("schema_version"),
+        "execution_id": research_state.get("execution_id"),
+        "goal": research_state.get("goal"),
+        "claims": _sanitize_payload(list(research_state.get("claims") or [])[:30]),
+        "evidence_index": _sanitize_payload(list(research_state.get("evidence_index") or [])[:60]),
+        "artifact_index": _sanitize_payload(list(research_state.get("artifact_index") or [])[:30]),
+        "open_questions": _string_list(research_state.get("open_questions"))[:20],
+        "quality_state": _sanitize_payload(list(research_state.get("quality_state") or [])[:20]),
+        "next_actions": _string_list(research_state.get("next_actions"))[:20],
+    }
 
 
 def _derive_query(payload: dict[str, Any], raw_message: Any) -> str:

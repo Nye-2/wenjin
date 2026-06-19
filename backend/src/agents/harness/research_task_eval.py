@@ -120,6 +120,10 @@ def evaluate_research_task_evidence(
         "writing_semantic_preservation": _evaluate_writing_semantic_preservation,
         "writing_academic_style": _evaluate_writing_academic_style,
         "output_ref_reuse": _evaluate_output_ref_reuse,
+        "claim_evidence_alignment": _evaluate_claim_evidence_alignment,
+        "experiment_reproducibility": _evaluate_experiment,
+        "figure_data_consistency": _evaluate_figure_data_consistency,
+        "review_packet_completeness": _evaluate_review_packet_completeness,
     }
     for surface in required_surfaces:
         passed, surface_evidence, message = checks[surface](report, node_events)
@@ -452,6 +456,90 @@ def _evaluate_output_ref_reuse(
         evidence,
         "Recoverable sandbox output refs were available but no member read them.",
     )
+
+
+def _evaluate_review_packet_completeness(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del node_events
+    packet = report.review_packet
+    items = packet.items if packet else []
+    previewable = [
+        item
+        for item in items
+        if item.title.strip() and item.summary.strip()
+    ]
+    committable = [item for item in previewable if item.can_commit]
+    evidence = {
+        "packet_id": packet.packet_id if packet else "",
+        "item_count": len(items),
+        "previewable_count": len(previewable),
+        "committable_count": len(committable),
+        "warning_count": sum(1 for item in items if item.kind == "warning"),
+    }
+    if previewable:
+        return True, evidence, ""
+    return False, evidence, "No previewable Review Packet item was produced."
+
+
+def _evaluate_claim_evidence_alignment(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    del node_events
+    packet = report.review_packet
+    items = packet.items if packet else []
+    claim_items = [item for item in items if item.claim_refs]
+    unsupported = [
+        item.item_id
+        for item in claim_items
+        if not item.evidence_refs and item.kind != "warning"
+    ]
+    evidence = {
+        "claim_item_count": len(claim_items),
+        "aligned_claim_item_count": len(claim_items) - len(unsupported),
+        "unsupported_item_ids": unsupported[:50],
+    }
+    if claim_items and not unsupported:
+        return True, evidence, ""
+    if not claim_items:
+        return False, evidence, "No claim-bearing Review Packet item was produced."
+    return False, evidence, "Some claim-bearing Review Packet items have no evidence refs."
+
+
+def _evaluate_figure_data_consistency(
+    report: TaskReport,
+    node_events: list[dict[str, Any]],
+) -> tuple[bool, dict[str, Any], str]:
+    figure_artifacts: list[dict[str, Any]] = []
+    for item in report.review_items:
+        if not isinstance(item, dict) or item.get("kind") != "sandbox_artifact":
+            continue
+        preview = item.get("preview") if isinstance(item.get("preview"), dict) else {}
+        reproducibility = item.get("reproducibility") if isinstance(item.get("reproducibility"), dict) else {}
+        target = item.get("target") if isinstance(item.get("target"), dict) else {}
+        path = _workspace_artifact_path(preview.get("path") or target.get("path"))
+        source_script = _workspace_script_path(reproducibility.get("source_script"))
+        dataset_paths = _workspace_dataset_paths(reproducibility.get("dataset_paths"))
+        caption = _clean_text(preview.get("caption") or item.get("summary"))
+        if path and caption and (source_script or dataset_paths):
+            figure_artifacts.append(
+                {
+                    "review_item_id": str(item.get("id") or ""),
+                    "path": path,
+                    "source_script": source_script,
+                    "dataset_paths": dataset_paths,
+                    "caption": caption[:300],
+                }
+            )
+    evidence = {
+        "figure_artifacts": figure_artifacts,
+        "figure_artifact_count": len(figure_artifacts),
+    }
+    if figure_artifacts:
+        return True, evidence, ""
+    return False, evidence, "No figure artifact with caption and data/script provenance was produced."
 
 
 def _output_ref_reuse_evidence(node_events: list[dict[str, Any]]) -> dict[str, Any]:

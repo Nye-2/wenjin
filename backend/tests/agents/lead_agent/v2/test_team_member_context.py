@@ -1,6 +1,9 @@
 from src.agents.contracts.task_brief import TaskBrief
 from src.agents.lead_agent.v2.team.contracts import TeamBlackboard
-from src.agents.lead_agent.v2.team.member_context import build_team_member_context
+from src.agents.lead_agent.v2.team.member_context import (
+    build_team_member_context,
+    project_research_state_for_member_context,
+)
 
 
 def test_research_scout_context_derives_query_from_raw_message() -> None:
@@ -155,3 +158,22 @@ def test_member_context_projects_quality_repair_context_from_failed_research_gat
             "Do not expose raw stdout.",
         ],
     }
+
+
+def test_member_context_includes_compact_research_state_for_later_batches() -> None:
+    context = project_research_state_for_member_context(
+        {
+            "schema_version": "wenjin.research_state.v1",
+            "execution_id": "exec-1",
+            "goal": "AAAI paper on federated LLM fine-tuning",
+            "claims": [{"claim_id": "claim-1", "text": "FedLoRA reduces communication"}],
+            "evidence_index": [{"evidence_id": "ev-1", "source_id": "source-1"}],
+            "artifact_index": [],
+            "open_questions": ["privacy evidence remains weak"],
+            "quality_state": [{"surface": "citation_strength", "status": "warning"}],
+        }
+    )
+
+    assert context is not None
+    assert context["claims"][0]["claim_id"] == "claim-1"
+    assert context["quality_state"][0]["surface"] == "citation_strength"
