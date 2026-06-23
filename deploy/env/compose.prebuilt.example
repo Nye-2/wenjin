@@ -1,19 +1,19 @@
-# DockerHub prebuilt deployment images.
-# Copy into .env or export these variables before using docker-compose.yml.
+# Docker Compose deployment template for prebuilt Wenjin images.
+# Copy this file to the repository-root .env before running docker compose.
 
 BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
 LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
 FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
 TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
 
-# Runtime images can still use a registry mirror if Docker Hub is unstable.
+# Runtime images can use registry mirrors if Docker Hub is unstable.
 POSTGRES_IMAGE=docker.m.daocloud.io/pgvector/pgvector:pg16
 REDIS_IMAGE=docker.m.daocloud.io/library/redis:8-alpine
 NGINX_IMAGE=docker.m.daocloud.io/library/nginx:alpine
 PROMETHEUS_IMAGE=docker.m.daocloud.io/prom/prometheus:latest
 GRAFANA_IMAGE=docker.m.daocloud.io/grafana/grafana:latest
 
-# Only used if you switch back to local build.
+# Only used with docker-compose.local-build.yml.
 PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
 NODE_IMAGE=docker.1ms.run/library/node:24-alpine
 PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -23,7 +23,7 @@ NPM_REGISTRY=https://registry.npmmirror.com
 NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
 ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 
-# Required runtime values.
+# Required runtime values. Replace these before real deployment.
 DB_PASSWORD=postgres
 GRAFANA_PASSWORD=change-this-grafana-password
 ADMIN_PASSWORD=change-this-admin-password
@@ -32,8 +32,9 @@ ENVIRONMENT=production
 E2E_TEST_HOOKS_ENABLED=false
 WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=900
 
-# Host absolute project root for nested Docker LaTeX bind-mounts.
+# Host absolute project root for nested Docker LaTeX bind mounts.
 WENJIN_PROJECT_DIR=/path/to/wenjin
+
 # Docker Desktop exposes /var/run/docker.sock as root:root inside containers.
 # On Linux servers, replace this with the host docker group id.
 DOCKER_GID=0

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-更新时间：2026-06-13
+更新时间：2026-06-23
 
 以下命令默认你已经设置：
 
@@ -9,7 +9,7 @@ export REPO_ROOT=/path/to/your/wenjin/repo
 cd "$REPO_ROOT"
 ```
 
-## 1. `./start.sh` 启动后功能任务一直 pending
+## 1. 功能任务一直 pending
 
 高频原因：
 
@@ -21,13 +21,11 @@ cd "$REPO_ROOT"
 排查：
 
 ```bash
-./start.sh --status
-./start.sh --logs dataservice
-./start.sh --logs worker
-./start.sh --logs backend
+docker compose ps
+docker compose logs -f dataservice
+docker compose logs -f worker
+docker compose logs -f gateway
 ```
-
-Compose 场景补充：
 
 - worker 健康检查已改为探测 `http://127.0.0.1:9153/metrics`（容器内），不再依赖 Celery inspect ping。
 - 若 `gateway` 因 `depends_on: worker:service_healthy` 未启动，先检查：
@@ -39,11 +37,11 @@ Compose 场景补充：
 
 修复：
 
-1. 确认状态页里 `Worker` 为运行中。
+1. 确认 `docker compose ps` 中 `worker`、`dataservice`、`gateway` 均为 healthy/running。
 2. 检查 `backend/.env` 的 `REDIS_URL`、`DATASERVICE_INTERNAL_TOKEN`、`MODEL_SECRET_KEY` 和数据库连接。
 3. 进入管理员后台确认模型管理里至少有一个 enabled default LLM 模型，且该模型绑定了可用 API URL/API Key。
-4. 单独重启 DataService：`./start.sh --dataservice`。
-5. 单独重启 worker：`./start.sh --worker`。
+4. 重启 DataService：`docker compose restart dataservice`。
+5. 重启 worker：`docker compose restart worker`。
 
 ## 2. Compose 启动后 API 不可用
 
@@ -101,8 +99,8 @@ curl -i http://localhost:2026/api/auth/me
 排查：
 
 ```bash
-./start.sh --logs backend
-./start.sh --logs worker
+docker compose logs -f gateway
+docker compose logs -f worker
 docker compose logs -f nginx
 ```
 
@@ -188,7 +186,7 @@ ALTER TABLE alembic_version
 然后重试：
 
 ```bash
-docker compose up --build migrate
+docker compose up -d migrate
 ```
 
 ## 8. `nginx` 长期 `unhealthy`，日志出现 `gateway could not be resolved`
@@ -308,7 +306,7 @@ docker compose logs --since=30m worker | rg "WorkerLostError|ExceptionInfo|Cance
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build gateway worker
 ```
 
-## 11. `docker compose up --build` 拉取基础镜像失败
+## 11. 本地构建拉取基础镜像失败
 
 典型日志片段：
 
@@ -346,7 +344,7 @@ PROMETHEUS_IMAGE=docker.m.daocloud.io/prom/prometheus:latest
 如果确实需要本地构建，使用显式 local-build override，并在失败时先预拉 base image：
 
 ```bash
-cp .env.docker-cn.example .env
+cp deploy/env/compose.local-build-cn.example .env
 docker pull "$NODE_IMAGE"
 docker pull "$PYTHON_IMAGE"
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build

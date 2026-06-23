@@ -1,4 +1,7 @@
-# Docker build mirrors for mainland China networks
+# Docker Compose local-build template for mainland China networks.
+# Copy this file to the repository-root .env, then run:
+# docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
+
 PYTHON_IMAGE=docker.m.daocloud.io/library/python:3.13-slim
 NODE_IMAGE=docker.1ms.run/library/node:24-alpine
 PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
@@ -8,15 +11,12 @@ NPM_REGISTRY=https://registry.npmmirror.com
 NPM_FALLBACK_REGISTRY=https://registry.npmjs.org
 ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 
-# TeXLive pre-built image (avoids 20min+ local build)
+# TeXLive prebuilt image avoids a long local TeX build.
 TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
-
-# TeXLive base image (only used for manual local rebuild)
 TEXLIVE_BASE_IMAGE=docker.m.daocloud.io/library/ubuntu:22.04
-# Optional apt mirror for faster package install
 # TEXLIVE_APT_MIRROR=https://mirrors.ustc.edu.cn/ubuntu/
 
-# Docker runtime image mirrors for mainland China networks
+# Runtime image mirrors.
 BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
 LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
 FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
@@ -26,7 +26,7 @@ NGINX_IMAGE=docker.m.daocloud.io/library/nginx:alpine
 PROMETHEUS_IMAGE=docker.m.daocloud.io/prom/prometheus:latest
 GRAFANA_IMAGE=docker.m.daocloud.io/grafana/grafana:latest
 
-# Required runtime values
+# Required runtime values. Replace these before real deployment.
 DB_PASSWORD=postgres
 GRAFANA_PASSWORD=change-this-grafana-password
 ADMIN_PASSWORD=change-this-admin-password
@@ -35,9 +35,10 @@ ENVIRONMENT=production
 E2E_TEST_HOOKS_ENABLED=false
 WENJIN_AGENT_SANDBOX_MAX_TIMEOUT_SECONDS=900
 
-# Host absolute project root for nested Docker LaTeX bind-mounts
-# Adjust when your local repo path differs.
-WENJIN_PROJECT_DIR=/home/cjz/wenjin
+# Host absolute project root for nested Docker LaTeX bind mounts.
+WENJIN_PROJECT_DIR=/path/to/wenjin
+
 # Docker Desktop exposes /var/run/docker.sock as root:root inside containers.
-# On Linux servers, replace this with the host docker group id, e.g. `getent group docker | cut -d: -f3`.
+# On Linux servers, replace this with the host docker group id, e.g.:
+# getent group docker | cut -d: -f3
 DOCKER_GID=0

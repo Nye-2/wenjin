@@ -1,6 +1,6 @@
 # Environment Variables
 
-更新时间: 2026-06-13
+更新时间: 2026-06-23
 
 配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
 
@@ -8,13 +8,13 @@
 
 - `backend/.env` 是本地后端运行时配置，需从 `backend/.env.example` 复制生成，默认不提交。
 - `frontend/.env.local` 仅在需要覆盖前端 API 地址时才创建，默认不提交。
-- 根目录 `.env` 用于 `docker compose` 的镜像源、构建参数等仓库级配置。
+- 根目录 `.env` 用于 `docker compose` 的镜像源、构建参数等仓库级配置，从 `deploy/env/compose.prebuilt.example` 或 `deploy/env/compose.local-build-cn.example` 复制生成，默认不提交。
   - `WENJIN_PROJECT_DIR`：宿主机仓库绝对路径（用于 Docker-in-Docker 的 LaTeX 编译路径映射）。
   - `ADMIN_PASSWORD`：`bootstrap-admin` 的初始管理员密码，compose 必填。
   - `DATASERVICE_INTERNAL_TOKEN`：Gateway/worker/DataService 内部调用令牌，compose 必填。
   - `GRAFANA_PASSWORD`：Grafana 管理员密码，compose 必填。
   - `DOCKER_GID`：容器访问宿主机 `/var/run/docker.sock` 的 group id；Docker Desktop 通常为 `0`，Linux 服务器按宿主机 docker 组设置。
-  - `PYTHON_IMAGE` / `NODE_IMAGE`：本地构建 backend/frontend 时的 base image；网络不稳定环境建议使用 `.env.docker-cn.example` 中的镜像源。
+  - `PYTHON_IMAGE` / `NODE_IMAGE`：本地构建 backend/frontend 时的 base image；网络不稳定环境建议使用 `deploy/env/compose.local-build-cn.example` 中的镜像源。
   - `BACKEND_GATEWAY_IMAGE` / `FRONTEND_IMAGE` / `LANGGRAPH_IMAGE`：预构建部署时使用的应用镜像。
 
 ## 1. Backend (`backend/.env`)

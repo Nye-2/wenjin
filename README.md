@@ -1,6 +1,6 @@
 # 问津 Wenjin
 
-更新时间：2026-06-13
+更新时间：2026-06-23
 
 问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前收口到 execution-first 主链路：
 
@@ -105,26 +105,18 @@ Prompt 优化原则：
 
 ## 快速开始
 
+Wenjin 的标准启动方式只保留 Docker Compose。旧的 `start.sh` 本地一键脚本已移除，避免 DataService、worker、gateway、frontend 出现两套启动事实源。
+
 ### Docker Compose
 
 ```bash
 git clone git@github.com:JunzeCai/AcademiaGPT-V2.git
 cd AcademiaGPT-V2
 cp backend/.env.example backend/.env
+cp deploy/env/compose.prebuilt.example .env
 
-cat > .env <<EOF
-WENJIN_PROJECT_DIR=$PWD
-BACKEND_GATEWAY_IMAGE=junze0514/wenjin-backend:latest
-LANGGRAPH_IMAGE=junze0514/wenjin-langgraph:latest
-FRONTEND_IMAGE=junze0514/wenjin-frontend:latest
-TEXLIVE_IMAGE_NAME=junze0514/wenjin-texlive:2024
-DOCKER_GID=0
-ADMIN_PASSWORD=change-this-admin-password
-GRAFANA_PASSWORD=change-this-grafana-password
-DATASERVICE_INTERNAL_TOKEN=change-this-dataservice-internal-token
-ENVIRONMENT=production
-E2E_TEST_HOOKS_ENABLED=false
-EOF
+# 编辑 .env：把 WENJIN_PROJECT_DIR 改成当前仓库绝对路径，
+# 并替换 ADMIN_PASSWORD、GRAFANA_PASSWORD、DATASERVICE_INTERNAL_TOKEN、DOCKER_GID。
 
 docker compose up -d
 ```
@@ -132,6 +124,8 @@ docker compose up -d
 默认 Compose 使用预构建镜像，不依赖本机构建 Node/Python base image。需要本地重建应用镜像时显式加 local-build override：
 
 ```bash
+cp deploy/env/compose.local-build-cn.example .env
+# 编辑 .env 后再启动。
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 
@@ -141,10 +135,12 @@ docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --b
 - Nginx: `http://localhost:2026`
 - Grafana: `http://localhost:3001`
 
-### 本地开发
+### 开发者单服务调试
+
+正式运行仍以 `docker compose up -d` 为准。下面命令只用于开发者单独调试某个服务，不作为项目启动链路。
 
 ```bash
-# （可选）交互式初始化与健康检查
+# （可选）交互式生成本地 env 与健康检查
 python scripts/setup_wizard.py
 python scripts/doctor.py
 
