@@ -1,16 +1,16 @@
 # Wenjin Current Docs Map
 
-更新时间：2026-06-13
+更新时间：2026-06-23
 状态：Current
 
-本目录是 Wenjin 当前实现的唯一事实源目录。后续开发、联调、review、发布前检查，优先只看这里。
+本目录是 Wenjin 当前实现的唯一事实源目录。后续开发、联调、review、发布前检查，优先只看这里。项目定位为科研工作台，旧过程 spec / plan 不再作为当前事实源。
 
 ## 1. 核心入口
 
 | 文档 | 用途 |
 | --- | --- |
 | `architecture.md` | 唯一当前架构总览；execution-first 主链、边界、开发约束 |
-| `workspace-current-state.md` | workspace / thread / execution / compute / ResultCard 当前行为 |
+| `workspace-current-state.md` | workspace / thread / execution / Workbench / Prism / ResultCard 当前行为 |
 | `frontend-feature-plugin-contract.md` | capability entry / thread / execution 契约 |
 | `workspace-feature-catalog.md` | workspace type / capability entry / skill / expert template 当前目录 |
 | `workspace-reference-library.md` | Reference Library 当前事实源 |
@@ -21,7 +21,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
-| `deployment-runbook.md` | 本地与 Compose 部署运行手册 |
+| `deployment-runbook.md` | Docker Compose-only 部署运行手册 |
 | `environment-variables.md` | 环境变量基线 |
 | `troubleshooting.md` | 常见问题排查 |
 
@@ -30,6 +30,7 @@
 - 本目录只保存当前事实源。
 - 历史 spec / plan / implementation record / audit log 不在 docs 树中长期保留；需要追溯时查 Git 历史。
 - 不新增平行架构文档。发现事实源冲突时，优先更新本目录中已有的最小相关文档。
+- README 负责产品定位与快速入口；详细行为以本目录专题文档为准。
 
 ## 4. 推荐阅读顺序
 

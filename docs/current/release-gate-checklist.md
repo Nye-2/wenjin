@@ -1,6 +1,6 @@
 # Release Gate Checklist
 
-更新时间: 2026-06-15
+更新时间: 2026-06-23
 状态: Current
 
 本文件只保留发布前 Go/No-Go 的当前门禁。历史验证流水不在 current docs 中维护；需要追溯时查 Git 历史。
@@ -24,6 +24,8 @@
 13. Admin model catalog 不暴露明文 API key 或敏感 header；生产 runtime model discovery 来自 DataService runtime cache，不从 `LLM_MODELS` fallback，且每个 enabled billable model 必须绑定 enabled `model_usage` pricing policy。
 14. Credit admission 使用 `spendable_credits = credits - reserved_credits`；sandbox start 和 token/model usage 走 DataService pricing / reservation / transaction 链路。
 15. UI 默认视图不展示 raw stdout/stderr、raw args、template id、schema id、internal refs 或日志墙；复杂证据进入预览/诊断层。
+16. 标准启动方式只保留 Docker Compose；不得重新引入本地一键启动脚本、根目录隐藏 env 模板、分散 compose 片段或启动 wrapper。
+17. 当前文档只维护 README、AGENTS/CLAUDE、子项目 README 和 `docs/current/`；过程 spec / plan / audit log 不回到仓库文档树。
 
 ## 2. Required Commands
 
@@ -56,9 +58,11 @@ npx playwright test tests/e2e/golden-path.spec.ts --project=chromium -g "expert 
 
 ```bash
 git diff --check
+python3 scripts/ci_secret_guard.py
+docker compose --env-file /path/to/generated-compose-env config
 ```
 
-同时确认 README、AGENTS 和 `docs/current` 没有引用已删除的过程文档路径。
+同时确认 README、AGENTS、CLAUDE、子项目 README 和 `docs/current` 没有引用已删除的过程文档路径或旧启动入口。
 
 ## 3. Focused Suites
 

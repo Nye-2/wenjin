@@ -1,10 +1,10 @@
 # Workspace 当前状态
 
-更新时间：2026-06-13
+更新时间：2026-06-23
 状态：Current
 适用项目：`wenjin`
 
-本文件是 workspace/thread/capability 执行协作行为的当前事实源。
+本文件是 workspace/thread/capability 执行协作行为的当前事实源。用户可见产品定位是科研工作台；内部 `ComputeSessionRecord` 只作为 execution projection shell，不作为独立产品 surface 或业务事实源。
 
 ## 1. 用户入口
 
@@ -153,7 +153,7 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 
 1. **Workspace shell**：提供 Workbench / Prism 两个主 surface switch
 2. **Workbench 左面板**（Chat）：对话与结果卡片入口
-3. **Workbench 右面板**（Execution / Compute）：Current run、execution graph、node 详情、room drawers、Compute Stage
+3. **Workbench 右面板**（Research Workbench）：Current run、专家团队、证据预览、候选结果、运行历史和诊断详情
 4. **Prism surface**：LaTeX editor、compile/PDF、Changes review、workspace context rail
 5. Room drawers（顶部 toolbar）：Library / Documents / Tasks / Runs 等；Runs drawer 是执行历史与审计面，不是第二套运行状态源
 6. Settings page：Memory / Decisions / Settings 管理；Sandbox 不在 Settings 或顶栏 room 中暴露为用户操作台

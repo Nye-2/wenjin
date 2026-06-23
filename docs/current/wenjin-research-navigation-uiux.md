@@ -1,6 +1,6 @@
 # Wenjin Research Navigation UIUX
 
-更新时间：2026-06-13
+更新时间：2026-06-23
 
 Wenjin keeps the name, but the product interface baseline is now **System-Grade Research Workbench**: a research operating-system surface with trusted chrome, quiet content, evidence-first execution, and mature institutional polish.
 

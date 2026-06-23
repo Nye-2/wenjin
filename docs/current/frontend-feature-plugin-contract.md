@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-06-15
+更新时间: 2026-06-23
 
 本文档定义 workspace capability 入口的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
 
@@ -194,8 +194,8 @@ TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_r
 ## 4. 交互约束
 
 1. capability entry 目录按后端下发动态渲染，不做 workspace 类型硬编码按钮列表。
-2. capability 执行后统一汇聚到 `ExecutionRecord`，并由 `ComputeSession` 提供工作台 shell。
-3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 LiveWorkflowPanel / compute projection UI，并通过 `RunView` 呈现。
+2. capability 执行后统一汇聚到 `ExecutionRecord`，并由 Research Workbench 展示 execution projection。
+3. 前端不再单独维护 task/panel 两套运行态；长任务详情统一进入 LiveWorkflowPanel / execution projection UI，并通过 `RunView` 呈现。
 4. workspace SSE 以 `execution.* / task.updated / subagent.updated / compute.updated` 驱动 execution/compute store 增量更新。
 5. capability 入口卡片、artifact follow-up、activity retry 必须统一落到 `/workspaces/{workspace_id}?feature=...` query seed，并保留 `source_artifact_id/context_artifact_ids` 等 seed；不得重新引入中间 feature slug 页面。
 6. Prism writing result action 必须统一落到 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`，不得落到 standalone `/latex/{project_id}` 页面。
@@ -224,9 +224,9 @@ TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_r
 
 实现位置: `frontend/hooks/useWorkspaceEventStream.ts` 与 `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx`
 
-## 6. Compute Runtime Notes
+## 6. Execution Projection Notes
 
-- 执行态 UI 以 Compute projection 为主展示面；`ExecutionRecord`、task、subagent、runtime blocks、sandbox files、logs、artifacts 和 canonical Prism review items 是 projection 的事实来源。
+- 执行态 UI 以 execution projection / Research Workbench 为主展示面；`ExecutionRecord`、task、subagent、runtime blocks、sandbox files、logs、artifacts 和 canonical Prism review items 是 projection 的事实来源。
 - `frontend/lib/execution-run-view.ts` 是团队实名制与 harness 运行态的唯一前端投影层：team member activity、reproducibility activity、sandbox artifact count、primary surface=sandbox、progress detail 都从 `ExecutionRecord.node_states` / `review_items` / `runtime_state.quality_gates` 派生；`live-workflow/useLiveWorkflowViewModel.ts` 只能在 Evidence tab 中把同一类 harness evidence 压成路径 basename、引用风险和后续动作摘要；LiveWorkflowPanel、Runs drawer 和 chat result card 不得新增第二套 harness store 或直接展示 raw tool args/stdout/stderr。
 - `expert_snapshots` 和 `expert_preview_items` 是 RunView 的轻量预览材料，不是审阅事实源；保存/落库仍必须走 ResultCard、review item、room commit 或 Prism apply 链路。
 - TeamKernel 的 `runtime_state.quality_gates` 只用于恢复质量检查摘要；具体节点事实仍来自 hydrated `ExecutionRecord.node_states`。
@@ -234,7 +234,7 @@ TeamKernel 展示分为两层：progress list 只展示 `team_prepare`、`team_r
 - 公共 capability 目录接口（`/api/capabilities` 与 workspace-scoped capability list）必须过滤 `entry_tier: hidden` / hidden tier capability；这类 capability 只用于内部诊断或自动化验证，不作为用户卡片展示。
 - Thread message 只承载发起、追问、完成摘要和 pointer metadata，不用于恢复当前执行状态。
 - Thread message 的 `metadata.orchestration.execution_id` 只用作归属锚点，不替代 `ExecutionRecord` 的实时状态。
-- LiveWorkflowPanel 必须能从 `/api/workspaces/{workspace_id}/compute/sessions` 和 `/api/compute/sessions/{compute_session_id}/projection` 恢复任务状态。
+- LiveWorkflowPanel 可以通过 compute session/projection API 恢复任务状态，但用户可见语言应保持为运行、团队、证据、预览和审阅，不暴露内部 projection 术语。
 - WenjinPrism file changes 必须走 DB-backed review item 与 `preview -> apply/reject/revert`；前端不得直接把 capability 生成内容写入 Prism 文件。
 - Prism protected sections 与 source links 由后端 canonical tables 投影；前端只做展示、聚焦导航和用户动作触发。
 - Prism adapter route 是后端 manuscript editing 的唯一 API 面；前端不得恢复 standalone LaTeX page/action，也不得为旧 route 增加兼容跳转。

@@ -1,13 +1,13 @@
 # Async Task System
 
-Last Updated: 2026-05-14
+Last Updated: 2026-06-23
 Status: Current
 
 ## Overview
 
-Wenjin runs long-lived work through an async task system backed by Celery, Redis, and PostgreSQL.
+Wenjin runs long-lived research work through an execution-first async task system backed by Celery, Redis, and PostgreSQL.
 
-The task system is internal infrastructure. Public APIs do not create generic tasks directly; domain endpoints submit tasks through application handlers.
+The task system is internal infrastructure. Public APIs do not create generic tasks directly; domain endpoints submit canonical execution or domain tasks through application handlers.
 
 ## Responsibilities
 
@@ -105,4 +105,5 @@ Frontend code should treat terminal states as immutable snapshots unless a new t
 - PostgreSQL remains the durable source for completed task history.
 - Timeout and retry settings should be adjusted in the registry, not duplicated in handlers.
 - Generic long-running background work must integrate with the existing task pipeline.
-- Workspace feature execution itself is execution-first and should not reintroduce a parallel task-bridge orchestrator.
+- Workspace capability execution is execution-first and should not reintroduce a parallel task-bridge orchestrator.
+- User-visible run state should be projected through execution / RunView surfaces rather than raw task internals.

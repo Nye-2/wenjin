@@ -1,12 +1,12 @@
 # Backend Docs
 
-更新时间：2026-05-14
+更新时间：2026-06-23
 
 本目录只保留后端当前仍有独立维护价值的专项技术文档。
 
 ## 文档索引
 
-- `async-task-system.md`：异步任务系统（Celery / Redis / PostgreSQL）
+- `async-task-system.md`：异步任务系统（Execution / Celery / Redis / PostgreSQL）
 
 ## 使用说明
 

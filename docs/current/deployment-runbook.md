@@ -2,7 +2,7 @@
 
 更新时间：2026-06-23
 
-本手册只覆盖 Docker Compose 标准链路。旧的 `start.sh`、本地一键守护脚本、根目录隐藏 `.env.*.example` 模板和 `backend/docker-compose.yml` 片段已移除，避免项目存在多套启动事实源。
+本手册只覆盖 Docker Compose 标准链路。旧的本地一键守护脚本、根目录隐藏 env 模板和分散 compose 片段已移除，避免项目存在多套启动事实源。
 
 ## 1. 前置依赖
 

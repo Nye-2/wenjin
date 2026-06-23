@@ -38,7 +38,7 @@ Wenjin (问津) — AI workbench for academic research and writing. Five workspa
 | Run UI focus store | `frontend/stores/run-ui-store.ts` |
 | Chat panel | `frontend/app/(workbench)/workspaces/[id]/components/ChatPanel.tsx` |
 | Workflow panel | `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx` |
-| CSS variables (v2) | `frontend/app/globals.css` (`--v2-*` tokens) |
+| CSS variables | `frontend/app/globals.css` (`--wjn-*` tokens; `--v2-*` compatibility only) |
 | Design language | `docs/current/wenjin-research-navigation-uiux.md` |
 
 ## Commands
@@ -56,7 +56,8 @@ cd frontend && npm run typecheck  # type check
 cd frontend && npx vitest run     # unit tests
 
 # Docker
-docker compose up --build         # full stack
+docker compose up -d              # standard full stack
+docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build # explicit local rebuild
 ```
 
 ## Docs

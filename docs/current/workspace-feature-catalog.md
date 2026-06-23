@@ -1,6 +1,6 @@
 # Workspace Mission Capability Catalog
 
-更新时间: 2026-06-15
+更新时间: 2026-06-23
 状态: Current
 Capability 数据源: `backend/seed/capabilities/` + DataService Catalog `capabilities`
 Capability Skill 数据源: `backend/seed/skills/` + DataService Catalog `capability_skills`

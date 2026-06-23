@@ -1,9 +1,9 @@
 # Wenjin Docs
 
-更新时间：2026-06-13
+更新时间：2026-06-23
 状态：Current
 
-`docs/` 只保留当前实现事实源：
+`docs/` 只保留当前实现事实源。问津当前定位是科研工作台，文档围绕 workspace、capability、专家团队、Wenjin Harness、DataService、Prism、Admin 与 Docker Compose 运维维护。
 
 - `current/`：当前实现的唯一事实源与开发指导文档
 
@@ -13,10 +13,13 @@
 
 - `current/documentation-map.md`：当前文档总导航
 - `current/architecture.md`：唯一当前架构总览
-- `current/workspace-current-state.md`：workspace / thread / execution / compute 当前行为
+- `current/workspace-current-state.md`：workspace / thread / execution / Workbench / Prism 当前行为
 - `current/frontend-feature-plugin-contract.md`：前后端 feature / thread / execution 契约
 - `current/workspace-feature-catalog.md`：workspace type / capability / skill / expert template 当前目录
 - `current/workspace-reference-library.md`：Reference Library 与 citation 当前事实源
+- `current/wenjin-research-navigation-uiux.md`：科研工作台 UI/UX 与视觉系统事实源
+- `current/deployment-runbook.md`：Docker Compose-only 部署运行手册
+- `current/environment-variables.md`：环境变量基线
 - `current/release-gate-checklist.md`：发布与回归门禁
 - `current/troubleshooting.md`：运行与联调查错入口
 

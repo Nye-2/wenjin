@@ -1,6 +1,6 @@
 # Workspace Reference Library
 
-更新时间：2026-06-13
+更新时间：2026-06-23
 状态：Current
 
 本文档是 workspace 文献中心的当前事实源。历史重建任务书、SSOT review 和阶段性计划已清理；追溯请使用 Git 历史。
@@ -122,7 +122,7 @@ API 面：
 - Legacy reference ORM table models 已删除；`Reference*` enum 仅作为 API/status 校验类型保留。
 - Prism context rail 已能展示 canonical source links，并 deep-link 回 Library / Documents。
 - Release gate 覆盖 Semantic Scholar verified import、上传预处理、Reference writing workflow、Prism Review workflow、Reference Import Service、前端 action contract。
-- Backend verification：`cd backend && .venv/bin/python -m pytest tests/ -q` 通过，`1938 passed`。
+- 回归测试以 `docs/current/release-gate-checklist.md` 中的当前命令为准；本文档不保存某次历史测试流水。
 
 ## 7. Workflow Gate
 

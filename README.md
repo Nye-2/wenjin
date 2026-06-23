@@ -2,110 +2,61 @@
 
 更新时间：2026-06-23
 
-问津是一个面向学术研究与写作交付的 AI 工作台，核心场景覆盖论文、学位论文、申报书、专利与软著材料。项目当前收口到 execution-first 主链路：
+问津是一个面向科研工作的 AI 工作台，服务从选题、文献、实验、写作到成果管理的完整研究流程。它不是通用聊天机器人，也不是单点论文润色工具，而是以 workspace 为核心的科研生产系统：用户在一个研究工作区里沉淀资料、决策、实验、主稿和团队协作记录，AI 研究团队在同一个上下文中持续推进任务。
 
-`workspace chat intent -> launch_feature -> ExecutionRecord -> LeadAgentRuntime -> TeamKernel / ReactSubagent -> Wenjin Harness / DataService -> TaskReport / review item -> RunView / ResultCard / Prism / rooms`
+## 项目定位
 
-## 当前产品形态
+问津的目标是把科研任务从“和模型反复聊天”收敛成可执行、可追踪、可审阅的工作流：
 
-- 五类 workspace：`thesis`、`sci`、`proposal`、`software_copyright`、`patent`
-- 单 workspace 主对话：chat 是统一入口，skills 作为 capability 的会话级入口语义
-- Workbench 工作面：长任务过程、专家团队、证据预览、Review Gate 和 Prism 写入状态统一展示
-- 确定性 capability 执行：显式 launch/resume 由 workspace ChatPanel 的 thread orchestration 进入 `launch_feature`
-- 执行体验闭环：Chat 启动回执、右侧 Current run、Runs drawer 历史记录共享同一 `RunView` 投影
-- 任务与结果闭环：`task`、`artifact`、`activity`、runtime blocks、SSE 事件统一回写
-- LaTeX 主稿台：项目文件树、编译、PDF 预览、点评改写、SyncTeX 联动、file-change preview/apply/revert
-- 专家团队：DataService agent templates 提供实名专家画像，Lead Agent 按 capability 动态招募成员；专家思考摘录和预览只作为 bounded UX projection，不暴露 raw tool JSON
+- 研究导航：把模糊想法转成研究问题、检索计划、gap 判断和下一步行动
+- 文献工作台：围绕主题组织检索、证据、引用、综述矩阵和创新点
+- 实验工作台：每个 workspace 绑定一个 sandbox，支持代码、数据、图表和实验产物连续沉淀
+- 写作工作台：围绕 LaTeX 主稿进行起草、改写、批注、编译、PDF 对照和版本化修改
+- 专家团队：Lead Agent 根据 capability 动态招募实名专家成员，按任务分工产出过程摘要和交付物
+- 审阅闭环：AI 产物先进入候选结果，用户通过 review gate 决定是否写入资料库、记忆、文档或主稿
+
+## 核心形态
+
+- 五类科研 workspace：`thesis`、`sci`、`proposal`、`software_copyright`、`patent`
+- 左侧 Chat Agent：负责对话、意图识别、需求确认和 capability 启动
+- 右侧 Research Workbench：展示专家团队、关键进展、证据预览、候选结果和运行历史
+- Wenjin Prism：面向论文主稿的 LaTeX 编辑、编译、PDF 对照和 AI 改稿界面
+- Wenjin Harness：为科研 agent 提供 sandbox 文件读写、代码执行、实验产物发现和安全边界
+- DataService：统一管理 workspace 数据、capability、专家模板、模型目录、积分和 review item
+- Admin Console：管理模型、定价、积分、capability 与系统运行配置
 
 ## 架构概览
 
-### Frontend
+主链路已经收敛为 execution-first：
 
-- Next.js App Router
-- React 19
-- TypeScript
-- Tailwind CSS
-- Zustand
+```text
+Workspace Chat
+  -> Chat Agent
+  -> launch_feature
+  -> ExecutionRecord
+  -> LeadAgentRuntime
+  -> TeamKernel / ReactSubagent
+  -> Wenjin Harness / DataService
+  -> TaskReport / Review Item
+  -> RunView / ResultCard / Prism / Workspace Rooms
+```
 
-职责：
+关键原则：
 
-- workspace 工作台 UI
-- chat / compute / feature / activity / knowledge 面板
-- 任务轮询与 SSE 消费
-- LaTeX 主稿台与文档交互
+- Chat 是统一入口，不绕过 chat_agent -> lead_agent 主链路
+- capability 数据驱动，YAML seed + DB 配置共同构成运行时能力目录
+- 专家团队、sandbox、result card、workspace rooms 都围绕同一个 execution 记录投影
+- 默认不展示 raw log，把过程压缩成用户可理解的专家进度、证据和候选结果
+- Docker Compose 是唯一标准启动方式，旧的本地一键启动脚本已移除
 
-### Backend Gateway
+## 技术栈
 
-- FastAPI
-- Pydantic
-- SQLAlchemy async
-
-职责：
-
-- API 入口与鉴权
-- 请求校验与错误处理
-- chat / feature / artifact / paper / latex / dashboard 路由
-
-### Execution Runtime
-
-- LangGraph（进程内图执行，不依赖独立外部 LangGraph 服务）
-- Celery worker
-- Redis
-
-职责：
-
-- chat lead-agent 运行
-- capability graph 调度
-- Compute projection 聚合
-- 长任务执行、进度、状态与事件发布
-- subagent 运行与持久化
-
-### Storage and Infra
-
-- PostgreSQL + pgvector
-- Redis
-- Nginx
-- Prometheus + Grafana
-
-## 关键模块
-
-- `backend/src/gateway/`：FastAPI 网关、SSE、middleware、routers
-- `backend/src/application/`：应用层 handler，例如 thread turn、result card presenter、workspace seed 解析
-- `backend/src/compute/`：ComputeSession shell 与 projection
-- `backend/src/agents/chat_agent/`：Chat Agent 入口、block 协议、动态工具
-- `backend/src/agents/lead_agent/v2/`：Lead Agent runtime、TeamKernel、输出映射、sandbox orchestration
-- `backend/src/agents/harness/`：Wenjin Harness 工具、policy、bounded context、research eval
-- `backend/src/contracts/team_presentation.py`：专家实名展示共享契约
-- `backend/src/contracts/team_expert.py`：专家运行态思考/预览 sanitizer
-- `backend/src/tools/builtins/launch_feature.py`：capability launch tool，创建/复用 ExecutionRecord 并分发任务
-- `backend/src/execution/engine.py`：ExecutionEngineV2，统一执行 LeadAgentRuntime
-- `backend/seed/capabilities/` + `backend/src/services/capability_resolver.py`：capability schema 与解析
-- `backend/seed/skills/` + `backend/src/database/models/capability_skill.py`：capability skills
-- `backend/src/task/`：任务提交、worker、progress、runtime blocks、artifact writeback
-- `backend/src/subagents/`：subagent runtime、context、registry
-- `frontend/app/(workbench)/workspaces/[id]/`：workbench 主界面与各面板
-- `frontend/app/(workbench)/workspaces/[id]/components/LiveWorkflowPanel.tsx`：右侧 execution / compute 工作面
-- `frontend/lib/execution-run-view.ts`：执行 UX 统一投影，供 Live panel / Runs drawer / chat result 使用
-- `frontend/stores/`：chat/compute/latex/workspace 等前端状态管理
-
-## Prompt Strategy
-
-当前 prompt 体系分三层：
-
-1. lead-agent prompt：处理 pure chat、workspace read、建议与收口
-2. feature/service prompts：面向结构化生成，统一走 JSON-only helper 约束
-3. subagent prompts：面向特定 worker 角色，依赖 context snapshot 获取裁剪后的上下文
-
-Prompt 优化原则：
-
-- 只使用已知上下文，不编造论文、专利号、实验结果或引用
-- 优先生成可直接执行或可直接落稿的内容
-- 区分已知事实、合理推断与待补充信息
-- 对结构化生成统一约束 schema、输出语言与缺失字段处理
+- Frontend：Next.js 16、React 19、TypeScript、Tailwind CSS、Zustand
+- Backend：FastAPI、SQLAlchemy async、Pydantic v2、Celery、LangGraph
+- Data：PostgreSQL + pgvector、Redis
+- Runtime：Docker sandbox、Wenjin Harness、Prometheus、Grafana、Nginx
 
 ## 快速开始
-
-Wenjin 的标准启动方式只保留 Docker Compose。旧的 `start.sh` 本地一键脚本已移除，避免 DataService、worker、gateway、frontend 出现两套启动事实源。
 
 ### Docker Compose
 
@@ -121,7 +72,13 @@ cp deploy/env/compose.prebuilt.example .env
 docker compose up -d
 ```
 
-默认 Compose 使用预构建镜像，不依赖本机构建 Node/Python base image。需要本地重建应用镜像时显式加 local-build override：
+默认入口：
+
+- Nginx: `http://localhost:2026`
+- Frontend container: `http://localhost:3000`
+- Grafana: `http://localhost:3001`
+
+需要本地重建应用镜像时使用 local-build override：
 
 ```bash
 cp deploy/env/compose.local-build-cn.example .env
@@ -129,62 +86,52 @@ cp deploy/env/compose.local-build-cn.example .env
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 
-默认入口：
-
-- Frontend: `http://localhost:3000`
-- Nginx: `http://localhost:2026`
-- Grafana: `http://localhost:3001`
-
 ### 开发者单服务调试
 
-正式运行仍以 `docker compose up -d` 为准。下面命令只用于开发者单独调试某个服务，不作为项目启动链路。
+正式运行仍以 `docker compose up -d` 为准。下面命令只用于开发者单独调试某个服务。
 
 ```bash
-# （可选）交互式生成本地 env 与健康检查
 python scripts/setup_wizard.py
 python scripts/doctor.py
 
-# backend
 cd backend
 uv sync --extra dev
 cp .env.example .env
 uv run alembic upgrade head
 uv run uvicorn src.gateway.app:app --reload --port 8001
 
-# worker（新终端）
-cd backend
-uv run python -m src.task.worker
-
-# frontend（新终端）
-cd frontend
+cd ../frontend
 npm install
 npm run dev
 ```
 
-如需单独调试 lead-agent graph，可选：
+## 关键目录
 
-```bash
-cd backend
-make debug-langgraph
-```
-
-这不是主链路运行依赖。
+- `backend/src/agents/chat_agent/`：Chat Agent、block 协议、意图与 capability 启动
+- `backend/src/agents/lead_agent/v2/`：Lead Agent runtime、TeamKernel、专家编排
+- `backend/src/agents/harness/`：sandbox 工具、文件策略、执行记录、产物发现
+- `backend/src/dataservice_app/`：DataService API
+- `backend/seed/capabilities/`：workspace capability seed
+- `backend/seed/skills/`：capability skill seed
+- `frontend/app/(workbench)/workspaces/[id]/`：科研工作台主界面
+- `frontend/lib/execution-run-view.ts`：执行状态统一投影
+- `deploy/env/`：Docker Compose 环境模板
+- `docs/current/`：当前事实源文档
 
 ## 文档入口
 
 - 全量导航：`docs/current/documentation-map.md`
-- 总览：`docs/README.md`
-- 架构：`docs/current/architecture.md`
-- 工作台当前状态：`docs/current/workspace-current-state.md`
-- 产品契约：`docs/current/frontend-feature-plugin-contract.md`
-- 文献中心：`docs/current/workspace-reference-library.md`
-- 基础设施：`docs/current/troubleshooting.md`
-- 后端专项：`backend/docs/README.md`
-- 前端专项：`frontend/README.md`
+- 当前架构：`docs/current/architecture.md`
+- 工作区状态：`docs/current/workspace-current-state.md`
+- 前后端契约：`docs/current/frontend-feature-plugin-contract.md`
+- capability 目录：`docs/current/workspace-feature-catalog.md`
+- UI/UX 规范：`docs/current/wenjin-research-navigation-uiux.md`
+- 部署手册：`docs/current/deployment-runbook.md`
+- 排障手册：`docs/current/troubleshooting.md`
 
 ## 文档治理
 
-- 只保留“当前事实源”文档，历史方案、阶段性执行稿、过程审计用 Git 历史追溯
-- 架构、接口、运行方式变化后，必须同步更新 README 和对应 docs
-- 实现与文档冲突时，以实现为准，并立即回补文档
-- 提交前建议按 `docs/current/documentation-map.md` 的维护清单做一次最小回归
+- README 只保留项目定位、核心能力、启动方式和文档入口
+- 详细架构、接口、运行时行为以 `docs/current/` 为当前事实源
+- 运行方式变化必须同步更新 README、deployment runbook 和 troubleshooting
+- 真实 `.env`、API Key、模型密钥和本地运行产物不得提交
