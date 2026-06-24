@@ -1,3 +1,8 @@
+import {
+  safeRuntimeText,
+  safeStructuredFallback,
+} from "./runtime-payload-safety";
+
 type PreviewMode =
   | "markdown"
   | "plain_text"
@@ -96,7 +101,7 @@ export function buildWorkspaceResultPreviewsFromOutputs(
       return [];
     }
     const data = readObject(output.data);
-    const preview = readString(output.preview);
+    const preview = safeRuntimeText(output.preview);
     const defaultChecked = output.default_checked !== false;
 
     switch (kind) {
@@ -144,12 +149,14 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             source: "staged_output",
             kind,
             title: preview ?? "记忆片段",
-            subtitle: readString(data?.category),
+            subtitle: safeRuntimeText(data?.category),
             badge: "记忆",
             data,
             previewMode: "plain_text",
             previewText:
-              readString(data?.content) ?? preview ?? JSON.stringify(data, null, 2),
+              safeRuntimeText(data?.content) ??
+              preview ??
+              safeStructuredFallback(data, "已生成记忆片段"),
             metadataLines: [],
             defaultChecked,
             canCommit: true,
@@ -162,13 +169,15 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? readString(data?.key) ?? "决策记录",
-            subtitle: readString(data?.key),
+            title: preview ?? safeRuntimeText(data?.key) ?? "决策记录",
+            subtitle: safeRuntimeText(data?.key),
             badge: "决策",
             data,
             previewMode: "plain_text",
             previewText:
-              readString(data?.value) ?? preview ?? JSON.stringify(data, null, 2),
+              safeRuntimeText(data?.value) ??
+              preview ??
+              safeStructuredFallback(data, "已生成决策记录"),
             metadataLines: [],
             defaultChecked,
             canCommit: true,
@@ -181,17 +190,17 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? readString(data?.title) ?? "任务项",
-            subtitle: readString(data?.priority)
-              ? `Priority ${readString(data?.priority)}`
+            title: preview ?? safeRuntimeText(data?.title) ?? "任务项",
+            subtitle: safeRuntimeText(data?.priority)
+              ? `Priority ${safeRuntimeText(data?.priority)}`
               : null,
             badge: "任务",
             data,
             previewMode: "plain_text",
             previewText:
-              readString(data?.description) ??
+              safeRuntimeText(data?.description) ??
               preview ??
-              JSON.stringify(data, null, 2),
+              safeStructuredFallback(data, "已生成任务项"),
             metadataLines: [],
             defaultChecked,
             canCommit: true,

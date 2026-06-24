@@ -7,6 +7,10 @@ import type {
 } from "@/lib/api/types";
 import type { CommittedRoomLink } from "@/lib/execution-commit";
 import type { RunViewStatus } from "@/lib/execution-run-view";
+import {
+  recoverableOutputRefCount,
+  safeRuntimeText,
+} from "@/lib/runtime-payload-safety";
 import { getWorkspaceResultKindMeta } from "@/lib/workspace-result-kind";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import { extractTaskReport } from "@/lib/workbench-result-editing";
@@ -67,7 +71,7 @@ export function buildEvidenceItems(
         kind: sandbox ? "sandbox" : node?.type ?? "node",
         summary:
           sandbox?.join(" · ") ??
-          safeProductText(state.output_preview) ??
+          safeRuntimeText(state.output_preview) ??
           productSummary,
         nodeId,
         nodeState: state,
@@ -299,12 +303,12 @@ function buildProductSafeOutputSummary(
   output: Record<string, unknown>,
 ): string {
   const explicitSummary =
-    safeProductText(output.summary) ??
-    safeProductText(output.result_summary) ??
-    safeProductText(output.narrative) ??
-    safeProductText(output.preview) ??
-    safeProductText(output.message);
-  const operation = safeProductText(output.operation) ?? safeProductText(output.action);
+    safeRuntimeText(output.summary) ??
+    safeRuntimeText(output.result_summary) ??
+    safeRuntimeText(output.narrative) ??
+    safeRuntimeText(output.preview) ??
+    safeRuntimeText(output.message);
+  const operation = safeRuntimeText(output.operation) ?? safeRuntimeText(output.action);
   const status = readString(output.status) ?? state.status ?? null;
   const outputRefCount =
     recoverableOutputRefCount(output.output_refs, output.output_ref) +
@@ -447,60 +451,6 @@ export function fieldLabel(kind: string, field: string): string {
 
 export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function safeProductText(value: unknown): string | null {
-  const text = readString(value);
-  if (!text || containsRawRuntimePayload(text)) {
-    return null;
-  }
-  return truncate(text, 180);
-}
-
-function containsRawRuntimePayload(value: string): boolean {
-  const normalized = value.trim();
-  if (!normalized) {
-    return false;
-  }
-  if (/(^|[^a-z])std(?:out|err)([^a-z]|$)/i.test(normalized)) {
-    return true;
-  }
-  if (
-    normalized.includes("/workspace/outputs/harness/") ||
-    normalized.includes("/workspace/tmp/tasks/.harness/")
-  ) {
-    return true;
-  }
-  if (
-    normalized.startsWith("{") ||
-    (normalized.startsWith("[") && normalized.endsWith("]")) ||
-    /["']std(?:out|err)["']\s*:/i.test(normalized)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function recoverableOutputRefCount(...values: unknown[]): number {
-  let count = 0;
-  for (const value of values) {
-    if (Array.isArray(value)) {
-      count += recoverableOutputRefCount(...value);
-      continue;
-    }
-    if (readString(value)) {
-      count += 1;
-      continue;
-    }
-    const object = readObject(value);
-    if (
-      object &&
-      (readString(object.output_ref) || readString(object.ref) || readString(object.path))
-    ) {
-      count += 1;
-    }
-  }
-  return count;
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

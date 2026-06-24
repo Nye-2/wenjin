@@ -1,35 +1,20 @@
 "use client";
 
-import { useState } from "react";
 import type { ExecutionNodeState } from "@/lib/api/types";
+import {
+  recoverableOutputRefCount,
+  readRuntimeObject,
+  runtimeStatusLabel,
+  safeRuntimeText,
+  safeStructuredFallback,
+} from "@/lib/runtime-payload-safety";
 
 export interface NodeInlineDetailProps {
   state: ExecutionNodeState;
 }
 
-type TabKey = "input" | "output" | "thinking";
-
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "input", label: "Input" },
-  { key: "output", label: "Output" },
-  { key: "thinking", label: "Thinking" },
-];
-
 export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
-  const [activeTab, setActiveTab] = useState<TabKey>("output");
-
-  const getTabContent = (): string => {
-    switch (activeTab) {
-      case "input":
-        return state.input ? JSON.stringify(state.input, null, 2) : "";
-      case "output":
-        return state.output ? JSON.stringify(state.output, null, 2) : "";
-      case "thinking":
-        return state.thinking ?? "";
-    }
-  };
-
-  const content = getTabContent();
+  const lines = buildSafeNodeDetailLines(state);
 
   return (
     <div
@@ -44,69 +29,27 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
         color: "var(--wjn-text)",
       }}
     >
-      {/* Tab bar */}
-      <div
-        style={{
-          display: "flex",
-          borderBottom: "1px solid var(--wjn-line)",
-          background: "rgba(255, 255, 255, 0.5)",
-        }}
-      >
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            style={{
-              padding: "6px 12px",
-              fontSize: 11,
-              fontWeight: 500,
-              fontFamily: "var(--wjn-font-sans)",
-              color:
-                activeTab === tab.key
-                  ? "var(--wjn-blue)"
-                  : "var(--wjn-text-secondary)",
-              background:
-                activeTab === tab.key
-                  ? "var(--wjn-accent-soft)"
-                  : "transparent",
-              border: "none",
-              borderBottom:
-                activeTab === tab.key
-                  ? "2px solid var(--wjn-blue)"
-                  : "2px solid transparent",
-              cursor: "pointer",
-              transition: "all var(--wjn-duration-fast) var(--wjn-ease-standard)",
-              outline: "none",
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Content area */}
       <div
         style={{
           padding: "8px 12px",
-          maxHeight: 200,
-          overflow: "auto",
+          display: "grid",
+          gap: 4,
           background: "rgba(255, 255, 255, 0.3)",
         }}
       >
-        {content ? (
-          <pre
-            style={{
-              margin: 0,
-              fontFamily: "var(--wjn-font-mono)",
-              fontSize: 11,
-              lineHeight: 1.5,
-              color: "var(--wjn-text)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {content}
-          </pre>
+        {lines.length > 0 ? (
+          lines.map((line) => (
+            <div
+              key={line}
+              style={{
+                fontSize: 11.5,
+                lineHeight: 1.5,
+                color: "var(--wjn-text-secondary)",
+              }}
+            >
+              {line}
+            </div>
+          ))
         ) : (
           <span
             style={{
@@ -122,4 +65,35 @@ export function NodeInlineDetail({ state }: NodeInlineDetailProps) {
 
     </div>
   );
+}
+
+function buildSafeNodeDetailLines(state: ExecutionNodeState): string[] {
+  const input = readRuntimeObject(state.input);
+  const output = readRuntimeObject(state.output);
+  const outputRefCount = recoverableOutputRefCount(
+    output?.output_refs,
+    output?.output_ref,
+    ...(state.tool_calls ?? []).flatMap((call) => [call.output_refs, call.output_ref]),
+  );
+  const outputSummary = [
+    safeRuntimeText(output?.summary) ??
+      safeRuntimeText(output?.result_summary) ??
+      safeRuntimeText(output?.narrative) ??
+      safeRuntimeText(output?.message),
+    safeRuntimeText(output?.operation) ? `操作：${safeRuntimeText(output?.operation)}` : null,
+    outputRefCount > 0
+      ? `输出：${outputRefCount} 个可恢复引用`
+      : output
+        ? "输出：已生成运行结果"
+        : null,
+  ].filter((line): line is string => Boolean(line)).join(" · ");
+
+  return [
+    `状态：${runtimeStatusLabel(state.status)}`,
+    input ? `输入：${safeStructuredFallback(input, "已接收运行输入")}` : null,
+    outputSummary || null,
+    safeRuntimeText(state.thinking, 260)
+      ? `进展：${safeRuntimeText(state.thinking, 260)}`
+      : null,
+  ].filter((line): line is string => Boolean(line));
 }

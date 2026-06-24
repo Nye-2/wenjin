@@ -49,7 +49,7 @@ describe("CompletedView", () => {
       screen.getByText("Found useful papers, with one source unavailable."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Smith et al. 2024")).toHaveLength(2);
-    expect(screen.getByText("429")).toBeInTheDocument();
+    expect(screen.getByText(/问题 1.*429/)).toBeInTheDocument();
   });
 
   it("renders nested task_report payloads as preview-first detail", () => {

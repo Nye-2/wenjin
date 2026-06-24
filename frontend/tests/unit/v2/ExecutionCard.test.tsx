@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ExecutionRecord } from "@/lib/api/types";
@@ -155,5 +155,71 @@ describe("ExecutionCard", () => {
       screen.queryByRole("link", { name: "跳转到神秘编辑器" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("跳转到神秘编辑器")).not.toBeInTheDocument();
+  });
+
+  it("renders legacy node details without raw input or output payloads", () => {
+    render(
+      <ExecutionCard
+        record={makeRecord({
+          status: "running",
+          progress: 42,
+          graph_structure: {
+            nodes: [
+              {
+                id: "legacy-node",
+                type: "agent_invocation",
+                phase: "analysis",
+                label: "Legacy node",
+              },
+            ],
+            edges: [],
+          },
+          node_states: {
+            "legacy-node": {
+              status: "running",
+              input: {
+                prompt: "raw input should stay hidden",
+              },
+              output: {
+                status: "running",
+                stdout: "raw stdout should stay hidden",
+                stderr: "raw stderr should stay hidden",
+                output_refs: ["/workspace/outputs/harness/exec-1/node/raw.txt"],
+              },
+              thinking: "正在整理分析结果。",
+            },
+          },
+        })}
+        phases={[
+          {
+            name: "analysis",
+            index: 0,
+            nodes: [
+              {
+                id: "legacy-node",
+                type: "agent_invocation",
+                phase: "analysis",
+                label: "Legacy node",
+              },
+            ],
+          },
+        ]}
+        isExpanded
+        onToggle={() => {}}
+        selectedNodeId={null}
+        selectNode={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Legacy node" }));
+
+    expect(screen.getByText("状态：运行中")).toBeInTheDocument();
+    expect(screen.getByText(/可恢复引用/)).toBeInTheDocument();
+    expect(screen.queryByText("Input")).not.toBeInTheDocument();
+    expect(screen.queryByText("Output")).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw input should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw stdout should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw stderr should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
   });
 });

@@ -8,6 +8,7 @@ import {
   buildEvidenceItems,
   buildSandboxSummary,
 } from "@/app/(workbench)/workspaces/[id]/components/live-workflow/utils";
+import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 
 function baseRecord(overrides: Partial<ExecutionRecord>): ExecutionRecord {
   return {
@@ -154,5 +155,76 @@ describe("live workflow sanitization", () => {
     expect(screen.queryByText(/raw stdout should stay hidden/)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw stderr should stay hidden/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
+  });
+
+  it("sanitizes completed task errors before rendering them", () => {
+    render(
+      <CompletedView
+        result={{
+          task_report: {
+            status: "failed_partial",
+            narrative: "Run partially completed.",
+            outputs: [],
+            errors: [
+              {
+                phase: "analysis",
+                task: "sandbox",
+                error:
+                  '{"stderr":"raw stderr should stay hidden","ref":"/workspace/outputs/harness/exec-1/error.txt"}',
+              },
+            ],
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText("需处理事项：1 项")).toBeInTheDocument();
+    expect(screen.getByText(/问题 1/)).toBeInTheDocument();
+    expect(screen.getByText(/运行问题已记录/)).toBeInTheDocument();
+    expect(screen.queryByText(/stderr/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw stderr should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
+  });
+
+  it("uses safe staged-output fallback previews instead of raw JSON", () => {
+    const previews = buildWorkspaceResultPreviewsFromOutputs([
+      {
+        id: "memory-1",
+        kind: "memory_fact",
+        data: {
+          stdout: "raw stdout should stay hidden",
+          ref: "/workspace/outputs/harness/exec-1/memory.json",
+        },
+      },
+      {
+        id: "decision-1",
+        kind: "decision",
+        data: {
+          stderr: "raw stderr should stay hidden",
+          ref: "/workspace/outputs/harness/exec-1/decision.json",
+        },
+      },
+      {
+        id: "task-1",
+        kind: "task",
+        data: {
+          stdout: "raw stdout should stay hidden",
+          ref: "/workspace/outputs/harness/exec-1/task.json",
+        },
+      },
+    ]);
+
+    expect(previews).toHaveLength(3);
+    const text = previews.map((preview) => preview.previewText).join("\n");
+    expect(text).toContain("已生成记忆片段");
+    expect(text).toContain("已生成决策记录");
+    expect(text).toContain("已生成任务项");
+    expect(text).toContain("字段：2 项");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw stdout should stay hidden");
+    expect(text).not.toContain("raw stderr should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
   });
 });

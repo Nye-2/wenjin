@@ -444,7 +444,7 @@ describe("LiveWorkflowPanel", () => {
     expect(within(previewRegion).queryByText("草稿")).not.toBeInTheDocument();
   });
 
-  it("keeps raw node ids and input payloads behind run details by default", () => {
+  it("omits raw node ids and input payload panes from run details by default", () => {
     useExecutionStore.getState().upsertExecution(makeTechnicalRunningRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-technical");
     useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
@@ -453,7 +453,9 @@ describe("LiveWorkflowPanel", () => {
 
     expect(screen.getAllByText("文献综合专家").length).toBeGreaterThan(0);
     expect(screen.getByText("文献综合")).toBeVisible();
-    expect(screen.getByText("输入预览")).not.toBeVisible();
+    expect(screen.queryByText("输入预览")).not.toBeInTheDocument();
+    expect(screen.queryByText("输出预览")).not.toBeInTheDocument();
+    expect(screen.queryByText("联邦学习结合大模型")).not.toBeInTheDocument();
     for (const element of screen.getAllByText(/literature_synthesizer/)) {
       expect(element).not.toBeVisible();
     }

@@ -7,6 +7,11 @@ import {
   commitExecutionOutputs,
   type CommittedRoomLink,
 } from "@/lib/execution-commit";
+import {
+  recoverableOutputRefCount,
+  runtimeStatusLabel,
+  safeRuntimeText,
+} from "@/lib/runtime-payload-safety";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import {
   PrismReviewList,
@@ -53,9 +58,9 @@ export function CompletedView({
   const effectiveReviewItems =
     reviewItems.length > 0 ? reviewItems : readReviewItems(taskReport?.review_items);
   const summary =
-    safeDisplayText(resultSummary) ||
-    safeDisplayText(taskReport?.result_summary) ||
-    safeDisplayText(taskReport?.narrative) ||
+    safeRuntimeText(resultSummary, 220) ||
+    safeRuntimeText(taskReport?.result_summary, 220) ||
+    safeRuntimeText(taskReport?.narrative, 220) ||
     "运行结果已生成。";
   const taskStatus = readString(taskReport?.status) || "completed";
   const allowAcceptAll = taskStatus === "completed";
@@ -359,11 +364,7 @@ export function CompletedView({
           }}
         >
           {errorItems.map((error, i) => {
-            const item = error as Record<string, unknown>;
-            const label =
-              readString(item.error) ||
-              readString(item.message) ||
-              `Error ${i + 1}`;
+            const label = buildCompletedErrorSummary(error, i);
             return (
               <div
                 key={i}
@@ -484,40 +485,6 @@ function readString(value: unknown): string | null {
   return trimmed || null;
 }
 
-function safeDisplayText(value: unknown): string | null {
-  const text = readString(value);
-  if (!text || containsRawRuntimePayload(text)) {
-    return null;
-  }
-  return truncateText(text, 220);
-}
-
-function containsRawRuntimePayload(value: string): boolean {
-  const normalized = value.trim();
-  if (/(^|[^a-z])std(?:out|err)([^a-z]|$)/i.test(normalized)) {
-    return true;
-  }
-  if (
-    normalized.includes("/workspace/outputs/harness/") ||
-    normalized.includes("/workspace/tmp/tasks/.harness/")
-  ) {
-    return true;
-  }
-  return (
-    normalized.startsWith("{") ||
-    (normalized.startsWith("[") && normalized.endsWith("]")) ||
-    /["']std(?:out|err)["']\s*:/i.test(normalized)
-  );
-}
-
-function truncateText(value: string, max: number): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= max) {
-    return normalized;
-  }
-  return `${normalized.slice(0, Math.max(0, max - 3))}...`;
-}
-
 function getTaskReport(result?: Record<string, unknown> | null): TaskReportLike | null {
   if (!result || typeof result !== "object") return null;
   const nested = result.task_report;
@@ -573,43 +540,28 @@ function buildCompletedResultStatusLines({
     result?.output_ref,
   );
   return [
-    `状态：${completedStatusLabel(taskStatus)}`,
+    `状态：${runtimeStatusLabel(taskStatus)}`,
     outputCount > 0 ? `候选产物：${outputCount} 项` : null,
     refCount > 0 ? `可恢复引用：${refCount} 个` : null,
     errorCount > 0 ? `需处理事项：${errorCount} 项` : null,
   ].filter((line): line is string => Boolean(line));
 }
 
-function completedStatusLabel(status: string): string {
-  if (status === "completed") return "已完成";
-  if (status === "failed_partial") return "部分完成";
-  if (status === "failed") return "失败";
-  if (status === "cancelled") return "已取消";
-  if (status === "running") return "运行中";
-  if (status === "pending" || status === "queued") return "排队中";
-  return status || "未知";
-}
-
-function recoverableOutputRefCount(...values: unknown[]): number {
-  let count = 0;
-  for (const value of values) {
-    if (Array.isArray(value)) {
-      count += recoverableOutputRefCount(...value);
-      continue;
-    }
-    if (readString(value)) {
-      count += 1;
-      continue;
-    }
-    const object = readObject(value);
-    if (
-      object &&
-      (readString(object.output_ref) || readString(object.ref) || readString(object.path))
-    ) {
-      count += 1;
-    }
-  }
-  return count;
+function buildCompletedErrorSummary(error: unknown, index: number): string {
+  const item = readObject(error);
+  const safeMessage =
+    safeRuntimeText(item?.error, 140) ??
+    safeRuntimeText(item?.message, 140) ??
+    "运行问题已记录";
+  const context = [
+    safeRuntimeText(item?.phase, 40),
+    safeRuntimeText(item?.task, 60),
+  ].filter((value): value is string => Boolean(value));
+  return [
+    `问题 ${index + 1}`,
+    context.length ? context.join(" / ") : null,
+    safeMessage,
+  ].filter((value): value is string => Boolean(value)).join("：");
 }
 
 type PrismReviewAction = {
