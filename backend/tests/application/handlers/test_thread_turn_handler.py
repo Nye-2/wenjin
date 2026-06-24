@@ -14,6 +14,7 @@ from src.application.errors import ApplicationError, BadRequestError, PaymentReq
 from src.application.handlers.thread_turn_handler import (
     ThreadStreamDelta,
     ThreadTurnHandler,
+    _reply_reasoning_text,
     _reply_from_agent_result,
     build_thread_initial_state,
 )
@@ -937,6 +938,15 @@ class TestThreadTurnHandlerCancellation:
         )
 
         assert [block["kind"] for block in reply.blocks] == ["thinking", "text"]
+
+    def test_reply_reasoning_text_reads_top_level_text_from_legacy_thinking_block(self):
+        reply = GeneratedThreadReply(
+            content="answer",
+            blocks=[{"kind": "thinking", "text": "legacy top-level text"}],
+            metadata={},
+        )
+
+        assert _reply_reasoning_text(reply) == "legacy top-level text"
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_extracts_reasoning_into_blocks(self):

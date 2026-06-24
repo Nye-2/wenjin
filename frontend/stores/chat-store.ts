@@ -178,6 +178,19 @@ function withoutKind<T extends { kind: string }>(block: T): Omit<T, "kind"> {
   return rest;
 }
 
+function stableInputFingerprint(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableInputFingerprint(item)).join(",")}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableInputFingerprint(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
 function isSameToolBlock(a: Block, b: Block): boolean {
   if (a.kind !== b.kind) {
     return false;
@@ -200,7 +213,10 @@ function isSameToolBlock(a: Block, b: Block): boolean {
     if (aToolCallId || bToolCallId) {
       return aToolCallId === bToolCallId;
     }
-    return a.tool === b.tool;
+    return (
+      a.tool === b.tool &&
+      stableInputFingerprint(a.input) === stableInputFingerprint(b.input)
+    );
   }
   return false;
 }
@@ -333,7 +349,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           const updatedMessages = [...state.messages];
           updatedMessages[idx] = {
             ...msg,
-            blocks: [...msg.blocks, block],
+            blocks: appendBlockWithoutDuplicate(msg.blocks, block),
           };
           return { messages: updatedMessages };
         });
@@ -401,7 +417,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           const updatedMessages = [...state.messages];
           updatedMessages[idx] = {
             ...msg,
-            blocks: [...msg.blocks, block],
+            blocks: appendBlockWithoutDuplicate(msg.blocks, block),
           };
           return { messages: updatedMessages };
         });
@@ -449,7 +465,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           updatedMessages[idx] = {
             ...msg,
             metadata,
-            blocks: [...msg.blocks, block],
+            blocks: appendBlockWithoutDuplicate(msg.blocks, block),
           };
           return { messages: updatedMessages };
         });

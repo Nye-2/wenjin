@@ -68,6 +68,8 @@ def normalize_block_payload(
         output = extract_tool_output(payload)
         if not output and source is not payload:
             output = dict(source)
+        if not output:
+            output = _tool_result_top_level_output(source)
         normalized = {
             "kind": kind,
             "tool": extract_tool_name(source) or extract_tool_name(payload) or "unknown",
@@ -180,8 +182,17 @@ def extract_tool_output(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 def extract_invocation_ref(payload: Mapping[str, Any]) -> str | None:
     """Best-effort invocation correlation id extraction."""
-    for key in ("invocation_id", "tool_call_id", "call_id", "id"):
+    for key in ("tool_call_id", "invocation_id", "call_id", "id"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _tool_result_top_level_output(payload: Mapping[str, Any]) -> dict[str, Any]:
+    omitted = {"kind", "type", "output", "result", "data"}
+    return {
+        str(key): value
+        for key, value in payload.items()
+        if isinstance(key, str) and key not in omitted
+    }

@@ -166,6 +166,101 @@ describe("chat store", () => {
     ]);
   });
 
+  it("keeps same-tool finalize invocations when inputs differ and no tool_call_id exists", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_invocation",
+        tool: "search",
+        input: { q: "alpha" },
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_invocation",
+        tool: "search",
+        input: { q: "beta" },
+      },
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      { kind: "tool_invocation", tool: "search", input: { q: "alpha" } },
+      { kind: "tool_invocation", tool: "search", input: { q: "beta" } },
+    ]);
+  });
+
+  it("deduplicates duplicate live streamed tool frames", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_invocation",
+      data: {
+        tool: "launch_feature",
+        input: { feature_id: "outline" },
+        tool_call_id: "call-1",
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_invocation",
+      data: {
+        tool: "launch_feature",
+        input: { feature_id: "outline" },
+        tool_call_id: "call-1",
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_result",
+      data: {
+        tool: "launch_feature",
+        status: "launched",
+        output: { execution_id: "exec-1", feature_id: "outline" },
+        execution_id: "exec-1",
+        feature_id: "outline",
+        tool_call_id: "call-1",
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_result",
+      data: {
+        tool: "launch_feature",
+        status: "launched",
+        output: { execution_id: "exec-1", feature_id: "outline" },
+        execution_id: "exec-1",
+        feature_id: "outline",
+        tool_call_id: "call-1",
+      },
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      {
+        kind: "tool_invocation",
+        tool: "launch_feature",
+        input: { feature_id: "outline" },
+        tool_call_id: "call-1",
+      },
+      {
+        kind: "tool_result",
+        tool: "launch_feature",
+        status: "launched",
+        output: { execution_id: "exec-1", feature_id: "outline" },
+        execution_id: "exec-1",
+        feature_id: "outline",
+        tool_call_id: "call-1",
+      },
+    ]);
+  });
+
   it("normalizes finalize_block legacy tool payloads before storing them", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({

@@ -562,6 +562,9 @@ def _reply_reasoning_text(reply: GeneratedThreadReply) -> str:
         content = block.get("content")
         if isinstance(content, str) and content.strip():
             return content.strip()
+        text = block.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
         data = block.get("data")
         if isinstance(data, Mapping):
             text = data.get("text")

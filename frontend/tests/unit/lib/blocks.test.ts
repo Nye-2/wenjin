@@ -131,4 +131,38 @@ describe("AgentBlock type guards", () => {
     };
     expect(normalizeChatBlock(block)).toEqual(block);
   });
+
+  it("normalizes legacy warning blocks to visible status lines", () => {
+    expect(
+      normalizeChatBlock({
+        type: "warning",
+        title: "能力未启动",
+        data: { detail: "缺少真实工具结果" },
+      }),
+    ).toEqual({
+      kind: "status_line",
+      label: "能力未启动：缺少真实工具结果",
+      run_id: "legacy-warning",
+      tone: "warn",
+    });
+  });
+
+  it("normalizes malformed text-like blocks to visible text", () => {
+    expect(
+      normalizeChatBlock({
+        kind: "text",
+        text: "visible fallback",
+      }),
+    ).toEqual({ kind: "text", content: "visible fallback" });
+  });
+
+  it("falls back unknown blocks to visible text instead of invalid kinds", () => {
+    expect(
+      normalizeChatBlock({
+        type: "custom_panel",
+        title: "Legacy panel",
+        data: { detail: "useful detail" },
+      }),
+    ).toEqual({ kind: "text", content: "Legacy panel：useful detail" });
+  });
 });

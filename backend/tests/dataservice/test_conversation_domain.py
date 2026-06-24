@@ -66,6 +66,8 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
                         "status": "launched",
                         "execution_id": "exec-1",
                         "feature_id": "outline",
+                        "invocation_id": "legacy-call",
+                        "tool_call_id": "call-1",
                     },
                 },
                 {"kind": "custom_legacy", "content": "legacy"},
@@ -96,11 +98,49 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
             "status": "launched",
             "execution_id": "exec-1",
             "feature_id": "outline",
+            "invocation_id": "legacy-call",
+            "tool_call_id": "call-1",
         },
         "execution_id": "exec-1",
         "feature_id": "outline",
+        "tool_call_id": "call-1",
     }
     assert all("legacy_kind" not in block for block in blocks)
+
+
+def test_blocks_from_message_preserves_top_level_tool_result_payload() -> None:
+    blocks = blocks_from_message(
+        {
+            "blocks": [
+                {
+                    "kind": "tool_result",
+                    "tool": "launch_feature",
+                    "status": "error",
+                    "code": "missing_params",
+                    "detail": "需要补充研究主题",
+                    "tool_call_id": "call-1",
+                    "invocation_id": "legacy-call",
+                }
+            ]
+        }
+    )
+
+    assert blocks == [
+        {
+            "kind": "tool_result",
+            "tool": "launch_feature",
+            "status": "error",
+            "output": {
+                "tool": "launch_feature",
+                "status": "error",
+                "code": "missing_params",
+                "detail": "需要补充研究主题",
+                "tool_call_id": "call-1",
+                "invocation_id": "legacy-call",
+            },
+            "tool_call_id": "call-1",
+        }
+    ]
 
 
 @pytest.mark.asyncio

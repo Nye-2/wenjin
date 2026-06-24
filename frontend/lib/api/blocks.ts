@@ -123,6 +123,36 @@ function rawKind(raw: RawRecord): string {
   return String(raw.kind ?? raw.type ?? "").trim();
 }
 
+function titledDetailText(raw: RawRecord): string {
+  const data = isRecord(raw.data) ? raw.data : undefined;
+  const title =
+    stringValue(raw.title) ??
+    stringValue(raw.label) ??
+    stringValue(raw.name);
+  const detail =
+    stringValue(raw.detail) ??
+    stringValue(raw.message) ??
+    (data ? stringValue(data.detail) : undefined) ??
+    (data ? stringValue(data.message) : undefined) ??
+    (data ? stringValue(data.text) : undefined) ??
+    stringValue(raw.content) ??
+    stringValue(raw.text);
+  if (title && detail && title !== detail) {
+    return `${title}：${detail}`;
+  }
+  return title ?? detail ?? "";
+}
+
+function fallbackTextBlock(raw: RawRecord): TextBlock {
+  const text = titledDetailText(raw);
+  if (text) return { kind: "text", content: text };
+  try {
+    return { kind: "text", content: JSON.stringify(raw) };
+  } catch {
+    return { kind: "text", content: "Unsupported message block" };
+  }
+}
+
 function toolSource(raw: RawRecord): RawRecord {
   return isRecord(raw.data) ? raw.data : raw;
 }
@@ -192,8 +222,40 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
 
   const kind = rawKind(raw);
 
+  if (kind === "text") {
+    return {
+      kind: "text",
+      content:
+        typeof raw.content === "string"
+          ? raw.content
+          : typeof raw.text === "string"
+            ? raw.text
+            : titledDetailText(raw),
+    };
+  }
+
   if (kind === "reasoning" || kind === "thought" || kind === "thinking") {
     return { kind: "thinking", content: extractThinkingContent(raw) };
+  }
+
+  if (kind === "status_line") {
+    const tone = raw.tone === "warn" || raw.tone === "error" ? raw.tone : "info";
+    return {
+      kind: "status_line",
+      label: stringValue(raw.label) ?? (titledDetailText(raw) || "Status update"),
+      run_id: stringValue(raw.run_id) ?? "legacy-status",
+      phase_index: typeof raw.phase_index === "number" ? raw.phase_index : null,
+      tone,
+    };
+  }
+
+  if (kind === "warning") {
+    return {
+      kind: "status_line",
+      label: titledDetailText(raw) || "Warning",
+      run_id: stringValue(raw.run_id) ?? "legacy-warning",
+      tone: "warn",
+    };
   }
 
   if (kind === "tool_invocation" || kind === "tool" || kind === "tool_call" || kind === "tool_use") {
@@ -227,14 +289,43 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
     return block;
   }
 
-  if (kind && kind !== raw.kind) {
-    const { type: _type, ...rest } = raw;
-    return { ...rest, kind } as AgentBlock;
+  if (kind === "question_card") {
+    const label = stringValue(raw.label);
+    const question = stringValue(raw.question);
+    if (label && question) {
+      return {
+        kind: "question_card",
+        label,
+        question,
+        pills: Array.isArray(raw.pills) ? raw.pills as Pill[] : [],
+        context_ref_subagent_task_id:
+          stringValue(raw.context_ref_subagent_task_id) ?? null,
+        context_ref_phase_index:
+          typeof raw.context_ref_phase_index === "number"
+            ? raw.context_ref_phase_index
+            : null,
+      };
+    }
+    return fallbackTextBlock(raw);
+  }
+
+  if (kind === "result_card") {
+    if (
+      stringValue(raw.run_id) &&
+      stringValue(raw.title) &&
+      stringValue(raw.tldr) &&
+      Array.isArray(raw.findings) &&
+      isRecord(raw.feedback) &&
+      isRecord(raw.stats)
+    ) {
+      return raw as unknown as ResultCardBlock;
+    }
+    return fallbackTextBlock(raw);
   }
 
   if (!kind) {
-    return { kind: "text", content: String(raw.content ?? "") };
+    return fallbackTextBlock(raw);
   }
 
-  return raw as unknown as AgentBlock;
+  return fallbackTextBlock(raw);
 }
