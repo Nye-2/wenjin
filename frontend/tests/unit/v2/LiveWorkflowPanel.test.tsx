@@ -15,9 +15,13 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { documents: 1 },
+  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
     documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -26,8 +30,14 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["doc-1", "lib-1", "mem-1"],
-  counts: {},
-  room_targets: {},
+  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
 
@@ -89,6 +99,40 @@ function makeCompletedRecord(): ExecutionRecord {
             data: {
               category: "context",
               content: "研究主题：联邦学习结合大模型微调",
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function makeSecondCompletedRecord(): ExecutionRecord {
+  const record = makeCompletedRecord();
+  return {
+    ...record,
+    id: "exec-2",
+    feature_id: "outline_followup",
+    created_at: "2026-05-18T00:00:10Z",
+    updated_at: "2026-05-18T00:00:15Z",
+    started_at: "2026-05-18T00:00:10Z",
+    completed_at: "2026-05-18T00:00:15Z",
+    result: {
+      task_report: {
+        ...(record.result?.task_report as Record<string, unknown>),
+        execution_id: "exec-2",
+        narrative: "Second outline completed.",
+        outputs: [
+          {
+            id: "doc-2",
+            kind: "document",
+            preview: "Second outline",
+            default_checked: true,
+            data: {
+              name: "second-outline.md",
+              mime_type: "text/markdown",
+              doc_kind: "outline",
+              content: "# Chapter 2",
             },
           },
         ],
@@ -251,6 +295,10 @@ describe("LiveWorkflowPanel", () => {
           commit_state: COMMITTED_STATE,
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
           },
         }),
     });
@@ -352,6 +400,51 @@ describe("LiveWorkflowPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("does not finalize the selected run when a prior commit resolves after switching runs", async () => {
+    let resolveCommit!: (payload: unknown) => void;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        new Promise((resolve) => {
+          resolveCommit = resolve;
+        }),
+    });
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useExecutionStore.getState().upsertExecution(makeSecondCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.getByRole("button", { name: /Thesis outline/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useWorkbenchLayoutStore.getState().selectRun("exec-2");
+    });
+    expect(screen.getByRole("button", { name: /Second outline/ })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveCommit({ commit_state: COMMITTED_STATE });
+    });
+
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toEqual(COMMITTED_STATE),
+    );
+    expect(
+      useExecutionStore.getState().executions.get("exec-2")?.result?.commit_state,
+    ).toBeUndefined();
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-2");
+    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.queryByText("已写入工作区")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "打开已保存的 Thesis outline" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not patch execution store or finalize when POST lacks backend commit_state", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
@@ -360,6 +453,10 @@ describe("LiveWorkflowPanel", () => {
           committed: { documents: 1 },
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
           },
         }),
     });
@@ -424,7 +521,10 @@ describe("LiveWorkflowPanel", () => {
         Promise.resolve({
           commit_state: {
             ...COMMITTED_STATE,
-            room_targets: { documents: "bad" },
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              documents: "bad",
+            },
           },
         }),
     });

@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CompletedView } from "@/app/(workbench)/workspaces/[id]/components/CompletedView";
+import type { ExecutionRecord } from "@/lib/api/types";
+import { useExecutionStore } from "@/stores/execution-store";
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -10,9 +12,13 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { documents: 1 },
+  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
     documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -21,8 +27,14 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["doc-1"],
-  counts: {},
-  room_targets: {},
+  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
 
@@ -59,9 +71,13 @@ describe("CompletedView", () => {
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
             library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
           },
         }),
     });
+    useExecutionStore.getState().clear();
   });
 
   it("renders TaskReport payloads from execution.completed", () => {
@@ -328,6 +344,46 @@ describe("CompletedView", () => {
     expect(url.searchParams.get("query")).toBe("Thesis outline");
   });
 
+  it("patches returned commit_state into the execution store after commit", async () => {
+    const record: ExecutionRecord = {
+      id: "exec-1",
+      user_id: "user-1",
+      workspace_id: "ws-1",
+      execution_type: "capability",
+      feature_id: "outline",
+      status: "completed",
+      params: {},
+      result: { task_report: OUTLINE_TASK_REPORT },
+      node_states: {},
+      artifact_ids: [],
+      next_actions: [],
+      child_execution_ids: [],
+      progress: 100,
+      created_at: "2026-06-20T00:00:00Z",
+      updated_at: "2026-06-20T00:00:00Z",
+    };
+    useExecutionStore.getState().upsertExecution(record);
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={record.result}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toEqual(COMMITTED_STATE),
+    );
+    expect(
+      useExecutionStore.getState().executions.get("exec-1")?.result?.task_report,
+    ).toEqual(OUTLINE_TASK_REPORT);
+  });
+
   it("requires selected-output save for partial execution previews", async () => {
     render(
       <CompletedView
@@ -423,6 +479,10 @@ describe("CompletedView", () => {
           committed: { documents: 1 },
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
           },
         }),
     });

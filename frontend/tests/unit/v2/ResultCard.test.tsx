@@ -22,6 +22,8 @@ beforeEach(() => {
           documents: [{ output_id: "o3", item_id: "doc-77" }],
           library: [{ output_id: "o1", item_id: "lib-88" }],
           memory: [{ output_id: "o4", item_id: "mem-99" }],
+          decisions: [],
+          tasks: [],
         },
       }),
   });
@@ -91,11 +93,13 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["o3"],
   rejected_ids: ["o1"],
-  counts: { documents: 1, library: 1, memory: 1 },
+  counts: { library: 1, documents: 1, memory: 1, decisions: 0, tasks: 0 },
   room_targets: {
     documents: [{ output_id: "o3", item_id: "doc-77" }],
     library: [{ output_id: "o1", item_id: "lib-88" }],
     memory: [{ output_id: "o4", item_id: "mem-99" }],
+    decisions: [],
+    tasks: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -104,8 +108,14 @@ const DISCARDED_STATE = {
   status: "discarded",
   accepted_ids: [],
   rejected_ids: ["o1", "o2", "o3", "o4"],
-  counts: {},
-  room_targets: {},
+  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
 
@@ -355,6 +365,10 @@ describe("ResultCard", () => {
           committed: { documents: 1 },
           room_targets: {
             documents: [{ output_id: "o3", item_id: "doc-77" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
           },
         }),
     });
@@ -415,7 +429,7 @@ describe("ResultCard", () => {
         Promise.resolve({
           commit_state: {
             ...COMMITTED_STATE,
-            counts: { documents: 1.5 },
+            counts: { ...COMMITTED_STATE.counts, documents: 1.5 },
           },
         }),
     });

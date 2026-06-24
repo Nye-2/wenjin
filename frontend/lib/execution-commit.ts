@@ -23,13 +23,14 @@ const COMMIT_ROOM_NAMES = [
 
 const COMMIT_ROOM_NAME_SET = new Set<string>(COMMIT_ROOM_NAMES);
 
-export type CommitRoomTargets = Partial<Record<CommitRoomName, CommitRoomTarget[]>>;
+export type CommitRoomCounts = Record<CommitRoomName, number>;
+export type CommitRoomTargets = Record<CommitRoomName, CommitRoomTarget[]>;
 
 export interface ExecutionCommitState {
   status: "committed" | "discarded";
   accepted_ids: string[];
   rejected_ids: string[];
-  counts: Record<string, number>;
+  counts: CommitRoomCounts;
   room_targets: CommitRoomTargets;
   committed_at: string;
   review_batch_id?: string;
@@ -262,31 +263,45 @@ function stringArrayValue(value: unknown): string[] | null {
   return strings.length === value.length ? strings : null;
 }
 
-function numberRecordValue(value: unknown): Record<string, number> | null {
+function numberRecordValue(value: unknown): CommitRoomCounts | null {
   const raw = recordValue(value);
   if (!raw) return null;
-  const counts: Record<string, number> = {};
   for (const [key, item] of Object.entries(raw)) {
     if (!COMMIT_ROOM_NAME_SET.has(key)) {
       return null;
     }
-    if (
-      typeof item !== "number" ||
-      !Number.isFinite(item) ||
-      !Number.isInteger(item) ||
-      item < 0
-    ) {
+    if (!isValidRoomCount(item)) {
       return null;
     }
-    counts[key] = item;
+  }
+
+  const counts = {} as CommitRoomCounts;
+  for (const room of COMMIT_ROOM_NAMES) {
+    if (!Object.prototype.hasOwnProperty.call(raw, room)) {
+      return null;
+    }
+    const item = raw[room];
+    if (!isValidRoomCount(item)) {
+      return null;
+    }
+    counts[room] = item;
   }
   return counts;
+}
+
+function isValidRoomCount(item: unknown): item is number {
+  return (
+    typeof item === "number" &&
+    Number.isFinite(item) &&
+    Number.isInteger(item) &&
+    item >= 0
+  );
 }
 
 function roomTargetsValue(value: unknown): CommitRoomTargets | null {
   const raw = recordValue(value);
   if (!raw) return null;
-  const targets: CommitRoomTargets = {};
+  const targets = {} as CommitRoomTargets;
   for (const key of Object.keys(raw)) {
     if (!COMMIT_ROOM_NAME_SET.has(key)) {
       return null;
@@ -294,7 +309,6 @@ function roomTargetsValue(value: unknown): CommitRoomTargets | null {
   }
   for (const room of COMMIT_ROOM_NAMES) {
     const rawTargets = raw[room];
-    if (rawTargets === undefined) continue;
     if (!Array.isArray(rawTargets)) return null;
     const roomTargets: CommitRoomTarget[] = [];
     for (const item of rawTargets) {
@@ -306,9 +320,7 @@ function roomTargetsValue(value: unknown): CommitRoomTargets | null {
       }
       roomTargets.push({ output_id: outputId, item_id: itemId });
     }
-    if (roomTargets.length > 0) {
-      targets[room] = roomTargets;
-    }
+    targets[room] = roomTargets;
   }
   return targets;
 }

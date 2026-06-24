@@ -13,9 +13,13 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["doc-1"],
   rejected_ids: [],
-  counts: { documents: 1 },
+  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
   room_targets: {
     documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -351,7 +355,7 @@ describe("execution run view expert projection", () => {
         result: {
           commit_state: {
             ...COMMITTED_STATE,
-            counts: { documents: 1.5 },
+            counts: { ...COMMITTED_STATE.counts, documents: 1.5 },
           },
         },
       }),
@@ -362,7 +366,10 @@ describe("execution run view expert projection", () => {
         result: {
           commit_state: {
             ...COMMITTED_STATE,
-            room_targets: { documents: "bad" },
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              documents: "bad",
+            },
           },
         },
       }),
@@ -385,5 +392,35 @@ describe("execution run view expert projection", () => {
     expect(nonIntegerCountView.commitState).toBeNull();
     expect(malformedRoomTargetView.commitState).toBeNull();
     expect(unknownRoomTargetView.commitState).toBeNull();
+  });
+
+  it("drops sparse commitState missing required count keys or room target arrays", () => {
+    const sparseCountsView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            counts: {},
+          },
+        },
+      }),
+    );
+    const missingRoomTargetArraysView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              documents: COMMITTED_STATE.room_targets.documents,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(sparseCountsView.commitState).toBeNull();
+    expect(missingRoomTargetArraysView.commitState).toBeNull();
   });
 });

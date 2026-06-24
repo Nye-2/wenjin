@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import type {
@@ -146,6 +146,8 @@ export function LiveWorkflowPanel({
     selectedPreviewId,
     draftEdits,
   });
+  const selectedRecordIdRef = useRef<string | null>(null);
+  selectedRecordIdRef.current = selectedRecord?.id ?? null;
   const durableCommitState = readCommitStateFromResult(selectedRecord?.result);
   const localCommitState =
     commitState.executionId === selectedRecord?.id
@@ -361,6 +363,8 @@ export function LiveWorkflowPanel({
     if (!selectedRecord || commitState.committing || commitFinal) {
       return;
     }
+    const requestExecutionId = selectedRecord.id;
+    const requestIdempotencyKey = commitState.idempotencyKey;
     const committablePreviews = previews.filter((preview) => preview.canCommit);
     const outputIds = committablePreviews.map((preview) => preview.id);
     const outputIdSet = new Set(outputIds);
@@ -386,55 +390,88 @@ export function LiveWorkflowPanel({
 
     setCommitState((current) => ({
       ...current,
-      executionId: selectedRecord.id,
+      executionId: requestExecutionId,
       committing: true,
       error: null,
       linkPreviews: null,
     }));
     try {
       const response = await commitExecutionOutputs({
-        executionId: selectedRecord.id,
-        idempotencyKey: commitState.idempotencyKey,
+        executionId: requestExecutionId,
+        idempotencyKey: requestIdempotencyKey,
         body,
       });
       const commitLinkPreviews = applyDraftLabelsToCommitLinks(committablePreviews, draftEdits);
       const nextCommitState = commitStateFromCommitResponse(response);
       if (!nextCommitState) {
-        setCommitState((current) => ({
-          ...current,
-          committing: false,
-          responseCommitState: null,
-          linkPreviews: null,
-          error: COMMIT_STATE_SYNC_ERROR,
-        }));
+        setCommitState((current) =>
+          shouldApplyCommitResponseToLocalState(
+            current.executionId,
+            requestExecutionId,
+          )
+            ? {
+                ...current,
+                committing: false,
+                responseCommitState: null,
+                linkPreviews: null,
+                error: COMMIT_STATE_SYNC_ERROR,
+              }
+            : current,
+        );
         return;
       }
       clearDraftEdits(acceptedIds);
       const recordToPatch =
-        useExecutionStore.getState().executions.get(selectedRecord.id) ??
-        selectedRecord;
-      upsertExecution({
-        ...recordToPatch,
-        result: {
-          ...(recordToPatch.result ?? {}),
-          commit_state: nextCommitState,
-        },
-      });
-      setCommitState((current) => ({
-        ...current,
-        committing: false,
-        responseCommitState: nextCommitState,
-        linkPreviews: commitLinkPreviews,
-      }));
+        useExecutionStore.getState().executions.get(requestExecutionId);
+      if (recordToPatch) {
+        upsertExecution({
+          ...recordToPatch,
+          result: {
+            ...(recordToPatch.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
+      setCommitState((current) =>
+        shouldApplyCommitResponseToLocalState(
+          current.executionId,
+          requestExecutionId,
+        )
+          ? {
+              ...current,
+              executionId: requestExecutionId,
+              committing: false,
+              responseCommitState: nextCommitState,
+              linkPreviews: commitLinkPreviews,
+            }
+          : current,
+      );
     } catch (error) {
-      setCommitState((current) => ({
-        ...current,
-        committing: false,
-        responseCommitState: null,
-        linkPreviews: null,
-        error: error instanceof Error ? error.message : "保存失败",
-      }));
+      setCommitState((current) =>
+        shouldApplyCommitResponseToLocalState(
+          current.executionId,
+          requestExecutionId,
+        )
+          ? {
+              ...current,
+              committing: false,
+              responseCommitState: null,
+              linkPreviews: null,
+              error: error instanceof Error ? error.message : "保存失败",
+            }
+          : current,
+      );
     }
+  }
+
+  function shouldApplyCommitResponseToLocalState(
+    currentExecutionId: string | null,
+    requestExecutionId: string,
+  ): boolean {
+    return (
+      currentExecutionId === requestExecutionId ||
+      selectedRecordIdRef.current === requestExecutionId
+    );
   }
 
   async function handleInterventionSubmit() {

@@ -23,6 +23,7 @@ import {
   prismReviewItemHref,
 } from "@/components/prism/PrismReviewList";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
+import { useExecutionStore } from "@/stores/execution-store";
 import { CommitActionBar } from "./result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
 import { ResultPreviewList } from "./result-preview/ResultPreviewList";
@@ -58,6 +59,7 @@ export function CompletedView({
   nextActions = [],
 }: CompletedViewProps) {
   const [idempotencyKey] = useState(() => generateUUID());
+  const upsertExecution = useExecutionStore((state) => state.upsertExecution);
 
   const taskReport = getTaskReport(result);
   const durableCommitState = readCommitStateFromResult(result);
@@ -169,6 +171,16 @@ export function CompletedView({
         return;
       }
       setLocalCommitState(nextCommitState);
+      const currentRecord = useExecutionStore.getState().executions.get(executionId);
+      if (currentRecord) {
+        upsertExecution({
+          ...currentRecord,
+          result: {
+            ...(currentRecord.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
     } catch (error) {
       setCommitError(
         error instanceof Error && !error.message.startsWith("Failed")
