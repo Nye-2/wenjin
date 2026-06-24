@@ -259,6 +259,51 @@ async def test_dataservice_client_strips_none_query_params() -> None:
 
 
 @pytest.mark.asyncio
+async def test_dataservice_client_get_execution_by_launch_idempotency_key() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/internal/v1/executions/features/by-launch-idempotency-key"
+        assert request.url.query.decode() == (
+            "workspace_id=ws-1&thread_id=thread-1&user_id=user-1"
+            "&capability_id=idea_to_manuscript&launch_idempotency_key=launch-key-1"
+        )
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "id": "exec-idem",
+                    "user_id": "user-1",
+                    "workspace_id": "ws-1",
+                    "thread_id": "thread-1",
+                    "execution_type": "feature",
+                    "capability_id": "idea_to_manuscript",
+                    "status": "running",
+                    "task_brief_json": {"launch_idempotency_key": "launch-key-1"},
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        execution = await client.get_execution_by_launch_idempotency_key(
+            workspace_id="ws-1",
+            thread_id="thread-1",
+            user_id="user-1",
+            capability_id="idea_to_manuscript",
+            launch_idempotency_key="launch-key-1",
+        )
+
+    assert execution is not None
+    assert execution.id == "exec-idem"
+    assert execution.params == {"launch_idempotency_key": "launch-key-1"}
+
+
+@pytest.mark.asyncio
 async def test_dataservice_client_workspace_contract_methods() -> None:
     seen: list[tuple[str, str, dict[str, Any] | None]] = []
 

@@ -201,6 +201,24 @@ class DataServiceExecutionService:
             capability_id=capability_id,
         )
 
+    async def find_execution_by_launch_idempotency_key(
+        self,
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+        capability_id: str,
+        launch_idempotency_key: str,
+    ) -> ExecutionRecordProjection | None:
+        record = await self.repository.find_execution_by_launch_idempotency_key(
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            user_id=user_id,
+            capability_id=capability_id,
+            launch_idempotency_key=launch_idempotency_key,
+        )
+        return execution_to_projection(record) if record else None
+
     async def reconcile_interrupted_executions(self) -> int:
         """Mark stale in-flight executions terminal after process restart."""
         records = await self.repository.list_executions_by_status(

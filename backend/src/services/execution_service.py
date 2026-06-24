@@ -215,6 +215,31 @@ class ExecutionService:
             )
             return await self._hydrate_list_execution_node_states(client, list(records))
 
+    async def find_execution_by_launch_idempotency_key(
+        self,
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+        feature_id: str,
+        launch_idempotency_key: str,
+    ):
+        async with self._client() as client:
+            record = await client.get_execution_by_launch_idempotency_key(
+                workspace_id=workspace_id,
+                thread_id=thread_id,
+                user_id=user_id,
+                capability_id=feature_id,
+                launch_idempotency_key=launch_idempotency_key,
+            )
+            if record is None:
+                return None
+            list_nodes = getattr(client, "list_execution_nodes", None)
+            if callable(list_nodes):
+                node_records = await list_nodes(str(record.id))
+                return _hydrate_execution_node_states(record, list(node_records))
+            return record
+
     async def _hydrate_list_execution_node_states(
         self,
         client: Any,

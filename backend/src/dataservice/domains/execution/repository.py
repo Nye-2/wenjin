@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.base import generate_uuid
@@ -172,6 +172,37 @@ class ExecutionRepository:
             .order_by(ExecutionRecord.created_at.asc())
         )
         return list(result.scalars().all())
+
+    async def find_execution_by_launch_idempotency_key(
+        self,
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+        capability_id: str,
+        launch_idempotency_key: str,
+    ) -> ExecutionRecord | None:
+        result = await self.session.execute(
+            select(ExecutionRecord)
+            .where(ExecutionRecord.workspace_id == workspace_id)
+            .where(ExecutionRecord.thread_id == thread_id)
+            .where(ExecutionRecord.user_id == user_id)
+            .where(ExecutionRecord.feature_id == capability_id)
+            .where(ExecutionRecord.execution_type == "feature")
+            .where(
+                or_(
+                    ExecutionRecord.params["launch_idempotency_key"].as_string()
+                    == launch_idempotency_key,
+                    ExecutionRecord.params["orchestration"]["launch_idempotency_key"].as_string()
+                    == launch_idempotency_key,
+                    ExecutionRecord.params["billing"]["launch_idempotency_key"].as_string()
+                    == launch_idempotency_key,
+                )
+            )
+            .order_by(ExecutionRecord.created_at.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
 
     async def count_executions(
         self,

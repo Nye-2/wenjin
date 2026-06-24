@@ -13,6 +13,7 @@ from src.gateway.deps.core import get_dataservice_client
 from src.services.execution_commit_service import (
     ExecutionCommitConcurrencyError,
     ExecutionCommitNotFoundError,
+    ExecutionCommitPersistenceError,
     ExecutionCommitService,
 )
 from src.services.execution_service import ExecutionService
@@ -85,5 +86,7 @@ async def commit_execution_outputs(
         raise HTTPException(status_code=404, detail="Execution not found") from exc
     except ExecutionCommitConcurrencyError as exc:
         raise HTTPException(status_code=409, detail="Commit already in progress") from exc
+    except ExecutionCommitPersistenceError as exc:
+        raise HTTPException(status_code=500, detail="Commit state persistence failed") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

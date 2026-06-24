@@ -1035,6 +1035,14 @@ class TeamKernelRuntime:
         except Exception as exc:
             invocation.status = "failed"
             invocation.error = {"message": str(exc)}
+            structured_output = _exception_output_with_tool_calls(exc)
+            if structured_output is not None:
+                invocation.output_report = structured_output
+                invocation.tool_calls = [
+                    dict(tool_call)
+                    for tool_call in structured_output.get("tool_calls") or []
+                    if isinstance(tool_call, dict)
+                ]
         completed_at = datetime.now(UTC)
         invocation.completed_at = completed_at
         await self._safe_record_invocation(
@@ -1610,6 +1618,18 @@ def _consume_timed_out_subagent_task(task: asyncio.Task) -> None:
         return
     except Exception:
         logger.debug("Timed-out subagent task finished with error", exc_info=True)
+
+
+def _exception_output_with_tool_calls(exc: Exception) -> dict[str, Any] | None:
+    output = getattr(exc, "output", None)
+    if not isinstance(output, dict):
+        return None
+    tool_calls = [tool_call for tool_call in output.get("tool_calls") or [] if isinstance(tool_call, dict)]
+    if not tool_calls:
+        return None
+    structured_output = dict(output)
+    structured_output["tool_calls"] = [dict(tool_call) for tool_call in tool_calls]
+    return structured_output
 
 
 def _invocation_timeout_seconds(

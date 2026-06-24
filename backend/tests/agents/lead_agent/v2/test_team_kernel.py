@@ -9,6 +9,7 @@ import pytest
 
 import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
+from src.agents.lead_agent.v2.sandbox_runtime import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.agents.lead_agent.v2.team.contracts import (
     AgentInvocation,
@@ -150,6 +151,45 @@ class TeamSandboxPythonFakeSubagent(SubagentBase):
 class TeamFailingSubagent(SubagentBase):
     async def run(self, ctx: SubagentContext) -> SubagentResult:
         raise RuntimeError(f"{ctx.invocation['display_name']} failed")
+
+
+@subagent("team_structured_sandbox_failure")
+class TeamStructuredSandboxFailureSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        raise SandboxCommandExecutionError(
+            f"{ctx.invocation['display_name']} script failed",
+            output={
+                "status": "failed",
+                "exit_code": 2,
+                "billing": {
+                    "type": "sandbox_operation_billing",
+                    "credits_charged": 1,
+                },
+                "tool_calls": [
+                    {
+                        "name": "sandbox.run_python",
+                        "status": "failed",
+                        "exit_code": 2,
+                        "metadata": {
+                            "execution_lifecycle": {
+                                "schema": "wenjin.harness.run_python.execution_lifecycle.v1",
+                                "status": "failed",
+                                "exit_code": 2,
+                            },
+                            "failure_classification": {
+                                "schema": "wenjin.harness.run_python.failure_classification.v1",
+                                "failure_code": "python_exit_nonzero",
+                                "recoverable": True,
+                            },
+                        },
+                        "billing": {
+                            "type": "sandbox_operation_billing",
+                            "credits_charged": 1,
+                        },
+                    }
+                ],
+            },
+        )
 
 
 @subagent("team_empty")
@@ -563,6 +603,58 @@ async def test_team_kernel_run_invocation_sets_completed_at() -> None:
 
     assert invocation.status == "succeeded"
     assert isinstance(invocation.completed_at, datetime)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_failed_invocation_preserves_structured_exception_tool_calls() -> None:
+    recorded: list[dict[str, Any]] = []
+
+    async def record_node_event(**kwargs):
+        recorded.append(kwargs)
+
+    runtime = _team_runtime_for_unit_tests(record_node_event=record_node_event)
+    invocation = AgentInvocation(
+        id="inv-structured-failure",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="runner.v1",
+        display_name="Runner",
+        assigned_role="runner",
+        recruitment_reason="test",
+        effective_skills=["runner"],
+        input_brief={
+            "workspace_id": "ws-1",
+            "topic": "script failure metadata",
+            "team_role": "runner",
+        },
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="runner.v1",
+            display_role="Runner",
+            category="analysis",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={"runner": SimpleNamespace(subagent_type="team_structured_sandbox_failure")},
+        skill_load_error=None,
+    )
+
+    assert invocation.status == "failed"
+    assert invocation.error == {"message": "Runner script failed"}
+    assert invocation.output_report["status"] == "failed"
+    assert invocation.tool_calls[0]["name"] == "sandbox.run_python"
+    assert invocation.tool_calls[0]["metadata"]["failure_classification"]["failure_code"] == (
+        "python_exit_nonzero"
+    )
+    assert recorded[-1]["status"] == "failed"
+    assert recorded[-1]["tool_calls"] == invocation.tool_calls
+    assert recorded[-1]["node_metadata"]["harness"]["replan_signals"][0]["failure_codes"] == [
+        "python_exit_nonzero"
+    ]
 
 
 @pytest.mark.asyncio

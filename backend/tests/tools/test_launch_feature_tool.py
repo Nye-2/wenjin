@@ -266,6 +266,25 @@ async def test_launch_feature_reuses_execution_for_same_user_message():
             return executions
         return []
 
+    async def _find_execution_by_launch_idempotency_key(
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+        feature_id: str,
+        launch_idempotency_key: str,
+    ):
+        for execution in executions:
+            if (
+                getattr(execution, "workspace_id", None) == workspace_id
+                and getattr(execution, "thread_id", None) == thread_id
+                and getattr(execution, "user_id", None) == user_id
+                and getattr(execution, "feature_id", None) == feature_id
+                and execution.params.get("launch_idempotency_key") == launch_idempotency_key
+            ):
+                return execution
+        return None
+
     async def _create_execution(**kwargs):
         execution = SimpleNamespace(id="exec-1", **kwargs)
         executions.append(execution)
@@ -279,6 +298,9 @@ async def test_launch_feature_reuses_execution_for_same_user_message():
 
     fake_service = MagicMock()
     fake_service.list_executions = AsyncMock(side_effect=_list_executions)
+    fake_service.find_execution_by_launch_idempotency_key = AsyncMock(
+        side_effect=_find_execution_by_launch_idempotency_key
+    )
     fake_service.create_execution = AsyncMock(side_effect=_create_execution)
     fake_service.update_execution = AsyncMock(side_effect=_update_execution)
     fake_credit_service = MagicMock()
@@ -324,6 +346,63 @@ async def test_launch_feature_reuses_execution_for_same_user_message():
     assert second["status"] == "launched"
     assert second["execution_id"] == first["execution_id"]
     assert dispatched == [first["execution_id"]]
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_reuses_execution_from_durable_idempotency_lookup():
+    """Idempotency lookup must not depend on the latest workspace execution window."""
+    existing_execution = SimpleNamespace(
+        id="exec-existing",
+        user_id="user-1",
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        feature_id="idea_to_thesis_manuscript",
+        params={
+            "launch_idempotency_key": "launch_feature:thread-1:msg-1",
+        },
+    )
+    fake_service = MagicMock()
+    fake_service.find_execution_by_launch_idempotency_key = AsyncMock(
+        return_value=existing_execution
+    )
+    fake_service.list_executions = AsyncMock(
+        side_effect=AssertionError("idempotency must not scan latest executions")
+    )
+    fake_service.create_execution = AsyncMock()
+    fake_celery = MagicMock(enabled=True)
+    fake_celery_app = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "idea_to_thesis_manuscript",
+                "params": {"topic": "LLM agents"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "thread-1",
+                    "user_id": "user-1",
+                    "user_message_id": "msg-1",
+                    "launch_idempotency_key": "launch_feature:thread-1:msg-1",
+                }
+            },
+        )
+
+    assert result["status"] == "launched"
+    assert result["execution_id"] == "exec-existing"
+    fake_service.find_execution_by_launch_idempotency_key.assert_awaited_once_with(
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        user_id="user-1",
+        feature_id="idea_to_thesis_manuscript",
+        launch_idempotency_key="launch_feature:thread-1:msg-1",
+    )
+    fake_service.create_execution.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -864,7 +943,7 @@ async def test_launch_feature_returns_lead_busy_when_active():
     with patch("src.database.get_db_session", _fake_db_session), \
          patch("src.services.execution_service.ExecutionService", return_value=fake_service):
         result = await launch_feature_tool.ainvoke(
-            {"feature_id": "thesis_research_pack", "params": {}},
+            {"feature_id": "thesis_research_pack", "params": {"topic": "LLM agents"}},
             config={
                 "configurable": {
                     "workspace_id": "ws-1",
@@ -1014,6 +1093,44 @@ async def test_launch_feature_returns_missing_params_advisory_before_execution_c
     assert result["status"] == "advisory"
     assert result["code"] == "missing_params"
     fake_service.create_execution.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_missing_params_skip_billing_and_backend_checks():
+    """Missing required context is a pure advisory before admission checks."""
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(
+        side_effect=AssertionError("lead-busy/backend checks must not run")
+    )
+    fake_service.create_execution = AsyncMock()
+    fake_celery = MagicMock(enabled=False)
+    fake_celery_app = MagicMock()
+    fake_credit_service_factory = MagicMock(
+        side_effect=AssertionError("CreditService must not be instantiated")
+    )
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", fake_credit_service_factory), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {"feature_id": "thesis_research_pack", "params": {}},
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "advisory"
+    assert result["code"] == "missing_params"
+    fake_credit_service_factory.assert_not_called()
+    fake_service.list_executions.assert_not_called()
+    fake_service.create_execution.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
 
 
 @pytest.mark.asyncio

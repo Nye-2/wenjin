@@ -145,6 +145,26 @@ async def get_latest_feature_execution_status(
     return envelope_ok({"status": status})
 
 
+@router.get("/features/by-launch-idempotency-key")
+async def get_execution_by_launch_idempotency_key(
+    workspace_id: str = Query(...),
+    thread_id: str = Query(...),
+    user_id: str = Query(...),
+    capability_id: str = Query(...),
+    launch_idempotency_key: str = Query(...),
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.find_execution_by_launch_idempotency_key(
+        workspace_id=workspace_id,
+        thread_id=thread_id,
+        user_id=user_id,
+        capability_id=capability_id,
+        launch_idempotency_key=launch_idempotency_key,
+    )
+    return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
 @router.post("/reconcile-interrupted")
 async def reconcile_interrupted_executions(
     uow: DataServiceUnitOfWork = Depends(get_uow),

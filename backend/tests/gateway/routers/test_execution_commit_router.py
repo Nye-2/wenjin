@@ -20,6 +20,7 @@ from src.gateway.routers.execution_commit import (
 from src.services.execution_commit_service import (
     ExecutionCommitConcurrencyError,
     ExecutionCommitNotFoundError,
+    ExecutionCommitPersistenceError,
     ExecutionCommitService,
 )
 
@@ -122,6 +123,24 @@ def test_post_commit_409_on_commit_in_progress():
 
     assert resp.status_code == 409
     assert resp.json()["detail"] == "Commit already in progress"
+
+
+def test_post_commit_500_on_commit_state_persistence_failure():
+    """Durable commit_state write failures should surface as explicit server errors."""
+    svc = _make_mock_service(
+        side_effect=ExecutionCommitPersistenceError(
+            "commit_state persistence failed for execution exec-1"
+        )
+    )
+    client = _make_app(svc, raise_server_exceptions=False)
+
+    resp = client.post(
+        "/api/executions/exec-1/commit",
+        json={"accept_all": True},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Commit state persistence failed"
 
 
 def test_post_commit_passes_idempotency_key_header():

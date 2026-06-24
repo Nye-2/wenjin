@@ -71,26 +71,6 @@ def _launch_idempotency_key(config: RunnableConfig | None) -> str | None:
     return None
 
 
-def _execution_launch_idempotency_key(execution: Any) -> str:
-    params = getattr(execution, "params", None)
-    if not isinstance(params, dict):
-        params = getattr(execution, "task_brief_json", None)
-    if not isinstance(params, dict):
-        return ""
-    billing = params.get("billing")
-    orchestration = params.get("orchestration")
-    candidates = [
-        params.get("launch_idempotency_key"),
-        orchestration.get("launch_idempotency_key") if isinstance(orchestration, dict) else None,
-        billing.get("launch_idempotency_key") if isinstance(billing, dict) else None,
-    ]
-    for candidate in candidates:
-        text = str(candidate or "").strip()
-        if text:
-            return text
-    return ""
-
-
 def _capability_routing(capability: Any) -> Mapping[str, Any] | None:
     routing = getattr(capability, "routing", None)
     if isinstance(routing, Mapping) and routing:
@@ -251,28 +231,52 @@ async def launch_feature_tool(
                 ),
             }
 
+        minimum_context = extract_capability_minimum_context(cap)
+        missing_fields = resolve_missing_context_fields(
+            feature_id=feature_id,
+            params=merged_params,
+            launch_source="tool",
+            minimum_context=minimum_context,
+        )
+        if missing_fields:
+            clarification_prompt = _missing_context_clarification_prompt(
+                cap,
+                missing_fields=missing_fields,
+                minimum_context=minimum_context,
+            )
+            advisory = build_missing_context_advisory(
+                feature_id=feature_id,
+                missing_fields=missing_fields,
+                feature_name=getattr(cap, "display_name", None),
+                clarification_prompt=clarification_prompt,
+            )
+            return {
+                "status": "advisory",
+                "code": advisory.code,
+                "feature_id": feature_id,
+                "detail": advisory.message,
+                "context": advisory.context or {},
+            }
+
         execution_service = ExecutionService(dataservice=catalog)
 
         launch_idempotency_key = _launch_idempotency_key(config)
         if launch_idempotency_key:
-            existing_for_turn = await execution_service.list_executions(
+            existing = await execution_service.find_execution_by_launch_idempotency_key(
                 workspace_id=workspace_id,
-                limit=20,
+                thread_id=thread_id,
+                user_id=user_id,
+                feature_id=feature_id,
+                launch_idempotency_key=launch_idempotency_key,
             )
-            for existing in existing_for_turn:
-                if (
-                    str(getattr(existing, "thread_id", "") or "") == thread_id
-                    and str(getattr(existing, "user_id", "") or "") == user_id
-                    and str(getattr(existing, "feature_id", "") or "") == feature_id
-                    and _execution_launch_idempotency_key(existing) == launch_idempotency_key
-                ):
-                    return {
-                        "status": "launched",
-                        "execution_id": str(existing.id),
-                        "feature_id": feature_id,
-                        "capability_name": getattr(cap, "display_name", None),
-                        "detail": "该能力已在当前消息中启动，继续使用同一个执行。",
-                    }
+            if existing is not None:
+                return {
+                    "status": "launched",
+                    "execution_id": str(existing.id),
+                    "feature_id": feature_id,
+                    "capability_name": getattr(cap, "display_name", None),
+                    "detail": "该能力已在当前消息中启动，继续使用同一个执行。",
+                }
 
         # Lead-busy check
         all_active = await execution_service.list_executions(
@@ -314,33 +318,6 @@ async def launch_feature_tool(
                 "code": "execution_backend_unavailable",
                 "feature_id": feature_id,
                 "detail": "后台执行服务未启用，请联系管理员。",
-            }
-
-        minimum_context = extract_capability_minimum_context(cap)
-        missing_fields = resolve_missing_context_fields(
-            feature_id=feature_id,
-            params=merged_params,
-            launch_source="tool",
-            minimum_context=minimum_context,
-        )
-        if missing_fields:
-            clarification_prompt = _missing_context_clarification_prompt(
-                cap,
-                missing_fields=missing_fields,
-                minimum_context=minimum_context,
-            )
-            advisory = build_missing_context_advisory(
-                feature_id=feature_id,
-                missing_fields=missing_fields,
-                feature_name=getattr(cap, "display_name", None),
-                clarification_prompt=clarification_prompt,
-            )
-            return {
-                "status": "advisory",
-                "code": advisory.code,
-                "feature_id": feature_id,
-                "detail": advisory.message,
-                "context": advisory.context or {},
             }
 
         execution_params = build_execution_launch_params(

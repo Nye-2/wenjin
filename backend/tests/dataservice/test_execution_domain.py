@@ -165,6 +165,22 @@ class FakeExecutionRepository:
             return []
         return [self.record]
 
+    async def find_execution_by_launch_idempotency_key(self, **kwargs: Any) -> SimpleNamespace | None:
+        if self.record is None:
+            return None
+        if self.record.workspace_id != kwargs["workspace_id"]:
+            return None
+        if self.record.thread_id != kwargs["thread_id"]:
+            return None
+        if self.record.user_id != kwargs["user_id"]:
+            return None
+        if self.record.feature_id != kwargs["capability_id"]:
+            return None
+        params = self.record.params or {}
+        if params.get("launch_idempotency_key") != kwargs["launch_idempotency_key"]:
+            return None
+        return self.record
+
     async def count_executions(self, **kwargs: Any) -> int:
         status = kwargs.get("status")
         if status is None:
@@ -484,6 +500,30 @@ async def test_feature_status_helpers_read_execution_domain() -> None:
 
     assert running_count == 2
     assert latest_status == "running"
+
+
+@pytest.mark.asyncio
+async def test_find_execution_by_launch_idempotency_key_reads_execution_domain() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-idem",
+            "thread_id": "thread-1",
+            "feature_id": "idea_to_manuscript",
+            "params": {"launch_idempotency_key": "launch_feature:thread-1:msg-1"},
+        }
+    )
+
+    found = await service.find_execution_by_launch_idempotency_key(
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        user_id="user-1",
+        capability_id="idea_to_manuscript",
+        launch_idempotency_key="launch_feature:thread-1:msg-1",
+    )
+
+    assert found is not None
+    assert found.id == "exec-idem"
 
 
 @pytest.mark.asyncio

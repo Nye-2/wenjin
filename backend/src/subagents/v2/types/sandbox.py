@@ -189,8 +189,18 @@ class SandboxPythonSubagent(SubagentBase):
                     dependency_hints=ctx.inputs.get("dependency_hints"),
                     billing_reservation_id=str(reservation.id),
                 )
-        except SandboxCommandExecutionError:
-            await _settle_billing()
+        except SandboxCommandExecutionError as exc:
+            billing_metadata = await _settle_billing()
+            output = dict(exc.output)
+            output["billing"] = billing_metadata
+            output["tool_calls"] = [
+                _sandbox_python_tool_call(
+                    operation=operation,
+                    output=output,
+                    billing=billing_metadata,
+                )
+            ]
+            exc.output = output
             raise
         except Exception:
             await credit_service.release_reservation(
