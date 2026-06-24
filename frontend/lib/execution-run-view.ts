@@ -152,6 +152,8 @@ type TaskReportProjection = Record<string, unknown> & {
   review_items?: unknown[];
 };
 
+const RUN_FAILURE_FALLBACK = "运行问题已记录";
+
 const TEAM_KERNEL_PROGRESS_ORDER = [
   "team_prepare",
   "team_recruit",
@@ -185,13 +187,18 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     ? progressItems.length
     : (record.graph_structure?.nodes.length ??
       Object.keys(record.node_states ?? {}).length);
-  const failureMessage =
-    record.last_error ??
-    record.error ??
-    stringValue(taskReport?.errors?.[0]?.error) ??
-    null;
+  const rawFailureMessage = firstStringValue(
+    record.last_error,
+    record.error,
+    taskReport?.errors?.[0]?.error,
+  );
+  const failureMessage = safeFailureMessage(
+    record.last_error,
+    record.error,
+    taskReport?.errors?.[0]?.error,
+  );
   const failureCategory =
-    failureCategoryFromRecord(record, failedNodeCount, failureMessage);
+    failureCategoryFromRecord(record, failedNodeCount, rawFailureMessage);
   const team = teamViewFromExecution(record);
   const qualityHighlights = qualityHighlightsFromRuntimeState(record.runtime_state);
 
@@ -201,12 +208,12 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     capabilityId: record.feature_id ?? stringValue(taskReport?.capability_id),
     title: runTitleFromExecution(record, taskReport),
     status,
-    summary: userFacingRunSummary(
-      record.result_summary ??
-        stringValue(taskReport?.narrative) ??
-        record.message ??
-        failureMessage ??
-        statusSummary(status),
+    summary: safeRunSummary(
+      status,
+      record.result_summary,
+      taskReport?.narrative,
+      record.message,
+      rawFailureMessage,
     ),
     startedAt: record.started_at ?? record.created_at,
     completedAt: record.completed_at ?? null,
@@ -320,7 +327,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
         ? 1
         : 0;
   const sandboxReviewCount = record.primary_surface === "sandbox" ? 1 : 0;
-  const failureMessage = record.failure_message ?? null;
+  const failureMessage = safeFailureMessage(record.failure_message);
   const failureCategory =
     record.failure_category ??
     (status === "failed" || status === "failed_partial" ? "unknown" : null);
@@ -331,7 +338,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     capabilityId: record.capability_id ?? null,
     title: humanizeCapabilityName(record.capability_name || record.capability_id) ?? "Execution",
     status,
-    summary: userFacingRunSummary(record.summary || statusSummary(status)),
+    summary: safeRunSummary(status, record.summary),
     startedAt: record.started_at,
     completedAt: record.completed_at ?? null,
     durationLabel: formatDuration(record.started_at, record.completed_at ?? null),
@@ -367,7 +374,8 @@ export function runViewFromResultCard(
   const status = normalizeRunRecordStatus(data.status);
   const prismReviewCount = countPrismReviewItems(data.review_items ?? []);
   const sandboxReviewCount = countSandboxReviewItems(data.review_items ?? []);
-  const failureMessage = data.errors?.[0]?.message ?? null;
+  const rawFailureMessage = firstStringValue(data.errors?.[0]?.message);
+  const failureMessage = safeFailureMessage(data.errors?.[0]?.message);
   const failureCategory =
     status === "failed_partial" || status === "failed"
       ? data.errors?.length
@@ -381,7 +389,7 @@ export function runViewFromResultCard(
     capabilityId: data.capability_name ?? null,
     title: humanizeCapabilityName(data.capability_name) ?? "Execution",
     status,
-    summary: userFacingRunSummary(data.narrative ?? failureMessage ?? statusSummary(status)),
+    summary: safeRunSummary(status, data.narrative, rawFailureMessage),
     completedAt: null,
     durationLabel:
       typeof data.duration_seconds === "number"
@@ -418,7 +426,7 @@ export function mergeRunViews(
   return {
     ...historical,
     ...live,
-    summary: userFacingRunSummary(live.summary || historical.summary),
+    summary: safeRunSummary(live.status, live.summary, historical.summary),
     startedAt: live.startedAt ?? historical.startedAt,
     completedAt: live.completedAt ?? historical.completedAt,
     durationLabel: live.durationLabel ?? historical.durationLabel,
@@ -435,7 +443,7 @@ export function mergeRunViews(
     hasPrismChanges: live.hasPrismChanges || historical.hasPrismChanges,
     hasSandboxArtifacts: Boolean(live.hasSandboxArtifacts || historical.hasSandboxArtifacts),
     failureCategory: live.failureCategory ?? historical.failureCategory,
-    failureMessage: live.failureMessage ?? historical.failureMessage,
+    failureMessage: safeFailureMessage(live.failureMessage, historical.failureMessage),
     team: live.team ?? historical.team,
     qualityHighlights: live.qualityHighlights.length
       ? live.qualityHighlights
@@ -1312,6 +1320,28 @@ function statusSummary(status: RunViewStatus): string {
   return "执行已取消。";
 }
 
+function safeRunSummary(status: RunViewStatus, ...values: unknown[]): string {
+  return userFacingRunSummary(firstSafeRuntimeText(values, 240) ?? statusSummary(status));
+}
+
+function safeFailureMessage(...values: unknown[]): string | null {
+  const safe = firstSafeRuntimeText(values, 240);
+  if (safe) {
+    return userFacingRunSummary(safe);
+  }
+  return firstStringValue(...values) ? RUN_FAILURE_FALLBACK : null;
+}
+
+function firstSafeRuntimeText(values: unknown[], max: number): string | null {
+  for (const value of values) {
+    const text = safeRuntimeText(value, max);
+    if (text) {
+      return text;
+    }
+  }
+  return null;
+}
+
 function userFacingRunSummary(value: string): string {
   return value
     .replace(/launch_feature/g, "研究任务")
@@ -1346,6 +1376,16 @@ function formatSeconds(seconds: number): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function firstStringValue(...values: unknown[]): string | null {
+  for (const value of values) {
+    const text = stringValue(value);
+    if (text) {
+      return text;
+    }
+  }
+  return null;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {

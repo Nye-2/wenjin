@@ -250,8 +250,12 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
     if (!previewPath) {
       return [];
     }
-    const title = firstNonNull(readString(item.title), pathBasename(previewPath), previewPath) ?? "图表候选";
-    const summary = readString(item.summary);
+    const rawTitle = readString(item.title);
+    const rawSummary = readString(item.summary);
+    const title =
+      safeRuntimeText(rawTitle) ??
+      (rawTitle ? "图表产物" : pathBasename(previewPath) ?? "图表产物");
+    const summary = safeRuntimeText(rawSummary);
     const mimeType = readString(preview?.mime_type);
     const contentHash = firstNonNull(
       readString(preview?.content_hash),
@@ -296,7 +300,7 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
         },
         previewMode: "image",
         previewPath,
-        previewText: summary ?? previewPath,
+        previewText: summary ?? (rawSummary ? "待确认产物" : previewPath),
         metadata,
         metadataLines,
         defaultChecked: false,
@@ -585,7 +589,7 @@ function buildFigureMetadata(
 ): Record<string, unknown> | null {
   const metadata: Record<string, unknown> = {};
   for (const key of ["strategy", "figure_type", "provenance", "provider", "source"]) {
-    const value = readString(data?.[key]);
+    const value = safeRuntimeText(data?.[key]);
     if (value) {
       metadata[key] = value;
     }
@@ -599,17 +603,20 @@ function buildFigureMetadataLines(
   if (!metadata) {
     return [];
   }
+  const strategy = safeRuntimeText(metadata.strategy);
+  const figureType = safeRuntimeText(metadata.figure_type);
+  const provenance = safeRuntimeText(metadata.provenance);
+  const source = safeRuntimeText(metadata.source);
+  const provider = safeRuntimeText(metadata.provider);
   return [
-    readString(metadata.strategy) ? `strategy: ${readString(metadata.strategy)}` : null,
-    readString(metadata.figure_type)
-      ? `figure_type: ${readString(metadata.figure_type)}`
-      : null,
-    readString(metadata.provenance)
-      ? `source: ${readString(metadata.provenance)}`
-      : readString(metadata.source)
-        ? `source: ${readString(metadata.source)}`
+    strategy ? `strategy: ${strategy}` : null,
+    figureType ? `figure_type: ${figureType}` : null,
+    provenance
+      ? `source: ${provenance}`
+      : source
+        ? `source: ${source}`
         : null,
-    readString(metadata.provider) ? `provider: ${readString(metadata.provider)}` : null,
+    provider ? `provider: ${provider}` : null,
   ].filter((value): value is string => Boolean(value));
 }
 

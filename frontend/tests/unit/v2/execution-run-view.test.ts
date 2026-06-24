@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { ExecutionRecord } from "@/lib/api/types";
+import type { RunRecord } from "@/lib/api/v2/runs";
 import {
   buildRunProgressItems,
   runViewFromExecution,
+  runViewFromResultCard,
+  runViewFromRunRecord,
 } from "@/lib/execution-run-view";
 
 function baseRecord(overrides: Partial<ExecutionRecord>): ExecutionRecord {
@@ -170,5 +173,94 @@ describe("execution run view expert projection", () => {
     expect(details).not.toContain("raw stderr should stay hidden");
     expect(details).not.toContain("/workspace/outputs/harness");
     expect(details).not.toContain("{");
+  });
+
+  it("sanitizes raw ExecutionRecord summaries and failure messages", () => {
+    const record = baseRecord({
+      status: "failed",
+      result_summary:
+        '{"stdout":"raw summary should stay hidden","ref":"/workspace/outputs/harness/exec-1/result.json"}',
+      last_error:
+        '{"stderr":"raw error should stay hidden","ref":"/workspace/outputs/harness/exec-1/error.txt"}',
+      result: {
+        task_report: {
+          narrative: "已生成论文结构建议。",
+          errors: [
+            {
+              error:
+                '{"stderr":"raw task error should stay hidden","ref":"/workspace/outputs/harness/exec-1/task-error.txt"}',
+            },
+          ],
+        },
+      },
+    });
+
+    const view = runViewFromExecution(record);
+    const text = [view.summary, view.failureMessage].filter(Boolean).join("\n");
+
+    expect(view.summary).toBe("已生成论文结构建议。");
+    expect(view.failureMessage).toBe("运行问题已记录");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw summary should stay hidden");
+    expect(text).not.toContain("raw error should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
+
+  it("sanitizes raw RunRecord summaries and failure messages", () => {
+    const record: RunRecord = {
+      id: "run-raw-1",
+      workspace_id: "ws-1",
+      capability_name: "实验实证结果包",
+      status: "failed",
+      started_at: "2026-06-13T00:00:00Z",
+      summary:
+        'stdout: raw run summary should stay hidden /workspace/outputs/harness/exec-1/summary.txt',
+      failure_message:
+        '{"stderr":"raw run error should stay hidden","ref":"/workspace/outputs/harness/exec-1/error.txt"}',
+    };
+
+    const view = runViewFromRunRecord(record, "ws-1");
+    const text = [view.summary, view.failureMessage].filter(Boolean).join("\n");
+
+    expect(view.summary).toBe("执行失败。");
+    expect(view.failureMessage).toBe("运行问题已记录");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw run summary should stay hidden");
+    expect(text).not.toContain("raw run error should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
+
+  it("sanitizes raw ResultCardData narratives and errors", () => {
+    const view = runViewFromResultCard(
+      {
+        execution_id: "result-card-raw-1",
+        capability_name: "图表生成",
+        status: "failed",
+        outputs: [],
+        narrative:
+          '{"stdout":"raw result-card narrative should stay hidden","ref":"/workspace/outputs/harness/exec-1/result.json"}',
+        errors: [
+          {
+            message:
+              'stderr: raw result-card error should stay hidden /workspace/outputs/harness/exec-1/error.txt',
+          },
+        ],
+      },
+      "ws-1",
+    );
+    const text = [view.summary, view.failureMessage].filter(Boolean).join("\n");
+
+    expect(view.summary).toBe("执行失败。");
+    expect(view.failureMessage).toBe("运行问题已记录");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw result-card narrative should stay hidden");
+    expect(text).not.toContain("raw result-card error should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
   });
 });

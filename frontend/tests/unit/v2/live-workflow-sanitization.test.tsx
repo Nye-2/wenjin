@@ -8,7 +8,10 @@ import {
   buildEvidenceItems,
   buildSandboxSummary,
 } from "@/app/(workbench)/workspaces/[id]/components/live-workflow/utils";
-import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
+import {
+  buildWorkspaceResultPreviewsFromOutputs,
+  buildWorkspaceResultPreviewsFromReviewItems,
+} from "@/lib/workspace-result-preview";
 
 function baseRecord(overrides: Partial<ExecutionRecord>): ExecutionRecord {
   return {
@@ -289,6 +292,99 @@ describe("live workflow sanitization", () => {
     expect(text).not.toContain("stderr");
     expect(text).not.toContain("raw stdout should stay hidden");
     expect(text).not.toContain("raw stderr should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
+
+  it("drops unsafe staged figure metadata lines", () => {
+    const previews = buildWorkspaceResultPreviewsFromOutputs([
+      {
+        id: "figure-metadata-1",
+        kind: "figure",
+        preview: "Accuracy trend",
+        data: {
+          title: "Accuracy trend",
+          path: "/workspace/outputs/figures/run-1/accuracy.png",
+          caption: "Validation accuracy improved across the final three epochs.",
+          strategy:
+            '{"stdout":"raw metadata should stay hidden","ref":"/workspace/outputs/harness/exec-1/metadata.json"}',
+          figure_type: "stderr: raw figure type should stay hidden",
+          provenance: "/workspace/outputs/harness/exec-1/provenance.json",
+          provider: "matplotlib",
+          source: "curated experiment dataset",
+        },
+      },
+    ]);
+
+    expect(previews).toHaveLength(1);
+    expect(previews[0]?.metadataLines).toEqual([
+      "source: curated experiment dataset",
+      "provider: matplotlib",
+    ]);
+
+    const text = previews[0]?.metadataLines.join("\n") ?? "";
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw metadata should stay hidden");
+    expect(text).not.toContain("raw figure type should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
+
+  it("sanitizes sandbox figure review title and summary before preview evidence", () => {
+    const record = baseRecord({
+      id: "review-figure-raw-1",
+      review_items: [
+        {
+          id: "review-figure-raw-1",
+          kind: "sandbox_artifact",
+          status: "pending",
+          title:
+            '{"stdout":"raw review title should stay hidden","ref":"/workspace/outputs/harness/exec-1/title.json"}',
+          summary:
+            '{"stderr":"raw review summary should stay hidden","ref":"/workspace/outputs/harness/exec-1/summary.json"}',
+          target: {
+            kind: "sandbox_artifact",
+            path: "/workspace/outputs/figures/fed_curve/figure.png",
+            artifact_kind: "figure",
+            sandbox_artifact_id: "artifact-1",
+          },
+          preview: {
+            mode: "artifact",
+            path: "/workspace/outputs/figures/fed_curve/figure.png",
+            mime_type: "image/png",
+            content_hash: "sha256:figure",
+          },
+        },
+      ],
+    });
+
+    const previews = buildWorkspaceResultPreviewsFromReviewItems(record.review_items);
+    const evidenceItems = buildEvidenceItems(record, previews);
+
+    expect(previews).toHaveLength(1);
+    expect(previews[0]).toMatchObject({
+      title: "图表产物",
+      subtitle: null,
+      previewPath: "/workspace/outputs/figures/fed_curve/figure.png",
+      previewText: "待确认产物",
+    });
+    expect(evidenceItems[0]?.summary).toContain("待确认产物");
+
+    const text = [
+      previews[0]?.title,
+      previews[0]?.subtitle,
+      previews[0]?.previewText,
+      ...(previews[0]?.metadataLines ?? []),
+      evidenceItems[0]?.title,
+      evidenceItems[0]?.summary,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw review title should stay hidden");
+    expect(text).not.toContain("raw review summary should stay hidden");
     expect(text).not.toContain("/workspace/outputs/harness");
     expect(text).not.toContain("{");
   });
