@@ -309,4 +309,38 @@ describe("execution run view expert projection", () => {
 
     expect(view.commitState).toEqual(COMMITTED_STATE);
   });
+
+  it("drops malformed commitState missing required counts or room targets", () => {
+    const missingCountsView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            status: COMMITTED_STATE.status,
+            accepted_ids: COMMITTED_STATE.accepted_ids,
+            rejected_ids: COMMITTED_STATE.rejected_ids,
+            room_targets: COMMITTED_STATE.room_targets,
+            committed_at: COMMITTED_STATE.committed_at,
+          },
+        },
+      }),
+    );
+    const missingRoomTargetsView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            status: COMMITTED_STATE.status,
+            accepted_ids: COMMITTED_STATE.accepted_ids,
+            rejected_ids: COMMITTED_STATE.rejected_ids,
+            counts: COMMITTED_STATE.counts,
+            committed_at: COMMITTED_STATE.committed_at,
+          },
+        },
+      }),
+    );
+
+    expect(missingCountsView.commitState).toBeNull();
+    expect(missingRoomTargetsView.commitState).toBeNull();
+  });
 });

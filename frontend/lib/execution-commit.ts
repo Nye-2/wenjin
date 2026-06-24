@@ -13,6 +13,16 @@ export type CommitRoomName =
   | "decisions"
   | "tasks";
 
+const COMMIT_ROOM_NAMES = [
+  "documents",
+  "library",
+  "memory",
+  "decisions",
+  "tasks",
+] as const satisfies readonly CommitRoomName[];
+
+const COMMIT_ROOM_NAME_SET = new Set<string>(COMMIT_ROOM_NAMES);
+
 export type CommitRoomTargets = Partial<Record<CommitRoomName, CommitRoomTarget[]>>;
 
 export interface ExecutionCommitState {
@@ -179,12 +189,15 @@ export function readCommitStateFromResult(
 
   const counts = numberRecordValue(state.counts);
   const roomTargets = roomTargetsValue(state.room_targets);
+  if (!counts || !roomTargets) {
+    return null;
+  }
   return {
     status,
     accepted_ids: acceptedIds,
     rejected_ids: rejectedIds,
-    counts: counts ?? {},
-    room_targets: roomTargets ?? {},
+    counts,
+    room_targets: roomTargets,
     committed_at: committedAt,
     ...(stringValue(state.review_batch_id)
       ? { review_batch_id: stringValue(state.review_batch_id)! }
@@ -254,9 +267,13 @@ function numberRecordValue(value: unknown): Record<string, number> | null {
   if (!raw) return null;
   const counts: Record<string, number> = {};
   for (const [key, item] of Object.entries(raw)) {
-    if (typeof item === "number" && Number.isFinite(item)) {
-      counts[key] = item;
+    if (!COMMIT_ROOM_NAME_SET.has(key)) {
+      return null;
     }
+    if (typeof item !== "number" || !Number.isFinite(item) || item < 0) {
+      return null;
+    }
+    counts[key] = item;
   }
   return counts;
 }
@@ -265,19 +282,24 @@ function roomTargetsValue(value: unknown): CommitRoomTargets | null {
   const raw = recordValue(value);
   if (!raw) return null;
   const targets: CommitRoomTargets = {};
-  for (const room of ["documents", "library", "memory", "decisions", "tasks"] as const) {
+  for (const key of Object.keys(raw)) {
+    if (!COMMIT_ROOM_NAME_SET.has(key)) {
+      return null;
+    }
+  }
+  for (const room of COMMIT_ROOM_NAMES) {
     const rawTargets = raw[room];
     if (!Array.isArray(rawTargets)) continue;
-    const roomTargets = rawTargets
-      .map((item) => {
-        const target = recordValue(item);
-        const outputId = stringValue(target?.output_id);
-        const itemId = stringValue(target?.item_id);
-        return outputId && itemId
-          ? { output_id: outputId, item_id: itemId }
-          : null;
-      })
-      .filter((item): item is CommitRoomTarget => Boolean(item));
+    const roomTargets: CommitRoomTarget[] = [];
+    for (const item of rawTargets) {
+      const target = recordValue(item);
+      const outputId = stringValue(target?.output_id);
+      const itemId = stringValue(target?.item_id);
+      if (!outputId || !itemId) {
+        return null;
+      }
+      roomTargets.push({ output_id: outputId, item_id: itemId });
+    }
     if (roomTargets.length > 0) {
       targets[room] = roomTargets;
     }
