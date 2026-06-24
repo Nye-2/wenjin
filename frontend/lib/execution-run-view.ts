@@ -557,11 +557,14 @@ function normalizeRunRecordStatus(status: string): RunViewStatus {
 function taskReportFromResult(
   result: Record<string, unknown> | null | undefined,
 ): TaskReportProjection | null {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
   const candidate = result?.task_report;
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
     return candidate as TaskReportProjection;
   }
-  return null;
+  return result as TaskReportProjection;
 }
 
 function reviewItemsFromTaskReport(

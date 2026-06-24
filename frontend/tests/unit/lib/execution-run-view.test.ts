@@ -188,6 +188,63 @@ describe("execution run view projection", () => {
     expect(evidenceText).not.toContain("raw stderr");
   });
 
+  it("projects direct task report results before hydration nests them", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        result: {
+          status: "completed",
+          narrative: "直接任务报告已生成。",
+          outputs: [
+            {
+              id: "direct-doc-1",
+              kind: "document",
+              preview: "直接报告",
+              default_checked: true,
+              data: {
+                name: "direct.md",
+                content: "直接报告正文。",
+              },
+            },
+          ],
+          review_items: [
+            {
+              id: "direct-figure-1",
+              kind: "sandbox_artifact",
+              status: "pending",
+              title: "Direct figure",
+              summary: "/workspace/outputs/figures/direct/figure.png",
+              target: {
+                kind: "sandbox_artifact",
+                path: "/workspace/outputs/figures/direct/figure.png",
+                artifact_kind: "figure",
+                sandbox_artifact_id: "artifact-direct-1",
+              },
+              preview: {
+                mode: "artifact",
+                path: "/workspace/outputs/figures/direct/figure.png",
+                mime_type: "image/png",
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(view.summary).toBe("直接任务报告已生成。");
+    expect(view.resultPreviews.map((preview) => preview.id)).toEqual([
+      "direct-doc-1",
+      "review:direct-figure-1",
+    ]);
+    expect(view.pendingReviewCount).toBe(2);
+    expect(view.evidenceItems[0]).toMatchObject({
+      id: "direct-doc-1",
+      source: "output",
+      title: "直接报告",
+    });
+    expect(view.evidenceItems[0]?.summary).toContain("直接报告正文。");
+  });
+
   it("classifies partial node failures", () => {
     const view = runViewFromExecution(
       makeExecution({
