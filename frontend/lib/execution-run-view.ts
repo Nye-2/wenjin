@@ -194,6 +194,29 @@ const RUN_FAILURE_FALLBACK = "运行问题已记录";
 const CITATION_SOURCE_AUDIT_SCHEMA =
   "wenjin.quality.citation_source_audit_finding.v1";
 const MAX_CITATION_SOURCE_AUDIT_ITEMS = 8;
+const DIRECT_TASK_REPORT_STATUSES = new Set([
+  "completed",
+  "failed_partial",
+  "failed",
+  "cancelled",
+  "running",
+  "pending",
+  "queued",
+]);
+
+const DIRECT_TASK_REPORT_FIELDS = [
+  "outputs",
+  "review_items",
+  "narrative",
+  "result_summary",
+  "errors",
+  "token_usage",
+  "capability_id",
+  "execution_id",
+  "duration_seconds",
+  "preview_item_id",
+  "cost_estimate",
+];
 
 const TEAM_KERNEL_PROGRESS_ORDER = [
   "team_prepare",
@@ -564,7 +587,21 @@ function taskReportFromResult(
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
     return candidate as TaskReportProjection;
   }
+  if (!isDirectTaskReportProjection(result)) {
+    return null;
+  }
   return result as TaskReportProjection;
+}
+
+function isDirectTaskReportProjection(value: Record<string, unknown>): boolean {
+  const status = stringValue(value.status);
+  return Boolean(
+    status &&
+      DIRECT_TASK_REPORT_STATUSES.has(status) &&
+      DIRECT_TASK_REPORT_FIELDS.some((field) =>
+        Object.prototype.hasOwnProperty.call(value, field),
+      ),
+  );
 }
 
 function reviewItemsFromTaskReport(

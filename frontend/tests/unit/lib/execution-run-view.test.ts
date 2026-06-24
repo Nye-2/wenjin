@@ -245,6 +245,53 @@ describe("execution run view projection", () => {
     expect(view.evidenceItems[0]?.summary).toContain("直接报告正文。");
   });
 
+  it("does not treat arbitrary direct result payloads as task reports", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        result: {
+          narrative: "不应作为任务报告摘要。",
+          outputs: [
+            {
+              id: "incidental-doc-1",
+              kind: "document",
+              preview: "误判报告",
+              default_checked: true,
+              data: {
+                name: "incidental.md",
+                content: "不应进入证据。",
+              },
+            },
+          ],
+          review_items: [
+            {
+              id: "incidental-review-1",
+              kind: "sandbox_artifact",
+              status: "pending",
+              title: "Incidental figure",
+              summary: "/workspace/outputs/figures/incidental/figure.png",
+              target: {
+                kind: "sandbox_artifact",
+                path: "/workspace/outputs/figures/incidental/figure.png",
+                artifact_kind: "figure",
+              },
+              preview: {
+                path: "/workspace/outputs/figures/incidental/figure.png",
+                mime_type: "image/png",
+              },
+            },
+          ],
+          errors: [{ error: "incidental error should not drive failure" }],
+        },
+      }),
+    );
+
+    expect(view.summary).toBe("执行已完成。");
+    expect(view.resultPreviews).toEqual([]);
+    expect(view.pendingReviewCount).toBe(0);
+    expect(view.evidenceItems).toEqual([]);
+  });
+
   it("classifies partial node failures", () => {
     const view = runViewFromExecution(
       makeExecution({
