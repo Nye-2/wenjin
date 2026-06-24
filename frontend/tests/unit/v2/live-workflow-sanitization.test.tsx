@@ -296,7 +296,7 @@ describe("live workflow sanitization", () => {
     expect(text).not.toContain("{");
   });
 
-  it("drops unsafe staged figure metadata lines", () => {
+  it("drops staged figure metadata lines from default previews", () => {
     const previews = buildWorkspaceResultPreviewsFromOutputs([
       {
         id: "figure-metadata-1",
@@ -317,16 +317,15 @@ describe("live workflow sanitization", () => {
     ]);
 
     expect(previews).toHaveLength(1);
-    expect(previews[0]?.metadataLines).toEqual([
-      "source: curated experiment dataset",
-      "provider: matplotlib",
-    ]);
+    expect(previews[0]?.metadataLines).toEqual([]);
 
     const text = previews[0]?.metadataLines.join("\n") ?? "";
     expect(text).not.toContain("stdout");
     expect(text).not.toContain("stderr");
     expect(text).not.toContain("raw metadata should stay hidden");
     expect(text).not.toContain("raw figure type should stay hidden");
+    expect(text).not.toContain("curated experiment dataset");
+    expect(text).not.toContain("matplotlib");
     expect(text).not.toContain("/workspace/outputs/harness");
     expect(text).not.toContain("{");
   });

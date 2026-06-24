@@ -7,6 +7,7 @@ import {
   commitExecutionOutputs,
   type CommittedRoomLink,
 } from "@/lib/execution-commit";
+import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 import { groupWorkspaceResultPreviews } from "@/lib/workspace-result-kind";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import {
@@ -46,15 +47,6 @@ function reviewNotice(items: WorkspacePrismReviewItem[]): string {
   return `有 ${items.length} 项待确认`;
 }
 
-function figureDetailLine(metadataLines: string[]): string | null {
-  return (
-    metadataLines.find((line) => line.startsWith("strategy:")) ??
-    metadataLines.find((line) => line.startsWith("figure_type:")) ??
-    metadataLines[0] ??
-    null
-  );
-}
-
 interface ResultCardProps {
   data: ResultCardData;
   workspaceId?: string;
@@ -90,6 +82,8 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     [previews],
   );
   const representativePreviews = useMemo(() => previews.slice(0, 3), [previews]);
+  const narrativeText =
+    safeRuntimeText(narrative, 220) ?? (narrative ? "运行结果已生成。" : null);
   const reviewItems = data.review_items ?? [];
   const firstPrismReviewItem = reviewItems.find(isPrismReviewItem);
   const selectRun = useWorkbenchLayoutStore((state) => state.selectRun);
@@ -175,7 +169,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
         ) : null}
       </div>
 
-      {narrative ? <div style={styles.narrative}>{narrative}</div> : null}
+      {narrativeText ? <div style={styles.narrative}>{narrativeText}</div> : null}
       {!canSaveAll && previews.length > 0 ? (
         <div style={styles.partialNotice}>
           本次运行未完整完成，候选结果需要先查看详情后再决定是否保存。
@@ -229,10 +223,6 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                 const groupMeta = previewGroups.find(
                   (group) => group.kind === preview.kind,
                 )?.meta;
-                const figureMetaLine =
-                  preview.kind === "figure"
-                    ? figureDetailLine(preview.metadataLines)
-                    : null;
                 return (
                   <div key={preview.id} style={styles.representativeItem}>
                     {preview.kind === "figure" ? (
@@ -264,9 +254,6 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                       <div style={styles.previewTitle}>{preview.title}</div>
                       {preview.subtitle ? (
                         <div style={styles.previewSubtitle}>{preview.subtitle}</div>
-                      ) : null}
-                      {figureMetaLine ? (
-                        <div style={styles.previewMetaLine}>{figureMetaLine}</div>
                       ) : null}
                     </div>
                   </div>

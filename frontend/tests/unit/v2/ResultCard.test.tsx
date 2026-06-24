@@ -97,6 +97,24 @@ describe("ResultCard", () => {
     expect(screen.getByText("保存到工作区")).toBeInTheDocument();
   });
 
+  it("sanitizes raw runtime narrative before rendering the chat result card", () => {
+    render(
+      <ResultCard
+        data={{
+          ...SAMPLE_DATA,
+          narrative:
+            '{"stdout":"raw narrative should stay hidden","ref":"/workspace/outputs/harness/exec-1/result.json"}',
+        }}
+      />,
+    );
+
+    expect(screen.getByText("运行结果已生成。")).toBeInTheDocument();
+    expect(screen.queryByText(/stdout/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw narrative should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\{/)).not.toBeInTheDocument();
+  });
+
   it("renders figure outputs with a visual placeholder and figure summary", () => {
     render(
       <ResultCard
@@ -129,7 +147,10 @@ describe("ResultCard", () => {
     expect(
       screen.getByText("Validation accuracy improved across the final three epochs."),
     ).toBeInTheDocument();
-    expect(screen.getByText(/matplotlib_line_chart/)).toBeInTheDocument();
+    expect(screen.queryByText(/matplotlib_line_chart/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/strategy:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/figure_type:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/provenance:/)).not.toBeInTheDocument();
   });
 
   it("opens the workbench review surface for detailed result review", () => {

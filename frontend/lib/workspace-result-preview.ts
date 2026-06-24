@@ -480,7 +480,7 @@ function buildFigurePreview(options: {
     previewPath,
     previewText: caption ?? previewPath ?? title,
     metadata,
-    metadataLines: buildFigureMetadataLines(metadata),
+    metadataLines: [],
     defaultChecked,
     canCommit: true,
     canOpenRoom: true,
@@ -595,29 +595,6 @@ function buildFigureMetadata(
     }
   }
   return Object.keys(metadata).length > 0 ? metadata : null;
-}
-
-function buildFigureMetadataLines(
-  metadata: Record<string, unknown> | null,
-): string[] {
-  if (!metadata) {
-    return [];
-  }
-  const strategy = safeRuntimeText(metadata.strategy);
-  const figureType = safeRuntimeText(metadata.figure_type);
-  const provenance = safeRuntimeText(metadata.provenance);
-  const source = safeRuntimeText(metadata.source);
-  const provider = safeRuntimeText(metadata.provider);
-  return [
-    strategy ? `strategy: ${strategy}` : null,
-    figureType ? `figure_type: ${figureType}` : null,
-    provenance
-      ? `source: ${provenance}`
-      : source
-        ? `source: ${source}`
-        : null,
-    provider ? `provider: ${provider}` : null,
-  ].filter((value): value is string => Boolean(value));
 }
 
 function documentKindLabel(value: string): string {
