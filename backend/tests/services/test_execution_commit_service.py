@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -67,6 +68,7 @@ def _make_service(
     """Build a service with DataService-backed commit dependencies mocked."""
     execution_svc = MagicMock()
     execution_svc.get_by_id = AsyncMock(return_value=execution)
+    execution_svc.update_execution = AsyncMock(return_value=execution)
 
     dataservice = MagicMock()
     dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
@@ -175,6 +177,39 @@ async def test_commit_all_writes_all_kinds():
     mocks["dataservice"].register_asset.assert_called_once()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_called_once()
     mocks["dataservice"].append_execution_event.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_commit_persists_commit_state_and_preserves_task_report():
+    """Successful commits persist commit_state without replacing task_report."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accept_all=True,
+        actor_user_id="user-1",
+    )
+
+    mocks["execution"].update_execution.assert_awaited_once()
+    update_args = mocks["execution"].update_execution.call_args
+    assert update_args.args == (EXECUTION_ID,)
+    assert update_args.kwargs["commit"] is True
+
+    persisted_result = update_args.kwargs["result"]
+    assert persisted_result["task_report"] == report.model_dump(mode="json")
+
+    commit_state = persisted_result["commit_state"]
+    assert result["commit_state"] == commit_state
+    assert commit_state["status"] == "committed"
+    assert commit_state["accepted_ids"] == [output.id for output in outputs]
+    assert commit_state["rejected_ids"] == []
+    assert commit_state["counts"] == result["committed"]
+    assert commit_state["room_targets"] == result["room_targets"]
+    assert commit_state["review_batch_id"] == "review-batch-1"
+    assert datetime.fromisoformat(commit_state["committed_at"])
 
 
 @pytest.mark.asyncio
@@ -333,6 +368,37 @@ async def test_commit_empty_still_writes_run_history():
     mocks["dataservice"].register_asset.assert_not_called()
     mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
     mocks["dataservice"].append_execution_event.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_commit_empty_selection_persists_discard_without_room_writes():
+    """accepted_ids=[] records a durable discard and skips room materialization."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accepted_ids=[],
+        actor_user_id="user-1",
+    )
+
+    commit_state = result["commit_state"]
+    assert commit_state["status"] == "discarded"
+    assert commit_state["accepted_ids"] == []
+    assert commit_state["rejected_ids"] == [output.id for output in outputs]
+    assert all(value == 0 for value in commit_state["counts"].values())
+
+    mocks["dataservice"].create_source.assert_not_called()
+    mocks["dataservice"].import_source.assert_not_called()
+    mocks["dataservice"].register_asset.assert_not_called()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
+    mocks["dataservice"].append_execution_event.assert_called_once()
+
+    persisted_result = mocks["execution"].update_execution.call_args.kwargs["result"]
+    assert persisted_result["task_report"] == report.model_dump(mode="json")
+    assert persisted_result["commit_state"] == commit_state
 
 
 @pytest.mark.asyncio
@@ -571,6 +637,8 @@ async def test_commit_idempotent_with_key():
         actor_user_id="user-1",
     )
     assert mocks["dataservice"].append_execution_event.call_count == 1
+    assert result1["commit_state"]["status"] == "committed"
+    assert result1["commit_state"]["accepted_ids"] == [output.id for output in outputs]
 
     # Second call with same key — should return cached, no additional writes
     result2 = await svc.commit_outputs(
@@ -581,7 +649,64 @@ async def test_commit_idempotent_with_key():
     )
     # Run-history event should still only have been called once (second call short-circuits)
     assert mocks["dataservice"].append_execution_event.call_count == 1
+    assert mocks["execution"].update_execution.call_count == 1
     assert result1 == result2
+
+
+@pytest.mark.asyncio
+async def test_existing_commit_state_short_circuits_duplicate_writes_with_new_key():
+    """A durable commit_state wins over a new idempotency key and avoids rewrites."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    existing_commit_state = {
+        "status": "committed",
+        "accepted_ids": ["out-lib"],
+        "rejected_ids": ["out-doc", "out-mem", "out-dec", "out-task"],
+        "counts": {
+            "library": 1,
+            "documents": 0,
+            "memory": 0,
+            "decisions": 0,
+            "tasks": 0,
+        },
+        "room_targets": {
+            "documents": [],
+            "library": [{"output_id": "out-lib", "item_id": "lib-1"}],
+            "memory": [],
+            "decisions": [],
+            "tasks": [],
+        },
+        "committed_at": "2026-06-24T12:00:00+00:00",
+        "review_batch_id": "review-batch-1",
+    }
+    execution = _make_execution(report)
+    execution.result["commit_state"] = existing_commit_state
+
+    redis_mock = MagicMock()
+    redis_mock.get = AsyncMock(return_value=None)
+    redis_mock.set = AsyncMock()
+
+    svc, mocks = _make_service(execution, redis=redis_mock)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accepted_ids=["out-doc"],
+        idempotency_key="new-key",
+        actor_user_id="user-1",
+    )
+
+    assert result == {
+        "committed": existing_commit_state["counts"],
+        "room_targets": existing_commit_state["room_targets"],
+        "review_batch_id": "review-batch-1",
+        "commit_state": existing_commit_state,
+    }
+    mocks["dataservice"].import_source.assert_not_called()
+    mocks["dataservice"].register_asset.assert_not_called()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
+    mocks["dataservice"].append_execution_event.assert_not_called()
+    mocks["execution"].update_execution.assert_not_called()
+    redis_mock.set.assert_not_called()
 
 
 @pytest.mark.asyncio

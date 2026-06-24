@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 _INLINE_DOC_PATH_PREFIX = "inline://"
 _DOCUMENTS_ROOM_SOURCE_KIND = "documents_room"
 _CITATION_KEY_RE = re.compile(r"[^a-z0-9]+")
+_COUNT_ROOM_KEYS = ("library", "documents", "memory", "decisions", "tasks")
+_ROOM_TARGET_KEYS = ("documents", "library", "memory", "decisions", "tasks")
 _ALLOWED_OVERRIDE_FIELDS: dict[str, set[str]] = {
     "document": {"content", "name", "doc_kind"},
     "library_item": {"title", "authors", "year", "doi", "url", "abstract"},
@@ -114,20 +116,13 @@ class ExecutionCommitService:
         if str(execution.user_id) != str(actor_user_id):
             raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
 
-        # 2. Idempotency cache check
-        if idempotency_key and self.redis:
-            cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
-            cached = await self.redis.get(cache_key)
-            if cached:
-                return cast(dict[str, Any], json.loads(cached))
-
-        # 3. Validate report
+        # 2. Validate report
         if not execution.result or "task_report" not in execution.result:
             raise ValueError(f"execution {execution_id} has no task_report")
 
         report = TaskReport.model_validate(execution.result["task_report"])
 
-        # 4. Select outputs. Partial/cancelled runs may expose useful candidates,
+        # 3. Select outputs. Partial/cancelled runs may expose useful candidates,
         # but they must be intentionally selected by the user.
         output_by_id = {output.id: output for output in report.outputs}
         if accept_all:
@@ -169,20 +164,20 @@ class ExecutionCommitService:
                 for output in selected
             ]
 
-        counts: dict[str, int] = {
-            "library": 0,
-            "documents": 0,
-            "memory": 0,
-            "decisions": 0,
-            "tasks": 0,
-        }
-        room_targets: dict[str, list[dict[str, str]]] = {
-            "documents": [],
-            "library": [],
-            "memory": [],
-            "decisions": [],
-            "tasks": [],
-        }
+        # 4. Idempotency cache check. Ownership and report/input validation stay
+        # ahead of any cached response.
+        if idempotency_key and self.redis:
+            cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
+            cached = await self.redis.get(cache_key)
+            if cached:
+                return cast(dict[str, Any], json.loads(cached))
+
+        existing_commit_state = _valid_commit_state(execution.result.get("commit_state"))
+        if existing_commit_state is not None:
+            return _response_from_commit_state(existing_commit_state)
+
+        counts = _empty_counts()
+        room_targets = _empty_room_targets()
         room_candidates: list[RoomCandidatePayload] = []
 
         # 5. Write to rooms
@@ -353,15 +348,40 @@ class ExecutionCommitService:
                 ),
             )
 
-        result: dict[str, Any] = {
-            "committed": counts,
-            "room_targets": room_targets,
-        }
+        committed_at = datetime.now(UTC).isoformat()
+        accepted_output_ids = [output.id for output in selected]
+        accepted_output_id_set = set(accepted_output_ids)
+        commit_state = _build_commit_state(
+            status="committed" if selected else "discarded",
+            accepted_ids=accepted_output_ids,
+            rejected_ids=[
+                output.id
+                for output in report.outputs
+                if output.id not in accepted_output_id_set
+            ],
+            counts=counts,
+            room_targets=room_targets,
+            committed_at=committed_at,
+            review_batch_id=(
+                room_review_result.review_batch_id
+                if room_review_result is not None
+                else None
+            ),
+        )
+        result = _response_from_commit_state(commit_state)
         if room_review_result is not None:
             result["review_batch_id"] = room_review_result.review_batch_id
             result["room_review_results"] = room_review_result.item_results
 
-        # 7. Cache idempotent result
+        result_payload = dict(execution.result)
+        result_payload["commit_state"] = commit_state
+        await self.execution.update_execution(
+            execution_id,
+            result=result_payload,
+            commit=True,
+        )
+
+        # 7. Cache idempotent result after commit_state is durable.
         if idempotency_key and self.redis:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
             await self.redis.set(cache_key, json.dumps(result), ex=86400)  # 24h
@@ -445,6 +465,111 @@ class ExecutionCommitService:
                 extra={"workspace_id": workspace_id},
                 exc_info=True,
             )
+
+
+def _empty_counts() -> dict[str, int]:
+    return {key: 0 for key in _COUNT_ROOM_KEYS}
+
+
+def _empty_room_targets() -> dict[str, list[dict[str, str]]]:
+    return {key: [] for key in _ROOM_TARGET_KEYS}
+
+
+def _build_commit_state(
+    *,
+    status: str,
+    accepted_ids: list[str],
+    rejected_ids: list[str],
+    counts: dict[str, int],
+    room_targets: dict[str, list[dict[str, str]]],
+    committed_at: str,
+    review_batch_id: str | None,
+) -> dict[str, Any]:
+    commit_state: dict[str, Any] = {
+        "status": status,
+        "accepted_ids": list(accepted_ids),
+        "rejected_ids": list(rejected_ids),
+        "counts": {key: int(counts.get(key, 0)) for key in _COUNT_ROOM_KEYS},
+        "room_targets": _copy_room_targets(room_targets),
+        "committed_at": committed_at,
+    }
+    if review_batch_id is not None:
+        commit_state["review_batch_id"] = review_batch_id
+    return commit_state
+
+
+def _valid_commit_state(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get("status") not in {"committed", "discarded"}:
+        return None
+    if not _is_str_list(value.get("accepted_ids")):
+        return None
+    if not _is_str_list(value.get("rejected_ids")):
+        return None
+    if not isinstance(value.get("committed_at"), str):
+        return None
+
+    counts = value.get("counts")
+    if not isinstance(counts, dict):
+        return None
+    for key in _COUNT_ROOM_KEYS:
+        count = counts.get(key)
+        if not isinstance(count, int) or isinstance(count, bool):
+            return None
+
+    room_targets = value.get("room_targets")
+    if not isinstance(room_targets, dict):
+        return None
+    for key in _ROOM_TARGET_KEYS:
+        targets = room_targets.get(key)
+        if not isinstance(targets, list):
+            return None
+        for target in targets:
+            if not isinstance(target, dict):
+                return None
+            if not isinstance(target.get("output_id"), str):
+                return None
+            if not isinstance(target.get("item_id"), str):
+                return None
+
+    review_batch_id = value.get("review_batch_id")
+    if review_batch_id is not None and not isinstance(review_batch_id, str):
+        return None
+    return value
+
+
+def _response_from_commit_state(commit_state: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "committed": {
+            key: int(commit_state["counts"].get(key, 0))
+            for key in _COUNT_ROOM_KEYS
+        },
+        "room_targets": _copy_room_targets(commit_state["room_targets"]),
+        "commit_state": commit_state,
+    }
+    if "review_batch_id" in commit_state:
+        result["review_batch_id"] = commit_state["review_batch_id"]
+    return result
+
+
+def _copy_room_targets(
+    room_targets: dict[str, list[dict[str, str]]],
+) -> dict[str, list[dict[str, str]]]:
+    copied: dict[str, list[dict[str, str]]] = {}
+    for key in _ROOM_TARGET_KEYS:
+        copied[key] = [
+            {
+                "output_id": str(target["output_id"]),
+                "item_id": str(target["item_id"]),
+            }
+            for target in room_targets.get(key, [])
+        ]
+    return copied
+
+
+def _is_str_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
 def _citation_key(data: dict[str, Any]) -> str:
