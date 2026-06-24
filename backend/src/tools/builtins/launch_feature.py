@@ -60,6 +60,37 @@ def _read_optional(config: RunnableConfig | None, key: str) -> str | None:
     return value or None
 
 
+def _launch_idempotency_key(config: RunnableConfig | None) -> str | None:
+    key = _read_optional(config, "launch_idempotency_key")
+    if key:
+        return key
+    thread_id = _read_optional(config, "thread_id")
+    user_message_id = _read_optional(config, "user_message_id")
+    if thread_id and user_message_id:
+        return f"launch_feature:{thread_id}:{user_message_id}"
+    return None
+
+
+def _execution_launch_idempotency_key(execution: Any) -> str:
+    params = getattr(execution, "params", None)
+    if not isinstance(params, dict):
+        params = getattr(execution, "task_brief_json", None)
+    if not isinstance(params, dict):
+        return ""
+    billing = params.get("billing")
+    orchestration = params.get("orchestration")
+    candidates = [
+        params.get("launch_idempotency_key"),
+        orchestration.get("launch_idempotency_key") if isinstance(orchestration, dict) else None,
+        billing.get("launch_idempotency_key") if isinstance(billing, dict) else None,
+    ]
+    for candidate in candidates:
+        text = str(candidate or "").strip()
+        if text:
+            return text
+    return ""
+
+
 def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str, Any]:
     configurable = (config or {}).get("configurable") if isinstance(config, Mapping) else None
     if not isinstance(configurable, Mapping):
@@ -160,6 +191,27 @@ async def launch_feature_tool(
 
         execution_service = ExecutionService(dataservice=catalog)
 
+        launch_idempotency_key = _launch_idempotency_key(config)
+        if launch_idempotency_key:
+            existing_for_turn = await execution_service.list_executions(
+                workspace_id=workspace_id,
+                limit=20,
+            )
+            for existing in existing_for_turn:
+                if (
+                    str(getattr(existing, "thread_id", "") or "") == thread_id
+                    and str(getattr(existing, "user_id", "") or "") == user_id
+                    and str(getattr(existing, "feature_id", "") or "") == feature_id
+                    and _execution_launch_idempotency_key(existing) == launch_idempotency_key
+                ):
+                    return {
+                        "status": "launched",
+                        "execution_id": str(existing.id),
+                        "feature_id": feature_id,
+                        "capability_name": getattr(cap, "display_name", None),
+                        "detail": "该能力已在当前消息中启动，继续使用同一个执行。",
+                    }
+
         # Lead-busy check
         all_active = await execution_service.list_executions(
             workspace_id=workspace_id,
@@ -227,6 +279,11 @@ async def launch_feature_tool(
             params=merged_params,
             workspace_id=workspace_id,
         )
+        if launch_idempotency_key:
+            execution_params["launch_idempotency_key"] = launch_idempotency_key
+            execution_params.setdefault("orchestration", {})[
+                "launch_idempotency_key"
+            ] = launch_idempotency_key
 
         try:
             execution = None

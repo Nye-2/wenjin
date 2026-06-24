@@ -183,6 +183,84 @@ async def test_launch_feature_creates_execution_and_dispatches():
 
 
 @pytest.mark.asyncio
+async def test_launch_feature_reuses_execution_for_same_user_message():
+    """Repeated tool calls for one chat turn should reuse the first execution."""
+    dispatched: list[str] = []
+    executions: list[SimpleNamespace] = []
+
+    async def _list_executions(
+        *,
+        workspace_id: str,
+        status: list[str] | None = None,
+        limit: int | None = None,
+    ):
+        if status:
+            return executions
+        if limit:
+            return executions
+        return []
+
+    async def _create_execution(**kwargs):
+        execution = SimpleNamespace(id="exec-1", **kwargs)
+        executions.append(execution)
+        return execution
+
+    async def _update_execution(execution_id: str, **kwargs):
+        execution = executions[0]
+        for key, value in kwargs.items():
+            setattr(execution, key, value)
+        return execution
+
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(side_effect=_list_executions)
+    fake_service.create_execution = AsyncMock(side_effect=_create_execution)
+    fake_service.update_execution = AsyncMock(side_effect=_update_execution)
+    fake_credit_service = MagicMock()
+    fake_credit_service.can_start_feature_task = AsyncMock(return_value=True)
+    fake_credit_service.estimate_feature_reservation_credits = AsyncMock(return_value=120)
+    fake_credit_service.reserve_for_feature_execution = AsyncMock(
+        return_value=SimpleNamespace(id="reservation-1", reserved_credits=120, status="reserved")
+    )
+    fake_celery = MagicMock(enabled=True)
+    fake_celery_app = MagicMock()
+
+    def _send_task(name: str, args: list[str], **kwargs):
+        dispatched.append(args[0])
+        return SimpleNamespace(id=f"worker-task-{len(dispatched)}")
+
+    fake_celery_app.send_task.side_effect = _send_task
+
+    config = {
+        "configurable": {
+            "workspace_id": "ws-1",
+            "thread_id": "thread-1",
+            "user_id": "user-1",
+            "user_message_id": "msg-1",
+            "launch_idempotency_key": "launch_feature:thread-1:msg-1",
+        }
+    }
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.services.credit_service.CreditService", return_value=fake_credit_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        first = await launch_feature_tool.ainvoke(
+            {"feature_id": "idea_to_thesis_manuscript", "params": {"topic": "LLM agents"}},
+            config=config,
+        )
+        second = await launch_feature_tool.ainvoke(
+            {"feature_id": "idea_to_thesis_manuscript", "params": {"topic": "LLM agents"}},
+            config=config,
+        )
+
+    assert first["status"] == "launched"
+    assert second["status"] == "launched"
+    assert second["execution_id"] == first["execution_id"]
+    assert dispatched == [first["execution_id"]]
+
+
+@pytest.mark.asyncio
 async def test_launch_feature_creates_credit_reservation_before_dispatch():
     fake_execution = _StubExecution(id="exec-1")
     fake_service = MagicMock()
