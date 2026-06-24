@@ -9,11 +9,13 @@ import type {
 import { cancelExecution, listExecutions } from "@/lib/api/executions";
 import {
   buildCommittedRoomLinks,
+  COMMIT_STATE_SYNC_ERROR,
   commitExecutionOutputs,
   commitStateFromCommitResponse,
   commitStateRoomTargets,
   type ExecutionCommitRequest,
   type ExecutionCommitState,
+  isExecutionDiscarded,
   readCommitStateFromResult,
 } from "@/lib/execution-commit";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
@@ -151,6 +153,7 @@ export function LiveWorkflowPanel({
       : null;
   const effectiveCommitState = durableCommitState ?? localCommitState;
   const commitFinal = Boolean(effectiveCommitState);
+  const commitDiscarded = isExecutionDiscarded(effectiveCommitState);
   const commitLinkPreviews =
     commitState.executionId === selectedRecord?.id && commitState.linkPreviews
       ? commitState.linkPreviews
@@ -395,11 +398,17 @@ export function LiveWorkflowPanel({
         body,
       });
       const commitLinkPreviews = applyDraftLabelsToCommitLinks(committablePreviews, draftEdits);
-      const nextCommitState = commitStateFromCommitResponse(response, {
-        acceptedIds,
-        outputIds,
-        discarded: mode === "discard" || acceptedIds.length === 0,
-      });
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setCommitState((current) => ({
+          ...current,
+          committing: false,
+          responseCommitState: null,
+          linkPreviews: null,
+          error: COMMIT_STATE_SYNC_ERROR,
+        }));
+        return;
+      }
       clearDraftEdits(acceptedIds);
       const recordToPatch =
         useExecutionStore.getState().executions.get(selectedRecord.id) ??
@@ -548,6 +557,9 @@ export function LiveWorkflowPanel({
             draftEdits={draftEdits}
             checkedIds={checkedIds}
             committed={commitFinal}
+            commitFinalLabel={
+              commitDiscarded ? "已暂不保存" : "已写入工作区"
+            }
             committing={commitState.committing}
             commitLinks={commitLinks}
             commitError={commitState.error}

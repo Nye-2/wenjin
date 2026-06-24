@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 
 import {
   buildCommittedRoomLinks,
+  COMMIT_STATE_SYNC_ERROR,
   commitExecutionOutputs,
   commitStateFromCommitResponse,
   commitStateRoomTargets,
@@ -139,15 +140,12 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
         idempotencyKey,
         body,
       });
-      const outputIds = previews.map((preview) => preview.id);
-      const acceptedIds = body.accept_all
-        ? outputIds
-        : (body.accepted_ids ?? []).filter((id) => outputIds.includes(id));
-      const nextCommitState = commitStateFromCommitResponse(response, {
-        acceptedIds,
-        outputIds,
-        discarded: !body.accept_all && acceptedIds.length === 0,
-      });
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setLocalCommitState(null);
+        setCommitError(COMMIT_STATE_SYNC_ERROR);
+        return;
+      }
       setLocalCommitState(nextCommitState);
       const currentRecord =
         useExecutionStore.getState().executions.get(execution_id);

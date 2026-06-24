@@ -46,6 +46,8 @@ export interface CommittedRoomLink {
   href: string;
 }
 
+export const COMMIT_STATE_SYNC_ERROR = "保存状态同步失败，请刷新后重试";
+
 export async function commitExecutionOutputs(options: {
   executionId: string;
   idempotencyKey: string;
@@ -210,28 +212,8 @@ export function commitStateRoomTargets(
 
 export function commitStateFromCommitResponse(
   response: ExecutionCommitResponse,
-  options: {
-    acceptedIds: string[];
-    outputIds: string[];
-    discarded?: boolean;
-  },
-): ExecutionCommitState {
-  const durableCommitState = readCommitStateFromResult({
-    commit_state: response.commit_state,
-  });
-  if (durableCommitState) {
-    return durableCommitState;
-  }
-
-  const acceptedSet = new Set(options.acceptedIds);
-  return {
-    status: options.discarded ? "discarded" : "committed",
-    accepted_ids: options.acceptedIds,
-    rejected_ids: options.outputIds.filter((id) => !acceptedSet.has(id)),
-    counts: response.committed ?? {},
-    room_targets: response.room_targets ?? {},
-    committed_at: new Date().toISOString(),
-  };
+): ExecutionCommitState | null {
+  return readCommitStateFromResult(response);
 }
 
 function buildWorkspaceRoomHref(options: {

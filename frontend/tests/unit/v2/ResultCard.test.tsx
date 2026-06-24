@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResultCard } from "@/app/(workbench)/workspaces/[id]/components/ResultCard";
@@ -17,6 +17,7 @@ beforeEach(() => {
     json: () =>
       Promise.resolve({
         committed: {},
+        commit_state: COMMITTED_STATE,
         room_targets: {
           documents: [{ output_id: "o3", item_id: "doc-77" }],
           library: [{ output_id: "o1", item_id: "lib-88" }],
@@ -90,9 +91,11 @@ const COMMITTED_STATE = {
   status: "committed",
   accepted_ids: ["o3"],
   rejected_ids: ["o1"],
-  counts: { documents: 1 },
+  counts: { documents: 1, library: 1, memory: 1 },
   room_targets: {
     documents: [{ output_id: "o3", item_id: "doc-77" }],
+    library: [{ output_id: "o1", item_id: "lib-88" }],
+    memory: [{ output_id: "o4", item_id: "mem-99" }],
   },
   committed_at: "2026-06-20T00:00:00Z",
 } as const;
@@ -341,6 +344,35 @@ describe("ResultCard", () => {
     expect(
       useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
     ).toEqual(COMMITTED_STATE);
+  });
+
+  it("does not fabricate or patch durable commit_state when POST lacks backend commit_state", async () => {
+    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { documents: 1 },
+          room_targets: {
+            documents: [{ output_id: "o3", item_id: "doc-77" }],
+          },
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
+    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
   });
 
   it("renders DB-backed Prism review items with workspace navigation", () => {

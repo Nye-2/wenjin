@@ -55,6 +55,7 @@ describe("CompletedView", () => {
       json: () =>
         Promise.resolve({
           committed: { documents: 1, library: 0 },
+          commit_state: COMMITTED_STATE,
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
             library: [],
@@ -412,6 +413,35 @@ describe("CompletedView", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
     expect(await screen.findByText("Commit failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+  });
+
+  it("does not finalize when POST succeeds without durable backend commit_state", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { documents: 1 },
+          room_targets: {
+            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+          },
+        }),
+    });
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{ task_report: OUTLINE_TASK_REPORT }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
   });
 
   it("hydrates committed status and room links from result.commit_state", () => {

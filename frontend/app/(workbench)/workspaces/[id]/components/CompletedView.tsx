@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { resolveExecutionNextActionPresentation } from "@/lib/block-actions";
 import {
   buildCommittedRoomLinks,
+  COMMIT_STATE_SYNC_ERROR,
   commitExecutionOutputs,
   commitStateFromCommitResponse,
   commitStateRoomTargets,
@@ -161,22 +162,13 @@ export function CompletedView({
         idempotencyKey,
         body,
       });
-      const outputIds = previews.map((preview) => preview.id);
-      const acceptedIds = body.accept_all
-        ? outputIds
-        : Array.isArray(body.accepted_ids)
-          ? body.accepted_ids.filter(
-              (id): id is string =>
-                typeof id === "string" && outputIds.includes(id),
-            )
-          : [];
-      setLocalCommitState(
-        commitStateFromCommitResponse(response, {
-          acceptedIds,
-          outputIds,
-          discarded: body.accept_all !== true && acceptedIds.length === 0,
-        }),
-      );
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setLocalCommitState(null);
+        setCommitError(COMMIT_STATE_SYNC_ERROR);
+        return;
+      }
+      setLocalCommitState(nextCommitState);
     } catch (error) {
       setCommitError(
         error instanceof Error && !error.message.startsWith("Failed")
