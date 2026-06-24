@@ -18,7 +18,13 @@ ResearchSurface = Literal[
     "output_ref_reuse",
 ]
 
-DEFAULT_RESEARCH_SURFACES: tuple[ResearchSurface, ...] = ("literature", "experiment", "writing")
+DEFAULT_RESEARCH_SURFACES: tuple[ResearchSurface, ...] = (
+    "literature",
+    "citation_strength",
+    "paper_relevance",
+    "experiment",
+    "writing",
+)
 KNOWN_RESEARCH_SURFACES = frozenset(str(item) for item in get_args(ResearchSurface))
 
 
@@ -74,4 +80,3 @@ def _unique(values: list[str]) -> list[str]:
 def _clean_text(value: Any) -> str:
     text = str(value or "").strip()
     return text if text else ""
-

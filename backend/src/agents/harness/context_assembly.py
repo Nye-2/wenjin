@@ -12,6 +12,7 @@ from src.sandbox.workspace_layout import (
     is_workspace_internal_path,
     is_workspace_protected_path,
     is_workspace_readable_internal_output_ref,
+    normalize_workspace_virtual_path,
 )
 
 from .context_budget_policy import fit_context_bundle_to_budget
@@ -37,6 +38,7 @@ _SANDBOX_EXECUTION_SUMMARY_ALLOWED_KEYS = frozenset(
         "output_refs",
     }
 )
+_OUTPUT_REF_SUMMARY_ALLOWED_KEYS = frozenset({"schema", "output_ref_count", "output_refs"})
 _MEMBER_EXECUTION_TRANSCRIPT_ALLOWED_KEYS = frozenset(
     {
         "schema",
@@ -99,6 +101,10 @@ def build_harness_context_bundle(
         safe_workspace_data,
         "sandbox_execution_summary",
     )
+    output_ref_summary = _latest_harness_summary(
+        safe_workspace_data,
+        "output_ref_summary",
+    )
     bundle = {
         "schema": HARNESS_CONTEXT_BUNDLE_SCHEMA,
         "workspace_id": str(workspace_id or ""),
@@ -114,7 +120,7 @@ def build_harness_context_bundle(
             "file_change_summary",
         ),
         "sandbox_execution_summary": sandbox_execution_summary,
-        "output_ref_recovery": _output_ref_recovery(sandbox_execution_summary),
+        "output_ref_recovery": _output_ref_recovery(sandbox_execution_summary, output_ref_summary),
         "reproducibility_summary": _latest_harness_summary(
             safe_workspace_data,
             "reproducibility_summary",
@@ -371,6 +377,8 @@ def _latest_harness_summary(workspace_data: dict[str, Any], key: str) -> dict[st
     recent = history.get("recent_executions")
     if recent is None:
         recent = workspace_data.get("recent_executions")
+    if recent is None:
+        recent = workspace_data.get("recent_execution_evidence")
     if not isinstance(recent, list):
         return {}
     for item in recent:
@@ -529,6 +537,8 @@ def _recent_execution_items(workspace_data: dict[str, Any]) -> list[dict[str, An
     recent = history.get("recent_executions")
     if recent is None:
         recent = workspace_data.get("recent_executions")
+    if recent is None:
+        recent = workspace_data.get("recent_execution_evidence")
     if not isinstance(recent, list):
         return []
     return [item for item in recent[:8] if isinstance(item, dict)]
@@ -664,6 +674,7 @@ def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
         "file_change_summary",
         "tool_failure_summary",
         "sandbox_execution_summary",
+        "output_ref_summary",
         "reproducibility_summary",
         "experiment_interpretation_summary",
         "statistical_robustness_summary",
@@ -678,6 +689,8 @@ def _harness_summary(item: dict[str, Any]) -> dict[str, Any]:
 def _safe_harness_summary_value(key: str, value: Any) -> Any:
     if key == "sandbox_execution_summary":
         return _safe_sandbox_execution_summary(value)
+    if key == "output_ref_summary":
+        return _safe_output_ref_summary(value)
     if key == "member_execution_transcript":
         return _safe_member_execution_transcript(value)
     return _safe_value(value)
@@ -695,8 +708,8 @@ def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
             refs: list[str] = []
             if isinstance(item, list):
                 for ref in item:
-                    text = str(ref).strip()
-                    if is_workspace_readable_internal_output_ref(text) and text not in refs:
+                    text = _normalized_readable_output_ref(ref)
+                    if text and text not in refs:
                         refs.append(text)
             if refs:
                 result["output_refs"] = refs[:20]
@@ -704,6 +717,34 @@ def _safe_sandbox_execution_summary(value: Any) -> dict[str, Any]:
         safe = _safe_value(item)
         if safe not in (None, {}, []):
             result[key_text] = safe
+    return result
+
+
+def _safe_output_ref_summary(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    result: dict[str, Any] = {}
+    refs: list[str] = []
+    for key, item in value.items():
+        key_text = str(key)
+        if key_text not in _OUTPUT_REF_SUMMARY_ALLOWED_KEYS:
+            continue
+        if key_text == "output_refs":
+            if isinstance(item, list):
+                for ref in item:
+                    text = _normalized_readable_output_ref(ref)
+                    if text and text not in refs:
+                        refs.append(text)
+            continue
+        if key_text == "output_ref_count":
+            continue
+        safe = _safe_value(item)
+        if safe not in (None, {}, []):
+            result[key_text] = safe
+    if refs:
+        count = _safe_nonnegative_int(value.get("output_ref_count"))
+        result["output_ref_count"] = max(count or 0, len(refs))
+        result["output_refs"] = refs[:20]
     return result
 
 
@@ -719,8 +760,8 @@ def _safe_member_execution_transcript(value: Any) -> dict[str, Any]:
         if key_text == "output_refs_read":
             if isinstance(item, list):
                 for ref in item:
-                    text = str(ref).strip()
-                    if is_workspace_readable_internal_output_ref(text) and text not in refs:
+                    text = _normalized_readable_output_ref(ref)
+                    if text and text not in refs:
                         refs.append(text)
             continue
         if key_text == "scratch_refs":
@@ -788,16 +829,25 @@ def _safe_nonnegative_int(value: Any) -> int | None:
     return value
 
 
-def _output_ref_recovery(sandbox_execution_summary: dict[str, Any]) -> dict[str, Any]:
+def _output_ref_recovery(
+    sandbox_execution_summary: dict[str, Any],
+    output_ref_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     refs = []
-    raw_refs = sandbox_execution_summary.get("output_refs")
-    for ref in raw_refs if isinstance(raw_refs, list | tuple) else []:
-        text = str(ref or "").strip()
-        if is_workspace_readable_internal_output_ref(text):
+    seen: set[str] = set()
+    for source, raw_refs in (
+        ("sandbox_execution_summary", sandbox_execution_summary.get("output_refs")),
+        ("output_ref_summary", (output_ref_summary or {}).get("output_refs")),
+    ):
+        for ref in raw_refs if isinstance(raw_refs, list | tuple) else []:
+            text = _normalized_readable_output_ref(ref)
+            if not text or text in seen:
+                continue
+            seen.add(text)
             refs.append(
                 {
                     "output_ref": text,
-                    "source": "sandbox_execution_summary",
+                    "source": source,
                 }
             )
     if not refs:
@@ -811,6 +861,17 @@ def _output_ref_recovery(sandbox_execution_summary: dict[str, Any]) -> dict[str,
         ),
         "refs": refs[:20],
     }
+
+
+def _normalized_readable_output_ref(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        normalized = normalize_workspace_virtual_path(text)
+    except ValueError:
+        return ""
+    return normalized if is_workspace_readable_internal_output_ref(normalized) else ""
 
 
 def _copy_safe_string(target: dict[str, Any], key: str, value: Any) -> None:

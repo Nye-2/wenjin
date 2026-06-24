@@ -717,6 +717,68 @@ def test_context_budget_preserves_required_research_evidence_before_generic_cont
     ]
 
 
+def test_context_assembly_uses_generic_output_ref_summary_for_recovery() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        task={"inputs": {"goal": "reuse outputs"}},
+        workspace_data={
+            "recent_execution_evidence": [
+                {
+                    "node_metadata": {
+                        "harness": {
+                            "output_ref_summary": {
+                                "schema": "wenjin.harness.output_ref_summary.v1",
+                                "output_refs": [
+                                    "/workspace/tmp/tasks/.harness/outputs/exec/node/inv/sandbox.read_file-abc.txt"
+                                ],
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        allowed_tools=["sandbox.read_output_ref"],
+    )
+
+    assert bundle["output_ref_recovery"]["refs"][0]["output_ref"].endswith("sandbox.read_file-abc.txt")
+
+
+def test_context_assembly_normalizes_generic_output_ref_summary_for_recovery() -> None:
+    raw_ref = (
+        "/private/var/folders/wenjin-runtime/workspace/tmp/tasks/.harness/outputs/"
+        "exec/node/inv/sandbox.read_file-abc.txt"
+    )
+    output_ref = "/workspace/tmp/tasks/.harness/outputs/exec/node/inv/sandbox.read_file-abc.txt"
+
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        task={"inputs": {"goal": "reuse outputs"}},
+        workspace_data={
+            "recent_execution_evidence": [
+                {
+                    "node_metadata": {
+                        "harness": {
+                            "output_ref_summary": {
+                                "schema": "wenjin.harness.output_ref_summary.v1",
+                                "output_ref_count": 2,
+                                "output_refs": [raw_ref, output_ref],
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+        allowed_tools=["sandbox.read_output_ref"],
+    )
+
+    recovered_ref = bundle["output_ref_recovery"]["refs"][0]["output_ref"]
+    assert bundle["output_ref_recovery"]["refs"] == [
+        {"output_ref": output_ref, "source": "output_ref_summary"}
+    ]
+    assert recovered_ref.startswith("/workspace/tmp/tasks/.harness/outputs/")
+    assert not recovered_ref.startswith("/private/var/folders/wenjin-runtime")
+
+
 def test_harness_context_bundle_includes_bounded_workspace_file_summary() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",

@@ -167,6 +167,42 @@ def test_file_change_summary_preserves_externalized_diff_refs() -> None:
     ]
 
 
+def test_file_change_summary_normalizes_and_filters_externalized_diff_refs() -> None:
+    raw_ref = (
+        "/private/var/folders/wenjin-runtime/workspace/tmp/tasks/.harness/outputs/"
+        "exec/node/invocation/sandbox.write_file.diff-abc.diff"
+    )
+    output_ref = (
+        "/workspace/tmp/tasks/.harness/outputs/"
+        "exec/node/invocation/sandbox.write_file.diff-abc.diff"
+    )
+
+    summary = build_file_change_summary_from_tool_calls(
+        [
+            {
+                "name": "sandbox.write_file",
+                "status": "completed",
+                "file_changes": [
+                    {
+                        "path": "/workspace/main/large.tex",
+                        "operation": "update",
+                        "unified_diff": "Total output lines: 100\n\n[preview]",
+                        "diff_output_refs": [
+                            raw_ref,
+                            output_ref,
+                            "/workspace/tmp/tasks/.harness/outputs/exec/../secret.txt",
+                            "/workspace/main/not-an-output-ref.txt",
+                        ],
+                    }
+                ],
+            }
+        ]
+    )
+
+    diff = summary["changes"][0]["diffs"][0]
+    assert diff["diff_output_refs"] == [output_ref]
+
+
 def test_harness_node_metadata_includes_tool_failure_summary() -> None:
     metadata = build_harness_node_metadata_from_tool_calls(
         [
@@ -276,6 +312,64 @@ def test_harness_node_metadata_includes_sandbox_execution_summary() -> None:
         "exit_codes": [2],
         "output_refs": ["/workspace/tmp/tasks/.harness/outputs/exec-1/node-2/stdout.txt"],
     }
+
+
+def test_harness_node_metadata_collects_generic_output_ref_summary() -> None:
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.read_file",
+                "status": "completed",
+                "metadata": {
+                    "output_refs": [
+                        "/workspace/tmp/tasks/.harness/outputs/exec/node/inv/sandbox.read_file-abc.txt"
+                    ],
+                    "externalized": True,
+                },
+            },
+            {
+                "name": "sandbox.run_python",
+                "status": "completed",
+                "metadata": {
+                    "output_refs": [
+                        "/workspace/tmp/tasks/.harness/outputs/exec/node/inv/sandbox.run_python-def.txt"
+                    ],
+                    "externalized": True,
+                },
+            },
+        ]
+    )
+
+    summary = metadata["harness"]["output_ref_summary"]
+    assert summary["schema"] == "wenjin.harness.output_ref_summary.v1"
+    assert summary["output_ref_count"] == 2
+
+
+def test_harness_node_metadata_normalizes_generic_output_ref_summary() -> None:
+    raw_ref = (
+        "/private/var/folders/wenjin-runtime/workspace/tmp/tasks/.harness/outputs/"
+        "exec/node/inv/sandbox.read_file-abc.txt"
+    )
+    output_ref = "/workspace/tmp/tasks/.harness/outputs/exec/node/inv/sandbox.read_file-abc.txt"
+
+    metadata = build_harness_node_metadata_from_tool_calls(
+        [
+            {
+                "name": "sandbox.read_file",
+                "status": "completed",
+                "metadata": {
+                    "output_refs": [raw_ref, output_ref],
+                    "externalized": True,
+                },
+            }
+        ]
+    )
+
+    summary = metadata["harness"]["output_ref_summary"]
+    assert summary["output_ref_count"] == 1
+    assert summary["output_refs"] == [output_ref]
+    assert summary["output_refs"][0].startswith("/workspace/tmp/tasks/.harness/outputs/")
+    assert not summary["output_refs"][0].startswith("/private/var/folders/wenjin-runtime")
 
 
 def test_sandbox_execution_summary_dedupes_generated_artifacts_across_record_and_metadata() -> None:
