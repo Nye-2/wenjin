@@ -123,6 +123,71 @@ describe("execution run view projection", () => {
     expect(view.actions).toContain("preview_results");
   });
 
+  it("projects result previews and sanitized evidence from the run view layer", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        result: {
+          task_report: {
+            outputs: [
+              {
+                id: "doc-1",
+                kind: "document",
+                preview: "实验结果摘要",
+                default_checked: true,
+                data: {
+                  name: "result.md",
+                  content: "完成实验结果摘要。",
+                },
+              },
+            ],
+          },
+        },
+        node_states: {
+          "experiment-node": {
+            status: "completed",
+            node_type: "agent_invocation",
+            label: "实验工程师",
+            output: {
+              stdout: "raw stdout should stay hidden",
+              stderr: "raw stderr should stay hidden",
+            },
+            node_metadata: {
+              harness: {
+                reproducibility_summary: {
+                  schema: "wenjin.harness.reproducibility_summary.v1",
+                  script_paths: ["/workspace/scripts/analysis.py"],
+                  dataset_paths: ["/workspace/datasets/panel.csv"],
+                  artifact_paths: [
+                    "/workspace/outputs/result.json",
+                    "/workspace/tmp/tasks/.harness/raw-output.txt",
+                  ],
+                  next_actions: ["复核图表"],
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+
+    expect(view.resultPreviews[0]?.id).toBe("doc-1");
+    expect(view.resultPreviews[0]?.title).toBe("实验结果摘要");
+    expect(view.pendingReviewCount).toBe(1);
+    expect(view.sandboxCount).toBe(1);
+
+    const evidenceText = view.evidenceItems
+      .map((item) => [item.title, item.summary].join("\n"))
+      .join("\n");
+    expect(evidenceText).toContain("实验结果摘要");
+    expect(evidenceText).toContain("analysis.py");
+    expect(evidenceText).toContain("panel.csv");
+    expect(evidenceText).toContain("result.json");
+    expect(evidenceText).not.toContain("/workspace/tmp/tasks/.harness");
+    expect(evidenceText).not.toContain("raw stdout");
+    expect(evidenceText).not.toContain("raw stderr");
+  });
+
   it("classifies partial node failures", () => {
     const view = runViewFromExecution(
       makeExecution({
