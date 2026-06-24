@@ -798,7 +798,7 @@ class TeamKernelRuntime:
             gate.model_dump(mode="json") for gate in gates
         )
         for gate in gates:
-            await self.publish_event(
+            await self._safe_publish_team_event(
                 execution_id,
                 "execution.team.quality_gate",
                 {"quality_gate": gate.model_dump(mode="json")},
@@ -948,8 +948,8 @@ class TeamKernelRuntime:
     ) -> None:
         started_at = datetime.now(UTC)
         invocation.status = "running"
-        await self._record_invocation(invocation, status="running", started_at=started_at)
-        await self.publish_event(
+        await self._safe_record_invocation(invocation, status="running", started_at=started_at)
+        await self._safe_publish_team_event(
             invocation.execution_id or "",
             "execution.team.invocation",
             {"invocation": invocation.model_dump(mode="json")},
@@ -972,22 +972,22 @@ class TeamKernelRuntime:
                         *invocation.expert_snapshots,
                         *snapshots,
                     ][-20:]
-                    try:
-                        await self._record_invocation(invocation, status="running")
-                        await self.publish_event(
-                            invocation.execution_id or "",
-                            "execution.team.expert_snapshot",
-                            {
-                                "invocation_id": invocation.id,
-                                "snapshot": snapshots[-1],
-                            },
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Failed to publish expert snapshot for %s",
-                            invocation.id,
-                            exc_info=True,
-                        )
+                    await self._safe_record_invocation(invocation, status="running")
+                    await self._safe_publish_team_event(
+                        invocation.execution_id or "",
+                        "execution.team.expert_snapshot",
+                        {
+                            "invocation_id": invocation.id,
+                            "snapshot": snapshots[-1],
+                        },
+                    )
+
+                async def safe_publish_event(
+                    execution_id: str,
+                    event_name: str,
+                    payload: dict[str, Any],
+                ) -> None:
+                    await self._safe_publish_team_event(execution_id, event_name, payload)
 
                 ctx = SubagentContext(
                     workspace_id=str(invocation.input_brief.get("workspace_id") or ""),
@@ -1000,7 +1000,7 @@ class TeamKernelRuntime:
                     skill=skill,
                     team_context=blackboard.model_dump(mode="json"),
                     invocation=invocation.model_dump(mode="json"),
-                    publish_event=self.publish_event,
+                    publish_event=safe_publish_event,
                     expert_snapshot_emitter=emit_expert_snapshot,
                 )
                 result: SubagentResult = await _run_subagent_with_timeout(
@@ -1036,12 +1036,46 @@ class TeamKernelRuntime:
             invocation.status = "failed"
             invocation.error = {"message": str(exc)}
         completed_at = datetime.now(UTC)
-        await self._record_invocation(invocation, status=invocation.status, completed_at=completed_at)
-        await self.publish_event(
+        invocation.completed_at = completed_at
+        await self._safe_record_invocation(
+            invocation,
+            status=invocation.status,
+            completed_at=completed_at,
+        )
+        await self._safe_publish_team_event(
             invocation.execution_id or "",
             "execution.team.invocation",
             {"invocation": invocation.model_dump(mode="json")},
         )
+
+    async def _safe_record_invocation(
+        self,
+        invocation: AgentInvocation,
+        *,
+        status: str,
+        started_at: datetime | None = None,
+        completed_at: datetime | None = None,
+    ) -> None:
+        try:
+            await self._record_invocation(
+                invocation,
+                status=status,
+                started_at=started_at,
+                completed_at=completed_at,
+            )
+        except Exception:
+            logger.warning("Failed to record team invocation node", exc_info=True)
+
+    async def _safe_publish_team_event(
+        self,
+        execution_id: str,
+        event_name: str,
+        payload: dict[str, Any],
+    ) -> None:
+        try:
+            await self.publish_event(execution_id, event_name, payload)
+        except Exception:
+            logger.warning("Failed to publish team event %s", event_name, exc_info=True)
 
     async def _record_invocation(
         self,
@@ -1349,24 +1383,54 @@ class TeamKernelRuntime:
         task: dict[str, Any],
         invocations: list[AgentInvocation],
     ) -> dict[str, Any] | None:
-        skill_id = str(task.get("skill_id") or "").strip()
-        task_name = str(task.get("name") or "").strip()
-        for invocation in invocations:
-            if invocation.status != "succeeded":
-                continue
-            if skill_id and skill_id in invocation.effective_skills:
-                return invocation.output_report or {}
-        normalized_task_name = task_name.replace("-", "_")
-        for invocation in invocations:
-            if invocation.status != "succeeded":
-                continue
-            template_name = invocation.template_id.split(".")[0].replace("-", "_")
-            if normalized_task_name and normalized_task_name == template_name:
-                return invocation.output_report or {}
+        matches = [
+            invocation
+            for invocation in invocations
+            if invocation.status == "succeeded"
+            and self._invocation_matches_graph_task(invocation, task)
+            and _has_meaningful_output(invocation.output_report)
+        ]
+        if matches:
+            latest = max(
+                matches,
+                key=lambda item: (
+                    int(item.iteration or 0),
+                    self._invocation_completed_at(item),
+                    item.id,
+                ),
+            )
+            return latest.output_report
         if self._task_declares_document_output(task):
             content = self._aggregate_team_content(invocations)
             return {"text": content} if content else None
         return None
+
+    def _invocation_matches_graph_task(
+        self,
+        invocation: AgentInvocation,
+        task: dict[str, Any],
+    ) -> bool:
+        template_id = str(
+            task.get("agent_template_id") or task.get("template_id") or ""
+        ).strip()
+        if template_id:
+            return invocation.template_id == template_id
+        skill_id = str(task.get("skill_id") or "").strip()
+        if skill_id and skill_id in invocation.effective_skills:
+            return True
+        task_name = str(task.get("name") or "").strip()
+        normalized_task_name = task_name.replace("-", "_")
+        template_name = invocation.template_id.split(".")[0].replace("-", "_")
+        return bool(normalized_task_name and normalized_task_name == template_name)
+
+    @staticmethod
+    def _invocation_completed_at(invocation: AgentInvocation) -> datetime:
+        completed_at = getattr(invocation, "completed_at", None)
+        if isinstance(completed_at, datetime):
+            if completed_at.tzinfo is None:
+                return completed_at.replace(tzinfo=UTC)
+            return completed_at
+        return datetime.min.replace(tzinfo=UTC)
 
     @staticmethod
     def _task_declares_document_output(task: dict[str, Any]) -> bool:

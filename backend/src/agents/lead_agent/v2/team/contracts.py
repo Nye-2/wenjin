@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -103,6 +104,7 @@ class AgentInvocation(BaseModel):
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     token_usage: dict[str, Any] | None = None
     error: dict[str, Any] | None = None
+    completed_at: datetime | None = None
     expert_snapshots: list[dict[str, Any]] = Field(default_factory=list)
     expert_preview_items: list[dict[str, Any]] = Field(default_factory=list)
 
