@@ -9,6 +9,17 @@ import {
   runViewFromRunRecord,
 } from "@/lib/execution-run-view";
 
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["doc-1"],
+  rejected_ids: [],
+  counts: { documents: 1 },
+  room_targets: {
+    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
 function baseRecord(overrides: Partial<ExecutionRecord>): ExecutionRecord {
   return {
     id: "exec-1",
@@ -262,5 +273,40 @@ describe("execution run view expert projection", () => {
     expect(text).not.toContain("raw result-card error should stay hidden");
     expect(text).not.toContain("/workspace/outputs/harness");
     expect(text).not.toContain("{");
+  });
+
+  it("projects durable commitState from ExecutionRecord results", () => {
+    const view = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: COMMITTED_STATE,
+          task_report: {
+            narrative: "已保存。",
+            outputs: [],
+          },
+        },
+      }),
+    );
+
+    expect(view.commitState).toEqual(COMMITTED_STATE);
+  });
+
+  it("projects durable commitState from ResultCardData", () => {
+    const view = runViewFromResultCard(
+      {
+        execution_id: "result-card-commit-1",
+        capability_name: "资料整理",
+        status: "completed",
+        outputs: [],
+        narrative: "已生成。",
+        commit_state: COMMITTED_STATE,
+      } as Parameters<typeof runViewFromResultCard>[0] & {
+        commit_state: typeof COMMITTED_STATE;
+      },
+      "ws-1",
+    );
+
+    expect(view.commitState).toEqual(COMMITTED_STATE);
   });
 });

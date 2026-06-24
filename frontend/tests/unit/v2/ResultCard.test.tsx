@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResultCard } from "@/app/(workbench)/workspaces/[id]/components/ResultCard";
+import type { ExecutionRecord } from "@/lib/api/types";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
@@ -23,6 +25,7 @@ beforeEach(() => {
       }),
   });
   localStorage.clear();
+  useExecutionStore.getState().clear();
   useWorkbenchLayoutStore.getState().reset();
   useRunUiStore.getState().reset();
 });
@@ -82,6 +85,47 @@ const SAMPLE_DATA = {
     },
   ],
 };
+
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["o3"],
+  rejected_ids: ["o1"],
+  counts: { documents: 1 },
+  room_targets: {
+    documents: [{ output_id: "o3", item_id: "doc-77" }],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const DISCARDED_STATE = {
+  status: "discarded",
+  accepted_ids: [],
+  rejected_ids: ["o1", "o2", "o3", "o4"],
+  counts: {},
+  room_targets: {},
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+function seedExecutionResult(result: Record<string, unknown>) {
+  const record: ExecutionRecord = {
+    id: "exec-1",
+    user_id: "user-1",
+    workspace_id: "ws-1",
+    execution_type: "capability",
+    feature_id: "lit_search",
+    status: "completed",
+    params: {},
+    result,
+    node_states: {},
+    artifact_ids: [],
+    next_actions: [],
+    child_execution_ids: [],
+    progress: 100,
+    created_at: "2026-06-20T00:00:00Z",
+    updated_at: "2026-06-20T00:00:00Z",
+  };
+  useExecutionStore.getState().upsertExecution(record);
+}
 
 describe("ResultCard", () => {
   it("renders a compact result package instead of a long in-chat list", () => {
@@ -249,6 +293,54 @@ describe("ResultCard", () => {
     );
     expect(memoryUrl.searchParams.get("room")).toBe("memory");
     expect(memoryUrl.searchParams.get("item_id")).toBe("mem-99");
+  });
+
+  it("renders persisted committed state from the execution store without POST", () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    const saveButton = screen.getByRole("button", { name: "已保存到工作区" });
+    expect(saveButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "暂不保存" })).toBeDisabled();
+    expect(
+      screen.getByRole("link", { name: "打开已保存的 综述初稿" }),
+    ).toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("renders persisted discarded state from the execution store without POST", () => {
+    seedExecutionResult({ commit_state: DISCARDED_STATE });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    const finalButtons = screen.getAllByRole("button", { name: "已暂不保存" });
+    expect(finalButtons.length).toBeGreaterThan(0);
+    finalButtons.forEach((button) => expect(button).toBeDisabled());
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("uses POST commit_state to finalize the card, patch the execution store, and show links", async () => {
+    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: COMMITTED_STATE,
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByRole("link", { name: "打开已保存的 综述初稿" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已保存到工作区" })).toBeDisabled();
+    expect(
+      useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+    ).toEqual(COMMITTED_STATE);
   });
 
   it("renders DB-backed Prism review items with workspace navigation", () => {

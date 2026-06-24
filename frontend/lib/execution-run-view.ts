@@ -5,6 +5,10 @@ import type {
   ExecutionStatus,
 } from "@/lib/api/types";
 import type { RunRecord } from "@/lib/api/v2/runs";
+import {
+  readCommitStateFromResult,
+  type ExecutionCommitState,
+} from "@/lib/execution-commit";
 import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 import type { ResultCardData } from "@/stores/chat-store";
 
@@ -142,6 +146,7 @@ export interface RunView {
   hasSandboxArtifacts?: boolean;
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
+  commitState: ExecutionCommitState | null;
   team?: RunViewTeam | null;
   qualityHighlights: RunViewQualityHighlight[];
   actions: RunPrimaryAction[];
@@ -231,6 +236,7 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    commitState: readCommitStateFromResult(record.result),
     team,
     qualityHighlights,
     actions: actionsForRun({
@@ -357,6 +363,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    commitState: null,
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -404,6 +411,7 @@ export function runViewFromResultCard(
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    commitState: readCommitStateFromResult(data),
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -444,6 +452,7 @@ export function mergeRunViews(
     hasSandboxArtifacts: Boolean(live.hasSandboxArtifacts || historical.hasSandboxArtifacts),
     failureCategory: live.failureCategory ?? historical.failureCategory,
     failureMessage: safeFailureMessage(live.failureMessage, historical.failureMessage),
+    commitState: live.commitState ?? historical.commitState,
     team: live.team ?? historical.team,
     qualityHighlights: live.qualityHighlights.length
       ? live.qualityHighlights

@@ -6,15 +6,29 @@ export interface CommitRoomTarget {
   item_id: string;
 }
 
+export type CommitRoomName =
+  | "documents"
+  | "library"
+  | "memory"
+  | "decisions"
+  | "tasks";
+
+export type CommitRoomTargets = Partial<Record<CommitRoomName, CommitRoomTarget[]>>;
+
+export interface ExecutionCommitState {
+  status: "committed" | "discarded";
+  accepted_ids: string[];
+  rejected_ids: string[];
+  counts: Record<string, number>;
+  room_targets: CommitRoomTargets;
+  committed_at: string;
+  review_batch_id?: string;
+}
+
 export interface ExecutionCommitResponse {
   committed?: Record<string, number>;
-  room_targets?: {
-    documents?: CommitRoomTarget[];
-    library?: CommitRoomTarget[];
-    memory?: CommitRoomTarget[];
-    decisions?: CommitRoomTarget[];
-    tasks?: CommitRoomTarget[];
-  };
+  room_targets?: CommitRoomTargets;
+  commit_state?: ExecutionCommitState;
 }
 
 export interface ExecutionCommitRequest {
@@ -57,7 +71,7 @@ export async function commitExecutionOutputs(options: {
 export function buildCommittedRoomLinks(options: {
   workspaceId?: string | null;
   previews: WorkspaceResultPreview[];
-  roomTargets?: ExecutionCommitResponse["room_targets"];
+  roomTargets?: CommitRoomTargets | null;
 }): CommittedRoomLink[] {
   const { workspaceId, previews, roomTargets } = options;
   if (!workspaceId || !roomTargets) {
@@ -142,6 +156,84 @@ export function buildCommittedRoomLinks(options: {
   return links;
 }
 
+export function readCommitStateFromResult(
+  result: unknown,
+): ExecutionCommitState | null {
+  const carrier = recordValue(result);
+  if (!carrier) return null;
+  const rawCommitState = carrier.commit_state;
+  const state = recordValue(rawCommitState);
+  if (!state) return null;
+  const status =
+    state.status === "committed" || state.status === "discarded"
+      ? state.status
+      : null;
+  const acceptedIds = stringArrayValue(state.accepted_ids);
+  const rejectedIds = stringArrayValue(state.rejected_ids);
+  const committedAt = stringValue(state.committed_at);
+  if (!status || !acceptedIds || !rejectedIds || !committedAt) {
+    return null;
+  }
+
+  const counts = numberRecordValue(state.counts);
+  const roomTargets = roomTargetsValue(state.room_targets);
+  return {
+    status,
+    accepted_ids: acceptedIds,
+    rejected_ids: rejectedIds,
+    counts: counts ?? {},
+    room_targets: roomTargets ?? {},
+    committed_at: committedAt,
+    ...(stringValue(state.review_batch_id)
+      ? { review_batch_id: stringValue(state.review_batch_id)! }
+      : {}),
+  };
+}
+
+export function isExecutionCommitted(
+  commitState: ExecutionCommitState | null | undefined,
+): boolean {
+  return commitState?.status === "committed";
+}
+
+export function isExecutionDiscarded(
+  commitState: ExecutionCommitState | null | undefined,
+): boolean {
+  return commitState?.status === "discarded";
+}
+
+export function commitStateRoomTargets(
+  commitState: ExecutionCommitState | null | undefined,
+): CommitRoomTargets | null {
+  return commitState?.room_targets ?? null;
+}
+
+export function commitStateFromCommitResponse(
+  response: ExecutionCommitResponse,
+  options: {
+    acceptedIds: string[];
+    outputIds: string[];
+    discarded?: boolean;
+  },
+): ExecutionCommitState {
+  const durableCommitState = readCommitStateFromResult({
+    commit_state: response.commit_state,
+  });
+  if (durableCommitState) {
+    return durableCommitState;
+  }
+
+  const acceptedSet = new Set(options.acceptedIds);
+  return {
+    status: options.discarded ? "discarded" : "committed",
+    accepted_ids: options.acceptedIds,
+    rejected_ids: options.outputIds.filter((id) => !acceptedSet.has(id)),
+    counts: response.committed ?? {},
+    room_targets: response.room_targets ?? {},
+    committed_at: new Date().toISOString(),
+  };
+}
+
 function buildWorkspaceRoomHref(options: {
   workspaceId: string;
   room: "documents" | "library" | "memory" | "decisions" | "tasks";
@@ -155,4 +247,58 @@ function buildWorkspaceRoomHref(options: {
     params.set("query", options.query);
   }
   return `/workspaces/${options.workspaceId}?${params.toString()}`;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function stringArrayValue(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const strings = value.filter(
+    (item): item is string => typeof item === "string" && item.trim().length > 0,
+  );
+  return strings.length === value.length ? strings : null;
+}
+
+function numberRecordValue(value: unknown): Record<string, number> | null {
+  const raw = recordValue(value);
+  if (!raw) return null;
+  const counts: Record<string, number> = {};
+  for (const [key, item] of Object.entries(raw)) {
+    if (typeof item === "number" && Number.isFinite(item)) {
+      counts[key] = item;
+    }
+  }
+  return counts;
+}
+
+function roomTargetsValue(value: unknown): CommitRoomTargets | null {
+  const raw = recordValue(value);
+  if (!raw) return null;
+  const targets: CommitRoomTargets = {};
+  for (const room of ["documents", "library", "memory", "decisions", "tasks"] as const) {
+    const rawTargets = raw[room];
+    if (!Array.isArray(rawTargets)) continue;
+    const roomTargets = rawTargets
+      .map((item) => {
+        const target = recordValue(item);
+        const outputId = stringValue(target?.output_id);
+        const itemId = stringValue(target?.item_id);
+        return outputId && itemId
+          ? { output_id: outputId, item_id: itemId }
+          : null;
+      })
+      .filter((item): item is CommitRoomTarget => Boolean(item));
+    if (roomTargets.length > 0) {
+      targets[room] = roomTargets;
+    }
+  }
+  return targets;
 }

@@ -6,6 +6,47 @@ import { CompletedView } from "@/app/(workbench)/workspaces/[id]/components/Comp
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["doc-1"],
+  rejected_ids: [],
+  counts: { documents: 1 },
+  room_targets: {
+    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const DISCARDED_STATE = {
+  status: "discarded",
+  accepted_ids: [],
+  rejected_ids: ["doc-1"],
+  counts: {},
+  room_targets: {},
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const OUTLINE_TASK_REPORT = {
+  execution_id: "exec-1",
+  capability_id: "outline",
+  status: "completed",
+  narrative: "Outline completed.",
+  outputs: [
+    {
+      id: "doc-1",
+      kind: "document",
+      preview: "Thesis outline",
+      default_checked: true,
+      data: {
+        name: "outline.md",
+        mime_type: "text/markdown",
+        doc_kind: "outline",
+        content: "# Chapter 1\n- Background",
+      },
+    },
+  ],
+};
+
 describe("CompletedView", () => {
   beforeEach(() => {
     mockFetch.mockReset();
@@ -371,5 +412,43 @@ describe("CompletedView", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
     expect(await screen.findByText("Commit failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+  });
+
+  it("hydrates committed status and room links from result.commit_state", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: OUTLINE_TASK_REPORT,
+          commit_state: COMMITTED_STATE,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("已保存到工作区")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "打开已保存的 Thesis outline" }),
+    ).toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("hydrates discarded status from result.commit_state as a final not-saved state", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: OUTLINE_TASK_REPORT,
+          commit_state: DISCARDED_STATE,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("已暂不保存")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "暂不保存" })).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

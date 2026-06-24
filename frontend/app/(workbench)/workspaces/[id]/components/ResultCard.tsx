@@ -5,7 +5,13 @@ import { useMemo, useState } from "react";
 import {
   buildCommittedRoomLinks,
   commitExecutionOutputs,
-  type CommittedRoomLink,
+  commitStateFromCommitResponse,
+  commitStateRoomTargets,
+  isExecutionCommitted,
+  isExecutionDiscarded,
+  readCommitStateFromResult,
+  type ExecutionCommitRequest,
+  type ExecutionCommitState,
 } from "@/lib/execution-commit";
 import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 import { groupWorkspaceResultPreviews } from "@/lib/workspace-result-kind";
@@ -16,6 +22,7 @@ import {
 } from "@/components/prism/PrismReviewList";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import type { ResultCardData } from "@/stores/chat-store";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
@@ -94,14 +101,34 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     (state) => state.setWorkbenchFullscreen,
   );
   const focusPreviewItem = useRunUiStore((state) => state.focusPreviewItem);
+  const executionResult = useExecutionStore(
+    (state) => state.executions.get(execution_id)?.result,
+  );
+  const upsertExecution = useExecutionStore((state) => state.upsertExecution);
   const [idempotencyKey] = useState(() => generateUUID());
-  const [committed, setCommitted] = useState(false);
+  const [localCommitState, setLocalCommitState] =
+    useState<ExecutionCommitState | null>(null);
   const [committing, setCommitting] = useState(false);
-  const [commitLinks, setCommitLinks] = useState<CommittedRoomLink[]>([]);
   const [commitError, setCommitError] = useState<string | null>(null);
+  const durableCommitState = readCommitStateFromResult(executionResult);
+  const dataCommitState = readCommitStateFromResult(data);
+  const effectiveCommitState =
+    durableCommitState ?? dataCommitState ?? localCommitState;
+  const committed = isExecutionCommitted(effectiveCommitState);
+  const discarded = isExecutionDiscarded(effectiveCommitState);
+  const commitFinal = Boolean(effectiveCommitState);
+  const commitLinks = useMemo(
+    () =>
+      buildCommittedRoomLinks({
+        workspaceId,
+        previews,
+        roomTargets: commitStateRoomTargets(effectiveCommitState),
+      }),
+    [effectiveCommitState, previews, workspaceId],
+  );
 
-  async function commit(body: object) {
-    if (committed || committing) {
+  async function commit(body: ExecutionCommitRequest) {
+    if (commitFinal || committing) {
       return;
     }
     setCommitError(null);
@@ -110,19 +137,30 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       const response = await commitExecutionOutputs({
         executionId: execution_id,
         idempotencyKey,
-        body: body as Record<string, unknown>,
+        body,
       });
-      setCommitLinks(
-        buildCommittedRoomLinks({
-          workspaceId,
-          previews,
-          roomTargets: response.room_targets,
-        }),
-      );
-      setCommitted(true);
+      const outputIds = previews.map((preview) => preview.id);
+      const acceptedIds = body.accept_all
+        ? outputIds
+        : (body.accepted_ids ?? []).filter((id) => outputIds.includes(id));
+      const nextCommitState = commitStateFromCommitResponse(response, {
+        acceptedIds,
+        outputIds,
+        discarded: !body.accept_all && acceptedIds.length === 0,
+      });
+      setLocalCommitState(nextCommitState);
+      const currentRecord =
+        useExecutionStore.getState().executions.get(execution_id);
+      if (currentRecord) {
+        upsertExecution({
+          ...currentRecord,
+          result: {
+            ...(currentRecord.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
     } catch (error) {
-      setCommitLinks([]);
-      setCommitted(false);
       setCommitError(
         error instanceof Error && !error.message.startsWith("Failed")
           ? error.message
@@ -267,13 +305,19 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
               <button
                 type="button"
                 onClick={() => commit({ accept_all: true })}
-                disabled={committed || committing}
+                disabled={commitFinal || committing}
                 style={{
                   ...styles.primaryButton,
-                  ...(committed || committing ? styles.buttonDisabled : null),
+                  ...(commitFinal || committing ? styles.buttonDisabled : null),
                 }}
               >
-                {committed ? "已保存到工作区" : committing ? "保存中..." : "保存到工作区"}
+                {committed
+                  ? "已保存到工作区"
+                  : discarded
+                    ? "已暂不保存"
+                    : committing
+                      ? "保存中..."
+                      : "保存到工作区"}
               </button>
             ) : (
               <button
@@ -296,13 +340,13 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
             <button
               type="button"
               onClick={() => commit({ accepted_ids: [] })}
-              disabled={committed || committing}
+              disabled={commitFinal || committing}
               style={{
                 ...styles.ghostButton,
-                ...(committed || committing ? styles.buttonDisabled : null),
+                ...(commitFinal || committing ? styles.buttonDisabled : null),
               }}
             >
-              暂不保存
+              {discarded ? "已暂不保存" : "暂不保存"}
             </button>
           </div>
           {commitError ? (

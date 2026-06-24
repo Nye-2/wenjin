@@ -5,7 +5,11 @@ import { resolveExecutionNextActionPresentation } from "@/lib/block-actions";
 import {
   buildCommittedRoomLinks,
   commitExecutionOutputs,
-  type CommittedRoomLink,
+  commitStateFromCommitResponse,
+  commitStateRoomTargets,
+  isExecutionDiscarded,
+  readCommitStateFromResult,
+  type ExecutionCommitState,
 } from "@/lib/execution-commit";
 import {
   recoverableOutputRefCount,
@@ -55,6 +59,7 @@ export function CompletedView({
   const [idempotencyKey] = useState(() => generateUUID());
 
   const taskReport = getTaskReport(result);
+  const durableCommitState = readCommitStateFromResult(result);
   const effectiveReviewItems =
     reviewItems.length > 0 ? reviewItems : readReviewItems(taskReport?.review_items);
   const summary =
@@ -89,10 +94,22 @@ export function CompletedView({
     previews[0] ??
     null;
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
-  const [committed, setCommitted] = useState(false);
+  const [localCommitState, setLocalCommitState] =
+    useState<ExecutionCommitState | null>(null);
   const [committing, setCommitting] = useState(false);
-  const [commitLinks, setCommitLinks] = useState<CommittedRoomLink[]>([]);
   const [commitError, setCommitError] = useState<string | null>(null);
+  const effectiveCommitState = durableCommitState ?? localCommitState;
+  const commitFinal = Boolean(effectiveCommitState);
+  const discarded = isExecutionDiscarded(effectiveCommitState);
+  const commitLinks = useMemo(
+    () =>
+      buildCommittedRoomLinks({
+        workspaceId,
+        previews,
+        roomTargets: commitStateRoomTargets(effectiveCommitState),
+      }),
+    [effectiveCommitState, previews, workspaceId],
+  );
   useEffect(() => {
     setCheckedIds(
       new Set(
@@ -101,11 +118,12 @@ export function CompletedView({
           .map((preview) => preview.id),
       ),
     );
-    setCommitted(false);
-    setCommitting(false);
-    setCommitLinks([]);
-    setCommitError(null);
   }, [previews]);
+  useEffect(() => {
+    setLocalCommitState(null);
+    setCommitting(false);
+    setCommitError(null);
+  }, [executionId]);
   const taskErrors = taskReport?.errors;
   const errorItems = Array.isArray(taskErrors) ? taskErrors.slice(0, 3) : [];
   const actionContext = getCompletedActionContext({
@@ -132,7 +150,7 @@ export function CompletedView({
   });
 
   async function commit(body: Record<string, unknown>) {
-    if (!executionId || committed || committing) {
+    if (!executionId || commitFinal || committing) {
       return;
     }
     setCommitError(null);
@@ -143,17 +161,23 @@ export function CompletedView({
         idempotencyKey,
         body,
       });
-      setCommitLinks(
-        buildCommittedRoomLinks({
-          workspaceId,
-          previews,
-          roomTargets: response.room_targets,
+      const outputIds = previews.map((preview) => preview.id);
+      const acceptedIds = body.accept_all
+        ? outputIds
+        : Array.isArray(body.accepted_ids)
+          ? body.accepted_ids.filter(
+              (id): id is string =>
+                typeof id === "string" && outputIds.includes(id),
+            )
+          : [];
+      setLocalCommitState(
+        commitStateFromCommitResponse(response, {
+          acceptedIds,
+          outputIds,
+          discarded: body.accept_all !== true && acceptedIds.length === 0,
         }),
       );
-      setCommitted(true);
     } catch (error) {
-      setCommitLinks([]);
-      setCommitted(false);
       setCommitError(
         error instanceof Error && !error.message.startsWith("Failed")
           ? error.message
@@ -211,7 +235,7 @@ export function CompletedView({
                     })
                 : undefined
             }
-            disabled={committed}
+            disabled={commitFinal}
           />
           <ResultPreviewDetail
             preview={selectedPreview}
@@ -238,7 +262,7 @@ export function CompletedView({
                         </div>
                       ) : null}
                       <CommitActionBar
-                        committed={committed}
+                        committed={commitFinal}
                         committing={committing}
                         allowAcceptAll={allowAcceptAll}
                         selectedCount={checkedIds.size}
@@ -256,7 +280,9 @@ export function CompletedView({
                         acceptAllLabel="保存到工作区"
                         acceptSelectedLabel="仅保存勾选项"
                         discardLabel="暂不保存"
-                        committedLabel="已保存到工作区"
+                        committedLabel={
+                          discarded ? "已暂不保存" : "已保存到工作区"
+                        }
                       />
                       {commitError ? (
                         <div style={styles.commitError}>{commitError}</div>

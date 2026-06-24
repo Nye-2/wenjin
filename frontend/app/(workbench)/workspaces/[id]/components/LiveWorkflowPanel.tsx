@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import type {
@@ -10,9 +10,13 @@ import { cancelExecution, listExecutions } from "@/lib/api/executions";
 import {
   buildCommittedRoomLinks,
   commitExecutionOutputs,
-  type CommittedRoomLink,
+  commitStateFromCommitResponse,
+  commitStateRoomTargets,
   type ExecutionCommitRequest,
+  type ExecutionCommitState,
+  readCommitStateFromResult,
 } from "@/lib/execution-commit";
+import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
   buildOutputOverrides,
@@ -92,16 +96,16 @@ export function LiveWorkflowPanel({
   const [commitState, setCommitState] = useState<{
     executionId: string | null;
     idempotencyKey: string;
-    committed: boolean;
     committing: boolean;
-    links: CommittedRoomLink[];
+    responseCommitState: ExecutionCommitState | null;
+    linkPreviews: WorkspaceResultPreview[] | null;
     error: string | null;
   }>(() => ({
     executionId: null,
     idempotencyKey: generateUUID(),
-    committed: false,
     committing: false,
-    links: [],
+    responseCommitState: null,
+    linkPreviews: null,
     error: null,
   }));
   const [interventionOpen, setInterventionOpen] = useState(false);
@@ -140,6 +144,26 @@ export function LiveWorkflowPanel({
     selectedPreviewId,
     draftEdits,
   });
+  const durableCommitState = readCommitStateFromResult(selectedRecord?.result);
+  const localCommitState =
+    commitState.executionId === selectedRecord?.id
+      ? commitState.responseCommitState
+      : null;
+  const effectiveCommitState = durableCommitState ?? localCommitState;
+  const commitFinal = Boolean(effectiveCommitState);
+  const commitLinkPreviews =
+    commitState.executionId === selectedRecord?.id && commitState.linkPreviews
+      ? commitState.linkPreviews
+      : previews;
+  const commitLinks = useMemo(
+    () =>
+      buildCommittedRoomLinks({
+        workspaceId,
+        previews: commitLinkPreviews,
+        roomTargets: commitStateRoomTargets(effectiveCommitState),
+      }),
+    [commitLinkPreviews, effectiveCommitState, workspaceId],
+  );
 
   useEffect(() => {
     if (records.length > 0) {
@@ -226,9 +250,9 @@ export function LiveWorkflowPanel({
     setCommitState({
       executionId: selectedRecord?.id ?? null,
       idempotencyKey: generateUUID(),
-      committed: false,
       committing: false,
-      links: [],
+      responseCommitState: null,
+      linkPreviews: null,
       error: null,
     });
   }, [selectedRecord?.id]);
@@ -331,7 +355,7 @@ export function LiveWorkflowPanel({
   }
 
   async function handleCommit(mode: "all" | "selected" | "discard") {
-    if (!selectedRecord || commitState.committing || commitState.committed) {
+    if (!selectedRecord || commitState.committing || commitFinal) {
       return;
     }
     const committablePreviews = previews.filter((preview) => preview.canCommit);
@@ -359,9 +383,10 @@ export function LiveWorkflowPanel({
 
     setCommitState((current) => ({
       ...current,
+      executionId: selectedRecord.id,
       committing: true,
       error: null,
-      links: [],
+      linkPreviews: null,
     }));
     try {
       const response = await commitExecutionOutputs({
@@ -370,24 +395,34 @@ export function LiveWorkflowPanel({
         body,
       });
       const commitLinkPreviews = applyDraftLabelsToCommitLinks(committablePreviews, draftEdits);
-      const links = buildCommittedRoomLinks({
-        workspaceId,
-        previews: commitLinkPreviews,
-        roomTargets: response.room_targets,
+      const nextCommitState = commitStateFromCommitResponse(response, {
+        acceptedIds,
+        outputIds,
+        discarded: mode === "discard" || acceptedIds.length === 0,
       });
       clearDraftEdits(acceptedIds);
+      const recordToPatch =
+        useExecutionStore.getState().executions.get(selectedRecord.id) ??
+        selectedRecord;
+      upsertExecution({
+        ...recordToPatch,
+        result: {
+          ...(recordToPatch.result ?? {}),
+          commit_state: nextCommitState,
+        },
+      });
       setCommitState((current) => ({
         ...current,
-        committed: true,
         committing: false,
-        links,
+        responseCommitState: nextCommitState,
+        linkPreviews: commitLinkPreviews,
       }));
     } catch (error) {
       setCommitState((current) => ({
         ...current,
-        committed: false,
         committing: false,
-        links: [],
+        responseCommitState: null,
+        linkPreviews: null,
         error: error instanceof Error ? error.message : "保存失败",
       }));
     }
@@ -494,7 +529,7 @@ export function LiveWorkflowPanel({
             selectedId={selectedPreviewId}
             checkedIds={checkedIds}
             draftEdits={draftEdits}
-            disabled={commitState.committed}
+            disabled={commitFinal}
             onFilterChange={setEvidenceFilter}
             onQueryChange={setEvidenceQuery}
             onSelect={(id) => setSelectedPreviewId(id)}
@@ -512,9 +547,9 @@ export function LiveWorkflowPanel({
             selectedDraft={selectedDraft}
             draftEdits={draftEdits}
             checkedIds={checkedIds}
-            committed={commitState.committed}
+            committed={commitFinal}
             committing={commitState.committing}
-            commitLinks={commitState.links}
+            commitLinks={commitLinks}
             commitError={commitState.error}
             reviewItems={reviewItems}
             isFullscreen={isFullscreen}

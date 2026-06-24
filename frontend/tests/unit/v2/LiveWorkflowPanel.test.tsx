@@ -11,6 +11,26 @@ const mockFetch = vi.fn();
 global.fetch = mockFetch;
 const originalSendMessage = useChatStoreV2.getState().sendMessage;
 
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["doc-1"],
+  rejected_ids: [],
+  counts: { documents: 1 },
+  room_targets: {
+    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const DISCARDED_STATE = {
+  status: "discarded",
+  accepted_ids: [],
+  rejected_ids: ["doc-1", "lib-1", "mem-1"],
+  counts: {},
+  room_targets: {},
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
 function makeCompletedRecord(): ExecutionRecord {
   return {
     id: "exec-1",
@@ -73,6 +93,19 @@ function makeCompletedRecord(): ExecutionRecord {
           },
         ],
       },
+    },
+  };
+}
+
+function withCommitState(
+  record: ExecutionRecord,
+  commitState: typeof COMMITTED_STATE | typeof DISCARDED_STATE,
+): ExecutionRecord {
+  return {
+    ...record,
+    result: {
+      ...(record.result ?? {}),
+      commit_state: commitState,
     },
   };
 }
@@ -215,6 +248,7 @@ describe("LiveWorkflowPanel", () => {
       json: () =>
         Promise.resolve({
           committed: { documents: 1 },
+          commit_state: COMMITTED_STATE,
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
           },
@@ -274,6 +308,46 @@ describe("LiveWorkflowPanel", () => {
     expect(JSON.parse(init.body as string)).toEqual({
       accepted_ids: ["doc-1"],
     });
+  });
+
+  it("hydrates persisted commit_state as final after remount and tab switch", () => {
+    useExecutionStore
+      .getState()
+      .upsertExecution(withCommitState(makeCompletedRecord(), DISCARDED_STATE));
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    const firstRender = render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.queryByRole("button", { name: "全部保存" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "暂不保存" })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+
+    firstRender.unmount();
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "证据" }));
+    expect(screen.getByLabelText("选择Thesis outline")).toBeDisabled();
+  });
+
+  it("patches returned commit_state into the execution store after commit", async () => {
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toEqual(COMMITTED_STATE),
+    );
+    expect(
+      await screen.findByRole("link", { name: "打开已保存的 Thesis outline" }),
+    ).toBeInTheDocument();
   });
 
   it("uses room-specific labels in the review inbox", () => {
