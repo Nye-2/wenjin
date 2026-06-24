@@ -376,6 +376,54 @@ describe("chat store", () => {
     ]);
   });
 
+  it("normalizes loaded incomplete result cards with renderer-safe defaults", async () => {
+    mockAuthorizedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "thread-1",
+          messages: [
+            {
+              id: "m1",
+              role: "assistant",
+              created_at: "2026-01-01",
+              blocks: [
+                {
+                  kind: "result_card",
+                  run_id: "run-1",
+                  title: "Finished",
+                  tldr: "Summary",
+                  findings: [],
+                  stats: { duration_ms: 100, subagents: 1, tokens: 10 },
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await useChatStoreV2.getState().loadHistory("ws-1");
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      {
+        kind: "result_card",
+        run_id: "run-1",
+        title: "Finished",
+        tldr: "Summary",
+        findings: [],
+        links: [],
+        review_items: [],
+        feedback: { question: "", pills: [], allow_free_input: true },
+        stats: { duration_ms: 100, subagents: 1, tokens: 10 },
+      },
+    ]);
+  });
+
   it("appends result_card on execution.completed", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({

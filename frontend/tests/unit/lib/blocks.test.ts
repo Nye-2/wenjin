@@ -156,15 +156,18 @@ describe("AgentBlock type guards", () => {
     ).toEqual({ kind: "text", content: "visible fallback" });
   });
 
-  it("normalizes malformed text blocks with non-string content to visible JSON", () => {
+  it("normalizes malformed text blocks with non-string content to safe visible text", () => {
     expect(
       normalizeChatBlock({
         kind: "text",
-        content: { detail: "structured fallback" },
+        content: {
+          detail: "structured fallback",
+          output_ref: "/mnt/user-data/runtime/internal.json",
+        },
       }),
     ).toEqual({
       kind: "text",
-      content: '{"kind":"text","content":{"detail":"structured fallback"}}',
+      content: "structured fallback",
     });
   });
 
@@ -176,5 +179,45 @@ describe("AgentBlock type guards", () => {
         data: { detail: "useful detail" },
       }),
     ).toEqual({ kind: "text", content: "Legacy panel：useful detail" });
+  });
+
+  it("does not expose raw unknown block payloads by default", () => {
+    const block = normalizeChatBlock({
+      type: "custom_panel",
+      data: {
+        output_ref: "/mnt/user-data/runtime/internal.json",
+        secret: "runtime payload",
+      },
+    });
+
+    expect(block).toEqual({ kind: "text", content: "Unsupported message block" });
+    if (block.kind !== "text") {
+      throw new Error("expected text fallback");
+    }
+    expect(block.content).not.toContain("/mnt/user-data/runtime/internal.json");
+    expect(block.content).not.toContain("runtime payload");
+  });
+
+  it("normalizes incomplete result cards with renderer-safe defaults", () => {
+    expect(
+      normalizeChatBlock({
+        kind: "result_card",
+        run_id: "run-1",
+        title: "Finished",
+        tldr: "Summary",
+        findings: [],
+        stats: { duration_ms: 100, subagents: 1, tokens: 10 },
+      }),
+    ).toEqual({
+      kind: "result_card",
+      run_id: "run-1",
+      title: "Finished",
+      tldr: "Summary",
+      findings: [],
+      links: [],
+      review_items: [],
+      feedback: { question: "", pills: [], allow_free_input: true },
+      stats: { duration_ms: 100, subagents: 1, tokens: 10 },
+    });
   });
 });

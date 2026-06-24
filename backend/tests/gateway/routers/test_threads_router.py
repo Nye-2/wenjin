@@ -769,7 +769,13 @@ class TestThreadMessages:
                         usage_metadata={"input_tokens": 120, "output_tokens": 30},
                     )
                 ],
-                "response_blocks": [{"type": "task", "title": "框架设计"}],
+                "response_blocks": [
+                    {
+                        "type": "task",
+                        "title": "框架设计",
+                        "data": {"output_ref": "/mnt/user-data/internal/task-1.json"},
+                    }
+                ],
                 "response_metadata": {
                     "orchestration": {"feature_id": "framework_outline", "task_id": "task-1"}
                 },
@@ -797,7 +803,9 @@ class TestThreadMessages:
             )
 
         assert reply.content == "模块已启动"
-        assert reply.blocks[0]["type"] == "task"
+        assert reply.blocks == [{"kind": "text", "content": "框架设计"}]
+        assert all(block.get("type") is None for block in reply.blocks)
+        assert "/mnt/user-data/internal/task-1.json" not in reply.blocks[0]["content"]
         assert reply.metadata["orchestration"]["task_id"] == "task-1"
         assert reply.metadata["orchestration"]["execution_id"] == "exec-1"
         assert reply.metadata["usage"]["total_tokens"] == 150

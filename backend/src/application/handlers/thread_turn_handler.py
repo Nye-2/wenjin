@@ -606,6 +606,25 @@ def _string_value(value: Any) -> str | None:
     return None
 
 
+def _is_safe_visible_block_text(value: str) -> bool:
+    lowered = value.lower()
+    unsafe_markers = (
+        "/mnt/user-data",
+        "/workspace/",
+        "/private/",
+        "output_ref",
+        "storage_path",
+    )
+    return not any(marker in lowered for marker in unsafe_markers)
+
+
+def _safe_visible_string(value: Any) -> str | None:
+    text = _string_value(value)
+    if text and _is_safe_visible_block_text(text):
+        return text
+    return None
+
+
 def _block_data_payload(block: Mapping[str, Any]) -> Mapping[str, Any]:
     data = block.get("data")
     if isinstance(data, Mapping):
@@ -615,20 +634,29 @@ def _block_data_payload(block: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def _visible_block_text(block: Mapping[str, Any]) -> str:
     data = _block_data_payload(block)
+    content = block.get("content")
+    content_payload = content if isinstance(content, Mapping) else {}
     title = (
-        _string_value(block.get("title"))
-        or _string_value(block.get("label"))
-        or _string_value(block.get("name"))
+        _safe_visible_string(block.get("title"))
+        or _safe_visible_string(block.get("label"))
+        or _safe_visible_string(block.get("name"))
     )
     detail = (
-        _string_value(block.get("detail"))
-        or _string_value(block.get("message"))
-        or _string_value(data.get("detail"))
-        or _string_value(data.get("message"))
-        or _string_value(data.get("text"))
-        or _string_value(data.get("content"))
-        or _string_value(block.get("content"))
-        or _string_value(block.get("text"))
+        _safe_visible_string(block.get("detail"))
+        or _safe_visible_string(block.get("message"))
+        or _safe_visible_string(block.get("summary"))
+        or _safe_visible_string(data.get("detail"))
+        or _safe_visible_string(data.get("message"))
+        or _safe_visible_string(data.get("summary"))
+        or _safe_visible_string(data.get("text"))
+        or _safe_visible_string(data.get("content"))
+        or _safe_visible_string(content_payload.get("detail"))
+        or _safe_visible_string(content_payload.get("message"))
+        or _safe_visible_string(content_payload.get("summary"))
+        or _safe_visible_string(content_payload.get("text"))
+        or _safe_visible_string(content_payload.get("content"))
+        or _safe_visible_string(block.get("content"))
+        or _safe_visible_string(block.get("text"))
     )
     if title and detail and title != detail:
         return f"{title}：{detail}"
@@ -639,10 +667,7 @@ def _fallback_block_text(block: Mapping[str, Any]) -> str:
     visible = _visible_block_text(block)
     if visible:
         return visible
-    try:
-        return json.dumps(dict(block), ensure_ascii=False, default=str)
-    except TypeError:
-        return "Unsupported message block"
+    return "Unsupported message block"
 
 
 def _response_block_raw_kind(block: Mapping[str, Any]) -> str:

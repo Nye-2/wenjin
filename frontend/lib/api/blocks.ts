@@ -115,6 +115,22 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function isSafeVisibleText(value: string): boolean {
+  const lowered = value.toLowerCase();
+  return ![
+    "/mnt/user-data",
+    "/workspace/",
+    "/private/",
+    "output_ref",
+    "storage_path",
+  ].some((marker) => lowered.includes(marker));
+}
+
+function safeStringValue(value: unknown): string | undefined {
+  const text = stringValue(value);
+  return text && isSafeVisibleText(text) ? text : undefined;
+}
+
 function recordValue(value: unknown): Record<string, unknown> | undefined {
   return isRecord(value) ? { ...value } : undefined;
 }
@@ -125,18 +141,27 @@ function rawKind(raw: RawRecord): string {
 
 function titledDetailText(raw: RawRecord): string {
   const data = isRecord(raw.data) ? raw.data : undefined;
+  const content = isRecord(raw.content) ? raw.content : undefined;
   const title =
-    stringValue(raw.title) ??
-    stringValue(raw.label) ??
-    stringValue(raw.name);
+    safeStringValue(raw.title) ??
+    safeStringValue(raw.label) ??
+    safeStringValue(raw.name);
   const detail =
-    stringValue(raw.detail) ??
-    stringValue(raw.message) ??
-    (data ? stringValue(data.detail) : undefined) ??
-    (data ? stringValue(data.message) : undefined) ??
-    (data ? stringValue(data.text) : undefined) ??
-    stringValue(raw.content) ??
-    stringValue(raw.text);
+    safeStringValue(raw.detail) ??
+    safeStringValue(raw.message) ??
+    safeStringValue(raw.summary) ??
+    (data ? safeStringValue(data.detail) : undefined) ??
+    (data ? safeStringValue(data.message) : undefined) ??
+    (data ? safeStringValue(data.summary) : undefined) ??
+    (data ? safeStringValue(data.text) : undefined) ??
+    (data ? safeStringValue(data.content) : undefined) ??
+    (content ? safeStringValue(content.detail) : undefined) ??
+    (content ? safeStringValue(content.message) : undefined) ??
+    (content ? safeStringValue(content.summary) : undefined) ??
+    (content ? safeStringValue(content.text) : undefined) ??
+    (content ? safeStringValue(content.content) : undefined) ??
+    safeStringValue(raw.content) ??
+    safeStringValue(raw.text);
   if (title && detail && title !== detail) {
     return `${title}：${detail}`;
   }
@@ -146,11 +171,7 @@ function titledDetailText(raw: RawRecord): string {
 function fallbackTextBlock(raw: RawRecord): TextBlock {
   const text = titledDetailText(raw);
   if (text) return { kind: "text", content: text };
-  try {
-    return { kind: "text", content: JSON.stringify(raw) };
-  } catch {
-    return { kind: "text", content: "Unsupported message block" };
-  }
+  return { kind: "text", content: "Unsupported message block" };
 }
 
 function toolSource(raw: RawRecord): RawRecord {
@@ -213,6 +234,101 @@ function extractToolOutput(raw: RawRecord, source: RawRecord): Record<string, un
     return { ...raw.data };
   }
   return { ...source };
+}
+
+function normalizeLinks(value: unknown): Link[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((item) => ({
+      icon: stringValue(item.icon) ?? "",
+      label: stringValue(item.label) ?? "",
+      href: stringValue(item.href) ?? "",
+    }))
+    .filter((item) => item.label || item.href);
+}
+
+function normalizeFindings(value: unknown): Finding[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((item, index) => ({
+      id: stringValue(item.id) ?? String(index + 1),
+      text: stringValue(item.text) ?? "",
+    }))
+    .filter((item) => item.text);
+}
+
+function normalizeFeedback(value: unknown): FeedbackBlock {
+  const raw = isRecord(value) ? value : {};
+  const pills = Array.isArray(raw.pills)
+    ? raw.pills
+        .filter(isRecord)
+        .map((item) => {
+          const kind: FeedbackPillKind =
+            item.kind === "primary" || item.kind === "warn" || item.kind === "normal"
+              ? item.kind
+              : "normal";
+          return {
+            kind,
+            label: stringValue(item.label) ?? "",
+            intent: stringValue(item.intent) ?? "",
+          };
+        })
+        .filter((item) => item.label && item.intent)
+    : [];
+  return {
+    question: stringValue(raw.question) ?? "",
+    pills,
+    allow_free_input:
+      typeof raw.allow_free_input === "boolean" ? raw.allow_free_input : true,
+  };
+}
+
+function normalizeStats(value: unknown): RunStats {
+  const raw = isRecord(value) ? value : {};
+  return {
+    duration_ms: typeof raw.duration_ms === "number" ? raw.duration_ms : 0,
+    subagents: typeof raw.subagents === "number" ? raw.subagents : 0,
+    tokens: typeof raw.tokens === "number" ? raw.tokens : 0,
+  };
+}
+
+function normalizeRecommend(value: unknown): Recommend | null {
+  if (!isRecord(value)) return null;
+  const label = stringValue(value.label);
+  const body = stringValue(value.body);
+  return label || body
+    ? { label: label ?? "", body: body ?? "" }
+    : null;
+}
+
+function normalizeResultCard(raw: RawRecord): ResultCardBlock | null {
+  const runId = stringValue(raw.run_id);
+  const title = stringValue(raw.title);
+  const tldr = stringValue(raw.tldr);
+  if (!runId || !title || !tldr) {
+    return null;
+  }
+
+  const normalized: ResultCardBlock = {
+    kind: "result_card",
+    run_id: runId,
+    title,
+    tldr,
+    findings: normalizeFindings(raw.findings),
+    links: normalizeLinks(raw.links),
+    review_items: Array.isArray(raw.review_items)
+      ? raw.review_items as WorkspacePrismReviewItem[]
+      : [],
+    feedback: normalizeFeedback(raw.feedback),
+    stats: normalizeStats(raw.stats),
+  };
+  const fullSummary = stringValue(raw.full_summary);
+  if (fullSummary) normalized.full_summary = fullSummary;
+  const recommend = normalizeRecommend(raw.recommend);
+  if (recommend) normalized.recommend = recommend;
+  return normalized;
 }
 
 export function normalizeChatBlock(raw: unknown): AgentBlock {
@@ -308,17 +424,7 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
   }
 
   if (kind === "result_card") {
-    if (
-      stringValue(raw.run_id) &&
-      stringValue(raw.title) &&
-      stringValue(raw.tldr) &&
-      Array.isArray(raw.findings) &&
-      isRecord(raw.feedback) &&
-      isRecord(raw.stats)
-    ) {
-      return raw as unknown as ResultCardBlock;
-    }
-    return fallbackTextBlock(raw);
+    return normalizeResultCard(raw) ?? fallbackTextBlock(raw);
   }
 
   if (!kind) {

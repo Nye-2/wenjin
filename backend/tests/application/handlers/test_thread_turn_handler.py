@@ -1004,6 +1004,28 @@ class TestThreadTurnHandlerCancellation:
             {"kind": "thinking", "text": "legacy thought"},
         ]
 
+    def test_reply_from_agent_result_does_not_render_raw_unknown_block_payload(self):
+        reply = _reply_from_agent_result(
+            {
+                "messages": [AIMessage(content="legacy blocks")],
+                "response_blocks": [
+                    {
+                        "kind": "custom_panel",
+                        "data": {
+                            "output_ref": "/mnt/user-data/runtime/internal.json",
+                            "secret": "runtime payload",
+                        },
+                    }
+                ],
+                "response_metadata": {},
+            },
+            thread_id="thread-1",
+        )
+
+        assert reply.blocks == [{"kind": "text", "content": "Unsupported message block"}]
+        assert "/mnt/user-data/runtime/internal.json" not in reply.blocks[0]["content"]
+        assert "runtime payload" not in reply.blocks[0]["content"]
+
     @pytest.mark.asyncio
     async def test_generate_thread_response_extracts_reasoning_into_blocks(self):
         fake_agent = MagicMock()
