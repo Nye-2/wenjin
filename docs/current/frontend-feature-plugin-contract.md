@@ -1,6 +1,6 @@
 # Frontend Feature Plugin Contract
 
-更新时间: 2026-06-25
+更新时间: 2026-06-24
 
 本文档定义 workspace capability 入口的前后端契约，避免前端硬编码 capability 目录与执行入口逻辑。
 

@@ -1,6 +1,6 @@
 # Release Gate Checklist
 
-更新时间: 2026-06-25
+更新时间: 2026-06-24
 状态: Current
 
 本文件只保留发布前 Go/No-Go 的当前门禁。历史验证流水不在 current docs 中维护；需要追溯时查 Git 历史。

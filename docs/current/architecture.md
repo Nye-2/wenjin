@@ -1,6 +1,6 @@
 # Wenjin Architecture
 
-更新时间：2026-06-25
+更新时间：2026-06-24
 状态：Current
 
 本文件是 Wenjin 当前架构的唯一总览事实源。
