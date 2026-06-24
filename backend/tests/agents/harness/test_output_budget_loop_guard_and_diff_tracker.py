@@ -666,7 +666,7 @@ def test_member_execution_transcript_records_bounded_output_ref_reads() -> None:
 
 
 def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:
-    guard = HarnessLoopGuard(warn_threshold=3, hard_limit=5)
+    guard = HarnessLoopGuard(warn_threshold=3, repeated_hard_limit=5)
     args = {"path": "/workspace/main.tex"}
 
     assert guard.record("sandbox.read_file", args).allowed
@@ -680,3 +680,18 @@ def test_loop_guard_warns_then_stops_repeated_identical_tool_calls() -> None:
     stopped = guard.record("sandbox.read_file", args)
     assert not stopped.allowed
     assert stopped.stop_reason == "tool_loop_hard_stop"
+
+
+def test_loop_guard_stops_total_tool_calls_independently_of_repeat_count() -> None:
+    guard = HarnessLoopGuard(
+        warn_threshold=3,
+        repeated_hard_limit=5,
+        total_hard_limit=3,
+    )
+
+    assert guard.record("sandbox.read_file", {"path": "/workspace/a.txt"}).allowed is True
+    assert guard.record("sandbox.read_file", {"path": "/workspace/b.txt"}).allowed is True
+    decision = guard.record("sandbox.read_file", {"path": "/workspace/c.txt"})
+
+    assert decision.allowed is False
+    assert decision.stop_reason == "tool_total_hard_stop"

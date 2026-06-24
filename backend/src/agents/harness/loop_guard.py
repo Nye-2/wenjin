@@ -22,19 +22,29 @@ class LoopGuardDecision:
 
 @dataclass(slots=True)
 class HarnessLoopGuard:
-    """Detect repeated identical tool calls inside one harness invocation."""
+    """Detect repeated identical calls and total tool budget exhaustion."""
 
     warn_threshold: int = 3
-    hard_limit: int = 5
+    repeated_hard_limit: int = 5
+    total_hard_limit: int = 30
     _counts: dict[str, int] | None = None
+    _total_count: int = 0
 
     def record(self, tool_name: str, args: dict[str, Any]) -> LoopGuardDecision:
         if self._counts is None:
             self._counts = {}
+        self._total_count += 1
+        if self._total_count >= self.total_hard_limit:
+            return LoopGuardDecision(
+                allowed=False,
+                count=self._total_count,
+                should_warn=True,
+                stop_reason="tool_total_hard_stop",
+            )
         key = _fingerprint(tool_name, args)
         count = self._counts.get(key, 0) + 1
         self._counts[key] = count
-        if count >= self.hard_limit:
+        if count >= self.repeated_hard_limit:
             return LoopGuardDecision(
                 allowed=False,
                 count=count,

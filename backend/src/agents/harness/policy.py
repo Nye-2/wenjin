@@ -77,6 +77,11 @@ def resolve_harness_policy(ctx: HarnessRunContext) -> HarnessPolicy:
     denied.difference_update(filtered_tools)
 
     sandbox_policy = _sandbox_policy(ctx.capability_policy)
+    max_total_tool_calls = int(
+        sandbox_policy.get("max_total_tool_calls")
+        or sandbox_policy.get("max_tool_calls")
+        or 30
+    )
     return HarnessPolicy(
         allowed_tools=tuple(filtered_tools),
         denied_tools=frozenset(denied),
@@ -87,7 +92,11 @@ def resolve_harness_policy(ctx: HarnessRunContext) -> HarnessPolicy:
             sandbox_policy.get("allow_package_install")
             or "sandbox.install_python_packages" in effective_permissions
         ),
-        max_tool_calls=int(sandbox_policy.get("max_tool_calls") or 30),
+        max_total_tool_calls=max_total_tool_calls,
+        max_repeated_identical_tool_calls=int(
+            sandbox_policy.get("max_repeated_identical_tool_calls") or 5
+        ),
+        max_tool_calls=max_total_tool_calls,
         max_iterations=int(sandbox_policy.get("max_iterations") or 8),
         max_sandbox_seconds=int(sandbox_policy.get("timeout_seconds") or 120),
         output_budget=dict(sandbox_policy.get("output_budget") or {}),

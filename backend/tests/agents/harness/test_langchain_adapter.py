@@ -12,7 +12,12 @@ import pytest
 
 import src.agents.harness.langchain_adapter as langchain_adapter
 from src.agents.harness.args_summary import summarize_tool_args
-from src.agents.harness.langchain_adapter import _tool_result_metadata, build_langchain_tools
+from src.agents.harness.langchain_adapter import (
+    _format_tool_error_result,
+    _tool_result_metadata,
+    build_langchain_tools,
+)
+from src.agents.harness.scheduler import WorkspaceToolQueueTimeout
 from src.sandbox.providers.local import LocalSandbox
 from src.subagents.v2.base import SubagentContext
 
@@ -78,6 +83,30 @@ class _RecordingScheduler:
         if inspect.isawaitable(value):
             return await value
         return value
+
+
+def test_format_tool_error_result_classifies_forbidden_tool() -> None:
+    result = _format_tool_error_result(
+        "sandbox.run_python",
+        {"script_name": "analysis.py"},
+        PermissionError("harness policy does not allow sandbox.run_python"),
+    )
+    payload = json.loads(result)
+
+    assert payload["payload"]["error_code"] == "tool_forbidden"
+    assert payload["payload"]["recoverable"] is False
+
+
+def test_format_tool_error_result_classifies_queue_timeout() -> None:
+    result = _format_tool_error_result(
+        "sandbox.read_file",
+        {"path": "/workspace/main.tex"},
+        WorkspaceToolQueueTimeout("workspace sandbox queue timed out: ws-1"),
+    )
+    payload = json.loads(result)
+
+    assert payload["payload"]["error_code"] == "sandbox_queue_timeout"
+    assert payload["payload"]["recoverable"] is True
 
 
 @pytest.mark.asyncio

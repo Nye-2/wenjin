@@ -28,7 +28,7 @@ from .loop_guard import HarnessLoopGuard
 from .policy import resolve_harness_policy
 from .sandbox_execution_tools import SandboxExecutionTools
 from .sandbox_tools import SandboxFileTools
-from .scheduler import default_workspace_tool_scheduler
+from .scheduler import WorkspaceToolQueueTimeout, default_workspace_tool_scheduler
 from .tool_names import expand_tool_names
 
 
@@ -263,7 +263,7 @@ async def _invoke_recorded(
             sequence_kind="tool",
             payload={"name": canonical_name, "args": args_summary, "error": error},
         )
-        raise RuntimeError(f"repeated tool call stopped by harness loop guard: {error}")
+        raise RuntimeError(f"tool call stopped by harness loop guard: {error}")
     if loop_decision.should_warn and loop_decision.count == loop_guard.warn_threshold:
         await publish_harness_event(
             ctx,
@@ -369,9 +369,12 @@ def _loop_guard(ctx: HarnessRunContext, policy: HarnessPolicy) -> HarnessLoopGua
     guard = ctx.context_bundle.get("_harness_loop_guard")
     if isinstance(guard, HarnessLoopGuard):
         return guard
-    hard_limit = max(1, int(policy.max_tool_calls or 1))
-    warn_threshold = min(3, hard_limit)
-    guard = HarnessLoopGuard(warn_threshold=warn_threshold, hard_limit=hard_limit)
+    repeated_hard_limit = max(1, int(policy.max_repeated_identical_tool_calls or 1))
+    guard = HarnessLoopGuard(
+        warn_threshold=min(3, repeated_hard_limit),
+        repeated_hard_limit=repeated_hard_limit,
+        total_hard_limit=max(1, int(policy.max_total_tool_calls or 1)),
+    )
     ctx.context_bundle["_harness_loop_guard"] = guard
     return guard
 
@@ -504,13 +507,15 @@ def _format_tool_result(result: HarnessToolResult) -> str:
 
 def _format_tool_error_result(canonical_name: str, args_summary: dict[str, Any], exc: Exception) -> str:
     error = _format_exception_error(exc)
+    error_code, recoverable = _harness_error_code(exc)
     payload = {
         "preview": f"Tool {canonical_name} failed: {error}",
         "payload": {
             "tool": canonical_name,
             "args": args_summary,
-            "error_code": "tool_error",
+            "error_code": error_code,
             "exception_type": exc.__class__.__name__,
+            "recoverable": recoverable,
         },
         "truncated": False,
         "externalized": False,
@@ -518,6 +523,21 @@ def _format_tool_error_result(canonical_name: str, args_summary: dict[str, Any],
         "error": error,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def _harness_error_code(exc: Exception) -> tuple[str, bool]:
+    message = str(exc).lower()
+    if isinstance(exc, PermissionError) or "forbidden" in message or "not allow" in message:
+        return "tool_forbidden", False
+    if exc.__class__.__name__ == "UnknownHarnessToolError" or "unknown harness tool" in message:
+        return "tool_unknown", False
+    if isinstance(exc, WorkspaceToolQueueTimeout):
+        return "sandbox_queue_timeout", True
+    if "queue" in message and ("timeout" in message or "timed out" in message):
+        return "sandbox_queue_timeout", True
+    if "timed out" in message or "timeout" in message:
+        return "tool_timeout", True
+    return "tool_error", True
 
 
 def _validation_error_handler(canonical_name: str, ctx: HarnessRunContext) -> Callable[[Exception], str]:
@@ -676,10 +696,16 @@ def _tool_result_metadata(result: str) -> dict[str, Any]:
         value = payload.get(key)
         if isinstance(value, bool) and value:
             metadata[key] = value
+    structured_payload = payload.get("payload")
+    if isinstance(structured_payload, dict):
+        recoverable = structured_payload.get("recoverable")
+        if isinstance(recoverable, bool):
+            metadata["recoverable"] = recoverable
+
     error = payload.get("error")
     if isinstance(error, str) and error.strip():
-        metadata["recoverable_error"] = error.strip()
-        structured_payload = payload.get("payload")
+        if metadata.get("recoverable") is not False:
+            metadata["recoverable_error"] = error.strip()
         if isinstance(structured_payload, dict):
             error_code = structured_payload.get("error_code")
             if isinstance(error_code, str) and error_code.strip():
