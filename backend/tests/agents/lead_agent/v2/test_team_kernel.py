@@ -1,6 +1,8 @@
 import asyncio
 from collections import Counter
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,6 +15,7 @@ from src.agents.lead_agent.v2.team.contracts import (
     AgentTemplate,
     CapabilityTeamPolicy,
     TeamBlackboard,
+    TeamLimits,
 )
 from src.agents.lead_agent.v2.team.kernel import RecruitmentCandidate, TeamKernelRuntime
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
@@ -383,6 +386,75 @@ def _brief() -> TaskBrief:
     )
 
 
+def _minimal_team_policy_without_invocations() -> CapabilityTeamPolicy:
+    return CapabilityTeamPolicy(
+        core_templates=[],
+        optional_templates=[],
+        capability_tools=[],
+        capability_skills=[],
+        quality_pipeline=[],
+        limits=TeamLimits(
+            max_iterations=1,
+            max_parallel_invocations=1,
+            max_invocations_total=1,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_passes_capability_policy_and_user_to_workspace_loader(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def load_workspace_data(workspace_id: str, **kwargs: Any) -> dict[str, Any]:
+        captured["workspace_id"] = workspace_id
+        captured.update(kwargs)
+        return {"library_context": {"allowed_citation_keys": ["smith2024"]}}
+
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=AsyncMock(),
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=load_workspace_data,
+        needs_workspace_context=lambda policy, requirements: True,
+        context_requirements_from_brief=lambda brief: {"include_related_documents": True},
+        capability_policy_builder=lambda capability: {
+            "citation_policy": {"source_scope": "workspace_library"},
+            "context_policy": {"room_reads": {"library": True}},
+        },
+        collect_policy_memory_outputs=lambda capability, brief, outputs: [],
+    )
+
+    monkeypatch.setattr(runtime, "_load_templates", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.build_capability_team_policy",
+        lambda capability, templates: _minimal_team_policy_without_invocations(),
+    )
+
+    report = await runtime.run(
+        execution_id="exec-1",
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            raw_message="position this topic",
+            workspace_id="ws-1",
+            user_id="user-1",
+            brief={"topic": "LLM agents"},
+        ),
+        capability=SimpleNamespace(
+            id="sci_literature_positioning",
+            display_name="SCI 文献定位",
+        ),
+        started_at=datetime.now(UTC),
+    )
+
+    assert report.status in {"completed", "failed_partial"}
+    assert captured["workspace_id"] == "ws-1"
+    assert captured["user_id"] == "user-1"
+    assert captured["capability_policy"]["citation_policy"]["source_scope"] == "workspace_library"
+    assert captured["context_requirements"]["include_related_documents"] is True
+
+
 def test_team_panel_graph_keeps_member_templates_out_of_progress_steps() -> None:
     runtime = LeadAgentRuntime(
         resolver=AsyncMock(),
@@ -409,7 +481,8 @@ def test_team_kernel_quality_contract_includes_workspace_source_allowlist() -> N
         record_node_event=AsyncMock(),
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -453,7 +526,8 @@ def test_team_kernel_applies_capability_profile_override_when_building_batch() -
         record_node_event=AsyncMock(),
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -507,7 +581,8 @@ async def test_record_invocation_persists_expert_snapshot_and_preview_items() ->
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -576,7 +651,8 @@ async def test_record_invocation_generates_synthetic_expert_snapshot_when_missin
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -613,7 +689,8 @@ async def test_record_invocation_skips_invalid_expert_metadata() -> None:
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -707,7 +784,8 @@ async def test_run_invocation_persists_subagent_result_expert_metadata() -> None
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -758,7 +836,8 @@ async def test_run_invocation_keeps_streamed_expert_snapshots_in_final_node_meta
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -826,7 +905,8 @@ async def test_run_invocation_keeps_streamed_snapshots_when_result_metadata_is_e
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -895,7 +975,8 @@ async def test_streamed_expert_snapshot_recording_failure_does_not_fail_invocati
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -941,7 +1022,8 @@ async def test_run_invocation_marks_hanging_subagent_failed_on_timeout() -> None
         record_node_event=AsyncMock(),
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: False,
+        needs_workspace_context=lambda _policy, _requirements: False,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )

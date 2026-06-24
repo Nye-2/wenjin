@@ -527,7 +527,25 @@ async def test_team_harness_mock_sandbox_flow_stages_reviewable_artifact(monkeyp
     async def publish_event(execution_id: str, event_name: str, payload: dict):
         harness_events.append((execution_id, event_name, payload))
 
-    async def load_workspace_data(self, workspace_id: str):
+    async def load_workspace_data(
+        self,
+        workspace_id: str,
+        *,
+        capability_policy=None,
+        context_requirements=None,
+        user_id: str = "",
+    ):
+        assert workspace_id == "ws-e2e"
+        assert user_id == "user-1"
+        assert context_requirements == {}
+        assert isinstance(capability_policy, dict)
+        assert (
+            capability_policy.get("context_policy", {})
+            .get("room_reads", {})
+            .get("library", {})
+            .get("max_items")
+            == 3
+        )
         return {
             "workspace_file_summary": {
                 "dataset_provenance": [
@@ -1122,7 +1140,25 @@ async def test_figure_generation_tool_artifact_is_staged_for_review(monkeypatch)
     async def publish_event(execution_id: str, event_name: str, payload: dict):
         captured.setdefault("harness_events", []).append((execution_id, event_name, payload))
 
-    async def load_workspace_data(self, workspace_id: str):
+    async def load_workspace_data(
+        self,
+        workspace_id: str,
+        *,
+        capability_policy=None,
+        context_requirements=None,
+        user_id: str = "",
+    ):
+        assert workspace_id == "ws-e2e"
+        assert user_id == "user-1"
+        assert context_requirements == {}
+        assert isinstance(capability_policy, dict)
+        assert (
+            capability_policy.get("context_policy", {})
+            .get("room_reads", {})
+            .get("library", {})
+            .get("max_items")
+            == 3
+        )
         return {
             "workspace_file_summary": {
                 "dataset_provenance": [

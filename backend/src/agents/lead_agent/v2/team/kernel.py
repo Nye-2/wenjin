@@ -100,8 +100,9 @@ class TeamKernelRuntime:
         publish_event: Callable[[str, str, dict[str, Any]], Awaitable[None]],
         record_node_event: Callable[..., Awaitable[None]],
         abort_check: Callable[[str], Awaitable[bool]],
-        load_workspace_data: Callable[[str], Awaitable[dict[str, Any]]],
-        needs_library_context: Callable[[dict[str, Any]], bool],
+        load_workspace_data: Callable[..., Awaitable[dict[str, Any]]],
+        needs_workspace_context: Callable[[dict[str, Any], dict[str, bool]], bool],
+        context_requirements_from_brief: Callable[[TaskBrief], dict[str, bool]],
         capability_policy_builder: Callable[[Any], dict[str, Any]],
         collect_policy_memory_outputs: Callable[[Any, TaskBrief, list[ResultOutput]], list[ResultOutput]],
     ) -> None:
@@ -109,7 +110,8 @@ class TeamKernelRuntime:
         self.record_node_event = record_node_event
         self.abort_check = abort_check
         self.load_workspace_data = load_workspace_data
-        self.needs_library_context = needs_library_context
+        self.needs_workspace_context = needs_workspace_context
+        self.context_requirements_from_brief = context_requirements_from_brief
         self.capability_policy_builder = capability_policy_builder
         self.collect_policy_memory_outputs = collect_policy_memory_outputs
         self._node_harness_metadata: dict[tuple[str, str], dict[str, Any]] = {}
@@ -129,9 +131,15 @@ class TeamKernelRuntime:
                 templates=templates,
             )
             capability_policy = self.capability_policy_builder(capability)
+            context_requirements = self.context_requirements_from_brief(brief)
             workspace_data = (
-                await self.load_workspace_data(brief.workspace_id)
-                if self.needs_library_context(capability_policy)
+                await self.load_workspace_data(
+                    brief.workspace_id,
+                    capability_policy=capability_policy,
+                    context_requirements=context_requirements,
+                    user_id=brief.user_id,
+                )
+                if self.needs_workspace_context(capability_policy, context_requirements)
                 else {}
             )
             blackboard = TeamBlackboard(mission_summary=brief.raw_message or capability.display_name)
