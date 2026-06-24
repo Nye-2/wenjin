@@ -88,7 +88,7 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
     assert blocks[1] == {
         "kind": "status_line",
         "label": "能力未启动：缺少工具结果",
-        "run_id": "legacy-warning",
+        "run_id": "warning-status",
         "tone": "warn",
     }
     assert blocks[3] == {

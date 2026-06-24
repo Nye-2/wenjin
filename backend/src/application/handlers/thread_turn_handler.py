@@ -794,7 +794,7 @@ def _normalize_status_line_response_block(
         or _visible_block_text(block)
         or "Status update",
         "run_id": _string_value(block.get("run_id"))
-        or ("legacy-warning" if raw_kind == "warning" else "legacy-status"),
+        or ("warning-status" if raw_kind == "warning" else "status-line"),
         "tone": normalized_tone,
     }
     phase_index = block.get("phase_index")

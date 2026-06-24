@@ -62,7 +62,7 @@ def extract_capability_minimum_context(capability: Any) -> Mapping[str, Any] | N
 
     Runtime gating must follow the DataService capability contract instead of a
     parallel hard-coded list. The static requirements below remain only for
-    legacy resume hydration.
+    historical resume hydration.
     """
     routing = _as_mapping(getattr(capability, "routing", None))
     if routing and isinstance(routing.get("minimum_context"), Mapping):

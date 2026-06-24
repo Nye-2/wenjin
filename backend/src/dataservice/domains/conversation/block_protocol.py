@@ -160,7 +160,7 @@ def _warning_status_line_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "kind": ConversationBlockKind.STATUS_LINE.value,
         "label": _visible_status_text(payload) or "Warning",
-        "run_id": _string_value(payload.get("run_id")) or "legacy-warning",
+        "run_id": _string_value(payload.get("run_id")) or "warning-status",
         "tone": "warn",
     }
 

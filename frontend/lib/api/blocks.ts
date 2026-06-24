@@ -357,7 +357,7 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
     return {
       kind: "status_line",
       label: stringValue(raw.label) ?? (titledDetailText(raw) || "Status update"),
-      run_id: stringValue(raw.run_id) ?? "legacy-status",
+      run_id: stringValue(raw.run_id) ?? "status-line",
       phase_index: typeof raw.phase_index === "number" ? raw.phase_index : null,
       tone,
     };
@@ -367,7 +367,7 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
     return {
       kind: "status_line",
       label: titledDetailText(raw) || "Warning",
-      run_id: stringValue(raw.run_id) ?? "legacy-warning",
+      run_id: stringValue(raw.run_id) ?? "warning-status",
       tone: "warn",
     };
   }

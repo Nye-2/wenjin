@@ -997,7 +997,7 @@ class TestThreadTurnHandlerCancellation:
             {
                 "kind": "status_line",
                 "label": "能力未启动：缺少工具结果",
-                "run_id": "legacy-warning",
+                "run_id": "warning-status",
                 "tone": "warn",
             },
             {"kind": "text", "content": "旧卡片：仍应可见"},

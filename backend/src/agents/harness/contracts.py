@@ -65,10 +65,10 @@ class HarnessPolicy:
     visibility_defaults: dict[str, HarnessVisibility] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        legacy_total = self.max_tool_calls
+        previous_total = self.max_tool_calls
         total = self.max_total_tool_calls
-        if legacy_total is not None and total == 30:
-            total = legacy_total
+        if previous_total is not None and total == 30:
+            total = previous_total
         object.__setattr__(self, "max_total_tool_calls", int(total))
         object.__setattr__(
             self,

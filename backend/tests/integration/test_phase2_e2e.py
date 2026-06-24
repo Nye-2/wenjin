@@ -300,6 +300,18 @@ async def test_commit_after_e2e_writes_rooms():
         status="completed",
     )
 
+    async def _persist_execution_update(execution_id: str, **kwargs):
+        return SimpleNamespace(
+            id=execution_id,
+            result=kwargs.get("result"),
+            workspace_id="ws-1",
+            user_id="u-1",
+            feature_id="deep_research",
+            status="completed",
+        )
+
+    execution_service.update_execution = AsyncMock(side_effect=_persist_execution_update)
+
     dataservice = MagicMock()
     dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
     dataservice.import_source = AsyncMock(

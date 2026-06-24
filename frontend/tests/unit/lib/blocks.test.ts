@@ -142,7 +142,7 @@ describe("AgentBlock type guards", () => {
     ).toEqual({
       kind: "status_line",
       label: "能力未启动：缺少真实工具结果",
-      run_id: "legacy-warning",
+      run_id: "warning-status",
       tone: "warn",
     });
   });
