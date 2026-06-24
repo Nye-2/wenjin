@@ -63,12 +63,22 @@ def _make_execution(report: TaskReport, workspace_id: str = WORKSPACE_ID) -> Sim
 def _make_service(
     execution: SimpleNamespace | None = None,
     *,
+    audit=None,
     redis=None,
 ) -> tuple[ExecutionCommitService, dict[str, AsyncMock]]:
     """Build a service with DataService-backed commit dependencies mocked."""
     execution_svc = MagicMock()
     execution_svc.get_by_id = AsyncMock(return_value=execution)
-    execution_svc.update_execution = AsyncMock(return_value=execution)
+
+    async def _update_execution(_execution_id: str, **kwargs):
+        if execution is None:
+            return None
+        updated = SimpleNamespace(**vars(execution))
+        if "result" in kwargs:
+            updated.result = kwargs["result"]
+        return updated
+
+    execution_svc.update_execution = AsyncMock(side_effect=_update_execution)
 
     dataservice = MagicMock()
     dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
@@ -96,6 +106,7 @@ def _make_service(
     svc = ExecutionCommitService(
         execution_service=execution_svc,
         dataservice=dataservice,
+        audit_service=audit,
         redis=redis,
         referral_first_task_callback=AsyncMock(),
     )
@@ -402,6 +413,43 @@ async def test_commit_empty_selection_persists_discard_without_room_writes():
 
 
 @pytest.mark.asyncio
+async def test_commit_without_selection_returns_noop_without_durable_discard():
+    """Omitted accepted_ids is a no-op, not an irreversible discard decision."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    svc, mocks = _make_service(execution)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        actor_user_id="user-1",
+    )
+
+    assert result == {
+        "committed": {
+            "library": 0,
+            "documents": 0,
+            "memory": 0,
+            "decisions": 0,
+            "tasks": 0,
+        },
+        "room_targets": {
+            "documents": [],
+            "library": [],
+            "memory": [],
+            "decisions": [],
+            "tasks": [],
+        },
+    }
+    mocks["dataservice"].create_source.assert_not_called()
+    mocks["dataservice"].import_source.assert_not_called()
+    mocks["dataservice"].register_asset.assert_not_called()
+    mocks["dataservice"].stage_and_apply_room_candidates.assert_not_called()
+    mocks["dataservice"].append_execution_event.assert_not_called()
+    mocks["execution"].update_execution.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_commit_applies_output_overrides_before_room_writes():
     """Edited staged outputs are materialized with the override data."""
     outputs = [
@@ -651,6 +699,66 @@ async def test_commit_idempotent_with_key():
     assert mocks["dataservice"].append_execution_event.call_count == 1
     assert mocks["execution"].update_execution.call_count == 1
     assert result1 == result2
+
+
+@pytest.mark.asyncio
+async def test_commit_raises_when_commit_state_persistence_not_confirmed():
+    """Do not report success or cache when execution result persistence fails."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    audit = MagicMock()
+    audit.log = AsyncMock()
+
+    redis_mock = SimpleNamespace()
+    redis_mock.get = AsyncMock(return_value=None)
+    redis_mock.set = AsyncMock()
+
+    svc, mocks = _make_service(execution, audit=audit, redis=redis_mock)
+    mocks["execution"].update_execution.side_effect = None
+    mocks["execution"].update_execution.return_value = None
+
+    with patch(
+        "src.services.execution_commit_service.publish_workspace_event",
+        new=AsyncMock(),
+    ) as publish_refresh:
+        with pytest.raises(RuntimeError, match="commit_state persistence failed"):
+            await svc.commit_outputs(
+                EXECUTION_ID,
+                accept_all=True,
+                idempotency_key="key-abc",
+                actor_user_id="user-1",
+            )
+
+    redis_mock.set.assert_not_called()
+    publish_refresh.assert_not_called()
+    audit.log.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_commit_uses_redis_lock_when_supported():
+    """When Redis lock primitives exist, commits are guarded through a short lock."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+
+    redis_mock = MagicMock()
+    redis_mock.get = AsyncMock(return_value=None)
+    redis_mock.set = AsyncMock(return_value=True)
+    redis_mock.eval = AsyncMock(return_value=1)
+
+    svc, _mocks = _make_service(execution, redis=redis_mock)
+
+    await svc.commit_outputs(
+        EXECUTION_ID,
+        accepted_ids=["out-doc"],
+        actor_user_id="user-1",
+    )
+
+    lock_call = redis_mock.set.await_args_list[0]
+    assert lock_call.args[0] == f"commit:lock:{EXECUTION_ID}"
+    assert lock_call.kwargs == {"nx": True, "ex": 60}
+    redis_mock.eval.assert_awaited_once()
 
 
 @pytest.mark.asyncio
