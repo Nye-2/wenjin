@@ -196,6 +196,13 @@ function isSameToolBlock(a: Block, b: Block): boolean {
     return false;
   }
   if (a.kind === "tool_result" && b.kind === "tool_result") {
+    const aToolCallId =
+      typeof a.tool_call_id === "string" ? a.tool_call_id.trim() : "";
+    const bToolCallId =
+      typeof b.tool_call_id === "string" ? b.tool_call_id.trim() : "";
+    if (aToolCallId || bToolCallId) {
+      return aToolCallId === bToolCallId;
+    }
     const aExecutionId =
       typeof a.execution_id === "string" ? a.execution_id.trim() : "";
     const bExecutionId =
@@ -203,7 +210,18 @@ function isSameToolBlock(a: Block, b: Block): boolean {
     if (aExecutionId || bExecutionId) {
       return aExecutionId === bExecutionId;
     }
-    return a.feature_id === b.feature_id && a.status === b.status;
+    const aFeatureId =
+      typeof a.feature_id === "string" ? a.feature_id.trim() : "";
+    const bFeatureId =
+      typeof b.feature_id === "string" ? b.feature_id.trim() : "";
+    if (aFeatureId || bFeatureId) {
+      return aFeatureId === bFeatureId && a.status === b.status;
+    }
+    return (
+      a.tool === b.tool &&
+      a.status === b.status &&
+      stableInputFingerprint(a.output) === stableInputFingerprint(b.output)
+    );
   }
   if (a.kind === "tool_invocation" && b.kind === "tool_invocation") {
     const aToolCallId =

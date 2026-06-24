@@ -46,7 +46,6 @@ from src.services.thread_billing import (
 from src.services.thread_events import publish_thread_updated, set_thread_status
 from src.tools.builtins.artifacts import (
     build_presented_artifact_items,
-    build_presented_artifacts_block,
 )
 
 logger = logging.getLogger(__name__)
@@ -764,11 +763,6 @@ def _reply_from_agent_result(
         )
         if artifact_items and not isinstance(metadata.get("artifacts"), list):
             metadata["artifacts"] = artifact_items
-        if artifact_items and not any(
-            isinstance(block, dict) and block.get("type") == "artifacts"
-            for block in blocks
-        ):
-            blocks.append(build_presented_artifacts_block(artifact_items))
         if not content:
             count = len(artifact_items)
             content = f"已生成 {count} 个文件，可直接打开查看。"

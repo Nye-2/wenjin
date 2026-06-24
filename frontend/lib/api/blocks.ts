@@ -223,15 +223,13 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
   const kind = rawKind(raw);
 
   if (kind === "text") {
-    return {
-      kind: "text",
-      content:
-        typeof raw.content === "string"
-          ? raw.content
-          : typeof raw.text === "string"
-            ? raw.text
-            : titledDetailText(raw),
-    };
+    if (typeof raw.content === "string") {
+      return { kind: "text", content: raw.content };
+    }
+    if (typeof raw.text === "string") {
+      return { kind: "text", content: raw.text };
+    }
+    return fallbackTextBlock(raw);
   }
 
   if (kind === "reasoning" || kind === "thought" || kind === "thinking") {

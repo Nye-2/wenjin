@@ -156,6 +156,18 @@ describe("AgentBlock type guards", () => {
     ).toEqual({ kind: "text", content: "visible fallback" });
   });
 
+  it("normalizes malformed text blocks with non-string content to visible JSON", () => {
+    expect(
+      normalizeChatBlock({
+        kind: "text",
+        content: { detail: "structured fallback" },
+      }),
+    ).toEqual({
+      kind: "text",
+      content: '{"kind":"text","content":{"detail":"structured fallback"}}',
+    });
+  });
+
   it("falls back unknown blocks to visible text instead of invalid kinds", () => {
     expect(
       normalizeChatBlock({

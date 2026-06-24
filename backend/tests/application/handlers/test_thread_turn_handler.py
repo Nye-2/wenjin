@@ -948,6 +948,21 @@ class TestThreadTurnHandlerCancellation:
 
         assert _reply_reasoning_text(reply) == "legacy top-level text"
 
+    def test_reply_from_agent_result_keeps_artifact_metadata_without_legacy_block(self):
+        reply = _reply_from_agent_result(
+            {
+                "messages": [AIMessage(content="已生成文件。")],
+                "response_blocks": [{"kind": "text", "content": "已生成文件。"}],
+                "response_metadata": {},
+                "artifacts": ["/mnt/user-data/outputs/report.md"],
+            },
+            thread_id="thread-1",
+        )
+
+        assert [block.get("kind") for block in reply.blocks] == ["text"]
+        assert all(block.get("type") != "artifacts" for block in reply.blocks)
+        assert reply.metadata["artifacts"][0]["name"] == "report.md"
+
     @pytest.mark.asyncio
     async def test_generate_thread_response_extracts_reasoning_into_blocks(self):
         fake_agent = MagicMock()

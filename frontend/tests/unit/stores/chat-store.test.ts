@@ -261,6 +261,36 @@ describe("chat store", () => {
     ]);
   });
 
+  it("keeps same-tool result blocks when generic outputs differ", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_result",
+        tool: "search",
+        output: { title: "alpha" },
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_result",
+        tool: "search",
+        output: { title: "beta" },
+      },
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      { kind: "tool_result", tool: "search", output: { title: "alpha" } },
+      { kind: "tool_result", tool: "search", output: { title: "beta" } },
+    ]);
+  });
+
   it("normalizes finalize_block legacy tool payloads before storing them", () => {
     const { handleEvent } = useChatStoreV2.getState();
     handleEvent({
