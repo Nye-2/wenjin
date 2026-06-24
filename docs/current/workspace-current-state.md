@@ -1,6 +1,6 @@
 # Workspace 当前状态
 
-更新时间：2026-06-23
+更新时间：2026-06-25
 状态：Current
 适用项目：`wenjin`
 
@@ -22,9 +22,10 @@
 3. 1:1 映射：lead-busy 时阻塞新的 dispatch
 4. Chat turn 本身通过 `/api/threads/{thread_id}/runs/stream` 运行；当 Chat Agent 调用 `launch_feature` 时，stream 会显式输出 `tool_invocation` 与 `tool_result`
 5. `launch_feature` 的 `tool_result.status == "launched"` 必须包含 canonical `execution_id`，前端据此建立 run receipt 与右侧 Current run 焦点
-6. `launch_feature` 的 `tool_result.status == "advisory"` 表示尚未进入执行链路；前端只展示补充信息提示，不设置 active run，也不打开 Current run
-7. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
-8. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
+6. `launch_feature` 按已持久化 user message id / `launch_idempotency_key` 幂等；agent retry 重复调用同一 key 时返回原 `execution_id`，不创建第二次 execution，也不把重复启动误判为无关 lead-busy
+7. `launch_feature` 的 `tool_result.status == "advisory"` 表示尚未进入执行链路；前端只展示补充信息提示，不设置 active run，也不打开 Current run
+8. Chat Agent 不注册 sandbox-backed bash/file tools，不持有 sandbox state，也不通过 middleware acquire sandbox；sandbox 只能在右侧 Lead Agent graph 的 subagent 节点里执行
+9. DataService 持久化的 chat block payload 只保留 canonical `kind`；旧 kind/type 输入可被归一化，但不保存 `legacy_kind` 影子字段。
 
 ## 3. Capability 数据驱动
 
@@ -97,21 +98,23 @@ TeamKernel quality gates 当前会写入 `ExecutionRecord.runtime_state.quality_
 7. ResultCard 在聊天面板渲染：按 kind 分组、checkbox 选取；Prism 写作变更渲染为 DB-backed review item
 8. Prism review item 可从 ResultCard / CompletedView / chat block 进入 `/workspaces/{workspace_id}/prism?focus=file_changes&review_item_id=...&logical_key=...`
 9. 用户 commit → `POST /api/executions/{id}/commit` → `ExecutionCommitService` 按 kind 路由到对应 room service
-10. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
-11. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
+10. commit state 以 execution projection 为准；ResultCard、CompletedView、LiveWorkflowPanel 和 Runs drawer 优先读取 execution-backed accepted/rejected output state，本地 `committed` 只表示当前请求中的 optimistic pending
+11. Prism 写作变更必须先走 Prism apply/reject/revert；接受后才写入稿件文件
+12. commit / apply 后通过 canonical `workspace.refresh` 事件刷新 room drawers、workspace activity 和 Prism context
 
 ## 5.1 Execution UX 当前收敛
 
 1. `frontend/lib/execution-run-view.ts` 是前端执行展示投影事实源，负责从 `ExecutionRecord`、Runs `RunRecord`、chat `result_card` 派生统一 `RunView`
-2. `frontend/stores/run-ui-store.ts` 只保存 UI 焦点：active / focused / highlighted / preview item / completed run ids；不拥有执行状态事实
-3. LiveWorkflowPanel 会 pin 当前 run：running 时自动展开执行卡，completed 后保持 Current run 摘要；active/focused 的非终态 run 优先于历史抽屉里的 stale selection，避免新启动团队任务被旧记录遮住
-4. Runs toolbar 按钮显示运行中/已完成提示；Runs drawer 合并 live execution store 与 `/api/workspaces/{workspace_id}/runs` 历史记录
-5. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`
-6. Prism tab / result card / Runs drawer 在存在 review items 时显示 pending handoff；Prism review state 仍以 canonical `review_items` 为准
-7. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
-8. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
-9. 浏览器 smoke 已验证：TeamKernel execution read path hydrate 后，LiveWorkflowPanel 能从 `execution_nodes` 恢复全部团队实名成员，并从 `runtime_state.quality_gates` 恢复质量检查数量；默认展示不暴露 raw tool JSON。
-10. 浏览器 smoke 已验证：历史 TeamKernel run 在刷新后展示为五步任务进展，顶部计数与步骤列表一致；旧 `team_template_*` 不再显示为“工作步骤/待处理”，质量门从历史事件列表聚合为当前 gate 状态。
+2. `RunView` 统一拥有 result/evidence/review projection：`resultPreviews`、`reviewItems`、`evidenceItems`、`pendingReviewCount`、`sandboxCount` 都从 execution projection 派生；证据项只能使用 sanitized summary、basename、计数、风险和下一步，不展示 raw stdout/stderr、raw findings 或 internal harness refs
+3. `frontend/stores/run-ui-store.ts` 只保存 UI 焦点：active / focused / highlighted / preview item / completed run ids；不拥有执行状态事实
+4. LiveWorkflowPanel 会 pin 当前 run：running 时自动展开执行卡，completed 后保持 Current run 摘要；active/focused 的非终态 run 优先于历史抽屉里的 stale selection，避免新启动团队任务被旧记录遮住
+5. Runs toolbar 按钮显示运行中/已完成提示；Runs drawer 合并 live execution store 与 `/api/workspaces/{workspace_id}/runs` 历史记录
+6. `/api/workspaces/{workspace_id}/runs` projection 已补齐 `workspace_id`、`thread_id`、`capability_id`、`progress`、`primary_surface`、`review_items_count`、`has_prism_changes`、`failure_category`、`failure_message`
+7. Prism tab / result card / Runs drawer 在存在 review items 时显示 pending handoff；Prism review state 仍以 canonical `review_items` 为准
+8. 浏览器 smoke 已验证：workspace query seed 启动 `sci_literature_positioning` → chat launch receipt → right panel Current run running → completed → Runs drawer 历史记录，无需手动刷新
+9. 浏览器 smoke 已验证：runtime-staged Prism writing review item → `/workspaces/{workspace_id}/prism` pending diff → `应用到 Prism` → `review_summary.pending_count=0/applied_count=1`
+10. 浏览器 smoke 已验证：TeamKernel execution read path hydrate 后，LiveWorkflowPanel 能从 `execution_nodes` 恢复全部团队实名成员，并从 `runtime_state.quality_gates` 恢复质量检查数量；默认展示不暴露 raw tool JSON。
+11. 浏览器 smoke 已验证：历史 TeamKernel run 在刷新后展示为五步任务进展，顶部计数与步骤列表一致；旧 `team_template_*` 不再显示为“工作步骤/待处理”，质量门从历史事件列表聚合为当前 gate 状态。
 
 ## 6. Prism 主稿协作面
 
