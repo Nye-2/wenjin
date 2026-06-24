@@ -1,4 +1,5 @@
 import {
+  isRawRuntimePayloadText,
   safeRuntimeText,
   safeStructuredFallback,
 } from "./runtime-payload-safety";
@@ -81,6 +82,14 @@ function firstNonNull(...values: Array<string | null>): string | null {
     }
   }
   return null;
+}
+
+function safeContentText(value: unknown): string | null {
+  const text = readString(value);
+  if (!text || isRawRuntimePayloadText(text)) {
+    return null;
+  }
+  return text;
 }
 
 export function buildWorkspaceResultPreviewsFromOutputs(
@@ -304,7 +313,7 @@ export function buildDocumentRoomPreview(
   const metadata = readObject(document.metadata_json);
   const mimeType = readString(document.mime_type);
   const docKind = readString(document.doc_kind) ?? readString(document.kind);
-  const content = readString(metadata?.content);
+  const content = safeContentText(metadata?.content);
   return {
     id: readString(document.id) ?? "document",
     source: "document_room",
@@ -314,7 +323,7 @@ export function buildDocumentRoomPreview(
     badge: "文档",
     data: document,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
-    previewText: content,
+    previewText: content ?? safeStructuredFallback(metadata, "已生成文档候选"),
     metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
     ),
@@ -343,7 +352,7 @@ export function buildLibraryRoomPreview(
     badge: "文献",
     data: item,
     previewMode: "citation",
-    previewText: readString(item.abstract),
+    previewText: safeRuntimeText(item.abstract) ?? safeRuntimeText(item.title),
     metadataLines: [year, readString(item.doi), readString(item.url)].filter(
       (value): value is string => Boolean(value),
     ),
@@ -365,10 +374,12 @@ function buildDocumentPreview(options: {
   data: Record<string, unknown> | null;
 }): WorkspaceResultPreview {
   const { id, preview, defaultChecked, data } = options;
-  const name = readString(data?.name);
+  const name = safeRuntimeText(data?.name);
   const mimeType = readString(data?.mime_type);
   const docKind = readString(data?.doc_kind);
-  const content = readString(data?.content);
+  const content = safeContentText(data?.content);
+  const previewText =
+    firstNonNull(content, preview) ?? safeStructuredFallback(data, "已生成文档候选");
 
   return {
     id,
@@ -379,7 +390,7 @@ function buildDocumentPreview(options: {
     badge: "文档",
     data,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
-    previewText: firstNonNull(content, preview),
+    previewText,
     metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
     ),
@@ -400,10 +411,10 @@ function buildLibraryPreview(options: {
   data: Record<string, unknown> | null;
 }): WorkspaceResultPreview {
   const { id, preview, defaultChecked, data } = options;
-  const title = firstNonNull(readString(data?.title), preview, id) ?? "文献";
+  const title = firstNonNull(safeRuntimeText(data?.title), preview, id) ?? "文献";
   const authors = readStringArray(data?.authors);
   const year = typeof data?.year === "number" ? String(data.year) : null;
-  const abstract = readString(data?.abstract);
+  const abstract = safeRuntimeText(data?.abstract);
 
   return {
     id,
@@ -438,16 +449,16 @@ function buildFigurePreview(options: {
   const manifest = readObject(data?.manifest);
   const title =
     firstNonNull(
-      readString(data?.title),
-      readString(data?.figure_title),
+      safeRuntimeText(data?.title),
+      safeRuntimeText(data?.figure_title),
       preview,
-      readString(data?.name),
+      safeRuntimeText(data?.name),
     ) ?? "图表候选";
   const caption = summarizeText(
     firstNonNull(
-      readString(data?.caption),
-      readString(data?.caption_text),
-      readString(manifest?.caption),
+      safeRuntimeText(data?.caption),
+      safeRuntimeText(data?.caption_text),
+      safeRuntimeText(manifest?.caption),
     ),
   );
   const previewPath = resolveFigurePreviewPath(data, preview);
@@ -549,6 +560,7 @@ function firstWorkspaceImagePath(...values: Array<string | null>): string | null
 function isWorkspaceImagePath(value: string): boolean {
   return (
     value.startsWith("/workspace/") &&
+    !isRawRuntimePayloadText(value) &&
     /\.(png|jpe?g|webp|gif|svg)$/i.test(value.split("?")[0] ?? value)
   );
 }

@@ -222,4 +222,56 @@ describe("ExecutionCard", () => {
     expect(screen.queryByText(/raw stderr should stay hidden/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
   });
+
+  it("sanitizes legacy phase thinking previews", () => {
+    render(
+      <ExecutionCard
+        record={makeRecord({
+          status: "running",
+          progress: 42,
+          graph_structure: {
+            nodes: [
+              {
+                id: "thinking-node",
+                type: "agent_invocation",
+                phase: "analysis",
+                label: "Thinking node",
+              },
+            ],
+            edges: [],
+          },
+          node_states: {
+            "thinking-node": {
+              status: "running",
+              thinking:
+                '{"stdout":"raw stdout should stay hidden","ref":"/workspace/outputs/harness/exec-1/thinking.txt"}',
+            },
+          },
+        })}
+        phases={[
+          {
+            name: "analysis",
+            index: 0,
+            nodes: [
+              {
+                id: "thinking-node",
+                type: "agent_invocation",
+                phase: "analysis",
+                label: "Thinking node",
+              },
+            ],
+          },
+        ]}
+        isExpanded
+        onToggle={() => {}}
+        selectedNodeId={null}
+        selectNode={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("当前步骤正在处理。")).toBeInTheDocument();
+    expect(screen.queryByText(/stdout/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw stdout should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
+  });
 });

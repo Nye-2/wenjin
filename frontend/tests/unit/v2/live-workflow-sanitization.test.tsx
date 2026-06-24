@@ -245,4 +245,51 @@ describe("live workflow sanitization", () => {
     expect(text).not.toContain("/workspace/outputs/harness");
     expect(text).not.toContain("{");
   });
+
+  it("sanitizes staged document library and figure preview content", () => {
+    const previews = buildWorkspaceResultPreviewsFromOutputs([
+      {
+        id: "doc-1",
+        kind: "document",
+        data: {
+          name: "raw-output.md",
+          mime_type: "text/markdown",
+          content:
+            '{"stdout":"raw stdout should stay hidden","ref":"/workspace/outputs/harness/exec-1/document.txt"}',
+        },
+      },
+      {
+        id: "library-1",
+        kind: "library_item",
+        data: {
+          title: "Runtime artifact paper",
+          abstract: "stderr: raw stderr should stay hidden",
+        },
+      },
+      {
+        id: "figure-1",
+        kind: "figure",
+        data: {
+          title: "Runtime figure",
+          path: "/workspace/outputs/harness/exec-1/figure.png",
+        },
+      },
+    ]);
+
+    expect(previews).toHaveLength(3);
+    expect(previews[0]?.previewText).toBe("已生成文档候选 · 字段：3 项");
+    expect(previews[1]?.previewText).toBe("Runtime artifact paper");
+    expect(previews[2]?.previewPath).toBeNull();
+    expect(previews[2]?.previewText).toBe("Runtime figure");
+
+    const text = previews
+      .map((preview) => [preview.previewText, preview.previewPath].filter(Boolean).join("\n"))
+      .join("\n");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw stdout should stay hidden");
+    expect(text).not.toContain("raw stderr should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
 });
