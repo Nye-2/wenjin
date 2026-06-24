@@ -84,7 +84,7 @@ describe("HomePage", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "从一个研究想法开始，Agent 组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
+        "从一个研究想法开始，学术 Harness 召集定制化专家 Agent，组织文献、证据、实验与稿件；你在 Prism 里确认引用、修改和最终成稿。",
       ),
     ).toBeInTheDocument();
     const heroVisualSrc = screen.getByTestId("landing-hero-visual").getAttribute("src") ?? "";
@@ -182,7 +182,7 @@ describe("HomePage", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "From a research idea, agents organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
+        "From a research idea, an academic harness recruits custom expert agents to organize literature, evidence, experiments, and drafts while you confirm citations, edits, and final manuscript state in Prism.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("Product")).toBeInTheDocument();
