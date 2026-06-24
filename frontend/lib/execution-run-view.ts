@@ -5,6 +5,7 @@ import type {
   ExecutionStatus,
 } from "@/lib/api/types";
 import type { RunRecord } from "@/lib/api/v2/runs";
+import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 import type { ResultCardData } from "@/stores/chat-store";
 
 export type RunViewStatus =
@@ -1104,11 +1105,15 @@ function countProgressItemsByStatus(
 
 function progressDetailFromNodeState(state: ExecutionNodeState | null): string | null {
   if (!state) return null;
-  if (state.error) return trimForDisplay(state.error, 120);
+  const error = safeRuntimeText(state.error, 120);
+  if (error) return error;
+  if (state.error) return "运行问题已记录";
   const harnessActivity = harnessActivityFromNodeState(state).label;
   if (harnessActivity) return harnessActivity;
-  if (state.thinking) return trimForDisplay(state.thinking, 140);
-  if (state.output_preview) return trimForDisplay(state.output_preview, 140);
+  const thinking = safeRuntimeText(state.thinking, 140);
+  if (thinking) return thinking;
+  const outputPreview = safeRuntimeText(state.output_preview, 140);
+  if (outputPreview) return outputPreview;
   return null;
 }
 

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ExecutionRecord } from "@/lib/api/types";
-import { runViewFromExecution } from "@/lib/execution-run-view";
+import {
+  buildRunProgressItems,
+  runViewFromExecution,
+} from "@/lib/execution-run-view";
 
 function baseRecord(overrides: Partial<ExecutionRecord>): ExecutionRecord {
   return {
@@ -130,5 +133,42 @@ describe("execution run view expert projection", () => {
     expect(view.team?.members.map((member) => member.id)).toEqual([
       "team.1.research_scout_v1.1",
     ]);
+  });
+
+  it("sanitizes raw runtime text from progress item details", () => {
+    const record = baseRecord({
+      graph_structure: {
+        nodes: [
+          { id: "error-node", type: "agent_invocation", label: "Error node" },
+          { id: "thinking-node", type: "agent_invocation", label: "Thinking node" },
+          { id: "preview-node", type: "agent_invocation", label: "Preview node" },
+        ],
+        edges: [],
+      },
+      node_states: {
+        "error-node": {
+          status: "failed",
+          error:
+            '{"stderr":"raw stderr should stay hidden","ref":"/workspace/outputs/harness/exec-1/error.txt"}',
+        },
+        "thinking-node": {
+          status: "running",
+          thinking: "stdout: raw stdout should stay hidden",
+        },
+        "preview-node": {
+          status: "completed",
+          output_preview: "/workspace/outputs/harness/exec-1/preview.json",
+        },
+      },
+    });
+
+    const details = buildRunProgressItems(record).map((item) => item.detail).join("\n");
+
+    expect(details).not.toContain("stdout");
+    expect(details).not.toContain("stderr");
+    expect(details).not.toContain("raw stdout should stay hidden");
+    expect(details).not.toContain("raw stderr should stay hidden");
+    expect(details).not.toContain("/workspace/outputs/harness");
+    expect(details).not.toContain("{");
   });
 });

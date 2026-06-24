@@ -315,13 +315,30 @@ function buildProductSafeOutputSummary(
     recoverableOutputRefCount(
       ...(state.tool_calls ?? []).flatMap((call) => [call.output_refs, call.output_ref]),
     );
+  const resultFallback =
+    outputRefCount > 0
+      ? `输出：${outputRefCount} 个可恢复引用`
+      : hasProductOutputSignal(output)
+        ? "已生成运行结果"
+        : "运行记录已更新";
   const lines = [
     explicitSummary,
     operation ? `操作：${operation}` : null,
     status ? `状态：${statusLabel(status)}` : null,
-    outputRefCount > 0 ? `输出：${outputRefCount} 个可恢复引用` : "已生成运行结果",
+    resultFallback,
   ].filter((line): line is string => Boolean(line));
   return lines.join(" · ");
+}
+
+function hasProductOutputSignal(output: Record<string, unknown>): boolean {
+  return Boolean(
+    safeRuntimeText(output.content) ||
+      safeRuntimeText(output.value) ||
+      safeRuntimeText(output.result) ||
+      safeRuntimeText(output.text) ||
+      safeRuntimeText(output.title) ||
+      safeRuntimeText(output.description),
+  );
 }
 
 export function isTerminalStatus(status: string): boolean {

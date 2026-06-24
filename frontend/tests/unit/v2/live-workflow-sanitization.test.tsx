@@ -86,7 +86,7 @@ describe("live workflow sanitization", () => {
 
     const [item] = buildEvidenceItems(record, []);
 
-    expect(item?.summary).toContain("已生成运行结果");
+    expect(item?.summary).toContain("运行记录已更新");
     expect(item?.summary).not.toContain("stdout");
     expect(item?.summary).not.toContain("stderr");
     expect(item?.summary).not.toContain("raw stdout should stay hidden");
@@ -132,6 +132,24 @@ describe("live workflow sanitization", () => {
     expect(screen.queryByText(/raw input should stay hidden/)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw stdout should stay hidden/)).not.toBeInTheDocument();
     expect(screen.queryByText(/raw stderr should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
+  });
+
+  it("sanitizes NodeInspector progress thinking summaries", () => {
+    render(
+      <NodeInspector
+        node={{ id: "thinking-node", type: "agent_invocation", label: "思考步骤" }}
+        state={{
+          status: "running",
+          thinking:
+            '{"stdout":"raw stdout should stay hidden","ref":"/workspace/outputs/harness/exec-1/thinking.txt"}',
+        }}
+      />,
+    );
+
+    expect(screen.getByText("当前步骤暂无详细摘要。")).toBeInTheDocument();
+    expect(screen.queryByText(/stdout/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw stdout should stay hidden/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
   });
 

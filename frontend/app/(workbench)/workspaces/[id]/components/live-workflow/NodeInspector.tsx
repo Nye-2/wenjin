@@ -7,6 +7,7 @@ import {
 
 import type { ExecutionNodeState } from "@/lib/api/types";
 import { executionNodeDisplayName } from "@/lib/execution-run-view";
+import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 
 import { EmptyState, InspectorBlock, NodeStatusDot } from "./shared";
 import { styles } from "./styles";
@@ -15,7 +16,6 @@ import {
   formatDateTime,
   readString,
   statusLabel,
-  truncate,
 } from "./utils";
 
 export function NodeInspector({
@@ -29,6 +29,7 @@ export function NodeInspector({
     return <EmptyState title="选择步骤" detail="这里会显示当前步骤的进展摘要、状态和可安全展示的运行线索。" compact />;
   }
   const sandboxSummary = buildSandboxSummary(state);
+  const thinkingSummary = safeRuntimeText(state?.thinking, 360);
   const title = executionNodeDisplayName(
     node
       ? {
@@ -48,9 +49,9 @@ export function NodeInspector({
         <span>{statusLabel(state?.status ?? "pending")}</span>
       </div>
 
-      {state?.thinking ? (
+      {thinkingSummary ? (
         <InspectorBlock title="进展摘要" icon={Activity}>
-          {truncate(state.thinking, 360)}
+          {thinkingSummary}
         </InspectorBlock>
       ) : (
         <InspectorBlock title="进展摘要" icon={Info}>
