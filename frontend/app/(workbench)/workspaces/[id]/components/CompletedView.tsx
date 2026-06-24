@@ -47,17 +47,16 @@ export function CompletedView({
   reviewItems = [],
   nextActions = [],
 }: CompletedViewProps) {
-  const [showFullResult, setShowFullResult] = useState(false);
   const [idempotencyKey] = useState(() => generateUUID());
 
   const taskReport = getTaskReport(result);
   const effectiveReviewItems =
     reviewItems.length > 0 ? reviewItems : readReviewItems(taskReport?.review_items);
   const summary =
-    resultSummary ||
-    readString(taskReport?.result_summary) ||
-    readString(taskReport?.narrative) ||
-    "Execution completed.";
+    safeDisplayText(resultSummary) ||
+    safeDisplayText(taskReport?.result_summary) ||
+    safeDisplayText(taskReport?.narrative) ||
+    "运行结果已生成。";
   const taskStatus = readString(taskReport?.status) || "completed";
   const allowAcceptAll = taskStatus === "completed";
   const taskOutputs = useMemo(
@@ -121,6 +120,11 @@ export function CompletedView({
       (action) =>
         action.href === defaultReviewActionHref || action.label === "预览待确认修改",
     );
+  const completedResultLines = buildCompletedResultStatusLines({
+    result,
+    taskReport,
+    taskStatus,
+  });
 
   async function commit(body: Record<string, unknown>) {
     if (!executionId || committed || committing) {
@@ -452,48 +456,12 @@ export function CompletedView({
         </div>
       )}
 
-      {/* View full result toggle */}
       {result && previews.length === 0 && (
-        <>
-          <button
-            onClick={() => setShowFullResult((prev) => !prev)}
-            style={{
-              background: "none",
-              border: "none",
-              padding: 0,
-              color: "var(--wjn-blue)",
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: "pointer",
-              fontFamily: "var(--wjn-font-sans)",
-              textDecoration: "none",
-            }}
-          >
-            {showFullResult ? "Hide full result" : "View full result"}
-          </button>
-
-          {showFullResult && (
-            <pre
-              style={{
-                marginTop: 8,
-                padding: 12,
-                borderRadius: "var(--wjn-radius-md)",
-                background: "var(--wjn-surface-subtle)",
-                border: "1px solid var(--wjn-line)",
-                fontSize: 11.5,
-                fontFamily: "var(--wjn-font-mono)",
-                color: "var(--wjn-text-secondary)",
-                maxHeight: 300,
-                overflow: "auto",
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}
-            >
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          )}
-        </>
+        <div style={styles.safeResultSummary}>
+          {completedResultLines.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -514,6 +482,40 @@ function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function safeDisplayText(value: unknown): string | null {
+  const text = readString(value);
+  if (!text || containsRawRuntimePayload(text)) {
+    return null;
+  }
+  return truncateText(text, 220);
+}
+
+function containsRawRuntimePayload(value: string): boolean {
+  const normalized = value.trim();
+  if (/(^|[^a-z])std(?:out|err)([^a-z]|$)/i.test(normalized)) {
+    return true;
+  }
+  if (
+    normalized.includes("/workspace/outputs/harness/") ||
+    normalized.includes("/workspace/tmp/tasks/.harness/")
+  ) {
+    return true;
+  }
+  return (
+    normalized.startsWith("{") ||
+    (normalized.startsWith("[") && normalized.endsWith("]")) ||
+    /["']std(?:out|err)["']\s*:/i.test(normalized)
+  );
+}
+
+function truncateText(value: string, max: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, max - 3))}...`;
 }
 
 function getTaskReport(result?: Record<string, unknown> | null): TaskReportLike | null {
@@ -550,6 +552,64 @@ function outputsWithSafeDefaults(
       default_checked: false,
     };
   });
+}
+
+function buildCompletedResultStatusLines({
+  result,
+  taskReport,
+  taskStatus,
+}: {
+  result?: Record<string, unknown> | null;
+  taskReport: TaskReportLike | null;
+  taskStatus: string;
+}): string[] {
+  const taskReportRecord = readObject(taskReport);
+  const outputCount = Array.isArray(taskReport?.outputs) ? taskReport.outputs.length : 0;
+  const errorCount = Array.isArray(taskReport?.errors) ? taskReport.errors.length : 0;
+  const refCount = recoverableOutputRefCount(
+    taskReportRecord?.output_refs,
+    taskReportRecord?.output_ref,
+    result?.output_refs,
+    result?.output_ref,
+  );
+  return [
+    `状态：${completedStatusLabel(taskStatus)}`,
+    outputCount > 0 ? `候选产物：${outputCount} 项` : null,
+    refCount > 0 ? `可恢复引用：${refCount} 个` : null,
+    errorCount > 0 ? `需处理事项：${errorCount} 项` : null,
+  ].filter((line): line is string => Boolean(line));
+}
+
+function completedStatusLabel(status: string): string {
+  if (status === "completed") return "已完成";
+  if (status === "failed_partial") return "部分完成";
+  if (status === "failed") return "失败";
+  if (status === "cancelled") return "已取消";
+  if (status === "running") return "运行中";
+  if (status === "pending" || status === "queued") return "排队中";
+  return status || "未知";
+}
+
+function recoverableOutputRefCount(...values: unknown[]): number {
+  let count = 0;
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      count += recoverableOutputRefCount(...value);
+      continue;
+    }
+    if (readString(value)) {
+      count += 1;
+      continue;
+    }
+    const object = readObject(value);
+    if (
+      object &&
+      (readString(object.output_ref) || readString(object.ref) || readString(object.path))
+    ) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 type PrismReviewAction = {
@@ -610,6 +670,19 @@ function readObject(value: unknown): Record<string, unknown> | null {
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  safeResultSummary: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    marginTop: 8,
+    padding: "8px 10px",
+    borderRadius: "var(--wjn-radius-md)",
+    background: "var(--wjn-surface-subtle)",
+    border: "1px solid var(--wjn-line)",
+    color: "var(--wjn-text-secondary)",
+    fontSize: 12,
+    lineHeight: 1.45,
+  },
   actionFooter: {
     paddingTop: 12,
     borderTop: "1px solid rgba(20, 20, 30, 0.08)",

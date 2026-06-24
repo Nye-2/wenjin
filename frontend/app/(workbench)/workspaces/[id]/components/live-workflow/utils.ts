@@ -59,6 +59,7 @@ export function buildEvidenceItems(
       const title = node?.label ?? node?.task ?? nodeId;
       const harnessEvidence = buildHarnessEvidenceSummary(state);
       const sandbox = harnessEvidence ?? buildSandboxSummary(state);
+      const productSummary = buildProductSafeOutputSummary(state, output);
       return {
         id: `node:${nodeId}`,
         source: "node",
@@ -66,9 +67,8 @@ export function buildEvidenceItems(
         kind: sandbox ? "sandbox" : node?.type ?? "node",
         summary:
           sandbox?.join(" · ") ??
-          state.output_preview ??
-          readString((output as Record<string, unknown>).summary) ??
-          truncate(formatJsonPreview(output), 180),
+          safeProductText(state.output_preview) ??
+          productSummary,
         nodeId,
         nodeState: state,
       };
@@ -270,8 +270,8 @@ export function buildSandboxSummary(state: ExecutionNodeState | null | undefined
     return null;
   }
   const outputRefCount =
-    unknownArrayValue(output?.output_refs).length +
-    unknownArrayValue(tool?.output_refs).length;
+    recoverableOutputRefCount(output?.output_refs, output?.output_ref) +
+    recoverableOutputRefCount(tool?.output_refs, tool?.output_ref);
   const hasBoundedOutput =
     Boolean(readString(output?.stdout)) ||
     Boolean(readString(tool?.stdout)) ||
@@ -288,10 +288,36 @@ export function buildSandboxSummary(state: ExecutionNodeState | null | undefined
       ? `镜像：${readString(output?.docker_image) ?? readString(tool?.docker_image)}`
       : null,
     hasBoundedOutput
-      ? `输出：${outputRefCount > 0 ? `${outputRefCount} 个可恢复引用` : "已生成，详情在诊断中查看"}`
+      ? `输出：${outputRefCount > 0 ? `${outputRefCount} 个可恢复引用` : "已生成运行结果"}`
       : null,
   ].filter((line): line is string => Boolean(line));
   return lines.length > 0 ? lines : null;
+}
+
+function buildProductSafeOutputSummary(
+  state: ExecutionNodeState,
+  output: Record<string, unknown>,
+): string {
+  const explicitSummary =
+    safeProductText(output.summary) ??
+    safeProductText(output.result_summary) ??
+    safeProductText(output.narrative) ??
+    safeProductText(output.preview) ??
+    safeProductText(output.message);
+  const operation = safeProductText(output.operation) ?? safeProductText(output.action);
+  const status = readString(output.status) ?? state.status ?? null;
+  const outputRefCount =
+    recoverableOutputRefCount(output.output_refs, output.output_ref) +
+    recoverableOutputRefCount(
+      ...(state.tool_calls ?? []).flatMap((call) => [call.output_refs, call.output_ref]),
+    );
+  const lines = [
+    explicitSummary,
+    operation ? `操作：${operation}` : null,
+    status ? `状态：${statusLabel(status)}` : null,
+    outputRefCount > 0 ? `输出：${outputRefCount} 个可恢复引用` : "已生成运行结果",
+  ].filter((line): line is string => Boolean(line));
+  return lines.join(" · ");
 }
 
 export function isTerminalStatus(status: string): boolean {
@@ -421,6 +447,60 @@ export function fieldLabel(kind: string, field: string): string {
 
 export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function safeProductText(value: unknown): string | null {
+  const text = readString(value);
+  if (!text || containsRawRuntimePayload(text)) {
+    return null;
+  }
+  return truncate(text, 180);
+}
+
+function containsRawRuntimePayload(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  if (/(^|[^a-z])std(?:out|err)([^a-z]|$)/i.test(normalized)) {
+    return true;
+  }
+  if (
+    normalized.includes("/workspace/outputs/harness/") ||
+    normalized.includes("/workspace/tmp/tasks/.harness/")
+  ) {
+    return true;
+  }
+  if (
+    normalized.startsWith("{") ||
+    (normalized.startsWith("[") && normalized.endsWith("]")) ||
+    /["']std(?:out|err)["']\s*:/i.test(normalized)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function recoverableOutputRefCount(...values: unknown[]): number {
+  let count = 0;
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      count += recoverableOutputRefCount(...value);
+      continue;
+    }
+    if (readString(value)) {
+      count += 1;
+      continue;
+    }
+    const object = readObject(value);
+    if (
+      object &&
+      (readString(object.output_ref) || readString(object.ref) || readString(object.path))
+    ) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function readObject(value: unknown): Record<string, unknown> | null {

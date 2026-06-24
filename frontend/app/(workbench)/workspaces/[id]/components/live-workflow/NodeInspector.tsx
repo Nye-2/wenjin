@@ -1,7 +1,5 @@
 import {
   Activity,
-  ClipboardList,
-  Database,
   FlaskConical,
   Info,
   ShieldCheck,
@@ -15,7 +13,6 @@ import { styles } from "./styles";
 import {
   buildSandboxSummary,
   formatDateTime,
-  formatJsonPreview,
   readString,
   statusLabel,
   truncate,
@@ -29,9 +26,8 @@ export function NodeInspector({
   state: ExecutionNodeState | null;
 }) {
   if (!node && !state) {
-    return <EmptyState title="选择步骤" detail="这里会显示当前步骤的进展摘要；技术输入输出可在运行详情中展开查看。" compact />;
+    return <EmptyState title="选择步骤" detail="这里会显示当前步骤的进展摘要、状态和可安全展示的运行线索。" compact />;
   }
-  const output = state?.output ?? null;
   const sandboxSummary = buildSandboxSummary(state);
   const title = executionNodeDisplayName(
     node
@@ -71,16 +67,6 @@ export function NodeInspector({
               {state?.started_at ? <div>启动时间：{formatDateTime(state.started_at)}</div> : null}
             </div>
           </InspectorBlock>
-          {state?.input ? (
-            <InspectorBlock title="输入预览" icon={ClipboardList}>
-              <pre style={styles.pre}>{formatJsonPreview(state.input)}</pre>
-            </InspectorBlock>
-          ) : null}
-          {output ? (
-            <InspectorBlock title="输出预览" icon={Database}>
-              <pre style={styles.pre}>{formatJsonPreview(output)}</pre>
-            </InspectorBlock>
-          ) : null}
           {state?.tool_calls && state.tool_calls.length > 0 ? (
             <InspectorBlock title="工具调用" icon={ShieldCheck}>
               <div style={styles.toolList}>
