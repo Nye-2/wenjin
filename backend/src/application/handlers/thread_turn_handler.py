@@ -264,6 +264,7 @@ def build_thread_runtime_config(
     effective_skill: str | None,
     effective_model: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
 ) -> RunnableConfig:
     configurable: dict[str, Any] = {
         "thread_id": thread.id,
@@ -275,6 +276,11 @@ def build_thread_runtime_config(
         "thinking_enabled": request.thinking_enabled,
         "reasoning_effort": request.reasoning_effort,
     }
+    if user_message_id:
+        configurable["user_message_id"] = user_message_id
+        configurable["launch_idempotency_key"] = (
+            f"launch_feature:{thread.id}:{user_message_id}"
+        )
     launch_feature_params = _extract_launch_feature_params_from_metadata(request.metadata)
     if launch_feature_params:
         configurable["launch_feature_params"] = launch_feature_params
@@ -1152,6 +1158,7 @@ class ThreadTurnHandler:
                     execution_id=prepared.request.metadata.get("orchestration", {}).get("execution_id")
                     if isinstance(prepared.request.metadata, dict)
                     else None,
+                    user_message_id=prepared.user_message_id,
                     conversation_messages=conversation_messages,
                 )
                 async for delta in reply_stream:
@@ -1422,6 +1429,7 @@ class ThreadTurnHandler:
             execution_id=prepared.request.metadata.get("orchestration", {}).get("execution_id")
             if isinstance(prepared.request.metadata, dict)
             else None,
+            user_message_id=prepared.user_message_id,
         )
 
     async def _generate_thread_response(
@@ -1431,6 +1439,7 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
         execution_id: str | None = None,
+        user_message_id: str | None = None,
     ) -> GeneratedThreadReply:
         await self._maybe_compact_thread_history(thread)
         conversation_messages = await self.thread_service.list_thread_messages(thread)
@@ -1439,6 +1448,7 @@ class ThreadTurnHandler:
             thread,
             actor_id=actor_id,
             execution_id=execution_id,
+            user_message_id=user_message_id,
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
@@ -1454,6 +1464,7 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
         execution_id: str | None = None,
+        user_message_id: str | None = None,
         conversation_messages: list[dict[str, Any]] | None = None,
     ) -> _ReplyStreamRun:
         return stream_thread_response(
@@ -1461,6 +1472,7 @@ class ThreadTurnHandler:
             thread,
             actor_id=actor_id,
             execution_id=execution_id,
+            user_message_id=user_message_id,
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
@@ -1487,6 +1499,7 @@ def _build_thread_agent_runtime(
     *,
     actor_id: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1510,6 +1523,7 @@ def _build_thread_agent_runtime(
         effective_skill=effective_skill,
         effective_model=effective_model,
         execution_id=execution_id,
+        user_message_id=user_message_id,
     )
     initial_state = build_thread_initial_state(
         thread,
@@ -1543,6 +1557,7 @@ async def generate_thread_response(
     *,
     actor_id: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1563,6 +1578,7 @@ async def generate_thread_response(
         thread,
         actor_id=actor_id,
         execution_id=execution_id,
+        user_message_id=user_message_id,
         workspace_service=workspace_service,
         index_service=index_service,
         artifact_service=artifact_service,
@@ -1610,6 +1626,7 @@ def stream_thread_response(
     *,
     actor_id: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1634,6 +1651,7 @@ def stream_thread_response(
                 thread,
                 actor_id=actor_id,
                 execution_id=execution_id,
+                user_message_id=user_message_id,
                 workspace_service=workspace_service,
                 index_service=index_service,
                 artifact_service=artifact_service,

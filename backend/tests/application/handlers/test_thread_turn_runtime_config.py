@@ -84,6 +84,25 @@ def test_build_thread_runtime_config_surfaces_sanitized_launch_feature_params() 
     assert "execution_id" not in configurable["launch_feature_params"]
 
 
+def test_thread_runtime_config_includes_user_message_id_for_launch_idempotency() -> None:
+    request = ThreadTurnRequest(message="启动 SCI 文献定位", workspace_id="ws-1")
+    thread = SimpleNamespace(id="thread-1", workspace_id="ws-1", skill=None, model=None)
+
+    config = build_thread_runtime_config(
+        request=request,
+        thread=thread,
+        actor_id="user-1",
+        workspace_id="ws-1",
+        effective_skill=None,
+        effective_model="mimo-v2.5-pro",
+        execution_id=None,
+        user_message_id="msg-123",
+    )
+
+    assert config["configurable"]["user_message_id"] == "msg-123"
+    assert config["configurable"]["launch_idempotency_key"] == "launch_feature:thread-1:msg-123"
+
+
 def test_build_thread_initial_state_includes_thread_and_user_ids() -> None:
     thread = SimpleNamespace(id="thread-1", messages=[], workspace_id="ws-1")
 
