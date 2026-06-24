@@ -417,6 +417,37 @@ describe("LiveWorkflowPanel", () => {
     );
   });
 
+  it("does not patch execution store when response commit_state has malformed room_targets", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: { documents: "bad" },
+          },
+        }),
+    });
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
+  });
+
   it("uses room-specific labels in the review inbox", () => {
     useExecutionStore.getState().upsertExecution(makeCompletedRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-1");

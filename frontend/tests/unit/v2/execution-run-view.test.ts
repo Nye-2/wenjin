@@ -343,4 +343,47 @@ describe("execution run view expert projection", () => {
     expect(missingCountsView.commitState).toBeNull();
     expect(missingRoomTargetsView.commitState).toBeNull();
   });
+
+  it("drops malformed commitState with non-integer counts or bad room target values", () => {
+    const nonIntegerCountView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            counts: { documents: 1.5 },
+          },
+        },
+      }),
+    );
+    const malformedRoomTargetView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: { documents: "bad" },
+          },
+        },
+      }),
+    );
+    const unknownRoomTargetView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              archive: [],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(nonIntegerCountView.commitState).toBeNull();
+    expect(malformedRoomTargetView.commitState).toBeNull();
+    expect(unknownRoomTargetView.commitState).toBeNull();
+  });
 });

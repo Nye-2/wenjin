@@ -270,7 +270,12 @@ function numberRecordValue(value: unknown): Record<string, number> | null {
     if (!COMMIT_ROOM_NAME_SET.has(key)) {
       return null;
     }
-    if (typeof item !== "number" || !Number.isFinite(item) || item < 0) {
+    if (
+      typeof item !== "number" ||
+      !Number.isFinite(item) ||
+      !Number.isInteger(item) ||
+      item < 0
+    ) {
       return null;
     }
     counts[key] = item;
@@ -289,7 +294,8 @@ function roomTargetsValue(value: unknown): CommitRoomTargets | null {
   }
   for (const room of COMMIT_ROOM_NAMES) {
     const rawTargets = raw[room];
-    if (!Array.isArray(rawTargets)) continue;
+    if (rawTargets === undefined) continue;
+    if (!Array.isArray(rawTargets)) return null;
     const roomTargets: CommitRoomTarget[] = [];
     for (const item of rawTargets) {
       const target = recordValue(item);

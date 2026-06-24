@@ -407,6 +407,35 @@ describe("ResultCard", () => {
     );
   });
 
+  it("does not patch durable commit_state when response commit_state has non-integer counts", async () => {
+    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            ...COMMITTED_STATE,
+            counts: { documents: 1.5 },
+          },
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
+    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
+  });
+
   it("renders DB-backed Prism review items with workspace navigation", () => {
     render(
       <ResultCard
