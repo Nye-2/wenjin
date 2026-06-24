@@ -43,14 +43,82 @@ def normalize_block_payload(
     *,
     default_text: str | None = None,
 ) -> dict[str, Any]:
-    """Return a JSON payload with canonical ``kind`` while preserving raw fields."""
+    """Return a JSON payload with canonical ``kind`` and payload shape."""
     payload = dict(block)
     kind = canonical_block_kind(payload)
+
+    if kind == ConversationBlockKind.THINKING.value:
+        content = _extract_text_content(payload, default_text=default_text)
+        return {"kind": kind, "content": content}
+
+    if kind == ConversationBlockKind.TOOL_INVOCATION.value:
+        source = _tool_source_payload(payload)
+        normalized: dict[str, Any] = {
+            "kind": kind,
+            "tool": extract_tool_name(source) or extract_tool_name(payload) or "unknown",
+            "input": extract_tool_input(source),
+        }
+        tool_call_id = extract_invocation_ref(source) or extract_invocation_ref(payload)
+        if tool_call_id:
+            normalized["tool_call_id"] = tool_call_id
+        return normalized
+
+    if kind == ConversationBlockKind.TOOL_RESULT.value:
+        source = _tool_source_payload(payload)
+        output = extract_tool_output(payload)
+        if not output and source is not payload:
+            output = dict(source)
+        normalized = {
+            "kind": kind,
+            "tool": extract_tool_name(source) or extract_tool_name(payload) or "unknown",
+            "output": output,
+        }
+        status = source.get("status", payload.get("status"))
+        if status is not None:
+            normalized["status"] = str(status)
+        tool_call_id = extract_invocation_ref(source) or extract_invocation_ref(payload)
+        if tool_call_id:
+            normalized["tool_call_id"] = tool_call_id
+        for key in ("execution_id", "feature_id"):
+            value = source.get(key, payload.get(key))
+            if isinstance(value, str) and value.strip():
+                normalized[key] = value.strip()
+        return normalized
+
     payload["kind"] = kind
     payload.pop("type", None)
     if kind == ConversationBlockKind.TEXT.value and "content" not in payload and default_text:
         payload["content"] = default_text
     return payload
+
+
+def _tool_source_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        return data
+    return payload
+
+
+def _extract_text_content(
+    payload: Mapping[str, Any],
+    *,
+    default_text: str | None = None,
+) -> str:
+    content = payload.get("content")
+    if isinstance(content, str):
+        return content
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        text = data.get("text")
+        if isinstance(text, str):
+            return text
+        content = data.get("content")
+        if isinstance(content, str):
+            return content
+    text = payload.get("text")
+    if isinstance(text, str):
+        return text
+    return default_text or ""
 
 
 def blocks_from_message(message: Mapping[str, Any]) -> list[dict[str, Any]]:

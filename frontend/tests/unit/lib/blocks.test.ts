@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentBlock, AgentMessage, isQuestionCard, isResultCard,
-  isStatusLine, isText,
+  isStatusLine, isText, normalizeChatBlock,
 } from "@/lib/api/blocks";
 
 describe("AgentBlock type guards", () => {
@@ -15,10 +15,26 @@ describe("AgentBlock type guards", () => {
     const m: AgentMessage = {
       blocks: [
         { kind: "text", content: "hi" },
+        { kind: "thinking", content: "checking" },
         { kind: "status_line", label: "phase 1 done", run_id: "r1", tone: "info" },
+        {
+          kind: "tool_invocation",
+          tool: "launch_feature",
+          input: { feature_id: "outline" },
+          tool_call_id: "call-1",
+        },
+        {
+          kind: "tool_result",
+          tool: "launch_feature",
+          status: "launched",
+          output: { execution_id: "exec-1", feature_id: "outline" },
+          execution_id: "exec-1",
+          feature_id: "outline",
+          tool_call_id: "call-1",
+        },
       ],
     };
-    expect(m.blocks).toHaveLength(2);
+    expect(m.blocks).toHaveLength(5);
   });
 
   it("question_card pills are typed", () => {
@@ -46,5 +62,73 @@ describe("AgentBlock type guards", () => {
       stats: { duration_ms: 1000, subagents: 3, tokens: 100 },
     };
     expect(isResultCard(r)).toBe(true);
+  });
+
+  it("normalizes legacy reasoning blocks to canonical thinking", () => {
+    expect(
+      normalizeChatBlock({
+        type: "reasoning",
+        title: "思考过程",
+        data: { text: "step 1" },
+      }),
+    ).toEqual({ kind: "thinking", content: "step 1" });
+  });
+
+  it("normalizes legacy tool invocation blocks to top-level fields", () => {
+    expect(
+      normalizeChatBlock({
+        kind: "tool_invocation",
+        data: {
+          tool: "launch_feature",
+          args: { feature_id: "outline" },
+          tool_call_id: "call-1",
+        },
+      }),
+    ).toEqual({
+      kind: "tool_invocation",
+      tool: "launch_feature",
+      input: { feature_id: "outline" },
+      tool_call_id: "call-1",
+    });
+  });
+
+  it("normalizes legacy tool result blocks to top-level fields", () => {
+    expect(
+      normalizeChatBlock({
+        kind: "tool_result",
+        data: {
+          tool: "launch_feature",
+          status: "launched",
+          execution_id: "exec-1",
+          feature_id: "outline",
+          tool_call_id: "call-1",
+        },
+      }),
+    ).toEqual({
+      kind: "tool_result",
+      tool: "launch_feature",
+      status: "launched",
+      output: {
+        tool: "launch_feature",
+        status: "launched",
+        execution_id: "exec-1",
+        feature_id: "outline",
+        tool_call_id: "call-1",
+      },
+      execution_id: "exec-1",
+      feature_id: "outline",
+      tool_call_id: "call-1",
+    });
+  });
+
+  it("leaves canonical tool blocks unchanged", () => {
+    const block: AgentBlock = {
+      kind: "tool_result",
+      tool: "launch_feature",
+      status: "launched",
+      output: {},
+      execution_id: "exec-1",
+    };
+    expect(normalizeChatBlock(block)).toEqual(block);
   });
 });

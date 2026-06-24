@@ -49,14 +49,57 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
         {
             "content": "fallback text",
             "blocks": [
-                {"type": "reasoning", "content": "thinking"},
+                {"type": "reasoning", "title": "思考过程", "data": {"text": "thinking"}},
                 {"kind": "status_line", "label": "running"},
+                {
+                    "kind": "tool_invocation",
+                    "data": {
+                        "tool": "launch_feature",
+                        "args": {"feature_id": "outline"},
+                        "tool_call_id": "call-1",
+                    },
+                },
+                {
+                    "kind": "tool_result",
+                    "data": {
+                        "tool": "launch_feature",
+                        "status": "launched",
+                        "execution_id": "exec-1",
+                        "feature_id": "outline",
+                    },
+                },
                 {"kind": "custom_legacy", "content": "legacy"},
             ],
         }
     )
 
-    assert [block["kind"] for block in blocks] == ["thinking", "status_line", "text"]
+    assert [block["kind"] for block in blocks] == [
+        "thinking",
+        "status_line",
+        "tool_invocation",
+        "tool_result",
+        "text",
+    ]
+    assert blocks[0] == {"kind": "thinking", "content": "thinking"}
+    assert blocks[2] == {
+        "kind": "tool_invocation",
+        "tool": "launch_feature",
+        "input": {"feature_id": "outline"},
+        "tool_call_id": "call-1",
+    }
+    assert blocks[3] == {
+        "kind": "tool_result",
+        "tool": "launch_feature",
+        "status": "launched",
+        "output": {
+            "tool": "launch_feature",
+            "status": "launched",
+            "execution_id": "exec-1",
+            "feature_id": "outline",
+        },
+        "execution_id": "exec-1",
+        "feature_id": "outline",
+    }
     assert all("legacy_kind" not in block for block in blocks)
 
 

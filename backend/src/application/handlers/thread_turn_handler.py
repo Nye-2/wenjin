@@ -459,6 +459,8 @@ def _extract_reasoning_text_from_payload(payload: Any) -> str:
                 return detail_text
 
         nested_content = payload.get("content")
+        if isinstance(nested_content, str) and nested_content.strip():
+            return nested_content.strip()
         if isinstance(nested_content, list):
             nested_text = "\n".join(
                 text
@@ -474,7 +476,7 @@ def _extract_reasoning_text_from_payload(payload: Any) -> str:
 
 
 def _extract_reasoning_text_from_block(block: Mapping[str, Any]) -> str:
-    block_type = str(block.get("type") or "").lower()
+    block_type = str(block.get("type") or block.get("kind") or "").lower()
     if block_type not in {"reasoning", "thinking", "reasoning_content"}:
         return ""
     return _extract_reasoning_text_from_payload(block)
@@ -543,19 +545,23 @@ def _extract_reasoning_text(message: Any) -> str:
     return ""
 
 
-def _build_reasoning_block(reasoning_text: str) -> dict[str, Any]:
-    return {
-        "type": "reasoning",
-        "title": "思考过程",
-        "data": {"text": reasoning_text},
-    }
+def _build_thinking_block(reasoning_text: str) -> dict[str, Any]:
+    return {"kind": "thinking", "content": reasoning_text}
+
+
+def _is_thinking_block(block: Mapping[str, Any]) -> bool:
+    block_kind = str(block.get("kind") or block.get("type") or "").strip().lower()
+    return block_kind in {"thinking", "reasoning", "reasoning_content"}
 
 
 def _reply_reasoning_text(reply: GeneratedThreadReply) -> str:
     blocks = reply.blocks if isinstance(reply.blocks, list) else []
     for block in blocks:
-        if not isinstance(block, Mapping) or block.get("type") != "reasoning":
+        if not isinstance(block, Mapping) or not _is_thinking_block(block):
             continue
+        content = block.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
         data = block.get("data")
         if isinstance(data, Mapping):
             text = data.get("text")
@@ -695,12 +701,10 @@ def _build_unbacked_launch_receipt_guard_reply() -> GeneratedThreadReply:
         ),
         blocks=[
             {
-                "type": "warning",
-                "title": "能力未启动",
-                "data": {
-                    "code": "unbacked_launch_receipt",
-                    "detail": "Agent 文本声称已启动能力，但消息链中没有 launch_feature 工具调用结果。",
-                },
+                "kind": "status_line",
+                "label": "能力未启动：缺少真实 launch_feature 工具结果",
+                "run_id": "unbacked_launch_receipt",
+                "tone": "warn",
             }
         ],
         metadata={"guard": "unbacked_launch_receipt"},
@@ -719,16 +723,16 @@ def _reply_from_agent_result(
         content = _coerce_message_content(getattr(messages[-1], "content", ""))
         reasoning_text = _extract_reasoning_text(messages[-1])
 
-    blocks = [
+    response_blocks = [
         block
         for block in (result.get("response_blocks") or [])
         if isinstance(block, dict)
     ]
     launch_blocks = _extract_launch_feature_blocks(messages)
-    if launch_blocks:
-        blocks = [*launch_blocks, *blocks]
-    elif _looks_like_unbacked_launch_receipt(content):
+    if not launch_blocks and _looks_like_unbacked_launch_receipt(content):
         return _build_unbacked_launch_receipt_guard_reply()
+
+    blocks: list[dict[str, Any]] = [*launch_blocks]
     raw_response_metadata = result.get("response_metadata")
     metadata = (
         dict(raw_response_metadata)
@@ -738,10 +742,12 @@ def _reply_from_agent_result(
     if reasoning_text:
         metadata["reasoning"] = {"text": reasoning_text}
         if not any(
-            isinstance(block, dict) and block.get("type") == "reasoning"
-            for block in blocks
+            isinstance(block, dict) and _is_thinking_block(block)
+            for block in [*blocks, *response_blocks]
         ):
-            blocks.insert(0, _build_reasoning_block(reasoning_text))
+            blocks.append(_build_thinking_block(reasoning_text))
+
+    blocks.extend(response_blocks)
 
     artifacts = [
         artifact
@@ -810,12 +816,14 @@ def _extract_launch_feature_invocations(message: Any) -> list[dict[str, Any]]:
         if name != "launch_feature":
             continue
         args = call.get("args")
-        invocations.append(
-            {
-                "tool": name,
-                "args": dict(args) if isinstance(args, Mapping) else {},
-            }
-        )
+        invocation = {
+            "tool": name,
+            "input": dict(args) if isinstance(args, Mapping) else {},
+        }
+        tool_call_id = call.get("id") or call.get("tool_call_id") or call.get("call_id")
+        if isinstance(tool_call_id, str) and tool_call_id.strip():
+            invocation["tool_call_id"] = tool_call_id.strip()
+        invocations.append(invocation)
     return invocations
 
 
@@ -827,7 +835,23 @@ def _extract_launch_feature_result(message: Any) -> dict[str, Any] | None:
         return None
     if not payload.get("status") or not payload.get("feature_id"):
         return None
-    return payload
+    result: dict[str, Any] = {
+        "tool": "launch_feature",
+        "output": payload,
+    }
+    status = payload.get("status")
+    if status is not None:
+        result["status"] = str(status)
+    execution_id = payload.get("execution_id")
+    if isinstance(execution_id, str) and execution_id.strip():
+        result["execution_id"] = execution_id.strip()
+    feature_id = payload.get("feature_id")
+    if isinstance(feature_id, str) and feature_id.strip():
+        result["feature_id"] = feature_id.strip()
+    tool_call_id = getattr(message, "tool_call_id", None)
+    if isinstance(tool_call_id, str) and tool_call_id.strip():
+        result["tool_call_id"] = tool_call_id.strip()
+    return result
 
 
 def _extract_launch_feature_blocks(messages: list[Any]) -> list[dict[str, Any]]:
@@ -836,7 +860,7 @@ def _extract_launch_feature_blocks(messages: list[Any]) -> list[dict[str, Any]]:
 
     for message in messages:
         for invocation in _extract_launch_feature_invocations(message):
-            blocks.append({"kind": "tool_invocation", "data": invocation})
+            blocks.append({"kind": "tool_invocation", **invocation})
 
         result = _extract_launch_feature_result(message)
         if result is None:
@@ -848,7 +872,7 @@ def _extract_launch_feature_blocks(messages: list[Any]) -> list[dict[str, Any]]:
         if result_key in seen_results:
             continue
         seen_results.add(result_key)
-        blocks.append({"kind": "tool_result", "data": result})
+        blocks.append({"kind": "tool_result", **result})
 
     return blocks
 
@@ -1162,7 +1186,7 @@ class ThreadTurnHandler:
                     conversation_messages=conversation_messages,
                 )
                 async for delta in reply_stream:
-                    if delta.text:
+                    if delta.text or delta.data is not None:
                         yield delta
                 reply = await reply_stream.wait_reply()
                 completed = await self._finalize_generated_reply(
@@ -1768,9 +1792,12 @@ def stream_thread_response(
                         continue
                     kind = block.get("kind")
                     if kind in {"tool_invocation", "tool_result"}:
-                        data = block.get("data")
-                        if isinstance(data, Mapping):
-                            yield ThreadStreamDelta(kind=kind, data=dict(data))
+                        data = {
+                            str(key): value
+                            for key, value in block.items()
+                            if key != "kind"
+                        }
+                        yield ThreadStreamDelta(kind=kind, data=data)
                 reasoning_text = _reply_reasoning_text(reply)
                 if reasoning_text:
                     yield ThreadStreamDelta(kind="reasoning", text=reasoning_text)

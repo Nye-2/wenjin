@@ -6,11 +6,11 @@
 import { create } from "zustand";
 import { authorizedFetch } from "@/lib/api/client";
 import type {
-  QuestionCardBlock,
-  ResultCardBlock,
-  StatusLineBlock,
-  TextBlock,
+  AgentBlock,
+  ToolInvocationBlock,
+  ToolResultBlock,
 } from "@/lib/api/blocks";
+import { normalizeChatBlock } from "@/lib/api/blocks";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import { useRunUiStore } from "@/stores/run-ui-store";
 
@@ -36,29 +36,14 @@ export type ResultCardData = {
   errors?: Array<{ message: string; phase?: string; task?: string }>;
 };
 
-type ToolInvocationData = {
-  tool: string;
-  args: Record<string, unknown>;
-};
+type ToolInvocationData = Omit<ToolInvocationBlock, "kind"> & Record<string, unknown>;
+type ToolResultData = Omit<ToolResultBlock, "kind"> & Record<string, unknown>;
 
-type ToolResultData = {
-  execution_id?: string;
-  status: string;
-  feature_id?: string;
-  capability_name?: string;
-  detail?: string;
-  [key: string]: unknown;
-};
+type AsyncResultCardBlock = { kind: "result_card"; data: ResultCardData };
 
 export type Block =
-  | TextBlock
-  | { kind: "thinking"; content: string }
-  | StatusLineBlock
-  | QuestionCardBlock
-  | ResultCardBlock
-  | { kind: "result_card"; data: ResultCardData }
-  | { kind: "tool_invocation"; data: ToolInvocationData }
-  | { kind: "tool_result"; data: ToolResultData };
+  | AgentBlock
+  | AsyncResultCardBlock;
 
 export type Message = {
   id: string;
@@ -166,22 +151,56 @@ function findExecutionMessageIndex(
   return -1;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeStoreBlock(raw: unknown): Block {
+  if (
+    isRecord(raw) &&
+    raw.kind === "result_card" &&
+    isRecord(raw.data) &&
+    !("run_id" in raw)
+  ) {
+    return raw as AsyncResultCardBlock;
+  }
+  return normalizeChatBlock(raw);
+}
+
+function normalizeStoreBlocks(rawBlocks: unknown): Block[] {
+  return Array.isArray(rawBlocks)
+    ? rawBlocks.map((block) => normalizeStoreBlock(block))
+    : [];
+}
+
+function withoutKind<T extends { kind: string }>(block: T): Omit<T, "kind"> {
+  const { kind: _kind, ...rest } = block;
+  return rest;
+}
+
 function isSameToolBlock(a: Block, b: Block): boolean {
   if (a.kind !== b.kind) {
     return false;
   }
   if (a.kind === "tool_result" && b.kind === "tool_result") {
     const aExecutionId =
-      typeof a.data.execution_id === "string" ? a.data.execution_id.trim() : "";
+      typeof a.execution_id === "string" ? a.execution_id.trim() : "";
     const bExecutionId =
-      typeof b.data.execution_id === "string" ? b.data.execution_id.trim() : "";
+      typeof b.execution_id === "string" ? b.execution_id.trim() : "";
     if (aExecutionId || bExecutionId) {
       return aExecutionId === bExecutionId;
     }
-    return a.data.feature_id === b.data.feature_id && a.data.status === b.data.status;
+    return a.feature_id === b.feature_id && a.status === b.status;
   }
   if (a.kind === "tool_invocation" && b.kind === "tool_invocation") {
-    return a.data.tool === b.data.tool;
+    const aToolCallId =
+      typeof a.tool_call_id === "string" ? a.tool_call_id.trim() : "";
+    const bToolCallId =
+      typeof b.tool_call_id === "string" ? b.tool_call_id.trim() : "";
+    if (aToolCallId || bToolCallId) {
+      return aToolCallId === bToolCallId;
+    }
+    return a.tool === b.tool;
   }
   return false;
 }
@@ -209,7 +228,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       // ── User message ──────────────────────────────────────────────────
       case "chat.user.message": {
         const blocks: Block[] = event.data.blocks?.length
-          ? event.data.blocks
+          ? event.data.blocks.map((block) => normalizeStoreBlock(block))
           : [{ kind: "text", content: event.data.content ?? "" }];
 
         const message: Message = {
@@ -285,6 +304,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       // ── Generic block ─────────────────────────────────────────────────
       case "chat.assistant.block": {
         const { currentAssistantId } = get();
+        const block = normalizeStoreBlock(event.block);
         set((state) => {
           const idx = findAssistantMessageIndex(
             state.messages,
@@ -297,13 +317,13 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
           // Merge consecutive text blocks (streamed token-by-token from backend)
           if (
-            event.block.kind === "text" &&
+            block.kind === "text" &&
             lastBlock?.kind === "text"
           ) {
             const updatedBlocks = [...msg.blocks];
             updatedBlocks[updatedBlocks.length - 1] = {
               ...lastBlock,
-              content: lastBlock.content + event.block.content,
+              content: lastBlock.content + block.content,
             };
             const updatedMessages = [...state.messages];
             updatedMessages[idx] = { ...msg, blocks: updatedBlocks };
@@ -313,7 +333,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           const updatedMessages = [...state.messages];
           updatedMessages[idx] = {
             ...msg,
-            blocks: [...msg.blocks, event.block],
+            blocks: [...msg.blocks, block],
           };
           return { messages: updatedMessages };
         });
@@ -324,6 +344,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       case "chat.assistant.finalize_block": {
         const { currentAssistantId, finalizedMessageIds } = get();
         if (!currentAssistantId) break;
+        const block = normalizeStoreBlock(event.block);
 
         set((state) => {
           const idx = findAssistantMessageIndex(
@@ -342,7 +363,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             );
             updatedMessages[idx] = {
               ...msg,
-              blocks: appendBlockWithoutDuplicate(preservedToolBlocks, event.block),
+              blocks: appendBlockWithoutDuplicate(preservedToolBlocks, block),
             };
             const newFinalized = new Set(finalizedMessageIds);
             newFinalized.add(currentAssistantId);
@@ -355,7 +376,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           // Subsequent finalize_blocks: append
           updatedMessages[idx] = {
             ...msg,
-            blocks: appendBlockWithoutDuplicate(msg.blocks, event.block),
+            blocks: appendBlockWithoutDuplicate(msg.blocks, block),
           };
           return { messages: updatedMessages };
         });
@@ -365,6 +386,10 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       // ── Tool invocation ───────────────────────────────────────────────
       case "chat.assistant.tool_invocation": {
         const { currentAssistantId } = get();
+        const block = normalizeChatBlock({
+          kind: "tool_invocation",
+          ...event.data,
+        }) as ToolInvocationBlock;
         set((state) => {
           const idx = findAssistantMessageIndex(
             state.messages,
@@ -376,10 +401,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           const updatedMessages = [...state.messages];
           updatedMessages[idx] = {
             ...msg,
-            blocks: [
-              ...msg.blocks,
-              { kind: "tool_invocation", data: event.data },
-            ],
+            blocks: [...msg.blocks, block],
           };
           return { messages: updatedMessages };
         });
@@ -389,12 +411,16 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       // ── Tool result ───────────────────────────────────────────────────
       case "chat.assistant.tool_result": {
         const { currentAssistantId } = get();
+        const block = normalizeChatBlock({
+          kind: "tool_result",
+          ...event.data,
+        }) as ToolResultBlock;
         if (
-          event.data.status === "launched" &&
-          typeof event.data.execution_id === "string" &&
-          event.data.execution_id.trim()
+          block.status === "launched" &&
+          typeof block.execution_id === "string" &&
+          block.execution_id.trim()
         ) {
-          useRunUiStore.getState().markRunLaunching(event.data.execution_id.trim());
+          useRunUiStore.getState().markRunLaunching(block.execution_id.trim());
         }
         set((state) => {
           const idx = findAssistantMessageIndex(
@@ -405,8 +431,8 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
           const msg = state.messages[idx];
           const executionId =
-            typeof event.data.execution_id === "string"
-              ? event.data.execution_id.trim()
+            typeof block.execution_id === "string"
+              ? block.execution_id.trim()
               : "";
           const metadata =
             executionId
@@ -415,7 +441,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
                   orchestration: {
                     ...((msg.metadata?.orchestration as Record<string, unknown> | undefined) ?? {}),
                     execution_id: executionId,
-                    feature_id: event.data.feature_id,
+                    feature_id: block.feature_id,
                   },
                 }
               : msg.metadata;
@@ -423,7 +449,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
           updatedMessages[idx] = {
             ...msg,
             metadata,
-            blocks: [...msg.blocks, { kind: "tool_result", data: event.data }],
+            blocks: [...msg.blocks, block],
           };
           return { messages: updatedMessages };
         });
@@ -494,16 +520,21 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
       const thread = await res.json();
 
       if (thread.messages && thread.messages.length > 0) {
-        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => ({
-          id: (m.id as string) || crypto.randomUUID(),
-          role: (m.role as "user" | "assistant" | "system") || "assistant",
-          blocks: Array.isArray(m.blocks) ? (m.blocks as Block[]) : [{ kind: "text" as const, content: String(m.content || "") }],
-          createdAt: (m.created_at as string) || new Date().toISOString(),
-          metadata:
-            typeof m.metadata === "object" && m.metadata
-              ? (m.metadata as Record<string, unknown>)
-              : undefined,
-        }));
+        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => {
+          const blocks = normalizeStoreBlocks(m.blocks);
+          return {
+            id: (m.id as string) || crypto.randomUUID(),
+            role: (m.role as "user" | "assistant" | "system") || "assistant",
+            blocks: blocks.length
+              ? blocks
+              : [{ kind: "text" as const, content: String(m.content || "") }],
+            createdAt: (m.created_at as string) || new Date().toISOString(),
+            metadata:
+              typeof m.metadata === "object" && m.metadata
+                ? (m.metadata as Record<string, unknown>)
+                : undefined,
+          };
+        });
         set({ messages: loaded });
       }
       return thread.id as string;
@@ -555,16 +586,21 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
 
       // Load existing messages if store is empty (first call after page load)
       if (get().messages.length === 0 && thread.messages?.length > 0) {
-        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => ({
-          id: (m.id as string) || crypto.randomUUID(),
-          role: (m.role as "user" | "assistant" | "system") || "assistant",
-          blocks: Array.isArray(m.blocks) ? (m.blocks as Block[]) : [{ kind: "text" as const, content: String(m.content || "") }],
-          createdAt: (m.created_at as string) || new Date().toISOString(),
-          metadata:
-            typeof m.metadata === "object" && m.metadata
-              ? (m.metadata as Record<string, unknown>)
-              : undefined,
-        }));
+        const loaded: Message[] = thread.messages.map((m: Record<string, unknown>) => {
+          const blocks = normalizeStoreBlocks(m.blocks);
+          return {
+            id: (m.id as string) || crypto.randomUUID(),
+            role: (m.role as "user" | "assistant" | "system") || "assistant",
+            blocks: blocks.length
+              ? blocks
+              : [{ kind: "text" as const, content: String(m.content || "") }],
+            createdAt: (m.created_at as string) || new Date().toISOString(),
+            metadata:
+              typeof m.metadata === "object" && m.metadata
+                ? (m.metadata as Record<string, unknown>)
+                : undefined,
+          };
+        });
         set({ messages: loaded });
       }
 
@@ -648,7 +684,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               if (data.block) {
                 store.handleEvent({
                   type: "chat.assistant.finalize_block",
-                  block: data.block as Block,
+                  block: normalizeStoreBlock(data.block),
                 });
               }
               break;
@@ -661,7 +697,11 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
               break;
             }
             case "tool_result": {
-              const toolResult = (data.data ?? {}) as ToolResultData;
+              const toolResultBlock = normalizeChatBlock({
+                kind: "tool_result",
+                ...((data.data ?? {}) as Record<string, unknown>),
+              }) as ToolResultBlock;
+              const toolResult = withoutKind(toolResultBlock) as ToolResultData;
               if (
                 toolResult.status === "launched" &&
                 typeof toolResult.execution_id === "string" &&

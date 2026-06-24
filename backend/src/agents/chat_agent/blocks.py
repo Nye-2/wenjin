@@ -3,13 +3,18 @@
 The agent's only output contract: a list of AgentBlock variants.
 LangChain `with_structured_output` enforces this schema.
 """
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
 
 
 class TextBlock(BaseModel):
     kind: Literal["text"] = "text"
+    content: str
+
+
+class ThinkingBlock(BaseModel):
+    kind: Literal["thinking"] = "thinking"
     content: str
 
 
@@ -83,8 +88,31 @@ class ResultCardBlock(BaseModel):
     stats: RunStats
 
 
+class ToolInvocationBlock(BaseModel):
+    kind: Literal["tool_invocation"] = "tool_invocation"
+    tool: str
+    input: dict[str, Any] = Field(default_factory=dict)
+    tool_call_id: str | None = None
+
+
+class ToolResultBlock(BaseModel):
+    kind: Literal["tool_result"] = "tool_result"
+    tool: str
+    status: str | None = None
+    output: dict[str, Any] = Field(default_factory=dict)
+    tool_call_id: str | None = None
+    execution_id: str | None = None
+    feature_id: str | None = None
+
+
 AgentBlock = Annotated[
-    TextBlock | StatusLineBlock | QuestionCardBlock | ResultCardBlock,
+    TextBlock
+    | ThinkingBlock
+    | StatusLineBlock
+    | QuestionCardBlock
+    | ResultCardBlock
+    | ToolInvocationBlock
+    | ToolResultBlock,
     Field(discriminator="kind"),
 ]
 

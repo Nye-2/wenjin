@@ -18,6 +18,8 @@ from src.application.handlers.thread_turn_handler import (
     build_thread_initial_state,
 )
 from src.application.results import (
+    CompletedThreadTurn,
+    GeneratedThreadReply,
     PreparedThreadTurn,
     ThreadTurnAttachment,
     ThreadTurnRequest,
@@ -536,8 +538,8 @@ class TestThreadTurnHandlerCancellation:
                 ThreadStreamDelta(kind="content", text="world"),
             ]
             assert reply.content == "hello world"
-            assert reply.blocks[0]["type"] == "reasoning"
-            assert reply.blocks[0]["data"]["text"] == "reasoning summary"
+            assert reply.blocks[0]["kind"] == "thinking"
+            assert reply.blocks[0]["content"] == "reasoning summary"
 
     @pytest.mark.asyncio
     async def test_stream_thread_response_surfaces_launch_feature_tool_result(self):
@@ -682,18 +684,38 @@ class TestThreadTurnHandlerCancellation:
                     kind="tool_invocation",
                     data={
                         "tool": "launch_feature",
-                        "args": {
+                        "input": {
                             "feature_id": "sci_literature_positioning",
                             "params": {"topic": "test"},
                         },
+                        "tool_call_id": "call-1",
                     },
                 ),
-                ThreadStreamDelta(kind="tool_result", data=tool_result),
+                ThreadStreamDelta(
+                    kind="tool_result",
+                    data={
+                        "tool": "launch_feature",
+                        "status": "launched",
+                        "output": tool_result,
+                        "execution_id": "exec-1",
+                        "feature_id": "sci_literature_positioning",
+                        "tool_call_id": "call-1",
+                    },
+                ),
                 ThreadStreamDelta(kind="content", text="已启动。"),
             ]
             assert reply.blocks[0]["kind"] == "tool_invocation"
+            assert reply.blocks[0]["tool"] == "launch_feature"
+            assert reply.blocks[0]["input"]["feature_id"] == "sci_literature_positioning"
+            assert reply.blocks[0]["tool_call_id"] == "call-1"
+            assert "data" not in reply.blocks[0]
             assert reply.blocks[1]["kind"] == "tool_result"
-            assert reply.blocks[1]["data"]["execution_id"] == "exec-1"
+            assert reply.blocks[1]["tool"] == "launch_feature"
+            assert reply.blocks[1]["output"]["execution_id"] == "exec-1"
+            assert reply.blocks[1]["execution_id"] == "exec-1"
+            assert reply.blocks[1]["feature_id"] == "sci_literature_positioning"
+            assert reply.blocks[1]["tool_call_id"] == "call-1"
+            assert "data" not in reply.blocks[1]
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_passes_execution_id_to_runtime(self):
@@ -847,8 +869,74 @@ class TestThreadTurnHandlerCancellation:
 
         assert reply.metadata["guard"] == "unbacked_launch_receipt"
         assert "没有成功启动" in reply.content
-        assert reply.blocks[0]["type"] == "warning"
+        assert reply.blocks[0]["kind"] == "status_line"
+        assert reply.blocks[0]["tone"] == "warn"
+        assert reply.blocks[0]["run_id"] == "unbacked_launch_receipt"
+        assert "能力未启动" in reply.blocks[0]["label"]
         assert "f89cd34a" not in reply.content
+
+    def test_reply_from_agent_result_keeps_tool_blocks_before_thinking_and_text(self):
+        tool_result = {
+            "status": "launched",
+            "execution_id": "exec-1",
+            "feature_id": "sci_literature_positioning",
+            "message": "已启动",
+        }
+        reply = _reply_from_agent_result(
+            {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "launch_feature",
+                                "args": {"feature_id": "sci_literature_positioning"},
+                                "id": "call-1",
+                            }
+                        ],
+                    ),
+                    ToolMessage(content=json.dumps(tool_result), tool_call_id="call-1"),
+                    AIMessage(
+                        content="final answer",
+                        additional_kwargs={"reasoning": "step 1\nstep 2"},
+                    ),
+                ],
+                "response_blocks": [{"kind": "text", "content": "final answer"}],
+                "response_metadata": {},
+            },
+            thread_id="thread-1",
+        )
+
+        assert [block["kind"] for block in reply.blocks] == [
+            "tool_invocation",
+            "tool_result",
+            "thinking",
+            "text",
+        ]
+        assert reply.blocks[0]["tool_call_id"] == "call-1"
+        assert reply.blocks[1]["tool_call_id"] == "call-1"
+        assert reply.blocks[2] == {"kind": "thinking", "content": "step 1\nstep 2"}
+        assert all(block.get("type") != "reasoning" for block in reply.blocks)
+
+    def test_reply_from_agent_result_does_not_duplicate_existing_thinking_block(self):
+        reply = _reply_from_agent_result(
+            {
+                "messages": [
+                    AIMessage(
+                        content="final answer",
+                        additional_kwargs={"reasoning": "already here"},
+                    )
+                ],
+                "response_blocks": [
+                    {"kind": "thinking", "content": "already here"},
+                    {"kind": "text", "content": "final answer"},
+                ],
+                "response_metadata": {},
+            },
+            thread_id="thread-1",
+        )
+
+        assert [block["kind"] for block in reply.blocks] == ["thinking", "text"]
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_extracts_reasoning_into_blocks(self):
@@ -928,8 +1016,72 @@ class TestThreadTurnHandlerCancellation:
             )
 
             assert reply.content == "final answer"
-            assert reply.blocks[0]["type"] == "reasoning"
-            assert "step 1" in reply.blocks[0]["data"]["text"]
+            assert reply.blocks[0]["kind"] == "thinking"
+            assert "step 1" in reply.blocks[0]["content"]
+
+    @pytest.mark.asyncio
+    async def test_stream_turn_forwards_data_only_tool_deltas(self):
+        thread_service = MagicMock()
+        thread_service.list_thread_messages = AsyncMock(return_value=[])
+        handler = ThreadTurnHandler(thread_service=thread_service)
+        handler._maybe_compact_thread_history = AsyncMock()
+        handler._finalize_generated_reply = AsyncMock(
+            return_value=CompletedThreadTurn(
+                thread=SimpleNamespace(id="thread-1"),
+                assistant_message={},
+                reply=GeneratedThreadReply(content=""),
+            )
+        )
+
+        class _FakeReplyStream:
+            def __aiter__(self):
+                async def _iterate():
+                    yield ThreadStreamDelta(
+                        kind="tool_result",
+                        data={
+                            "tool": "launch_feature",
+                            "status": "launched",
+                            "output": {
+                                "execution_id": "exec-1",
+                                "feature_id": "sci_literature_positioning",
+                            },
+                            "execution_id": "exec-1",
+                            "feature_id": "sci_literature_positioning",
+                            "tool_call_id": "call-1",
+                        },
+                    )
+
+                return _iterate()
+
+            async def wait_reply(self):
+                return GeneratedThreadReply(content="", blocks=[], metadata={})
+
+        handler._stream_thread_response = MagicMock(return_value=_FakeReplyStream())
+        prepared = PreparedThreadTurn(
+            request=ThreadTurnRequest(message="start"),
+            thread=SimpleNamespace(id="thread-1", workspace_id="ws-1", skill=None),
+        )
+
+        stream = handler.stream_turn(prepared, actor_id="user-1")
+        chunks = [chunk async for chunk in stream]
+        await stream.wait_completed()
+
+        assert chunks == [
+            ThreadStreamDelta(
+                kind="tool_result",
+                data={
+                    "tool": "launch_feature",
+                    "status": "launched",
+                    "output": {
+                        "execution_id": "exec-1",
+                        "feature_id": "sci_literature_positioning",
+                    },
+                    "execution_id": "exec-1",
+                    "feature_id": "sci_literature_positioning",
+                    "tool_call_id": "call-1",
+                },
+            )
+        ]
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_uses_conversation_projection_messages(self):
