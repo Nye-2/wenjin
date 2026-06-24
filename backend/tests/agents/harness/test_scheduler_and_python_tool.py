@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from src.agents.harness.contracts import HarnessPolicy, HarnessRunContext
+from src.agents.harness.contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from src.agents.harness.sandbox_execution_tools import SandboxExecutionTools
 from src.agents.harness.scheduler import WorkspaceToolQueueTimeout, WorkspaceToolScheduler
 from src.agents.lead_agent.v2.sandbox_errors import SandboxCommandExecutionError
@@ -207,6 +207,24 @@ class _FailingRunner:
                 "output_refs": [],
             },
         )
+
+
+async def _run_python_tool_with_policy(sandbox_policy_overrides: dict) -> HarnessToolResult:
+    context = _ctx()
+    sandbox_policy = dict(context.capability_policy["sandbox_policy"])
+    sandbox_policy.update(sandbox_policy_overrides)
+    context.capability_policy["sandbox_policy"] = sandbox_policy
+    tool = SandboxExecutionTools(
+        context=context,
+        policy=HarnessPolicy(
+            permissions=frozenset({"sandbox.run_python"}),
+            allow_package_install=True,
+            max_sandbox_seconds=int(sandbox_policy_overrides.get("timeout_seconds") or 120),
+        ),
+        runner=_FakeRunner(),
+        scheduler=WorkspaceToolScheduler(),
+    )
+    return await tool.run_python(script="print({'ok': True})", script_name="analysis.py")
 
 
 @pytest.mark.asyncio
@@ -464,7 +482,29 @@ async def test_run_python_returns_execution_manifest() -> None:
     assert manifest["script_path"] == "/workspace/scripts/bad_script.py"
     assert manifest["dependency_hints"] == ["pandas"]
     assert manifest["network_profile"] == "none"
-    assert manifest["timeout_seconds"] == 30
+    assert manifest["queue_timeout_seconds"] == 30
+    assert manifest["execution_timeout_seconds"] == 60
+    assert manifest["timeout_seconds"] == 60
+
+
+@pytest.mark.asyncio
+async def test_run_python_manifest_separates_queue_and_execution_timeouts() -> None:
+    result = await _run_python_tool_with_policy({"resource_limits": {}, "timeout_seconds": 900})
+    manifest = result.structured_payload["execution_manifest"]
+
+    assert manifest["queue_timeout_seconds"] == 30
+    assert manifest["execution_timeout_seconds"] == 900
+    assert manifest["timeout_seconds"] == 900
+
+
+@pytest.mark.asyncio
+async def test_run_python_manifest_uses_nested_resource_limit_timeout() -> None:
+    result = await _run_python_tool_with_policy({"resource_limits": {"timeout_seconds": 900}})
+    manifest = result.structured_payload["execution_manifest"]
+
+    assert manifest["queue_timeout_seconds"] == 30
+    assert manifest["execution_timeout_seconds"] == 900
+    assert manifest["timeout_seconds"] == 900
 
 
 @pytest.mark.asyncio
@@ -503,7 +543,9 @@ async def test_run_python_returns_reproducibility_manifest() -> None:
             "run_job_id": "job-1",
             "install_job_ids": ["install-1"],
             "network_profile": "none",
-            "timeout_seconds": 30,
+            "queue_timeout_seconds": 30,
+            "execution_timeout_seconds": 60,
+            "timeout_seconds": 60,
             "retry_count": 1,
         },
         "dependencies": {

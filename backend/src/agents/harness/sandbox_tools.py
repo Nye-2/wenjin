@@ -34,6 +34,7 @@ DEFAULT_DIFF_MAX_CHARS = 12_000
 DEFAULT_SEARCH_MAX_MATCHES = 50
 DEFAULT_GREP_MAX_FILE_BYTES = 1_000_000
 DEFAULT_GREP_MAX_LINE_CHARS = 2_000
+DEFAULT_GREP_MAX_SCANNED_FILES = 1_000
 DEFAULT_GREP_BINARY_SAMPLE_BYTES = 8192
 MAX_PATCH_EDITS = 20
 
@@ -180,7 +181,7 @@ class SandboxFileTools:
         limit = self._effective_max_matches(max_matches)
         matches: list[str] = []
         truncated = False
-        for path in sorted(self._workspace_physical_root().glob(safe_pattern)):
+        for path in self._workspace_physical_root().glob(safe_pattern):
             if not self._is_workspace_physical_path(path):
                 continue
             if not path.is_file():
@@ -196,6 +197,7 @@ class SandboxFileTools:
                 truncated = True
                 break
             matches.append(virtual_path)
+        matches.sort()
         return HarnessToolResult(
             preview_text="\n".join(matches),
             structured_payload={
@@ -217,17 +219,20 @@ class SandboxFileTools:
     ) -> HarnessToolResult:
         self._require_read_permission()
         safe_glob = self._validate_glob_pattern(glob)
+        needle = str(pattern or "")
         try:
-            regex = re.compile(re.escape(pattern) if literal else pattern)
+            regex = re.compile(re.escape(needle) if literal else needle)
         except re.error as exc:
-            return _invalid_regex_result(pattern=pattern, glob_pattern=glob, error=exc)
+            return _invalid_regex_result(pattern=needle, glob_pattern=glob, error=exc)
         limit = self._effective_max_matches(max_matches)
         matches: list[dict[str, Any]] = []
         scanned_files = 0
         skipped_large_files = 0
         skipped_binary_files = 0
         skipped_long_lines = 0
-        for path in sorted(self._workspace_physical_root().glob(safe_glob)):
+        truncated = False
+        max_scanned_files = self._grep_max_scanned_files()
+        for path in self._workspace_physical_root().glob(safe_glob):
             if not self._is_workspace_physical_path(path):
                 continue
             if not path.is_file():
@@ -248,6 +253,9 @@ class SandboxFileTools:
                     continue
             except OSError:
                 continue
+            if max_scanned_files > 0 and scanned_files >= max_scanned_files:
+                truncated = True
+                break
             scanned_files += 1
             try:
                 with path.open(encoding="utf-8", errors="replace") as handle:
@@ -257,6 +265,9 @@ class SandboxFileTools:
                             continue
                         text = line.rstrip("\r\n")[:500]
                         if regex.search(line):
+                            if len(matches) >= limit:
+                                truncated = True
+                                break
                             matches.append(
                                 {
                                     "path": virtual_path,
@@ -264,27 +275,19 @@ class SandboxFileTools:
                                     "text": text,
                                 }
                             )
-                            if len(matches) >= limit:
-                                return self._grep_result(
-                                    pattern,
-                                    glob,
-                                    matches,
-                                    match_limit=limit,
-                                    truncated=True,
-                                    literal=literal,
-                                    scanned_files=scanned_files,
-                                    skipped_large_files=skipped_large_files,
-                                    skipped_binary_files=skipped_binary_files,
-                                    skipped_long_lines=skipped_long_lines,
-                                )
+                    if truncated:
+                        break
             except OSError:
                 continue
+            if truncated:
+                break
+        matches.sort(key=lambda item: (str(item.get("path") or ""), int(item.get("line") or 0)))
         return self._grep_result(
-            pattern,
+            needle,
             glob,
             matches,
             match_limit=limit,
-            truncated=False,
+            truncated=truncated,
             literal=literal,
             scanned_files=scanned_files,
             skipped_large_files=skipped_large_files,
@@ -729,6 +732,9 @@ class SandboxFileTools:
 
     def _grep_max_line_chars(self) -> int:
         return int(self.policy.output_budget.get("grep_max_line_chars") or DEFAULT_GREP_MAX_LINE_CHARS)
+
+    def _grep_max_scanned_files(self) -> int:
+        return int(self.policy.output_budget.get("grep_max_scanned_files") or DEFAULT_GREP_MAX_SCANNED_FILES)
 
     def _effective_read_max_chars(self, requested: int | None) -> int:
         policy_limit = self._read_max_chars()

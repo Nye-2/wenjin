@@ -995,6 +995,50 @@ async def test_glob_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
 
 
 @pytest.mark.asyncio
+async def test_glob_stops_after_match_limit_without_full_materialization(
+    sandbox: LocalSandbox,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for index in range(100):
+        await sandbox.write_file(f"/workspace/file-{index}.txt", "x")
+    original_glob = Path.glob
+    yielded = 0
+
+    def bounded_glob(self: Path, pattern: str):
+        nonlocal yielded
+        for path in original_glob(self, pattern):
+            yielded += 1
+            if yielded > 6:
+                raise AssertionError("glob consumed more paths than max_matches plus truncation peek")
+            yield path
+
+    monkeypatch.setattr(Path, "glob", bounded_glob)
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    result = await tools.glob(pattern="*.txt", max_matches=5)
+
+    assert result.structured_payload["returned_matches"] == 5
+    assert result.structured_payload["match_limit"] == 5
+    assert len(result.structured_payload["matches"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_glob_truncated_false_when_visible_matches_equal_limit(sandbox: LocalSandbox) -> None:
+    for index in range(1, 6):
+        await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"item {index}\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    exact_result = await tools.glob(pattern="main/*.txt", max_matches=5)
+    await sandbox.write_file("/workspace/main/file_06.txt", "item 6\n")
+    extra_result = await tools.glob(pattern="main/*.txt", max_matches=5)
+
+    assert exact_result.structured_payload["returned_matches"] == 5
+    assert exact_result.truncated is False
+    assert extra_result.structured_payload["returned_matches"] == 5
+    assert extra_result.truncated is True
+
+
+@pytest.mark.asyncio
 async def test_search_tools_skip_common_generated_and_cache_directories(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main/app.py", "alpha app\n")
     await sandbox.write_file("/workspace/node_modules/pkg/skip.py", "alpha dependency\n")
@@ -1036,6 +1080,22 @@ async def test_grep_reports_returned_matches_and_limit(sandbox: LocalSandbox) ->
 
 
 @pytest.mark.asyncio
+async def test_grep_truncated_false_when_matches_equal_limit(sandbox: LocalSandbox) -> None:
+    for index in range(1, 6):
+        await sandbox.write_file(f"/workspace/main/file_{index:02d}.txt", f"alpha {index}\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    exact_result = await tools.grep(pattern="alpha", glob="main/*.txt", max_matches=5)
+    await sandbox.write_file("/workspace/main/file_06.txt", "alpha 6\n")
+    extra_result = await tools.grep(pattern="alpha", glob="main/*.txt", max_matches=5)
+
+    assert exact_result.structured_payload["returned_matches"] == 5
+    assert exact_result.truncated is False
+    assert extra_result.structured_payload["returned_matches"] == 5
+    assert extra_result.truncated is True
+
+
+@pytest.mark.asyncio
 async def test_grep_literal_mode_treats_pattern_as_plain_text(sandbox: LocalSandbox) -> None:
     await sandbox.write_file("/workspace/main/math.txt", "price = (a+b)\nregex would match ab\n")
     tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
@@ -1046,6 +1106,17 @@ async def test_grep_literal_mode_treats_pattern_as_plain_text(sandbox: LocalSand
     assert result.structured_payload["matches"] == [
         {"path": "/workspace/main/math.txt", "line": 1, "text": "price = (a+b)"}
     ]
+
+
+@pytest.mark.asyncio
+async def test_grep_literal_mode_handles_regex_metacharacters(sandbox: LocalSandbox) -> None:
+    await sandbox.write_file("/workspace/notes.txt", "literal [abc\n")
+    tools = SandboxFileTools(sandbox=sandbox, context=_ctx(), policy=_read_policy())
+
+    result = await tools.grep(pattern="[abc", glob="*.txt", literal=True, max_matches=5)
+
+    assert result.structured_payload["returned_matches"] == 1
+    assert result.error is None
 
 
 @pytest.mark.asyncio
