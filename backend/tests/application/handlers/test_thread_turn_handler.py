@@ -540,7 +540,7 @@ class TestThreadTurnHandlerCancellation:
             ]
             assert reply.content == "hello world"
             assert reply.blocks[0]["kind"] == "thinking"
-            assert reply.blocks[0]["content"] == "reasoning summary"
+            assert reply.blocks[0]["text"] == "reasoning summary"
 
     @pytest.mark.asyncio
     async def test_stream_thread_response_surfaces_launch_feature_tool_result(self):
@@ -916,7 +916,7 @@ class TestThreadTurnHandlerCancellation:
         ]
         assert reply.blocks[0]["tool_call_id"] == "call-1"
         assert reply.blocks[1]["tool_call_id"] == "call-1"
-        assert reply.blocks[2] == {"kind": "thinking", "content": "step 1\nstep 2"}
+        assert reply.blocks[2] == {"kind": "thinking", "text": "step 1\nstep 2"}
         assert all(block.get("type") != "reasoning" for block in reply.blocks)
 
     def test_reply_from_agent_result_does_not_duplicate_existing_thinking_block(self):
@@ -937,7 +937,10 @@ class TestThreadTurnHandlerCancellation:
             thread_id="thread-1",
         )
 
-        assert [block["kind"] for block in reply.blocks] == ["thinking", "text"]
+        assert reply.blocks == [
+            {"kind": "thinking", "text": "already here"},
+            {"kind": "text", "content": "final answer"},
+        ]
 
     def test_reply_reasoning_text_reads_top_level_text_from_legacy_thinking_block(self):
         reply = GeneratedThreadReply(
@@ -962,6 +965,44 @@ class TestThreadTurnHandlerCancellation:
         assert [block.get("kind") for block in reply.blocks] == ["text"]
         assert all(block.get("type") != "artifacts" for block in reply.blocks)
         assert reply.metadata["artifacts"][0]["name"] == "report.md"
+
+    def test_reply_from_agent_result_sanitizes_legacy_response_blocks(self):
+        reply = _reply_from_agent_result(
+            {
+                "messages": [AIMessage(content="legacy blocks")],
+                "response_blocks": [
+                    {
+                        "type": "artifacts",
+                        "title": "输出文件",
+                        "data": {"items": [{"name": "report.md"}]},
+                    },
+                    {
+                        "type": "warning",
+                        "title": "能力未启动",
+                        "data": {"detail": "缺少工具结果"},
+                    },
+                    {
+                        "kind": "custom_panel",
+                        "title": "旧卡片",
+                        "data": {"detail": "仍应可见"},
+                    },
+                    {"kind": "thinking", "content": "legacy thought"},
+                ],
+                "response_metadata": {},
+            },
+            thread_id="thread-1",
+        )
+
+        assert reply.blocks == [
+            {
+                "kind": "status_line",
+                "label": "能力未启动：缺少工具结果",
+                "run_id": "legacy-warning",
+                "tone": "warn",
+            },
+            {"kind": "text", "content": "旧卡片：仍应可见"},
+            {"kind": "thinking", "text": "legacy thought"},
+        ]
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_extracts_reasoning_into_blocks(self):
@@ -1042,7 +1083,7 @@ class TestThreadTurnHandlerCancellation:
 
             assert reply.content == "final answer"
             assert reply.blocks[0]["kind"] == "thinking"
-            assert "step 1" in reply.blocks[0]["content"]
+            assert "step 1" in reply.blocks[0]["text"]
 
     @pytest.mark.asyncio
     async def test_stream_turn_forwards_data_only_tool_deltas(self):

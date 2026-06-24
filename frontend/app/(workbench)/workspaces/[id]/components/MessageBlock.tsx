@@ -545,7 +545,7 @@ export const MessageBlock = memo(function MessageBlock({
         </div>
       );
     case "thinking":
-      return <ThinkingBlock content={block.content} />;
+      return <ThinkingBlock content={block.text} />;
     case "status_line":
       return (
         <StatusLineBlock

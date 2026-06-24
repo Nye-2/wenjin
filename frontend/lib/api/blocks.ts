@@ -9,7 +9,7 @@ export interface TextBlock {
 
 export interface ThinkingBlock {
   kind: "thinking";
-  content: string;
+  text: string;
 }
 
 export type StatusTone = "info" | "warn" | "error";
@@ -192,8 +192,8 @@ function extractToolCallId(raw: RawRecord): string | undefined {
 function extractThinkingContent(raw: RawRecord): string {
   const data = isRecord(raw.data) ? raw.data : undefined;
   return (
-    stringValue(raw.content) ??
     stringValue(raw.text) ??
+    stringValue(raw.content) ??
     (data ? stringValue(data.text) : undefined) ??
     (data ? stringValue(data.content) : undefined) ??
     ""
@@ -233,7 +233,7 @@ export function normalizeChatBlock(raw: unknown): AgentBlock {
   }
 
   if (kind === "reasoning" || kind === "thought" || kind === "thinking") {
-    return { kind: "thinking", content: extractThinkingContent(raw) };
+    return { kind: "thinking", text: extractThinkingContent(raw) };
   }
 
   if (kind === "status_line") {

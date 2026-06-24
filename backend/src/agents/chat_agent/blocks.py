@@ -15,7 +15,7 @@ class TextBlock(BaseModel):
 
 class ThinkingBlock(BaseModel):
     kind: Literal["thinking"] = "thinking"
-    content: str
+    text: str
 
 
 class StatusLineBlock(BaseModel):

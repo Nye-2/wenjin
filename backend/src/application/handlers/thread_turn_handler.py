@@ -545,7 +545,7 @@ def _extract_reasoning_text(message: Any) -> str:
 
 
 def _build_thinking_block(reasoning_text: str) -> dict[str, Any]:
-    return {"kind": "thinking", "content": reasoning_text}
+    return {"kind": "thinking", "text": reasoning_text}
 
 
 def _is_thinking_block(block: Mapping[str, Any]) -> bool:
@@ -558,12 +558,12 @@ def _reply_reasoning_text(reply: GeneratedThreadReply) -> str:
     for block in blocks:
         if not isinstance(block, Mapping) or not _is_thinking_block(block):
             continue
-        content = block.get("content")
-        if isinstance(content, str) and content.strip():
-            return content.strip()
         text = block.get("text")
         if isinstance(text, str) and text.strip():
             return text.strip()
+        content = block.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
         data = block.get("data")
         if isinstance(data, Mapping):
             text = data.get("text")
@@ -578,6 +578,244 @@ def _reply_reasoning_text(reply: GeneratedThreadReply) -> str:
             return text.strip()
 
     return ""
+
+
+_CANONICAL_RESPONSE_BLOCK_KINDS = {
+    "text",
+    "thinking",
+    "status_line",
+    "question_card",
+    "result_card",
+    "tool_invocation",
+    "tool_result",
+}
+_RESPONSE_BLOCK_KIND_ALIASES = {
+    "reasoning": "thinking",
+    "reasoning_content": "thinking",
+    "thought": "thinking",
+    "warning": "status_line",
+    "tool": "tool_invocation",
+    "tool_call": "tool_invocation",
+    "tool_use": "tool_invocation",
+}
+
+
+def _string_value(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _block_data_payload(block: Mapping[str, Any]) -> Mapping[str, Any]:
+    data = block.get("data")
+    if isinstance(data, Mapping):
+        return data
+    return {}
+
+
+def _visible_block_text(block: Mapping[str, Any]) -> str:
+    data = _block_data_payload(block)
+    title = (
+        _string_value(block.get("title"))
+        or _string_value(block.get("label"))
+        or _string_value(block.get("name"))
+    )
+    detail = (
+        _string_value(block.get("detail"))
+        or _string_value(block.get("message"))
+        or _string_value(data.get("detail"))
+        or _string_value(data.get("message"))
+        or _string_value(data.get("text"))
+        or _string_value(data.get("content"))
+        or _string_value(block.get("content"))
+        or _string_value(block.get("text"))
+    )
+    if title and detail and title != detail:
+        return f"{title}：{detail}"
+    return title or detail or ""
+
+
+def _fallback_block_text(block: Mapping[str, Any]) -> str:
+    visible = _visible_block_text(block)
+    if visible:
+        return visible
+    try:
+        return json.dumps(dict(block), ensure_ascii=False, default=str)
+    except TypeError:
+        return "Unsupported message block"
+
+
+def _response_block_raw_kind(block: Mapping[str, Any]) -> str:
+    return str(block.get("kind") or block.get("type") or "").strip().lower()
+
+
+def _extract_tool_name_from_block(payload: Mapping[str, Any]) -> str | None:
+    for key in ("tool", "tool_name", "name", "function_name"):
+        value = _string_value(payload.get(key))
+        if value:
+            return value
+    function = payload.get("function")
+    if isinstance(function, Mapping):
+        return _string_value(function.get("name"))
+    return None
+
+
+def _extract_tool_input_from_block(payload: Mapping[str, Any]) -> dict[str, Any]:
+    for key in ("input", "args", "arguments", "parameters"):
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            return dict(value)
+    return {}
+
+
+def _extract_tool_call_id_from_block(payload: Mapping[str, Any]) -> str | None:
+    for key in ("tool_call_id", "invocation_id", "call_id", "id"):
+        value = _string_value(payload.get(key))
+        if value:
+            return value
+    return None
+
+
+def _extract_tool_output_from_block(
+    raw: Mapping[str, Any],
+    source: Mapping[str, Any],
+) -> dict[str, Any]:
+    for payload in (raw, source):
+        for key in ("output", "result"):
+            value = payload.get(key)
+            if isinstance(value, Mapping):
+                return dict(value)
+            if value is not None:
+                return {"value": value}
+    data = raw.get("data")
+    if isinstance(data, Mapping):
+        return dict(data)
+    omitted = {"kind", "type", "output", "result", "data"}
+    return {
+        str(key): value
+        for key, value in source.items()
+        if isinstance(key, str) and key not in omitted
+    }
+
+
+def _normalize_tool_invocation_response_block(
+    block: Mapping[str, Any],
+) -> dict[str, Any]:
+    source = _block_data_payload(block) or block
+    normalized: dict[str, Any] = {
+        "kind": "tool_invocation",
+        "tool": (
+            _extract_tool_name_from_block(source)
+            or _extract_tool_name_from_block(block)
+            or "unknown"
+        ),
+        "input": _extract_tool_input_from_block(source),
+    }
+    tool_call_id = (
+        _extract_tool_call_id_from_block(source)
+        or _extract_tool_call_id_from_block(block)
+    )
+    if tool_call_id:
+        normalized["tool_call_id"] = tool_call_id
+    return normalized
+
+
+def _normalize_tool_result_response_block(
+    block: Mapping[str, Any],
+) -> dict[str, Any]:
+    source = _block_data_payload(block) or block
+    output = _extract_tool_output_from_block(block, source)
+    normalized: dict[str, Any] = {
+        "kind": "tool_result",
+        "tool": (
+            _extract_tool_name_from_block(source)
+            or _extract_tool_name_from_block(block)
+            or "unknown"
+        ),
+        "output": output,
+    }
+    status = source.get("status", block.get("status"))
+    if status is not None:
+        normalized["status"] = str(status)
+    tool_call_id = (
+        _extract_tool_call_id_from_block(source)
+        or _extract_tool_call_id_from_block(block)
+    )
+    if tool_call_id:
+        normalized["tool_call_id"] = tool_call_id
+    for key in ("execution_id", "feature_id"):
+        value = source.get(key, block.get(key, output.get(key)))
+        if isinstance(value, str) and value.strip():
+            normalized[key] = value.strip()
+    return normalized
+
+
+def _normalize_status_line_response_block(
+    block: Mapping[str, Any],
+    *,
+    raw_kind: str,
+) -> dict[str, Any]:
+    tone = block.get("tone")
+    normalized_tone = (
+        tone
+        if tone in {"info", "warn", "error"}
+        else "warn"
+        if raw_kind == "warning"
+        else "info"
+    )
+    normalized: dict[str, Any] = {
+        "kind": "status_line",
+        "label": _string_value(block.get("label"))
+        or _visible_block_text(block)
+        or "Status update",
+        "run_id": _string_value(block.get("run_id"))
+        or ("legacy-warning" if raw_kind == "warning" else "legacy-status"),
+        "tone": normalized_tone,
+    }
+    phase_index = block.get("phase_index")
+    if isinstance(phase_index, int):
+        normalized["phase_index"] = phase_index
+    return normalized
+
+
+def _normalize_response_block(block: Mapping[str, Any]) -> dict[str, Any] | None:
+    raw_kind = _response_block_raw_kind(block)
+    kind = _RESPONSE_BLOCK_KIND_ALIASES.get(raw_kind, raw_kind)
+    if kind == "artifacts":
+        return None
+
+    if kind == "thinking":
+        return {
+            "kind": "thinking",
+            "text": _extract_reasoning_text_from_payload(block)
+            or _fallback_block_text(block),
+        }
+
+    if kind == "text":
+        content = block.get("content")
+        if isinstance(content, str):
+            return {"kind": "text", "content": content}
+        text = block.get("text")
+        if isinstance(text, str):
+            return {"kind": "text", "content": text}
+        return {"kind": "text", "content": _fallback_block_text(block)}
+
+    if kind == "status_line":
+        return _normalize_status_line_response_block(block, raw_kind=raw_kind)
+
+    if kind == "tool_invocation":
+        return _normalize_tool_invocation_response_block(block)
+
+    if kind == "tool_result":
+        return _normalize_tool_result_response_block(block)
+
+    if kind in _CANONICAL_RESPONSE_BLOCK_KINDS:
+        normalized = dict(block)
+        normalized["kind"] = kind
+        normalized.pop("type", None)
+        return normalized
+
+    return {"kind": "text", "content": _fallback_block_text(block)}
 
 
 def _attach_usage_metadata(
@@ -726,9 +964,10 @@ def _reply_from_agent_result(
         reasoning_text = _extract_reasoning_text(messages[-1])
 
     response_blocks = [
-        block
+        normalized
         for block in (result.get("response_blocks") or [])
-        if isinstance(block, dict)
+        if isinstance(block, Mapping)
+        if (normalized := _normalize_response_block(block)) is not None
     ]
     launch_blocks = _extract_launch_feature_blocks(messages)
     if not launch_blocks and _looks_like_unbacked_launch_receipt(content):

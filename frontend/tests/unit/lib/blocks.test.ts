@@ -15,7 +15,7 @@ describe("AgentBlock type guards", () => {
     const m: AgentMessage = {
       blocks: [
         { kind: "text", content: "hi" },
-        { kind: "thinking", content: "checking" },
+        { kind: "thinking", text: "checking" },
         { kind: "status_line", label: "phase 1 done", run_id: "r1", tone: "info" },
         {
           kind: "tool_invocation",
@@ -71,7 +71,7 @@ describe("AgentBlock type guards", () => {
         title: "思考过程",
         data: { text: "step 1" },
       }),
-    ).toEqual({ kind: "thinking", content: "step 1" });
+    ).toEqual({ kind: "thinking", text: "step 1" });
   });
 
   it("normalizes legacy tool invocation blocks to top-level fields", () => {

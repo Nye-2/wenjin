@@ -50,6 +50,7 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
             "content": "fallback text",
             "blocks": [
                 {"type": "reasoning", "title": "思考过程", "data": {"text": "thinking"}},
+                {"type": "warning", "title": "能力未启动", "data": {"detail": "缺少工具结果"}},
                 {"kind": "status_line", "label": "running"},
                 {
                     "kind": "tool_invocation",
@@ -78,18 +79,25 @@ def test_blocks_from_message_normalizes_to_canonical_kinds() -> None:
     assert [block["kind"] for block in blocks] == [
         "thinking",
         "status_line",
+        "status_line",
         "tool_invocation",
         "tool_result",
         "text",
     ]
-    assert blocks[0] == {"kind": "thinking", "content": "thinking"}
-    assert blocks[2] == {
+    assert blocks[0] == {"kind": "thinking", "text": "thinking"}
+    assert blocks[1] == {
+        "kind": "status_line",
+        "label": "能力未启动：缺少工具结果",
+        "run_id": "legacy-warning",
+        "tone": "warn",
+    }
+    assert blocks[3] == {
         "kind": "tool_invocation",
         "tool": "launch_feature",
         "input": {"feature_id": "outline"},
         "tool_call_id": "call-1",
     }
-    assert blocks[3] == {
+    assert blocks[4] == {
         "kind": "tool_result",
         "tool": "launch_feature",
         "status": "launched",

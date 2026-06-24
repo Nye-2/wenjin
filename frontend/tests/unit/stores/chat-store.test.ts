@@ -62,7 +62,7 @@ describe("chat store", () => {
     handleEvent({ type: "chat.assistant.thinking", delta: " part2" });
 
     const last = useChatStoreV2.getState().messages.at(-1)!;
-    expect(last.blocks).toEqual([{ kind: "thinking", content: "part1 part2" }]);
+    expect(last.blocks).toEqual([{ kind: "thinking", text: "part1 part2" }]);
   });
 
   it("handles user message event", () => {
@@ -366,7 +366,7 @@ describe("chat store", () => {
 
     const msg = useChatStoreV2.getState().messages.at(-1)!;
     expect(msg.blocks).toEqual([
-      { kind: "thinking", content: "thinking from history" },
+      { kind: "thinking", text: "thinking from history" },
       {
         kind: "tool_invocation",
         tool: "launch_feature",

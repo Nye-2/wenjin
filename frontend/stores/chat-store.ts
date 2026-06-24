@@ -314,7 +314,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             const updatedBlocks = [...msg.blocks];
             updatedBlocks[updatedBlocks.length - 1] = {
               ...lastBlock,
-              content: lastBlock.content + event.delta,
+              text: lastBlock.text + event.delta,
             };
             const updatedMessages = [...state.messages];
             updatedMessages[idx] = { ...msg, blocks: updatedBlocks };
@@ -327,7 +327,7 @@ export const useChatStoreV2 = create<ChatState>((set, get) => ({
             ...msg,
             blocks: [
               ...msg.blocks,
-              { kind: "thinking", content: event.delta },
+              { kind: "thinking", text: event.delta },
             ],
           };
           return { messages: updatedMessages };

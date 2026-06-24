@@ -52,7 +52,7 @@ def test_agent_message_discriminated_union_roundtrip():
     raw = {
         "blocks": [
             {"kind": "text", "content": "hi"},
-            {"kind": "thinking", "content": "checking"},
+            {"kind": "thinking", "text": "checking"},
             {
                 "kind": "status_line",
                 "label": "phase 1 done",
@@ -88,7 +88,7 @@ def test_agent_message_discriminated_union_roundtrip():
 
 
 def test_thinking_block_minimal():
-    b = ThinkingBlock(content="step 1")
+    b = ThinkingBlock(text="step 1")
     assert b.kind == "thinking"
 
 
