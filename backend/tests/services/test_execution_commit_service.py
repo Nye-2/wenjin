@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -699,6 +700,50 @@ async def test_commit_idempotent_with_key():
     assert mocks["dataservice"].append_execution_event.call_count == 1
     assert mocks["execution"].update_execution.call_count == 1
     assert result1 == result2
+
+
+@pytest.mark.asyncio
+async def test_commit_ignores_stale_idempotency_cache_without_commit_state():
+    """Old cached responses without commit_state cannot be treated as durable truth."""
+    outputs = _all_kinds_outputs()
+    report = _make_report(outputs)
+    execution = _make_execution(report)
+    stale_result = {
+        "committed": {
+            "library": 0,
+            "documents": 0,
+            "memory": 0,
+            "decisions": 0,
+            "tasks": 0,
+        },
+        "room_targets": {
+            "documents": [],
+            "library": [],
+            "memory": [],
+            "decisions": [],
+            "tasks": [],
+        },
+    }
+
+    redis_mock = SimpleNamespace()
+    redis_mock.get = AsyncMock(return_value=json.dumps(stale_result))
+    redis_mock.set = AsyncMock()
+
+    svc, mocks = _make_service(execution, redis=redis_mock)
+
+    result = await svc.commit_outputs(
+        EXECUTION_ID,
+        accepted_ids=["out-doc"],
+        idempotency_key="key-abc",
+        actor_user_id="user-1",
+    )
+
+    assert result["commit_state"]["status"] == "committed"
+    assert result["commit_state"]["accepted_ids"] == ["out-doc"]
+    assert result["committed"]["documents"] == 1
+    mocks["execution"].update_execution.assert_awaited_once()
+    mocks["dataservice"].register_asset.assert_called_once()
+    redis_mock.set.assert_awaited_once()
 
 
 @pytest.mark.asyncio

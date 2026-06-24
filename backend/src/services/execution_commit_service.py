@@ -241,7 +241,9 @@ class ExecutionCommitService:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
             cached = await self.redis.get(cache_key)
             if cached:
-                return cast(dict[str, Any], json.loads(cached))
+                cached_response = json.loads(cached)
+                if _cached_response_has_valid_commit_state(cached_response):
+                    return cast(dict[str, Any], cached_response)
 
         if not selection_provided:
             return _noop_commit_response()
@@ -583,6 +585,13 @@ def _noop_commit_response() -> dict[str, Any]:
         "committed": _empty_counts(),
         "room_targets": _empty_room_targets(),
     }
+
+
+def _cached_response_has_valid_commit_state(value: Any) -> bool:
+    return (
+        isinstance(value, dict)
+        and _valid_commit_state(value.get("commit_state")) is not None
+    )
 
 
 def _build_commit_state(
