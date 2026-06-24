@@ -8,6 +8,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.application.services.feature_launch_context import (
+    extract_capability_minimum_context,
+    resolve_missing_context_fields,
+)
 from src.dataservice_client.errors import DataServiceClientError
 from src.tools.builtins import launch_feature_tool
 
@@ -19,13 +23,45 @@ class _StubExecution:
 
 def _capability(capability_id: str = "idea_to_thesis_manuscript") -> SimpleNamespace:
     is_sci_manuscript = capability_id == "research_question_to_paper"
-    routing = {"minimum_context": {"topic": "required"}} if is_sci_manuscript else {}
+    routing = {}
+    definition_json = {}
+    display_name = "Idea To Thesis Manuscript"
+    if is_sci_manuscript:
+        display_name = "问题到 SCI 初稿"
+        routing = {"minimum_context": {"topic": "required"}}
+    elif capability_id == "thesis_research_pack":
+        display_name = "Thesis Research Pack"
+        routing = {"minimum_context": {"goal_or_topic": "required"}}
+    elif capability_id == "sci_literature_positioning":
+        display_name = "文献定位与创新点"
+        routing = {
+            "minimum_context": {"existing_materials_summary": "required"},
+            "clarification": {"ask_when_missing": "请发已有材料摘要。"},
+        }
+    elif capability_id == "definition_json_only_clarification":
+        display_name = "Definition JSON Routing"
+        definition_json = {
+            "routing": {
+                "minimum_context": {
+                    "existing_materials_summary": "required",
+                    "target_journal": "required",
+                },
+                "clarification": {
+                    "ask_when_missing": {
+                        "existing_materials_summary": "请先补充已有材料摘要。",
+                        "target_journal": "请说明目标期刊。",
+                    },
+                },
+            },
+        }
+    if routing:
+        definition_json = {"routing": routing}
     return SimpleNamespace(
         id=capability_id,
         workspace_type="thesis",
         schema_version="capability.v2",
         enabled=True,
-        display_name="问题到 SCI 初稿" if is_sci_manuscript else "Idea To Thesis Manuscript",
+        display_name=display_name,
         description="",
         intent_description="",
         trigger_phrases=[],
@@ -36,13 +72,43 @@ def _capability(capability_id: str = "idea_to_thesis_manuscript") -> SimpleNames
         runtime={},
         dashboard_meta={},
         routing=routing,
-        definition_json={"routing": routing} if routing else {},
+        definition_json=definition_json,
         notes=None,
         checksum=None,
         source_path=None,
         created_at=None,
         updated_at=None,
     )
+
+
+def test_missing_context_uses_capability_minimum_context_not_hardcoded_fallback():
+    cap = SimpleNamespace(
+        routing={
+            "minimum_context": {"existing_materials_summary": "required"},
+            "clarification": {"ask_when_missing": "请发已有材料摘要。"},
+        },
+        definition_json={},
+    )
+
+    missing = resolve_missing_context_fields(
+        feature_id="sci_literature_positioning",
+        params={"topic": "LLM agents"},
+        launch_source="tool",
+        minimum_context=extract_capability_minimum_context(cap),
+    )
+
+    assert missing == ["existing_materials_summary"]
+
+
+def test_missing_context_without_capability_minimum_context_has_no_static_fallback():
+    missing = resolve_missing_context_fields(
+        feature_id="sci_literature_positioning",
+        params={},
+        launch_source="tool",
+        minimum_context=None,
+    )
+
+    assert missing == []
 
 
 class _FakeDataServiceClient:
@@ -400,6 +466,85 @@ async def test_launch_feature_rejects_workbench_picker_without_required_topic():
     assert result["code"] == "missing_params"
     assert "问题到 SCI 初稿" in result["detail"]
     assert "研究主题" in result["detail"]
+    fake_service.create_execution.assert_not_called()
+    fake_service.update_execution.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_missing_context_uses_routing_clarification_copy():
+    """Missing-context advisory should reuse capability routing copy when available."""
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock()
+    fake_service.update_execution = AsyncMock()
+    fake_celery = MagicMock(enabled=True)
+    fake_celery_app = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "sci_literature_positioning",
+                "params": {"topic": "LLM agents"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "advisory"
+    assert result["code"] == "missing_params"
+    assert result["detail"] == "请发已有材料摘要。"
+    assert result["context"]["prompt"] == "请发已有材料摘要。"
+    assert result["context"]["missing_fields"] == ["existing_materials_summary"]
+    fake_service.create_execution.assert_not_called()
+    fake_service.update_execution.assert_not_called()
+    fake_celery_app.send_task.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_launch_feature_uses_definition_json_per_field_clarification_copy():
+    """Per-field clarification prompts from definition_json.routing should use first missing field."""
+    fake_service = MagicMock()
+    fake_service.list_executions = AsyncMock(return_value=[])
+    fake_service.create_execution = AsyncMock()
+    fake_service.update_execution = AsyncMock()
+    fake_celery = MagicMock(enabled=True)
+    fake_celery_app = MagicMock()
+
+    with patch("src.database.get_db_session", _fake_db_session), \
+         patch("src.services.execution_service.ExecutionService", return_value=fake_service), \
+         patch("src.config.app_config.celery_settings", fake_celery), \
+         patch("src.task.celery_app.celery_app", fake_celery_app):
+        result = await launch_feature_tool.ainvoke(
+            {
+                "feature_id": "definition_json_only_clarification",
+                "params": {"topic": "LLM agents"},
+            },
+            config={
+                "configurable": {
+                    "workspace_id": "ws-1",
+                    "thread_id": "th-1",
+                    "user_id": "user-1",
+                }
+            },
+        )
+
+    assert result["status"] == "advisory"
+    assert result["code"] == "missing_params"
+    assert result["detail"] == "请先补充已有材料摘要。"
+    assert result["context"]["prompt"] == "请先补充已有材料摘要。"
+    assert result["context"]["missing_fields"] == [
+        "existing_materials_summary",
+        "target_journal",
+    ]
     fake_service.create_execution.assert_not_called()
     fake_service.update_execution.assert_not_called()
     fake_celery_app.send_task.assert_not_called()

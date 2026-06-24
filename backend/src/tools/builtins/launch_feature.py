@@ -91,6 +91,68 @@ def _execution_launch_idempotency_key(execution: Any) -> str:
     return ""
 
 
+def _capability_routing(capability: Any) -> Mapping[str, Any] | None:
+    routing = getattr(capability, "routing", None)
+    if isinstance(routing, Mapping) and routing:
+        return routing
+
+    definition = getattr(capability, "definition_json", None)
+    if isinstance(definition, Mapping):
+        nested_routing = definition.get("routing")
+        if isinstance(nested_routing, Mapping) and nested_routing:
+            return nested_routing
+
+    if isinstance(capability, Mapping):
+        mapping_routing = capability.get("routing")
+        if isinstance(mapping_routing, Mapping) and mapping_routing:
+            return mapping_routing
+        mapping_definition = capability.get("definition_json")
+        if isinstance(mapping_definition, Mapping):
+            nested_routing = mapping_definition.get("routing")
+            if isinstance(nested_routing, Mapping) and nested_routing:
+                return nested_routing
+
+    if isinstance(routing, Mapping):
+        return routing
+    if isinstance(capability, Mapping):
+        mapping_routing = capability.get("routing")
+        if isinstance(mapping_routing, Mapping):
+            return mapping_routing
+    return None
+
+
+def _missing_context_clarification_prompt(
+    capability: Any,
+    *,
+    missing_fields: list[str],
+    minimum_context: Mapping[str, Any] | None,
+) -> str | None:
+    routing = _capability_routing(capability)
+    if not routing:
+        return None
+
+    clarification = routing.get("clarification")
+    if not isinstance(clarification, Mapping):
+        return None
+
+    raw = clarification.get("ask_when_missing")
+    if isinstance(raw, str):
+        return raw.strip() or None
+    if not isinstance(raw, Mapping):
+        return None
+
+    candidate_fields = list(missing_fields)
+    if minimum_context:
+        for field, requirement in minimum_context.items():
+            if str(requirement).strip().lower() == "required":
+                candidate_fields.append(str(field).strip())
+    for field in candidate_fields:
+        prompt = str(raw.get(field) or "").strip()
+        if prompt:
+            return prompt
+    return None
+
+
 def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str, Any]:
     configurable = (config or {}).get("configurable") if isinstance(config, Mapping) else None
     if not isinstance(configurable, Mapping):
@@ -254,17 +316,24 @@ async def launch_feature_tool(
                 "detail": "后台执行服务未启用，请联系管理员。",
             }
 
+        minimum_context = extract_capability_minimum_context(cap)
         missing_fields = resolve_missing_context_fields(
             feature_id=feature_id,
             params=merged_params,
             launch_source="tool",
-            minimum_context=extract_capability_minimum_context(cap),
+            minimum_context=minimum_context,
         )
         if missing_fields:
+            clarification_prompt = _missing_context_clarification_prompt(
+                cap,
+                missing_fields=missing_fields,
+                minimum_context=minimum_context,
+            )
             advisory = build_missing_context_advisory(
                 feature_id=feature_id,
                 missing_fields=missing_fields,
                 feature_name=getattr(cap, "display_name", None),
+                clarification_prompt=clarification_prompt,
             )
             return {
                 "status": "advisory",

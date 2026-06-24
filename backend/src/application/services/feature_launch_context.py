@@ -61,8 +61,8 @@ def extract_capability_minimum_context(capability: Any) -> Mapping[str, Any] | N
     """Read capability.routing.minimum_context from DB/domain objects.
 
     Runtime gating must follow the DataService capability contract instead of a
-    parallel hard-coded list. The static requirements below remain as a fallback
-    for legacy callers/tests that do not provide a full capability definition.
+    parallel hard-coded list. The static requirements below remain only for
+    legacy resume hydration.
     """
     routing = _as_mapping(getattr(capability, "routing", None))
     if routing and isinstance(routing.get("minimum_context"), Mapping):
@@ -123,11 +123,7 @@ def resolve_missing_context_fields(
 ) -> list[str]:
     if launch_source not in THREAD_ENTRY_SOURCES:
         return []
-    requirements = (
-        _context_requirements_from_minimum_context(minimum_context)
-        if minimum_context is not None
-        else FEATURE_CONTEXT_REQUIREMENTS.get(feature_id)
-    )
+    requirements = _context_requirements_from_minimum_context(minimum_context)
     if not requirements:
         return []
 
@@ -144,6 +140,7 @@ def build_missing_context_advisory(
     feature_id: str,
     missing_fields: list[str],
     feature_name: str | None = None,
+    clarification_prompt: str | None = None,
 ) -> FeatureExecutionAdvisory:
     missing_fields_str = "、".join(
         FEATURE_CONTEXT_FIELD_LABELS.get(field, field)
@@ -151,8 +148,12 @@ def build_missing_context_advisory(
     )
     display_name = str(feature_name or feature_id).strip()
     prompt = (
-        f"继续执行「{display_name}」前，还需要你补充：{missing_fields_str}。"
-        " 请直接回复补充信息，我会在当前执行会话继续。"
+        str(clarification_prompt).strip()
+        if clarification_prompt and str(clarification_prompt).strip()
+        else (
+            f"继续执行「{display_name}」前，还需要你补充：{missing_fields_str}。"
+            " 请直接回复补充信息，我会在当前执行会话继续。"
+        )
     )
     return FeatureExecutionAdvisory(
         feature_id=feature_id,
