@@ -7,6 +7,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.agents.harness.claim_evidence import (
+    ClaimInventoryV1,
+    EvidencePacketV1,
+    sanitize_claim_inventory,
+    sanitize_evidence_packet,
+)
+from src.agents.harness.research_brief import ResearchBriefDeltaV1, sanitize_research_brief_delta
+
 ExpertStatus = Literal["queued", "running", "blocked", "completed", "failed"]
 ExpertUpdateKind = Literal["progress", "finding", "risk", "decision", "output", "question"]
 SnapshotTone = Literal["neutral", "info", "success", "warning", "danger"]
@@ -22,6 +30,16 @@ ExpertOutputKind = Literal[
     "experiment_summary",
 ]
 PreviewStatus = Literal["draft", "ready", "saved"]
+ExpertClaimSupportLevel = Literal["verified", "supported", "plausible", "weak", "unsupported"]
+ExpertEvidenceSourceType = Literal[
+    "library_reference",
+    "document",
+    "memory",
+    "sandbox_artifact",
+    "dataset",
+    "prism",
+    "expert_output",
+]
 
 _SECRET_PATTERNS = (
     re.compile(r"(?i)(api[_-]?key|token|authorization|credential|password)\s*[:=]\s*[^\s,;]+"),
@@ -32,6 +50,9 @@ _MAX_HEADLINE_CHARS = 160
 _MAX_BODY_CHARS = 500
 _MAX_TITLE_CHARS = 120
 _MAX_SUMMARY_CHARS = 500
+_MAX_REPORT_SUMMARY_CHARS = 700
+_MAX_CLAIM_TEXT_CHARS = 500
+_MAX_EVIDENCE_EXCERPT_CHARS = 500
 
 
 class ExpertSnapshotStage(BaseModel):
@@ -68,6 +89,66 @@ class ExpertSnapshotOutputRef(BaseModel):
     preview_item_id: str | None = None
     path: str | None = None
     status: Literal["draft", "ready", "staged", "applied"] | None = None
+
+
+class ExpertClaimV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    claim_id: str
+    text: str
+    support_level: ExpertClaimSupportLevel
+    evidence_ids: list[str] = Field(default_factory=list)
+    citation_keys: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+
+
+class ExpertEvidenceV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    evidence_id: str
+    source_type: ExpertEvidenceSourceType
+    source_id: str | None = None
+    citation_key: str | None = None
+    relevance: Literal["low", "medium", "high"] | None = None
+    risk: Literal["low", "medium", "high", "critical"] | None = None
+    bounded_excerpt: str | None = None
+    used_for: list[str] = Field(default_factory=list)
+
+
+class ExpertArtifactV1(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_id: str
+    kind: str
+    path: str
+    source_script: str | None = None
+    dataset_paths: list[str] = Field(default_factory=list)
+    content_hash: str | None = None
+    caption: str | None = None
+    reviewable: bool = True
+
+
+class ExpertReportV1(BaseModel):
+    """Common structured output envelope for academic expert work."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["wenjin.expert_report.v1"] = "wenjin.expert_report.v1"
+    expert_id: str
+    skill_id: str
+    task_focus: str
+    summary: str
+    research_brief_delta: ResearchBriefDeltaV1 | None = None
+    claims: list[ExpertClaimV1] = Field(default_factory=list)
+    evidence: list[ExpertEvidenceV1] = Field(default_factory=list)
+    claim_inventory: ClaimInventoryV1 | None = None
+    evidence_packet: EvidencePacketV1 | None = None
+    artifacts: list[ExpertArtifactV1] = Field(default_factory=list)
+    review_items: list[dict[str, Any]] = Field(default_factory=list)
+    quality_gates_checked: list[str] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+    next_actions: list[str] = Field(default_factory=list)
+    domain_payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class ExpertThoughtSnapshotV1(BaseModel):
@@ -184,6 +265,113 @@ def sanitize_expert_preview_item(payload: dict[str, Any]) -> ExpertPreviewItemV1
     return ExpertPreviewItemV1.model_validate(data)
 
 
+def sanitize_expert_report(payload: dict[str, Any]) -> ExpertReportV1:
+    """Validate and bound a raw expert report for review-packet mapping."""
+
+    data = {
+        "schema_version": "wenjin.expert_report.v1",
+        "expert_id": _clean_text(payload.get("expert_id")),
+        "skill_id": _clean_text(payload.get("skill_id")),
+        "task_focus": _truncate(_scrub_text(payload.get("task_focus")), 300),
+        "summary": _truncate(_scrub_text(payload.get("summary")), _MAX_REPORT_SUMMARY_CHARS),
+        "research_brief_delta": sanitize_research_brief_delta(payload.get("research_brief_delta")),
+        "claims": _sanitize_expert_claims(payload.get("claims"), limit=30),
+        "evidence": _sanitize_expert_evidence(payload.get("evidence"), limit=60),
+        "claim_inventory": sanitize_claim_inventory(payload.get("claim_inventory")),
+        "evidence_packet": sanitize_evidence_packet(payload.get("evidence_packet")),
+        "artifacts": _sanitize_expert_artifacts(payload.get("artifacts"), limit=20),
+        "review_items": _sanitize_small_dicts(payload.get("review_items"), limit=20),
+        "quality_gates_checked": _sanitize_string_list(payload.get("quality_gates_checked"), limit=20),
+        "uncertainties": _sanitize_string_list(payload.get("uncertainties"), limit=20, max_chars=240),
+        "next_actions": _sanitize_string_list(payload.get("next_actions"), limit=20, max_chars=240),
+        "domain_payload": payload.get("domain_payload") if isinstance(payload.get("domain_payload"), dict) else {},
+    }
+    return ExpertReportV1.model_validate(data)
+
+
+def _sanitize_expert_claims(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list | tuple):
+        return []
+    claims: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        claim = {
+            "claim_id": _clean_text(item.get("claim_id")),
+            "text": _truncate(_scrub_text(item.get("text")), _MAX_CLAIM_TEXT_CHARS),
+            "support_level": item.get("support_level"),
+            "evidence_ids": _sanitize_string_list(item.get("evidence_ids"), limit=20),
+            "citation_keys": _sanitize_string_list(item.get("citation_keys"), limit=20),
+            "limitations": _sanitize_string_list(item.get("limitations"), limit=10, max_chars=180),
+        }
+        if claim["claim_id"] and claim["text"]:
+            claims.append(claim)
+        if len(claims) >= limit:
+            break
+    return claims
+
+
+def _sanitize_expert_evidence(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list | tuple):
+        return []
+    evidence: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        evidence_item = {
+            "evidence_id": _clean_text(item.get("evidence_id")),
+            "source_type": item.get("source_type"),
+            "source_id": _optional_clean_text(item.get("source_id")),
+            "citation_key": _optional_clean_text(item.get("citation_key")),
+            "relevance": item.get("relevance"),
+            "risk": item.get("risk"),
+            "bounded_excerpt": _optional_truncated_scrubbed(
+                item.get("bounded_excerpt"),
+                _MAX_EVIDENCE_EXCERPT_CHARS,
+            ),
+            "used_for": _sanitize_string_list(item.get("used_for"), limit=20),
+        }
+        if evidence_item["evidence_id"]:
+            evidence.append({key: val for key, val in evidence_item.items() if val is not None})
+        if len(evidence) >= limit:
+            break
+    return evidence
+
+
+def _sanitize_expert_artifacts(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list | tuple):
+        return []
+    artifacts: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        path = _optional_clean_text(item.get("path"))
+        if not path or not _is_safe_ref_path(path):
+            continue
+        source_script = _optional_clean_text(item.get("source_script"))
+        if source_script and not _is_safe_ref_path(source_script):
+            source_script = None
+        artifact = {
+            "artifact_id": _clean_text(item.get("artifact_id")),
+            "kind": _clean_text(item.get("kind")),
+            "path": path,
+            "source_script": source_script,
+            "dataset_paths": [
+                path_value
+                for path_value in _sanitize_string_list(item.get("dataset_paths"), limit=10)
+                if _is_safe_ref_path(path_value)
+            ],
+            "content_hash": _optional_clean_text(item.get("content_hash")),
+            "caption": _optional_truncated_scrubbed(item.get("caption"), 240),
+            "reviewable": item.get("reviewable", True) is not False,
+        }
+        if artifact["artifact_id"] and artifact["kind"]:
+            artifacts.append({key: val for key, val in artifact.items() if val is not None})
+        if len(artifacts) >= limit:
+            break
+    return artifacts
+
+
 def _sanitize_chips(value: Any, *, limit: int) -> list[dict[str, Any]]:
     if not isinstance(value, list | tuple):
         return []
@@ -258,6 +446,31 @@ def _sanitize_output_refs(value: Any, *, limit: int) -> list[dict[str, Any]]:
         if len(refs) >= limit:
             break
     return refs
+
+
+def _sanitize_string_list(value: Any, *, limit: int, max_chars: int = 120) -> list[str]:
+    if not isinstance(value, list | tuple | set | frozenset):
+        return []
+    result: list[str] = []
+    for item in value:
+        text = _truncate(_scrub_text(item), max_chars)
+        if text:
+            result.append(text)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _sanitize_small_dicts(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list | tuple):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            result.append({str(key): val for key, val in item.items() if isinstance(key, str)})
+        if len(result) >= limit:
+            break
+    return result
 
 
 def _is_safe_ref_path(path: str) -> bool:

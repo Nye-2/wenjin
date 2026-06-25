@@ -129,6 +129,57 @@ ResultOutput = Annotated[
 ]
 
 # ---------------------------------------------------------------------------
+# Review packet payloads
+# ---------------------------------------------------------------------------
+
+ReviewPacketItemKind = Literal[
+    "document",
+    "memory",
+    "decision",
+    "reference",
+    "dataset",
+    "artifact",
+    "prism_change",
+    "task",
+    "warning",
+]
+ReviewPacketCompletionStatus = Literal["complete", "partial", "failed", "cancelled"]
+
+
+class ReviewPacketItem(BaseModel):
+    """A user-reviewable candidate produced by an academic harness run."""
+
+    schema_version: Literal["wenjin.review_packet.item.v1"] = "wenjin.review_packet.item.v1"
+    item_id: str
+    kind: ReviewPacketItemKind
+    title: str
+    summary: str
+    preview: dict[str, Any] = Field(default_factory=dict)
+    source: dict[str, Any] = Field(default_factory=dict)
+    claim_refs: list[str] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    artifact_refs: list[str] = Field(default_factory=list)
+    prism_change_refs: list[str] = Field(default_factory=list)
+    quality_surfaces: list[str] = Field(default_factory=list)
+    risk: dict[str, Any] = Field(default_factory=lambda: {"level": "low", "reasons": []})
+    default_checked: bool = True
+    can_commit: bool = True
+    provenance: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewPacket(BaseModel):
+    """Semantic completion envelope for user-reviewable academic outputs."""
+
+    schema_version: Literal["wenjin.review_packet.v1"] = "wenjin.review_packet.v1"
+    packet_id: str
+    execution_id: str
+    capability_id: str
+    title: str
+    summary: str
+    completion_status: ReviewPacketCompletionStatus
+    items: list[ReviewPacketItem] = Field(default_factory=list)
+
+# ---------------------------------------------------------------------------
 # Error record
 # ---------------------------------------------------------------------------
 
@@ -171,5 +222,6 @@ class TaskReport(BaseModel):
     narrative: str
     outputs: list[ResultOutput] = Field(default_factory=list)
     review_items: list[dict] = Field(default_factory=list)
+    review_packet: ReviewPacket | None = None
     preview_item_id: str | None = None
     errors: list[ResultError] = Field(default_factory=list)

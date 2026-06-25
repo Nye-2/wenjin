@@ -190,6 +190,22 @@ quality_gates:
 - imrad_or_journal_structure_respected
 - methods_results_discussion_consistent
 - data_code_availability_considered
+research_evidence:
+  review_packet: required
+  required_surfaces:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - paper_relevance
+  - citation_strength
+  surface_enforcement:
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    paper_relevance: required_runtime
+    citation_strength: required_runtime
+  notes:
+  - The workflow must produce topic-aligned sources, citation/source audit evidence, claim-evidence mappings, expert workflow trace, and previewable review packet items.
 runtime:
   mode: team_kernel
   allowed_tools:

@@ -6,11 +6,29 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from src.contracts.team_expert import sanitize_expert_preview_item, sanitize_expert_snapshot
+from src.contracts.team_expert import (
+    ExpertReportV1,
+    sanitize_expert_preview_item,
+    sanitize_expert_report,
+    sanitize_expert_snapshot,
+)
 
 from .contracts import AgentInvocation
 
 logger = logging.getLogger(__name__)
+
+
+def expert_report_from_member_output(member_output: dict[str, Any] | None) -> ExpertReportV1 | None:
+    """Return a sanitized ExpertReport from a member output when present."""
+
+    if not isinstance(member_output, dict):
+        return None
+    raw_report = member_output.get("expert_report")
+    if isinstance(raw_report, dict):
+        return sanitize_expert_report(raw_report)
+    if member_output.get("schema_version") == "wenjin.expert_report.v1":
+        return sanitize_expert_report(member_output)
+    return None
 
 
 def build_expert_node_metadata(

@@ -178,15 +178,33 @@ quality_gates:
 - methods_results_discussion_consistent
 - data_code_availability_considered
 research_evidence:
+  review_packet: required
   required_surfaces:
   - literature
   - experiment
   - writing
   - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - experiment_reproducibility
   - experiment_interpretation
+  - statistical_robustness
+  - figure_data_consistency
   - output_ref_reuse
+  surface_enforcement:
+    literature: required_runtime
+    experiment: required_runtime
+    writing: required_final
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    experiment_reproducibility: required_final
+    experiment_interpretation: required_runtime
+    statistical_robustness: required_runtime
+    figure_data_consistency: required_final
+    output_ref_reuse: diagnostic
   notes:
-  - The workflow must produce reviewable literature, sandbox artifact, writing output, member execution trace, interpreted experiment evidence, and reused output refs when recoverable refs exist.
+  - The workflow must produce reproducible sandbox artifacts, interpreted experiment evidence, statistical robustness signals, figure provenance, expert trace, and previewable review packet items.
 graph_template:
   phases:
   - name: step_01_evidence_analyst

@@ -14,7 +14,12 @@ from src.agents.lead_agent.v2.team.contracts import (
     CapabilityTeamPolicy,
     TeamBlackboard,
 )
-from src.agents.lead_agent.v2.team.kernel import RecruitmentCandidate, TeamKernelRuntime
+from src.agents.lead_agent.v2.team.kernel import (
+    RecruitmentCandidate,
+    TeamKernelRuntime,
+    build_academic_harness_outputs,
+)
+from src.contracts.team_expert import sanitize_expert_report
 from src.subagents.v2.base import SubagentBase, SubagentContext, SubagentResult
 from src.subagents.v2.registry import subagent
 
@@ -2569,3 +2574,57 @@ async def test_team_kernel_runtime_caps_repeated_optional_recruits(monkeypatch) 
 
     assert report.status == "failed_partial"
     assert len(generalist_invocations) == 1
+
+
+def test_build_academic_harness_outputs_attaches_review_packet_and_research_state() -> None:
+    report = sanitize_expert_report(
+        {
+            "schema_version": "wenjin.expert_report.v1",
+            "expert_id": "literature_synthesizer.v1",
+            "skill_id": "literature-synthesizer",
+            "task_focus": "Synthesize literature.",
+            "summary": "Found one supported direction.",
+            "claims": [
+                {
+                    "claim_id": "claim-1",
+                    "text": "FedLoRA reduces communication.",
+                    "support_level": "supported",
+                    "evidence_ids": ["ev-1"],
+                    "citation_keys": ["smith2025"],
+                    "limitations": [],
+                }
+            ],
+            "evidence": [
+                {
+                    "evidence_id": "ev-1",
+                    "source_type": "library_reference",
+                    "source_id": "source-1",
+                    "citation_key": "smith2025",
+                    "relevance": "high",
+                    "risk": "low",
+                    "bounded_excerpt": "communication reduction",
+                    "used_for": ["claim-1"],
+                }
+            ],
+            "artifacts": [],
+            "quality_gates_checked": ["citation_strength"],
+            "uncertainties": [],
+            "next_actions": [],
+        }
+    )
+
+    packet, research_state = build_academic_harness_outputs(
+        execution_id="exec-1",
+        capability_id="sci_literature_positioning",
+        capability_name="文献定位与创新点",
+        expert_reports=[report],
+        completion_status="complete",
+        quality_state=[{"surface": "citation_strength", "status": "pass"}],
+        research_brief={"brief_id": "brief-1", "user_objective": "找 FedLLM 创新点"},
+        workspace_map_summary={"topic_hints": ["FedLLM"], "library": {"source_count": 1}},
+    )
+
+    assert packet.items[0].claim_refs == ["claim-1"]
+    assert research_state.research_brief == {"brief_id": "brief-1", "user_objective": "找 FedLLM 创新点"}
+    assert research_state.workspace_map_summary["topic_hints"] == ["FedLLM"]
+    assert research_state.claims[0]["claim_id"] == "claim-1"

@@ -194,6 +194,24 @@ quality_gates:
 - imrad_or_journal_structure_respected
 - methods_results_discussion_consistent
 - data_code_availability_considered
+research_evidence:
+  review_packet: required
+  required_surfaces:
+  - workflow_trace
+  - review_packet_completeness
+  - claim_evidence_alignment
+  - citation_strength
+  - writing_semantic_preservation
+  - writing_academic_style
+  surface_enforcement:
+    workflow_trace: required_runtime
+    review_packet_completeness: required_final
+    claim_evidence_alignment: required_final
+    citation_strength: required_runtime
+    writing_semantic_preservation: required_final
+    writing_academic_style: required_final
+  notes:
+  - The manuscript workflow must stage Prism changes through review, preserve semantic meaning, improve academic style, and keep every claim aligned to Library-backed evidence.
 graph_template:
   phases:
   - name: step_01_manuscript_architect

@@ -601,3 +601,96 @@ test("markdown links in assistant text open workspace rooms without resetting th
   await expect(page.getByText("变量控制")).toBeVisible();
   await expect(page.getByText("我已经把结构大纲放进工作区了")).toBeVisible();
 });
+
+test("workbench previews academic review packet risks without commit confusion", async ({
+  page,
+  context,
+}) => {
+  await installWorkspaceRouteMocks(page, context, {
+    executions: [
+      {
+        id: "ex-review-packet",
+        user_id: "user-1",
+        workspace_id: "ws-1",
+        execution_type: "capability",
+        feature_id: "sci_literature_positioning",
+        status: "failed_partial",
+        params: {},
+        result: {
+          task_report: {
+            execution_id: "ex-review-packet",
+            capability_id: "sci_literature_positioning",
+            status: "failed_partial",
+            narrative: "文献团队已整理候选结论，但仍有一个论断需要补证据。",
+            duration_seconds: 9,
+            outputs: [
+              {
+                id: "doc-1",
+                kind: "document",
+                preview: "文献定位与创新点.md",
+                default_checked: false,
+                data: {
+                  name: "文献定位与创新点.md",
+                  mime_type: "text/markdown",
+                  content: "# 文献定位\n\n候选方向：联邦大模型微调。",
+                  doc_kind: "draft",
+                },
+              },
+            ],
+            review_packet: {
+              packet_id: "packet-1",
+              title: "文献定位候选结果",
+              summary: "1 项可保存，1 项需要确认。",
+              completion_status: "partial",
+              items: [
+                {
+                  item_id: "risk-1",
+                  kind: "warning",
+                  title: "弱证据或未支持论断",
+                  summary: "AAAI 适配性还缺少直接来源支撑。",
+                  preview: {
+                    format: "text",
+                    excerpt: "AAAI 适配性还缺少直接来源支撑。",
+                  },
+                  source: {
+                    expert_id: "literature_synthesizer.v1",
+                    skill_id: "literature-synthesizer",
+                  },
+                  claim_refs: ["claim-aaai-fit"],
+                  evidence_refs: [],
+                  risk: { level: "high", reasons: ["unsupported"] },
+                  default_checked: false,
+                  can_commit: false,
+                },
+              ],
+            },
+            review_items: [],
+            errors: [],
+          },
+        },
+        node_states: {},
+        graph_structure: { mode: "team_kernel", nodes: [], edges: [] },
+        artifact_ids: [],
+        next_actions: [],
+        child_execution_ids: [],
+        progress: 100,
+        created_at: "2026-06-19T00:00:00Z",
+        updated_at: "2026-06-19T00:00:09Z",
+      },
+    ],
+  });
+
+  await page.goto("/workspaces/ws-1");
+  await expect(page.getByText("风险提示").first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /弱证据或未支持论断/ }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: /弱证据或未支持论断/ }).click();
+
+  await expect(page.getByTestId("result-preview-plain-text")).toContainText(
+    "AAAI 适配性还缺少直接来源支撑。",
+  );
+  await expect(page.getByText("专家 literature synthesizer")).toBeVisible();
+  await expect(page.getByRole("button", { name: "全部保存" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "保存已勾选" })).toBeVisible();
+});

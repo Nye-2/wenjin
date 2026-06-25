@@ -123,6 +123,58 @@ describe("execution run view projection", () => {
     expect(view.actions).toContain("preview_results");
   });
 
+  it("projects academic review packets into run summaries and quality highlights", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "failed_partial",
+        result: {
+          task_report: {
+            capability_id: "sci_literature_positioning",
+            status: "failed_partial",
+            review_packet: {
+              packet_id: "packet-1",
+              title: "文献定位候选结果",
+              summary: "1 项可保存，1 项需要确认。",
+              completion_status: "partial",
+              items: [
+                {
+                  item_id: "artifact-1",
+                  kind: "artifact",
+                  title: "检索证据包",
+                  summary: "保留了来源筛选记录。",
+                  artifact_refs: ["artifact:/workspace/outputs/sources.json"],
+                  risk: { level: "low", reasons: [] },
+                },
+                {
+                  item_id: "warning-1",
+                  kind: "warning",
+                  title: "弱证据或未支持论断",
+                  summary: "AAAI 适配性还缺少直接证据。",
+                  risk: { level: "high", reasons: ["unsupported"] },
+                  can_commit: false,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(view.reviewPacket?.items).toHaveLength(2);
+    expect(view.reviewPacket?.supportedCount).toBe(1);
+    expect(view.reviewPacket?.needsConfirmationCount).toBe(0);
+    expect(view.reviewPacket?.blockerCount).toBe(1);
+    expect(view.reviewPacket?.items[1]?.supportState).toBe("blocker");
+    expect(view.sandboxReviewCount).toBe(1);
+    expect(view.actions).toContain("preview_results");
+    expect(view.qualityHighlights).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "结果完整性", status: "warning" }),
+        expect.objectContaining({ label: "证据风险", status: "fail" }),
+      ]),
+    );
+  });
+
   it("classifies partial node failures", () => {
     const view = runViewFromExecution(
       makeExecution({

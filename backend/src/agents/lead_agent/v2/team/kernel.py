@@ -17,13 +17,19 @@ from src.agents.contracts.task_report import (
     DocumentOutput,
     ResultError,
     ResultOutput,
+    ReviewPacket,
     TaskReport,
 )
+from src.agents.harness.research_brief import build_research_brief
+from src.agents.harness.research_state import ResearchStateV1, compact_research_state
 from src.agents.harness.diff_tracker import (
     build_harness_node_metadata_from_tool_calls,
     build_harness_replan_signals_from_tool_calls,
 )
-from src.agents.lead_agent.v2.output_mapping import OutputMappingResolver
+from src.agents.lead_agent.v2.output_mapping import (
+    OutputMappingResolver,
+    review_packet_from_expert_reports,
+)
 from src.agents.lead_agent.v2.prism_review_staging import (
     build_prism_file_change_command,
 )
@@ -37,6 +43,8 @@ from src.config.llm_config import LLMSettings
 from src.dataservice_client.contracts.execution import ExecutionUpdatePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.prism_review_projection import prism_review_item_projection
+from src.contracts.workspace_academic_map import compact_workspace_map_summary
+from src.services.workspace_academic_map_service import build_academic_workspace_map_from_workspace_data
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
 from src.subagents.v2.registry import REGISTRY
@@ -58,6 +66,7 @@ from .episode import (
 from .expert_runtime import (
     build_expert_node_metadata,
     build_expert_output_preview_item,
+    expert_report_from_member_output,
     merge_expert_preview_items,
     merge_expert_snapshot_items,
     sanitize_expert_preview_items,
@@ -89,6 +98,37 @@ class RecruitmentCandidate:
 class SkillCatalogCache:
     records: dict[str, Any | None] = field(default_factory=dict)
     loaded: bool = False
+
+
+def build_academic_harness_outputs(
+    *,
+    execution_id: str,
+    capability_id: str,
+    capability_name: str,
+    expert_reports: list[Any],
+    completion_status: str,
+    quality_state: list[dict[str, Any]],
+    research_brief: dict[str, Any] | None = None,
+    workspace_map_summary: dict[str, Any] | None = None,
+) -> tuple[ReviewPacket, ResearchStateV1]:
+    """Build Review Packet and compact research state from expert outputs."""
+
+    packet = review_packet_from_expert_reports(
+        execution_id=execution_id,
+        capability_id=capability_id,
+        title=capability_name,
+        reports=expert_reports,
+        completion_status=completion_status,
+    )
+    research_state = compact_research_state(
+        execution_id=execution_id,
+        goal=capability_name,
+        expert_reports=[report.model_dump(mode="json") for report in expert_reports],
+        quality_state=quality_state,
+        research_brief=research_brief,
+        workspace_map_summary=workspace_map_summary,
+    )
+    return packet, research_state
 
 
 class TeamKernelRuntime:
@@ -134,6 +174,24 @@ class TeamKernelRuntime:
                 if self.needs_library_context(capability_policy)
                 else {}
             )
+            workspace_type = _workspace_type_from_brief_or_capability(brief, capability)
+            workspace_map = build_academic_workspace_map_from_workspace_data(
+                workspace_id=brief.workspace_id,
+                workspace_type=workspace_type,
+                workspace_data=workspace_data,
+            )
+            workspace_map_summary = compact_workspace_map_summary(workspace_map)
+            research_brief = build_research_brief(
+                execution_id=execution_id,
+                workspace_id=brief.workspace_id,
+                workspace_type=workspace_type,
+                capability_id=brief.capability_id,
+                user_objective=brief.raw_message,
+                workspace_map=workspace_map_summary,
+                capability_metadata={"name": getattr(capability, "display_name", brief.capability_id)},
+            )
+            workspace_data["academic_workspace_map"] = workspace_map_summary
+            workspace_data["research_brief"] = research_brief.model_dump(mode="json")
             blackboard = TeamBlackboard(mission_summary=brief.raw_message or capability.display_name)
             invocations, gates = await self._run_iteration(
                 execution_id=execution_id,
@@ -153,6 +211,23 @@ class TeamKernelRuntime:
                 *self._errors_from_quality_gates(gates),
             ]
             status = "failed_partial" if errors else "completed"
+            expert_reports = [
+                report
+                for invocation in invocations
+                for report in [expert_report_from_member_output(invocation.output_report)]
+                if report is not None
+            ]
+            review_packet, research_state = build_academic_harness_outputs(
+                execution_id=execution_id,
+                capability_id=brief.capability_id,
+                capability_name=getattr(capability, "display_name", brief.capability_id),
+                expert_reports=expert_reports,
+                completion_status=status,
+                quality_state=[gate.model_dump(mode="json") for gate in gates],
+                research_brief=workspace_data.get("research_brief"),
+                workspace_map_summary=workspace_data.get("academic_workspace_map"),
+            )
+            workspace_data["research_state"] = research_state.model_dump(mode="json")
             outputs: list[ResultOutput] = self._mapped_outputs_from_graph_template(
                 capability,
                 invocations,
@@ -194,6 +269,7 @@ class TeamKernelRuntime:
                 ),
                 outputs=outputs,
                 review_items=review_items,
+                review_packet=review_packet,
                 preview_item_id=self._result_preview_item_id(invocations),
                 errors=errors,
             )
@@ -227,7 +303,7 @@ class TeamKernelRuntime:
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
         capability_policy: dict[str, Any],
-        workspace_data: dict[str, Any],
+        workspace_data: dict[str, Any] | None = None,
         blackboard: TeamBlackboard,
     ) -> tuple[list[AgentInvocation], list[QualityGateResult]]:
         counts: Counter[str] = Counter()
@@ -325,7 +401,7 @@ class TeamKernelRuntime:
         templates: dict[str, AgentTemplate],
         team_policy: CapabilityTeamPolicy,
         capability_policy: dict[str, Any],
-        workspace_data: dict[str, Any],
+        workspace_data: dict[str, Any] | None = None,
         blackboard: TeamBlackboard,
         counts: Counter[str],
         invocations: list[AgentInvocation],
@@ -359,6 +435,14 @@ class TeamKernelRuntime:
                 continue
             core_invocations.extend(latest_batch)
             self._sync_current_harness_evidence(workspace_data, latest_batch)
+            self._sync_current_research_state(
+                workspace_data,
+                execution_id=execution_id,
+                brief=brief,
+                capability=capability,
+                invocations=invocations,
+                gates=[],
+            )
             if self._all_cancelled(invocations):
                 break
         return core_invocations
@@ -493,6 +577,14 @@ class TeamKernelRuntime:
                 workspace_data=workspace_data,
             )
             gates.extend(batch_gates)
+            self._sync_current_research_state(
+                workspace_data,
+                execution_id=execution_id,
+                brief=brief,
+                capability=capability,
+                invocations=invocations,
+                gates=gates,
+            )
             recruits = self._next_recruits_from_gates(
                 batch_gates,
                 counts,
@@ -570,6 +662,7 @@ class TeamKernelRuntime:
             team_policy=team_policy,
             capability_policy=capability_policy,
             blackboard=blackboard,
+            workspace_data=workspace_data,
             counts=counts,
             iteration=iteration,
             recruits=recruits,
@@ -598,7 +691,7 @@ class TeamKernelRuntime:
                     invocation=invocation,
                     template=templates[invocation.template_id],
                     capability_policy=capability_policy,
-                    workspace_data=workspace_data,
+                    workspace_data=workspace_data or {},
                     blackboard=blackboard,
                     skill_records=skill_cache.records,
                     skill_load_error=skill_load_error,
@@ -670,6 +763,34 @@ class TeamKernelRuntime:
         current = workspace_data.get("recent_executions")
         current = current if isinstance(current, list) else []
         workspace_data["recent_executions"] = _prepend_current_harness_evidence(entries, current)
+
+    @staticmethod
+    def _sync_current_research_state(
+        workspace_data: dict[str, Any],
+        *,
+        execution_id: str,
+        brief: TaskBrief,
+        capability: Any,
+        invocations: list[AgentInvocation],
+        gates: list[QualityGateResult],
+    ) -> None:
+        expert_reports = [
+            report
+            for invocation in invocations
+            for report in [expert_report_from_member_output(invocation.output_report)]
+            if report is not None
+        ]
+        if not expert_reports:
+            return
+        research_state = compact_research_state(
+            execution_id=execution_id,
+            goal=getattr(capability, "display_name", brief.capability_id),
+            expert_reports=[report.model_dump(mode="json") for report in expert_reports],
+            quality_state=[gate.model_dump(mode="json") for gate in gates],
+            research_brief=workspace_data.get("research_brief"),
+            workspace_map_summary=workspace_data.get("academic_workspace_map"),
+        )
+        workspace_data["research_state"] = research_state.model_dump(mode="json")
 
     def _sync_invocation_outputs_to_blackboard(
         self,
@@ -868,11 +989,13 @@ class TeamKernelRuntime:
         team_policy: CapabilityTeamPolicy,
         capability_policy: dict[str, Any],
         blackboard: TeamBlackboard,
+        workspace_data: dict[str, Any] | None = None,
         counts: Counter[str],
         iteration: int,
         recruits: list[RecruitmentCandidate],
     ) -> list[AgentInvocation]:
         batch: list[AgentInvocation] = []
+        workspace_data = workspace_data or {}
         for recruit in recruits:
             template_id = recruit.template_id
             if not self._can_invoke_template(
@@ -900,6 +1023,7 @@ class TeamKernelRuntime:
                     template,
                     blackboard,
                     capability_policy=capability_policy,
+                    workspace_data=workspace_data,
                 ),
                 effective_tools=effective_tools,
                 effective_skills=effective_skills,
@@ -917,6 +1041,7 @@ class TeamKernelRuntime:
         blackboard: TeamBlackboard,
         *,
         capability_policy: dict[str, Any],
+        workspace_data: dict[str, Any],
     ) -> dict[str, Any]:
         return build_team_member_context(
             brief=brief,
@@ -925,6 +1050,9 @@ class TeamKernelRuntime:
             display_role=template.display_role,
             blackboard=blackboard,
             capability_policy=capability_policy,
+            research_state=workspace_data.get("research_state"),
+            research_brief=workspace_data.get("research_brief"),
+            workspace_map_summary=workspace_data.get("academic_workspace_map"),
         )
 
     async def _run_invocation(
@@ -1593,6 +1721,19 @@ def _prepend_current_harness_evidence(
             continue
         retained.append(item)
     return [*entries, *retained][:8]
+
+
+def _workspace_type_from_brief_or_capability(brief: TaskBrief, capability: Any) -> str:
+    raw_brief = brief.brief if isinstance(brief.brief, dict) else {}
+    for value in (
+        raw_brief.get("workspace_type"),
+        raw_brief.get("workspace_kind"),
+        getattr(capability, "workspace_type", None),
+    ):
+        text = str(value or "").strip()
+        if text:
+            return text
+    return "unknown"
 
 
 def _matching_core_template_ids(

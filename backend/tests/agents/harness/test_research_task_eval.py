@@ -7,6 +7,8 @@ from src.agents.contracts.task_report import (
     DocumentOutput,
     LibraryItemData,
     LibraryItemOutput,
+    ReviewPacket,
+    ReviewPacketItem,
     TaskReport,
 )
 from src.agents.harness.research_task_eval import evaluate_research_task_evidence
@@ -1494,3 +1496,107 @@ def test_research_task_eval_fails_output_ref_reuse_when_recoverable_refs_are_ign
         "output_ref_read_count": 0,
         "reused_output_ref_count": 0,
     }
+
+
+def test_research_task_eval_fails_review_packet_completeness_when_packet_empty() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="sci_literature_positioning",
+            status="completed",
+            duration_seconds=1,
+            narrative="completed",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="sci_literature_positioning",
+                title="文献定位与创新点",
+                summary="empty",
+                completion_status="complete",
+                items=[],
+            ),
+        ),
+        required_surfaces=("review_packet_completeness",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"review_packet_completeness": "fail"}
+
+
+def test_research_task_eval_passes_claim_evidence_alignment_for_supported_claim() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="sci_literature_positioning",
+            status="completed",
+            duration_seconds=1,
+            narrative="completed",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="sci_literature_positioning",
+                title="文献定位与创新点",
+                summary="1 item",
+                completion_status="complete",
+                items=[
+                    ReviewPacketItem(
+                        item_id="item-1",
+                        kind="document",
+                        title="report",
+                        summary="supported",
+                        claim_refs=["claim-1"],
+                        evidence_refs=["library_reference:source-1"],
+                        default_checked=True,
+                        can_commit=True,
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("claim_evidence_alignment", "review_packet_completeness"),
+    )
+
+    assert evaluation.status == "pass"
+    assert evaluation.coverage == {
+        "claim_evidence_alignment": "pass",
+        "review_packet_completeness": "pass",
+    }
+
+
+def test_research_task_eval_fails_claim_evidence_alignment_for_high_risk_warning() -> None:
+    evaluation = evaluate_research_task_evidence(
+        TaskReport(
+            execution_id="exec-1",
+            capability_id="sci_literature_positioning",
+            status="failed_partial",
+            duration_seconds=1,
+            narrative="partial",
+            review_packet=ReviewPacket(
+                packet_id="packet-1",
+                execution_id="exec-1",
+                capability_id="sci_literature_positioning",
+                title="文献定位与创新点",
+                summary="1 warning",
+                completion_status="partial",
+                items=[
+                    ReviewPacketItem(
+                        item_id="claim-warning-1",
+                        kind="warning",
+                        title="证据链阻断",
+                        summary="claim claim-1 references missing evidence: missing-ev",
+                        claim_refs=["claim-1"],
+                        evidence_refs=[],
+                        risk={"level": "high", "reasons": ["missing evidence"]},
+                        default_checked=False,
+                        can_commit=False,
+                    )
+                ],
+            ),
+        ),
+        required_surfaces=("claim_evidence_alignment",),
+    )
+
+    assert evaluation.status == "fail"
+    assert evaluation.coverage == {"claim_evidence_alignment": "fail"}
+    assert evaluation.evidence["claim_evidence_alignment"]["high_risk_warning_item_ids"] == [
+        "claim-warning-1"
+    ]

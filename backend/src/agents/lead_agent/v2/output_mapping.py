@@ -15,9 +15,14 @@ from src.agents.contracts.task_report import (
     MemoryFactData,
     MemoryFactOutput,
     ResultOutput,
+    ReviewPacket,
+    ReviewPacketCompletionStatus,
+    ReviewPacketItem,
     TaskData,
     TaskOutput,
 )
+from src.contracts.team_expert import ExpertReportV1
+from src.agents.harness.claim_evidence import validate_claim_evidence_alignment
 
 logger = logging.getLogger(__name__)
 
@@ -192,3 +197,162 @@ class OutputMappingResolver:
             default_checked=default_checked,
             data=data,
         )]
+
+
+def review_packet_from_expert_reports(
+    *,
+    execution_id: str,
+    capability_id: str,
+    title: str,
+    reports: list[ExpertReportV1],
+    completion_status: str,
+) -> ReviewPacket:
+    """Map expert reports into the semantic Review Packet contract."""
+
+    normalized_status = _review_packet_completion_status(completion_status)
+    items: list[ReviewPacketItem] = []
+    for report_index, report in enumerate(reports):
+        artifact_refs = [
+            f"artifact:{artifact.path}"
+            for artifact in report.artifacts
+            if artifact.reviewable
+        ]
+        evidence_refs = [
+            f"{evidence.source_type}:{evidence.source_id}"
+            for evidence in report.evidence
+            if evidence.source_id
+        ]
+        claim_refs = [
+            claim.claim_id
+            for claim in report.claims
+            if claim.support_level in {"verified", "supported", "plausible"}
+        ]
+        if report.summary or artifact_refs or claim_refs:
+            items.append(
+                ReviewPacketItem(
+                    item_id=f"{_safe_id(report.expert_id)}-{report_index}-summary",
+                    kind="document" if artifact_refs else "memory",
+                    title=_review_packet_title_for_report(report),
+                    summary=report.summary,
+                    preview={"format": "markdown", "excerpt": report.summary[:500]},
+                    source={"expert_id": report.expert_id, "skill_id": report.skill_id},
+                    claim_refs=claim_refs,
+                    evidence_refs=evidence_refs,
+                    artifact_refs=artifact_refs,
+                    quality_surfaces=list(report.quality_gates_checked),
+                    risk=_risk_from_report(report),
+                    default_checked=normalized_status == "complete" and not _report_has_unsupported_claims(report),
+                    can_commit=True,
+                    provenance={"execution_id": execution_id, "expert_id": report.expert_id},
+                )
+            )
+        unsupported_claims = [
+            claim for claim in report.claims if claim.support_level in {"weak", "unsupported"}
+        ]
+        for claim in unsupported_claims:
+            items.append(
+                ReviewPacketItem(
+                    item_id=f"{_safe_id(report.expert_id)}-{_safe_id(claim.claim_id)}-warning",
+                    kind="warning",
+                    title="弱证据或未支持论断",
+                    summary=claim.text,
+                    preview={"format": "text", "excerpt": claim.text},
+                    source={"expert_id": report.expert_id, "skill_id": report.skill_id},
+                    claim_refs=[claim.claim_id],
+                    evidence_refs=list(claim.evidence_ids),
+                    quality_surfaces=list(report.quality_gates_checked),
+                    risk={
+                        "level": "high",
+                        "reasons": claim.limitations or ["claim is not sufficiently supported"],
+                    },
+                    default_checked=False,
+                    can_commit=False,
+                    provenance={"execution_id": execution_id, "expert_id": report.expert_id},
+                )
+            )
+        if report.claim_inventory or report.evidence_packet:
+            decision = validate_claim_evidence_alignment(report.claim_inventory, report.evidence_packet)
+            nested_claim_refs = [
+                claim.claim_id
+                for claim in (report.claim_inventory.claims if report.claim_inventory else [])
+                if claim.claim_id
+            ]
+            nested_evidence_refs = [
+                item.evidence_id
+                for item in (report.evidence_packet.items if report.evidence_packet else [])
+                if item.evidence_id
+            ]
+            for warning_index, reason in enumerate([*decision.blocking_reasons, *decision.warnings][:8]):
+                is_blocker = warning_index < len(decision.blocking_reasons)
+                items.append(
+                    ReviewPacketItem(
+                        item_id=(
+                            f"{_safe_id(report.expert_id)}-"
+                            f"claim-evidence-{warning_index}-{'blocker' if is_blocker else 'warning'}"
+                        ),
+                        kind="warning",
+                        title="证据链阻断" if is_blocker else "证据链需确认",
+                        summary=reason,
+                        preview={"format": "text", "excerpt": reason},
+                        source={"expert_id": report.expert_id, "skill_id": report.skill_id},
+                        claim_refs=nested_claim_refs[:20],
+                        evidence_refs=nested_evidence_refs[:30],
+                        quality_surfaces=["claim_evidence_alignment"],
+                        risk={
+                            "level": "high" if is_blocker else "medium",
+                            "reasons": [reason],
+                        },
+                        default_checked=False,
+                        can_commit=False,
+                        provenance={"execution_id": execution_id, "expert_id": report.expert_id},
+                    )
+                )
+    return ReviewPacket(
+        packet_id=f"{execution_id}-review-packet",
+        execution_id=execution_id,
+        capability_id=capability_id,
+        title=title,
+        summary=_review_packet_summary(items),
+        completion_status=normalized_status,
+        items=items,
+    )
+
+
+def _review_packet_completion_status(value: str) -> ReviewPacketCompletionStatus:
+    if value == "completed":
+        return "complete"
+    if value == "failed_partial":
+        return "partial"
+    if value in {"complete", "partial", "failed", "cancelled"}:
+        return value  # type: ignore[return-value]
+    return "partial"
+
+
+def _review_packet_title_for_report(report: ExpertReportV1) -> str:
+    if report.artifacts:
+        return f"{report.skill_id} 产物"
+    return f"{report.skill_id} 摘要"
+
+
+def _report_has_unsupported_claims(report: ExpertReportV1) -> bool:
+    return any(claim.support_level in {"weak", "unsupported"} for claim in report.claims)
+
+
+def _risk_from_report(report: ExpertReportV1) -> dict[str, Any]:
+    if _report_has_unsupported_claims(report):
+        return {"level": "high", "reasons": ["contains weak or unsupported claims"]}
+    if report.uncertainties:
+        return {"level": "medium", "reasons": list(report.uncertainties[:5])}
+    return {"level": "low", "reasons": []}
+
+
+def _review_packet_summary(items: list[ReviewPacketItem]) -> str:
+    committable = sum(1 for item in items if item.can_commit)
+    blocked = len(items) - committable
+    if blocked:
+        return f"{committable} 项可保存，{blocked} 项需要确认。"
+    return f"{committable} 项待确认成果。"
+
+
+def _safe_id(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_.-]+", "-", str(value or "").strip()) or "item"
