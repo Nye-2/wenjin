@@ -18,7 +18,9 @@ from src.gateway.routers.execution_commit import (
     router,
 )
 from src.services.execution_commit_service import (
+    ExecutionCommitConcurrencyError,
     ExecutionCommitNotFoundError,
+    ExecutionCommitPersistenceError,
     ExecutionCommitService,
 )
 
@@ -35,6 +37,7 @@ def _make_app(
     commit_service: ExecutionCommitService,
     *,
     authenticated: bool = True,
+    raise_server_exceptions: bool = True,
 ) -> TestClient:
     """Create a minimal test app with the commit service overridden."""
     app = FastAPI()
@@ -50,7 +53,7 @@ def _make_app(
     if authenticated:
         app.dependency_overrides[get_current_user] = lambda: _FakeUser()
     app.include_router(router)
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=raise_server_exceptions)
 
 
 def _make_mock_service(**commit_kwargs) -> ExecutionCommitService:
@@ -102,6 +105,42 @@ def test_post_commit_404_on_missing_execution():
 
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Execution not found"
+
+
+def test_post_commit_409_on_commit_in_progress():
+    """Concurrent commit attempts should return a retryable conflict response."""
+    svc = _make_mock_service(
+        side_effect=ExecutionCommitConcurrencyError(
+            "execution exec-1 commit is already in progress"
+        )
+    )
+    client = _make_app(svc, raise_server_exceptions=False)
+
+    resp = client.post(
+        "/api/executions/exec-1/commit",
+        json={"accept_all": True},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Commit already in progress"
+
+
+def test_post_commit_500_on_commit_state_persistence_failure():
+    """Durable commit_state write failures should surface as explicit server errors."""
+    svc = _make_mock_service(
+        side_effect=ExecutionCommitPersistenceError(
+            "commit_state persistence failed for execution exec-1"
+        )
+    )
+    client = _make_app(svc, raise_server_exceptions=False)
+
+    resp = client.post(
+        "/api/executions/exec-1/commit",
+        json={"accept_all": True},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Commit state persistence failed"
 
 
 def test_post_commit_passes_idempotency_key_header():

@@ -1,10 +1,63 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CompletedView } from "@/app/(workbench)/workspaces/[id]/components/CompletedView";
+import type { ExecutionRecord } from "@/lib/api/types";
+import { useExecutionStore } from "@/stores/execution-store";
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
+
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["doc-1"],
+  rejected_ids: [],
+  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const DISCARDED_STATE = {
+  status: "discarded",
+  accepted_ids: [],
+  rejected_ids: ["doc-1"],
+  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const OUTLINE_TASK_REPORT = {
+  execution_id: "exec-1",
+  capability_id: "outline",
+  status: "completed",
+  narrative: "Outline completed.",
+  outputs: [
+    {
+      id: "doc-1",
+      kind: "document",
+      preview: "Thesis outline",
+      default_checked: true,
+      data: {
+        name: "outline.md",
+        mime_type: "text/markdown",
+        doc_kind: "outline",
+        content: "# Chapter 1\n- Background",
+      },
+    },
+  ],
+};
 
 describe("CompletedView", () => {
   beforeEach(() => {
@@ -14,12 +67,17 @@ describe("CompletedView", () => {
       json: () =>
         Promise.resolve({
           committed: { documents: 1, library: 0 },
+          commit_state: COMMITTED_STATE,
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
             library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
           },
         }),
     });
+    useExecutionStore.getState().clear();
   });
 
   it("renders TaskReport payloads from execution.completed", () => {
@@ -49,7 +107,7 @@ describe("CompletedView", () => {
       screen.getByText("Found useful papers, with one source unavailable."),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Smith et al. 2024")).toHaveLength(2);
-    expect(screen.getByText("429")).toBeInTheDocument();
+    expect(screen.getByText(/问题 1.*429/)).toBeInTheDocument();
   });
 
   it("renders nested task_report payloads as preview-first detail", () => {
@@ -286,6 +344,46 @@ describe("CompletedView", () => {
     expect(url.searchParams.get("query")).toBe("Thesis outline");
   });
 
+  it("patches returned commit_state into the execution store after commit", async () => {
+    const record: ExecutionRecord = {
+      id: "exec-1",
+      user_id: "user-1",
+      workspace_id: "ws-1",
+      execution_type: "capability",
+      feature_id: "outline",
+      status: "completed",
+      params: {},
+      result: { task_report: OUTLINE_TASK_REPORT },
+      node_states: {},
+      artifact_ids: [],
+      next_actions: [],
+      child_execution_ids: [],
+      progress: 100,
+      created_at: "2026-06-20T00:00:00Z",
+      updated_at: "2026-06-20T00:00:00Z",
+    };
+    useExecutionStore.getState().upsertExecution(record);
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={record.result}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toEqual(COMMITTED_STATE),
+    );
+    expect(
+      useExecutionStore.getState().executions.get("exec-1")?.result?.task_report,
+    ).toEqual(OUTLINE_TASK_REPORT);
+  });
+
   it("requires selected-output save for partial execution previews", async () => {
     render(
       <CompletedView
@@ -371,5 +469,76 @@ describe("CompletedView", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
     expect(await screen.findByText("Commit failed")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+  });
+
+  it("does not finalize when POST succeeds without durable backend commit_state", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { documents: 1 },
+          room_targets: {
+            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
+          },
+        }),
+    });
+
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{ task_report: OUTLINE_TASK_REPORT }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
+  });
+
+  it("hydrates committed status and room links from result.commit_state", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: OUTLINE_TASK_REPORT,
+          commit_state: COMMITTED_STATE,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("已保存到工作区")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "打开已保存的 Thesis outline" }),
+    ).toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("hydrates discarded status from result.commit_state as a final not-saved state", () => {
+    render(
+      <CompletedView
+        workspaceId="ws-1"
+        executionId="exec-1"
+        result={{
+          task_report: OUTLINE_TASK_REPORT,
+          commit_state: DISCARDED_STATE,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("已暂不保存")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "保存到工作区" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "暂不保存" })).not.toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ResultCard } from "@/app/(workbench)/workspaces/[id]/components/ResultCard";
+import type { ExecutionRecord } from "@/lib/api/types";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 
@@ -15,14 +17,18 @@ beforeEach(() => {
     json: () =>
       Promise.resolve({
         committed: {},
+        commit_state: COMMITTED_STATE,
         room_targets: {
           documents: [{ output_id: "o3", item_id: "doc-77" }],
           library: [{ output_id: "o1", item_id: "lib-88" }],
           memory: [{ output_id: "o4", item_id: "mem-99" }],
+          decisions: [],
+          tasks: [],
         },
       }),
   });
   localStorage.clear();
+  useExecutionStore.getState().clear();
   useWorkbenchLayoutStore.getState().reset();
   useRunUiStore.getState().reset();
 });
@@ -83,6 +89,57 @@ const SAMPLE_DATA = {
   ],
 };
 
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["o3"],
+  rejected_ids: ["o1"],
+  counts: { library: 1, documents: 1, memory: 1, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [{ output_id: "o3", item_id: "doc-77" }],
+    library: [{ output_id: "o1", item_id: "lib-88" }],
+    memory: [{ output_id: "o4", item_id: "mem-99" }],
+    decisions: [],
+    tasks: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const DISCARDED_STATE = {
+  status: "discarded",
+  accepted_ids: [],
+  rejected_ids: ["o1", "o2", "o3", "o4"],
+  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+function seedExecutionResult(result: Record<string, unknown>) {
+  const record: ExecutionRecord = {
+    id: "exec-1",
+    user_id: "user-1",
+    workspace_id: "ws-1",
+    execution_type: "capability",
+    feature_id: "lit_search",
+    status: "completed",
+    params: {},
+    result,
+    node_states: {},
+    artifact_ids: [],
+    next_actions: [],
+    child_execution_ids: [],
+    progress: 100,
+    created_at: "2026-06-20T00:00:00Z",
+    updated_at: "2026-06-20T00:00:00Z",
+  };
+  useExecutionStore.getState().upsertExecution(record);
+}
+
 describe("ResultCard", () => {
   it("renders a compact result package instead of a long in-chat list", () => {
     render(<ResultCard data={SAMPLE_DATA} />);
@@ -95,6 +152,24 @@ describe("ResultCard", () => {
     expect(screen.getByText("Deep Learning")).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByText("保存到工作区")).toBeInTheDocument();
+  });
+
+  it("sanitizes raw runtime narrative before rendering the chat result card", () => {
+    render(
+      <ResultCard
+        data={{
+          ...SAMPLE_DATA,
+          narrative:
+            '{"stdout":"raw narrative should stay hidden","ref":"/workspace/outputs/harness/exec-1/result.json"}',
+        }}
+      />,
+    );
+
+    expect(screen.getByText("运行结果已生成。")).toBeInTheDocument();
+    expect(screen.queryByText(/stdout/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/raw narrative should stay hidden/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/workspace\/outputs\/harness/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\{/)).not.toBeInTheDocument();
   });
 
   it("renders figure outputs with a visual placeholder and figure summary", () => {
@@ -129,7 +204,10 @@ describe("ResultCard", () => {
     expect(
       screen.getByText("Validation accuracy improved across the final three epochs."),
     ).toBeInTheDocument();
-    expect(screen.getByText(/matplotlib_line_chart/)).toBeInTheDocument();
+    expect(screen.queryByText(/matplotlib_line_chart/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/strategy:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/figure_type:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/provenance:/)).not.toBeInTheDocument();
   });
 
   it("opens the workbench review surface for detailed result review", () => {
@@ -228,6 +306,148 @@ describe("ResultCard", () => {
     );
     expect(memoryUrl.searchParams.get("room")).toBe("memory");
     expect(memoryUrl.searchParams.get("item_id")).toBe("mem-99");
+  });
+
+  it("renders persisted committed state from the execution store without POST", () => {
+    seedExecutionResult({ commit_state: COMMITTED_STATE });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    const saveButton = screen.getByRole("button", { name: "已保存到工作区" });
+    expect(saveButton).toBeDisabled();
+    expect(screen.getByRole("button", { name: "暂不保存" })).toBeDisabled();
+    expect(
+      screen.getByRole("link", { name: "打开已保存的 综述初稿" }),
+    ).toBeInTheDocument();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("renders persisted discarded state from the execution store without POST", () => {
+    seedExecutionResult({ commit_state: DISCARDED_STATE });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    const finalButtons = screen.getAllByRole("button", { name: "已暂不保存" });
+    expect(finalButtons.length).toBeGreaterThan(0);
+    finalButtons.forEach((button) => expect(button).toBeDisabled());
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("uses POST commit_state to finalize the card, patch the execution store, and show links", async () => {
+    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: COMMITTED_STATE,
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByRole("link", { name: "打开已保存的 综述初稿" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "已保存到工作区" })).toBeDisabled();
+    expect(
+      useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+    ).toEqual(COMMITTED_STATE);
+  });
+
+  it("does not fabricate or patch durable commit_state when POST lacks backend commit_state", async () => {
+    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { documents: 1 },
+          room_targets: {
+            documents: [{ output_id: "o3", item_id: "doc-77" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
+          },
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
+    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
+  });
+
+  it("does not patch durable commit_state when response commit_state is missing counts", async () => {
+    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            status: COMMITTED_STATE.status,
+            accepted_ids: COMMITTED_STATE.accepted_ids,
+            rejected_ids: COMMITTED_STATE.rejected_ids,
+            room_targets: COMMITTED_STATE.room_targets,
+            committed_at: COMMITTED_STATE.committed_at,
+          },
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
+    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
+  });
+
+  it("does not patch durable commit_state when response commit_state has non-integer counts", async () => {
+    seedExecutionResult({ task_report: { execution_id: "exec-1" } });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            ...COMMITTED_STATE,
+            counts: { ...COMMITTED_STATE.counts, documents: 1.5 },
+          },
+        }),
+    });
+
+    render(<ResultCard data={SAMPLE_DATA} workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "保存到工作区" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存到工作区" })).not.toBeDisabled();
+    expect(screen.queryByRole("link", { name: "打开已保存的 综述初稿" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
   });
 
   it("renders DB-backed Prism review items with workspace navigation", () => {

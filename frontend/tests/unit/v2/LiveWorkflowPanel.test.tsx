@@ -11,6 +11,36 @@ const mockFetch = vi.fn();
 global.fetch = mockFetch;
 const originalSendMessage = useChatStoreV2.getState().sendMessage;
 
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["doc-1"],
+  rejected_ids: [],
+  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
+const DISCARDED_STATE = {
+  status: "discarded",
+  accepted_ids: [],
+  rejected_ids: ["doc-1", "lib-1", "mem-1"],
+  counts: { library: 0, documents: 0, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
+
 function makeCompletedRecord(): ExecutionRecord {
   return {
     id: "exec-1",
@@ -73,6 +103,53 @@ function makeCompletedRecord(): ExecutionRecord {
           },
         ],
       },
+    },
+  };
+}
+
+function makeSecondCompletedRecord(): ExecutionRecord {
+  const record = makeCompletedRecord();
+  return {
+    ...record,
+    id: "exec-2",
+    feature_id: "outline_followup",
+    created_at: "2026-05-18T00:00:10Z",
+    updated_at: "2026-05-18T00:00:15Z",
+    started_at: "2026-05-18T00:00:10Z",
+    completed_at: "2026-05-18T00:00:15Z",
+    result: {
+      task_report: {
+        ...(record.result?.task_report as Record<string, unknown>),
+        execution_id: "exec-2",
+        narrative: "Second outline completed.",
+        outputs: [
+          {
+            id: "doc-2",
+            kind: "document",
+            preview: "Second outline",
+            default_checked: true,
+            data: {
+              name: "second-outline.md",
+              mime_type: "text/markdown",
+              doc_kind: "outline",
+              content: "# Chapter 2",
+            },
+          },
+        ],
+      },
+    },
+  };
+}
+
+function withCommitState(
+  record: ExecutionRecord,
+  commitState: typeof COMMITTED_STATE | typeof DISCARDED_STATE,
+): ExecutionRecord {
+  return {
+    ...record,
+    result: {
+      ...(record.result ?? {}),
+      commit_state: commitState,
     },
   };
 }
@@ -215,8 +292,13 @@ describe("LiveWorkflowPanel", () => {
       json: () =>
         Promise.resolve({
           committed: { documents: 1 },
+          commit_state: COMMITTED_STATE,
           room_targets: {
             documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
           },
         }),
     });
@@ -274,6 +356,196 @@ describe("LiveWorkflowPanel", () => {
     expect(JSON.parse(init.body as string)).toEqual({
       accepted_ids: ["doc-1"],
     });
+  });
+
+  it("hydrates persisted commit_state as final after remount and tab switch", () => {
+    useExecutionStore
+      .getState()
+      .upsertExecution(withCommitState(makeCompletedRecord(), DISCARDED_STATE));
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    const firstRender = render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.queryByRole("button", { name: "全部保存" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "暂不保存" })).not.toBeInTheDocument();
+    expect(screen.getByText("已暂不保存")).toBeInTheDocument();
+    expect(screen.queryByText("已写入工作区")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+
+    firstRender.unmount();
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.getAllByRole("checkbox")[0]).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "证据" }));
+    expect(screen.getByLabelText("选择Thesis outline")).toBeDisabled();
+  });
+
+  it("patches returned commit_state into the execution store after commit", async () => {
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toEqual(COMMITTED_STATE),
+    );
+    expect(
+      await screen.findByRole("link", { name: "打开已保存的 Thesis outline" }),
+    ).toBeInTheDocument();
+  });
+
+  it("does not finalize the selected run when a prior commit resolves after switching runs", async () => {
+    let resolveCommit!: (payload: unknown) => void;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        new Promise((resolve) => {
+          resolveCommit = resolve;
+        }),
+    });
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useExecutionStore.getState().upsertExecution(makeSecondCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    expect(screen.getByRole("button", { name: /Thesis outline/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      useWorkbenchLayoutStore.getState().selectRun("exec-2");
+    });
+    expect(screen.getByRole("button", { name: /Second outline/ })).toBeInTheDocument();
+
+    await act(async () => {
+      resolveCommit({ commit_state: COMMITTED_STATE });
+    });
+
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toEqual(COMMITTED_STATE),
+    );
+    expect(
+      useExecutionStore.getState().executions.get("exec-2")?.result?.commit_state,
+    ).toBeUndefined();
+    expect(useWorkbenchLayoutStore.getState().selectedRunId).toBe("exec-2");
+    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.queryByText("已写入工作区")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "打开已保存的 Thesis outline" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not patch execution store or finalize when POST lacks backend commit_state", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          committed: { documents: 1 },
+          room_targets: {
+            documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+            library: [],
+            memory: [],
+            decisions: [],
+            tasks: [],
+          },
+        }),
+    });
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
+  });
+
+  it("does not patch execution store when response commit_state is missing room_targets", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            status: COMMITTED_STATE.status,
+            accepted_ids: COMMITTED_STATE.accepted_ids,
+            rejected_ids: COMMITTED_STATE.rejected_ids,
+            counts: COMMITTED_STATE.counts,
+            committed_at: COMMITTED_STATE.committed_at,
+          },
+        }),
+    });
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
+  });
+
+  it("does not patch execution store when response commit_state has malformed room_targets", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              documents: "bad",
+            },
+          },
+        }),
+    });
+    useExecutionStore.getState().upsertExecution(makeCompletedRecord());
+    useWorkbenchLayoutStore.getState().selectRun("exec-1");
+    useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("review");
+
+    render(<LiveWorkflowPanel workspaceId="ws-1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "全部保存" }));
+
+    expect(
+      await screen.findByText("保存状态同步失败，请刷新后重试"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "全部保存" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "打开已保存的 Thesis outline" })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        useExecutionStore.getState().executions.get("exec-1")?.result?.commit_state,
+      ).toBeUndefined(),
+    );
   });
 
   it("uses room-specific labels in the review inbox", () => {
@@ -444,7 +716,7 @@ describe("LiveWorkflowPanel", () => {
     expect(within(previewRegion).queryByText("草稿")).not.toBeInTheDocument();
   });
 
-  it("keeps raw node ids and input payloads behind run details by default", () => {
+  it("omits raw node ids and input payload panes from run details by default", () => {
     useExecutionStore.getState().upsertExecution(makeTechnicalRunningRecord());
     useWorkbenchLayoutStore.getState().selectRun("exec-technical");
     useWorkbenchLayoutStore.getState().setActiveWorkbenchTab("run");
@@ -453,7 +725,9 @@ describe("LiveWorkflowPanel", () => {
 
     expect(screen.getAllByText("文献综合专家").length).toBeGreaterThan(0);
     expect(screen.getByText("文献综合")).toBeVisible();
-    expect(screen.getByText("输入预览")).not.toBeVisible();
+    expect(screen.queryByText("输入预览")).not.toBeInTheDocument();
+    expect(screen.queryByText("输出预览")).not.toBeInTheDocument();
+    expect(screen.queryByText("联邦学习结合大模型")).not.toBeInTheDocument();
     for (const element of screen.getAllByText(/literature_synthesizer/)) {
       expect(element).not.toBeVisible();
     }

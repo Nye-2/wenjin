@@ -62,7 +62,7 @@ describe("chat store", () => {
     handleEvent({ type: "chat.assistant.thinking", delta: " part2" });
 
     const last = useChatStoreV2.getState().messages.at(-1)!;
-    expect(last.blocks).toEqual([{ kind: "thinking", content: "part1 part2" }]);
+    expect(last.blocks).toEqual([{ kind: "thinking", text: "part1 part2" }]);
   });
 
   it("handles user message event", () => {
@@ -87,17 +87,38 @@ describe("chat store", () => {
       type: "chat.assistant.tool_invocation",
       data: {
         tool: "launch_feature",
-        args: { capability: "literature_search" },
+        input: { capability: "literature_search" },
+        tool_call_id: "call-1",
       },
     });
     handleEvent({
       type: "chat.assistant.tool_result",
-      data: { execution_id: "exec-1", status: "started" },
+      data: {
+        tool: "launch_feature",
+        status: "started",
+        output: { execution_id: "exec-1" },
+        execution_id: "exec-1",
+        tool_call_id: "call-1",
+      },
     });
 
     const msg = useChatStoreV2.getState().messages.at(-1)!;
-    expect(msg.blocks[0].kind).toBe("tool_invocation");
-    expect(msg.blocks[1].kind).toBe("tool_result");
+    expect(msg.blocks).toEqual([
+      {
+        kind: "tool_invocation",
+        tool: "launch_feature",
+        input: { capability: "literature_search" },
+        tool_call_id: "call-1",
+      },
+      {
+        kind: "tool_result",
+        tool: "launch_feature",
+        status: "started",
+        output: { execution_id: "exec-1" },
+        execution_id: "exec-1",
+        tool_call_id: "call-1",
+      },
+    ]);
   });
 
   it("keeps launch tool result when final blocks replace streamed text", () => {
@@ -109,9 +130,14 @@ describe("chat store", () => {
     handleEvent({
       type: "chat.assistant.tool_result",
       data: {
+        tool: "launch_feature",
+        status: "launched",
+        output: {
+          execution_id: "exec-1",
+          feature_id: "sci_literature_positioning",
+        },
         execution_id: "exec-1",
         feature_id: "sci_literature_positioning",
-        status: "launched",
       },
     });
     handleEvent({
@@ -127,13 +153,274 @@ describe("chat store", () => {
     expect(msg.blocks).toEqual([
       {
         kind: "tool_result",
-        data: {
+        tool: "launch_feature",
+        status: "launched",
+        output: {
           execution_id: "exec-1",
           feature_id: "sci_literature_positioning",
-          status: "launched",
         },
+        execution_id: "exec-1",
+        feature_id: "sci_literature_positioning",
       },
       { kind: "text", content: "final text" },
+    ]);
+  });
+
+  it("keeps same-tool finalize invocations when inputs differ and no tool_call_id exists", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_invocation",
+        tool: "search",
+        input: { q: "alpha" },
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_invocation",
+        tool: "search",
+        input: { q: "beta" },
+      },
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      { kind: "tool_invocation", tool: "search", input: { q: "alpha" } },
+      { kind: "tool_invocation", tool: "search", input: { q: "beta" } },
+    ]);
+  });
+
+  it("deduplicates duplicate live streamed tool frames", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_invocation",
+      data: {
+        tool: "launch_feature",
+        input: { feature_id: "outline" },
+        tool_call_id: "call-1",
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_invocation",
+      data: {
+        tool: "launch_feature",
+        input: { feature_id: "outline" },
+        tool_call_id: "call-1",
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_result",
+      data: {
+        tool: "launch_feature",
+        status: "launched",
+        output: { execution_id: "exec-1", feature_id: "outline" },
+        execution_id: "exec-1",
+        feature_id: "outline",
+        tool_call_id: "call-1",
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.tool_result",
+      data: {
+        tool: "launch_feature",
+        status: "launched",
+        output: { execution_id: "exec-1", feature_id: "outline" },
+        execution_id: "exec-1",
+        feature_id: "outline",
+        tool_call_id: "call-1",
+      },
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      {
+        kind: "tool_invocation",
+        tool: "launch_feature",
+        input: { feature_id: "outline" },
+        tool_call_id: "call-1",
+      },
+      {
+        kind: "tool_result",
+        tool: "launch_feature",
+        status: "launched",
+        output: { execution_id: "exec-1", feature_id: "outline" },
+        execution_id: "exec-1",
+        feature_id: "outline",
+        tool_call_id: "call-1",
+      },
+    ]);
+  });
+
+  it("keeps same-tool result blocks when generic outputs differ", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_result",
+        tool: "search",
+        output: { title: "alpha" },
+      },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_result",
+        tool: "search",
+        output: { title: "beta" },
+      },
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      { kind: "tool_result", tool: "search", output: { title: "alpha" } },
+      { kind: "tool_result", tool: "search", output: { title: "beta" } },
+    ]);
+  });
+
+  it("normalizes finalize_block legacy tool payloads before storing them", () => {
+    const { handleEvent } = useChatStoreV2.getState();
+    handleEvent({
+      type: "chat.assistant.start",
+      data: { message_id: "m1", timestamp: "2026-01-01" },
+    });
+    handleEvent({
+      type: "chat.assistant.finalize_block",
+      block: {
+        kind: "tool_result",
+        data: {
+          tool: "launch_feature",
+          status: "launched",
+          execution_id: "exec-1",
+          feature_id: "sci_literature_positioning",
+        },
+      } as never,
+    });
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      {
+        kind: "tool_result",
+        tool: "launch_feature",
+        status: "launched",
+        output: {
+          tool: "launch_feature",
+          status: "launched",
+          execution_id: "exec-1",
+          feature_id: "sci_literature_positioning",
+        },
+        execution_id: "exec-1",
+        feature_id: "sci_literature_positioning",
+      },
+    ]);
+  });
+
+  it("normalizes loaded history blocks at the frontend boundary", async () => {
+    mockAuthorizedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "thread-1",
+          messages: [
+            {
+              id: "m1",
+              role: "assistant",
+              created_at: "2026-01-01",
+              blocks: [
+                {
+                  type: "reasoning",
+                  data: { text: "thinking from history" },
+                },
+                {
+                  kind: "tool_invocation",
+                  data: {
+                    tool: "launch_feature",
+                    args: { feature_id: "outline" },
+                    tool_call_id: "call-1",
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await useChatStoreV2.getState().loadHistory("ws-1");
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      { kind: "thinking", text: "thinking from history" },
+      {
+        kind: "tool_invocation",
+        tool: "launch_feature",
+        input: { feature_id: "outline" },
+        tool_call_id: "call-1",
+      },
+    ]);
+  });
+
+  it("normalizes loaded incomplete result cards with renderer-safe defaults", async () => {
+    mockAuthorizedFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          id: "thread-1",
+          messages: [
+            {
+              id: "m1",
+              role: "assistant",
+              created_at: "2026-01-01",
+              blocks: [
+                {
+                  kind: "result_card",
+                  run_id: "run-1",
+                  title: "Finished",
+                  tldr: "Summary",
+                  findings: [],
+                  stats: { duration_ms: 100, subagents: 1, tokens: 10 },
+                },
+              ],
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    await useChatStoreV2.getState().loadHistory("ws-1");
+
+    const msg = useChatStoreV2.getState().messages.at(-1)!;
+    expect(msg.blocks).toEqual([
+      {
+        kind: "result_card",
+        run_id: "run-1",
+        title: "Finished",
+        tldr: "Summary",
+        findings: [],
+        links: [],
+        review_items: [],
+        feedback: { question: "", pills: [], allow_free_input: true },
+        stats: { duration_ms: 100, subagents: 1, tokens: 10 },
+      },
     ]);
   });
 

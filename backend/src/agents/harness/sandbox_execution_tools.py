@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,6 +44,7 @@ class SandboxExecutionTools:
 
         safe_script_name = sanitize_script_name(script_name)
         runner = self.runner or SandboxJobRunner()
+        sandbox_policy = self._sandbox_policy()
 
         async def _run() -> dict[str, Any]:
             return await runner.run_python_script(
@@ -50,7 +52,7 @@ class SandboxExecutionTools:
                 workspace_type=self.context.workspace_type,
                 execution_id=self.context.execution_id,
                 node_id=self.context.node_id,
-                sandbox_policy=self._sandbox_policy(),
+                sandbox_policy=sandbox_policy,
                 script=script,
                 script_name=safe_script_name,
                 dependency_hints=dependency_hints,
@@ -58,12 +60,16 @@ class SandboxExecutionTools:
                 billing_reservation_id=billing_reservation_id,
             )
 
-        timeout_seconds = min(self.policy.max_sandbox_seconds, 30)
+        queue_timeout_seconds = min(self.policy.max_sandbox_seconds, 30)
+        execution_timeout_seconds = _execution_timeout_seconds(
+            sandbox_policy=sandbox_policy,
+            fallback_seconds=self.policy.max_sandbox_seconds,
+        )
         try:
             payload = await self.scheduler.run(
                 self.context.workspace_id,
                 _run,
-                timeout_seconds=timeout_seconds,
+                timeout_seconds=queue_timeout_seconds,
             )
         except SandboxCommandExecutionError as exc:
             payload = dict(exc.output)
@@ -77,11 +83,12 @@ class SandboxExecutionTools:
                 payload["dataset_provenance"] = context_dataset_provenance
         payload["execution_manifest"] = _execution_manifest(
             context=self.context,
-            sandbox_policy=self._sandbox_policy(),
+            sandbox_policy=sandbox_policy,
             script_name=safe_script_name,
             dependency_hints=dependency_hints,
             payload=payload,
-            timeout_seconds=timeout_seconds,
+            queue_timeout_seconds=queue_timeout_seconds,
+            execution_timeout_seconds=execution_timeout_seconds,
         )
         payload["reproducibility_manifest"] = _reproducibility_manifest(
             context=self.context,
@@ -168,7 +175,8 @@ def _execution_manifest(
     script_name: str,
     dependency_hints: list[str] | str | None,
     payload: dict[str, Any],
-    timeout_seconds: int,
+    queue_timeout_seconds: int,
+    execution_timeout_seconds: int,
 ) -> dict[str, Any]:
     manifest = {
         "schema": "wenjin.harness.run_python.execution_manifest.v1",
@@ -183,12 +191,25 @@ def _execution_manifest(
         "sandbox_job_id": str(payload.get("sandbox_job_id") or ""),
         "sandbox_environment_id": str(payload.get("sandbox_environment_id") or ""),
         "network_profile": str(sandbox_policy.get("network_profile") or "none"),
-        "timeout_seconds": timeout_seconds,
+        "queue_timeout_seconds": _positive_int(queue_timeout_seconds),
+        "execution_timeout_seconds": _positive_int(execution_timeout_seconds),
+        "timeout_seconds": _positive_int(execution_timeout_seconds),
     }
     task_scratch_path = _workspace_path(payload.get("task_scratch_path"))
     if task_scratch_path:
         manifest["task_scratch_path"] = task_scratch_path
     return manifest
+
+
+def _execution_timeout_seconds(*, sandbox_policy: dict[str, Any], fallback_seconds: int) -> int:
+    resource_limits = sandbox_policy.get("resource_limits")
+    resource_limits = resource_limits if isinstance(resource_limits, Mapping) else {}
+    return (
+        _positive_int(resource_limits.get("timeout_seconds"))
+        or _positive_int(sandbox_policy.get("timeout_seconds"))
+        or _positive_int(fallback_seconds)
+        or 120
+    )
 
 
 def _dataset_provenance_from_context(context: HarnessRunContext) -> list[dict[str, Any]] | None:
@@ -223,6 +244,8 @@ def _reproducibility_manifest(
             "run_job_id": str(execution_manifest.get("sandbox_job_id") or ""),
             "install_job_ids": _string_list(payload.get("install_job_ids"), limit=20),
             "network_profile": str(execution_manifest.get("network_profile") or "none"),
+            "queue_timeout_seconds": _positive_int(execution_manifest.get("queue_timeout_seconds")),
+            "execution_timeout_seconds": _positive_int(execution_manifest.get("execution_timeout_seconds")),
             "timeout_seconds": _positive_int(execution_manifest.get("timeout_seconds")),
             "retry_count": _nonnegative_int(payload.get("retry_count")),
         },

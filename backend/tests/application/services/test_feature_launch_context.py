@@ -1,5 +1,6 @@
 from src.application.services.feature_launch_context import (
     build_execution_launch_params,
+    hydrate_missing_context_params_from_resume_message,
     resolve_missing_context_fields,
 )
 
@@ -25,7 +26,7 @@ def test_build_execution_launch_params_unwraps_task_brief_shaped_params():
     }
 
 
-def test_missing_context_rejects_generic_workbench_launch_prompt():
+def test_missing_context_without_minimum_context_has_no_static_requirement():
     prompt = "\n".join(
         [
             "请启动「文献定位与创新点」能力。",
@@ -39,7 +40,7 @@ def test_missing_context_rejects_generic_workbench_launch_prompt():
         feature_id="sci_literature_positioning",
         params={"goal": prompt, "user_request": prompt},
         launch_source="tool",
-    ) == ["goal"]
+    ) == []
 
 
 def test_missing_context_rejects_generic_workbench_picker_prompt_from_dynamic_contract():
@@ -82,3 +83,14 @@ def test_missing_context_accepts_specific_topic_goal():
         params={"goal": "federated LoRA fine-tuning for large language models"},
         launch_source="tool",
     ) == []
+
+
+def test_resume_hydrates_legacy_missing_context_from_launch_message():
+    hydrated = hydrate_missing_context_params_from_resume_message(
+        feature_id="sci_literature_positioning",
+        params={},
+        launch_source="tool",
+        launch_message="federated LoRA fine-tuning for large language models",
+    )
+
+    assert hydrated["goal"] == "federated LoRA fine-tuning for large language models"

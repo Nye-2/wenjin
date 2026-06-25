@@ -7,7 +7,7 @@ import {
 } from "@/lib/workspace-result-preview";
 
 describe("buildWorkspaceResultPreviewsFromOutputs", () => {
-  it("projects staged figure outputs as image previews with figure metadata", () => {
+  it("projects staged figure outputs as image previews without technical figure metadata", () => {
     const previews = buildWorkspaceResultPreviewsFromOutputs([
       {
         id: "fig-1",
@@ -36,8 +36,9 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
       subtitle: "Validation accuracy improved across the final three epochs.",
       badge: "图表",
     });
-    expect(previews[0]?.metadataLines.join(" ")).toContain("matplotlib");
-    expect(previews[0]?.metadataLines.join(" ")).toContain("line");
+    expect(previews[0]?.metadataLines).toEqual([]);
+    expect(previews[0]?.metadataLines.join(" ")).not.toContain("matplotlib");
+    expect(previews[0]?.metadataLines.join(" ")).not.toContain("line");
     expect(previews[0]?.metadataLines.join(" ")).not.toContain("debug logs");
   });
 
@@ -69,7 +70,7 @@ describe("buildWorkspaceResultPreviewsFromOutputs", () => {
       title: "/workspace/outputs/figures/run-2/figure.png",
       subtitle: "Ablation comparison for accepted variants.",
     });
-    expect(previews[0]?.metadataLines.join(" ")).toContain("matplotlib");
+    expect(previews[0]?.metadataLines).toEqual([]);
   });
 
   it("projects sandbox figure review items as image previews without making them output-committable", () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
 import type {
@@ -9,10 +9,16 @@ import type {
 import { cancelExecution, listExecutions } from "@/lib/api/executions";
 import {
   buildCommittedRoomLinks,
+  COMMIT_STATE_SYNC_ERROR,
   commitExecutionOutputs,
-  type CommittedRoomLink,
+  commitStateFromCommitResponse,
+  commitStateRoomTargets,
   type ExecutionCommitRequest,
+  type ExecutionCommitState,
+  isExecutionDiscarded,
+  readCommitStateFromResult,
 } from "@/lib/execution-commit";
+import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import type { WorkspaceTypeConfig } from "@/lib/workspace-suggestions";
 import {
   buildOutputOverrides,
@@ -92,16 +98,16 @@ export function LiveWorkflowPanel({
   const [commitState, setCommitState] = useState<{
     executionId: string | null;
     idempotencyKey: string;
-    committed: boolean;
     committing: boolean;
-    links: CommittedRoomLink[];
+    responseCommitState: ExecutionCommitState | null;
+    linkPreviews: WorkspaceResultPreview[] | null;
     error: string | null;
   }>(() => ({
     executionId: null,
     idempotencyKey: generateUUID(),
-    committed: false,
     committing: false,
-    links: [],
+    responseCommitState: null,
+    linkPreviews: null,
     error: null,
   }));
   const [interventionOpen, setInterventionOpen] = useState(false);
@@ -140,6 +146,29 @@ export function LiveWorkflowPanel({
     selectedPreviewId,
     draftEdits,
   });
+  const selectedRecordIdRef = useRef<string | null>(null);
+  selectedRecordIdRef.current = selectedRecord?.id ?? null;
+  const durableCommitState = readCommitStateFromResult(selectedRecord?.result);
+  const localCommitState =
+    commitState.executionId === selectedRecord?.id
+      ? commitState.responseCommitState
+      : null;
+  const effectiveCommitState = durableCommitState ?? localCommitState;
+  const commitFinal = Boolean(effectiveCommitState);
+  const commitDiscarded = isExecutionDiscarded(effectiveCommitState);
+  const commitLinkPreviews =
+    commitState.executionId === selectedRecord?.id && commitState.linkPreviews
+      ? commitState.linkPreviews
+      : previews;
+  const commitLinks = useMemo(
+    () =>
+      buildCommittedRoomLinks({
+        workspaceId,
+        previews: commitLinkPreviews,
+        roomTargets: commitStateRoomTargets(effectiveCommitState),
+      }),
+    [commitLinkPreviews, effectiveCommitState, workspaceId],
+  );
 
   useEffect(() => {
     if (records.length > 0) {
@@ -226,9 +255,9 @@ export function LiveWorkflowPanel({
     setCommitState({
       executionId: selectedRecord?.id ?? null,
       idempotencyKey: generateUUID(),
-      committed: false,
       committing: false,
-      links: [],
+      responseCommitState: null,
+      linkPreviews: null,
       error: null,
     });
   }, [selectedRecord?.id]);
@@ -331,9 +360,11 @@ export function LiveWorkflowPanel({
   }
 
   async function handleCommit(mode: "all" | "selected" | "discard") {
-    if (!selectedRecord || commitState.committing || commitState.committed) {
+    if (!selectedRecord || commitState.committing || commitFinal) {
       return;
     }
+    const requestExecutionId = selectedRecord.id;
+    const requestIdempotencyKey = commitState.idempotencyKey;
     const committablePreviews = previews.filter((preview) => preview.canCommit);
     const outputIds = committablePreviews.map((preview) => preview.id);
     const outputIdSet = new Set(outputIds);
@@ -359,38 +390,88 @@ export function LiveWorkflowPanel({
 
     setCommitState((current) => ({
       ...current,
+      executionId: requestExecutionId,
       committing: true,
       error: null,
-      links: [],
+      linkPreviews: null,
     }));
     try {
       const response = await commitExecutionOutputs({
-        executionId: selectedRecord.id,
-        idempotencyKey: commitState.idempotencyKey,
+        executionId: requestExecutionId,
+        idempotencyKey: requestIdempotencyKey,
         body,
       });
       const commitLinkPreviews = applyDraftLabelsToCommitLinks(committablePreviews, draftEdits);
-      const links = buildCommittedRoomLinks({
-        workspaceId,
-        previews: commitLinkPreviews,
-        roomTargets: response.room_targets,
-      });
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setCommitState((current) =>
+          shouldApplyCommitResponseToLocalState(
+            current.executionId,
+            requestExecutionId,
+          )
+            ? {
+                ...current,
+                committing: false,
+                responseCommitState: null,
+                linkPreviews: null,
+                error: COMMIT_STATE_SYNC_ERROR,
+              }
+            : current,
+        );
+        return;
+      }
       clearDraftEdits(acceptedIds);
-      setCommitState((current) => ({
-        ...current,
-        committed: true,
-        committing: false,
-        links,
-      }));
+      const recordToPatch =
+        useExecutionStore.getState().executions.get(requestExecutionId);
+      if (recordToPatch) {
+        upsertExecution({
+          ...recordToPatch,
+          result: {
+            ...(recordToPatch.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
+      setCommitState((current) =>
+        shouldApplyCommitResponseToLocalState(
+          current.executionId,
+          requestExecutionId,
+        )
+          ? {
+              ...current,
+              executionId: requestExecutionId,
+              committing: false,
+              responseCommitState: nextCommitState,
+              linkPreviews: commitLinkPreviews,
+            }
+          : current,
+      );
     } catch (error) {
-      setCommitState((current) => ({
-        ...current,
-        committed: false,
-        committing: false,
-        links: [],
-        error: error instanceof Error ? error.message : "保存失败",
-      }));
+      setCommitState((current) =>
+        shouldApplyCommitResponseToLocalState(
+          current.executionId,
+          requestExecutionId,
+        )
+          ? {
+              ...current,
+              committing: false,
+              responseCommitState: null,
+              linkPreviews: null,
+              error: error instanceof Error ? error.message : "保存失败",
+            }
+          : current,
+      );
     }
+  }
+
+  function shouldApplyCommitResponseToLocalState(
+    currentExecutionId: string | null,
+    requestExecutionId: string,
+  ): boolean {
+    return (
+      currentExecutionId === requestExecutionId ||
+      selectedRecordIdRef.current === requestExecutionId
+    );
   }
 
   async function handleInterventionSubmit() {
@@ -494,7 +575,7 @@ export function LiveWorkflowPanel({
             selectedId={selectedPreviewId}
             checkedIds={checkedIds}
             draftEdits={draftEdits}
-            disabled={commitState.committed}
+            disabled={commitFinal}
             onFilterChange={setEvidenceFilter}
             onQueryChange={setEvidenceQuery}
             onSelect={(id) => setSelectedPreviewId(id)}
@@ -512,9 +593,12 @@ export function LiveWorkflowPanel({
             selectedDraft={selectedDraft}
             draftEdits={draftEdits}
             checkedIds={checkedIds}
-            committed={commitState.committed}
+            committed={commitFinal}
+            commitFinalLabel={
+              commitDiscarded ? "已暂不保存" : "已写入工作区"
+            }
             committing={commitState.committing}
-            commitLinks={commitState.links}
+            commitLinks={commitLinks}
             commitError={commitState.error}
             reviewItems={reviewItems}
             isFullscreen={isFullscreen}

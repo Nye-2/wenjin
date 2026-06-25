@@ -18,6 +18,7 @@ HarnessStopReason = Literal[
     "tool_forbidden",
     "tool_unknown",
     "tool_loop_hard_stop",
+    "tool_total_hard_stop",
     "sandbox_queue_timeout",
     "sandbox_job_failed",
     "model_safety_suppressed",
@@ -57,11 +58,26 @@ class HarnessPolicy:
     protected_paths: tuple[str, ...] = WORKSPACE_PROTECTED_PATHS
     network_profile: str = "none"
     allow_package_install: bool = False
-    max_tool_calls: int = 30
+    max_total_tool_calls: int = 30
+    max_repeated_identical_tool_calls: int = 5
+    max_tool_calls: int | None = None
     max_iterations: int = 8
     max_sandbox_seconds: int = 120
     output_budget: dict[str, Any] = field(default_factory=dict)
     visibility_defaults: dict[str, HarnessVisibility] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        previous_total = self.max_tool_calls
+        total = self.max_total_tool_calls
+        if previous_total is not None and total == 30:
+            total = previous_total
+        object.__setattr__(self, "max_total_tool_calls", int(total))
+        object.__setattr__(
+            self,
+            "max_repeated_identical_tool_calls",
+            int(self.max_repeated_identical_tool_calls),
+        )
+        object.__setattr__(self, "max_tool_calls", int(total))
 
 
 @dataclass(frozen=True, slots=True)

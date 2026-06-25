@@ -20,6 +20,89 @@ from ..registry import subagent
 _SANDBOX_RESERVATION_TTL = timedelta(hours=1)
 
 
+def _sandbox_python_output_identifier(output: dict, key: str) -> str | None:
+    value = output.get(key)
+    if value:
+        text = str(value).strip()
+        if text:
+            return text
+    execution_manifest = output.get("execution_manifest")
+    if isinstance(execution_manifest, dict):
+        value = execution_manifest.get(key)
+        if value:
+            text = str(value).strip()
+            if text:
+                return text
+    return None
+
+
+def _sandbox_python_generated_artifacts(output: dict) -> list[object]:
+    raw_artifacts = output.get("generated_artifacts") or []
+    if not raw_artifacts:
+        return []
+
+    sandbox_job_id = _sandbox_python_output_identifier(output, "sandbox_job_id")
+    sandbox_environment_id = _sandbox_python_output_identifier(output, "sandbox_environment_id")
+    generated_artifacts: list[object] = []
+    for artifact in raw_artifacts:
+        if not isinstance(artifact, dict):
+            generated_artifacts.append(artifact)
+            continue
+        copied = dict(artifact)
+        if sandbox_job_id and not copied.get("sandbox_job_id"):
+            copied["sandbox_job_id"] = sandbox_job_id
+        if sandbox_environment_id and not copied.get("sandbox_environment_id"):
+            copied["sandbox_environment_id"] = sandbox_environment_id
+        generated_artifacts.append(copied)
+    return generated_artifacts
+
+
+def _sandbox_python_tool_call(
+    *,
+    operation: str,
+    output: dict,
+    billing: dict,
+) -> dict:
+    generated_artifacts = _sandbox_python_generated_artifacts(output)
+    metadata: dict[str, object] = {}
+    for key in (
+        "execution_manifest",
+        "reproducibility_manifest",
+        "experiment_narrative",
+        "failure_classification",
+        "execution_lifecycle",
+        "command_audit",
+        "install_command_audits",
+    ):
+        value = output.get(key)
+        if value:
+            metadata[key] = value
+    if output.get("error_code"):
+        metadata["error_code"] = output["error_code"]
+    if generated_artifacts:
+        metadata["generated_artifacts"] = generated_artifacts
+
+    call = {
+        "name": "sandbox.run_python",
+        "args": {
+            "operation": operation,
+            "script_hash": output.get("script_hash"),
+        },
+        "status": output.get("status") or "completed",
+        "exit_code": output.get("exit_code"),
+        "docker_image": output.get("docker_image"),
+        "billing": billing,
+        "metadata": metadata,
+    }
+    if generated_artifacts:
+        call["generated_artifacts"] = generated_artifacts
+    output_refs = [str(ref) for ref in output.get("output_refs") or [] if str(ref).strip()]
+    if output_refs:
+        call["output_refs"] = output_refs
+        metadata["output_refs"] = output_refs
+    return call
+
+
 @subagent("sandbox_python")
 class SandboxPythonSubagent(SubagentBase):
     """Run controlled Python operations in the Lead Agent Docker sandbox."""
@@ -106,8 +189,18 @@ class SandboxPythonSubagent(SubagentBase):
                     dependency_hints=ctx.inputs.get("dependency_hints"),
                     billing_reservation_id=str(reservation.id),
                 )
-        except SandboxCommandExecutionError:
-            await _settle_billing()
+        except SandboxCommandExecutionError as exc:
+            billing_metadata = await _settle_billing()
+            output = dict(exc.output)
+            output["billing"] = billing_metadata
+            output["tool_calls"] = [
+                _sandbox_python_tool_call(
+                    operation=operation,
+                    output=output,
+                    billing=billing_metadata,
+                )
+            ]
+            exc.output = output
             raise
         except Exception:
             await credit_service.release_reservation(
@@ -123,17 +216,7 @@ class SandboxPythonSubagent(SubagentBase):
             output=output,
             thinking="Lead Agent subagent used Docker sandbox to run a controlled Python task.",
             tool_calls=[
-                {
-                    "name": "sandbox.run_python",
-                    "args": {
-                        "operation": operation,
-                        "script_hash": output.get("script_hash"),
-                    },
-                    "status": output["status"],
-                    "exit_code": output["exit_code"],
-                    "docker_image": output["docker_image"],
-                    "billing": billing_metadata,
-                }
+                _sandbox_python_tool_call(operation=operation, output=output, billing=billing_metadata)
             ],
             token_usage={"input": 0, "output": 0},
         )

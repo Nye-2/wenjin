@@ -1,3 +1,9 @@
+import {
+  isRawRuntimePayloadText,
+  safeRuntimeText,
+  safeStructuredFallback,
+} from "./runtime-payload-safety";
+
 type PreviewMode =
   | "markdown"
   | "plain_text"
@@ -114,6 +120,14 @@ function firstNonNull(...values: Array<string | null>): string | null {
   return null;
 }
 
+function safeContentText(value: unknown): string | null {
+  const text = readString(value);
+  if (!text || isRawRuntimePayloadText(text)) {
+    return null;
+  }
+  return text;
+}
+
 export function buildWorkspaceResultPreviewsFromOutputs(
   outputs: unknown,
 ): WorkspaceResultPreview[] {
@@ -132,7 +146,7 @@ export function buildWorkspaceResultPreviewsFromOutputs(
       return [];
     }
     const data = readObject(output.data);
-    const preview = readString(output.preview);
+    const preview = safeRuntimeText(output.preview);
     const defaultChecked = output.default_checked !== false;
 
     switch (kind) {
@@ -180,12 +194,14 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             source: "staged_output",
             kind,
             title: preview ?? "记忆片段",
-            subtitle: readString(data?.category),
+            subtitle: safeRuntimeText(data?.category),
             badge: "记忆",
             data,
             previewMode: "plain_text",
             previewText:
-              readString(data?.content) ?? preview ?? JSON.stringify(data, null, 2),
+              safeRuntimeText(data?.content) ??
+              preview ??
+              safeStructuredFallback(data, "已生成记忆片段"),
             metadataLines: [],
             defaultChecked,
             canCommit: true,
@@ -198,13 +214,15 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? readString(data?.key) ?? "决策记录",
-            subtitle: readString(data?.key),
+            title: preview ?? safeRuntimeText(data?.key) ?? "决策记录",
+            subtitle: safeRuntimeText(data?.key),
             badge: "决策",
             data,
             previewMode: "plain_text",
             previewText:
-              readString(data?.value) ?? preview ?? JSON.stringify(data, null, 2),
+              safeRuntimeText(data?.value) ??
+              preview ??
+              safeStructuredFallback(data, "已生成决策记录"),
             metadataLines: [],
             defaultChecked,
             canCommit: true,
@@ -217,17 +235,17 @@ export function buildWorkspaceResultPreviewsFromOutputs(
             id,
             source: "staged_output",
             kind,
-            title: preview ?? readString(data?.title) ?? "任务项",
-            subtitle: readString(data?.priority)
-              ? `Priority ${readString(data?.priority)}`
+            title: preview ?? safeRuntimeText(data?.title) ?? "任务项",
+            subtitle: safeRuntimeText(data?.priority)
+              ? `Priority ${safeRuntimeText(data?.priority)}`
               : null,
             badge: "任务",
             data,
             previewMode: "plain_text",
             previewText:
-              readString(data?.description) ??
+              safeRuntimeText(data?.description) ??
               preview ??
-              JSON.stringify(data, null, 2),
+              safeStructuredFallback(data, "已生成任务项"),
             metadataLines: [],
             defaultChecked,
             canCommit: true,
@@ -268,8 +286,12 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
     if (!previewPath) {
       return [];
     }
-    const title = firstNonNull(readString(item.title), pathBasename(previewPath), previewPath) ?? "图表候选";
-    const summary = readString(item.summary);
+    const rawTitle = readString(item.title);
+    const rawSummary = readString(item.summary);
+    const title =
+      safeRuntimeText(rawTitle) ??
+      (rawTitle ? "图表产物" : pathBasename(previewPath) ?? "图表产物");
+    const summary = safeRuntimeText(rawSummary);
     const mimeType = readString(preview?.mime_type);
     const contentHash = firstNonNull(
       readString(preview?.content_hash),
@@ -314,7 +336,7 @@ export function buildWorkspaceResultPreviewsFromReviewItems(
         },
         previewMode: "image",
         previewPath,
-        previewText: summary ?? previewPath,
+        previewText: summary ?? (rawSummary ? "待确认产物" : previewPath),
         metadata,
         metadataLines,
         defaultChecked: false,
@@ -419,7 +441,7 @@ export function buildDocumentRoomPreview(
   const metadata = readObject(document.metadata_json);
   const mimeType = readString(document.mime_type);
   const docKind = readString(document.doc_kind) ?? readString(document.kind);
-  const content = readString(metadata?.content);
+  const content = safeContentText(metadata?.content);
   return {
     id: readString(document.id) ?? "document",
     source: "document_room",
@@ -429,7 +451,7 @@ export function buildDocumentRoomPreview(
     badge: "文档",
     data: document,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
-    previewText: content,
+    previewText: content ?? safeStructuredFallback(metadata, "已生成文档候选"),
     metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
     ),
@@ -458,7 +480,7 @@ export function buildLibraryRoomPreview(
     badge: "文献",
     data: item,
     previewMode: "citation",
-    previewText: readString(item.abstract),
+    previewText: safeRuntimeText(item.abstract) ?? safeRuntimeText(item.title),
     metadataLines: [year, readString(item.doi), readString(item.url)].filter(
       (value): value is string => Boolean(value),
     ),
@@ -480,10 +502,12 @@ function buildDocumentPreview(options: {
   data: Record<string, unknown> | null;
 }): WorkspaceResultPreview {
   const { id, preview, defaultChecked, data } = options;
-  const name = readString(data?.name);
+  const name = safeRuntimeText(data?.name);
   const mimeType = readString(data?.mime_type);
   const docKind = readString(data?.doc_kind);
-  const content = readString(data?.content);
+  const content = safeContentText(data?.content);
+  const previewText =
+    firstNonNull(content, preview) ?? safeStructuredFallback(data, "已生成文档候选");
 
   return {
     id,
@@ -494,7 +518,7 @@ function buildDocumentPreview(options: {
     badge: "文档",
     data,
     previewMode: resolveDocumentPreviewMode(mimeType, docKind, content),
-    previewText: firstNonNull(content, preview),
+    previewText,
     metadataLines: [mimeType, docKind ? documentKindLabel(docKind) : null].filter(
       (value): value is string => Boolean(value),
     ),
@@ -515,10 +539,10 @@ function buildLibraryPreview(options: {
   data: Record<string, unknown> | null;
 }): WorkspaceResultPreview {
   const { id, preview, defaultChecked, data } = options;
-  const title = firstNonNull(readString(data?.title), preview, id) ?? "文献";
+  const title = firstNonNull(safeRuntimeText(data?.title), preview, id) ?? "文献";
   const authors = readStringArray(data?.authors);
   const year = typeof data?.year === "number" ? String(data.year) : null;
-  const abstract = readString(data?.abstract);
+  const abstract = safeRuntimeText(data?.abstract);
 
   return {
     id,
@@ -553,16 +577,16 @@ function buildFigurePreview(options: {
   const manifest = readObject(data?.manifest);
   const title =
     firstNonNull(
-      readString(data?.title),
-      readString(data?.figure_title),
+      safeRuntimeText(data?.title),
+      safeRuntimeText(data?.figure_title),
       preview,
-      readString(data?.name),
+      safeRuntimeText(data?.name),
     ) ?? "图表候选";
   const caption = summarizeText(
     firstNonNull(
-      readString(data?.caption),
-      readString(data?.caption_text),
-      readString(manifest?.caption),
+      safeRuntimeText(data?.caption),
+      safeRuntimeText(data?.caption_text),
+      safeRuntimeText(manifest?.caption),
     ),
   );
   const previewPath = resolveFigurePreviewPath(data, preview);
@@ -580,7 +604,7 @@ function buildFigurePreview(options: {
     previewPath,
     previewText: caption ?? previewPath ?? title,
     metadata,
-    metadataLines: buildFigureMetadataLines(metadata),
+    metadataLines: [],
     defaultChecked,
     canCommit: true,
     canOpenRoom: true,
@@ -664,6 +688,7 @@ function firstWorkspaceImagePath(...values: Array<string | null>): string | null
 function isWorkspaceImagePath(value: string): boolean {
   return (
     value.startsWith("/workspace/") &&
+    !isRawRuntimePayloadText(value) &&
     /\.(png|jpe?g|webp|gif|svg)$/i.test(value.split("?")[0] ?? value)
   );
 }
@@ -813,32 +838,12 @@ function buildFigureMetadata(
 ): Record<string, unknown> | null {
   const metadata: Record<string, unknown> = {};
   for (const key of ["strategy", "figure_type", "provenance", "provider", "source"]) {
-    const value = readString(data?.[key]);
+    const value = safeRuntimeText(data?.[key]);
     if (value) {
       metadata[key] = value;
     }
   }
   return Object.keys(metadata).length > 0 ? metadata : null;
-}
-
-function buildFigureMetadataLines(
-  metadata: Record<string, unknown> | null,
-): string[] {
-  if (!metadata) {
-    return [];
-  }
-  return [
-    readString(metadata.strategy) ? `strategy: ${readString(metadata.strategy)}` : null,
-    readString(metadata.figure_type)
-      ? `figure_type: ${readString(metadata.figure_type)}`
-      : null,
-    readString(metadata.provenance)
-      ? `source: ${readString(metadata.provenance)}`
-      : readString(metadata.source)
-        ? `source: ${readString(metadata.source)}`
-        : null,
-    readString(metadata.provider) ? `provider: ${readString(metadata.provider)}` : null,
-  ].filter((value): value is string => Boolean(value));
 }
 
 function documentKindLabel(value: string): string {

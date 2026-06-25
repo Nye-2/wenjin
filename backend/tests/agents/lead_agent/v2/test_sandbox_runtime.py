@@ -1158,7 +1158,22 @@ async def test_sandbox_python_subagent_settles_user_code_failure(monkeypatch) ->
     async def _fake_run_python_script(**kwargs):
         raise SandboxCommandExecutionError(
             "script failed",
-            output={"status": "failed", "exit_code": 1},
+            output={
+                "status": "failed",
+                "exit_code": 1,
+                "docker_image": "python:3.13-slim",
+                "script_hash": "sha256:failed",
+                "execution_lifecycle": {
+                    "schema": "wenjin.harness.run_python.execution_lifecycle.v1",
+                    "status": "failed",
+                    "exit_code": 1,
+                },
+                "failure_classification": {
+                    "schema": "wenjin.harness.run_python.failure_classification.v1",
+                    "failure_code": "python_exit_nonzero",
+                    "recoverable": True,
+                },
+            },
         )
 
     monkeypatch.setattr(
@@ -1202,11 +1217,20 @@ async def test_sandbox_python_subagent_settles_user_code_failure(monkeypatch) ->
         capability_policy={"sandbox_policy": _policy()},
     )
 
-    with pytest.raises(SandboxCommandExecutionError):
+    with pytest.raises(SandboxCommandExecutionError) as exc_info:
         await SandboxPythonSubagent().run(ctx)
 
     fake_credit_service.settle_sandbox_reservation.assert_awaited_once()
     fake_credit_service.release_reservation.assert_not_awaited()
+    assert exc_info.value.output["billing"]["credits_charged"] == 1
+    assert exc_info.value.output["tool_calls"][0]["name"] == "sandbox.run_python"
+    assert exc_info.value.output["tool_calls"][0]["status"] == "failed"
+    assert exc_info.value.output["tool_calls"][0]["metadata"]["execution_lifecycle"]["status"] == (
+        "failed"
+    )
+    assert exc_info.value.output["tool_calls"][0]["metadata"]["failure_classification"]["failure_code"] == (
+        "python_exit_nonzero"
+    )
 
 
 @pytest.mark.asyncio

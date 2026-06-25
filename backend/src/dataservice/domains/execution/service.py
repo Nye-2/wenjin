@@ -14,6 +14,10 @@ from src.dataservice.domains.execution.contracts import (
     ComputeSessionEnsureCommand,
     ComputeSessionProjection,
     ComputeSessionUpdateCommand,
+    ExecutionCommitClaimCommand,
+    ExecutionCommitFailCommand,
+    ExecutionCommitFinalizeCommand,
+    ExecutionCommitResetCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
@@ -35,6 +39,10 @@ from src.dataservice.domains.execution.projection import (
     node_to_projection,
 )
 from src.dataservice.domains.execution.repository import ExecutionRepository
+
+_COMMIT_CLAIM_LEASE = timedelta(minutes=30)
+_COMMIT_COUNT_ROOM_KEYS = ("library", "documents", "memory", "decisions", "tasks")
+_COMMIT_ROOM_TARGET_KEYS = ("library", "documents", "memory", "decisions", "tasks")
 
 
 class DataServiceExecutionService:
@@ -200,6 +208,24 @@ class DataServiceExecutionService:
             workspace_id=workspace_id,
             capability_id=capability_id,
         )
+
+    async def find_execution_by_launch_idempotency_key(
+        self,
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+        capability_id: str,
+        launch_idempotency_key: str,
+    ) -> ExecutionRecordProjection | None:
+        record = await self.repository.find_execution_by_launch_idempotency_key(
+            workspace_id=workspace_id,
+            thread_id=thread_id,
+            user_id=user_id,
+            capability_id=capability_id,
+            launch_idempotency_key=launch_idempotency_key,
+        )
+        return execution_to_projection(record) if record else None
 
     async def reconcile_interrupted_executions(self) -> int:
         """Mark stale in-flight executions terminal after process restart."""
@@ -468,6 +494,172 @@ class DataServiceExecutionService:
         await self._finish()
         return execution_to_projection(record)
 
+    async def claim_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitClaimCommand,
+    ) -> dict[str, Any]:
+        await self.repository.lock_execution(execution_id)
+        record = await self.repository.get_execution(execution_id)
+        if record is None:
+            return {"status": "not_found", "execution": None}
+
+        result_payload = dict(record.result or {})
+        commit_state = result_payload.get("commit_state")
+        if isinstance(commit_state, dict):
+            status = str(commit_state.get("status") or "")
+            if status in {"committed", "discarded"}:
+                return {
+                    "status": status,
+                    "execution": execution_to_projection(record),
+                }
+            if status == "committing":
+                if _commit_claim_is_expired(commit_state, datetime.now(UTC)):
+                    return {
+                        "status": "stale",
+                        "execution": execution_to_projection(record),
+                    }
+                return {
+                    "status": "in_progress",
+                    "execution": execution_to_projection(record),
+                }
+            if status == "failed":
+                return {
+                    "status": "failed",
+                    "execution": execution_to_projection(record),
+                }
+
+        now = datetime.now(UTC)
+        claimed_at = command.claimed_at or now
+        result_payload["commit_state"] = {
+            "status": "committing",
+            "commit_token": command.commit_token,
+            "started_at": claimed_at.isoformat(),
+            "lease_expires_at": (claimed_at + _COMMIT_CLAIM_LEASE).isoformat(),
+        }
+        record.result = result_payload
+        record.updated_at = now
+        await self._finish()
+        return {
+            "status": "claimed",
+            "execution": execution_to_projection(record),
+        }
+
+    async def finalize_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitFinalizeCommand,
+    ) -> ExecutionRecordProjection | None:
+        await self.repository.lock_execution(execution_id)
+        record = await self.repository.get_execution(execution_id)
+        if record is None:
+            return None
+
+        current_result = dict(record.result or {})
+        current_commit_state = current_result.get("commit_state")
+        if isinstance(current_commit_state, dict):
+            current_status = str(current_commit_state.get("status") or "")
+            if current_status in {"committed", "discarded"}:
+                return execution_to_projection(record)
+            if current_status != "committing":
+                return None
+            if current_commit_state.get("commit_token") != command.commit_token:
+                return None
+        else:
+            return None
+
+        next_result = dict(command.result_json)
+        next_commit_state = next_result.get("commit_state")
+        if _valid_terminal_commit_state(next_commit_state) is None:
+            return None
+
+        record.result = next_result
+        record.updated_at = datetime.now(UTC)
+        await self._finish()
+        return execution_to_projection(record)
+
+    async def fail_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitFailCommand,
+    ) -> ExecutionRecordProjection | None:
+        await self.repository.lock_execution(execution_id)
+        record = await self.repository.get_execution(execution_id)
+        if record is None:
+            return None
+
+        current_result = dict(record.result or {})
+        current_commit_state = current_result.get("commit_state")
+        if isinstance(current_commit_state, dict):
+            current_status = str(current_commit_state.get("status") or "")
+            if current_status in {"committed", "discarded"}:
+                return execution_to_projection(record)
+            if current_status == "failed":
+                return execution_to_projection(record)
+            if current_status != "committing":
+                return None
+            if current_commit_state.get("commit_token") != command.commit_token:
+                return None
+        else:
+            return None
+
+        failed_at = command.failed_at or datetime.now(UTC)
+        current_result["commit_state"] = {
+            "status": "failed",
+            "commit_token": command.commit_token,
+            "started_at": current_commit_state.get("started_at"),
+            "failed_at": failed_at.isoformat(),
+            "error_text": command.error_text,
+            "accepted_ids": list(command.accepted_ids or []),
+            "rejected_ids": list(command.rejected_ids or []),
+            "partial_counts": dict(command.partial_counts or {}),
+            "partial_room_targets": dict(command.partial_room_targets or {}),
+            "manual_recovery_required": True,
+        }
+        record.result = current_result
+        record.updated_at = failed_at
+        await self._finish()
+        return execution_to_projection(record)
+
+    async def reset_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitResetCommand,
+    ) -> ExecutionRecordProjection | None:
+        await self.repository.lock_execution(execution_id)
+        record = await self.repository.get_execution(execution_id)
+        if record is None:
+            return None
+
+        result_payload = dict(record.result or {})
+        current_commit_state = result_payload.get("commit_state")
+        if not isinstance(current_commit_state, dict):
+            return None
+        if current_commit_state.get("status") in {"committed", "discarded"}:
+            return None
+        if (
+            command.current_commit_token is not None
+            and current_commit_state.get("commit_token") != command.current_commit_token
+        ):
+            return None
+
+        reset_at = command.reset_at or datetime.now(UTC)
+        recovery_log = list(result_payload.get("commit_recovery_log") or [])
+        recovery_log.insert(
+            0,
+            {
+                "reason": command.reason,
+                "reset_at": reset_at.isoformat(),
+                "previous_commit_state": dict(current_commit_state),
+            },
+        )
+        result_payload["commit_recovery_log"] = recovery_log[:20]
+        result_payload.pop("commit_state", None)
+        record.result = result_payload
+        record.updated_at = reset_at
+        await self._finish()
+        return execution_to_projection(record)
+
     async def list_nodes(self, execution_id: str) -> list[ExecutionNodeProjection]:
         return [
             node_to_projection(record)
@@ -653,3 +845,64 @@ class DataServiceExecutionService:
             await self.session.commit()
         else:
             await self.session.flush()
+
+
+def _commit_claim_is_expired(commit_state: dict[str, Any], now: datetime) -> bool:
+    expires_at = _parse_datetime(commit_state.get("lease_expires_at"))
+    return expires_at is not None and expires_at <= now
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    with suppress(ValueError):
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed
+    return None
+
+
+def _valid_terminal_commit_state(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get("status") not in {"committed", "discarded"}:
+        return None
+    if not _is_str_list(value.get("accepted_ids")):
+        return None
+    if not _is_str_list(value.get("rejected_ids")):
+        return None
+    if not isinstance(value.get("committed_at"), str):
+        return None
+
+    counts = value.get("counts")
+    if not isinstance(counts, dict):
+        return None
+    for key in _COMMIT_COUNT_ROOM_KEYS:
+        count = counts.get(key)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            return None
+
+    room_targets = value.get("room_targets")
+    if not isinstance(room_targets, dict):
+        return None
+    for key in _COMMIT_ROOM_TARGET_KEYS:
+        targets = room_targets.get(key)
+        if not isinstance(targets, list):
+            return None
+        for target in targets:
+            if not isinstance(target, dict):
+                return None
+            if not isinstance(target.get("output_id"), str):
+                return None
+            if not isinstance(target.get("item_id"), str):
+                return None
+
+    review_batch_id = value.get("review_batch_id")
+    if review_batch_id is not None and not isinstance(review_batch_id, str):
+        return None
+    return value
+
+
+def _is_str_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)

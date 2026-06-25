@@ -4,9 +4,17 @@ import { useMemo, useState } from "react";
 
 import {
   buildCommittedRoomLinks,
+  COMMIT_STATE_SYNC_ERROR,
   commitExecutionOutputs,
-  type CommittedRoomLink,
+  commitStateFromCommitResponse,
+  commitStateRoomTargets,
+  isExecutionCommitted,
+  isExecutionDiscarded,
+  readCommitStateFromResult,
+  type ExecutionCommitRequest,
+  type ExecutionCommitState,
 } from "@/lib/execution-commit";
+import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 import { groupWorkspaceResultPreviews } from "@/lib/workspace-result-kind";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import {
@@ -15,6 +23,7 @@ import {
 } from "@/components/prism/PrismReviewList";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
 import type { ResultCardData } from "@/stores/chat-store";
+import { useExecutionStore } from "@/stores/execution-store";
 import { useRunUiStore } from "@/stores/run-ui-store";
 import { useWorkbenchLayoutStore } from "@/stores/workbench-layout-store";
 import { WorkspaceActionLink } from "./WorkspaceActionLink";
@@ -44,15 +53,6 @@ function reviewNotice(items: WorkspacePrismReviewItem[]): string {
     return `产物有 ${items.length} 项待确认保存`;
   }
   return `有 ${items.length} 项待确认`;
-}
-
-function figureDetailLine(metadataLines: string[]): string | null {
-  return (
-    metadataLines.find((line) => line.startsWith("strategy:")) ??
-    metadataLines.find((line) => line.startsWith("figure_type:")) ??
-    metadataLines[0] ??
-    null
-  );
 }
 
 interface ResultCardProps {
@@ -90,6 +90,8 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     [previews],
   );
   const representativePreviews = useMemo(() => previews.slice(0, 3), [previews]);
+  const narrativeText =
+    safeRuntimeText(narrative, 220) ?? (narrative ? "运行结果已生成。" : null);
   const reviewItems = data.review_items ?? [];
   const firstPrismReviewItem = reviewItems.find(isPrismReviewItem);
   const selectRun = useWorkbenchLayoutStore((state) => state.selectRun);
@@ -100,14 +102,34 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
     (state) => state.setWorkbenchFullscreen,
   );
   const focusPreviewItem = useRunUiStore((state) => state.focusPreviewItem);
+  const executionResult = useExecutionStore(
+    (state) => state.executions.get(execution_id)?.result,
+  );
+  const upsertExecution = useExecutionStore((state) => state.upsertExecution);
   const [idempotencyKey] = useState(() => generateUUID());
-  const [committed, setCommitted] = useState(false);
+  const [localCommitState, setLocalCommitState] =
+    useState<ExecutionCommitState | null>(null);
   const [committing, setCommitting] = useState(false);
-  const [commitLinks, setCommitLinks] = useState<CommittedRoomLink[]>([]);
   const [commitError, setCommitError] = useState<string | null>(null);
+  const durableCommitState = readCommitStateFromResult(executionResult);
+  const dataCommitState = readCommitStateFromResult(data);
+  const effectiveCommitState =
+    durableCommitState ?? dataCommitState ?? localCommitState;
+  const committed = isExecutionCommitted(effectiveCommitState);
+  const discarded = isExecutionDiscarded(effectiveCommitState);
+  const commitFinal = Boolean(effectiveCommitState);
+  const commitLinks = useMemo(
+    () =>
+      buildCommittedRoomLinks({
+        workspaceId,
+        previews,
+        roomTargets: commitStateRoomTargets(effectiveCommitState),
+      }),
+    [effectiveCommitState, previews, workspaceId],
+  );
 
-  async function commit(body: object) {
-    if (committed || committing) {
+  async function commit(body: ExecutionCommitRequest) {
+    if (commitFinal || committing) {
       return;
     }
     setCommitError(null);
@@ -116,19 +138,27 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
       const response = await commitExecutionOutputs({
         executionId: execution_id,
         idempotencyKey,
-        body: body as Record<string, unknown>,
+        body,
       });
-      setCommitLinks(
-        buildCommittedRoomLinks({
-          workspaceId,
-          previews,
-          roomTargets: response.room_targets,
-        }),
-      );
-      setCommitted(true);
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setLocalCommitState(null);
+        setCommitError(COMMIT_STATE_SYNC_ERROR);
+        return;
+      }
+      setLocalCommitState(nextCommitState);
+      const currentRecord =
+        useExecutionStore.getState().executions.get(execution_id);
+      if (currentRecord) {
+        upsertExecution({
+          ...currentRecord,
+          result: {
+            ...(currentRecord.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
     } catch (error) {
-      setCommitLinks([]);
-      setCommitted(false);
       setCommitError(
         error instanceof Error && !error.message.startsWith("Failed")
           ? error.message
@@ -175,7 +205,7 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
         ) : null}
       </div>
 
-      {narrative ? <div style={styles.narrative}>{narrative}</div> : null}
+      {narrativeText ? <div style={styles.narrative}>{narrativeText}</div> : null}
       {!canSaveAll && previews.length > 0 ? (
         <div style={styles.partialNotice}>
           本次运行未完整完成，候选结果需要先查看详情后再决定是否保存。
@@ -229,10 +259,6 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                 const groupMeta = previewGroups.find(
                   (group) => group.kind === preview.kind,
                 )?.meta;
-                const figureMetaLine =
-                  preview.kind === "figure"
-                    ? figureDetailLine(preview.metadataLines)
-                    : null;
                 return (
                   <div key={preview.id} style={styles.representativeItem}>
                     {preview.kind === "figure" ? (
@@ -265,9 +291,6 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
                       {preview.subtitle ? (
                         <div style={styles.previewSubtitle}>{preview.subtitle}</div>
                       ) : null}
-                      {figureMetaLine ? (
-                        <div style={styles.previewMetaLine}>{figureMetaLine}</div>
-                      ) : null}
                     </div>
                   </div>
                 );
@@ -280,13 +303,19 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
               <button
                 type="button"
                 onClick={() => commit({ accept_all: true })}
-                disabled={committed || committing}
+                disabled={commitFinal || committing}
                 style={{
                   ...styles.primaryButton,
-                  ...(committed || committing ? styles.buttonDisabled : null),
+                  ...(commitFinal || committing ? styles.buttonDisabled : null),
                 }}
               >
-                {committed ? "已保存到工作区" : committing ? "保存中..." : "保存到工作区"}
+                {committed
+                  ? "已保存到工作区"
+                  : discarded
+                    ? "已暂不保存"
+                    : committing
+                      ? "保存中..."
+                      : "保存到工作区"}
               </button>
             ) : (
               <button
@@ -309,13 +338,13 @@ export function ResultCard({ data, workspaceId }: ResultCardProps) {
             <button
               type="button"
               onClick={() => commit({ accepted_ids: [] })}
-              disabled={committed || committing}
+              disabled={commitFinal || committing}
               style={{
                 ...styles.ghostButton,
-                ...(committed || committing ? styles.buttonDisabled : null),
+                ...(commitFinal || committing ? styles.buttonDisabled : null),
               }}
             >
-              暂不保存
+              {discarded ? "已暂不保存" : "暂不保存"}
             </button>
           </div>
           {commitError ? (

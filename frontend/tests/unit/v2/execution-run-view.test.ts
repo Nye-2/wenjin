@@ -1,7 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import type { ExecutionRecord } from "@/lib/api/types";
-import { runViewFromExecution } from "@/lib/execution-run-view";
+import type { RunRecord } from "@/lib/api/v2/runs";
+import {
+  buildRunProgressItems,
+  runViewFromExecution,
+  runViewFromResultCard,
+  runViewFromRunRecord,
+} from "@/lib/execution-run-view";
+
+const COMMITTED_STATE = {
+  status: "committed",
+  accepted_ids: ["doc-1"],
+  rejected_ids: [],
+  counts: { library: 0, documents: 1, memory: 0, decisions: 0, tasks: 0 },
+  room_targets: {
+    documents: [{ output_id: "doc-1", item_id: "saved-doc-1" }],
+    library: [],
+    memory: [],
+    decisions: [],
+    tasks: [],
+  },
+  committed_at: "2026-06-20T00:00:00Z",
+} as const;
 
 function baseRecord(overrides: Partial<ExecutionRecord>): ExecutionRecord {
   return {
@@ -130,5 +151,276 @@ describe("execution run view expert projection", () => {
     expect(view.team?.members.map((member) => member.id)).toEqual([
       "team.1.research_scout_v1.1",
     ]);
+  });
+
+  it("sanitizes raw runtime text from progress item details", () => {
+    const record = baseRecord({
+      graph_structure: {
+        nodes: [
+          { id: "error-node", type: "agent_invocation", label: "Error node" },
+          { id: "thinking-node", type: "agent_invocation", label: "Thinking node" },
+          { id: "preview-node", type: "agent_invocation", label: "Preview node" },
+        ],
+        edges: [],
+      },
+      node_states: {
+        "error-node": {
+          status: "failed",
+          error:
+            '{"stderr":"raw stderr should stay hidden","ref":"/workspace/outputs/harness/exec-1/error.txt"}',
+        },
+        "thinking-node": {
+          status: "running",
+          thinking: "stdout: raw stdout should stay hidden",
+        },
+        "preview-node": {
+          status: "completed",
+          output_preview: "/workspace/outputs/harness/exec-1/preview.json",
+        },
+      },
+    });
+
+    const details = buildRunProgressItems(record).map((item) => item.detail).join("\n");
+
+    expect(details).not.toContain("stdout");
+    expect(details).not.toContain("stderr");
+    expect(details).not.toContain("raw stdout should stay hidden");
+    expect(details).not.toContain("raw stderr should stay hidden");
+    expect(details).not.toContain("/workspace/outputs/harness");
+    expect(details).not.toContain("{");
+  });
+
+  it("sanitizes raw ExecutionRecord summaries and failure messages", () => {
+    const record = baseRecord({
+      status: "failed",
+      result_summary:
+        '{"stdout":"raw summary should stay hidden","ref":"/workspace/outputs/harness/exec-1/result.json"}',
+      last_error:
+        '{"stderr":"raw error should stay hidden","ref":"/workspace/outputs/harness/exec-1/error.txt"}',
+      result: {
+        task_report: {
+          narrative: "已生成论文结构建议。",
+          errors: [
+            {
+              error:
+                '{"stderr":"raw task error should stay hidden","ref":"/workspace/outputs/harness/exec-1/task-error.txt"}',
+            },
+          ],
+        },
+      },
+    });
+
+    const view = runViewFromExecution(record);
+    const text = [view.summary, view.failureMessage].filter(Boolean).join("\n");
+
+    expect(view.summary).toBe("已生成论文结构建议。");
+    expect(view.failureMessage).toBe("运行问题已记录");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw summary should stay hidden");
+    expect(text).not.toContain("raw error should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
+
+  it("sanitizes raw RunRecord summaries and failure messages", () => {
+    const record: RunRecord = {
+      id: "run-raw-1",
+      workspace_id: "ws-1",
+      capability_name: "实验实证结果包",
+      status: "failed",
+      started_at: "2026-06-13T00:00:00Z",
+      summary:
+        'stdout: raw run summary should stay hidden /workspace/outputs/harness/exec-1/summary.txt',
+      failure_message:
+        '{"stderr":"raw run error should stay hidden","ref":"/workspace/outputs/harness/exec-1/error.txt"}',
+    };
+
+    const view = runViewFromRunRecord(record, "ws-1");
+    const text = [view.summary, view.failureMessage].filter(Boolean).join("\n");
+
+    expect(view.summary).toBe("执行失败。");
+    expect(view.failureMessage).toBe("运行问题已记录");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw run summary should stay hidden");
+    expect(text).not.toContain("raw run error should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
+
+  it("sanitizes raw ResultCardData narratives and errors", () => {
+    const view = runViewFromResultCard(
+      {
+        execution_id: "result-card-raw-1",
+        capability_name: "图表生成",
+        status: "failed",
+        outputs: [],
+        narrative:
+          '{"stdout":"raw result-card narrative should stay hidden","ref":"/workspace/outputs/harness/exec-1/result.json"}',
+        errors: [
+          {
+            message:
+              'stderr: raw result-card error should stay hidden /workspace/outputs/harness/exec-1/error.txt',
+          },
+        ],
+      },
+      "ws-1",
+    );
+    const text = [view.summary, view.failureMessage].filter(Boolean).join("\n");
+
+    expect(view.summary).toBe("执行失败。");
+    expect(view.failureMessage).toBe("运行问题已记录");
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+    expect(text).not.toContain("raw result-card narrative should stay hidden");
+    expect(text).not.toContain("raw result-card error should stay hidden");
+    expect(text).not.toContain("/workspace/outputs/harness");
+    expect(text).not.toContain("{");
+  });
+
+  it("projects durable commitState from ExecutionRecord results", () => {
+    const view = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: COMMITTED_STATE,
+          task_report: {
+            narrative: "已保存。",
+            outputs: [],
+          },
+        },
+      }),
+    );
+
+    expect(view.commitState).toEqual(COMMITTED_STATE);
+  });
+
+  it("projects durable commitState from ResultCardData", () => {
+    const view = runViewFromResultCard(
+      {
+        execution_id: "result-card-commit-1",
+        capability_name: "资料整理",
+        status: "completed",
+        outputs: [],
+        narrative: "已生成。",
+        commit_state: COMMITTED_STATE,
+      } as Parameters<typeof runViewFromResultCard>[0] & {
+        commit_state: typeof COMMITTED_STATE;
+      },
+      "ws-1",
+    );
+
+    expect(view.commitState).toEqual(COMMITTED_STATE);
+  });
+
+  it("drops malformed commitState missing required counts or room targets", () => {
+    const missingCountsView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            status: COMMITTED_STATE.status,
+            accepted_ids: COMMITTED_STATE.accepted_ids,
+            rejected_ids: COMMITTED_STATE.rejected_ids,
+            room_targets: COMMITTED_STATE.room_targets,
+            committed_at: COMMITTED_STATE.committed_at,
+          },
+        },
+      }),
+    );
+    const missingRoomTargetsView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            status: COMMITTED_STATE.status,
+            accepted_ids: COMMITTED_STATE.accepted_ids,
+            rejected_ids: COMMITTED_STATE.rejected_ids,
+            counts: COMMITTED_STATE.counts,
+            committed_at: COMMITTED_STATE.committed_at,
+          },
+        },
+      }),
+    );
+
+    expect(missingCountsView.commitState).toBeNull();
+    expect(missingRoomTargetsView.commitState).toBeNull();
+  });
+
+  it("drops malformed commitState with non-integer counts or bad room target values", () => {
+    const nonIntegerCountView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            counts: { ...COMMITTED_STATE.counts, documents: 1.5 },
+          },
+        },
+      }),
+    );
+    const malformedRoomTargetView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              documents: "bad",
+            },
+          },
+        },
+      }),
+    );
+    const unknownRoomTargetView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              ...COMMITTED_STATE.room_targets,
+              archive: [],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(nonIntegerCountView.commitState).toBeNull();
+    expect(malformedRoomTargetView.commitState).toBeNull();
+    expect(unknownRoomTargetView.commitState).toBeNull();
+  });
+
+  it("drops sparse commitState missing required count keys or room target arrays", () => {
+    const sparseCountsView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            counts: {},
+          },
+        },
+      }),
+    );
+    const missingRoomTargetArraysView = runViewFromExecution(
+      baseRecord({
+        status: "completed",
+        result: {
+          commit_state: {
+            ...COMMITTED_STATE,
+            room_targets: {
+              documents: COMMITTED_STATE.room_targets.documents,
+            },
+          },
+        },
+      }),
+    );
+
+    expect(sparseCountsView.commitState).toBeNull();
+    expect(missingRoomTargetArraysView.commitState).toBeNull();
   });
 });

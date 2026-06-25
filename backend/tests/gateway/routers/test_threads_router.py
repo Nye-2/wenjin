@@ -769,7 +769,13 @@ class TestThreadMessages:
                         usage_metadata={"input_tokens": 120, "output_tokens": 30},
                     )
                 ],
-                "response_blocks": [{"type": "task", "title": "框架设计"}],
+                "response_blocks": [
+                    {
+                        "type": "task",
+                        "title": "框架设计",
+                        "data": {"output_ref": "/mnt/user-data/internal/task-1.json"},
+                    }
+                ],
                 "response_metadata": {
                     "orchestration": {"feature_id": "framework_outline", "task_id": "task-1"}
                 },
@@ -797,7 +803,9 @@ class TestThreadMessages:
             )
 
         assert reply.content == "模块已启动"
-        assert reply.blocks[0]["type"] == "task"
+        assert reply.blocks == [{"kind": "text", "content": "框架设计"}]
+        assert all(block.get("type") is None for block in reply.blocks)
+        assert "/mnt/user-data/internal/task-1.json" not in reply.blocks[0]["content"]
         assert reply.metadata["orchestration"]["task_id"] == "task-1"
         assert reply.metadata["orchestration"]["execution_id"] == "exec-1"
         assert reply.metadata["usage"]["total_tokens"] == 150
@@ -870,8 +878,8 @@ class TestThreadMessages:
         }
 
     @pytest.mark.asyncio
-    async def test_generate_thread_response_builds_artifact_block_from_agent_state(self):
-        """Agent-presented files should become structured chat artifacts."""
+    async def test_generate_thread_response_keeps_artifacts_in_metadata(self):
+        """Agent-presented files should not emit legacy artifact blocks."""
         request = ThreadTurnRequest(
             message="导出文件",
             workspace_id="ws-1",
@@ -907,11 +915,27 @@ class TestThreadMessages:
         ):
             reply = await generate_thread_response(request, thread, actor_id="user-1")
 
-        assert reply.blocks[0]["type"] == "artifacts"
+        canonical_kinds = {
+            "text",
+            "thinking",
+            "status_line",
+            "question_card",
+            "result_card",
+            "tool_invocation",
+            "tool_result",
+        }
+        assert reply.blocks == []
+        assert all(block.get("type") != "artifacts" for block in reply.blocks)
+        assert all(block.get("kind") in canonical_kinds for block in reply.blocks)
+        assert all(
+            "/mnt/user-data/outputs/report.md" not in str(block.get("content") or "")
+            for block in reply.blocks
+        )
         assert reply.metadata["artifacts"][0]["url"].endswith(
             "/api/threads/thread-1/artifacts/mnt/user-data/outputs/report.md"
         )
         assert reply.content == "已生成 1 个文件，可直接打开查看。"
+        assert "/mnt/user-data/outputs/report.md" not in reply.content
 
     @pytest.mark.asyncio
     async def test_generate_thread_response_propagates_budget_http_errors(self):

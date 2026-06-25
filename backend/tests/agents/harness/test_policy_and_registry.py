@@ -184,6 +184,51 @@ def test_harness_policy_defaults_to_workspace_layout_protected_paths() -> None:
     assert policy.protected_paths == WORKSPACE_PROTECTED_PATHS
 
 
+def test_policy_legacy_max_tool_calls_maps_to_total_budget() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={
+                "sandbox_policy": {"max_tool_calls": 7},
+            },
+        )
+    )
+
+    assert policy.max_total_tool_calls == 7
+    assert policy.max_tool_calls == 7
+    assert policy.max_repeated_identical_tool_calls == 5
+
+
+def test_policy_resolves_explicit_repeated_tool_budget() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={
+                "sandbox_policy": {"max_repeated_identical_tool_calls": 4},
+            },
+        )
+    )
+
+    assert policy.max_total_tool_calls == 30
+    assert policy.max_tool_calls == 30
+    assert policy.max_repeated_identical_tool_calls == 4
+
+
+def test_policy_explicit_total_budget_wins_over_legacy_max_tool_calls() -> None:
+    policy = resolve_harness_policy(
+        _ctx(
+            capability_policy={
+                "sandbox_policy": {
+                    "max_total_tool_calls": 11,
+                    "max_tool_calls": 3,
+                },
+            },
+        )
+    )
+
+    assert policy.max_total_tool_calls == 11
+    assert policy.max_tool_calls == 11
+    assert policy.max_repeated_identical_tool_calls == 5
+
+
 def test_registry_rejects_duplicate_tool_names() -> None:
     read_spec = HarnessToolSpec(
         name="sandbox.read_file",

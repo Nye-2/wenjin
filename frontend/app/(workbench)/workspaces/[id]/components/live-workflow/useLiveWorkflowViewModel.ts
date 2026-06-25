@@ -1,25 +1,17 @@
 import { useMemo } from "react";
 
 import type { ExecutionRecord, WorkspacePrismReviewItem } from "@/lib/api/types";
-import {
-  buildWorkspaceResultPreviewsFromOutputs,
-  buildWorkspaceResultPreviewsFromReviewPacket,
-  buildWorkspaceResultPreviewsFromReviewItems,
-} from "@/lib/workspace-result-preview";
+import { runViewFromExecution } from "@/lib/execution-run-view";
+import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import type { WorkspaceResultPreview } from "@/lib/workspace-result-preview";
 import {
   applyDraftEditsToOutputs,
-  extractTaskReport,
   extractTaskOutputs,
 } from "@/lib/workbench-result-editing";
 import type { WorkbenchDraftEdit, WorkbenchTab } from "@/stores/workbench-layout-store";
 
 import type { EvidenceItem } from "./types";
-import {
-  buildEvidenceItems,
-  isTerminalStatus,
-  readReviewItems,
-} from "./utils";
+import { isTerminalStatus } from "./utils";
 
 export interface LiveWorkflowViewModelInput {
   records: ExecutionRecord[];
@@ -134,6 +126,26 @@ export function resolveAutoWorkbenchTab({
   return "overview";
 }
 
+function mergeEditedOutputPreviews(
+  canonicalPreviews: WorkspaceResultPreview[],
+  editedOutputPreviews: WorkspaceResultPreview[],
+  draftEdits: Record<string, WorkbenchDraftEdit>,
+): WorkspaceResultPreview[] {
+  const editedIds = new Set(Object.keys(draftEdits));
+  if (editedIds.size === 0) {
+    return canonicalPreviews;
+  }
+  const editedById = new Map(
+    editedOutputPreviews.map((preview) => [preview.id, preview]),
+  );
+  return canonicalPreviews.map((preview) => {
+    if (preview.source !== "staged_output" || !editedIds.has(preview.id)) {
+      return preview;
+    }
+    return editedById.get(preview.id) ?? preview;
+  });
+}
+
 export function buildLiveWorkflowViewModel(
   input: LiveWorkflowViewModelInput,
 ): LiveWorkflowViewModel {
@@ -148,17 +160,17 @@ export function buildLiveWorkflowViewModel(
     focusedRunId: input.focusedRunId,
     activeRunId: input.activeRunId,
   });
+  const runView = selectedRecord ? runViewFromExecution(selectedRecord) : null;
   const baseOutputs = extractTaskOutputs(selectedRecord?.result);
   const editedOutputs = applyDraftEditsToOutputs(baseOutputs, input.draftEdits);
-  const taskReport = extractTaskReport(selectedRecord?.result);
-  const reviewItems = readReviewItems(selectedRecord);
-  const outputPreviews = buildWorkspaceResultPreviewsFromOutputs(editedOutputs);
-  const packetPreviews = buildWorkspaceResultPreviewsFromReviewPacket(
-    taskReport?.review_packet,
+  const editedOutputPreviews = buildWorkspaceResultPreviewsFromOutputs(editedOutputs);
+  const previews = mergeEditedOutputPreviews(
+    runView?.resultPreviews ?? [],
+    editedOutputPreviews,
+    input.draftEdits,
   );
-  const reviewPreviews = buildWorkspaceResultPreviewsFromReviewItems(reviewItems);
-  const previews = [...outputPreviews, ...packetPreviews, ...reviewPreviews];
-  const evidenceItems = buildEvidenceItems(selectedRecord, previews);
+  const reviewItems = runView?.reviewItems ?? [];
+  const evidenceItems = runView?.evidenceItems ?? [];
   const outputSignature = baseOutputs
     .map((output) => `${output.id}:${output.default_checked !== false}`)
     .join("|");
@@ -169,11 +181,8 @@ export function buildLiveWorkflowViewModel(
   const runningRecord = selectedRecord && !isTerminalStatus(selectedRecord.status)
     ? selectedRecord
     : records.find((record) => !isTerminalStatus(record.status)) ?? null;
-  const pendingReviewCount =
-    outputPreviews.length + packetPreviews.length + reviewItems.length;
-  const sandboxCount = evidenceItems.filter(
-    (item) => item.kind === "sandbox" || item.summary.includes("sandbox"),
-  ).length;
+  const pendingReviewCount = runView?.pendingReviewCount ?? 0;
+  const sandboxCount = runView?.sandboxCount ?? 0;
 
   return {
     records,

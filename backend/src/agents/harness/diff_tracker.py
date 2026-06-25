@@ -9,11 +9,13 @@ from typing import Any
 from src.sandbox.workspace_layout import (
     is_user_reviewable_workspace_artifact_path,
     is_workspace_readable_internal_output_ref,
+    normalize_workspace_virtual_path,
 )
 
 FILE_CHANGE_SUMMARY_SCHEMA = "wenjin.harness.file_change_summary.v1"
 TOOL_FAILURE_SUMMARY_SCHEMA = "wenjin.harness.tool_failure_summary.v1"
 SANDBOX_EXECUTION_SUMMARY_SCHEMA = "wenjin.harness.sandbox_execution_summary.v1"
+OUTPUT_REF_SUMMARY_SCHEMA = "wenjin.harness.output_ref_summary.v1"
 REPLAN_SIGNAL_SCHEMA = "wenjin.harness.replan_signal.v1"
 RUN_JOURNAL_SUMMARY_SCHEMA = "wenjin.harness.run_journal_summary.v1"
 REPRODUCIBILITY_SUMMARY_SCHEMA = "wenjin.harness.reproducibility_summary.v1"
@@ -113,6 +115,9 @@ def build_harness_node_metadata_from_tool_calls(
     sandbox_execution_summary = build_sandbox_execution_summary_from_tool_calls(tool_calls)
     if sandbox_execution_summary is not None:
         harness["sandbox_execution_summary"] = sandbox_execution_summary
+    output_ref_summary = build_output_ref_summary_from_tool_calls(tool_calls)
+    if output_ref_summary:
+        harness["output_ref_summary"] = output_ref_summary
     reproducibility_summary = build_reproducibility_summary_from_tool_calls(tool_calls)
     if reproducibility_summary is not None:
         harness["reproducibility_summary"] = reproducibility_summary
@@ -304,6 +309,22 @@ def build_tool_failure_summary_from_tool_calls(
         "failed_tools": failed_tools,
         "recoverable_error_codes": recoverable_error_codes,
         "failures": failures,
+    }
+
+
+def build_output_ref_summary_from_tool_calls(tool_calls: Any) -> dict[str, Any]:
+    refs: list[str] = []
+    for tool_call in _tool_call_dicts(tool_calls):
+        metadata = tool_call.get("metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        for value in (*_list_value(tool_call.get("output_refs")), *_list_value(metadata.get("output_refs"))):
+            _append_safe_output_ref(refs, str(value or ""))
+    if not refs:
+        return {}
+    return {
+        "schema": OUTPUT_REF_SUMMARY_SCHEMA,
+        "output_ref_count": len(refs),
+        "output_refs": refs[:20],
     }
 
 
@@ -773,7 +794,9 @@ def _compact_diff(change: dict[str, Any]) -> dict[str, Any]:
     }
     output_refs = change.get("diff_output_refs")
     if isinstance(output_refs, list):
-        refs = [str(ref) for ref in output_refs if str(ref).strip()]
+        refs: list[str] = []
+        for ref in output_refs:
+            _append_safe_output_ref(refs, str(ref or ""))
         if refs:
             diff["diff_output_refs"] = refs
     for key in ("diff_externalized", "diff_truncated"):
@@ -818,9 +841,20 @@ def _append_safe_scratch_ref(values: list[str], value: str) -> None:
 
 
 def _append_safe_output_ref(values: list[str], value: str) -> None:
-    text = str(value or "").strip()
-    if is_workspace_readable_internal_output_ref(text):
+    text = _normalized_safe_output_ref(value)
+    if text:
         _append_unique(values, text)
+
+
+def _normalized_safe_output_ref(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        normalized = normalize_workspace_virtual_path(text)
+    except ValueError:
+        return ""
+    return normalized if is_workspace_readable_internal_output_ref(normalized) else ""
 
 
 def _reviewable_artifact_count(value: Any) -> int:
@@ -897,6 +931,12 @@ def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, dict)]
+
+
+def _tool_call_dicts(tool_calls: Any) -> list[dict[str, Any]]:
+    if not isinstance(tool_calls, list):
+        return []
+    return [item for item in tool_calls if isinstance(item, dict)]
 
 
 def _list_value(value: Any) -> list[Any]:

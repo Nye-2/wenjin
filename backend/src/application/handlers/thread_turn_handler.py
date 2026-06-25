@@ -46,7 +46,6 @@ from src.services.thread_billing import (
 from src.services.thread_events import publish_thread_updated, set_thread_status
 from src.tools.builtins.artifacts import (
     build_presented_artifact_items,
-    build_presented_artifacts_block,
 )
 
 logger = logging.getLogger(__name__)
@@ -264,6 +263,7 @@ def build_thread_runtime_config(
     effective_skill: str | None,
     effective_model: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
 ) -> RunnableConfig:
     configurable: dict[str, Any] = {
         "thread_id": thread.id,
@@ -275,6 +275,11 @@ def build_thread_runtime_config(
         "thinking_enabled": request.thinking_enabled,
         "reasoning_effort": request.reasoning_effort,
     }
+    if user_message_id:
+        configurable["user_message_id"] = user_message_id
+        configurable["launch_idempotency_key"] = (
+            f"launch_feature:{thread.id}:{user_message_id}"
+        )
     launch_feature_params = _extract_launch_feature_params_from_metadata(request.metadata)
     if launch_feature_params:
         configurable["launch_feature_params"] = launch_feature_params
@@ -453,6 +458,8 @@ def _extract_reasoning_text_from_payload(payload: Any) -> str:
                 return detail_text
 
         nested_content = payload.get("content")
+        if isinstance(nested_content, str) and nested_content.strip():
+            return nested_content.strip()
         if isinstance(nested_content, list):
             nested_text = "\n".join(
                 text
@@ -468,7 +475,7 @@ def _extract_reasoning_text_from_payload(payload: Any) -> str:
 
 
 def _extract_reasoning_text_from_block(block: Mapping[str, Any]) -> str:
-    block_type = str(block.get("type") or "").lower()
+    block_type = str(block.get("type") or block.get("kind") or "").lower()
     if block_type not in {"reasoning", "thinking", "reasoning_content"}:
         return ""
     return _extract_reasoning_text_from_payload(block)
@@ -537,19 +544,26 @@ def _extract_reasoning_text(message: Any) -> str:
     return ""
 
 
-def _build_reasoning_block(reasoning_text: str) -> dict[str, Any]:
-    return {
-        "type": "reasoning",
-        "title": "思考过程",
-        "data": {"text": reasoning_text},
-    }
+def _build_thinking_block(reasoning_text: str) -> dict[str, Any]:
+    return {"kind": "thinking", "text": reasoning_text}
+
+
+def _is_thinking_block(block: Mapping[str, Any]) -> bool:
+    block_kind = str(block.get("kind") or block.get("type") or "").strip().lower()
+    return block_kind in {"thinking", "reasoning", "reasoning_content"}
 
 
 def _reply_reasoning_text(reply: GeneratedThreadReply) -> str:
     blocks = reply.blocks if isinstance(reply.blocks, list) else []
     for block in blocks:
-        if not isinstance(block, Mapping) or block.get("type") != "reasoning":
+        if not isinstance(block, Mapping) or not _is_thinking_block(block):
             continue
+        text = block.get("text")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+        content = block.get("content")
+        if isinstance(content, str) and content.strip():
+            return content.strip()
         data = block.get("data")
         if isinstance(data, Mapping):
             text = data.get("text")
@@ -564,6 +578,269 @@ def _reply_reasoning_text(reply: GeneratedThreadReply) -> str:
             return text.strip()
 
     return ""
+
+
+_CANONICAL_RESPONSE_BLOCK_KINDS = {
+    "text",
+    "thinking",
+    "status_line",
+    "question_card",
+    "result_card",
+    "tool_invocation",
+    "tool_result",
+}
+_RESPONSE_BLOCK_KIND_ALIASES = {
+    "reasoning": "thinking",
+    "reasoning_content": "thinking",
+    "thought": "thinking",
+    "warning": "status_line",
+    "tool": "tool_invocation",
+    "tool_call": "tool_invocation",
+    "tool_use": "tool_invocation",
+}
+
+
+def _string_value(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _is_safe_visible_block_text(value: str) -> bool:
+    lowered = value.lower()
+    unsafe_markers = (
+        "/mnt/user-data",
+        "/workspace/",
+        "/private/",
+        "output_ref",
+        "storage_path",
+    )
+    return not any(marker in lowered for marker in unsafe_markers)
+
+
+def _safe_visible_string(value: Any) -> str | None:
+    text = _string_value(value)
+    if text and _is_safe_visible_block_text(text):
+        return text
+    return None
+
+
+def _block_data_payload(block: Mapping[str, Any]) -> Mapping[str, Any]:
+    data = block.get("data")
+    if isinstance(data, Mapping):
+        return data
+    return {}
+
+
+def _visible_block_text(block: Mapping[str, Any]) -> str:
+    data = _block_data_payload(block)
+    content = block.get("content")
+    content_payload = content if isinstance(content, Mapping) else {}
+    title = (
+        _safe_visible_string(block.get("title"))
+        or _safe_visible_string(block.get("label"))
+        or _safe_visible_string(block.get("name"))
+    )
+    detail = (
+        _safe_visible_string(block.get("detail"))
+        or _safe_visible_string(block.get("message"))
+        or _safe_visible_string(block.get("summary"))
+        or _safe_visible_string(data.get("detail"))
+        or _safe_visible_string(data.get("message"))
+        or _safe_visible_string(data.get("summary"))
+        or _safe_visible_string(data.get("text"))
+        or _safe_visible_string(data.get("content"))
+        or _safe_visible_string(content_payload.get("detail"))
+        or _safe_visible_string(content_payload.get("message"))
+        or _safe_visible_string(content_payload.get("summary"))
+        or _safe_visible_string(content_payload.get("text"))
+        or _safe_visible_string(content_payload.get("content"))
+        or _safe_visible_string(block.get("content"))
+        or _safe_visible_string(block.get("text"))
+    )
+    if title and detail and title != detail:
+        return f"{title}：{detail}"
+    return title or detail or ""
+
+
+def _fallback_block_text(block: Mapping[str, Any]) -> str:
+    visible = _visible_block_text(block)
+    if visible:
+        return visible
+    return "Unsupported message block"
+
+
+def _response_block_raw_kind(block: Mapping[str, Any]) -> str:
+    return str(block.get("kind") or block.get("type") or "").strip().lower()
+
+
+def _extract_tool_name_from_block(payload: Mapping[str, Any]) -> str | None:
+    for key in ("tool", "tool_name", "name", "function_name"):
+        value = _string_value(payload.get(key))
+        if value:
+            return value
+    function = payload.get("function")
+    if isinstance(function, Mapping):
+        return _string_value(function.get("name"))
+    return None
+
+
+def _extract_tool_input_from_block(payload: Mapping[str, Any]) -> dict[str, Any]:
+    for key in ("input", "args", "arguments", "parameters"):
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            return dict(value)
+    return {}
+
+
+def _extract_tool_call_id_from_block(payload: Mapping[str, Any]) -> str | None:
+    for key in ("tool_call_id", "invocation_id", "call_id", "id"):
+        value = _string_value(payload.get(key))
+        if value:
+            return value
+    return None
+
+
+def _extract_tool_output_from_block(
+    raw: Mapping[str, Any],
+    source: Mapping[str, Any],
+) -> dict[str, Any]:
+    for payload in (raw, source):
+        for key in ("output", "result"):
+            value = payload.get(key)
+            if isinstance(value, Mapping):
+                return dict(value)
+            if value is not None:
+                return {"value": value}
+    data = raw.get("data")
+    if isinstance(data, Mapping):
+        return dict(data)
+    omitted = {"kind", "type", "output", "result", "data"}
+    return {
+        str(key): value
+        for key, value in source.items()
+        if isinstance(key, str) and key not in omitted
+    }
+
+
+def _normalize_tool_invocation_response_block(
+    block: Mapping[str, Any],
+) -> dict[str, Any]:
+    source = _block_data_payload(block) or block
+    normalized: dict[str, Any] = {
+        "kind": "tool_invocation",
+        "tool": (
+            _extract_tool_name_from_block(source)
+            or _extract_tool_name_from_block(block)
+            or "unknown"
+        ),
+        "input": _extract_tool_input_from_block(source),
+    }
+    tool_call_id = (
+        _extract_tool_call_id_from_block(source)
+        or _extract_tool_call_id_from_block(block)
+    )
+    if tool_call_id:
+        normalized["tool_call_id"] = tool_call_id
+    return normalized
+
+
+def _normalize_tool_result_response_block(
+    block: Mapping[str, Any],
+) -> dict[str, Any]:
+    source = _block_data_payload(block) or block
+    output = _extract_tool_output_from_block(block, source)
+    normalized: dict[str, Any] = {
+        "kind": "tool_result",
+        "tool": (
+            _extract_tool_name_from_block(source)
+            or _extract_tool_name_from_block(block)
+            or "unknown"
+        ),
+        "output": output,
+    }
+    status = source.get("status", block.get("status"))
+    if status is not None:
+        normalized["status"] = str(status)
+    tool_call_id = (
+        _extract_tool_call_id_from_block(source)
+        or _extract_tool_call_id_from_block(block)
+    )
+    if tool_call_id:
+        normalized["tool_call_id"] = tool_call_id
+    for key in ("execution_id", "feature_id"):
+        value = source.get(key, block.get(key, output.get(key)))
+        if isinstance(value, str) and value.strip():
+            normalized[key] = value.strip()
+    return normalized
+
+
+def _normalize_status_line_response_block(
+    block: Mapping[str, Any],
+    *,
+    raw_kind: str,
+) -> dict[str, Any]:
+    tone = block.get("tone")
+    normalized_tone = (
+        tone
+        if tone in {"info", "warn", "error"}
+        else "warn"
+        if raw_kind == "warning"
+        else "info"
+    )
+    normalized: dict[str, Any] = {
+        "kind": "status_line",
+        "label": _string_value(block.get("label"))
+        or _visible_block_text(block)
+        or "Status update",
+        "run_id": _string_value(block.get("run_id"))
+        or ("warning-status" if raw_kind == "warning" else "status-line"),
+        "tone": normalized_tone,
+    }
+    phase_index = block.get("phase_index")
+    if isinstance(phase_index, int):
+        normalized["phase_index"] = phase_index
+    return normalized
+
+
+def _normalize_response_block(block: Mapping[str, Any]) -> dict[str, Any] | None:
+    raw_kind = _response_block_raw_kind(block)
+    kind = _RESPONSE_BLOCK_KIND_ALIASES.get(raw_kind, raw_kind)
+    if kind == "artifacts":
+        return None
+
+    if kind == "thinking":
+        return {
+            "kind": "thinking",
+            "text": _extract_reasoning_text_from_payload(block)
+            or _fallback_block_text(block),
+        }
+
+    if kind == "text":
+        content = block.get("content")
+        if isinstance(content, str):
+            return {"kind": "text", "content": content}
+        text = block.get("text")
+        if isinstance(text, str):
+            return {"kind": "text", "content": text}
+        return {"kind": "text", "content": _fallback_block_text(block)}
+
+    if kind == "status_line":
+        return _normalize_status_line_response_block(block, raw_kind=raw_kind)
+
+    if kind == "tool_invocation":
+        return _normalize_tool_invocation_response_block(block)
+
+    if kind == "tool_result":
+        return _normalize_tool_result_response_block(block)
+
+    if kind in _CANONICAL_RESPONSE_BLOCK_KINDS:
+        normalized = dict(block)
+        normalized["kind"] = kind
+        normalized.pop("type", None)
+        return normalized
+
+    return {"kind": "text", "content": _fallback_block_text(block)}
 
 
 def _attach_usage_metadata(
@@ -689,12 +966,10 @@ def _build_unbacked_launch_receipt_guard_reply() -> GeneratedThreadReply:
         ),
         blocks=[
             {
-                "type": "warning",
-                "title": "能力未启动",
-                "data": {
-                    "code": "unbacked_launch_receipt",
-                    "detail": "Agent 文本声称已启动能力，但消息链中没有 launch_feature 工具调用结果。",
-                },
+                "kind": "status_line",
+                "label": "能力未启动：缺少真实 launch_feature 工具结果",
+                "run_id": "unbacked_launch_receipt",
+                "tone": "warn",
             }
         ],
         metadata={"guard": "unbacked_launch_receipt"},
@@ -713,16 +988,17 @@ def _reply_from_agent_result(
         content = _coerce_message_content(getattr(messages[-1], "content", ""))
         reasoning_text = _extract_reasoning_text(messages[-1])
 
-    blocks = [
-        block
+    response_blocks = [
+        normalized
         for block in (result.get("response_blocks") or [])
-        if isinstance(block, dict)
+        if isinstance(block, Mapping)
+        if (normalized := _normalize_response_block(block)) is not None
     ]
     launch_blocks = _extract_launch_feature_blocks(messages)
-    if launch_blocks:
-        blocks = [*launch_blocks, *blocks]
-    elif _looks_like_unbacked_launch_receipt(content):
+    if not launch_blocks and _looks_like_unbacked_launch_receipt(content):
         return _build_unbacked_launch_receipt_guard_reply()
+
+    blocks: list[dict[str, Any]] = [*launch_blocks]
     raw_response_metadata = result.get("response_metadata")
     metadata = (
         dict(raw_response_metadata)
@@ -732,10 +1008,12 @@ def _reply_from_agent_result(
     if reasoning_text:
         metadata["reasoning"] = {"text": reasoning_text}
         if not any(
-            isinstance(block, dict) and block.get("type") == "reasoning"
-            for block in blocks
+            isinstance(block, dict) and _is_thinking_block(block)
+            for block in [*blocks, *response_blocks]
         ):
-            blocks.insert(0, _build_reasoning_block(reasoning_text))
+            blocks.append(_build_thinking_block(reasoning_text))
+
+    blocks.extend(response_blocks)
 
     artifacts = [
         artifact
@@ -749,11 +1027,6 @@ def _reply_from_agent_result(
         )
         if artifact_items and not isinstance(metadata.get("artifacts"), list):
             metadata["artifacts"] = artifact_items
-        if artifact_items and not any(
-            isinstance(block, dict) and block.get("type") == "artifacts"
-            for block in blocks
-        ):
-            blocks.append(build_presented_artifacts_block(artifact_items))
         if not content:
             count = len(artifact_items)
             content = f"已生成 {count} 个文件，可直接打开查看。"
@@ -804,12 +1077,14 @@ def _extract_launch_feature_invocations(message: Any) -> list[dict[str, Any]]:
         if name != "launch_feature":
             continue
         args = call.get("args")
-        invocations.append(
-            {
-                "tool": name,
-                "args": dict(args) if isinstance(args, Mapping) else {},
-            }
-        )
+        invocation = {
+            "tool": name,
+            "input": dict(args) if isinstance(args, Mapping) else {},
+        }
+        tool_call_id = call.get("id") or call.get("tool_call_id") or call.get("call_id")
+        if isinstance(tool_call_id, str) and tool_call_id.strip():
+            invocation["tool_call_id"] = tool_call_id.strip()
+        invocations.append(invocation)
     return invocations
 
 
@@ -821,7 +1096,23 @@ def _extract_launch_feature_result(message: Any) -> dict[str, Any] | None:
         return None
     if not payload.get("status") or not payload.get("feature_id"):
         return None
-    return payload
+    result: dict[str, Any] = {
+        "tool": "launch_feature",
+        "output": payload,
+    }
+    status = payload.get("status")
+    if status is not None:
+        result["status"] = str(status)
+    execution_id = payload.get("execution_id")
+    if isinstance(execution_id, str) and execution_id.strip():
+        result["execution_id"] = execution_id.strip()
+    feature_id = payload.get("feature_id")
+    if isinstance(feature_id, str) and feature_id.strip():
+        result["feature_id"] = feature_id.strip()
+    tool_call_id = getattr(message, "tool_call_id", None)
+    if isinstance(tool_call_id, str) and tool_call_id.strip():
+        result["tool_call_id"] = tool_call_id.strip()
+    return result
 
 
 def _extract_launch_feature_blocks(messages: list[Any]) -> list[dict[str, Any]]:
@@ -830,7 +1121,7 @@ def _extract_launch_feature_blocks(messages: list[Any]) -> list[dict[str, Any]]:
 
     for message in messages:
         for invocation in _extract_launch_feature_invocations(message):
-            blocks.append({"kind": "tool_invocation", "data": invocation})
+            blocks.append({"kind": "tool_invocation", **invocation})
 
         result = _extract_launch_feature_result(message)
         if result is None:
@@ -842,7 +1133,7 @@ def _extract_launch_feature_blocks(messages: list[Any]) -> list[dict[str, Any]]:
         if result_key in seen_results:
             continue
         seen_results.add(result_key)
-        blocks.append({"kind": "tool_result", "data": result})
+        blocks.append({"kind": "tool_result", **result})
 
     return blocks
 
@@ -1152,10 +1443,11 @@ class ThreadTurnHandler:
                     execution_id=prepared.request.metadata.get("orchestration", {}).get("execution_id")
                     if isinstance(prepared.request.metadata, dict)
                     else None,
+                    user_message_id=prepared.user_message_id,
                     conversation_messages=conversation_messages,
                 )
                 async for delta in reply_stream:
-                    if delta.text:
+                    if delta.text or delta.data is not None:
                         yield delta
                 reply = await reply_stream.wait_reply()
                 completed = await self._finalize_generated_reply(
@@ -1422,6 +1714,7 @@ class ThreadTurnHandler:
             execution_id=prepared.request.metadata.get("orchestration", {}).get("execution_id")
             if isinstance(prepared.request.metadata, dict)
             else None,
+            user_message_id=prepared.user_message_id,
         )
 
     async def _generate_thread_response(
@@ -1431,6 +1724,7 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
         execution_id: str | None = None,
+        user_message_id: str | None = None,
     ) -> GeneratedThreadReply:
         await self._maybe_compact_thread_history(thread)
         conversation_messages = await self.thread_service.list_thread_messages(thread)
@@ -1439,6 +1733,7 @@ class ThreadTurnHandler:
             thread,
             actor_id=actor_id,
             execution_id=execution_id,
+            user_message_id=user_message_id,
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
@@ -1454,6 +1749,7 @@ class ThreadTurnHandler:
         *,
         actor_id: str,
         execution_id: str | None = None,
+        user_message_id: str | None = None,
         conversation_messages: list[dict[str, Any]] | None = None,
     ) -> _ReplyStreamRun:
         return stream_thread_response(
@@ -1461,6 +1757,7 @@ class ThreadTurnHandler:
             thread,
             actor_id=actor_id,
             execution_id=execution_id,
+            user_message_id=user_message_id,
             workspace_service=self.workspace_service,
             index_service=self.index_service,
             artifact_service=self.artifact_service,
@@ -1487,6 +1784,7 @@ def _build_thread_agent_runtime(
     *,
     actor_id: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1510,6 +1808,7 @@ def _build_thread_agent_runtime(
         effective_skill=effective_skill,
         effective_model=effective_model,
         execution_id=execution_id,
+        user_message_id=user_message_id,
     )
     initial_state = build_thread_initial_state(
         thread,
@@ -1543,6 +1842,7 @@ async def generate_thread_response(
     *,
     actor_id: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1563,6 +1863,7 @@ async def generate_thread_response(
         thread,
         actor_id=actor_id,
         execution_id=execution_id,
+        user_message_id=user_message_id,
         workspace_service=workspace_service,
         index_service=index_service,
         artifact_service=artifact_service,
@@ -1610,6 +1911,7 @@ def stream_thread_response(
     *,
     actor_id: str,
     execution_id: str | None = None,
+    user_message_id: str | None = None,
     workspace_service: WorkspaceService | None = None,
     index_service: Any | None = None,
     artifact_service: ArtifactService | None = None,
@@ -1634,6 +1936,7 @@ def stream_thread_response(
                 thread,
                 actor_id=actor_id,
                 execution_id=execution_id,
+                user_message_id=user_message_id,
                 workspace_service=workspace_service,
                 index_service=index_service,
                 artifact_service=artifact_service,
@@ -1750,9 +2053,12 @@ def stream_thread_response(
                         continue
                     kind = block.get("kind")
                     if kind in {"tool_invocation", "tool_result"}:
-                        data = block.get("data")
-                        if isinstance(data, Mapping):
-                            yield ThreadStreamDelta(kind=kind, data=dict(data))
+                        data = {
+                            str(key): value
+                            for key, value in block.items()
+                            if key != "kind"
+                        }
+                        yield ThreadStreamDelta(kind=kind, data=data)
                 reasoning_text = _reply_reasoning_text(reply)
                 if reasoning_text:
                     yield ThreadStreamDelta(kind="reasoning", text=reasoning_text)

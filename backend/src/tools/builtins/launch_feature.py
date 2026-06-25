@@ -60,6 +60,79 @@ def _read_optional(config: RunnableConfig | None, key: str) -> str | None:
     return value or None
 
 
+def _launch_idempotency_key(config: RunnableConfig | None) -> str | None:
+    key = _read_optional(config, "launch_idempotency_key")
+    if key:
+        return key
+    thread_id = _read_optional(config, "thread_id")
+    user_message_id = _read_optional(config, "user_message_id")
+    if thread_id and user_message_id:
+        return f"launch_feature:{thread_id}:{user_message_id}"
+    return None
+
+
+def _capability_routing(capability: Any) -> Mapping[str, Any] | None:
+    routing = getattr(capability, "routing", None)
+    if isinstance(routing, Mapping) and routing:
+        return routing
+
+    definition = getattr(capability, "definition_json", None)
+    if isinstance(definition, Mapping):
+        nested_routing = definition.get("routing")
+        if isinstance(nested_routing, Mapping) and nested_routing:
+            return nested_routing
+
+    if isinstance(capability, Mapping):
+        mapping_routing = capability.get("routing")
+        if isinstance(mapping_routing, Mapping) and mapping_routing:
+            return mapping_routing
+        mapping_definition = capability.get("definition_json")
+        if isinstance(mapping_definition, Mapping):
+            nested_routing = mapping_definition.get("routing")
+            if isinstance(nested_routing, Mapping) and nested_routing:
+                return nested_routing
+
+    if isinstance(routing, Mapping):
+        return routing
+    if isinstance(capability, Mapping):
+        mapping_routing = capability.get("routing")
+        if isinstance(mapping_routing, Mapping):
+            return mapping_routing
+    return None
+
+
+def _missing_context_clarification_prompt(
+    capability: Any,
+    *,
+    missing_fields: list[str],
+    minimum_context: Mapping[str, Any] | None,
+) -> str | None:
+    routing = _capability_routing(capability)
+    if not routing:
+        return None
+
+    clarification = routing.get("clarification")
+    if not isinstance(clarification, Mapping):
+        return None
+
+    raw = clarification.get("ask_when_missing")
+    if isinstance(raw, str):
+        return raw.strip() or None
+    if not isinstance(raw, Mapping):
+        return None
+
+    candidate_fields = list(missing_fields)
+    if minimum_context:
+        for field, requirement in minimum_context.items():
+            if str(requirement).strip().lower() == "required":
+                candidate_fields.append(str(field).strip())
+    for field in candidate_fields:
+        prompt = str(raw.get(field) or "").strip()
+        if prompt:
+            return prompt
+    return None
+
+
 def _read_optional_mapping(config: RunnableConfig | None, key: str) -> dict[str, Any]:
     configurable = (config or {}).get("configurable") if isinstance(config, Mapping) else None
     if not isinstance(configurable, Mapping):
@@ -158,7 +231,52 @@ async def launch_feature_tool(
                 ),
             }
 
+        minimum_context = extract_capability_minimum_context(cap)
+        missing_fields = resolve_missing_context_fields(
+            feature_id=feature_id,
+            params=merged_params,
+            launch_source="tool",
+            minimum_context=minimum_context,
+        )
+        if missing_fields:
+            clarification_prompt = _missing_context_clarification_prompt(
+                cap,
+                missing_fields=missing_fields,
+                minimum_context=minimum_context,
+            )
+            advisory = build_missing_context_advisory(
+                feature_id=feature_id,
+                missing_fields=missing_fields,
+                feature_name=getattr(cap, "display_name", None),
+                clarification_prompt=clarification_prompt,
+            )
+            return {
+                "status": "advisory",
+                "code": advisory.code,
+                "feature_id": feature_id,
+                "detail": advisory.message,
+                "context": advisory.context or {},
+            }
+
         execution_service = ExecutionService(dataservice=catalog)
+
+        launch_idempotency_key = _launch_idempotency_key(config)
+        if launch_idempotency_key:
+            existing = await execution_service.find_execution_by_launch_idempotency_key(
+                workspace_id=workspace_id,
+                thread_id=thread_id,
+                user_id=user_id,
+                feature_id=feature_id,
+                launch_idempotency_key=launch_idempotency_key,
+            )
+            if existing is not None:
+                return {
+                    "status": "launched",
+                    "execution_id": str(existing.id),
+                    "feature_id": feature_id,
+                    "capability_name": getattr(cap, "display_name", None),
+                    "detail": "该能力已在当前消息中启动，继续使用同一个执行。",
+                }
 
         # Lead-busy check
         all_active = await execution_service.list_executions(
@@ -202,31 +320,16 @@ async def launch_feature_tool(
                 "detail": "后台执行服务未启用，请联系管理员。",
             }
 
-        missing_fields = resolve_missing_context_fields(
-            feature_id=feature_id,
-            params=merged_params,
-            launch_source="tool",
-            minimum_context=extract_capability_minimum_context(cap),
-        )
-        if missing_fields:
-            advisory = build_missing_context_advisory(
-                feature_id=feature_id,
-                missing_fields=missing_fields,
-                feature_name=getattr(cap, "display_name", None),
-            )
-            return {
-                "status": "advisory",
-                "code": advisory.code,
-                "feature_id": feature_id,
-                "detail": advisory.message,
-                "context": advisory.context or {},
-            }
-
         execution_params = build_execution_launch_params(
             feature_id=feature_id,
             params=merged_params,
             workspace_id=workspace_id,
         )
+        if launch_idempotency_key:
+            execution_params["launch_idempotency_key"] = launch_idempotency_key
+            execution_params.setdefault("orchestration", {})[
+                "launch_idempotency_key"
+            ] = launch_idempotency_key
 
         try:
             execution = None

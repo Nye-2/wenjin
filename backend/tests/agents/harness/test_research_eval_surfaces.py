@@ -34,6 +34,8 @@ def test_required_surfaces_from_capability_policy_reads_research_evidence_contra
 def test_required_surfaces_from_capability_policy_uses_default_when_contract_missing() -> None:
     assert required_surfaces_from_capability_policy({}) == (
         "literature",
+        "citation_strength",
+        "paper_relevance",
         "experiment",
         "writing",
     )

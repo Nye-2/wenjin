@@ -28,6 +28,7 @@ export function ReviewView({
   draftEdits,
   checkedIds,
   committed,
+  commitFinalLabel,
   committing,
   commitLinks,
   commitError,
@@ -50,6 +51,7 @@ export function ReviewView({
   draftEdits: Record<string, WorkbenchDraftEdit>;
   checkedIds: Set<string>;
   committed: boolean;
+  commitFinalLabel?: string;
   committing: boolean;
   commitLinks: CommittedRoomLink[];
   commitError: string | null;
@@ -277,7 +279,7 @@ export function ReviewView({
               acceptAllLabel="全部保存"
               acceptSelectedLabel="保存已勾选"
               discardLabel="暂不保存"
-              committedLabel="已写入工作区"
+              committedLabel={commitFinalLabel ?? "已写入工作区"}
             />
           ) : previews.length > 0 ? (
             <div style={styles.reviewNotice}>

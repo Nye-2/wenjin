@@ -24,7 +24,13 @@ ResearchSurface = Literal[
 ]
 ResearchSurfaceEnforcement = Literal["required_runtime", "required_final", "diagnostic"]
 
-DEFAULT_RESEARCH_SURFACES: tuple[ResearchSurface, ...] = ("literature", "experiment", "writing")
+DEFAULT_RESEARCH_SURFACES: tuple[ResearchSurface, ...] = (
+    "literature",
+    "citation_strength",
+    "paper_relevance",
+    "experiment",
+    "writing",
+)
 KNOWN_RESEARCH_SURFACES = frozenset(str(item) for item in get_args(ResearchSurface))
 KNOWN_RESEARCH_SURFACE_ENFORCEMENT = frozenset(
     str(item) for item in get_args(ResearchSurfaceEnforcement)

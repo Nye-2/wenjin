@@ -8,6 +8,9 @@ from src.agents.chat_agent.blocks import (
     ResultCardBlock,
     StatusLineBlock,
     TextBlock,
+    ThinkingBlock,
+    ToolInvocationBlock,
+    ToolResultBlock,
 )
 
 
@@ -49,17 +52,75 @@ def test_agent_message_discriminated_union_roundtrip():
     raw = {
         "blocks": [
             {"kind": "text", "content": "hi"},
+            {"kind": "thinking", "text": "checking"},
             {
                 "kind": "status_line",
                 "label": "phase 1 done",
                 "run_id": "r1",
                 "tone": "info",
             },
+            {
+                "kind": "tool_invocation",
+                "tool": "launch_feature",
+                "input": {"feature_id": "outline"},
+                "tool_call_id": "call-1",
+            },
+            {
+                "kind": "tool_result",
+                "tool": "launch_feature",
+                "status": "launched",
+                "output": {"execution_id": "exec-1", "feature_id": "outline"},
+                "execution_id": "exec-1",
+                "feature_id": "outline",
+                "tool_call_id": "call-1",
+            },
         ]
     }
     parsed = AgentMessage.model_validate(raw)
-    assert len(parsed.blocks) == 2
+    assert len(parsed.blocks) == 5
     assert parsed.blocks[0].kind == "text"
-    assert parsed.blocks[1].kind == "status_line"
+    assert parsed.blocks[1].kind == "thinking"
+    assert parsed.blocks[2].kind == "status_line"
+    assert parsed.blocks[3].kind == "tool_invocation"
+    assert parsed.blocks[4].kind == "tool_result"
     # roundtrip
     assert parsed.model_dump()["blocks"] == raw["blocks"]
+
+
+def test_thinking_block_minimal():
+    b = ThinkingBlock(text="step 1")
+    assert b.kind == "thinking"
+
+
+def test_tool_invocation_uses_top_level_input():
+    b = ToolInvocationBlock(
+        tool="launch_feature",
+        input={"feature_id": "outline"},
+        tool_call_id="call-1",
+    )
+    assert b.model_dump(exclude_none=True) == {
+        "kind": "tool_invocation",
+        "tool": "launch_feature",
+        "input": {"feature_id": "outline"},
+        "tool_call_id": "call-1",
+    }
+
+
+def test_tool_result_uses_top_level_output_and_refs():
+    b = ToolResultBlock(
+        tool="launch_feature",
+        status="launched",
+        output={"execution_id": "exec-1", "feature_id": "outline"},
+        execution_id="exec-1",
+        feature_id="outline",
+        tool_call_id="call-1",
+    )
+    assert b.model_dump(exclude_none=True) == {
+        "kind": "tool_result",
+        "tool": "launch_feature",
+        "status": "launched",
+        "output": {"execution_id": "exec-1", "feature_id": "outline"},
+        "tool_call_id": "call-1",
+        "execution_id": "exec-1",
+        "feature_id": "outline",
+    }

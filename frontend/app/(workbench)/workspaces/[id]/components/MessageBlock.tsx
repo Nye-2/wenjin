@@ -5,6 +5,7 @@ import type {
   FeedbackPill,
   QuestionCardBlock as AgentQuestionCardBlock,
   ResultCardBlock as AgentResultCardBlock,
+  ToolResultBlock as AgentToolResultBlock,
 } from "@/lib/api/blocks";
 import type { Block, ResultCardData } from "@/stores/chat-store";
 import { PrismReviewList } from "@/components/prism/PrismReviewList";
@@ -345,7 +346,7 @@ function ToolResultBlock({
   data,
   workspaceId,
 }: {
-  data: Extract<Block, { kind: "tool_result" }>["data"];
+  data: Record<string, unknown>;
   workspaceId?: string;
 }) {
   const status = String(data.status || "");
@@ -514,6 +515,17 @@ function toolInvocationLabel(tool: unknown): string {
   return "正在处理请求";
 }
 
+function toolResultDisplayData(block: AgentToolResultBlock): Record<string, unknown> {
+  return {
+    ...block.output,
+    status: block.status ?? block.output.status,
+    execution_id: block.execution_id ?? block.output.execution_id,
+    feature_id: block.feature_id ?? block.output.feature_id,
+    tool_call_id: block.tool_call_id ?? block.output.tool_call_id,
+    tool: block.tool,
+  };
+}
+
 export const MessageBlock = memo(function MessageBlock({
   block,
   workspaceId,
@@ -533,7 +545,7 @@ export const MessageBlock = memo(function MessageBlock({
         </div>
       );
     case "thinking":
-      return <ThinkingBlock content={block.content} />;
+      return <ThinkingBlock content={block.text} />;
     case "status_line":
       return (
         <StatusLineBlock
@@ -554,11 +566,16 @@ export const MessageBlock = memo(function MessageBlock({
             margin: "4px 0",
         }}
       >
-          ⚡ {toolInvocationLabel(block.data.tool)}
+          ⚡ {toolInvocationLabel(block.tool)}
         </div>
       );
     case "tool_result":
-      return <ToolResultBlock data={block.data} workspaceId={workspaceId} />;
+      return (
+        <ToolResultBlock
+          data={toolResultDisplayData(block)}
+          workspaceId={workspaceId}
+        />
+      );
     case "result_card":
       if (isAsyncResultCard(block)) {
         return <ResultCard data={block.data} workspaceId={workspaceId} />;

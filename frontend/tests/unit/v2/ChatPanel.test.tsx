@@ -74,7 +74,7 @@ describe("ChatPanel v2", () => {
     });
     handleEvent({
       type: "chat.assistant.tool_invocation",
-      data: { tool: "launch_feature", args: {} },
+      data: { tool: "launch_feature", input: {} },
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
@@ -109,7 +109,7 @@ describe("ChatPanel v2", () => {
     });
     handleEvent({
       type: "chat.assistant.tool_result",
-      data: { status: "success" },
+      data: { tool: "launch_feature", status: "success", output: {} },
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);
@@ -125,9 +125,12 @@ describe("ChatPanel v2", () => {
     handleEvent({
       type: "chat.assistant.tool_result",
       data: {
+        tool: "launch_feature",
         status: "advisory",
-        code: "lead_busy",
-        detail: "当前任务仍在执行",
+        output: {
+          code: "lead_busy",
+          detail: "当前任务仍在执行",
+        },
       },
     });
 
@@ -464,7 +467,7 @@ describe("ChatPanel v2", () => {
     // Then a tool invocation
     handleEvent({
       type: "chat.assistant.tool_invocation",
-      data: { tool: "search", args: {} },
+      data: { tool: "search", input: {} },
     });
 
     render(<ChatPanel workspaceId="ws-1" data-testid="chat-panel" />);

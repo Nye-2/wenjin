@@ -1079,7 +1079,7 @@ class TestMockLLM:
             capability_policy={
                 "allowed_tools": ["sandbox.read_file"],
                 "permissions": ["filesystem.read"],
-                "sandbox_policy": {"max_tool_calls": 3},
+                "sandbox_policy": {"max_repeated_identical_tool_calls": 3},
             },
             skill=_make_skill(allowed_tools=["sandbox.read_file"]),
         )
@@ -1087,7 +1087,7 @@ class TestMockLLM:
 
         await tool.ainvoke({"path": "/workspace/main.tex"})
         await tool.ainvoke({"path": "/workspace/main.tex"})
-        with pytest.raises(RuntimeError, match="repeated tool call"):
+        with pytest.raises(RuntimeError, match="^tool call stopped by harness loop guard"):
             await tool.ainvoke({"path": "/workspace/main.tex"})
 
         assert tool_records[-1]["status"] == "failed"

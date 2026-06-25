@@ -3,8 +3,23 @@ import type {
   ExecutionNodeState,
   ExecutionRecord,
   ExecutionStatus,
+  WorkspacePrismReviewItem,
 } from "@/lib/api/types";
 import type { RunRecord } from "@/lib/api/v2/runs";
+import {
+  readCommitStateFromResult,
+  type ExecutionCommitState,
+} from "@/lib/execution-commit";
+import {
+  recoverableOutputRefCount,
+  safeRuntimeText,
+} from "@/lib/runtime-payload-safety";
+import {
+  buildWorkspaceResultPreviewsFromOutputs,
+  buildWorkspaceResultPreviewsFromReviewPacket,
+  buildWorkspaceResultPreviewsFromReviewItems,
+  type WorkspaceResultPreview,
+} from "@/lib/workspace-result-preview";
 import type { ResultCardData } from "@/stores/chat-store";
 
 export type RunViewStatus =
@@ -124,6 +139,25 @@ export interface RunViewReviewPacket {
   blockerCount: number;
 }
 
+export type RunViewEvidenceItem =
+  | {
+      id: string;
+      source: "output";
+      title: string;
+      kind: string;
+      summary: string;
+      preview: WorkspaceResultPreview;
+    }
+  | {
+      id: string;
+      source: "node";
+      title: string;
+      kind: string;
+      summary: string;
+      nodeId: string;
+      nodeState: ExecutionNodeState;
+    };
+
 export interface RunViewTeam {
   mode: "team_kernel";
   members: RunViewTeamMember[];
@@ -160,12 +194,18 @@ export interface RunView {
   failedNodeCount?: number;
   tokenUsage?: { input: number; output: number } | null;
   primarySurface?: "prism" | "rooms" | "sandbox" | "none";
+  resultPreviews: WorkspaceResultPreview[];
+  reviewItems: WorkspacePrismReviewItem[];
+  evidenceItems: RunViewEvidenceItem[];
+  pendingReviewCount: number;
   prismReviewCount?: number;
   sandboxReviewCount?: number;
+  sandboxCount: number;
   hasPrismChanges: boolean;
   hasSandboxArtifacts?: boolean;
   failureCategory?: RunFailureCategory | null;
   failureMessage?: string | null;
+  commitState: ExecutionCommitState | null;
   team?: RunViewTeam | null;
   reviewPacket?: RunViewReviewPacket | null;
   qualityHighlights: RunViewQualityHighlight[];
@@ -177,6 +217,35 @@ type TaskReportProjection = Record<string, unknown> & {
   review_items?: unknown[];
   review_packet?: unknown;
 };
+
+const RUN_FAILURE_FALLBACK = "运行问题已记录";
+const CITATION_SOURCE_AUDIT_SCHEMA =
+  "wenjin.quality.citation_source_audit_finding.v1";
+const MAX_CITATION_SOURCE_AUDIT_ITEMS = 8;
+const DIRECT_TASK_REPORT_STATUSES = new Set([
+  "completed",
+  "failed_partial",
+  "failed",
+  "cancelled",
+  "running",
+  "pending",
+  "queued",
+]);
+
+const DIRECT_TASK_REPORT_FIELDS = [
+  "outputs",
+  "review_items",
+  "review_packet",
+  "narrative",
+  "result_summary",
+  "errors",
+  "token_usage",
+  "capability_id",
+  "execution_id",
+  "duration_seconds",
+  "preview_item_id",
+  "cost_estimate",
+];
 
 const TEAM_KERNEL_PROGRESS_ORDER = [
   "team_prepare",
@@ -194,16 +263,31 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
   const taskReport = taskReportFromResult(record.result);
   const reviewPacket = reviewPacketFromTaskReport(taskReport);
   const reviewPacketItems = reviewPacket?.items ?? [];
+  const reviewItems = readReviewItems(record);
+  const outputResultPreviews = buildWorkspaceResultPreviewsFromOutputs(
+    taskReport?.outputs,
+  );
+  const reviewPacketResultPreviews = buildWorkspaceResultPreviewsFromReviewPacket(
+    taskReport?.review_packet,
+  );
+  const reviewResultPreviews =
+    buildWorkspaceResultPreviewsFromReviewItems(reviewItems);
+  const resultPreviews = [
+    ...outputResultPreviews,
+    ...reviewPacketResultPreviews,
+    ...reviewResultPreviews,
+  ];
+  const evidenceItems = buildEvidenceItems(record, resultPreviews);
+  const pendingReviewCount =
+    outputResultPreviews.length + reviewPacketResultPreviews.length + reviewItems.length;
+  const sandboxCount = countSandboxEvidenceItems(evidenceItems);
   const tokenUsage =
     tokenUsageFromUnknown(taskReport?.token_usage) ??
     tokenUsageFromNodes(record.node_states);
-  const legacyReviewItems = record.review_items ?? reviewItemsFromTaskReport(taskReport);
-  const prismReviewCount = countPrismReviewItems(
-    legacyReviewItems,
-  ) + countReviewPacketPrismItems(reviewPacketItems);
-  const sandboxReviewCount = countSandboxReviewItems(
-    legacyReviewItems,
-  ) + countReviewPacketSandboxItems(reviewPacketItems);
+  const prismReviewCount =
+    countPrismReviewItems(reviewItems) + countReviewPacketPrismItems(reviewPacketItems);
+  const sandboxReviewCount =
+    countSandboxReviewItems(reviewItems) + countReviewPacketSandboxItems(reviewPacketItems);
   const status = normalizeExecutionStatus(record.status);
   const failedNodeCount = countNodesByStatus(record, "failed");
   const progressItems = buildRunProgressItems(record);
@@ -214,13 +298,18 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     ? progressItems.length
     : (record.graph_structure?.nodes.length ??
       Object.keys(record.node_states ?? {}).length);
-  const failureMessage =
-    record.last_error ??
-    record.error ??
-    stringValue(taskReport?.errors?.[0]?.error) ??
-    null;
+  const rawFailureMessage = firstStringValue(
+    record.last_error,
+    record.error,
+    taskReport?.errors?.[0]?.error,
+  );
+  const failureMessage = safeFailureMessage(
+    record.last_error,
+    record.error,
+    taskReport?.errors?.[0]?.error,
+  );
   const failureCategory =
-    failureCategoryFromRecord(record, failedNodeCount, failureMessage);
+    failureCategoryFromRecord(record, failedNodeCount, rawFailureMessage);
   const team = teamViewFromExecution(record);
   const qualityHighlights = [
     ...qualityHighlightsFromRuntimeState(record.runtime_state),
@@ -233,12 +322,12 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     capabilityId: record.feature_id ?? stringValue(taskReport?.capability_id),
     title: runTitleFromExecution(record, taskReport),
     status,
-    summary: userFacingRunSummary(
-      record.result_summary ??
-        stringValue(taskReport?.narrative) ??
-        record.message ??
-        failureMessage ??
-        statusSummary(status),
+    summary: safeRunSummary(
+      status,
+      record.result_summary,
+      taskReport?.narrative,
+      record.message,
+      rawFailureMessage,
     ),
     startedAt: record.started_at ?? record.created_at,
     completedAt: record.completed_at ?? null,
@@ -248,14 +337,20 @@ export function runViewFromExecution(record: ExecutionRecord): RunView {
     completedNodeCount,
     failedNodeCount,
     tokenUsage,
+    resultPreviews,
+    reviewItems,
+    evidenceItems,
+    pendingReviewCount,
     primarySurface:
       prismReviewCount > 0 ? "prism" : sandboxReviewCount > 0 ? "sandbox" : "rooms",
     prismReviewCount,
     sandboxReviewCount,
+    sandboxCount,
     hasPrismChanges: prismReviewCount > 0,
-    hasSandboxArtifacts: sandboxReviewCount > 0,
+    hasSandboxArtifacts: sandboxReviewCount > 0 || sandboxCount > 0,
     failureCategory,
     failureMessage,
+    commitState: readCommitStateFromResult(record.result),
     team,
     reviewPacket,
     qualityHighlights,
@@ -358,7 +453,7 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
         ? 1
         : 0;
   const sandboxReviewCount = record.primary_surface === "sandbox" ? 1 : 0;
-  const failureMessage = record.failure_message ?? null;
+  const failureMessage = safeFailureMessage(record.failure_message);
   const failureCategory =
     record.failure_category ??
     (status === "failed" || status === "failed_partial" ? "unknown" : null);
@@ -369,12 +464,16 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
     capabilityId: record.capability_id ?? null,
     title: humanizeCapabilityName(record.capability_name || record.capability_id) ?? "Execution",
     status,
-    summary: userFacingRunSummary(record.summary || statusSummary(status)),
+    summary: safeRunSummary(status, record.summary),
     startedAt: record.started_at,
     completedAt: record.completed_at ?? null,
     durationLabel: formatDuration(record.started_at, record.completed_at ?? null),
     progress: typeof record.progress === "number" ? record.progress : null,
     tokenUsage: record.token_usage ?? null,
+    resultPreviews: [],
+    reviewItems: [],
+    evidenceItems: [],
+    pendingReviewCount: prismReviewCount + sandboxReviewCount,
     primarySurface:
       record.primary_surface ??
       (prismReviewCount > 0 || record.has_prism_changes
@@ -384,10 +483,12 @@ export function runViewFromRunRecord(record: RunRecord, workspaceId: string): Ru
           : "rooms"),
     prismReviewCount,
     sandboxReviewCount,
+    sandboxCount: sandboxReviewCount,
     hasPrismChanges: Boolean(record.has_prism_changes || prismReviewCount > 0),
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    commitState: null,
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -403,9 +504,17 @@ export function runViewFromResultCard(
   workspaceId: string,
 ): RunView {
   const status = normalizeRunRecordStatus(data.status);
-  const prismReviewCount = countPrismReviewItems(data.review_items ?? []);
-  const sandboxReviewCount = countSandboxReviewItems(data.review_items ?? []);
-  const failureMessage = data.errors?.[0]?.message ?? null;
+  const reviewItems = coerceReviewItems(data.review_items);
+  const outputResultPreviews = buildWorkspaceResultPreviewsFromOutputs(data.outputs);
+  const reviewResultPreviews =
+    buildWorkspaceResultPreviewsFromReviewItems(reviewItems);
+  const resultPreviews = [...outputResultPreviews, ...reviewResultPreviews];
+  const evidenceItems = buildOutputEvidenceItems(resultPreviews);
+  const pendingReviewCount = outputResultPreviews.length + reviewItems.length;
+  const prismReviewCount = countPrismReviewItems(reviewItems);
+  const sandboxReviewCount = countSandboxReviewItems(reviewItems);
+  const rawFailureMessage = firstStringValue(data.errors?.[0]?.message);
+  const failureMessage = safeFailureMessage(data.errors?.[0]?.message);
   const failureCategory =
     status === "failed_partial" || status === "failed"
       ? data.errors?.length
@@ -419,21 +528,27 @@ export function runViewFromResultCard(
     capabilityId: data.capability_name ?? null,
     title: humanizeCapabilityName(data.capability_name) ?? "Execution",
     status,
-    summary: userFacingRunSummary(data.narrative ?? failureMessage ?? statusSummary(status)),
+    summary: safeRunSummary(status, data.narrative, rawFailureMessage),
     completedAt: null,
     durationLabel:
       typeof data.duration_seconds === "number"
         ? formatSeconds(data.duration_seconds)
         : null,
     tokenUsage: tokenUsageFromUnknown(data.token_usage),
+    resultPreviews,
+    reviewItems,
+    evidenceItems,
+    pendingReviewCount,
     primarySurface:
       prismReviewCount > 0 ? "prism" : sandboxReviewCount > 0 ? "sandbox" : "rooms",
     prismReviewCount,
     sandboxReviewCount,
+    sandboxCount: sandboxReviewCount,
     hasPrismChanges: prismReviewCount > 0,
     hasSandboxArtifacts: sandboxReviewCount > 0,
     failureCategory,
     failureMessage,
+    commitState: readCommitStateFromResult(data),
     qualityHighlights: [],
     actions: actionsForRun({
       status,
@@ -456,11 +571,22 @@ export function mergeRunViews(
   return {
     ...historical,
     ...live,
-    summary: userFacingRunSummary(live.summary || historical.summary),
+    summary: safeRunSummary(live.status, live.summary, historical.summary),
     startedAt: live.startedAt ?? historical.startedAt,
     completedAt: live.completedAt ?? historical.completedAt,
     durationLabel: live.durationLabel ?? historical.durationLabel,
     tokenUsage: live.tokenUsage ?? historical.tokenUsage,
+    resultPreviews: live.resultPreviews.length
+      ? live.resultPreviews
+      : historical.resultPreviews,
+    reviewItems: live.reviewItems.length ? live.reviewItems : historical.reviewItems,
+    evidenceItems: live.evidenceItems.length
+      ? live.evidenceItems
+      : historical.evidenceItems,
+    pendingReviewCount: Math.max(
+      live.pendingReviewCount,
+      historical.pendingReviewCount,
+    ),
     primarySurface: live.primarySurface ?? historical.primarySurface,
     prismReviewCount: Math.max(
       live.prismReviewCount ?? 0,
@@ -470,10 +596,12 @@ export function mergeRunViews(
       live.sandboxReviewCount ?? 0,
       historical.sandboxReviewCount ?? 0,
     ),
+    sandboxCount: Math.max(live.sandboxCount, historical.sandboxCount),
     hasPrismChanges: live.hasPrismChanges || historical.hasPrismChanges,
     hasSandboxArtifacts: Boolean(live.hasSandboxArtifacts || historical.hasSandboxArtifacts),
     failureCategory: live.failureCategory ?? historical.failureCategory,
-    failureMessage: live.failureMessage ?? historical.failureMessage,
+    failureMessage: safeFailureMessage(live.failureMessage, historical.failureMessage),
+    commitState: live.commitState ?? historical.commitState,
     team: live.team ?? historical.team,
     reviewPacket: live.reviewPacket ?? historical.reviewPacket,
     qualityHighlights: live.qualityHighlights.length
@@ -503,11 +631,28 @@ function normalizeRunRecordStatus(status: string): RunViewStatus {
 function taskReportFromResult(
   result: Record<string, unknown> | null | undefined,
 ): TaskReportProjection | null {
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    return null;
+  }
   const candidate = result?.task_report;
   if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) {
     return candidate as TaskReportProjection;
   }
-  return null;
+  if (!isDirectTaskReportProjection(result)) {
+    return null;
+  }
+  return result as TaskReportProjection;
+}
+
+function isDirectTaskReportProjection(value: Record<string, unknown>): boolean {
+  const status = stringValue(value.status);
+  return Boolean(
+    status &&
+      DIRECT_TASK_REPORT_STATUSES.has(status) &&
+      DIRECT_TASK_REPORT_FIELDS.some((field) =>
+        Object.prototype.hasOwnProperty.call(value, field),
+      ),
+  );
 }
 
 function reviewItemsFromTaskReport(
@@ -589,6 +734,378 @@ function reviewPacketItemSupportState({
     return "needs_confirmation";
   }
   return "supported";
+}
+
+export function readReviewItems(
+  record: ExecutionRecord | null,
+): WorkspacePrismReviewItem[] {
+  if (!record) {
+    return [];
+  }
+  if (record.review_items?.length) {
+    return coerceReviewItems(record.review_items);
+  }
+  return coerceReviewItems(reviewItemsFromTaskReport(taskReportFromResult(record.result)));
+}
+
+function coerceReviewItems(value: unknown): WorkspacePrismReviewItem[] {
+  return arrayValue(value)
+    .filter((item) => item && typeof item === "object" && !Array.isArray(item))
+    .map((item) => item as WorkspacePrismReviewItem);
+}
+
+export function buildEvidenceItems(
+  record: ExecutionRecord | null,
+  previews: WorkspaceResultPreview[],
+): RunViewEvidenceItem[] {
+  if (!record) {
+    return [];
+  }
+  const outputItems = buildOutputEvidenceItems(previews);
+  const graphNodes = record.graph_structure?.nodes ?? [];
+  const nodeById = new Map(graphNodes.map((node) => [node.id, node]));
+  const nodeItems: RunViewEvidenceItem[] = Object.entries(record.node_states ?? {})
+    .filter(([, state]) =>
+      Boolean(
+        state.output ||
+          state.output_preview ||
+          state.tool_calls?.length ||
+          buildHarnessEvidenceSummary(state)?.length,
+      ),
+    )
+    .map(([nodeId, state]) => {
+      const node = nodeById.get(nodeId);
+      const output = state.output ?? {};
+      const title = node?.label ?? node?.task ?? nodeId;
+      const harnessEvidence = buildHarnessEvidenceSummary(state);
+      const sandbox = harnessEvidence ?? buildSandboxSummary(state);
+      const productSummary = buildProductSafeOutputSummary(state, output);
+      return {
+        id: `node:${nodeId}`,
+        source: "node",
+        title,
+        kind: sandbox ? "sandbox" : node?.type ?? "node",
+        summary:
+          sandbox?.join(" · ") ??
+          safeRuntimeText(state.output_preview) ??
+          productSummary,
+        nodeId,
+        nodeState: state,
+      };
+    });
+  const citationAuditItems = buildCitationSourceAuditEvidenceItems(record);
+  return [...outputItems, ...citationAuditItems, ...nodeItems];
+}
+
+function buildOutputEvidenceItems(
+  previews: WorkspaceResultPreview[],
+): RunViewEvidenceItem[] {
+  return previews.map((preview) => ({
+    id: preview.id,
+    source: "output",
+    title: preview.title,
+    kind: preview.kind,
+    summary: [preview.subtitle, preview.previewText, ...preview.metadataLines]
+      .filter(Boolean)
+      .join(" · "),
+    preview,
+  }));
+}
+
+function buildHarnessEvidenceSummary(state: ExecutionNodeState): string[] | null {
+  const harness = objectValue(objectValue(state.node_metadata)?.harness);
+  const reproducibility = objectValue(harness?.reproducibility_summary);
+  if (!reproducibility) {
+    return null;
+  }
+  const scripts = safeWorkspacePathBasenames(reproducibility.script_paths, [
+    "/workspace/scripts/",
+  ]);
+  const datasets = safeWorkspacePathBasenames(reproducibility.dataset_paths, [
+    "/workspace/datasets/",
+  ]);
+  const artifacts = safeWorkspacePathBasenames(reproducibility.artifact_paths, [
+    "/workspace/outputs/",
+    "/workspace/reports/",
+  ]);
+  const nextActions = stringArrayValue(reproducibility.next_actions).slice(0, 2);
+  const lines = [
+    scripts.length ? `脚本：${formatShortList(scripts)}` : null,
+    datasets.length ? `数据：${formatShortList(datasets)}` : null,
+    artifacts.length ? `产物：${formatShortList(artifacts)}` : null,
+    nextActions.length ? `后续：${formatShortList(nextActions)}` : null,
+  ].filter((line): line is string => Boolean(line));
+  return lines.length ? lines : null;
+}
+
+function buildCitationSourceAuditEvidenceItems(
+  record: ExecutionRecord,
+): RunViewEvidenceItem[] {
+  const gates = qualityGateObjectsFromRuntimeState(record.runtime_state);
+  const items: RunViewEvidenceItem[] = [];
+  for (const gate of gates) {
+    const gateId = stringValue(gate.gate_id) ?? stringValue(gate.id) ?? "citation_source_audit";
+    const findings = arrayValue(gate.findings);
+    for (const findingValue of findings) {
+      const finding = objectValue(findingValue);
+      const auditFindings = arrayValue(finding?.citation_source_audit);
+      for (const auditValue of auditFindings) {
+        const audit = objectValue(auditValue);
+        if (!audit || stringValue(audit.schema) !== CITATION_SOURCE_AUDIT_SCHEMA) {
+          continue;
+        }
+        const summary = citationSourceAuditSummary(audit);
+        if (!summary) {
+          continue;
+        }
+        const severity = stringValue(audit.severity) ?? stringValue(gate.severity);
+        const status = stringValue(gate.status) ?? "warning";
+        const title = `引文与来源风险 · ${qualityGateEvidenceDisplayName(gateId)}`;
+        const nodeState: ExecutionNodeState = {
+          status,
+          node_type: "quality_gate",
+          label: title,
+          output_preview: summary,
+          node_metadata: {
+            quality_gate: {
+              gate_id: gateId,
+              severity,
+              status,
+              finding_count: auditFindings.length,
+            },
+          },
+        };
+        items.push({
+          id: `quality-gate:${gateId}:citation-source-audit:${items.length + 1}`,
+          source: "node",
+          title,
+          kind: "citation",
+          summary,
+          nodeId: `quality-gate:${gateId}`,
+          nodeState,
+        });
+        if (items.length >= MAX_CITATION_SOURCE_AUDIT_ITEMS) {
+          return items;
+        }
+      }
+    }
+  }
+  return items;
+}
+
+function qualityGateObjectsFromRuntimeState(
+  runtimeState: Record<string, unknown> | null | undefined,
+): Record<string, unknown>[] {
+  const direct = arrayValue(runtimeState?.quality_gates);
+  const nested = arrayValue(objectValue(runtimeState?.team)?.quality_gates);
+  return [...direct, ...nested]
+    .map((value) => objectValue(value))
+    .filter((value): value is Record<string, unknown> => Boolean(value));
+}
+
+function citationSourceAuditSummary(audit: Record<string, unknown>): string | null {
+  const refs = [
+    stringValue(audit.citation_key),
+    stringValue(audit.source_id),
+    ...stringArrayValue(audit.unknown_refs).map((ref) => `未确认 ${ref}`),
+  ].filter((value): value is string => Boolean(value));
+  const risk = riskLabel(stringValue(audit.risk));
+  const severity = severityLabel(stringValue(audit.severity));
+  const message = stringValue(audit.message);
+  const action = citationAuditActionLabel(stringValue(audit.suggested_action));
+  const claim = stringValue(audit.claim);
+  const lines = [
+    refs.length ? `对象：${formatShortList(refs)}` : null,
+    risk || severity ? `风险：${[risk, severity].filter(Boolean).join(" / ")}` : null,
+    message ? `问题：${truncate(message, 96)}` : null,
+    action ? `建议：${action}` : null,
+    claim ? `论断：${truncate(claim, 120)}` : null,
+  ].filter((line): line is string => Boolean(line));
+  return lines.length ? lines.join(" · ") : null;
+}
+
+function qualityGateEvidenceDisplayName(gateId: string): string {
+  const normalized = gateId.toLowerCase();
+  if (normalized.includes("fabricated") || normalized.includes("citation")) {
+    return "引用真实性检查";
+  }
+  if (normalized.includes("source")) {
+    return "来源完整性检查";
+  }
+  return gateId
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function riskLabel(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.toLowerCase();
+  if (normalized.includes("fabricated")) return "疑似编造";
+  if (normalized.includes("missing")) return "缺少来源";
+  if (normalized.includes("unsupported")) return "缺少证据支撑";
+  return value;
+}
+
+function severityLabel(value: string | null): string | null {
+  if (value === "high") return "高";
+  if (value === "medium") return "中";
+  if (value === "low") return "低";
+  return value;
+}
+
+function citationAuditActionLabel(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.toLowerCase();
+  if (normalized.includes("replace") || normalized.includes("remove")) {
+    return "替换或删除";
+  }
+  if (normalized.includes("attach") || normalized.includes("source")) {
+    return "补充可信来源";
+  }
+  if (normalized.includes("review")) {
+    return "人工复核";
+  }
+  return value.replace(/[_-]+/g, " ");
+}
+
+export function buildSandboxSummary(
+  state: ExecutionNodeState | null | undefined,
+): string[] | null {
+  if (!state) {
+    return null;
+  }
+  const output = state.output;
+  const tool = state.tool_calls?.find((call) =>
+    stringValue(call.name)?.includes("sandbox"),
+  );
+  const hasSandboxOutput =
+    output &&
+    (stringValue(output.engine)?.includes("sandbox") ||
+      stringValue(output.operation) === "smoke_check" ||
+      output.exit_code !== undefined ||
+      stringValue(output.docker_image));
+  if (!tool && !hasSandboxOutput) {
+    return null;
+  }
+  const outputRefCount =
+    recoverableOutputRefCount(output?.output_refs, output?.output_ref) +
+    recoverableOutputRefCount(tool?.output_refs, tool?.output_ref);
+  const hasBoundedOutput =
+    Boolean(stringValue(output?.stdout)) ||
+    Boolean(stringValue(tool?.stdout)) ||
+    Boolean(stringValue(output?.stderr)) ||
+    Boolean(stringValue(tool?.stderr)) ||
+    outputRefCount > 0;
+  const lines = [
+    `操作：${stringValue(output?.operation) ?? stringValue(tool?.name) ?? "实验环境"}`,
+    `状态：${stringValue(output?.status) ?? stringValue(tool?.status) ?? state.status ?? "unknown"}`,
+    output?.exit_code !== undefined || tool?.exit_code !== undefined
+      ? `Exit code：${String(output?.exit_code ?? tool?.exit_code)}`
+      : null,
+    stringValue(output?.docker_image) || stringValue(tool?.docker_image)
+      ? `镜像：${stringValue(output?.docker_image) ?? stringValue(tool?.docker_image)}`
+      : null,
+    hasBoundedOutput
+      ? `输出：${outputRefCount > 0 ? `${outputRefCount} 个可恢复引用` : "已生成运行结果"}`
+      : null,
+  ].filter((line): line is string => Boolean(line));
+  return lines.length > 0 ? lines : null;
+}
+
+function buildProductSafeOutputSummary(
+  state: ExecutionNodeState,
+  output: Record<string, unknown>,
+): string {
+  const explicitSummary =
+    safeRuntimeText(output.summary) ??
+    safeRuntimeText(output.result_summary) ??
+    safeRuntimeText(output.narrative) ??
+    safeRuntimeText(output.preview) ??
+    safeRuntimeText(output.message);
+  const operation = safeRuntimeText(output.operation) ?? safeRuntimeText(output.action);
+  const status = stringValue(output.status) ?? state.status ?? null;
+  const outputRefCount =
+    recoverableOutputRefCount(output.output_refs, output.output_ref) +
+    recoverableOutputRefCount(
+      ...(state.tool_calls ?? []).flatMap((call) => [call.output_refs, call.output_ref]),
+    );
+  const resultFallback =
+    outputRefCount > 0
+      ? `输出：${outputRefCount} 个可恢复引用`
+      : hasProductOutputSignal(output)
+        ? "已生成运行结果"
+        : "运行记录已更新";
+  const lines = [
+    explicitSummary,
+    operation ? `操作：${operation}` : null,
+    status ? `状态：${statusLabel(status)}` : null,
+    resultFallback,
+  ].filter((line): line is string => Boolean(line));
+  return lines.join(" · ");
+}
+
+function hasProductOutputSignal(output: Record<string, unknown>): boolean {
+  return Boolean(
+    safeRuntimeText(output.content) ||
+      safeRuntimeText(output.value) ||
+      safeRuntimeText(output.result) ||
+      safeRuntimeText(output.text) ||
+      safeRuntimeText(output.title) ||
+      safeRuntimeText(output.description),
+  );
+}
+
+function countSandboxEvidenceItems(items: RunViewEvidenceItem[]): number {
+  return items.filter(
+    (item) => item.kind === "sandbox" || item.summary.includes("sandbox"),
+  ).length;
+}
+
+function safeWorkspacePathBasenames(value: unknown, allowedPrefixes: string[]): string[] {
+  return stringArrayValue(value)
+    .filter((path) => isSafeEvidencePath(path, allowedPrefixes))
+    .slice(0, 4)
+    .map((path) => path.split("/").filter(Boolean).at(-1) ?? path);
+}
+
+function isSafeEvidencePath(path: string, allowedPrefixes: string[]): boolean {
+  if (!allowedPrefixes.some((prefix) => path.startsWith(prefix))) {
+    return false;
+  }
+  if (path.startsWith("/workspace/outputs/harness/")) {
+    return false;
+  }
+  return !/(^|\/)(\.wenjin|\.env(?:\..*)?|[^/]+\.(?:pem|key))($|\/)/i.test(path);
+}
+
+function formatShortList(items: string[]): string {
+  if (items.length <= 3) {
+    return items.join("、");
+  }
+  return `${items.slice(0, 3).join("、")} 等 ${items.length} 项`;
+}
+
+function truncate(value: string, max: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, max - 3))}...`;
+}
+
+function statusLabel(status: string): string {
+  if (status === "launching") return "启动中";
+  if (status === "queued" || status === "pending") return "排队中";
+  if (status === "running" || status === "cancelling") return "运行中";
+  if (status === "completed") return "已完成";
+  if (status === "failed_partial") return "部分完成";
+  if (status === "failed") return "失败";
+  if (status === "cancelled") return "已取消";
+  return status || "未知";
 }
 
 function countPrismReviewItems(items: unknown[]): number {
@@ -1258,11 +1775,15 @@ function countProgressItemsByStatus(
 
 function progressDetailFromNodeState(state: ExecutionNodeState | null): string | null {
   if (!state) return null;
-  if (state.error) return trimForDisplay(state.error, 120);
+  const error = safeRuntimeText(state.error, 120);
+  if (error) return error;
+  if (state.error) return "运行问题已记录";
   const harnessActivity = harnessActivityFromNodeState(state).label;
   if (harnessActivity) return harnessActivity;
-  if (state.thinking) return trimForDisplay(state.thinking, 140);
-  if (state.output_preview) return trimForDisplay(state.output_preview, 140);
+  const thinking = safeRuntimeText(state.thinking, 140);
+  if (thinking) return thinking;
+  const outputPreview = safeRuntimeText(state.output_preview, 140);
+  if (outputPreview) return outputPreview;
   return null;
 }
 
@@ -1461,6 +1982,28 @@ function statusSummary(status: RunViewStatus): string {
   return "执行已取消。";
 }
 
+function safeRunSummary(status: RunViewStatus, ...values: unknown[]): string {
+  return userFacingRunSummary(firstSafeRuntimeText(values, 240) ?? statusSummary(status));
+}
+
+function safeFailureMessage(...values: unknown[]): string | null {
+  const safe = firstSafeRuntimeText(values, 240);
+  if (safe) {
+    return userFacingRunSummary(safe);
+  }
+  return firstStringValue(...values) ? RUN_FAILURE_FALLBACK : null;
+}
+
+function firstSafeRuntimeText(values: unknown[], max: number): string | null {
+  for (const value of values) {
+    const text = safeRuntimeText(value, max);
+    if (text) {
+      return text;
+    }
+  }
+  return null;
+}
+
 function userFacingRunSummary(value: string): string {
   return value
     .replace(/launch_feature/g, "研究任务")
@@ -1495,6 +2038,16 @@ function formatSeconds(seconds: number): string {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function firstStringValue(...values: unknown[]): string | null {
+  for (const value of values) {
+    const text = stringValue(value);
+    if (text) {
+      return text;
+    }
+  }
+  return null;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {

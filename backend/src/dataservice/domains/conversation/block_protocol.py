@@ -24,6 +24,7 @@ CANONICAL_BLOCK_KINDS = tuple(kind.value for kind in ConversationBlockKind)
 _BLOCK_KIND_ALIASES = {
     "reasoning": ConversationBlockKind.THINKING.value,
     "thought": ConversationBlockKind.THINKING.value,
+    "warning": ConversationBlockKind.STATUS_LINE.value,
     "tool": ConversationBlockKind.TOOL_INVOCATION.value,
     "tool_call": ConversationBlockKind.TOOL_INVOCATION.value,
     "tool_use": ConversationBlockKind.TOOL_INVOCATION.value,
@@ -32,7 +33,7 @@ _BLOCK_KIND_ALIASES = {
 
 def canonical_block_kind(block: Mapping[str, Any]) -> str:
     """Return the canonical block kind for a persisted block payload."""
-    raw_kind = str(block.get("kind") or block.get("type") or "").strip()
+    raw_kind = str(block.get("kind") or block.get("type") or "").strip().lower()
     if raw_kind in CANONICAL_BLOCK_KINDS:
         return raw_kind
     return _BLOCK_KIND_ALIASES.get(raw_kind, ConversationBlockKind.TEXT.value)
@@ -43,14 +44,125 @@ def normalize_block_payload(
     *,
     default_text: str | None = None,
 ) -> dict[str, Any]:
-    """Return a JSON payload with canonical ``kind`` while preserving raw fields."""
+    """Return a JSON payload with canonical ``kind`` and payload shape."""
     payload = dict(block)
     kind = canonical_block_kind(payload)
+    raw_kind = str(payload.get("kind") or payload.get("type") or "").strip().lower()
+
+    if kind == ConversationBlockKind.THINKING.value:
+        text = _extract_text_content(payload, default_text=default_text)
+        return {"kind": kind, "text": text}
+
+    if kind == ConversationBlockKind.STATUS_LINE.value and raw_kind == "warning":
+        return _warning_status_line_payload(payload)
+
+    if kind == ConversationBlockKind.TOOL_INVOCATION.value:
+        source = _tool_source_payload(payload)
+        normalized: dict[str, Any] = {
+            "kind": kind,
+            "tool": extract_tool_name(source) or extract_tool_name(payload) or "unknown",
+            "input": extract_tool_input(source),
+        }
+        tool_call_id = extract_invocation_ref(source) or extract_invocation_ref(payload)
+        if tool_call_id:
+            normalized["tool_call_id"] = tool_call_id
+        return normalized
+
+    if kind == ConversationBlockKind.TOOL_RESULT.value:
+        source = _tool_source_payload(payload)
+        output = extract_tool_output(payload)
+        if not output and source is not payload:
+            output = dict(source)
+        if not output:
+            output = _tool_result_top_level_output(source)
+        normalized = {
+            "kind": kind,
+            "tool": extract_tool_name(source) or extract_tool_name(payload) or "unknown",
+            "output": output,
+        }
+        status = source.get("status", payload.get("status"))
+        if status is not None:
+            normalized["status"] = str(status)
+        tool_call_id = extract_invocation_ref(source) or extract_invocation_ref(payload)
+        if tool_call_id:
+            normalized["tool_call_id"] = tool_call_id
+        for key in ("execution_id", "feature_id"):
+            value = source.get(key, payload.get(key))
+            if isinstance(value, str) and value.strip():
+                normalized[key] = value.strip()
+        return normalized
+
     payload["kind"] = kind
     payload.pop("type", None)
     if kind == ConversationBlockKind.TEXT.value and "content" not in payload and default_text:
         payload["content"] = default_text
     return payload
+
+
+def _tool_source_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        return data
+    return payload
+
+
+def _extract_text_content(
+    payload: Mapping[str, Any],
+    *,
+    default_text: str | None = None,
+) -> str:
+    text = payload.get("text")
+    if isinstance(text, str):
+        return text
+    content = payload.get("content")
+    if isinstance(content, str):
+        return content
+    data = payload.get("data")
+    if isinstance(data, Mapping):
+        text = data.get("text")
+        if isinstance(text, str):
+            return text
+        content = data.get("content")
+        if isinstance(content, str):
+            return content
+    return default_text or ""
+
+
+def _string_value(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _visible_status_text(payload: Mapping[str, Any]) -> str:
+    data = payload.get("data")
+    data_payload = data if isinstance(data, Mapping) else {}
+    title = (
+        _string_value(payload.get("title"))
+        or _string_value(payload.get("label"))
+        or _string_value(payload.get("name"))
+    )
+    detail = (
+        _string_value(payload.get("detail"))
+        or _string_value(payload.get("message"))
+        or _string_value(data_payload.get("detail"))
+        or _string_value(data_payload.get("message"))
+        or _string_value(data_payload.get("text"))
+        or _string_value(payload.get("content"))
+        or _string_value(payload.get("text"))
+    )
+    if title and detail and title != detail:
+        return f"{title}：{detail}"
+    return title or detail or ""
+
+
+def _warning_status_line_payload(payload: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": ConversationBlockKind.STATUS_LINE.value,
+        "label": _visible_status_text(payload) or "Warning",
+        "run_id": _string_value(payload.get("run_id")) or "warning-status",
+        "tone": "warn",
+    }
 
 
 def blocks_from_message(message: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -112,8 +224,17 @@ def extract_tool_output(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 def extract_invocation_ref(payload: Mapping[str, Any]) -> str | None:
     """Best-effort invocation correlation id extraction."""
-    for key in ("invocation_id", "tool_call_id", "call_id", "id"):
+    for key in ("tool_call_id", "invocation_id", "call_id", "id"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
     return None
+
+
+def _tool_result_top_level_output(payload: Mapping[str, Any]) -> dict[str, Any]:
+    omitted = {"kind", "type", "output", "result", "data"}
+    return {
+        str(key): value
+        for key, value in payload.items()
+        if isinstance(key, str) and key not in omitted
+    }

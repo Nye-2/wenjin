@@ -4,15 +4,26 @@ import { useEffect, useMemo, useState } from "react";
 import { resolveExecutionNextActionPresentation } from "@/lib/block-actions";
 import {
   buildCommittedRoomLinks,
+  COMMIT_STATE_SYNC_ERROR,
   commitExecutionOutputs,
-  type CommittedRoomLink,
+  commitStateFromCommitResponse,
+  commitStateRoomTargets,
+  isExecutionDiscarded,
+  readCommitStateFromResult,
+  type ExecutionCommitState,
 } from "@/lib/execution-commit";
+import {
+  recoverableOutputRefCount,
+  runtimeStatusLabel,
+  safeRuntimeText,
+} from "@/lib/runtime-payload-safety";
 import { buildWorkspaceResultPreviewsFromOutputs } from "@/lib/workspace-result-preview";
 import {
   PrismReviewList,
   prismReviewItemHref,
 } from "@/components/prism/PrismReviewList";
 import type { WorkspacePrismReviewItem } from "@/lib/api/types";
+import { useExecutionStore } from "@/stores/execution-store";
 import { CommitActionBar } from "./result-preview/CommitActionBar";
 import { ResultPreviewDetail } from "./result-preview/ResultPreviewDetail";
 import { ResultPreviewList } from "./result-preview/ResultPreviewList";
@@ -47,17 +58,18 @@ export function CompletedView({
   reviewItems = [],
   nextActions = [],
 }: CompletedViewProps) {
-  const [showFullResult, setShowFullResult] = useState(false);
   const [idempotencyKey] = useState(() => generateUUID());
+  const upsertExecution = useExecutionStore((state) => state.upsertExecution);
 
   const taskReport = getTaskReport(result);
+  const durableCommitState = readCommitStateFromResult(result);
   const effectiveReviewItems =
     reviewItems.length > 0 ? reviewItems : readReviewItems(taskReport?.review_items);
   const summary =
-    resultSummary ||
-    readString(taskReport?.result_summary) ||
-    readString(taskReport?.narrative) ||
-    "Execution completed.";
+    safeRuntimeText(resultSummary, 220) ||
+    safeRuntimeText(taskReport?.result_summary, 220) ||
+    safeRuntimeText(taskReport?.narrative, 220) ||
+    "运行结果已生成。";
   const taskStatus = readString(taskReport?.status) || "completed";
   const allowAcceptAll = taskStatus === "completed";
   const taskOutputs = useMemo(
@@ -85,10 +97,22 @@ export function CompletedView({
     previews[0] ??
     null;
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
-  const [committed, setCommitted] = useState(false);
+  const [localCommitState, setLocalCommitState] =
+    useState<ExecutionCommitState | null>(null);
   const [committing, setCommitting] = useState(false);
-  const [commitLinks, setCommitLinks] = useState<CommittedRoomLink[]>([]);
   const [commitError, setCommitError] = useState<string | null>(null);
+  const effectiveCommitState = durableCommitState ?? localCommitState;
+  const commitFinal = Boolean(effectiveCommitState);
+  const discarded = isExecutionDiscarded(effectiveCommitState);
+  const commitLinks = useMemo(
+    () =>
+      buildCommittedRoomLinks({
+        workspaceId,
+        previews,
+        roomTargets: commitStateRoomTargets(effectiveCommitState),
+      }),
+    [effectiveCommitState, previews, workspaceId],
+  );
   useEffect(() => {
     setCheckedIds(
       new Set(
@@ -97,11 +121,12 @@ export function CompletedView({
           .map((preview) => preview.id),
       ),
     );
-    setCommitted(false);
-    setCommitting(false);
-    setCommitLinks([]);
-    setCommitError(null);
   }, [previews]);
+  useEffect(() => {
+    setLocalCommitState(null);
+    setCommitting(false);
+    setCommitError(null);
+  }, [executionId]);
   const taskErrors = taskReport?.errors;
   const errorItems = Array.isArray(taskErrors) ? taskErrors.slice(0, 3) : [];
   const actionContext = getCompletedActionContext({
@@ -121,9 +146,14 @@ export function CompletedView({
       (action) =>
         action.href === defaultReviewActionHref || action.label === "预览待确认修改",
     );
+  const completedResultLines = buildCompletedResultStatusLines({
+    result,
+    taskReport,
+    taskStatus,
+  });
 
   async function commit(body: Record<string, unknown>) {
-    if (!executionId || committed || committing) {
+    if (!executionId || commitFinal || committing) {
       return;
     }
     setCommitError(null);
@@ -134,17 +164,24 @@ export function CompletedView({
         idempotencyKey,
         body,
       });
-      setCommitLinks(
-        buildCommittedRoomLinks({
-          workspaceId,
-          previews,
-          roomTargets: response.room_targets,
-        }),
-      );
-      setCommitted(true);
+      const nextCommitState = commitStateFromCommitResponse(response);
+      if (!nextCommitState) {
+        setLocalCommitState(null);
+        setCommitError(COMMIT_STATE_SYNC_ERROR);
+        return;
+      }
+      setLocalCommitState(nextCommitState);
+      const currentRecord = useExecutionStore.getState().executions.get(executionId);
+      if (currentRecord) {
+        upsertExecution({
+          ...currentRecord,
+          result: {
+            ...(currentRecord.result ?? {}),
+            commit_state: nextCommitState,
+          },
+        });
+      }
     } catch (error) {
-      setCommitLinks([]);
-      setCommitted(false);
       setCommitError(
         error instanceof Error && !error.message.startsWith("Failed")
           ? error.message
@@ -202,7 +239,7 @@ export function CompletedView({
                     })
                 : undefined
             }
-            disabled={committed}
+            disabled={commitFinal}
           />
           <ResultPreviewDetail
             preview={selectedPreview}
@@ -229,7 +266,7 @@ export function CompletedView({
                         </div>
                       ) : null}
                       <CommitActionBar
-                        committed={committed}
+                        committed={commitFinal}
                         committing={committing}
                         allowAcceptAll={allowAcceptAll}
                         selectedCount={checkedIds.size}
@@ -247,7 +284,9 @@ export function CompletedView({
                         acceptAllLabel="保存到工作区"
                         acceptSelectedLabel="仅保存勾选项"
                         discardLabel="暂不保存"
-                        committedLabel="已保存到工作区"
+                        committedLabel={
+                          discarded ? "已暂不保存" : "已保存到工作区"
+                        }
                       />
                       {commitError ? (
                         <div style={styles.commitError}>{commitError}</div>
@@ -355,11 +394,7 @@ export function CompletedView({
           }}
         >
           {errorItems.map((error, i) => {
-            const item = error as Record<string, unknown>;
-            const label =
-              readString(item.error) ||
-              readString(item.message) ||
-              `Error ${i + 1}`;
+            const label = buildCompletedErrorSummary(error, i);
             return (
               <div
                 key={i}
@@ -452,48 +487,12 @@ export function CompletedView({
         </div>
       )}
 
-      {/* View full result toggle */}
       {result && previews.length === 0 && (
-        <>
-          <button
-            onClick={() => setShowFullResult((prev) => !prev)}
-            style={{
-              background: "none",
-              border: "none",
-              padding: 0,
-              color: "var(--wjn-blue)",
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: "pointer",
-              fontFamily: "var(--wjn-font-sans)",
-              textDecoration: "none",
-            }}
-          >
-            {showFullResult ? "Hide full result" : "View full result"}
-          </button>
-
-          {showFullResult && (
-            <pre
-              style={{
-                marginTop: 8,
-                padding: 12,
-                borderRadius: "var(--wjn-radius-md)",
-                background: "var(--wjn-surface-subtle)",
-                border: "1px solid var(--wjn-line)",
-                fontSize: 11.5,
-                fontFamily: "var(--wjn-font-mono)",
-                color: "var(--wjn-text-secondary)",
-                maxHeight: 300,
-                overflow: "auto",
-                lineHeight: 1.5,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}
-            >
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          )}
-        </>
+        <div style={styles.safeResultSummary}>
+          {completedResultLines.map((line) => (
+            <div key={line}>{line}</div>
+          ))}
+        </div>
       )}
     </div>
   );
@@ -550,6 +549,49 @@ function outputsWithSafeDefaults(
       default_checked: false,
     };
   });
+}
+
+function buildCompletedResultStatusLines({
+  result,
+  taskReport,
+  taskStatus,
+}: {
+  result?: Record<string, unknown> | null;
+  taskReport: TaskReportLike | null;
+  taskStatus: string;
+}): string[] {
+  const taskReportRecord = readObject(taskReport);
+  const outputCount = Array.isArray(taskReport?.outputs) ? taskReport.outputs.length : 0;
+  const errorCount = Array.isArray(taskReport?.errors) ? taskReport.errors.length : 0;
+  const refCount = recoverableOutputRefCount(
+    taskReportRecord?.output_refs,
+    taskReportRecord?.output_ref,
+    result?.output_refs,
+    result?.output_ref,
+  );
+  return [
+    `状态：${runtimeStatusLabel(taskStatus)}`,
+    outputCount > 0 ? `候选产物：${outputCount} 项` : null,
+    refCount > 0 ? `可恢复引用：${refCount} 个` : null,
+    errorCount > 0 ? `需处理事项：${errorCount} 项` : null,
+  ].filter((line): line is string => Boolean(line));
+}
+
+function buildCompletedErrorSummary(error: unknown, index: number): string {
+  const item = readObject(error);
+  const safeMessage =
+    safeRuntimeText(item?.error, 140) ??
+    safeRuntimeText(item?.message, 140) ??
+    "运行问题已记录";
+  const context = [
+    safeRuntimeText(item?.phase, 40),
+    safeRuntimeText(item?.task, 60),
+  ].filter((value): value is string => Boolean(value));
+  return [
+    `问题 ${index + 1}`,
+    context.length ? context.join(" / ") : null,
+    safeMessage,
+  ].filter((value): value is string => Boolean(value)).join("：");
 }
 
 type PrismReviewAction = {
@@ -610,6 +652,19 @@ function readObject(value: unknown): Record<string, unknown> | null {
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  safeResultSummary: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    marginTop: 8,
+    padding: "8px 10px",
+    borderRadius: "var(--wjn-radius-md)",
+    background: "var(--wjn-surface-subtle)",
+    border: "1px solid var(--wjn-line)",
+    color: "var(--wjn-text-secondary)",
+    fontSize: 12,
+    lineHeight: 1.45,
+  },
   actionFooter: {
     paddingTop: 12,
     borderTop: "1px solid rgba(20, 20, 30, 0.08)",

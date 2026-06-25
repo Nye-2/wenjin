@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Mapping
 from typing import Any
 from uuid import uuid4
@@ -14,15 +13,28 @@ from langchain_core.runnables import RunnableConfig
 from src.agents.middlewares.base import Middleware
 from src.agents.thread_state import ThreadState
 
-_LAUNCH_INTENT_RE = re.compile(
-    r"(?:\brun\b|\bexecute\b|\blaunch\b|\bstart\b|执行|启动|开始|跑|验证|自检|检查|检索|生成|写作|撰写|分析|推荐|修订|回复)",
-    re.IGNORECASE,
-)
+
+def _configurable(config: RunnableConfig | None) -> dict[str, Any]:
+    raw = (config or {}).get("configurable") if isinstance(config, Mapping) else None
+    return raw if isinstance(raw, dict) else {}
 
 
-def _configurable(config: RunnableConfig) -> Mapping[str, Any]:
-    value = config.get("configurable") if isinstance(config, Mapping) else None
-    return value if isinstance(value, Mapping) else {}
+def _is_hidden_capability(capability: Mapping[str, Any]) -> bool:
+    display = capability.get("display")
+    display = display if isinstance(display, Mapping) else {}
+    definition = capability.get("definition_json")
+    definition = definition if isinstance(definition, Mapping) else {}
+    definition_display = definition.get("display")
+    definition_display = definition_display if isinstance(definition_display, Mapping) else {}
+    tiers = (
+        capability.get("entry_tier"),
+        capability.get("tier"),
+        display.get("entry_tier"),
+        display.get("tier"),
+        definition_display.get("entry_tier"),
+        definition_display.get("tier"),
+    )
+    return any(str(tier or "").strip().lower() == "hidden" for tier in tiers)
 
 
 def _coerce_text(content: Any) -> str:
@@ -43,50 +55,6 @@ def _last_user_text(state: ThreadState) -> str:
         if isinstance(message, HumanMessage):
             return _coerce_text(message.content)
     return ""
-
-
-def _capability_id_pattern(capability_id: str) -> re.Pattern[str]:
-    escaped = re.escape(capability_id)
-    return re.compile(rf"(?<![A-Za-z0-9_]){escaped}(?![A-Za-z0-9_])", re.IGNORECASE)
-
-
-def _match_capability(text: str, capabilities: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not text or not _LAUNCH_INTENT_RE.search(text):
-        return None
-
-    for capability in capabilities:
-        capability_id = str(capability.get("id") or "").strip()
-        if capability_id and _capability_id_pattern(capability_id).search(text):
-            return capability
-
-    for capability in capabilities:
-        display_name = str(capability.get("display_name") or "").strip()
-        if display_name and display_name in text:
-            return capability
-
-    for capability in capabilities:
-        trigger_phrases = capability.get("trigger_phrases")
-        if not isinstance(trigger_phrases, list):
-            continue
-        for phrase in trigger_phrases:
-            trigger = str(phrase or "").strip()
-            if trigger and trigger in text:
-                return capability
-
-    return None
-
-
-def _find_configured_capability(
-    config: RunnableConfig,
-    capabilities: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    configured_id = str(_configurable(config).get("launch_feature_id") or "").strip()
-    if not configured_id:
-        return None
-    for capability in capabilities:
-        if str(capability.get("id") or "").strip() == configured_id:
-            return capability
-    return None
 
 
 def _launch_params(config: RunnableConfig, user_request: str) -> dict[str, Any]:
@@ -128,21 +96,32 @@ async def _invoke_launch_feature(
 
 
 class CapabilityAutoLaunchMiddleware(Middleware):
-    """Call launch_feature directly when the user explicitly names a capability."""
+    """Call launch_feature directly only for explicit runtime entry metadata."""
 
     async def before_model(
         self,
         state: ThreadState,
         config: RunnableConfig,
     ) -> dict[str, Any]:
+        configurable = _configurable(config)
+        explicit_feature_id = str(configurable.get("launch_feature_id") or "").strip()
+        if not explicit_feature_id:
+            return {}
+
         capabilities = [
             item
             for item in (state.get("available_capabilities") or [])
             if isinstance(item, dict)
         ]
-        capability = _find_configured_capability(config, capabilities)
-        if capability is None:
-            capability = _match_capability(_last_user_text(state), capabilities)
+        capability = next(
+            (
+                item
+                for item in capabilities
+                if str(item.get("id") or "").strip() == explicit_feature_id
+                and not _is_hidden_capability(item)
+            ),
+            None,
+        )
         if capability is None:
             return {}
 

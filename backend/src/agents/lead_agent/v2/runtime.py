@@ -223,7 +223,10 @@ class LeadAgentRuntime:
                 record_node_event=self.record_node_event,
                 abort_check=self._check_abort,
                 load_workspace_data=self.context_assembler.load_workspace_data,
-                needs_library_context=self.context_assembler.needs_library_context,
+                needs_workspace_context=self.context_assembler.needs_workspace_context,
+                context_requirements_from_brief=(
+                    self.context_assembler.context_requirements_from_brief
+                ),
                 capability_policy_builder=self._capability_policy,
                 collect_policy_memory_outputs=self._collect_policy_memory_outputs,
             ).run(

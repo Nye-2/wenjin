@@ -9,6 +9,10 @@ from src.dataservice_client.contracts.execution import (
     ComputeSessionEnsurePayload,
     ComputeSessionPayload,
     ComputeSessionUpdatePayload,
+    ExecutionCommitClaimPayload,
+    ExecutionCommitFailPayload,
+    ExecutionCommitFinalizePayload,
+    ExecutionCommitResetPayload,
     ExecutionCreatePayload,
     ExecutionEventCreatePayload,
     ExecutionEventPayload,
@@ -81,6 +85,61 @@ class ExecutionDataServiceClientMixin:
             "PATCH",
             f"/internal/v1/executions/{execution_id}",
             json=command.model_dump(mode="json", exclude_unset=True),
+        )
+        data = payload.get("data")
+        return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def claim_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitClaimPayload,
+    ) -> dict[str, Any]:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/commit-claim",
+            json=command.model_dump(mode="json"),
+        )
+        data = dict(payload.get("data") or {})
+        execution = data.get("execution")
+        if execution is not None:
+            data["execution"] = ExecutionPayload.model_validate(execution)
+        return data
+
+    async def finalize_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitFinalizePayload,
+    ) -> ExecutionPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/commit-finalize",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def fail_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitFailPayload,
+    ) -> ExecutionPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/commit-fail",
+            json=command.model_dump(mode="json"),
+        )
+        data = payload.get("data")
+        return ExecutionPayload.model_validate(data) if data is not None else None
+
+    async def reset_execution_commit(
+        self,
+        execution_id: str,
+        command: ExecutionCommitResetPayload,
+    ) -> ExecutionPayload | None:
+        payload = await self._request(
+            "POST",
+            f"/internal/v1/executions/{execution_id}/commit-reset",
+            json=command.model_dump(mode="json"),
         )
         data = payload.get("data")
         return ExecutionPayload.model_validate(data) if data is not None else None
@@ -164,6 +223,29 @@ class ExecutionDataServiceClientMixin:
         )
         status = payload["data"].get("status")
         return str(status) if status is not None else None
+
+    async def get_execution_by_launch_idempotency_key(
+        self,
+        *,
+        workspace_id: str,
+        thread_id: str,
+        user_id: str,
+        capability_id: str,
+        launch_idempotency_key: str,
+    ) -> ExecutionPayload | None:
+        payload = await self._request(
+            "GET",
+            "/internal/v1/executions/features/by-launch-idempotency-key",
+            params={
+                "workspace_id": workspace_id,
+                "thread_id": thread_id,
+                "user_id": user_id,
+                "capability_id": capability_id,
+                "launch_idempotency_key": launch_idempotency_key,
+            },
+        )
+        data = payload.get("data")
+        return ExecutionPayload.model_validate(data) if data is not None else None
 
     async def reconcile_interrupted_executions(self) -> int:
         payload = await self._request(

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ExecutionGraphNode, ExecutionNodeState } from "@/lib/api/types";
+import { safeRuntimeText } from "@/lib/runtime-payload-safety";
 import { NodePill } from "./NodePill";
 import { NodeInlineDetail } from "./NodeInlineDetail";
 
@@ -67,11 +68,15 @@ export function PhaseRow({
   const phaseStatus = getPhaseStatus(nodes, nodeStates);
   const dotStyle = PHASE_DOT_STYLES[phaseStatus];
 
-  // Find thinking text for running nodes
-  const thinkingPreview = nodes
+  const runningThinking = nodes
     .map((n) => nodeStates[n.id])
     .filter((s) => s?.status === "running" && s.thinking)
-    .map((s) => s!.thinking!)[0];
+    .map((s) => s!.thinking!);
+  const thinkingPreview =
+    runningThinking
+      .map((thinking) => safeRuntimeText(thinking, 260))
+      .find((thinking): thinking is string => Boolean(thinking)) ??
+    (runningThinking.length > 0 ? "当前步骤正在处理。" : null);
 
   const handlePillClick = (nodeId: string) => {
     setExpandedNodeId((prev) => (prev === nodeId ? null : nodeId));

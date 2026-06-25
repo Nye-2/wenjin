@@ -166,6 +166,7 @@ describe("execution run view projection", () => {
     expect(view.reviewPacket?.blockerCount).toBe(1);
     expect(view.reviewPacket?.items[1]?.supportState).toBe("blocker");
     expect(view.sandboxReviewCount).toBe(1);
+    expect(view.pendingReviewCount).toBe(2);
     expect(view.actions).toContain("preview_results");
     expect(view.qualityHighlights).toEqual(
       expect.arrayContaining([
@@ -173,6 +174,175 @@ describe("execution run view projection", () => {
         expect.objectContaining({ label: "证据风险", status: "fail" }),
       ]),
     );
+  });
+
+  it("projects result previews and sanitized evidence from the run view layer", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        result: {
+          task_report: {
+            outputs: [
+              {
+                id: "doc-1",
+                kind: "document",
+                preview: "实验结果摘要",
+                default_checked: true,
+                data: {
+                  name: "result.md",
+                  content: "完成实验结果摘要。",
+                },
+              },
+            ],
+          },
+        },
+        node_states: {
+          "experiment-node": {
+            status: "completed",
+            node_type: "agent_invocation",
+            label: "实验工程师",
+            output: {
+              stdout: "raw stdout should stay hidden",
+              stderr: "raw stderr should stay hidden",
+            },
+            node_metadata: {
+              harness: {
+                reproducibility_summary: {
+                  schema: "wenjin.harness.reproducibility_summary.v1",
+                  script_paths: ["/workspace/scripts/analysis.py"],
+                  dataset_paths: ["/workspace/datasets/panel.csv"],
+                  artifact_paths: [
+                    "/workspace/outputs/result.json",
+                    "/workspace/tmp/tasks/.harness/raw-output.txt",
+                  ],
+                  next_actions: ["复核图表"],
+                  },
+                },
+              },
+            },
+          },
+      }),
+    );
+
+    expect(view.resultPreviews[0]?.id).toBe("doc-1");
+    expect(view.resultPreviews[0]?.title).toBe("实验结果摘要");
+    expect(view.pendingReviewCount).toBe(1);
+    expect(view.sandboxCount).toBe(1);
+
+    const evidenceText = view.evidenceItems
+      .map((item) => [item.title, item.summary].join("\n"))
+      .join("\n");
+    expect(evidenceText).toContain("实验结果摘要");
+    expect(evidenceText).toContain("analysis.py");
+    expect(evidenceText).toContain("panel.csv");
+    expect(evidenceText).toContain("result.json");
+    expect(evidenceText).not.toContain("/workspace/tmp/tasks/.harness");
+    expect(evidenceText).not.toContain("raw stdout");
+    expect(evidenceText).not.toContain("raw stderr");
+  });
+
+  it("projects direct task report results before hydration nests them", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        result: {
+          status: "completed",
+          narrative: "直接任务报告已生成。",
+          outputs: [
+            {
+              id: "direct-doc-1",
+              kind: "document",
+              preview: "直接报告",
+              default_checked: true,
+              data: {
+                name: "direct.md",
+                content: "直接报告正文。",
+              },
+            },
+          ],
+          review_items: [
+            {
+              id: "direct-figure-1",
+              kind: "sandbox_artifact",
+              status: "pending",
+              title: "Direct figure",
+              summary: "/workspace/outputs/figures/direct/figure.png",
+              target: {
+                kind: "sandbox_artifact",
+                path: "/workspace/outputs/figures/direct/figure.png",
+                artifact_kind: "figure",
+                sandbox_artifact_id: "artifact-direct-1",
+              },
+              preview: {
+                mode: "artifact",
+                path: "/workspace/outputs/figures/direct/figure.png",
+                mime_type: "image/png",
+              },
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(view.summary).toBe("直接任务报告已生成。");
+    expect(view.resultPreviews.map((preview) => preview.id)).toEqual([
+      "direct-doc-1",
+      "review:direct-figure-1",
+    ]);
+    expect(view.pendingReviewCount).toBe(2);
+    expect(view.evidenceItems[0]).toMatchObject({
+      id: "direct-doc-1",
+      source: "output",
+      title: "直接报告",
+    });
+    expect(view.evidenceItems[0]?.summary).toContain("直接报告正文。");
+  });
+
+  it("does not treat arbitrary direct result payloads as task reports", () => {
+    const view = runViewFromExecution(
+      makeExecution({
+        status: "completed",
+        result: {
+          narrative: "不应作为任务报告摘要。",
+          outputs: [
+            {
+              id: "incidental-doc-1",
+              kind: "document",
+              preview: "误判报告",
+              default_checked: true,
+              data: {
+                name: "incidental.md",
+                content: "不应进入证据。",
+              },
+            },
+          ],
+          review_items: [
+            {
+              id: "incidental-review-1",
+              kind: "sandbox_artifact",
+              status: "pending",
+              title: "Incidental figure",
+              summary: "/workspace/outputs/figures/incidental/figure.png",
+              target: {
+                kind: "sandbox_artifact",
+                path: "/workspace/outputs/figures/incidental/figure.png",
+                artifact_kind: "figure",
+              },
+              preview: {
+                path: "/workspace/outputs/figures/incidental/figure.png",
+                mime_type: "image/png",
+              },
+            },
+          ],
+          errors: [{ error: "incidental error should not drive failure" }],
+        },
+      }),
+    );
+
+    expect(view.summary).toBe("执行已完成。");
+    expect(view.resultPreviews).toEqual([]);
+    expect(view.pendingReviewCount).toBe(0);
+    expect(view.evidenceItems).toEqual([]);
   });
 
   it("classifies partial node failures", () => {

@@ -1,18 +1,22 @@
 import asyncio
 from collections import Counter
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 import src.subagents.v2.types  # noqa: F401
 from src.agents.contracts.task_brief import TaskBrief
+from src.agents.lead_agent.v2.sandbox_runtime import SandboxCommandExecutionError
 from src.agents.lead_agent.v2.runtime import LeadAgentRuntime
 from src.agents.lead_agent.v2.team.contracts import (
     AgentInvocation,
     AgentTemplate,
     CapabilityTeamPolicy,
     TeamBlackboard,
+    TeamLimits,
 )
 from src.agents.lead_agent.v2.team.kernel import (
     RecruitmentCandidate,
@@ -39,6 +43,23 @@ class TeamFakeSubagent(SubagentBase):
                 }
             ],
             token_usage={"input": 3, "output": 5},
+        )
+
+
+@subagent("team_event_publisher_fake")
+class TeamEventPublisherFakeSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        await ctx.publish_event(
+            ctx.execution_id,
+            "execution.team.fake_progress",
+            {"invocation_id": ctx.invocation["id"]},
+        )
+        return SubagentResult(
+            output={
+                "summary": f"{ctx.invocation['display_name']} published progress",
+                "team_role": ctx.inputs["team_role"],
+            },
+            token_usage={"input": 2, "output": 3},
         )
 
 
@@ -135,6 +156,45 @@ class TeamSandboxPythonFakeSubagent(SubagentBase):
 class TeamFailingSubagent(SubagentBase):
     async def run(self, ctx: SubagentContext) -> SubagentResult:
         raise RuntimeError(f"{ctx.invocation['display_name']} failed")
+
+
+@subagent("team_structured_sandbox_failure")
+class TeamStructuredSandboxFailureSubagent(SubagentBase):
+    async def run(self, ctx: SubagentContext) -> SubagentResult:
+        raise SandboxCommandExecutionError(
+            f"{ctx.invocation['display_name']} script failed",
+            output={
+                "status": "failed",
+                "exit_code": 2,
+                "billing": {
+                    "type": "sandbox_operation_billing",
+                    "credits_charged": 1,
+                },
+                "tool_calls": [
+                    {
+                        "name": "sandbox.run_python",
+                        "status": "failed",
+                        "exit_code": 2,
+                        "metadata": {
+                            "execution_lifecycle": {
+                                "schema": "wenjin.harness.run_python.execution_lifecycle.v1",
+                                "status": "failed",
+                                "exit_code": 2,
+                            },
+                            "failure_classification": {
+                                "schema": "wenjin.harness.run_python.failure_classification.v1",
+                                "failure_code": "python_exit_nonzero",
+                                "recoverable": True,
+                            },
+                        },
+                        "billing": {
+                            "type": "sandbox_operation_billing",
+                            "credits_charged": 1,
+                        },
+                    }
+                ],
+            },
+        )
 
 
 @subagent("team_empty")
@@ -388,6 +448,404 @@ def _brief() -> TaskBrief:
     )
 
 
+def _minimal_team_policy_without_invocations() -> CapabilityTeamPolicy:
+    return CapabilityTeamPolicy(
+        core_templates=[],
+        optional_templates=[],
+        capability_tools=[],
+        capability_skills=[],
+        quality_pipeline=[],
+        limits=TeamLimits(
+            max_iterations=1,
+            max_parallel_invocations=1,
+            max_invocations_total=1,
+        ),
+    )
+
+
+def _team_runtime_for_unit_tests(
+    *,
+    publish_event=None,
+    record_node_event=None,
+) -> TeamKernelRuntime:
+    return TeamKernelRuntime(
+        publish_event=publish_event if publish_event is not None else AsyncMock(),
+        record_node_event=record_node_event if record_node_event is not None else AsyncMock(),
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=AsyncMock(return_value={}),
+        needs_workspace_context=lambda _policy, _requirements: False,
+        context_requirements_from_brief=lambda _brief: {},
+        capability_policy_builder=lambda _capability: {},
+        collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
+    )
+
+
+def test_team_kernel_output_mapping_prefers_latest_successful_invocation() -> None:
+    runtime = _team_runtime_for_unit_tests()
+    invocations = [
+        AgentInvocation(
+            id="inv-1",
+            template_id="writer.v1",
+            display_name="Writer",
+            assigned_role="writer",
+            recruitment_reason="test",
+            effective_skills=["writer"],
+            iteration=1,
+            status="succeeded",
+            output_report={"text": "old"},
+        ),
+        AgentInvocation(
+            id="inv-2",
+            template_id="writer.v1",
+            display_name="Writer",
+            assigned_role="writer",
+            recruitment_reason="test",
+            effective_skills=["writer"],
+            iteration=2,
+            status="succeeded",
+            output_report={"text": "new"},
+        ),
+    ]
+
+    output = runtime._output_for_graph_task(
+        {"skill_id": "writer", "agent_template_id": "writer.v1"},
+        invocations,
+    )
+
+    assert output == {"text": "new"}
+
+
+def test_team_kernel_output_mapping_prefers_latest_completion_with_same_iteration() -> None:
+    runtime = _team_runtime_for_unit_tests()
+    invocations = [
+        AgentInvocation(
+            id="z-old",
+            template_id="writer.v1",
+            display_name="Writer",
+            assigned_role="writer",
+            recruitment_reason="test",
+            effective_skills=["writer"],
+            iteration=2,
+            status="succeeded",
+            output_report={"text": "old"},
+            completed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        ),
+        AgentInvocation(
+            id="a-new",
+            template_id="writer.v1",
+            display_name="Writer",
+            assigned_role="writer",
+            recruitment_reason="test",
+            effective_skills=["writer"],
+            iteration=2,
+            status="succeeded",
+            output_report={"text": "new"},
+            completed_at=datetime(2026, 1, 2, tzinfo=UTC),
+        ),
+    ]
+
+    output = runtime._output_for_graph_task(
+        {"skill_id": "writer", "agent_template_id": "writer.v1"},
+        invocations,
+    )
+
+    assert output == {"text": "new"}
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_record_invocation_failure_does_not_fail_invocation(monkeypatch):
+    async def failing_record_node_event(**kwargs):
+        raise RuntimeError("record failed")
+
+    runtime = _team_runtime_for_unit_tests(record_node_event=failing_record_node_event)
+    invocation = AgentInvocation(
+        id="inv-1",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="writer.v1",
+        display_name="Writer",
+        assigned_role="writer",
+        recruitment_reason="test",
+        status="succeeded",
+        output_report={"text": "done"},
+    )
+
+    await runtime._safe_record_invocation(invocation, status="succeeded")
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_run_invocation_sets_completed_at() -> None:
+    runtime = _team_runtime_for_unit_tests()
+    invocation = AgentInvocation(
+        id="inv-completed",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="writer.v1",
+        display_name="Writer",
+        assigned_role="writer",
+        recruitment_reason="test",
+        effective_skills=["writer"],
+        input_brief={
+            "workspace_id": "ws-1",
+            "topic": "completion timestamps",
+            "team_role": "writer",
+        },
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="writer.v1",
+            display_role="Writer",
+            category="writing",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={"writer": SimpleNamespace(subagent_type="team_fake")},
+        skill_load_error=None,
+    )
+
+    assert invocation.status == "succeeded"
+    assert isinstance(invocation.completed_at, datetime)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_failed_invocation_preserves_structured_exception_tool_calls() -> None:
+    recorded: list[dict[str, Any]] = []
+
+    async def record_node_event(**kwargs):
+        recorded.append(kwargs)
+
+    runtime = _team_runtime_for_unit_tests(record_node_event=record_node_event)
+    invocation = AgentInvocation(
+        id="inv-structured-failure",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="runner.v1",
+        display_name="Runner",
+        assigned_role="runner",
+        recruitment_reason="test",
+        effective_skills=["runner"],
+        input_brief={
+            "workspace_id": "ws-1",
+            "topic": "script failure metadata",
+            "team_role": "runner",
+        },
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="runner.v1",
+            display_role="Runner",
+            category="analysis",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={"runner": SimpleNamespace(subagent_type="team_structured_sandbox_failure")},
+        skill_load_error=None,
+    )
+
+    assert invocation.status == "failed"
+    assert invocation.error == {"message": "Runner script failed"}
+    assert invocation.output_report["status"] == "failed"
+    assert invocation.tool_calls[0]["name"] == "sandbox.run_python"
+    assert invocation.tool_calls[0]["metadata"]["failure_classification"]["failure_code"] == (
+        "python_exit_nonzero"
+    )
+    assert recorded[-1]["status"] == "failed"
+    assert recorded[-1]["tool_calls"] == invocation.tool_calls
+    assert recorded[-1]["node_metadata"]["harness"]["replan_signals"][0]["failure_codes"] == [
+        "python_exit_nonzero"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_subagent_publish_failure_does_not_fail_invocation() -> None:
+    async def failing_publish_event(
+        _execution_id: str,
+        _event_name: str,
+        _payload: dict[str, Any],
+    ) -> None:
+        raise RuntimeError("publish failed")
+
+    runtime = _team_runtime_for_unit_tests(publish_event=failing_publish_event)
+    invocation = AgentInvocation(
+        id="inv-publish",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="publisher.v1",
+        display_name="Publisher",
+        assigned_role="publisher",
+        recruitment_reason="test",
+        effective_skills=["publisher"],
+        input_brief={
+            "workspace_id": "ws-1",
+            "topic": "publish side effects",
+            "team_role": "publisher",
+        },
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="publisher.v1",
+            display_role="Publisher",
+            category="research",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={"publisher": SimpleNamespace(subagent_type="team_event_publisher_fake")},
+        skill_load_error=None,
+    )
+
+    assert invocation.status == "succeeded"
+    assert invocation.output_report == {
+        "summary": "Publisher published progress",
+        "team_role": "publisher",
+    }
+    assert isinstance(invocation.completed_at, datetime)
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_snapshot_record_failure_still_publishes_snapshot_event() -> None:
+    published: list[str] = []
+
+    async def failing_record_node_event(**kwargs):
+        raise RuntimeError("record failed")
+
+    async def publish_event(_execution_id: str, event_name: str, _payload: dict[str, Any]) -> None:
+        published.append(event_name)
+
+    runtime = _team_runtime_for_unit_tests(
+        publish_event=publish_event,
+        record_node_event=failing_record_node_event,
+    )
+    invocation = AgentInvocation(
+        id="inv-snapshot",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="streaming.v1",
+        display_name="Streamer",
+        assigned_role="streamer",
+        recruitment_reason="test",
+        effective_skills=["streamer"],
+        input_brief={"workspace_id": "ws-1", "topic": "streaming snapshots"},
+    )
+
+    await runtime._run_invocation(
+        invocation=invocation,
+        template=AgentTemplate(
+            id="streaming.v1",
+            display_role="Streamer",
+            category="research",
+        ),
+        capability_policy={},
+        workspace_data={},
+        blackboard=TeamBlackboard(),
+        skill_records={"streamer": SimpleNamespace(subagent_type="team_streaming_only_metadata_fake")},
+        skill_load_error=None,
+    )
+
+    assert "execution.team.expert_snapshot" in published
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_quality_gate_publish_failure_does_not_fail_evaluation() -> None:
+    async def failing_publish_event(
+        _execution_id: str,
+        _event_name: str,
+        _payload: dict[str, Any],
+    ) -> None:
+        raise RuntimeError("publish failed")
+
+    runtime = _team_runtime_for_unit_tests(publish_event=failing_publish_event)
+    invocation = AgentInvocation(
+        id="inv-quality",
+        execution_id="exec-1",
+        iteration=1,
+        template_id="writer.v1",
+        display_name="Writer",
+        assigned_role="writer",
+        recruitment_reason="test",
+        status="succeeded",
+        output_report={"text": "done"},
+    )
+
+    gates = await runtime._evaluate_quality_gates(
+        execution_id="exec-1",
+        team_policy=CapabilityTeamPolicy(
+            quality_pipeline=["team_output_available"],
+            limits=TeamLimits(max_iterations=1, max_parallel_invocations=1, max_invocations_total=1),
+        ),
+        capability_policy={},
+        counts=Counter({"writer.v1": 1}),
+        invocations=[invocation],
+        latest_invocations=[invocation],
+        blackboard=TeamBlackboard(),
+        workspace_data={},
+    )
+
+    assert gates
+
+
+@pytest.mark.asyncio
+async def test_team_kernel_passes_capability_policy_and_user_to_workspace_loader(
+    monkeypatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    async def load_workspace_data(workspace_id: str, **kwargs: Any) -> dict[str, Any]:
+        captured["workspace_id"] = workspace_id
+        captured.update(kwargs)
+        return {"library_context": {"allowed_citation_keys": ["smith2024"]}}
+
+    runtime = TeamKernelRuntime(
+        publish_event=AsyncMock(),
+        record_node_event=AsyncMock(),
+        abort_check=AsyncMock(return_value=False),
+        load_workspace_data=load_workspace_data,
+        needs_workspace_context=lambda policy, requirements: True,
+        context_requirements_from_brief=lambda brief: {"include_related_documents": True},
+        capability_policy_builder=lambda capability: {
+            "citation_policy": {"source_scope": "workspace_library"},
+            "context_policy": {"room_reads": {"library": True}},
+        },
+        collect_policy_memory_outputs=lambda capability, brief, outputs: [],
+    )
+
+    monkeypatch.setattr(runtime, "_load_templates", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        "src.agents.lead_agent.v2.team.kernel.build_capability_team_policy",
+        lambda capability, templates: _minimal_team_policy_without_invocations(),
+    )
+
+    report = await runtime.run(
+        execution_id="exec-1",
+        brief=TaskBrief(
+            capability_id="sci_literature_positioning",
+            raw_message="position this topic",
+            workspace_id="ws-1",
+            user_id="user-1",
+            brief={"topic": "LLM agents"},
+        ),
+        capability=SimpleNamespace(
+            id="sci_literature_positioning",
+            display_name="SCI 文献定位",
+        ),
+        started_at=datetime.now(UTC),
+    )
+
+    assert report.status in {"completed", "failed_partial"}
+    assert captured["workspace_id"] == "ws-1"
+    assert captured["user_id"] == "user-1"
+    assert captured["capability_policy"]["citation_policy"]["source_scope"] == "workspace_library"
+    assert captured["context_requirements"]["include_related_documents"] is True
+
+
 def test_team_panel_graph_keeps_member_templates_out_of_progress_steps() -> None:
     runtime = LeadAgentRuntime(
         resolver=AsyncMock(),
@@ -414,7 +872,8 @@ def test_team_kernel_quality_contract_includes_workspace_source_allowlist() -> N
         record_node_event=AsyncMock(),
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -458,7 +917,8 @@ def test_team_kernel_applies_capability_profile_override_when_building_batch() -
         record_node_event=AsyncMock(),
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -512,7 +972,8 @@ async def test_record_invocation_persists_expert_snapshot_and_preview_items() ->
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -581,7 +1042,8 @@ async def test_record_invocation_generates_synthetic_expert_snapshot_when_missin
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -618,7 +1080,8 @@ async def test_record_invocation_skips_invalid_expert_metadata() -> None:
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -712,7 +1175,8 @@ async def test_run_invocation_persists_subagent_result_expert_metadata() -> None
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -763,7 +1227,8 @@ async def test_run_invocation_keeps_streamed_expert_snapshots_in_final_node_meta
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -831,7 +1296,8 @@ async def test_run_invocation_keeps_streamed_snapshots_when_result_metadata_is_e
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -900,7 +1366,8 @@ async def test_streamed_expert_snapshot_recording_failure_does_not_fail_invocati
         record_node_event=record_node_event,
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: True,
+        needs_workspace_context=lambda _policy, _requirements: True,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )
@@ -946,7 +1413,8 @@ async def test_run_invocation_marks_hanging_subagent_failed_on_timeout() -> None
         record_node_event=AsyncMock(),
         abort_check=AsyncMock(return_value=False),
         load_workspace_data=AsyncMock(return_value={}),
-        needs_library_context=lambda _policy: False,
+        needs_workspace_context=lambda _policy, _requirements: False,
+        context_requirements_from_brief=lambda _brief: {},
         capability_policy_builder=lambda _capability: {},
         collect_policy_memory_outputs=lambda _capability, _brief, _outputs: [],
     )

@@ -11,6 +11,10 @@ import pytest
 from src.dataservice.domains.execution.contracts import (
     ComputeSessionEnsureCommand,
     ComputeSessionUpdateCommand,
+    ExecutionCommitClaimCommand,
+    ExecutionCommitFailCommand,
+    ExecutionCommitFinalizeCommand,
+    ExecutionCommitResetCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionNodePatchCommand,
@@ -143,6 +147,7 @@ class FakeExecutionRepository:
         self.compute_session: SimpleNamespace | None = None
         self.nodes: list[SimpleNamespace] = []
         self.generation_records: list[SimpleNamespace] = []
+        self.locked_execution_ids: list[str] = []
 
     def create_execution(self, values: dict[str, Any]) -> SimpleNamespace:
         self.record = _execution({"id": "exec-created", **values})
@@ -154,7 +159,7 @@ class FakeExecutionRepository:
         return None
 
     async def lock_execution(self, execution_id: str) -> None:
-        _ = execution_id
+        self.locked_execution_ids.append(execution_id)
 
     async def list_executions(self, **kwargs: Any) -> list[SimpleNamespace]:
         _ = kwargs
@@ -164,6 +169,22 @@ class FakeExecutionRepository:
         if self.record is None or self.record.status not in statuses:
             return []
         return [self.record]
+
+    async def find_execution_by_launch_idempotency_key(self, **kwargs: Any) -> SimpleNamespace | None:
+        if self.record is None:
+            return None
+        if self.record.workspace_id != kwargs["workspace_id"]:
+            return None
+        if self.record.thread_id != kwargs["thread_id"]:
+            return None
+        if self.record.user_id != kwargs["user_id"]:
+            return None
+        if self.record.feature_id != kwargs["capability_id"]:
+            return None
+        params = self.record.params or {}
+        if params.get("launch_idempotency_key") != kwargs["launch_idempotency_key"]:
+            return None
+        return self.record
 
     async def count_executions(self, **kwargs: Any) -> int:
         status = kwargs.get("status")
@@ -484,6 +505,315 @@ async def test_feature_status_helpers_read_execution_domain() -> None:
 
     assert running_count == 2
     assert latest_status == "running"
+
+
+@pytest.mark.asyncio
+async def test_find_execution_by_launch_idempotency_key_reads_execution_domain() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-idem",
+            "thread_id": "thread-1",
+            "feature_id": "idea_to_manuscript",
+            "params": {"launch_idempotency_key": "launch_feature:thread-1:msg-1"},
+        }
+    )
+
+    found = await service.find_execution_by_launch_idempotency_key(
+        workspace_id="ws-1",
+        thread_id="thread-1",
+        user_id="user-1",
+        capability_id="idea_to_manuscript",
+        launch_idempotency_key="launch_feature:thread-1:msg-1",
+    )
+
+    assert found is not None
+    assert found.id == "exec-idem"
+
+
+@pytest.mark.asyncio
+async def test_claim_execution_commit_marks_execution_committing_under_lock() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {"task_report": {"status": "completed"}},
+        }
+    )
+
+    claim = await service.claim_execution_commit(
+        "exec-claim",
+        ExecutionCommitClaimCommand(commit_token="token-1"),
+    )
+
+    assert claim["status"] == "claimed"
+    assert repository.locked_execution_ids == ["exec-claim"]
+    assert repository.record.result["commit_state"]["status"] == "committing"
+    assert repository.record.result["commit_state"]["commit_token"] == "token-1"
+    assert repository.record.result["commit_state"]["lease_expires_at"]
+    assert claim["execution"].result_json["commit_state"]["status"] == "committing"
+
+
+@pytest.mark.asyncio
+async def test_claim_execution_commit_rejects_existing_in_progress_claim() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "commit_state": {
+                    "status": "committing",
+                    "commit_token": "token-1",
+                    "started_at": "2026-06-25T00:00:00+00:00",
+                },
+            },
+        }
+    )
+
+    claim = await service.claim_execution_commit(
+        "exec-claim",
+        ExecutionCommitClaimCommand(commit_token="token-2"),
+    )
+
+    assert claim["status"] == "in_progress"
+    assert repository.record.result["commit_state"]["commit_token"] == "token-1"
+
+
+@pytest.mark.asyncio
+async def test_claim_execution_commit_reports_stale_expired_claim() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "commit_state": {
+                    "status": "committing",
+                    "commit_token": "token-1",
+                    "started_at": "2026-06-25T00:00:00+00:00",
+                    "lease_expires_at": "2000-01-01T00:00:00+00:00",
+                },
+            },
+        }
+    )
+
+    claim = await service.claim_execution_commit(
+        "exec-claim",
+        ExecutionCommitClaimCommand(commit_token="token-2"),
+    )
+
+    assert claim["status"] == "stale"
+    assert repository.record.result["commit_state"]["commit_token"] == "token-1"
+
+
+@pytest.mark.asyncio
+async def test_finalize_execution_commit_requires_matching_claim_token_under_lock() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "commit_state": {
+                    "status": "committing",
+                    "commit_token": "token-1",
+                    "started_at": "2026-06-25T00:00:00+00:00",
+                },
+            },
+        }
+    )
+    final_result = {
+        "task_report": {"status": "completed"},
+        "commit_state": {
+            "status": "committed",
+            "accepted_ids": ["out-1"],
+            "rejected_ids": [],
+            "counts": {
+                "library": 0,
+                "documents": 1,
+                "memory": 0,
+                "decisions": 0,
+                "tasks": 0,
+            },
+            "room_targets": {
+                "library": [],
+                "documents": [{"output_id": "out-1", "item_id": "doc-1"}],
+                "memory": [],
+                "decisions": [],
+                "tasks": [],
+            },
+            "committed_at": "2026-06-25T00:01:00+00:00",
+        },
+    }
+
+    rejected = await service.finalize_execution_commit(
+        "exec-claim",
+        ExecutionCommitFinalizeCommand(
+            commit_token="token-2",
+            result_json=final_result,
+        ),
+    )
+
+    assert rejected is None
+    assert repository.locked_execution_ids == ["exec-claim"]
+    assert repository.record.result["commit_state"]["status"] == "committing"
+    assert repository.record.result["commit_state"]["commit_token"] == "token-1"
+
+    finalized = await service.finalize_execution_commit(
+        "exec-claim",
+        ExecutionCommitFinalizeCommand(
+            commit_token="token-1",
+            result_json=final_result,
+        ),
+    )
+
+    assert finalized is not None
+    assert repository.locked_execution_ids == ["exec-claim", "exec-claim"]
+    assert repository.record.result["commit_state"]["status"] == "committed"
+    assert finalized.result_json["commit_state"]["status"] == "committed"
+
+
+@pytest.mark.asyncio
+async def test_finalize_execution_commit_rejects_malformed_terminal_commit_state() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "commit_state": {
+                    "status": "committing",
+                    "commit_token": "token-1",
+                    "started_at": "2026-06-25T00:00:00+00:00",
+                },
+            },
+        }
+    )
+
+    finalized = await service.finalize_execution_commit(
+        "exec-claim",
+        ExecutionCommitFinalizeCommand(
+            commit_token="token-1",
+            result_json={
+                "task_report": {"status": "completed"},
+                "commit_state": {"status": "committed"},
+            },
+        ),
+    )
+
+    assert finalized is None
+    assert repository.record.result["commit_state"]["status"] == "committing"
+
+
+@pytest.mark.asyncio
+async def test_fail_execution_commit_requires_matching_claim_token_and_blocks_reclaim() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "commit_state": {
+                    "status": "committing",
+                    "commit_token": "token-1",
+                    "started_at": "2026-06-25T00:00:00+00:00",
+                },
+            },
+        }
+    )
+
+    rejected = await service.fail_execution_commit(
+        "exec-claim",
+        ExecutionCommitFailCommand(
+            commit_token="token-2",
+            error_text="wrong token",
+        ),
+    )
+
+    assert rejected is None
+    assert repository.record.result["commit_state"]["status"] == "committing"
+
+    failed = await service.fail_execution_commit(
+        "exec-claim",
+        ExecutionCommitFailCommand(
+            commit_token="token-1",
+            error_text="asset write failed",
+            accepted_ids=["out-doc"],
+            rejected_ids=["out-lib"],
+            partial_counts={"documents": 0},
+            partial_room_targets={"documents": []},
+        ),
+    )
+
+    assert failed is not None
+    assert repository.record.result["commit_state"]["status"] == "failed"
+    assert repository.record.result["commit_state"]["commit_token"] == "token-1"
+    assert repository.record.result["commit_state"]["error_text"] == "asset write failed"
+    assert repository.record.result["commit_state"]["accepted_ids"] == ["out-doc"]
+    assert repository.record.result["commit_state"]["rejected_ids"] == ["out-lib"]
+    assert repository.record.result["commit_state"]["partial_counts"] == {"documents": 0}
+
+    claim = await service.claim_execution_commit(
+        "exec-claim",
+        ExecutionCommitClaimCommand(commit_token="token-3"),
+    )
+
+    assert claim["status"] == "failed"
+    assert repository.record.result["commit_state"]["commit_token"] == "token-1"
+
+
+@pytest.mark.asyncio
+async def test_reset_execution_commit_claim_keeps_recovery_log_and_allows_reclaim() -> None:
+    service, repository, _ = _service()
+    repository.record = _execution(
+        {
+            "id": "exec-claim",
+            "result": {
+                "task_report": {"status": "completed"},
+                "commit_state": {
+                    "status": "failed",
+                    "commit_token": "token-1",
+                    "error_text": "asset write failed",
+                    "manual_recovery_required": True,
+                },
+            },
+        }
+    )
+
+    reset = await service.reset_execution_commit(
+        "exec-claim",
+        ExecutionCommitResetCommand(
+            reason="operator verified no room side effects",
+            current_commit_token="wrong-token",
+        ),
+    )
+
+    assert reset is None
+    assert repository.record.result["commit_state"]["status"] == "failed"
+
+    reset = await service.reset_execution_commit(
+        "exec-claim",
+        ExecutionCommitResetCommand(
+            reason="operator verified no room side effects",
+            current_commit_token="token-1",
+        ),
+    )
+
+    assert reset is not None
+    assert "commit_state" not in repository.record.result
+    assert repository.record.result["commit_recovery_log"][0]["reason"] == (
+        "operator verified no room side effects"
+    )
+    assert repository.record.result["commit_recovery_log"][0]["previous_commit_state"]["status"] == "failed"
+
+    claim = await service.claim_execution_commit(
+        "exec-claim",
+        ExecutionCommitClaimCommand(commit_token="token-2"),
+    )
+
+    assert claim["status"] == "claimed"
+    assert repository.record.result["commit_state"]["commit_token"] == "token-2"
 
 
 @pytest.mark.asyncio

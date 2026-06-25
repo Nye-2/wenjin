@@ -46,6 +46,32 @@ class ExecutionUpdatePayload(BaseModel):
     completed_at: datetime | None = None
 
 
+class ExecutionCommitClaimPayload(BaseModel):
+    commit_token: str
+    claimed_at: datetime | None = None
+
+
+class ExecutionCommitFinalizePayload(BaseModel):
+    commit_token: str
+    result_json: dict[str, Any]
+
+
+class ExecutionCommitFailPayload(BaseModel):
+    commit_token: str
+    error_text: str
+    failed_at: datetime | None = None
+    accepted_ids: list[str] | None = None
+    rejected_ids: list[str] | None = None
+    partial_counts: dict[str, Any] | None = None
+    partial_room_targets: dict[str, Any] | None = None
+
+
+class ExecutionCommitResetPayload(BaseModel):
+    reason: str
+    current_commit_token: str | None = None
+    reset_at: datetime | None = None
+
+
 class ComputeSessionEnsurePayload(BaseModel):
     execution_id: str
     workspace_id: str
