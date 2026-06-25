@@ -717,6 +717,165 @@ def test_context_budget_preserves_required_research_evidence_before_generic_cont
     ]
 
 
+def test_context_budget_preserves_dataset_provenance_for_experiment_surfaces() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={
+            "goal": "run experiment",
+            "inputs": {
+                "research_evidence_requirements": {
+                    "schema": "wenjin.team.research_evidence_requirements.v1",
+                    "required_surfaces": ["literature", "experiment"],
+                },
+                "upstream_context": {
+                    "artifact_candidates": [
+                        {"path": f"/workspace/reports/generic-{index}.md", "title": "x" * 300}
+                        for index in range(30)
+                    ]
+                },
+            },
+        },
+        workspace_data={
+            "workspace_file_summary": {
+                "dataset_provenance": [
+                    {
+                        "path": "/workspace/datasets/panel.csv",
+                        "source_id": "library-source-1",
+                        "content_hash": "sha256:panel",
+                        "license": "research-use",
+                    }
+                ],
+                "recent_outputs": [
+                    {"path": f"/workspace/outputs/result-{index}.json", "title": "y" * 300}
+                    for index in range(20)
+                ],
+                "recent_scripts": [
+                    {"path": f"/workspace/scripts/analysis-{index}.py", "title": "z" * 300}
+                    for index in range(20)
+                ],
+            },
+            "workspace_history": {
+                "recent_executions": [
+                    {"execution_id": f"exec-{index}", "summary": "history " + ("h" * 800)}
+                    for index in range(8)
+                ]
+            },
+        },
+        max_chars=4200,
+    )
+
+    assert bundle["budget"] == {"max_chars": 4200, "truncated": True}
+    assert bundle["workspace_file_summary"]["dataset_provenance"] == [
+        {
+            "path": "/workspace/datasets/panel.csv",
+            "source_id": "library-source-1",
+            "content_hash": "sha256:panel",
+            "license": "research-use",
+        }
+    ]
+    assert bundle["workspace_file_summary"]["recent_outputs"] == []
+    assert bundle["workspace_file_summary"]["recent_scripts"] == []
+
+
+def test_context_assembly_preserves_safe_member_task_scratch_refs() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "node_id": "team.1.evidence_analyst_v1.1",
+                        "node_metadata": {
+                            "harness": {
+                                "member_execution_transcript": {
+                                    "schema": "wenjin.harness.member_execution_transcript.v1",
+                                    "scratch_refs": [
+                                        "/workspace/tmp/tasks/exec-1/team.1.evidence_analyst_v1.1",
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/raw.txt",
+                                    ],
+                                }
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+    )
+
+    assert bundle["scratch_refs"] == [
+        {
+            "path": "/workspace/tmp/tasks/exec-1/team.1.evidence_analyst_v1.1",
+            "source": "member_execution_transcript",
+        }
+    ]
+
+
+def test_context_budget_preserves_scratch_refs_before_large_task_context() -> None:
+    bundle = build_harness_context_bundle(
+        workspace_id="ws-1",
+        workspace_type="sci",
+        task={
+            "goal": "write manuscript",
+            "inputs": {
+                "research_evidence_requirements": {
+                    "schema": "wenjin.team.research_evidence_requirements.v1",
+                    "required_surfaces": ["workflow_trace", "output_ref_reuse"],
+                },
+                "research_state": {
+                    "evidence_packet": [
+                        {"id": f"evidence-{index}", "summary": "x" * 500}
+                        for index in range(40)
+                    ]
+                },
+            },
+        },
+        workspace_data={
+            "workspace_history": {
+                "recent_executions": [
+                    {
+                        "execution_id": "exec-1",
+                        "node_id": "team.1.evidence_analyst_v1.1",
+                        "node_metadata": {
+                            "harness": {
+                                "sandbox_execution_summary": {
+                                    "schema": "wenjin.harness.sandbox_execution_summary.v1",
+                                    "output_refs": [
+                                        "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt"
+                                    ],
+                                },
+                                "member_execution_transcript": {
+                                    "schema": "wenjin.harness.member_execution_transcript.v1",
+                                    "scratch_refs": [
+                                        "/workspace/tmp/tasks/exec-1/team.1.evidence_analyst_v1.1"
+                                    ],
+                                },
+                            }
+                        },
+                    }
+                ]
+            }
+        },
+        max_chars=2600,
+    )
+
+    assert bundle["budget"] == {"max_chars": 2600, "truncated": True}
+    assert bundle["scratch_refs"] == [
+        {
+            "path": "/workspace/tmp/tasks/exec-1/team.1.evidence_analyst_v1.1",
+            "source": "member_execution_transcript",
+        }
+    ]
+    assert bundle["output_ref_recovery"]["refs"] == [
+        {
+            "output_ref": "/workspace/tmp/tasks/.harness/outputs/exec-1/node/stdout.txt",
+            "source": "sandbox_execution_summary",
+        }
+    ]
+
+
 def test_context_assembly_uses_generic_output_ref_summary_for_recovery() -> None:
     bundle = build_harness_context_bundle(
         workspace_id="ws-1",

@@ -414,6 +414,36 @@ class TestCapabilityV2Yaml:
         with pytest.raises(ValidationError, match="unknown research evidence surfaces"):
             CapabilityV2YamlModel(**payload)
 
+    def test_research_evidence_accepts_review_packet_and_surface_enforcement(self):
+        payload = self._valid_payload()
+        payload["research_evidence"] = {
+            "review_packet": "required",
+            "required_surfaces": ["workflow_trace", "review_packet_completeness"],
+            "surface_enforcement": {
+                "workflow_trace": "required_runtime",
+                "review_packet_completeness": "required_final",
+            },
+            "notes": ["previewable review packet is required"],
+        }
+
+        model = CapabilityV2YamlModel(**payload)
+
+        assert model.research_evidence.review_packet == "required"
+        assert model.research_evidence.surface_enforcement == {
+            "workflow_trace": "required_runtime",
+            "review_packet_completeness": "required_final",
+        }
+
+    def test_research_evidence_surface_enforcement_must_reference_known_surfaces(self):
+        payload = self._valid_payload()
+        payload["research_evidence"] = {
+            "required_surfaces": ["workflow_trace"],
+            "surface_enforcement": {"unknown_surface": "required_runtime"},
+        }
+
+        with pytest.raises(ValidationError, match="unknown research evidence surface"):
+            CapabilityV2YamlModel(**payload)
+
     def test_required_decision_type_validated(self):
         payload = self._valid_payload()
         payload["inputs"]["required_decisions"][0]["type"] = "object"

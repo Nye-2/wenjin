@@ -15,7 +15,11 @@ from src.contracts.catalog_validation import (
     validate_skill_prompt_contract,
     validate_visible_capability_routing_contract,
 )
-from src.contracts.research_evidence import validate_research_surfaces
+from src.contracts.research_evidence import (
+    ResearchSurfaceEnforcement,
+    validate_research_surface_enforcement,
+    validate_research_surfaces,
+)
 from src.contracts.team_presentation import CapabilityTeamPresentationV1
 
 
@@ -186,8 +190,24 @@ class CapabilityV2TeamPolicyModel(BaseModel):
 
 class CapabilityV2ResearchEvidenceModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    review_packet: Literal["required", "optional", "none"] | None = None
     required_surfaces: list[str] = Field(default_factory=list)
+    surface_enforcement: dict[str, ResearchSurfaceEnforcement] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+
+    @field_validator("required_surfaces")
+    @classmethod
+    def validate_required_surfaces(cls, value: list[str]) -> list[str]:
+        validate_research_surfaces(value, field_name="research_evidence.required_surfaces")
+        return value
+
+    @field_validator("surface_enforcement")
+    @classmethod
+    def validate_surface_enforcement(
+        cls,
+        value: dict[str, ResearchSurfaceEnforcement],
+    ) -> dict[str, ResearchSurfaceEnforcement]:
+        return validate_research_surface_enforcement(value)
 
 
 class CapabilityV2RoutingOptionModel(BaseModel):

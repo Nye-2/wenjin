@@ -20,12 +20,12 @@ from src.agents.contracts.task_report import (
     ReviewPacket,
     TaskReport,
 )
-from src.agents.harness.research_brief import build_research_brief
-from src.agents.harness.research_state import ResearchStateV1, compact_research_state
 from src.agents.harness.diff_tracker import (
     build_harness_node_metadata_from_tool_calls,
     build_harness_replan_signals_from_tool_calls,
 )
+from src.agents.harness.research_brief import build_research_brief
+from src.agents.harness.research_state import ResearchStateV1, compact_research_state
 from src.agents.lead_agent.v2.output_mapping import (
     OutputMappingResolver,
     review_packet_from_expert_reports,
@@ -40,10 +40,10 @@ from src.agents.lead_agent.v2.sandbox_artifact_review import (
     workspace_asset_payload_for_candidate,
 )
 from src.config.llm_config import LLMSettings
+from src.contracts.workspace_academic_map import compact_workspace_map_summary
 from src.dataservice_client.contracts.execution import ExecutionUpdatePayload
 from src.dataservice_client.provider import dataservice_client
 from src.services.prism_review_projection import prism_review_item_projection
-from src.contracts.workspace_academic_map import compact_workspace_map_summary
 from src.services.workspace_academic_map_service import build_academic_workspace_map_from_workspace_data
 from src.subagents.v2 import types as _types  # noqa: F401
 from src.subagents.v2.base import SubagentContext, SubagentResult
@@ -737,14 +737,25 @@ class TeamKernelRuntime:
             existing.add(key)
         return latest_signals
 
-    @staticmethod
     def _sync_current_harness_evidence(
+        self,
         workspace_data: dict[str, Any],
         latest_invocations: list[AgentInvocation],
     ) -> None:
         entries: list[dict[str, Any]] = []
         for invocation in latest_invocations:
-            harness_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+            cached_harness = self._node_harness_metadata.get(
+                (invocation.execution_id or "", invocation.id),
+            )
+            tool_metadata = build_harness_node_metadata_from_tool_calls(invocation.tool_calls)
+            merged_harness: dict[str, Any] = {}
+            if isinstance(tool_metadata, dict) and isinstance(tool_metadata.get("harness"), dict):
+                _merge_non_empty_harness(merged_harness, tool_metadata["harness"])
+            if isinstance(cached_harness, dict):
+                _merge_non_empty_harness(merged_harness, cached_harness)
+            if not _has_replayable_harness_evidence(merged_harness):
+                continue
+            harness_metadata = {"harness": merged_harness} if merged_harness else None
             if not harness_metadata:
                 continue
             entries.append(
@@ -1813,6 +1824,31 @@ def _prepend_current_harness_evidence(
             continue
         retained.append(item)
     return [*entries, *retained][:8]
+
+
+def _merge_non_empty_harness(target: dict[str, Any], source: dict[str, Any]) -> None:
+    for key, value in source.items():
+        if value in (None, {}, []):
+            continue
+        target[key] = value
+
+
+def _has_replayable_harness_evidence(harness: dict[str, Any]) -> bool:
+    return any(
+        harness.get(key) not in (None, {}, [])
+        for key in (
+            "file_change_summary",
+            "tool_failure_summary",
+            "sandbox_execution_summary",
+            "output_ref_summary",
+            "reproducibility_summary",
+            "experiment_interpretation_summary",
+            "statistical_robustness_summary",
+            "member_execution_transcript",
+            "replan_signals",
+            "run_journal_summary",
+        )
+    )
 
 
 def _workspace_type_from_brief_or_capability(brief: TaskBrief, capability: Any) -> str:

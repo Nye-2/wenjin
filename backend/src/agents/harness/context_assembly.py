@@ -510,7 +510,7 @@ def _safe_task_scratch_ref(value: Any) -> str:
         return ""
     if path.startswith(f"{WORKSPACE_HARNESS_INTERNAL_VIRTUAL_ROOT}/"):
         return ""
-    if is_workspace_internal_path(path) or is_workspace_protected_path(path):
+    if is_workspace_protected_path(path):
         return ""
     return path
 
