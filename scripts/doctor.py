@@ -308,7 +308,7 @@ def check_runtime_env(env_files: list[Path]) -> list[CheckResult]:
                 CheckResult(
                     f"{env_name} set",
                     "fail",
-                    fix=f"Add {env_name}=... to backend/.env or export in shell",
+                    fix=f"Add {env_name}=... to root .env or export in shell",
                 )
             )
 
@@ -318,7 +318,7 @@ def check_runtime_env(env_files: list[Path]) -> list[CheckResult]:
             CheckResult(
                 "JWT_SECRET_KEY set",
                 "fail",
-                fix="Add JWT_SECRET_KEY=... to backend/.env or export in shell",
+                fix="Add JWT_SECRET_KEY=... to root .env or export in shell",
             )
         )
     elif jwt_secret in {
@@ -342,7 +342,7 @@ def check_runtime_env(env_files: list[Path]) -> list[CheckResult]:
             CheckResult(
                 "LLM_MODELS set",
                 "fail",
-                fix="Add LLM_MODELS=[...] JSON to backend/.env",
+                fix="Add LLM_MODELS=[...] JSON to root .env",
             )
         )
         return results
@@ -538,7 +538,7 @@ def check_backend_runtime_urls(env_files: list[Path]) -> list[CheckResult]:
                     label,
                     "warn",
                     f"{env_key} not set",
-                    fix=f"Set {env_key} in backend/.env",
+                    fix=f"Set {env_key} in root .env",
                 )
             )
             continue
@@ -565,12 +565,11 @@ def check_backend_runtime_urls(env_files: list[Path]) -> list[CheckResult]:
 def main() -> int:
     project_root = Path(__file__).resolve().parents[1]
     backend_dir = project_root / "backend"
-    frontend_dir = project_root / "frontend"
     backend_python = _backend_python(backend_dir)
     config_path = backend_dir / "config.yaml"
-    backend_env = backend_dir / ".env"
-    frontend_env = frontend_dir / ".env.local"
     root_env = project_root / ".env"
+    legacy_backend_env = backend_dir / ".env"
+    legacy_frontend_env = project_root / "frontend" / ".env.local"
 
     print()
     print(bold("Wenjin Health Check"))
@@ -601,22 +600,30 @@ def main() -> int:
             fix="Create backend/config.yaml",
         ),
         check_file_exists(
-            backend_env,
-            "backend/.env found",
-            required=False,
-            fix="Copy backend/.env.example to backend/.env",
-        ),
-        check_file_exists(
-            frontend_env,
-            "frontend/.env.local found",
-            required=False,
-            fix="Copy frontend/.env.example to frontend/.env.local when you need a frontend API override",
-        ),
-        check_file_exists(
             root_env,
             "root .env found",
             required=False,
-            fix="Create root .env when using docker-compose",
+            fix="Copy .env.example to .env",
+        ),
+        CheckResult(
+            "legacy backend/.env absent",
+            "warn" if legacy_backend_env.exists() else "ok",
+            "ignored by runtime" if legacy_backend_env.exists() else "",
+            fix=(
+                "Move values to root .env and delete backend/.env"
+                if legacy_backend_env.exists()
+                else None
+            ),
+        ),
+        CheckResult(
+            "legacy frontend/.env.local absent",
+            "warn" if legacy_frontend_env.exists() else "ok",
+            "ignored by frontend config" if legacy_frontend_env.exists() else "",
+            fix=(
+                "Move values to root .env and delete frontend/.env.local"
+                if legacy_frontend_env.exists()
+                else None
+            ),
         ),
     ]
     if config_error:
@@ -633,7 +640,7 @@ def main() -> int:
     sections.append(("Configuration", cfg_checks))
 
     if config_data is not None:
-        env_files = [backend_env, root_env]
+        env_files = [root_env]
         sections.append(("Runtime Env", check_runtime_env(env_files)))
         sections.append(("Use Paths", check_config_use_paths(config_data, backend_dir, backend_python)))
         sections.append(("Runtime Connectivity", check_backend_runtime_urls(env_files)))

@@ -224,27 +224,22 @@ def main() -> int:
     backend_dir = project_root / "backend"
     frontend_dir = project_root / "frontend"
 
-    backend_env = backend_dir / ".env"
-    backend_env_example = backend_dir / ".env.example"
-    frontend_env = frontend_dir / ".env"
-    frontend_env_example = frontend_dir / ".env.example"
+    root_env = project_root / ".env"
+    root_env_example = project_root / ".env.example"
     config_path = backend_dir / "config.yaml"
 
     print()
     print(bold("Welcome to Wenjin Setup Wizard"))
-    print("This wizard prepares .env files and core backend config.")
+    print("This wizard prepares the root .env file and core backend config.")
     print()
 
     if not backend_dir.exists() or not frontend_dir.exists():
         print("Project structure is incomplete (missing backend/ or frontend/).")
         return 1
 
-    created_backend_env = _ensure_env_file(backend_env, backend_env_example)
-    created_frontend_env = _ensure_env_file(frontend_env, frontend_env_example)
-    if created_backend_env:
-        print(green(f"Created {backend_env.relative_to(project_root)}"))
-    if created_frontend_env:
-        print(green(f"Created {frontend_env.relative_to(project_root)}"))
+    created_root_env = _ensure_env_file(root_env, root_env_example)
+    if created_root_env:
+        print(green(f"Created {root_env.relative_to(project_root)}"))
 
     if not config_path.exists():
         print(yellow("backend/config.yaml not found. Wizard will only update .env files."))
@@ -256,7 +251,7 @@ def main() -> int:
             print(f"Failed to parse backend/config.yaml: {exc}")
             return 1
 
-    current_env = _parse_dotenv(backend_env)
+    current_env = _parse_dotenv(root_env)
     updates: dict[str, str] = {}
 
     model_key_envs = _collect_model_env_vars(config_data)
@@ -271,7 +266,7 @@ def main() -> int:
                 if value:
                     updates[env_name] = value
 
-    if ask_yes_no("Configure common service URLs in backend/.env?", default=False):
+    if ask_yes_no("Configure common service URLs in root .env?", default=False):
         for key in ("DATABASE_URL", "REDIS_URL"):
             default = current_env.get(key, "")
             value = ask_text(key, default=default)
@@ -279,8 +274,8 @@ def main() -> int:
                 updates[key] = value
 
     if updates:
-        _write_dotenv_updates(backend_env, updates)
-        print(green(f"Updated {backend_env.relative_to(project_root)}"))
+        _write_dotenv_updates(root_env, updates)
+        print(green(f"Updated {root_env.relative_to(project_root)}"))
 
     should_update_config = bool(config_data) and ask_yes_no(
         "Apply optional backend/config.yaml updates (default model / sandbox)?",

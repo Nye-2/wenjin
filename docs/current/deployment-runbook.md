@@ -1,6 +1,6 @@
 # Deployment Runbook
 
-更新时间：2026-06-23
+更新时间：2026-06-25
 
 本手册只覆盖 Docker Compose 标准链路。旧的本地一键守护脚本、根目录隐藏 env 模板和分散 compose 片段已移除，避免项目存在多套启动事实源。
 
@@ -12,15 +12,13 @@
 
 ## 2. 配置文件
 
-本地运行需要两个不提交的环境文件：
+本地运行只需要一个不提交的环境文件：
 
-- `backend/.env`：后端运行时配置，从 `backend/.env.example` 复制。
-- 根目录 `.env`：Compose 镜像、部署密码、Docker socket group、项目绝对路径等，从 `deploy/env/compose.prebuilt.example` 或 `deploy/env/compose.local-build-cn.example` 复制。
+- 根目录 `.env`：后端运行时、前端开发态、模型 seed、Compose 镜像、部署密码、Docker socket group、项目绝对路径等全部配置，从根目录 `.env.example` 复制。
 
 ```bash
 cd "$REPO_ROOT"
-cp backend/.env.example backend/.env
-cp deploy/env/compose.prebuilt.example .env
+cp .env.example .env
 ```
 
 部署前至少修改根目录 `.env`：
@@ -29,9 +27,11 @@ cp deploy/env/compose.prebuilt.example .env
 - `ADMIN_PASSWORD`：初始管理员密码
 - `GRAFANA_PASSWORD`：Grafana 管理员密码
 - `DATASERVICE_INTERNAL_TOKEN`：Gateway/worker/DataService 内部调用令牌
+- `JWT_SECRET_KEY`：Gateway JWT 签名密钥
+- `MODEL_SECRET_KEY` 或 `MODEL_SECRET_KEY_FILE`：DataService 模型 API Key 加密主密钥
 - `DOCKER_GID`：容器访问 Docker socket 的 group id；Docker Desktop 通常为 `0`，Linux 服务器使用 `getent group docker | cut -d: -f3`
 
-生产部署还必须检查 `backend/.env` 中的 `JWT_SECRET_KEY`、`MODEL_SECRET_KEY`/`MODEL_SECRET_KEY_FILE`、SMTP、外部模型 seed 等配置。模型 API Key 推荐通过管理员后台写入 DataService，而不是提交到 Git。
+生产部署还必须检查 SMTP、外部模型 seed、镜像源等配置。模型 API Key 推荐通过管理员后台写入 DataService；如果通过 `.env` seed/bootstrap 写入，也必须保证 `.env` 不提交到 Git。
 
 ## 3. 标准启动
 

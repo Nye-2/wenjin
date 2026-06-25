@@ -4,5 +4,5 @@
   "graphs": {
     "agent": "./src/agents/chat_agent/langgraph_entry.py:make_chat_agent_graph"
   },
-  "env": ".env"
+  "env": "../.env"
 }

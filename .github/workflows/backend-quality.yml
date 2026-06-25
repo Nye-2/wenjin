@@ -58,7 +58,6 @@ jobs:
 
       - name: Docker Compose config smoke
         run: |
-          cp deploy/env/compose.prebuilt.example .env
+          cp .env.example .env
           sed -i "s|^WENJIN_PROJECT_DIR=.*|WENJIN_PROJECT_DIR=$PWD|" .env
-          cp backend/.env.example backend/.env
           docker compose config >/tmp/wenjin-compose.yml

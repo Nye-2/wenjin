@@ -1,14 +1,14 @@
 # Environment Variables
 
-更新时间: 2026-06-23
+更新时间: 2026-06-25
 
-配置基线以 `backend/.env.example` 与 `frontend/.env.example` 为准。
+配置基线以仓库根目录 `.env.example` 为准。
 
 约定:
 
-- `backend/.env` 是本地后端运行时配置，需从 `backend/.env.example` 复制生成，默认不提交。
-- `frontend/.env.local` 仅在需要覆盖前端 API 地址时才创建，默认不提交。
-- 根目录 `.env` 用于 `docker compose` 的镜像源、构建参数等仓库级配置，从 `deploy/env/compose.prebuilt.example` 或 `deploy/env/compose.local-build-cn.example` 复制生成，默认不提交。
+- 根目录 `.env` 是本地和 Compose 的唯一环境配置入口，需从 `.env.example` 复制生成，默认不提交。
+- Backend、Frontend、LangGraph 和 Docker Compose 都从根目录 `.env` 读取配置；不再维护 `backend/.env` 或 `frontend/.env.local`。
+- `deploy/env/compose.prebuilt.example` 与 `deploy/env/compose.local-build-cn.example` 只保留作镜像源/构建变量参考，需要时把其中变量合并到根目录 `.env`。
   - `WENJIN_PROJECT_DIR`：宿主机仓库绝对路径（用于 Docker-in-Docker 的 LaTeX 编译路径映射）。
   - `ADMIN_PASSWORD`：`bootstrap-admin` 的初始管理员密码，compose 必填。
   - `DATASERVICE_INTERNAL_TOKEN`：Gateway/worker/DataService 内部调用令牌，compose 必填。
@@ -17,7 +17,7 @@
   - `PYTHON_IMAGE` / `NODE_IMAGE`：本地构建 backend/frontend 时的 base image；网络不稳定环境建议使用 `deploy/env/compose.local-build-cn.example` 中的镜像源。
   - `BACKEND_GATEWAY_IMAGE` / `FRONTEND_IMAGE` / `LANGGRAPH_IMAGE`：预构建部署时使用的应用镜像。
 
-## 1. Backend (`backend/.env`)
+## 1. Root `.env`
 
 ### 1.1 必填（至少满足可启动）
 
@@ -67,7 +67,7 @@
 | `TEXLIVE_APT_MIRROR` | 上述脚本构建 TeXLive 镜像时的 apt 源覆盖（可留空） |
 | `WENJIN_LATEX_COMPILE_TIMEOUT_SECONDS` | LaTeX 编译容器超时（秒，默认 300，范围 30-1800） |
 
-### 1.3 SMTP 与验证码
+### 1.4 SMTP 与验证码
 
 | 变量 | 说明 | 建议 |
 |---|---|---|
@@ -85,12 +85,14 @@
 - 当 `SMTP_ENABLED=false` 时，系统进入开发模式，验证码不会真实发邮件，只会写入日志与 Redis。
 - 验证码格式为 **6 位纯数字**。
 
-## 2. Frontend (`frontend/.env.local`, 可选)
+## 2. Frontend variables
 
 | 变量 | 说明 | 默认 |
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | Gateway API 基路径 | 默认 `/api`；生产走 nginx 同源入口，前端开发态由 Next rewrite 代理 |
 | `WENJIN_DEV_API_PROXY_TARGET` | 前端开发态 `/api/*` 代理目标 | 默认 `http://localhost:8001`；需要通过本机 Docker/Nginx 入口调试时可设为 `http://localhost:2026` |
+
+前端开发命令会显式加载仓库根目录 `.env`，不需要也不应再创建 `frontend/.env.local`。
 
 ## 3. Docker Compose image variables
 

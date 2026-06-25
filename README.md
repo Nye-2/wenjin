@@ -63,11 +63,11 @@ Workspace Chat
 ```bash
 git clone git@github.com:JunzeCai/AcademiaGPT-V2.git
 cd AcademiaGPT-V2
-cp backend/.env.example backend/.env
-cp deploy/env/compose.prebuilt.example .env
+cp .env.example .env
 
 # 编辑 .env：把 WENJIN_PROJECT_DIR 改成当前仓库绝对路径，
-# 并替换 ADMIN_PASSWORD、GRAFANA_PASSWORD、DATASERVICE_INTERNAL_TOKEN、DOCKER_GID。
+# 并替换 ADMIN_PASSWORD、GRAFANA_PASSWORD、DATASERVICE_INTERNAL_TOKEN、
+# JWT_SECRET_KEY、MODEL_SECRET_KEY、DOCKER_GID 和模型 API Key。
 
 docker compose up -d
 ```
@@ -81,8 +81,8 @@ docker compose up -d
 需要本地重建应用镜像时使用 local-build override：
 
 ```bash
-cp deploy/env/compose.local-build-cn.example .env
-# 编辑 .env 后再启动。
+# 如需国内镜像源，可把 deploy/env/compose.local-build-cn.example 中的
+# 构建镜像变量复制到根目录 .env。
 docker compose -f docker-compose.yml -f docker-compose.local-build.yml up -d --build
 ```
 
@@ -96,7 +96,6 @@ python scripts/doctor.py
 
 cd backend
 uv sync --extra dev
-cp .env.example .env
 uv run alembic upgrade head
 uv run uvicorn src.gateway.app:app --reload --port 8001
 

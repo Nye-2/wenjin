@@ -1,6 +1,6 @@
 # Troubleshooting
 
-更新时间：2026-06-23
+更新时间：2026-06-25
 
 以下命令默认你已经设置：
 
@@ -16,7 +16,7 @@ cd "$REPO_ROOT"
 - worker 没有启动
 - Redis 不可用
 - DataService 不可用，或模型目录没有 enabled default 模型
-- `backend/.env` 缺少 `MODEL_SECRET_KEY`
+- 根目录 `.env` 缺少 `MODEL_SECRET_KEY`
 
 排查：
 
@@ -38,7 +38,7 @@ docker compose logs -f gateway
 修复：
 
 1. 确认 `docker compose ps` 中 `worker`、`dataservice`、`gateway` 均为 healthy/running。
-2. 检查 `backend/.env` 的 `REDIS_URL`、`DATASERVICE_INTERNAL_TOKEN`、`MODEL_SECRET_KEY` 和数据库连接。
+2. 检查根目录 `.env` 的 `REDIS_URL`、`DATASERVICE_INTERNAL_TOKEN`、`MODEL_SECRET_KEY` 和数据库连接。
 3. 进入管理员后台确认模型管理里至少有一个 enabled default LLM 模型，且该模型绑定了可用 API URL/API Key。
 4. 重启 DataService：`docker compose restart dataservice`。
 5. 重启 worker：`docker compose restart worker`。
@@ -57,7 +57,7 @@ docker compose logs -f worker
 高频问题：
 
 - `migrate` 失败导致主服务不启动
-- `backend/.env` 未配置或配置与 compose 网络不匹配
+- 根目录 `.env` 未配置或配置与 compose 网络不匹配
 - `gateway` 健康检查未通过
 
 修复建议：
@@ -84,7 +84,7 @@ curl -i http://localhost:2026/api/auth/me
 
 补充：
 
-- 如果没有创建 `frontend/.env.local`，前端默认请求同源 `/api`
+- 如果根目录 `.env` 没有配置 `NEXT_PUBLIC_API_URL`，前端默认请求同源 `/api`
 - `npm run dev` 会把 `/api/*` 代理到 `WENJIN_DEV_API_PROXY_TARGET`，默认 `http://localhost:8001`
 - Docker/Nginx 入口仍是 `http://localhost:2026`；只有需要让本地前端直连该入口时才设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:2026`
 
@@ -243,7 +243,7 @@ curl -i http://localhost:2026/readyz
 
 高频原因：
 
-- `backend/.env` 或 Docker 环境缺少 `MODEL_SECRET_KEY` / `MODEL_SECRET_KEY_FILE`，DataService 无法解密模型 API Key。
+- 根目录 `.env` 或 Docker 环境缺少 `MODEL_SECRET_KEY` / `MODEL_SECRET_KEY_FILE`，DataService 无法解密模型 API Key。
 - 管理员后台模型目录里没有 enabled default chat model。
 
 排查：
@@ -251,12 +251,12 @@ curl -i http://localhost:2026/readyz
 ```bash
 curl -i http://localhost:2026/api/models?purpose=chat
 docker compose logs -f gateway dataservice
-rg -n "MODEL_SECRET_KEY" backend/.env .env
+rg -n "MODEL_SECRET_KEY" .env
 ```
 
 修复：
 
-1. 为 `backend/.env` 和 Compose 运行环境配置同一个稳定的 `MODEL_SECRET_KEY`，重启 dataservice / gateway / worker。
+1. 为根目录 `.env` 和 Compose 运行环境配置同一个稳定的 `MODEL_SECRET_KEY`，重启 dataservice / gateway / worker。
 2. 进入管理员后台确认至少一个 chat-capable model 处于 enabled + default，且测试配置为 healthy。
 3. API Key 不应写入前端环境变量；只通过管理员后台或 DataService seed 写入，DataService 内部加密保存。
 

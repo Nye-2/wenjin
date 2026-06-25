@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { loadEnvConfig } from "@next/env";
 
 const DEFAULT_DEV_API_PROXY_TARGET = "http://localhost:8001";
+const repoRoot = path.resolve(__dirname, "..");
+
+loadEnvConfig(repoRoot, process.env.NODE_ENV !== "production");
 
 function trimTrailingSlashes(value: string): string {
   return value.replace(/\/+$/, "");

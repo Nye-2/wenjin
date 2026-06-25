@@ -71,7 +71,7 @@ services:
     image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-migrate
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_ENABLED=true
@@ -91,7 +91,7 @@ services:
     image: ${BACKEND_GATEWAY_IMAGE:-junze0514/wenjin-backend:latest}
     container_name: wenjin-bootstrap-admin
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - DATASERVICE_URL=http://dataservice:8080
@@ -117,7 +117,7 @@ services:
     container_name: wenjin-dataservice
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - DATASERVICE_URL=http://dataservice:8080
@@ -141,7 +141,7 @@ services:
     container_name: wenjin-gateway
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_ENABLED=true
@@ -191,7 +191,7 @@ services:
     container_name: wenjin-worker
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_ENABLED=true
@@ -244,7 +244,7 @@ services:
     container_name: wenjin-memory-worker
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_ENABLED=true
@@ -287,7 +287,7 @@ services:
     container_name: wenjin-langgraph
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:${DB_PASSWORD:-postgres}@postgres:5432/wenjin
       - REDIS_ENABLED=true

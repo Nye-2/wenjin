@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.config.app_config import root_env_file
+
 
 class LocalSandboxConfig(BaseModel):
     """Local sandbox configuration."""
@@ -72,7 +74,7 @@ class SandboxSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="SANDBOX_",
-        env_file=".env",
+        env_file=root_env_file(),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

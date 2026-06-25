@@ -4,7 +4,7 @@ This module parses model configurations from environment variables
 (LLM_MODELS, LLM_IMAGE_MODELS) and provides access functions.
 
 Configuration format (.env file):
-    LLM_MODELS=[{"id":"deepseek-v4-pro","model":"deepseek/deepseek-v4-pro","api_key":"sk-xxx","base_url":"https://api.qnaigc.com/v1"}]
+    LLM_MODELS=[{"id":"deepseek-v4-flash","model":"deepseek-v4-flash","api_key":"sk-xxx","base_url":"https://api.deepseek.com"}]
     LLM_IMAGE_MODELS=[{"id":"kling-v2-1","model":"kling-v2-1","api_key":"sk-xxx","base_url":"https://api.klingai.com/v1"}]
 
 Required fields: id, model, api_key, base_url
@@ -97,15 +97,10 @@ def _maybe_load_env_file() -> None:
     if "pytest" in sys.modules:
         return
 
-    candidates = [
-        Path(".env"),
-        Path(__file__).resolve().parents[2] / ".env",  # backend/.env
-    ]
-    for env_path in candidates:
-        if env_path.exists():
-            load_dotenv(env_path, override=False)
-            logger.debug("Loaded LLM env from %s", env_path)
-            return
+    env_path = Path(__file__).resolve().parents[3] / ".env"
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
+        logger.debug("Loaded LLM env from %s", env_path)
 
 
 class ModelConfig(BaseModel):

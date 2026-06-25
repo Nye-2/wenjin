@@ -1,20 +1,17 @@
 """Task system configuration."""
 
-import sys
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from src.config.app_config import celery_settings
+from src.config.app_config import celery_settings, root_env_file
 
 
 def _task_settings_config() -> SettingsConfigDict:
     """Create task settings config without leaking local `.env` into tests."""
-    env_file = None if "pytest" in sys.modules else ".env"
     return SettingsConfigDict(
         env_prefix="TASK_",
         case_sensitive=False,
-        env_file=env_file,
+        env_file=root_env_file(),
         env_file_encoding="utf-8",
         extra="ignore",
     )

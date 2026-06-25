@@ -83,9 +83,10 @@ backend/
 单独调试后端服务：
 
 ```bash
+cd ..
+cp .env.example .env
 cd backend
 uv sync --extra dev
-cp .env.example .env
 uv run alembic upgrade head
 uv run uvicorn src.gateway.app:app --reload --port 8001
 ```

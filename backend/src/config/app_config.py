@@ -4,11 +4,20 @@ import logging
 import sys
 import warnings
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger(__name__)
+
+
+def root_env_file() -> str | None:
+    """Return the repository-root env file used by all local services."""
+
+    if "pytest" in sys.modules:
+        return None
+    return str(Path(__file__).resolve().parents[3] / ".env")
 
 
 def _settings_config(env_prefix: str = "") -> SettingsConfigDict:
@@ -17,11 +26,10 @@ def _settings_config(env_prefix: str = "") -> SettingsConfigDict:
     Unit tests should not implicitly read a developer's local ``.env`` file,
     otherwise test results change based on machine-specific configuration.
     """
-    env_file = None if "pytest" in sys.modules else ".env"
     return SettingsConfigDict(
         env_prefix=env_prefix,
         case_sensitive=False,
-        env_file=env_file,
+        env_file=root_env_file(),
         env_file_encoding="utf-8",
         extra="ignore",
     )

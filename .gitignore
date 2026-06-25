@@ -6,12 +6,11 @@ __pycache__/
 # Local env files
 /.env
 /.env.*
+!/.env.example
 /backend/.env
 /backend/.env.*
-!/backend/.env.example
 /frontend/.env.local
 /frontend/.env*
-!/frontend/.env.example
 /backend/.wenjin/
 
 # Node

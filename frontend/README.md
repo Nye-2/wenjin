@@ -87,9 +87,10 @@ npx vitest run
 
 默认开发 API 基址：
 
+- 前后端共享仓库根目录 `.env`；前端不再使用独立的 `frontend/.env.local`
 - `NEXT_PUBLIC_API_URL` 未设置时，使用同源 `/api`
 - `npm run dev` 在开发态把 `/api/*` 代理到 `WENJIN_DEV_API_PROXY_TARGET`
-- 默认代理目标是 `http://localhost:2026`；如需连接手动启动的 gateway，可设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:8001`
+- 默认代理目标是 `http://localhost:8001`；如需连接 Docker/Nginx 入口，可设置 `WENJIN_DEV_API_PROXY_TARGET=http://localhost:2026`
 
 ## 相关文档
 
