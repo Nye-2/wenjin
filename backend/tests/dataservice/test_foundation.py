@@ -57,6 +57,10 @@ from src.dataservice_client.contracts.credit import (
 from src.dataservice_client.contracts.execution import (
     ComputeSessionEnsurePayload,
     ComputeSessionUpdatePayload,
+    ExecutionCommitClaimPayload,
+    ExecutionCommitFailPayload,
+    ExecutionCommitFinalizePayload,
+    ExecutionCommitResetPayload,
     ExecutionNodePatchPayload,
     ExecutionNodeUpsertPayload,
 )
@@ -301,6 +305,220 @@ async def test_dataservice_client_get_execution_by_launch_idempotency_key() -> N
     assert execution is not None
     assert execution.id == "exec-idem"
     assert execution.params == {"launch_idempotency_key": "launch-key-1"}
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_claim_execution_commit() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/internal/v1/executions/exec-claim/commit-claim"
+        assert json.loads(request.content.decode()) == {
+            "commit_token": "token-1",
+            "claimed_at": None,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "status": "claimed",
+                    "execution": {
+                        "id": "exec-claim",
+                        "user_id": "user-1",
+                        "workspace_id": "ws-1",
+                        "execution_type": "feature",
+                        "status": "completed",
+                        "task_brief_json": {},
+                        "result_json": {
+                            "commit_state": {
+                                "status": "committing",
+                                "commit_token": "token-1",
+                                "started_at": "2026-06-25T00:00:00+00:00",
+                            }
+                        },
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        claim = await client.claim_execution_commit(
+            "exec-claim",
+            ExecutionCommitClaimPayload(commit_token="token-1"),
+        )
+
+    assert claim["status"] == "claimed"
+    assert claim["execution"].id == "exec-claim"
+    assert claim["execution"].result["commit_state"]["status"] == "committing"
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_finalize_execution_commit() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/internal/v1/executions/exec-claim/commit-finalize"
+        assert json.loads(request.content.decode()) == {
+            "commit_token": "token-1",
+            "result_json": {
+                "task_report": {"status": "completed"},
+                "commit_state": {"status": "committed"},
+            },
+        }
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "id": "exec-claim",
+                    "user_id": "user-1",
+                    "workspace_id": "ws-1",
+                    "execution_type": "feature",
+                    "status": "completed",
+                    "task_brief_json": {},
+                    "result_json": {
+                        "task_report": {"status": "completed"},
+                        "commit_state": {"status": "committed"},
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        execution = await client.finalize_execution_commit(
+            "exec-claim",
+            ExecutionCommitFinalizePayload(
+                commit_token="token-1",
+                result_json={
+                    "task_report": {"status": "completed"},
+                    "commit_state": {"status": "committed"},
+                },
+            ),
+        )
+
+    assert execution is not None
+    assert execution.id == "exec-claim"
+    assert execution.result["commit_state"]["status"] == "committed"
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_fail_execution_commit() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/internal/v1/executions/exec-claim/commit-fail"
+        assert json.loads(request.content.decode()) == {
+            "commit_token": "token-1",
+            "error_text": "asset write failed",
+            "failed_at": None,
+            "accepted_ids": None,
+            "rejected_ids": None,
+            "partial_counts": {"documents": 0},
+            "partial_room_targets": {"documents": []},
+        }
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "id": "exec-claim",
+                    "user_id": "user-1",
+                    "workspace_id": "ws-1",
+                    "execution_type": "feature",
+                    "status": "completed",
+                    "task_brief_json": {},
+                    "result_json": {
+                        "task_report": {"status": "completed"},
+                        "commit_state": {
+                            "status": "failed",
+                            "commit_token": "token-1",
+                            "error_text": "asset write failed",
+                        },
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        execution = await client.fail_execution_commit(
+            "exec-claim",
+            ExecutionCommitFailPayload(
+                commit_token="token-1",
+                error_text="asset write failed",
+                partial_counts={"documents": 0},
+                partial_room_targets={"documents": []},
+            ),
+        )
+
+    assert execution is not None
+    assert execution.id == "exec-claim"
+    assert execution.result["commit_state"]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_dataservice_client_reset_execution_commit() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == "/internal/v1/executions/exec-claim/commit-reset"
+        assert json.loads(request.content.decode()) == {
+            "reason": "operator verified no room side effects",
+            "current_commit_token": "token-1",
+            "reset_at": None,
+        }
+        return httpx.Response(
+            200,
+            json={
+                "status": "ok",
+                "data": {
+                    "id": "exec-claim",
+                    "user_id": "user-1",
+                    "workspace_id": "ws-1",
+                    "execution_type": "feature",
+                    "status": "completed",
+                    "task_brief_json": {},
+                    "result_json": {
+                        "task_report": {"status": "completed"},
+                        "commit_recovery_log": [
+                            {
+                                "reason": "operator verified no room side effects",
+                                "previous_commit_state": {"status": "failed"},
+                            }
+                        ],
+                    },
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with AsyncDataServiceClient(
+        base_url="http://dataservice",
+        internal_token="secret",
+        transport=transport,
+    ) as client:
+        execution = await client.reset_execution_commit(
+            "exec-claim",
+            ExecutionCommitResetPayload(
+                reason="operator verified no room side effects",
+                current_commit_token="token-1",
+            ),
+        )
+
+    assert execution is not None
+    assert execution.id == "exec-claim"
+    assert execution.result["commit_recovery_log"][0]["previous_commit_state"]["status"] == "failed"
 
 
 @pytest.mark.asyncio

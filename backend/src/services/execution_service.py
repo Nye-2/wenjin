@@ -9,6 +9,10 @@ from typing import Any
 
 from src.dataservice_client import AsyncDataServiceClient
 from src.dataservice_client.contracts.execution import (
+    ExecutionCommitClaimPayload,
+    ExecutionCommitFailPayload,
+    ExecutionCommitFinalizePayload,
+    ExecutionCommitResetPayload,
     ExecutionCreatePayload,
     ExecutionEventCreatePayload,
     ExecutionNodePatchPayload,
@@ -389,6 +393,80 @@ class ExecutionService:
             return await client.update_execution(
                 execution_id,
                 ExecutionUpdatePayload(**fields),
+            )
+
+    async def claim_execution_commit(
+        self,
+        *,
+        execution_id: str,
+        commit_token: str,
+    ) -> dict[str, Any]:
+        async with self._client() as client:
+            return await client.claim_execution_commit(
+                execution_id,
+                ExecutionCommitClaimPayload(commit_token=commit_token),
+            )
+
+    async def finalize_execution_commit(
+        self,
+        execution_id: str,
+        *,
+        commit_token: str,
+        result: dict[str, Any],
+        commit: bool = False,
+    ) -> Any:
+        _ = commit
+        async with self._client() as client:
+            return await client.finalize_execution_commit(
+                execution_id,
+                ExecutionCommitFinalizePayload(
+                    commit_token=commit_token,
+                    result_json=result,
+                ),
+            )
+
+    async def fail_execution_commit(
+        self,
+        *,
+        execution_id: str,
+        commit_token: str,
+        error_text: str,
+        accepted_ids: list[str] | None = None,
+        rejected_ids: list[str] | None = None,
+        partial_counts: dict[str, Any] | None = None,
+        partial_room_targets: dict[str, Any] | None = None,
+        commit: bool = False,
+    ) -> Any:
+        _ = commit
+        async with self._client() as client:
+            return await client.fail_execution_commit(
+                execution_id,
+                ExecutionCommitFailPayload(
+                    commit_token=commit_token,
+                    error_text=error_text,
+                    accepted_ids=accepted_ids,
+                    rejected_ids=rejected_ids,
+                    partial_counts=partial_counts,
+                    partial_room_targets=partial_room_targets,
+                ),
+            )
+
+    async def reset_execution_commit(
+        self,
+        *,
+        execution_id: str,
+        reason: str,
+        current_commit_token: str | None = None,
+        commit: bool = False,
+    ) -> Any:
+        _ = commit
+        async with self._client() as client:
+            return await client.reset_execution_commit(
+                execution_id,
+                ExecutionCommitResetPayload(
+                    reason=reason,
+                    current_commit_token=current_commit_token,
+                ),
             )
 
     async def apply_task_transition(

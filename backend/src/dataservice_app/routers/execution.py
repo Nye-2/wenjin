@@ -11,6 +11,10 @@ from src.dataservice.common.unit_of_work import DataServiceUnitOfWork
 from src.dataservice.domains.execution.contracts import (
     ComputeSessionEnsureCommand,
     ComputeSessionUpdateCommand,
+    ExecutionCommitClaimCommand,
+    ExecutionCommitFailCommand,
+    ExecutionCommitFinalizeCommand,
+    ExecutionCommitResetCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionNodePatchCommand,
@@ -274,6 +278,60 @@ async def update_execution(
     record = await service.update_execution(execution_id, command)
     await uow.commit()
     return envelope_ok(record.model_dump(mode="json") if record else None)
+
+
+@router.post("/{execution_id}/commit-claim")
+async def claim_execution_commit(
+    execution_id: str,
+    command: ExecutionCommitClaimCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    claim = await service.claim_execution_commit(execution_id, command)
+    await uow.commit()
+    execution = claim.get("execution")
+    return envelope_ok(
+        {
+            "status": claim.get("status"),
+            "execution": execution.model_dump(mode="json") if execution is not None else None,
+        }
+    )
+
+
+@router.post("/{execution_id}/commit-finalize")
+async def finalize_execution_commit(
+    execution_id: str,
+    command: ExecutionCommitFinalizeCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.finalize_execution_commit(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record is not None else None)
+
+
+@router.post("/{execution_id}/commit-fail")
+async def fail_execution_commit(
+    execution_id: str,
+    command: ExecutionCommitFailCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.fail_execution_commit(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record is not None else None)
+
+
+@router.post("/{execution_id}/commit-reset")
+async def reset_execution_commit(
+    execution_id: str,
+    command: ExecutionCommitResetCommand,
+    uow: DataServiceUnitOfWork = Depends(get_uow),
+) -> dict:
+    service = DataServiceExecutionService(uow.required_session, autocommit=False)
+    record = await service.reset_execution_commit(execution_id, command)
+    await uow.commit()
+    return envelope_ok(record.model_dump(mode="json") if record is not None else None)
 
 
 @router.post("/compute-sessions/ensure")

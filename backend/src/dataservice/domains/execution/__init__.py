@@ -1,6 +1,10 @@
 """DataService execution domain."""
 
 from .contracts import (
+    ExecutionCommitClaimCommand,
+    ExecutionCommitFailCommand,
+    ExecutionCommitFinalizeCommand,
+    ExecutionCommitResetCommand,
     ExecutionCreateCommand,
     ExecutionEventCreateCommand,
     ExecutionEventProjection,
@@ -15,6 +19,10 @@ from .service import DataServiceExecutionService
 
 __all__ = [
     "DataServiceExecutionService",
+    "ExecutionCommitClaimCommand",
+    "ExecutionCommitFailCommand",
+    "ExecutionCommitFinalizeCommand",
+    "ExecutionCommitResetCommand",
     "ExecutionCreateCommand",
     "ExecutionEventCreateCommand",
     "ExecutionEventProjection",

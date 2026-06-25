@@ -180,11 +180,17 @@ class ExecutionCommitService:
         if str(execution.user_id) != str(actor_user_id):
             raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
 
+        result_payload = _execution_result_payload(execution)
+        if result_payload is not None:
+            existing_commit_state = _valid_commit_state(result_payload.get("commit_state"))
+            if existing_commit_state is not None:
+                return _response_from_commit_state(existing_commit_state)
+
         # 2. Validate report
-        if not execution.result or "task_report" not in execution.result:
+        if result_payload is None or "task_report" not in result_payload:
             raise ValueError(f"execution {execution_id} has no task_report")
 
-        report = TaskReport.model_validate(execution.result["task_report"])
+        report = TaskReport.model_validate(result_payload["task_report"])
 
         # 3. Select outputs. Partial/cancelled runs may expose useful candidates,
         # but they must be intentionally selected by the user.
@@ -231,41 +237,68 @@ class ExecutionCommitService:
                 for output in selected
             ]
 
-        # 4. Durable commit_state wins over any cached response so callers always
-        # receive the new response shape once persistence exists.
-        existing_commit_state = _valid_commit_state(execution.result.get("commit_state"))
-        if existing_commit_state is not None:
-            return _response_from_commit_state(existing_commit_state)
-
         if idempotency_key and self.redis:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
-            cached = await self.redis.get(cache_key)
-            if cached:
-                cached_response = json.loads(cached)
-                if _cached_response_has_valid_commit_state(cached_response):
-                    return cast(dict[str, Any], cached_response)
+            cached_response = await _read_commit_cache(self.redis, cache_key)
+            if cached_response is not None:
+                return cached_response
 
         if not selection_provided:
             return _noop_commit_response()
 
         lock_token = await self._acquire_commit_lock(execution_id)
+        commit_token = uuid.uuid4().hex
+        claimed_for_materialization = False
+        counts = _empty_counts()
+        room_targets = _empty_room_targets()
         try:
-            latest_execution = await self.execution.get_by_id(execution_id)
-            if latest_execution is None:
-                raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
-            if str(latest_execution.user_id) != str(actor_user_id):
-                raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
-            if not latest_execution.result or "task_report" not in latest_execution.result:
-                raise ValueError(f"execution {execution_id} has no task_report")
-            latest_commit_state = _valid_commit_state(
-                latest_execution.result.get("commit_state")
+            claim = await self.execution.claim_execution_commit(
+                execution_id=execution_id,
+                commit_token=commit_token,
             )
-            if latest_commit_state is not None:
-                return _response_from_commit_state(latest_commit_state)
-            execution = latest_execution
+            claim_status = str(claim.get("status") or "")
+            claim_execution = claim.get("execution")
+            if claim_status == "not_found":
+                raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+            if claim_status == "in_progress":
+                raise ExecutionCommitConcurrencyError(
+                    f"execution {execution_id} commit is already in progress"
+                )
+            if claim_status == "failed":
+                raise ExecutionCommitPersistenceError(
+                    "previous execution commit failed and requires recovery"
+                )
+            if claim_status == "stale":
+                raise ExecutionCommitPersistenceError(
+                    "stale execution commit claim requires recovery"
+                )
+            if claim_status in {"committed", "discarded"}:
+                result_payload = _execution_result_payload(claim_execution)
+                commit_state = (
+                    _valid_commit_state(result_payload.get("commit_state"))
+                    if result_payload is not None
+                    else None
+                )
+                if commit_state is None:
+                    raise ExecutionCommitPersistenceError(
+                        "commit_state persistence failed for execution commit"
+                    )
+                return _response_from_commit_state(commit_state)
+            if claim_status != "claimed":
+                raise ExecutionCommitPersistenceError(
+                    f"unexpected execution commit claim status: {claim_status or 'unknown'}"
+                )
+            if claim_execution is None:
+                raise ExecutionCommitPersistenceError(
+                    "execution commit claim did not return execution state"
+                )
+            if str(claim_execution.user_id) != str(actor_user_id):
+                raise ExecutionCommitNotFoundError(f"execution {execution_id} not found")
+            if not claim_execution.result or "task_report" not in claim_execution.result:
+                raise ValueError(f"execution {execution_id} has no task_report")
+            execution = claim_execution
+            claimed_for_materialization = True
 
-            counts = _empty_counts()
-            room_targets = _empty_room_targets()
             room_candidates: list[RoomCandidatePayload] = []
 
             # 5. Write to rooms
@@ -477,19 +510,38 @@ class ExecutionCommitService:
 
             result_payload = dict(execution.result)
             result_payload["commit_state"] = commit_state
-            persisted_execution = await self.execution.update_execution(
+            persisted_execution = await self.execution.finalize_execution_commit(
                 execution_id,
                 result=result_payload,
+                commit_token=commit_token,
                 commit=True,
             )
             _ensure_commit_state_persisted(persisted_execution, commit_state)
+        except Exception as exc:
+            if claimed_for_materialization:
+                accepted_ids_for_recovery = [output.id for output in selected]
+                accepted_id_set_for_recovery = set(accepted_ids_for_recovery)
+                await self._mark_commit_failed(
+                    execution_id=execution_id,
+                    commit_token=commit_token,
+                    error=exc,
+                    accepted_ids=accepted_ids_for_recovery,
+                    rejected_ids=[
+                        output.id
+                        for output in report.outputs
+                        if output.id not in accepted_id_set_for_recovery
+                    ],
+                    counts=counts,
+                    room_targets=room_targets,
+                )
+            raise
         finally:
             await self._release_commit_lock(execution_id, lock_token)
 
         # 7. Cache idempotent result after commit_state is durable.
         if idempotency_key and self.redis:
             cache_key = f"commit:cache:{execution_id}:{idempotency_key}"
-            await self.redis.set(cache_key, json.dumps(result), ex=86400)  # 24h
+            await _write_commit_cache(self.redis, cache_key, result)
 
         # 8. Publish canonical workspace refresh event
         try:
@@ -571,6 +623,34 @@ class ExecutionCommitService:
                 exc_info=True,
             )
 
+    async def _mark_commit_failed(
+        self,
+        *,
+        execution_id: str,
+        commit_token: str,
+        error: BaseException,
+        accepted_ids: list[str],
+        rejected_ids: list[str],
+        counts: dict[str, int],
+        room_targets: dict[str, list[dict[str, str]]],
+    ) -> None:
+        try:
+            await self.execution.fail_execution_commit(
+                execution_id=execution_id,
+                commit_token=commit_token,
+                error_text=str(error) or error.__class__.__name__,
+                accepted_ids=accepted_ids,
+                rejected_ids=rejected_ids,
+                partial_counts=counts,
+                partial_room_targets=room_targets,
+                commit=True,
+            )
+        except Exception:
+            logger.exception(
+                "execution commit failure marker failed",
+                extra={"execution_id": execution_id},
+            )
+
 
 def _empty_counts() -> dict[str, int]:
     return {key: 0 for key in _COUNT_ROOM_KEYS}
@@ -585,6 +665,47 @@ def _noop_commit_response() -> dict[str, Any]:
         "committed": _empty_counts(),
         "room_targets": _empty_room_targets(),
     }
+
+
+async def _read_commit_cache(redis: Any, cache_key: str) -> dict[str, Any] | None:
+    try:
+        cached = await redis.get(cache_key)
+    except Exception:
+        logger.warning(
+            "execution commit idempotency cache read failed",
+            extra={"cache_key": cache_key},
+            exc_info=True,
+        )
+        return None
+    if not cached:
+        return None
+    try:
+        cached_response = json.loads(cached)
+    except (TypeError, ValueError):
+        logger.warning(
+            "execution commit idempotency cache payload was invalid",
+            extra={"cache_key": cache_key},
+            exc_info=True,
+        )
+        return None
+    if _cached_response_has_valid_commit_state(cached_response):
+        return cast(dict[str, Any], cached_response)
+    return None
+
+
+async def _write_commit_cache(
+    redis: Any,
+    cache_key: str,
+    result: dict[str, Any],
+) -> None:
+    try:
+        await redis.set(cache_key, json.dumps(result), ex=86400)  # 24h
+    except Exception:
+        logger.warning(
+            "execution commit idempotency cache write failed",
+            extra={"cache_key": cache_key},
+            exc_info=True,
+        )
 
 
 def _cached_response_has_valid_commit_state(value: Any) -> bool:

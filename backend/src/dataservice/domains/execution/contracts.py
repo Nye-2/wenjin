@@ -50,6 +50,40 @@ class ExecutionUpdateCommand(BaseModel):
     completed_at: datetime | None = None
 
 
+class ExecutionCommitClaimCommand(BaseModel):
+    """Atomically reserve execution result commit materialization."""
+
+    commit_token: str = Field(min_length=1, max_length=64)
+    claimed_at: datetime | None = None
+
+
+class ExecutionCommitFinalizeCommand(BaseModel):
+    """Finalize a previously claimed execution result commit."""
+
+    commit_token: str = Field(min_length=1, max_length=64)
+    result_json: dict[str, Any]
+
+
+class ExecutionCommitFailCommand(BaseModel):
+    """Record a failed execution result commit attempt for manual recovery."""
+
+    commit_token: str = Field(min_length=1, max_length=64)
+    error_text: str
+    failed_at: datetime | None = None
+    accepted_ids: list[str] | None = None
+    rejected_ids: list[str] | None = None
+    partial_counts: dict[str, Any] | None = None
+    partial_room_targets: dict[str, Any] | None = None
+
+
+class ExecutionCommitResetCommand(BaseModel):
+    """Clear a non-terminal commit claim after explicit operator recovery."""
+
+    reason: str = Field(min_length=1)
+    current_commit_token: str | None = Field(default=None, min_length=1, max_length=64)
+    reset_at: datetime | None = None
+
+
 class ExecutionEventCreateCommand(BaseModel):
     """Append one ordered execution event."""
 

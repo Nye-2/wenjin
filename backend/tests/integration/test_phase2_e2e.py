@@ -291,7 +291,7 @@ async def test_commit_after_e2e_writes_rooms():
     )
 
     execution_service = AsyncMock()
-    execution_service.get_by_id.return_value = SimpleNamespace(
+    execution_record = SimpleNamespace(
         id="e-1",
         result={"task_report": report.model_dump(mode="json")},
         workspace_id="ws-1",
@@ -299,6 +299,7 @@ async def test_commit_after_e2e_writes_rooms():
         feature_id="deep_research",
         status="completed",
     )
+    execution_service.get_by_id.return_value = execution_record
 
     async def _persist_execution_update(execution_id: str, **kwargs):
         return SimpleNamespace(
@@ -311,6 +312,11 @@ async def test_commit_after_e2e_writes_rooms():
         )
 
     execution_service.update_execution = AsyncMock(side_effect=_persist_execution_update)
+    execution_service.claim_execution_commit = AsyncMock(
+        return_value={"status": "claimed", "execution": execution_record}
+    )
+    execution_service.finalize_execution_commit = AsyncMock(side_effect=_persist_execution_update)
+    execution_service.fail_execution_commit = AsyncMock()
 
     dataservice = MagicMock()
     dataservice.create_source = AsyncMock(return_value=SimpleNamespace(id="lib-1"))
@@ -341,6 +347,9 @@ async def test_commit_after_e2e_writes_rooms():
 
     # run-history event always written regardless of outputs
     dataservice.append_execution_event.assert_awaited_once()
+    execution_service.claim_execution_commit.assert_awaited_once()
+    execution_service.finalize_execution_commit.assert_awaited_once()
+    execution_service.update_execution.assert_not_awaited()
 
     # workspace.refresh event published
     publish_refresh.assert_awaited_once_with(
