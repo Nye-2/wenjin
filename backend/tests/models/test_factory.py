@@ -214,6 +214,26 @@ class TestCreateChatModel:
             # Default minimal reasoning_effort should be injected when supported.
             assert getattr(model, "reasoning_effort", None) == "minimal"
 
+    def test_reasoning_effort_not_inferred_from_model_name(self) -> None:
+        config = json.dumps([
+            {
+                "id": "gpt-name-only",
+                "model": "gpt-5.5",
+                "api_key": "sk-reasoning",
+                "base_url": "https://example.com/v1",
+                "supports_reasoning_effort": False,
+            }
+        ])
+
+        with patch.dict(os.environ, {"LLM_MODELS": config}, clear=False):
+            from src.config.llm_config import reload_models
+            from src.models.factory import create_chat_model
+
+            reload_models()
+            model = create_chat_model(model_id="gpt-name-only")
+
+            assert getattr(model, "reasoning_effort", None) is None
+
 
 class TestModelProviderDetection:
     """Test provider detection logic."""

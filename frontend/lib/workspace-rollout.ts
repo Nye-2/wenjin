@@ -1,12 +1,7 @@
 import type { Workspace } from "@/lib/api";
+import { WORKSPACE_TYPES } from "@/lib/workspace-types";
 
-const THREAD_COCKPIT_DEFAULT_TYPES = new Set([
-  "thesis",
-  "sci",
-  "proposal",
-  "software_copyright",
-  "patent",
-]);
+const THREAD_COCKPIT_DEFAULT_TYPES = new Set<string>(WORKSPACE_TYPES);
 
 function readRollout(workspace: Workspace | null | undefined): Record<string, unknown> {
   const rollout = workspace?.config?.rollout;

@@ -1,0 +1,17 @@
+id: software_copyright_cn_default
+schema: wenjin.visual_profile.v1
+workspace_type: software_copyright
+default_route: structured_diagram_and_real_screenshot
+output_formats: ["svg", "png", "pdf"]
+diagram_palette:
+  ink: "#1F2937"
+  accent: "#2563EB"
+  support: "#64748B"
+  fill: "#F8FAFC"
+  warning: "#B45309"
+screenshot_rules:
+  require_consistent_software_name: true
+  require_consistent_version: true
+  require_operation_step_mapping: true
+  forbid_ai_generated_evidence_screenshots: true
+  allow_generated_prototype_screenshots: true

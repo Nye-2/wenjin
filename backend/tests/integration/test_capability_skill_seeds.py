@@ -562,6 +562,13 @@ def test_workspace_specific_quality_gates_present():
             "software_name_version_consistent",
             "source_and_document_deposit_rules_checked",
             "no_claims_about_unimplemented_features",
+            "no_ai_generated_evidence_screenshots",
+        },
+        "math_modeling": {
+            "cumcm_structure_and_format_checked",
+            "evidence_figures_code_generated",
+            "figure_scripts_reproducible",
+            "ai_use_disclosure_or_no_ai_declaration_present",
         },
         "patent": {
             "claim_terms_supported_by_description",
@@ -580,6 +587,36 @@ def test_workspace_specific_quality_gates_present():
         expected = expected_by_workspace[data["workspace_type"]]
         missing = expected - gates
         assert not missing, f"{cap_path}: missing workspace-specific gates {sorted(missing)}"
+
+
+def test_one_shot_template_pack_capabilities_declare_visual_contracts():
+    by_key = {
+        (yaml.safe_load(path.read_text())["workspace_type"], yaml.safe_load(path.read_text())["id"]): path
+        for path in _collect_capability_files()
+    }
+    expected = {
+        ("software_copyright", "software_copyright_application_pack"): {
+            "authoritative_template_id": "software_copyright_cn_application_pack",
+            "visual_profile_id": "software_copyright_cn_default",
+            "required_gates": {"no_ai_generated_evidence_screenshots"},
+        },
+        ("math_modeling", "math_modeling_paper_pack"): {
+            "authoritative_template_id": "math_modeling_cumcm2026_paper_pack",
+            "visual_profile_id": "math_modeling_cumcm_default",
+            "required_gates": {
+                "evidence_figures_code_generated",
+                "ai_use_disclosure_or_no_ai_declaration_present",
+            },
+        },
+    }
+    for key, expected_contract in expected.items():
+        cap_path = by_key.get(key)
+        assert cap_path is not None, f"missing one-shot capability {key}"
+        data = yaml.safe_load(cap_path.read_text())
+        extensions = data.get("extensions") or {}
+        assert extensions.get("authoritative_template_id") == expected_contract["authoritative_template_id"]
+        assert extensions.get("visual_profile_id") == expected_contract["visual_profile_id"]
+        assert expected_contract["required_gates"] <= set(data.get("quality_gates") or [])
 
 
 def test_sci_sandbox_research_capabilities_declare_evidence_surfaces():
@@ -712,6 +749,7 @@ def test_capability_count_matches_spec():
     assert by_ws.get("proposal") == 5, f"proposal: expected 5, got {by_ws.get('proposal', 0)}"
     assert by_ws.get("patent") == 5, f"patent: expected 5, got {by_ws.get('patent', 0)}"
     assert by_ws.get("software_copyright") == 4, f"software_copyright: expected 4, got {by_ws.get('software_copyright', 0)}"
+    assert by_ws.get("math_modeling") == 1, f"math_modeling: expected 1, got {by_ws.get('math_modeling', 0)}"
 
 
 def test_old_workflow_capability_ids_are_removed():

@@ -1,0 +1,26 @@
+id: math_modeling_cumcm_default
+schema: wenjin.visual_profile.v1
+workspace_type: math_modeling
+default_route: code_first
+output_formats: ["pdf", "svg", "png"]
+dpi: 300
+font:
+  latex: xeCJK
+  matplotlib_fallbacks: ["Noto Sans CJK SC", "SimHei", "WenQuanYi Micro Hei", "DejaVu Sans"]
+palette:
+  id: okabe_ito_print_safe
+  colors:
+    black: "#000000"
+    orange: "#E69F00"
+    sky_blue: "#56B4E9"
+    bluish_green: "#009E73"
+    yellow: "#F0E442"
+    blue: "#0072B2"
+    vermillion: "#D55E00"
+    reddish_purple: "#CC79A7"
+chart_rules:
+  avoid: ["rainbow", "jet", "3d_effects", "decorative_gradients"]
+  require_axis_units: true
+  require_caption: true
+  require_data_source_note: true
+  require_marker_or_line_style_for_print: true

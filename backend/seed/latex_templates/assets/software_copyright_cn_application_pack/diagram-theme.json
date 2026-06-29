@@ -1,0 +1,18 @@
+{
+  "schema": "wenjin.diagram_theme.v1",
+  "palette": {
+    "ink": "#1F2937",
+    "accent": "#2563EB",
+    "support": "#64748B",
+    "fill": "#F8FAFC",
+    "warning": "#B45309"
+  },
+  "shapes": {
+    "module": "rounded_rect",
+    "external_system": "rect",
+    "database": "cylinder",
+    "user": "actor",
+    "decision": "diamond"
+  },
+  "printFallback": "monochrome_with_line_styles"
+}

@@ -1,0 +1,134 @@
+schema_version: latex_template_registry.v1
+templates:
+  - id: acl
+    label: ACL
+    main_file: main.tex
+    category: academic
+    description: ACL conference template
+    description_en: ACL conference template
+    tags: ["ACL", "NLP"]
+    author: WenjinPrism
+    featured: true
+    template_path: acl
+    metadata_json:
+      schema: wenjin.legacy_template.v1
+
+  - id: cvpr
+    label: CVPR
+    main_file: main.tex
+    category: academic
+    description: CVPR conference template
+    description_en: CVPR conference template
+    tags: ["CVPR", "Computer Vision"]
+    author: WenjinPrism
+    featured: true
+    template_path: cvpr
+    metadata_json:
+      schema: wenjin.legacy_template.v1
+
+  - id: neurips
+    label: NeurIPS
+    main_file: main.tex
+    category: academic
+    description: NeurIPS conference template
+    description_en: NeurIPS conference template
+    tags: ["NeurIPS", "Machine Learning"]
+    author: WenjinPrism
+    featured: true
+    template_path: neurips
+    metadata_json:
+      schema: wenjin.legacy_template.v1
+
+  - id: icml
+    label: ICML
+    main_file: main.tex
+    category: academic
+    description: ICML conference template
+    description_en: ICML conference template
+    tags: ["ICML", "Machine Learning"]
+    author: WenjinPrism
+    featured: true
+    template_path: icml
+    metadata_json:
+      schema: wenjin.legacy_template.v1
+
+  - id: software_copyright_cn_application_pack
+    label: 软著申报材料包
+    main_file: manual.tex
+    category: software_copyright
+    description: 中国软件著作权申报材料包权威模板
+    description_en: Authoritative China software copyright application material pack
+    tags: ["software_copyright", "China", "application_pack"]
+    author: Wenjin
+    featured: true
+    template_path: software_copyright_cn_application_pack
+    metadata_json:
+      schema: wenjin.authoritative_template.v1
+      workspace_type: software_copyright
+      template_kind: software_copyright_application_pack
+      version: "2026.1"
+      authority_level: official_rules_plus_internal_template
+      license: internal_generated
+      sources:
+        - https://www.ncac.gov.cn/xxfb/flfg/bmgz/202410/P020241015604759788122.pdf
+        - https://banshi.beijing.gov.cn/pubtask/task/1/110000000000/3e283672-76be-4c8c-98e8-0bebe9bd06bf.html?locationCode=110000000000
+      visual_sources:
+        - https://developers.openai.com/api/docs/guides/image-generation
+        - https://www.canva.dev/docs/connect/api-reference/autofills/create-design-autofill-job/
+      quality_gates:
+        - software_name_version_consistent
+        - official_form_fields_only_no_fake_form
+        - source_document_deposit_rules_checked
+        - proof_materials_flagged
+        - visual_manifest_present
+        - no_ai_generated_evidence_screenshots
+      visual_profile:
+        id: software_copyright_cn_default
+        route_policy: structured_diagram_and_real_screenshot
+        ai_image_policy: decorative_only_optional
+      agent_contract_summary:
+        - Generate official-form field material, not a fake official form.
+        - Keep software name and version consistent across manual, source deposit guide, screenshots, and checklist.
+        - Use structured diagrams and real or prototype screenshots for evidence-like visuals.
+
+  - id: math_modeling_cumcm2026_paper_pack
+    label: 数模国赛论文包
+    main_file: main.tex
+    category: math_modeling
+    description: 全国大学生数学建模竞赛论文与支撑材料权威模板
+    description_en: Authoritative CUMCM paper and supporting-materials pack
+    tags: ["math_modeling", "CUMCM", "paper_pack"]
+    author: Wenjin
+    featured: true
+    template_path: math_modeling_cumcm2026_paper_pack
+    metadata_json:
+      schema: wenjin.authoritative_template.v1
+      workspace_type: math_modeling
+      template_kind: cumcm_paper_pack
+      version: "2026.1"
+      authority_level: official_rules_plus_internal_template
+      license: internal_generated
+      sources:
+        - https://www.cmathc.org.cn/mcm/tz/407.html
+        - https://www.cmathc.org.cn/mcm/news/285.html
+      visual_sources:
+        - https://matplotlib.org/stable/users/explain/colors/colormaps.html
+        - https://colorbrewer2.org/
+        - https://developers.openai.com/api/docs/guides/image-generation
+      quality_gates:
+        - cumcm_abstract_first_page
+        - cumcm_no_preface_numbering_or_toc
+        - cumcm_main_body_page_limit_checked
+        - cumcm_no_identity_leak
+        - supporting_materials_consistent
+        - ai_use_disclosure_or_no_ai_declaration_present
+        - visual_manifest_present
+        - evidence_figures_code_generated
+      visual_profile:
+        id: math_modeling_cumcm_default
+        route_policy: code_first
+        ai_image_policy: decorative_only_optional
+      agent_contract_summary:
+        - Electronic paper starts at abstract page and excludes commitment and numbering pages.
+        - Do not include a table of contents; keep the main body within the 30-page body limit.
+        - Evidence figures must be generated from reproducible code or structured diagrams.

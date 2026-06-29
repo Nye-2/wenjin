@@ -49,6 +49,24 @@ def test_ensure_workspace_sandbox_layout_creates_standard_tree(tmp_path):
     assert ".wenjin/**" in persisted["protected_paths"]
 
 
+def test_math_modeling_workspace_profile_uses_standard_layout(tmp_path):
+    manifest = ensure_workspace_sandbox_layout(
+        tmp_path,
+        workspace_id="ws-math",
+        sandbox_id="workspace-ws-math",
+        workspace_type="math_modeling",
+    )
+
+    profile = manifest["workspace_profile"]
+    assert profile["workspace_type"] == "math_modeling"
+    assert "/workspace/main/main.tex" in profile["primary_files"]
+    assert "/workspace/main/refs.bib" in profile["primary_files"]
+    assert "/workspace/scripts/solve.py" in profile["script_paths"]
+    assert "/workspace/outputs/figures" in profile["output_paths"]
+    assert "/workspace/outputs/tables" in profile["output_paths"]
+    assert "/workspace/reports/visual-manifest.md" in profile["report_paths"]
+
+
 def test_workspace_sandbox_layout_manifest_is_stable_when_recreated(tmp_path):
     first = ensure_workspace_sandbox_layout(tmp_path, workspace_id="ws-1")
     second = ensure_workspace_sandbox_layout(tmp_path, workspace_id="ws-1")
@@ -507,6 +525,7 @@ def test_all_workspace_type_profiles_use_valid_common_layout_paths():
         "sci",
         "proposal",
         "software_copyright",
+        "math_modeling",
         "patent",
     )
     for workspace_type in layout.WORKSPACE_SUPPORTED_TYPES:

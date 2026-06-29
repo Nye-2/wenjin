@@ -1,8 +1,10 @@
+import type { WorkspaceType } from "@/lib/workspace-types";
+
 export interface Workspace {
   id: string;
   user_id: string;
   name: string;
-  type: "sci" | "thesis" | "proposal" | "software_copyright" | "patent";
+  type: WorkspaceType;
   discipline?: string;
   description?: string;
   config: Record<string, unknown>;

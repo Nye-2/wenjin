@@ -63,6 +63,7 @@ def _template_payload(template: Any) -> dict[str, Any] | None:
         "author": template.author,
         "featured": bool(template.featured),
         "template_path": template.template_path,
+        "metadata_json": dict(getattr(template, "metadata_json", {}) or {}),
     }
 
 

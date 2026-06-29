@@ -144,14 +144,14 @@ async def async_main() -> int:
             except Exception as template_exc:
                 print(f"[bootstrap-admin] WARN: agent template seed failed: {template_exc}")
 
-            # Also seed capabilities if the table is empty.
+            # Sync seed-owned capabilities so existing deployments receive newly added capability YAMLs.
             try:
                 from src.services.capability_loader import CapabilityLoader
 
                 loader = CapabilityLoader()
-                loaded = await loader.load_seeds_if_empty()
+                loaded = await loader.sync_seed_updates()
                 if loaded:
-                    print(f"[bootstrap-admin] Seeded {loaded} capability records")
+                    print(f"[bootstrap-admin] Synced {loaded} capability seed record(s)")
             except Exception as cap_exc:
                 print(f"[bootstrap-admin] WARN: capability seed failed: {cap_exc}")
         return 0

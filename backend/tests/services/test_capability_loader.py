@@ -1,6 +1,7 @@
 """Tests for CapabilityLoader — YAML seed loading."""
 
 import textwrap
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -135,6 +136,47 @@ async def test_load_skips_when_db_has_data(tmp_path):
 
     assert count == 0
     dataservice.load_catalog_capability_seed_items.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_seed_updates_upserts_missing_and_changed_seed_owned_rows(tmp_path):
+    """Existing catalog data → sync only missing or changed seed-owned capabilities."""
+    seed_root = tmp_path / "capabilities"
+    seed_dir = seed_root / "thesis"
+    seed_dir.mkdir(parents=True)
+    existing_yaml = seed_dir / "existing_seed.yaml"
+    new_yaml = seed_dir / "new_seed.yaml"
+    admin_yaml = seed_dir / "admin_custom.yaml"
+    existing_yaml.write_text(_capability_v2_yaml(cap_id="existing_seed"))
+    new_yaml.write_text(_capability_v2_yaml(cap_id="new_seed"))
+    admin_yaml.write_text(_capability_v2_yaml(cap_id="admin_custom"))
+
+    from src.services.capability_loader import CapabilityLoader
+
+    dataservice = _SeedCatalogFake(has_capabilities=True)
+    dataservice.list_catalog_capabilities.return_value = [
+        SimpleNamespace(
+            id="existing_seed",
+            workspace_type="thesis",
+            checksum="old-checksum",
+            source_path=str(existing_yaml),
+        ),
+        SimpleNamespace(
+            id="admin_custom",
+            workspace_type="thesis",
+            checksum="old-admin-checksum",
+            source_path=None,
+        ),
+    ]
+    dataservice.load_catalog_capability_seed_items.return_value.loaded = 2
+    loader = CapabilityLoader(seed_dir=seed_root, dataservice=dataservice)
+
+    count = await loader.sync_seed_updates()
+
+    assert count == 2
+    command = dataservice.load_catalog_capability_seed_items.await_args.args[0]
+    assert command.overwrite is False
+    assert [item.data["id"] for item in command.items] == ["existing_seed", "new_seed"]
 
 
 @pytest.mark.asyncio

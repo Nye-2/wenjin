@@ -13,27 +13,23 @@ import {
   Loader2,
   Plus,
   Search,
+  Sigma,
   Trash2,
 } from "lucide-react";
 import { Header } from "@/components/layout/header";
 import { Button } from "@/components/ui/button";
 import { useI18n } from "@/components/i18n-provider";
 import { cn } from "@/lib/utils";
+import { WORKSPACE_TYPES, type WorkspaceType } from "@/lib/workspace-types";
 import { useWorkspaceStore, Workspace } from "@/stores/workspace";
 import { useAuthStore } from "@/stores/auth";
-
-type WorkspaceType =
-  | "sci"
-  | "thesis"
-  | "proposal"
-  | "software_copyright"
-  | "patent";
 
 const workspaceTypeIcons: Record<WorkspaceType, typeof FileText> = {
   sci: FileText,
   thesis: BookOpen,
   proposal: FlaskConical,
   software_copyright: Code2,
+  math_modeling: Sigma,
   patent: Lightbulb,
 };
 
@@ -56,6 +52,10 @@ const workspaceTypeAccents: Record<
   software_copyright: {
     icon: "rgba(15, 31, 53, 0.08)",
     chip: "text-[var(--wjn-text-secondary)] bg-[var(--wjn-surface-subtle)] border-[var(--wjn-line)]",
+  },
+  math_modeling: {
+    icon: "rgba(15, 118, 110, 0.12)",
+    chip: "text-[var(--wjn-evidence)] bg-[var(--wjn-evidence-soft)] border-[rgba(15,118,110,0.24)]",
   },
   patent: {
     icon: "rgba(231, 176, 8, 0.14)",
@@ -243,13 +243,7 @@ export default function WorkspacesPage() {
 
   const workspaceTypes = useMemo(
     () =>
-      ([
-        "sci",
-        "thesis",
-        "proposal",
-        "software_copyright",
-        "patent",
-      ] as WorkspaceType[]).map((value) => ({
+      WORKSPACE_TYPES.map((value) => ({
         value,
         label: t(`workspace.types.${value}`),
       })),

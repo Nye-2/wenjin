@@ -49,12 +49,9 @@ def _is_anthropic_provider(base_url: str, model: str) -> bool:
 
 
 def _supports_reasoning_effort(config: dict[str, Any]) -> bool:
-    """Infer whether the model accepts reasoning_effort."""
-    if bool(config.get("supports_reasoning_effort", False)):
-        return True
+    """Return whether the configured model accepts reasoning_effort."""
 
-    model_string = str(config.get("model", "") or "").lower()
-    return "gpt-5" in model_string or "doubao" in model_string
+    return bool(config.get("supports_reasoning_effort", False))
 
 
 def create_chat_model(

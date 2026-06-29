@@ -1,0 +1,33 @@
+:root {
+  color: #1f2937;
+  background: #f8fafc;
+  font-family: "Noto Sans CJK SC", "Microsoft YaHei", Arial, sans-serif;
+}
+
+body {
+  margin: 0;
+  width: 1280px;
+  min-height: 800px;
+  background: #f8fafc;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 800px;
+}
+
+.app-sidebar {
+  background: #1f2937;
+  color: #ffffff;
+  padding: 24px;
+}
+
+.app-main {
+  padding: 24px;
+}
+
+.screenshot-watermark {
+  color: #64748b;
+  font-size: 12px;
+}

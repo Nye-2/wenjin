@@ -51,10 +51,7 @@ def _supports_thinking(model: ModelConfig) -> bool:
 
 
 def _supports_reasoning_effort(model: ModelConfig) -> bool:
-    if getattr(model, "supports_reasoning_effort", False):
-        return True
-    raw_model = (model.model or "").lower()
-    return _supports_reasoning_effort_raw(raw_model)
+    return bool(getattr(model, "supports_reasoning_effort", False))
 
 
 def model_supports_vision(model_id_or_name: str | None) -> bool:

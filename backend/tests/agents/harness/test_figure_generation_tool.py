@@ -139,6 +139,122 @@ async def test_matplotlib_strategy_uses_run_python_and_registers_figure(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_playwright_screenshot_strategy_uses_run_python_and_registers_screenshot(monkeypatch) -> None:
+    from src.agents.harness.figure_generation_tools import FigureGenerationTools
+    from src.agents.harness.sandbox_execution_tools import SandboxExecutionTools
+
+    calls: list[dict[str, Any]] = []
+    screenshot_path = "/workspace/outputs/screenshots/software_copyright/screen01_dashboard.png"
+
+    async def fake_run_python(self, **kwargs):
+        calls.append(kwargs)
+        return HarnessToolResult(
+            preview_text="Python execution completed",
+            structured_payload={
+                "status": "completed",
+                "sandbox_job_id": "job-screen-1",
+                "sandbox_environment_id": "env-screen-1",
+                "script_name": kwargs["script_name"],
+                "generated_artifacts": [
+                    {
+                        "path": screenshot_path,
+                        "title": "Dashboard Screenshot",
+                    }
+                ],
+                "execution_manifest": {
+                    "schema": "wenjin.harness.run_python.execution_manifest.v1",
+                    "tool": "sandbox.run_python",
+                    "script_name": kwargs["script_name"],
+                },
+            },
+        )
+
+    monkeypatch.setattr(SandboxExecutionTools, "run_python", fake_run_python)
+    tool = FigureGenerationTools(
+        context=_ctx(),
+        policy=HarnessPolicy(permissions=frozenset({"sandbox.generate_figure", "sandbox.run_python"})),
+    )
+
+    result = await tool.generate_figure(
+        spec=_figure_spec(
+            figure_id="software_dashboard",
+            title="Dashboard Screenshot",
+            figure_type="ui_screenshot",
+            strategy="playwright_screenshot",
+            evidence_level="evidence",
+            output_targets=[screenshot_path],
+            dataset_paths=[],
+        ),
+        source_code="print('capture screenshot')",
+    )
+
+    assert calls == [
+        {
+            "script": "print('capture screenshot')",
+            "script_name": "software_dashboard_figure.py",
+            "dependency_hints": ["playwright"],
+        }
+    ]
+    assert result.preview_text == "Generated figure via playwright_screenshot: Dashboard Screenshot"
+    artifact = result.structured_payload["generated_artifacts"][0]
+    assert artifact["path"] == screenshot_path
+    assert artifact["artifact_kind"] == "figure"
+    assert artifact["sandbox_job_id"] == "job-screen-1"
+    assert result.structured_payload["figure_manifest"]["primary_path"] == screenshot_path
+
+
+@pytest.mark.asyncio
+async def test_uploaded_screenshot_strategy_registers_source_artifact_without_generating(monkeypatch) -> None:
+    from src.agents.harness.figure_generation_tools import FigureGenerationTools
+    from src.agents.harness.sandbox_execution_tools import SandboxExecutionTools
+
+    screenshot_path = "/workspace/outputs/screenshots/software_copyright/uploaded_dashboard.png"
+
+    async def forbidden_run_python(self, **kwargs):
+        _ = self, kwargs
+        raise AssertionError("uploaded screenshot route must not run python")
+
+    async def forbidden_generate_llm_image(self, **kwargs):
+        _ = self, kwargs
+        raise AssertionError("uploaded screenshot route must not use image generation")
+
+    monkeypatch.setattr(SandboxExecutionTools, "run_python", forbidden_run_python)
+    monkeypatch.setattr(FigureGenerationTools, "_generate_llm_image", forbidden_generate_llm_image)
+    tool = FigureGenerationTools(
+        context=_ctx(
+            context_bundle={
+                "_harness_sandbox_job": {
+                    "sandbox_job_id": "job-upload-1",
+                    "sandbox_environment_id": "env-upload-1",
+                }
+            }
+        ),
+        policy=HarnessPolicy(permissions=frozenset({"sandbox.generate_figure"})),
+    )
+
+    result = await tool.generate_figure(
+        spec=_figure_spec(
+            figure_id="uploaded_dashboard",
+            title="Uploaded Dashboard Screenshot",
+            figure_type="ui_screenshot",
+            strategy="uploaded_artifact",
+            evidence_level="evidence",
+            source_artifact_paths=[screenshot_path],
+            output_targets=[screenshot_path],
+            dataset_paths=[],
+        )
+    )
+
+    artifact = result.structured_payload["generated_artifacts"][0]
+    assert artifact["path"] == screenshot_path
+    assert artifact["artifact_kind"] == "figure"
+    assert artifact["sandbox_job_id"] == "job-upload-1"
+    assert artifact["sandbox_environment_id"] == "env-upload-1"
+    assert result.structured_payload["figure_manifest"]["primary_path"] == screenshot_path
+    assert result.preview_text == "Generated figure via uploaded_artifact: Uploaded Dashboard Screenshot"
+
+
+@pytest.mark.asyncio
 async def test_code_strategy_requires_reviewable_generated_figure_artifact(monkeypatch) -> None:
     from src.agents.harness.figure_generation_tools import FigureGenerationTools
     from src.agents.harness.sandbox_execution_tools import SandboxExecutionTools

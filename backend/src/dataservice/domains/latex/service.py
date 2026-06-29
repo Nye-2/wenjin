@@ -4,64 +4,102 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
+import yaml
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.dataservice.domains.latex.repository import LatexRepository
 
 _UNSET = object()
 
-_DEFAULT_TEMPLATES: tuple[dict[str, object], ...] = (
-    {
-        "id": "acl",
-        "label": "ACL",
-        "main_file": "main.tex",
-        "category": "academic",
-        "description": "ACL conference template",
-        "description_en": "ACL conference template",
-        "tags": ["ACL", "NLP"],
-        "author": "WenjinPrism",
-        "featured": True,
-        "template_path": "acl",
-    },
-    {
-        "id": "cvpr",
-        "label": "CVPR",
-        "main_file": "main.tex",
-        "category": "academic",
-        "description": "CVPR conference template",
-        "description_en": "CVPR conference template",
-        "tags": ["CVPR", "Computer Vision"],
-        "author": "WenjinPrism",
-        "featured": True,
-        "template_path": "cvpr",
-    },
-    {
-        "id": "neurips",
-        "label": "NeurIPS",
-        "main_file": "main.tex",
-        "category": "academic",
-        "description": "NeurIPS conference template",
-        "description_en": "NeurIPS conference template",
-        "tags": ["NeurIPS", "Machine Learning"],
-        "author": "WenjinPrism",
-        "featured": True,
-        "template_path": "neurips",
-    },
-    {
-        "id": "icml",
-        "label": "ICML",
-        "main_file": "main.tex",
-        "category": "academic",
-        "description": "ICML conference template",
-        "description_en": "ICML conference template",
-        "tags": ["ICML", "Machine Learning"],
-        "author": "WenjinPrism",
-        "featured": True,
-        "template_path": "icml",
-    },
-)
+_BACKEND_ROOT = Path(__file__).resolve().parents[4]
+_LATEX_TEMPLATE_SEED_ROOT = _BACKEND_ROOT / "seed" / "latex_templates"
+_LATEX_TEMPLATE_REGISTRY_PATH = _LATEX_TEMPLATE_SEED_ROOT / "registry.yaml"
+_LATEX_TEMPLATE_ASSET_ROOT = _LATEX_TEMPLATE_SEED_ROOT / "assets"
+_TEMPLATE_REGISTRY_FIELDS = {
+    "id",
+    "label",
+    "main_file",
+    "category",
+    "description",
+    "description_en",
+    "tags",
+    "author",
+    "featured",
+    "template_path",
+    "metadata_json",
+}
+
+
+def _load_template_registry() -> list[dict[str, Any]]:
+    registry_path = Path(_LATEX_TEMPLATE_REGISTRY_PATH)
+    if not registry_path.is_file():
+        raise FileNotFoundError(f"LaTeX template registry missing: {registry_path}")
+    raw = yaml.safe_load(registry_path.read_text(encoding="utf-8")) or {}
+    if raw.get("schema_version") != "latex_template_registry.v1":
+        raise ValueError("LaTeX template registry must use schema_version latex_template_registry.v1")
+    templates = raw.get("templates")
+    if not isinstance(templates, list) or not templates:
+        raise ValueError("LaTeX template registry must define templates")
+
+    payloads: list[dict[str, Any]] = []
+    for item in templates:
+        if not isinstance(item, dict):
+            raise ValueError("LaTeX template registry entries must be objects")
+        payload = {key: deepcopy(item[key]) for key in _TEMPLATE_REGISTRY_FIELDS if key in item}
+        template_id = str(payload.get("id") or "").strip()
+        if not template_id:
+            raise ValueError("LaTeX template registry entry missing id")
+        payload["id"] = template_id
+        payload.setdefault("main_file", "main.tex")
+        payload.setdefault("category", "academic")
+        payload.setdefault("tags", [])
+        payload.setdefault("featured", False)
+        payload.setdefault("metadata_json", {})
+        _validate_template_asset(payload)
+        payloads.append(payload)
+    return payloads
+
+
+def _validate_template_asset(payload: dict[str, Any]) -> None:
+    template_id = str(payload["id"])
+    template_path = str(payload.get("template_path") or template_id).strip()
+    if not template_path:
+        raise ValueError(f"LaTeX template {template_id} missing template_path")
+    asset_root = Path(_LATEX_TEMPLATE_ASSET_ROOT).resolve()
+    raw_path = Path(template_path)
+    candidate = raw_path if raw_path.is_absolute() else asset_root / raw_path
+    candidate = candidate.resolve()
+    if not _is_relative_to(candidate, asset_root):
+        raise ValueError(f"LaTeX template path escapes asset root: {template_id}")
+    if not candidate.is_dir():
+        raise FileNotFoundError(f"LaTeX template asset directory missing: {template_id}")
+    metadata = payload.get("metadata_json")
+    if not isinstance(metadata, dict):
+        raise ValueError(f"LaTeX template metadata_json must be an object: {template_id}")
+    visual_profile = metadata.get("visual_profile")
+    if isinstance(visual_profile, dict) and str(visual_profile.get("id") or "").strip():
+        expected_profile_id = str(visual_profile["id"]).strip()
+        profile_path = candidate / "visual-profile.yaml"
+        if not profile_path.is_file():
+            raise FileNotFoundError(f"LaTeX template visual profile missing: {template_id}")
+        profile_payload = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+        actual_profile_id = str(profile_payload.get("id") or "").strip()
+        if actual_profile_id != expected_profile_id:
+            raise ValueError(
+                f"LaTeX template {template_id} visual profile id mismatch: "
+                f"expected {expected_profile_id}, got {actual_profile_id or '<empty>'}"
+            )
+
+
+def _is_relative_to(candidate: Path, root: Path) -> bool:
+    try:
+        candidate.relative_to(root)
+    except ValueError:
+        return False
+    return True
 
 
 class DataServiceLatexService:
@@ -198,14 +236,28 @@ class DataServiceLatexService:
         await self._finish()
 
     async def get_template(self, template_id: str) -> Any | None:
+        template = await self.repository.get_template(template_id)
+        if template is not None:
+            return template
+        await self.ensure_default_templates()
         return await self.repository.get_template(template_id)
 
     async def ensure_default_templates(self) -> None:
-        if await self.repository.has_templates():
-            return
-        for payload in _DEFAULT_TEMPLATES:
-            self.repository.create_template(dict(payload))
+        for payload in _load_template_registry():
+            await self._upsert_template(payload)
         await self._finish()
+
+    async def _upsert_template(self, payload: dict[str, Any]) -> Any:
+        upsert = getattr(self.repository, "upsert_template", None)
+        if callable(upsert):
+            return await upsert(dict(payload))
+        existing = await self.repository.get_template(str(payload["id"]))
+        if existing is None:
+            return self.repository.create_template(dict(payload))
+        for key, value in payload.items():
+            if key != "id":
+                setattr(existing, key, value)
+        return existing
 
     async def list_templates(self) -> list[Any]:
         await self.ensure_default_templates()

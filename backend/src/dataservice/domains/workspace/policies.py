@@ -11,6 +11,7 @@ THREAD_COCKPIT_DEFAULT_TYPES = {
     WorkspaceType.SCI.value,
     WorkspaceType.PROPOSAL.value,
     WorkspaceType.SOFTWARE_COPYRIGHT.value,
+    WorkspaceType.MATH_MODELING.value,
     WorkspaceType.PATENT.value,
 }
 

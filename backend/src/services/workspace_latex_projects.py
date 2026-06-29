@@ -136,7 +136,8 @@ class WorkspaceLatexProjectService:
             "sci": "sci_default",
             "proposal": "proposal_default",
             "patent": "patent_default",
-            "software_copyright": "software_copyright_default",
+            "software_copyright": "software_copyright_cn_application_pack",
+            "math_modeling": "math_modeling_cumcm2026_paper_pack",
         }.get(normalized)
 
     @staticmethod
@@ -1111,7 +1112,7 @@ class WorkspaceLatexProjectService:
         linked_project = await self._find_existing_project(
             workspace_id,
             owner_user_id=str(workspace["user_id"]),
-            template="software_copyright_default",
+            template="software_copyright_cn_application_pack",
         )
         created_linked_project = linked_project is None
         if linked_project is None:
@@ -1169,7 +1170,7 @@ class WorkspaceLatexProjectService:
             llm_config={
                 "workspace_id": workspace_id,
                 "bridge": "workspace_latex_project",
-                "template": "software_copyright_default",
+                "template": "software_copyright_cn_application_pack",
                 "role": "primary",
                 "metadata": project_metadata,
             },
@@ -1231,7 +1232,7 @@ class WorkspaceLatexProjectService:
             llm_config={
                 "workspace_id": workspace_id,
                 "bridge": "workspace_latex_project",
-                "template": "software_copyright_default",
+                "template": "software_copyright_cn_application_pack",
                 "role": "primary",
                 "metadata": project_metadata,
             },

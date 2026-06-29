@@ -40,6 +40,13 @@ export const WORKSPACE_TYPE_CONFIG: Record<
     panelSubtitle: "AI 驱动的软著申请助手",
     suggestions: ["准备软著材料", "写技术说明"],
   },
+  math_modeling: {
+    icon: "Σ",
+    title: "数学建模工作台",
+    chatSubtitle: "从赛题到论文包，一步推进",
+    panelSubtitle: "AI 驱动的数模竞赛论文助手",
+    suggestions: ["生成数模论文包", "解析赛题并建模", "生成图表和求解代码"],
+  },
   patent: {
     icon: "🔧",
     title: "专利工作台",

@@ -440,6 +440,36 @@ _WORKSPACE_TYPE_PROFILES: dict[str, dict[str, Any]] = {
             "Register reusable datasets and generated reviewable artifacts through the manifest tools.",
         ],
     },
+    "math_modeling": {
+        "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
+        "workspace_type": "math_modeling",
+        "label": "Mathematical modeling workspace",
+        "primary_files": [
+            f"{WORKSPACE_ROOT}/main/main.tex",
+            f"{WORKSPACE_ROOT}/main/refs.bib",
+            f"{WORKSPACE_ROOT}/main/supporting-materials-manifest.md",
+        ],
+        "script_paths": [
+            f"{WORKSPACE_ROOT}/scripts/solve.py",
+            f"{WORKSPACE_ROOT}/scripts/figures.py",
+        ],
+        "output_paths": [
+            f"{WORKSPACE_ROOT}/outputs/figures",
+            f"{WORKSPACE_ROOT}/outputs/tables",
+            f"{WORKSPACE_ROOT}/outputs/results",
+        ],
+        "report_paths": [
+            f"{WORKSPACE_ROOT}/reports/visual-manifest.md",
+            f"{WORKSPACE_ROOT}/reports/reproducibility-report.md",
+            f"{WORKSPACE_ROOT}/reports/format-compliance.md",
+        ],
+        "rules": [
+            "Keep competition paper files under /workspace/main.",
+            "Keep deterministic solving, plotting, and reproducibility scripts under /workspace/scripts.",
+            "Keep generated figures, tables, and numeric results under /workspace/outputs.",
+            "Keep visual manifests, reproducibility notes, and format compliance reviews under /workspace/reports.",
+        ],
+    },
     "patent": {
         "schema": WORKSPACE_TYPE_PROFILE_SCHEMA,
         "workspace_type": "patent",

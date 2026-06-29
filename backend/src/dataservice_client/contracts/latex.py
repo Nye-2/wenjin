@@ -37,6 +37,7 @@ class LatexTemplatePayload(BaseModel):
     author: str | None = None
     featured: bool
     template_path: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class LatexCompileHistoryPayload(BaseModel):

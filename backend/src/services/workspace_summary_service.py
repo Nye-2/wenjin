@@ -16,6 +16,7 @@ _WORKSPACE_LABELS = {
     "sci": "学术论文",
     "proposal": "研究计划",
     "software_copyright": "软著申请",
+    "math_modeling": "数学建模",
     "patent": "专利申请",
 }
 

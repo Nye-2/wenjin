@@ -188,6 +188,9 @@ quality_gates:
 - software_name_version_consistent
 - source_and_document_deposit_rules_checked
 - no_claims_about_unimplemented_features
+- operation_screenshots_mapped_to_manual_steps
+- no_ai_generated_evidence_screenshots
+- prototype_screenshots_marked_when_not_real
 graph_template:
   phases:
   - name: step_01_software_structure_planner
@@ -204,15 +207,34 @@ graph_template:
         target_format: '{{target_format}}'
       outputs: []
       prompt_template: '{{raw_message}}'
-  - name: step_02_software_doc_drafter
+  - name: step_02_software_visual_planner
     depends_on:
     - step_01_software_structure_planner
+    tasks:
+    - name: software_visual_planner
+      subagent_type: react
+      skill_id: figure-engineer
+      inputs:
+        task_focus: 依据权威模板和视觉 profile 规划模块图、流程图、部署图、权限图和操作截图；证据截图只能来自用户上传真实截图或本地原型 Playwright 截图，禁止 AI 生图伪造。
+        capability_name: 软著申请材料包
+        capability_goal: produce_or_update_primary_document
+        workspace_type: software_copyright
+        raw_message: '{{raw_message}}'
+        target_format: '{{target_format}}'
+        authoritative_template_id: software_copyright_cn_application_pack
+        visual_profile_id: software_copyright_cn_default
+        upstream_outputs: '{{phases}}'
+      outputs: []
+      prompt_template: '{{raw_message}}'
+  - name: step_03_software_doc_drafter
+    depends_on:
+    - step_02_software_visual_planner
     tasks:
     - name: software_doc_drafter
       subagent_type: react
       skill_id: software-doc-drafter
       inputs:
-        task_focus: 生成软著说明书、申请表填报素材、功能模块说明和材料清单。
+        task_focus: 基于权威模板、结构矩阵和已生成/已标记的图示截图，生成软著说明书、申请表填报素材、功能模块说明和材料清单，缺失证据必须显式标记。
         capability_name: 软著申请材料包
         capability_goal: produce_or_update_primary_document
         workspace_type: software_copyright
@@ -221,9 +243,9 @@ graph_template:
         upstream_outputs: '{{phases}}'
       outputs: []
       prompt_template: '{{raw_message}}'
-  - name: step_03_review_critic
+  - name: step_04_review_critic
     depends_on:
-    - step_02_software_doc_drafter
+    - step_03_software_doc_drafter
     tasks:
     - name: review_critic
       subagent_type: react
@@ -245,6 +267,17 @@ graph_template:
           content: '{{output.text}}'
       prompt_template: '{{raw_message}}'
 extensions:
+  authoritative_template_id: software_copyright_cn_application_pack
+  visual_profile_id: software_copyright_cn_default
+  visual_generation:
+    default_route: structured_diagram_and_real_screenshot
+    evidence_screenshot_routes:
+    - uploaded_real_screenshot
+    - playwright_prototype_screenshot
+    forbidden_routes:
+    - llm_image_evidence_screenshot
+    - hybrid_ai_evidence_screenshot
+    screenshot_output_root: /workspace/outputs/screenshots/software_copyright
   content_strategy:
     workflow_pattern: sequential_upstream_context
     strategy: 'China software copyright registration support for Chinese users: application form material, source/document identification material, manual and version consistency.'

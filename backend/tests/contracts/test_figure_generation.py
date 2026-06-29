@@ -20,6 +20,87 @@ def test_data_plot_rejects_llm_image_strategy() -> None:
         )
 
 
+def test_evidence_level_rejects_llm_image_strategy() -> None:
+    with pytest.raises(ValidationError, match="evidence figures cannot use"):
+        FigureSpec(
+            figure_id="software_dashboard_evidence",
+            title="Software Dashboard Evidence",
+            figure_type="graphical_abstract",
+            strategy="llm_image",
+            evidence_level="evidence",
+            purpose="Stage a compliance evidence visual",
+            output_targets=["/workspace/outputs/screenshots/software_copyright/dashboard.png"],
+        )
+
+
+def test_ui_screenshot_requires_playwright_or_uploaded_source() -> None:
+    with pytest.raises(ValidationError, match="ui screenshots require"):
+        FigureSpec(
+            figure_id="software_dashboard",
+            title="Software Dashboard Screenshot",
+            figure_type="ui_screenshot",
+            strategy="matplotlib",
+            evidence_level="evidence",
+            purpose="Capture the dashboard operation step",
+            output_targets=["/workspace/outputs/screenshots/software_copyright/dashboard.png"],
+        )
+
+
+def test_ui_screenshot_accepts_playwright_screenshot_outputs() -> None:
+    spec = FigureSpec(
+        figure_id="software_dashboard",
+        title="Software Dashboard Screenshot",
+        figure_type="ui_screenshot",
+        strategy="playwright_screenshot",
+        evidence_level="evidence",
+        visual_profile_id="software_copyright_cn_default",
+        purpose="Capture the dashboard operation step",
+        output_targets=["/workspace/outputs/screenshots/software_copyright/dashboard.png"],
+        reproducibility_command="node /workspace/scripts/software_copyright_prototype/capture.js",
+    )
+
+    assert spec.figure_type == "ui_screenshot"
+    assert spec.strategy == "playwright_screenshot"
+    assert spec.evidence_level == "evidence"
+    assert spec.output_targets == ["/workspace/outputs/screenshots/software_copyright/dashboard.png"]
+
+
+def test_ui_screenshot_accepts_uploaded_artifact_source() -> None:
+    screenshot_path = "/workspace/outputs/screenshots/software_copyright/uploaded_dashboard.png"
+    spec = FigureSpec(
+        figure_id="uploaded_dashboard",
+        title="Uploaded Dashboard Screenshot",
+        figure_type="ui_screenshot",
+        strategy="uploaded_artifact",
+        evidence_level="evidence",
+        purpose="Use a real uploaded screenshot as software copyright evidence",
+        source_artifact_paths=[screenshot_path],
+        output_targets=[screenshot_path],
+    )
+
+    assert spec.strategy == "uploaded_artifact"
+    assert spec.source_artifact_paths == [screenshot_path]
+
+
+def test_python_schematic_accepts_geometric_schematic() -> None:
+    spec = FigureSpec(
+        figure_id="model_geometry",
+        title="Model Geometry",
+        figure_type="geometric_schematic",
+        strategy="python_schematic",
+        evidence_level="evidence",
+        visual_profile_id="math_modeling_cumcm_default",
+        palette_id="okabe_ito_print_safe",
+        purpose="Show the geometry used by the optimization model",
+        output_targets=["/workspace/outputs/figures/math_modeling/model_geometry/figure.svg"],
+        reproducibility_command="python /workspace/scripts/figures.py",
+    )
+
+    assert spec.figure_type == "geometric_schematic"
+    assert spec.strategy == "python_schematic"
+    assert spec.visual_profile_id == "math_modeling_cumcm_default"
+
+
 def test_matplotlib_figure_spec_accepts_workspace_output() -> None:
     spec = FigureSpec(
         figure_id="fed_llm_curve",

@@ -67,6 +67,32 @@ class CapabilityLoader:
         async with dataservice_client() as client:
             return await client.list_catalog_capabilities()
 
+    async def sync_seed_updates(self) -> int:
+        """Upsert missing or changed seed-owned capabilities without deleting admin rows."""
+        if self._dataservice is not None:
+            return await self._sync_seed_updates_dataservice(self._dataservice)
+        async with dataservice_client() as client:
+            return await self._sync_seed_updates_dataservice(client)
+
+    async def _sync_seed_updates_dataservice(self, client: AsyncDataServiceClient) -> int:
+        seed_items = self._select_seed_updates(await client.list_catalog_capabilities())
+        if not seed_items:
+            return 0
+        command = CatalogSeedLoadPayload(
+            seed_root=str(self.seed_dir),
+            overwrite=False,
+            items=[
+                CatalogSeedItemPayload(
+                    data=item["data"],
+                    checksum=item["checksum"],
+                    source_path=item["source_path"],
+                )
+                for item in seed_items
+            ],
+        )
+        result = await client.load_catalog_capability_seed_items(command)
+        return result.loaded
+
     async def _load_all_dataservice(self, *, overwrite: bool) -> int:
         command = CatalogSeedLoadPayload(
             seed_root=str(self.seed_dir),
@@ -88,6 +114,25 @@ class CapabilityLoader:
         if result.loaded > 0:
             logger.info("Loaded %d DataService capability seed(s) from %s", result.loaded, self.seed_dir)
         return result.loaded
+
+    def _select_seed_updates(self, existing_records: list[object]) -> list[dict]:
+        existing = {
+            (str(getattr(record, "workspace_type", "")), str(getattr(record, "id", ""))): record
+            for record in existing_records
+        }
+        updates: list[dict] = []
+        for item in self._read_seed_items():
+            data = item["data"]
+            key = (str(data["workspace_type"]), str(data["id"]))
+            record = existing.get(key)
+            if record is None:
+                updates.append(item)
+                continue
+            source_path = str(getattr(record, "source_path", "") or "")
+            checksum = str(getattr(record, "checksum", "") or "")
+            if source_path == item["source_path"] and checksum != item["checksum"]:
+                updates.append(item)
+        return updates
 
     def _read_seed_items(self) -> list[dict]:
         items: list[dict] = []

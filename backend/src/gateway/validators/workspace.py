@@ -19,6 +19,7 @@ class WorkspaceType(StrEnum):
     THESIS = "thesis"
     PROPOSAL = "proposal"
     SOFTWARE_COPYRIGHT = "software_copyright"
+    MATH_MODELING = "math_modeling"
     PATENT = "patent"
 
 
@@ -137,4 +138,3 @@ class WorkspaceIdValidator(BaseModel):
     def validate_workspace_id(cls, v: str) -> str:
         """Validate workspace ID is a valid UUID."""
         return validate_uuid(v)
-

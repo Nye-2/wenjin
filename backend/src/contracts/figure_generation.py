@@ -23,6 +23,9 @@ FigureType = Literal[
     "graphical_abstract",
     "patent_drawing",
     "table_visual",
+    "ui_screenshot",
+    "geometric_schematic",
+    "simulation_snapshot",
     "other",
 ]
 
@@ -35,12 +38,21 @@ FigureStrategy = Literal[
     "tikz",
     "llm_image",
     "hybrid",
+    "playwright_screenshot",
+    "python_schematic",
+    "uploaded_artifact",
 ]
+
+EvidenceLevel = Literal["evidence", "explanatory", "decorative"]
 
 CHART_CODE_STRATEGIES = frozenset({"matplotlib", "seaborn", "plotly_static"})
 CODE_REQUIRED_TYPES = frozenset({"data_plot", "experiment_plot", "statistical_chart", "table_visual"})
 STRUCTURED_REQUIRED_TYPES = frozenset({"architecture_diagram", "method_flow", "patent_drawing"})
 STRUCTURED_STRATEGIES = frozenset({"mermaid", "graphviz", "tikz"})
+SCREENSHOT_TYPES = frozenset({"ui_screenshot"})
+SCREENSHOT_STRATEGIES = frozenset({"playwright_screenshot"})
+SOURCE_ARTIFACT_STRATEGIES = frozenset({"uploaded_artifact"})
+AI_IMAGE_STRATEGIES = frozenset({"llm_image", "hybrid"})
 
 
 class FigureSpec(BaseModel):
@@ -56,12 +68,17 @@ class FigureSpec(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     figure_type: FigureType
     strategy: FigureStrategy
+    evidence_level: EvidenceLevel = "explanatory"
+    visual_profile_id: str | None = Field(default=None, max_length=120)
+    palette_id: str | None = Field(default=None, max_length=120)
     purpose: str = Field(min_length=1, max_length=1000)
     inputs: dict[str, Any] = Field(default_factory=dict)
     output_targets: list[str] = Field(default_factory=list)
     caption: str | None = None
     alt_text: str | None = None
     dataset_paths: list[str] = Field(default_factory=list)
+    source_artifact_paths: list[str] = Field(default_factory=list)
+    reproducibility_command: str | None = None
     provenance: dict[str, Any] = Field(default_factory=dict)
     quality_checks: list[str] = Field(default_factory=list)
 
@@ -79,14 +96,32 @@ class FigureSpec(BaseModel):
     def _validate_dataset_paths(cls, paths: list[str]) -> list[str]:
         return [_ensure_safe_workspace_path(path) for path in paths]
 
+    @field_validator("source_artifact_paths")
+    @classmethod
+    def _validate_source_artifact_paths(cls, paths: list[str]) -> list[str]:
+        return [_ensure_safe_workspace_path(path) for path in paths]
+
     @model_validator(mode="after")
     def _validate_strategy_and_targets(self) -> FigureSpec:
+        if self.evidence_level == "evidence" and self.strategy in AI_IMAGE_STRATEGIES:
+            raise ValueError("evidence figures cannot use AI image generation strategies")
         if self.figure_type in CODE_REQUIRED_TYPES and self.strategy not in CHART_CODE_STRATEGIES:
             if self.strategy in {"llm_image", "hybrid"}:
                 raise ValueError("data figures must use code generation strategies")
             raise ValueError("data figures must use chart code generation strategies")
         if self.figure_type in STRUCTURED_REQUIRED_TYPES and self.strategy not in STRUCTURED_STRATEGIES:
             raise ValueError("structured figures must use structured diagram strategies")
+        if self.figure_type in SCREENSHOT_TYPES:
+            if self.strategy in AI_IMAGE_STRATEGIES:
+                raise ValueError("ui screenshots require playwright_screenshot or uploaded_artifact source_artifact_paths")
+            if self.strategy in SCREENSHOT_STRATEGIES:
+                pass
+            elif self.strategy in SOURCE_ARTIFACT_STRATEGIES and self.source_artifact_paths:
+                pass
+            else:
+                raise ValueError(
+                    "ui screenshots require playwright_screenshot or uploaded_artifact source_artifact_paths"
+                )
         for path in self.output_targets:
             _ensure_reviewable_workspace_artifact(path, field_name="output target")
         return self

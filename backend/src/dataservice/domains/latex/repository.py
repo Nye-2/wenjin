@@ -103,6 +103,17 @@ class LatexRepository:
         self.session.add(template)
         return template
 
+    async def upsert_template(self, values: dict[str, Any]) -> LatexTemplate:
+        template_id = str(values["id"])
+        template = await self.get_template(template_id)
+        if template is None:
+            return self.create_template(values)
+        for key, value in values.items():
+            if key == "id":
+                continue
+            setattr(template, key, value)
+        return template
+
     async def list_templates(self) -> list[LatexTemplate]:
         result = await self.session.execute(
             select(LatexTemplate).order_by(

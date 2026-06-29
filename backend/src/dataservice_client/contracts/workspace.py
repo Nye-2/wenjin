@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-WORKSPACE_TYPES = ("thesis", "sci", "proposal", "software_copyright", "patent")
+WORKSPACE_TYPES = ("thesis", "sci", "proposal", "software_copyright", "math_modeling", "patent")
 THREAD_COCKPIT_DEFAULT_TYPES = set(WORKSPACE_TYPES)
 
 

@@ -42,6 +42,12 @@ class LatexTemplate(Base):
         server_default="false",
     )
     template_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default="{}",
+    )
 
     def __repr__(self) -> str:
         return f"<LatexTemplate(id={self.id}, label={self.label})>"

@@ -44,7 +44,7 @@ def get_latex_template_dir() -> Path:
     """Return configured LaTeX template root."""
     return _resolve_configured_path(
         os.getenv("WENJIN_LATEX_TEMPLATE_DIR", ""),
-        default="../../WenjinPrism/templates",
+        default="seed/latex_templates/assets",
     )
 
 

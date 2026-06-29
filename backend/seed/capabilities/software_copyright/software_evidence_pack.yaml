@@ -186,6 +186,7 @@ quality_gates:
 - software_name_version_consistent
 - source_and_document_deposit_rules_checked
 - no_claims_about_unimplemented_features
+- no_ai_generated_evidence_screenshots
 graph_template:
   phases:
   - name: step_01_software_structure_planner

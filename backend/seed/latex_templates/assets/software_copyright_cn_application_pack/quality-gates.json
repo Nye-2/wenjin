@@ -1,0 +1,16 @@
+{
+  "schema": "wenjin.quality_gates.v1",
+  "quality_gates": [
+    "official_form_fields_only_no_fake_form",
+    "software_name_version_consistent",
+    "source_document_deposit_rules_checked",
+    "manual_source_application_alignment",
+    "proof_materials_flagged",
+    "no_claims_about_unimplemented_features",
+    "visual_manifest_present",
+    "structured_diagrams_have_source",
+    "operation_screenshots_mapped_to_manual_steps",
+    "no_ai_generated_evidence_screenshots",
+    "prototype_screenshots_marked_when_not_real"
+  ]
+}

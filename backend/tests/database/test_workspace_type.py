@@ -11,6 +11,7 @@ def test_workspace_type_values():
         "proposal",
         "software_copyright",
         "patent",
+        "math_modeling",
     }
     actual = {t.value for t in WorkspaceType}
     assert actual == expected

@@ -1,12 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { FileText, Book, FileEdit, Lightbulb } from "lucide-react";
+import { FileText, Book, FileEdit, Lightbulb, Sigma } from "lucide-react";
+import type { WorkspaceType } from "@/lib/workspace-types";
 
 interface WorkspaceCardProps {
   id: string;
   name: string;
-  type: "sci" | "thesis" | "proposal" | "software_copyright" | "patent";
+  type: WorkspaceType;
   discipline?: string;
   referenceCount: number;
   artifactCount: number;
@@ -18,6 +19,7 @@ const typeIcons = {
   thesis: Book,
   proposal: FileEdit,
   software_copyright: FileText,
+  math_modeling: Sigma,
   patent: Lightbulb,
 };
 
@@ -26,6 +28,7 @@ const typeLabels = {
   thesis: "Undergraduate Thesis",
   proposal: "Project Application",
   software_copyright: "Software Copyright",
+  math_modeling: "Mathematical Modeling",
   patent: "Patent Application",
 };
 
@@ -34,6 +37,7 @@ const typeColors = {
   thesis: { bg: "bg-[var(--wjn-evidence-soft)]", text: "text-[var(--wjn-evidence)]" },
   proposal: { bg: "bg-[var(--wjn-review-soft)]", text: "text-[var(--wjn-review)]" },
   software_copyright: { bg: "bg-[var(--wjn-surface-subtle)]", text: "text-[var(--wjn-text-secondary)]" },
+  math_modeling: { bg: "bg-[var(--wjn-evidence-soft)]", text: "text-[var(--wjn-evidence)]" },
   patent: { bg: "bg-[rgba(231,176,8,0.12)]", text: "text-[var(--wjn-review)]" },
 };
 
@@ -42,6 +46,7 @@ const typeBadgeColors = {
   thesis: "border-[rgba(15,118,110,0.24)] bg-[var(--wjn-evidence-soft)] text-[var(--wjn-evidence)]",
   proposal: "border-[rgba(180,83,9,0.24)] bg-[var(--wjn-review-soft)] text-[var(--wjn-review)]",
   software_copyright: "border-[var(--wjn-line)] bg-[var(--wjn-surface-subtle)] text-[var(--wjn-text-secondary)]",
+  math_modeling: "border-[rgba(15,118,110,0.24)] bg-[var(--wjn-evidence-soft)] text-[var(--wjn-evidence)]",
   patent: "border-[rgba(231,176,8,0.24)] bg-[rgba(231,176,8,0.10)] text-[var(--wjn-review)]",
 };
 

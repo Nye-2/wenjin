@@ -356,3 +356,22 @@ def test_model_supports_reasoning_effort_honors_explicit_flag() -> None:
         reload_models()
         assert model_supports_reasoning_effort("llm-reasoning") is True
         assert model_supports_reasoning_effort("llm-plain") is False
+
+
+def test_model_supports_reasoning_effort_does_not_infer_for_configured_gpt_name() -> None:
+    llm_models = json.dumps([
+        {
+            "id": "llm-gpt-name-only",
+            "model": "gpt-5.5",
+            "api_key": "sk-llm",
+            "base_url": "https://example.com/v1",
+            "supports_reasoning_effort": False,
+        }
+    ])
+    with patch.dict(
+        os.environ,
+        {"LLM_MODELS": llm_models},
+        clear=False,
+    ):
+        reload_models()
+        assert model_supports_reasoning_effort("llm-gpt-name-only") is False

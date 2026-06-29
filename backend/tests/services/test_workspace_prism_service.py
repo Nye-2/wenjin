@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -13,6 +14,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.database.models.latex_project import LatexProject
 from tests.database.conftest import DbUser, DbWorkspace
+
+
+def test_workspace_latex_project_service_uses_authoritative_template_packs() -> None:
+    from src.services.workspace_latex_projects import WorkspaceLatexProjectService
+
+    assert (
+        WorkspaceLatexProjectService._default_template_for_workspace("software_copyright")
+        == "software_copyright_cn_application_pack"
+    )
+    assert (
+        WorkspaceLatexProjectService._default_template_for_workspace("math_modeling")
+        == "math_modeling_cumcm2026_paper_pack"
+    )
+
+
+def test_workspace_latex_project_service_does_not_reference_legacy_software_template() -> None:
+    source = Path("src/services/workspace_latex_projects.py").read_text(encoding="utf-8")
+    assert "software_copyright_default" not in source
 
 
 class _DbBackedDataServiceClient:

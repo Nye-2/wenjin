@@ -24,6 +24,7 @@ class WorkspaceType(enum.StrEnum):
     THESIS = "thesis"              # Graduate Thesis
     PROPOSAL = "proposal"          # Research Proposal
     SOFTWARE_COPYRIGHT = "software_copyright"  # Software Copyright
+    MATH_MODELING = "math_modeling"  # Mathematical Modeling Competition
     PATENT = "patent"              # Patent Application
 
 
@@ -37,7 +38,7 @@ class Workspace(Base, UUIDMixin, TimestampMixin):
         id: UUID primary key
         user_id: Owner's user ID
         name: Workspace name
-        type: Workspace type (sci, thesis, proposal, software_copyright, patent)
+        type: Workspace type (sci, thesis, proposal, software_copyright, math_modeling, patent)
         discipline: Academic discipline (e.g., computer_science)
         description: Optional description
         config: JSON configuration for workspace-specific settings

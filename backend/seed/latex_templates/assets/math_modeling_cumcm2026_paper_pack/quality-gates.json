@@ -1,0 +1,19 @@
+{
+  "schema": "wenjin.quality_gates.v1",
+  "quality_gates": [
+    "cumcm_abstract_first_page",
+    "cumcm_no_preface_numbering_or_toc",
+    "cumcm_main_body_page_limit_checked",
+    "cumcm_no_identity_leak",
+    "cumcm_supporting_materials_manifest_present",
+    "supporting_materials_consistent_with_paper",
+    "ai_use_disclosure_or_no_ai_declaration_present",
+    "runnable_code_or_no_code_statement_present",
+    "visual_manifest_present",
+    "evidence_figures_code_generated",
+    "figure_scripts_reproducible",
+    "figure_palette_profile_applied",
+    "figure_caption_axis_unit_checked",
+    "no_ai_generated_data_figures"
+  ]
+}

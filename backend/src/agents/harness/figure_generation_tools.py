@@ -30,11 +30,24 @@ from src.sandbox.workspace_layout import (
 from .contracts import HarnessPolicy, HarnessRunContext, HarnessToolResult
 from .sandbox_execution_tools import SandboxExecutionTools
 
-CODE_STRATEGIES = frozenset({"matplotlib", "seaborn", "plotly_static", "mermaid", "graphviz", "tikz"})
+CODE_STRATEGIES = frozenset(
+    {
+        "matplotlib",
+        "seaborn",
+        "plotly_static",
+        "mermaid",
+        "graphviz",
+        "tikz",
+        "playwright_screenshot",
+        "python_schematic",
+    }
+)
+SOURCE_ARTIFACT_STRATEGIES = frozenset({"uploaded_artifact"})
 STRATEGY_DEPENDENCY_HINTS: dict[str, tuple[str, ...]] = {
     "mermaid": ("mermaid-cli",),
     "graphviz": ("graphviz",),
     "tikz": ("tectonic",),
+    "playwright_screenshot": ("playwright",),
 }
 SENSITIVE_METADATA_KEYS = frozenset(
     {
@@ -77,6 +90,9 @@ class FigureGenerationTools:
     ) -> HarnessToolResult:
         self._require_generate_figure_permission()
         figure_spec = FigureSpec.model_validate(spec)
+
+        if figure_spec.strategy in SOURCE_ARTIFACT_STRATEGIES:
+            return self._register_source_artifact_figure(figure_spec=figure_spec)
 
         if figure_spec.strategy in CODE_STRATEGIES:
             if not source_code:
@@ -143,6 +159,19 @@ class FigureGenerationTools:
             truncated=run_result.truncated,
             externalized=run_result.externalized,
             error=run_result.error,
+        )
+
+    def _register_source_artifact_figure(self, *, figure_spec: FigureSpec) -> HarnessToolResult:
+        artifacts = _source_artifact_figure_artifacts(figure_spec=figure_spec, context=self.context)
+        _require_reviewable_figure_artifact(artifacts, figure_spec)
+        return self._figure_result(
+            figure_spec=figure_spec,
+            figure_manifest=_figure_manifest(
+                figure_spec=figure_spec,
+                generated_artifacts=artifacts,
+            ),
+            generated_artifacts=artifacts,
+            run_python_payload=None,
         )
 
     async def _generate_llm_image(
@@ -513,6 +542,49 @@ def _figure_artifacts(
     return artifacts
 
 
+def _source_artifact_figure_artifacts(
+    *,
+    figure_spec: FigureSpec,
+    context: HarnessRunContext,
+) -> list[dict[str, Any]]:
+    if not figure_spec.source_artifact_paths:
+        raise ValueError("uploaded_artifact figure generation requires source_artifact_paths")
+    target_paths = set(figure_spec.output_targets)
+    job_id, environment_id = _source_artifact_job_ids(context)
+    artifacts: list[dict[str, Any]] = []
+    for source_path in figure_spec.source_artifact_paths:
+        if source_path not in target_paths:
+            raise ValueError("uploaded source artifact must also be listed in output_targets")
+        if not is_user_reviewable_workspace_artifact_path(source_path):
+            raise ValueError("uploaded source artifact must be a reviewable workspace artifact")
+        artifacts.append(
+            {
+                "schema": DISCOVERY_SCHEMA,
+                "path": source_path,
+                "root": _artifact_root_name(source_path),
+                "title": figure_spec.title,
+                "artifact_kind": "figure",
+                "mime_type": _mime_type_for_path(source_path),
+                "sandbox_job_id": job_id,
+                "sandbox_environment_id": environment_id,
+                "review_surface": "sandbox_artifact",
+                "materialization_status": "candidate",
+                "source_artifact_path": source_path,
+            }
+        )
+    return artifacts
+
+
+def _source_artifact_job_ids(context: HarnessRunContext) -> tuple[str, str]:
+    bundled = context.context_bundle.get("_harness_sandbox_job")
+    if isinstance(bundled, dict):
+        job_id = _clean_optional_text(bundled.get("sandbox_job_id"))
+        environment_id = _clean_optional_text(bundled.get("sandbox_environment_id"))
+        if job_id and environment_id:
+            return job_id, environment_id
+    return f"source-artifact-{context.execution_id}", f"workspace-{context.workspace_id}"
+
+
 def _require_reviewable_figure_artifact(artifacts: list[dict[str, Any]], figure_spec: FigureSpec) -> None:
     target_paths = set(figure_spec.output_targets)
     for artifact in artifacts:
@@ -538,6 +610,21 @@ def _is_figure_artifact_path(path: str, target_paths: set[str]) -> bool:
 def _artifact_root_name(path: str) -> str:
     root = workspace_artifact_root_for_path(path)
     return str(root.get("name") or "outputs") if root else "outputs"
+
+
+def _mime_type_for_path(path: str) -> str:
+    suffix = Path(path).suffix.lower()
+    if suffix == ".png":
+        return "image/png"
+    if suffix in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if suffix == ".webp":
+        return "image/webp"
+    if suffix == ".svg":
+        return "image/svg+xml"
+    if suffix == ".pdf":
+        return "application/pdf"
+    return "application/octet-stream"
 
 
 def _clean_optional_text(value: Any) -> str | None:

@@ -1983,6 +1983,9 @@ async def test_dataservice_client_latex_contract_methods() -> None:
             "author": "WenjinPrism",
             "featured": True,
             "template_path": "acl",
+            "metadata_json": {
+                "visual_profile": {"id": "academic_default"},
+            },
         }
 
     def history_payload() -> dict[str, Any]:
@@ -2062,8 +2065,10 @@ async def test_dataservice_client_latex_contract_methods() -> None:
     assert soft_deleted is not None and soft_deleted.id == "project-2"
     assert deleted is True
     assert template is not None and template.id == "acl"
+    assert template.metadata_json["visual_profile"]["id"] == "academic_default"
     assert ensured is True
     assert templates[0].featured is True
+    assert templates[0].metadata_json["visual_profile"]["id"] == "academic_default"
     assert history is not None and history.id == "history-1"
     assert fetched_history is not None and fetched_history.project_id == "project-1"
     assert histories[0].engine == "xelatex"

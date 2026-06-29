@@ -145,6 +145,30 @@ async def test_visible_seeds_have_routing_contracts():
 
 
 @pytest.mark.asyncio
+async def test_one_shot_template_pack_capabilities_load_with_authoritative_extensions():
+    records = await _load_seed_records()
+    by_key = {(record.workspace_type, record.id): record for record in records}
+
+    expected = {
+        ("software_copyright", "software_copyright_application_pack"): {
+            "authoritative_template_id": "software_copyright_cn_application_pack",
+            "visual_profile_id": "software_copyright_cn_default",
+        },
+        ("math_modeling", "math_modeling_paper_pack"): {
+            "authoritative_template_id": "math_modeling_cumcm2026_paper_pack",
+            "visual_profile_id": "math_modeling_cumcm_default",
+        },
+    }
+    for key, expected_extensions in expected.items():
+        cap = by_key.get(key)
+        assert cap is not None, f"capability '{key}' not loaded"
+        assert cap.schema_version == "capability.v2"
+        extensions = cap.definition_json.get("extensions") or {}
+        for extension_key, expected_value in expected_extensions.items():
+            assert extensions.get(extension_key) == expected_value
+
+
+@pytest.mark.asyncio
 async def test_old_workflow_ids_not_loaded():
     records = await _load_seed_records()
     old_ids = {
